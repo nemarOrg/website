@@ -1,0 +1,224 @@
+---
+import type { NeuroschemaDataset } from "../lib/neuroschema";
+import { formatDate, formatRelativeTime } from "../lib/format";
+import AuthorList from "./AuthorList.astro";
+import Chip from "./Chip.astro";
+
+interface Props {
+  metadata: NeuroschemaDataset;
+}
+
+const { metadata } = Astro.props;
+const rights = metadata.rights ?? [];
+const license = metadata.license || rights[0]?.rights || null;
+const rids = metadata.related_identifiers ?? [];
+const dois = rids.filter((r) => r.identifier_type === "DOI");
+const urls = rids.filter((r) => r.identifier_type === "URL");
+const modalitiesList = metadata.recording_modality ?? [];
+const tasksList = metadata.tasks ?? [];
+const datatypesList = metadata.datatypes ?? [];
+const fundingList = metadata.funding ?? [];
+const keywordsList = metadata.keywords ?? [];
+const authorsList = metadata.authors ?? [];
+---
+
+<aside class="rail" aria-label="Dataset metadata">
+  {license && (
+    <div class="rail__row">
+      <dt>License</dt>
+      <dd><Chip label={license} tone="accent" size="sm" /></dd>
+    </div>
+  )}
+
+  {metadata.bids_version && (
+    <div class="rail__row">
+      <dt>BIDS version</dt>
+      <dd><code>{metadata.bids_version}</code></dd>
+    </div>
+  )}
+
+  {modalitiesList.length > 0 && (
+    <div class="rail__row">
+      <dt>Modalities</dt>
+      <dd class="rail__chips">
+        {modalitiesList.map((m) => <Chip label={m} tone="accent" size="sm" />)}
+      </dd>
+    </div>
+  )}
+
+  {tasksList.length > 0 && (
+    <div class="rail__row">
+      <dt>Tasks</dt>
+      <dd class="rail__chips">
+        {tasksList.map((t) => <Chip label={t} size="sm" />)}
+      </dd>
+    </div>
+  )}
+
+  {datatypesList.length > 0 && (
+    <div class="rail__row">
+      <dt>BIDS datatypes</dt>
+      <dd class="rail__chips">
+        {datatypesList.map((t) => <Chip label={t} size="sm" />)}
+      </dd>
+    </div>
+  )}
+
+  {metadata.sessions_count != null && (
+    <div class="rail__row">
+      <dt>Sessions</dt>
+      <dd>{metadata.sessions_count}</dd>
+    </div>
+  )}
+
+  {metadata.provenance.publish_date && (
+    <div class="rail__row">
+      <dt>Published</dt>
+      <dd title={metadata.provenance.publish_date}>
+        {formatDate(metadata.provenance.publish_date)}
+        <span class="rail__hint">{formatRelativeTime(metadata.provenance.publish_date)}</span>
+      </dd>
+    </div>
+  )}
+
+  <AuthorList authors={authorsList} />
+
+  {fundingList.length > 0 && (
+    <div class="rail__section">
+      <h3>Funding</h3>
+      <ul role="list">
+        {fundingList.map((f) => (
+          <li>
+            <span class="rail__funder">{f.funder}</span>
+            {f.award_number && <span class="rail__award">{f.award_number}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
+
+  {keywordsList.length > 0 && (
+    <div class="rail__row">
+      <dt>Keywords</dt>
+      <dd class="rail__chips">
+        {keywordsList.map((k) => <Chip label={k} size="sm" />)}
+      </dd>
+    </div>
+  )}
+
+  {dois.length > 0 && (
+    <div class="rail__section">
+      <h3>Related identifiers</h3>
+      <ul role="list">
+        {dois.map((r) => (
+          <li class="rail__rel">
+            <span class="rail__rel-tag">{r.relation_type}</span>
+            <a href={r.identifier.startsWith("http") ? r.identifier : `https://doi.org/${r.identifier}`} rel="external">
+              {r.identifier}
+            </a>
+          </li>
+        ))}
+        {urls.map((r) => (
+          <li class="rail__rel">
+            <span class="rail__rel-tag">{r.relation_type}</span>
+            <a href={r.identifier} rel="external">{r.identifier.replace(/^https?:\/\//, "").slice(0, 50)}…</a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
+</aside>
+
+<style>
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    padding: var(--space-5) var(--space-5);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-4));
+    font-size: var(--fs-sm);
+  }
+  .rail__row {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+  .rail__row dt {
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+  }
+  .rail__row dd {
+    margin: 0;
+    color: var(--color-fg);
+  }
+  .rail__row code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    background: var(--color-bg-subtle);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .rail__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .rail__hint {
+    display: block;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    margin-block-start: 2px;
+  }
+  .rail__section h3 {
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+    margin-block-end: var(--space-2);
+  }
+  .rail__section ul {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .rail__funder {
+    color: var(--color-fg);
+  }
+  .rail__award {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    margin-inline-start: 4px;
+  }
+  .rail__rel {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+  }
+  .rail__rel-tag {
+    flex-shrink: 0;
+    color: var(--color-fg-subtle);
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    font-family: var(--font-mono);
+  }
+  .rail__rel a {
+    color: var(--color-link);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-inline-size: 0;
+  }
+</style>

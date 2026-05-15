@@ -1,0 +1,180 @@
+---
+import type { TreeNode } from "../lib/bids-tree";
+import { classifyFile } from "../lib/bids-tree";
+import { formatBytes } from "../lib/format";
+import BidsDirChildren from "./BidsDirChildren.astro";
+
+interface Props {
+  root: TreeNode;
+  basePath: string;
+}
+
+const { root, basePath } = Astro.props;
+const topLevel = root.children;
+const rootFiles = root.files;
+
+function countFilesDeep(n: TreeNode): number {
+  let total = n.files.length;
+  for (const c of n.children) total += countFilesDeep(c);
+  return total;
+}
+---
+
+<section class="tree" aria-label="Dataset file tree">
+  <header class="tree__head">
+    <h2>Files</h2>
+    <span class="tree__meta">
+      {root.children.length + root.files.length} top-level entries · {formatBytes(root.totalSize)} total
+    </span>
+  </header>
+
+  {rootFiles.length > 0 && (
+    <ul class="tree__list tree__list--root" role="list">
+      {rootFiles.map((f) => {
+        const cls = classifyFile(f.path);
+        return (
+          <li class="tree__row">
+            <span class="tree__icon" aria-hidden="true">▪</span>
+            <a class="tree__name" href={f.url ?? `${basePath}/${f.path}`} rel="external" title={`Download ${f.path}`}>
+              {f.path}
+            </a>
+            <span class="tree__size">{formatBytes(f.size)}</span>
+            {cls.isReadme && <span class="tree__tag">README</span>}
+            {cls.isJSON && <span class="tree__tag">JSON</span>}
+          </li>
+        );
+      })}
+    </ul>
+  )}
+
+  <ul class="tree__list" role="list">
+    {topLevel.map((node) => (
+      <li>
+        <details class="tree__dir" open={topLevel.length <= 3}>
+          <summary class="tree__row tree__row--dir">
+            <svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 6 6 6-6 6"/>
+            </svg>
+            <span class="tree__icon" aria-hidden="true">▸</span>
+            <span class="tree__name">{node.name}</span>
+            <span class="tree__counts">
+              {node.children.length} dirs · {countFilesDeep(node)} files
+            </span>
+            <span class="tree__size">{formatBytes(node.totalSize)}</span>
+          </summary>
+          <BidsDirChildren node={node} basePath={basePath} depth={1} />
+        </details>
+      </li>
+    ))}
+  </ul>
+</section>
+
+<style>
+  .tree {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    overflow: hidden;
+  }
+  .tree__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+  }
+  .tree__head h2 {
+    font-size: var(--fs-lg);
+    color: var(--color-fg);
+    margin: 0;
+  }
+  .tree__meta {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+  }
+  .tree__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .tree__list--root {
+    border-block-end: 1px solid var(--color-border);
+  }
+  .tree__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 8px var(--space-5);
+    font-size: var(--fs-sm);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .tree__list--root .tree__row:first-child {
+    border-block-start: none;
+  }
+  .tree__row--dir {
+    cursor: pointer;
+    background: var(--color-bg);
+    user-select: none;
+  }
+  .tree__row--dir:hover {
+    background: var(--color-bg-elevated);
+  }
+  details > summary {
+    list-style: none;
+  }
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .tree__chevron {
+    color: var(--color-fg-subtle);
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+  details[open] > summary > .tree__chevron {
+    transform: rotate(90deg);
+  }
+  .tree__icon {
+    flex-shrink: 0;
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+  }
+  .tree__name {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  a.tree__name:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .tree__counts {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+  .tree__size {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-inline-size: 4.5rem;
+    text-align: end;
+  }
+  .tree__tag {
+    font-size: var(--fs-xs);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
+  }
+</style>

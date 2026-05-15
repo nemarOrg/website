@@ -1,0 +1,81 @@
+---
+import type { TreeNode } from "../lib/bids-tree";
+import { classifyFile } from "../lib/bids-tree";
+import { formatBytes } from "../lib/format";
+
+interface Props {
+  node: TreeNode;
+  basePath: string;
+  depth: number;
+}
+
+const { node, basePath, depth } = Astro.props;
+const indentVar = `--depth: ${depth}`;
+const MAX_AUTO_OPEN_DEPTH = 2;
+
+function countFilesDeep(n: TreeNode): number {
+  let total = n.files.length;
+  for (const c of n.children) total += countFilesDeep(c);
+  return total;
+}
+---
+
+<ul class="tree__children" role="list" style={indentVar}>
+  {node.children.map((child) => (
+    <li>
+      <details class="tree__dir" open={depth < MAX_AUTO_OPEN_DEPTH && node.children.length <= 12}>
+        <summary class="tree__row tree__row--dir" style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5))`}>
+          <svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m9 6 6 6-6 6"/>
+          </svg>
+          <span class="tree__icon" aria-hidden="true">▸</span>
+          <span class="tree__name">{child.name}/</span>
+          <span class="tree__counts">
+            {child.children.length > 0 ? `${child.children.length} dirs · ` : ""}{countFilesDeep(child)} files
+          </span>
+          <span class="tree__size">{formatBytes(child.totalSize)}</span>
+        </summary>
+        <Astro.self node={child} basePath={basePath} depth={depth + 1} />
+      </details>
+    </li>
+  ))}
+  {node.files.map((f) => {
+    const cls = classifyFile(f.path.split("/").pop() ?? f.path);
+    return (
+      <li
+        class="tree__row tree__row--file"
+        style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5) + 12px)`}
+      >
+        <span class="tree__icon" aria-hidden="true">·</span>
+        <a class="tree__name" href={f.url} rel="external" title={`Download ${f.path}`}>
+          {f.path.split("/").pop()}
+        </a>
+        <span class="tree__size">{formatBytes(f.size)}</span>
+        {cls.isEEG && <span class="tree__tag tree__tag--soon" title="Visualizer ships in Phase 5">Vis · soon</span>}
+        {cls.isTSV && <span class="tree__tag tree__tag--soon" title="TSV viewer ships in Phase 5">View · soon</span>}
+        {cls.isJSON && <span class="tree__tag">JSON</span>}
+      </li>
+    );
+  })}
+</ul>
+
+<style>
+  .tree__children {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .tree__row--file {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 6px var(--space-5);
+    font-size: var(--fs-sm);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .tree__tag--soon {
+    color: var(--color-fg-subtle);
+    background: var(--color-bg-subtle);
+    cursor: help;
+  }
+</style>
