@@ -11,7 +11,11 @@ interface Props {
 
 const { node, basePath, depth } = Astro.props;
 const indentVar = `--depth: ${depth}`;
-const MAX_AUTO_OPEN_DEPTH = 2;
+// Auto-open is conservative: only the first level when the subject count is
+// small. Large BIDS datasets (e.g. nm000104 with 1000+ subjects) stay
+// collapsed by default to keep the rendered page navigable.
+const MAX_AUTO_OPEN_DEPTH = 1;
+const AUTO_OPEN_CHILD_CAP = 6;
 
 function countFilesDeep(n: TreeNode): number {
   let total = n.files.length;
@@ -23,7 +27,7 @@ function countFilesDeep(n: TreeNode): number {
 <ul class="tree__children" role="list" style={indentVar}>
   {node.children.map((child) => (
     <li>
-      <details class="tree__dir" open={depth < MAX_AUTO_OPEN_DEPTH && node.children.length <= 12}>
+      <details class="tree__dir" open={depth < MAX_AUTO_OPEN_DEPTH && node.children.length <= AUTO_OPEN_CHILD_CAP}>
         <summary class="tree__row tree__row--dir" style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5))`}>
           <svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 6 6 6-6 6"/>
