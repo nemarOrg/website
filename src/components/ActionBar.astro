@@ -26,7 +26,7 @@ const versionSuffix = version ?? "latest";
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 4h16v16H4zM9 9h6v6H9z"/>
     </svg>
-    Compute
+    Compute instructions
   </button>
   <a class="action action--ghost" href={issuesUrl} rel="external">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -52,18 +52,55 @@ const versionSuffix = version ?? "latest";
 </div>
 
 <dialog class="compute-dialog" data-compute-dialog>
-  <h2>Compute is coming with Phase 5</h2>
-  <p>
-    Launching processing pipelines from the browser (NSG REST connector)
-    is scoped for the live-features phase of this redesign. Until then,
-    use the
-    <code>nemar-cli</code>
-    workflow or
-    <a href="https://www.nsgportal.org" rel="external">NSG portal</a>
-    directly.
+  <h2>Compute on this dataset</h2>
+  <p class="compute-dialog__intro">
+    Two routes today, with a third (in-browser one-click submission)
+    landing soon.
   </p>
+
+  <ol class="compute-dialog__steps">
+    <li>
+      <strong>NeuroScience Gateway (NSG) portal.</strong>
+      <p>
+        NSG runs EEGLAB / Brainstorm / MNE pipelines on supercomputing
+        time donated by SDSC. Create an account, point a job at this
+        dataset's S3 prefix (<code>s3://nemar/{datasetId}</code>), and
+        submit.
+        <br />
+        <a href="https://nsgportal.org" rel="external">nsgportal.org →</a>
+      </p>
+    </li>
+    <li>
+      <strong>Local processing with <code>nemar-cli</code>.</strong>
+      <p>
+        Pull the dataset to your machine and run any toolbox locally.
+        Honors the published version pinning.
+      </p>
+      <pre><code>npm install -g nemar-cli
+nemar dataset clone {datasetId}
+cd {datasetId} && nemar dataset get</code></pre>
+    </li>
+    <li>
+      <strong>Just the files.</strong>
+      <p>
+        <code>rclone</code>, <code>aria2c</code>, or any HTTPS client
+        works against <a href={`https://data.nemar.org/${datasetId}/`} rel="external">data.nemar.org/{datasetId}/</a>
+        — the manifest carries presigned S3 URLs.
+      </p>
+    </li>
+  </ol>
+
+  <div class="compute-dialog__soon" role="note">
+    <strong>Direct compute access is coming soon.</strong>
+    <span>
+      One-click NSG submission from this page is scoped for a follow-up
+      phase. Tracked on
+      <a href="https://github.com/nemarOrg/website/issues/6" rel="external">nemarOrg/website#6</a>.
+    </span>
+  </div>
+
   <form method="dialog">
-    <button type="submit" class="dialog-close">Got it</button>
+    <button type="submit" class="dialog-close">Close</button>
   </form>
 </dialog>
 
@@ -118,18 +155,93 @@ const versionSuffix = version ?? "latest";
   .compute-dialog::backdrop {
     background: rgb(15 23 42 / 55%);
   }
+  .compute-dialog {
+    max-inline-size: 44rem;
+  }
   .compute-dialog h2 {
     font-size: var(--fs-2xl);
     margin-block-end: var(--space-3);
   }
-  .compute-dialog p {
+  .compute-dialog__intro {
     color: var(--color-fg-muted);
-    margin-block-end: var(--space-4);
+    margin-block-end: var(--space-5);
+  }
+  .compute-dialog__steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    margin-block-end: var(--space-5);
+    padding-inline-start: 0;
+    list-style: none;
+    counter-reset: compute-step;
+  }
+  .compute-dialog__steps > li {
+    position: relative;
+    padding-inline-start: var(--space-10);
+    counter-increment: compute-step;
+  }
+  .compute-dialog__steps > li::before {
+    content: counter(compute-step);
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 2px;
+    inline-size: 28px;
+    block-size: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-pill);
+    background: var(--brand-teal);
+    color: var(--brand-navy);
+    font-family: var(--font-mono);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog__steps strong {
+    color: var(--color-fg);
+    display: block;
+    margin-block-end: 4px;
+  }
+  .compute-dialog__steps p {
+    color: var(--color-fg-muted);
+    margin: 0;
+    line-height: var(--lh-relaxed);
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog pre {
+    background: var(--color-bg-subtle);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    margin-block-start: var(--space-2);
+    overflow-x: auto;
+    font-size: var(--fs-xs);
+    line-height: 1.5;
   }
   .compute-dialog code {
     background: var(--color-bg-subtle);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
+  }
+  .compute-dialog pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .compute-dialog__soon {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-5);
+    border: 1px solid color-mix(in srgb, var(--brand-purple) 30%, transparent);
+    background: color-mix(in srgb, var(--brand-purple) 6%, transparent);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog__soon strong {
+    color: var(--color-fg);
+  }
+  .compute-dialog__soon span {
+    color: var(--color-fg-muted);
   }
   .dialog-close {
     padding: 0 var(--space-5);
