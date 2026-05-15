@@ -31,7 +31,8 @@ svg {
 input,
 button,
 textarea,
-select {
+select,
+dialog {
   font: inherit;
   color: inherit;
 }

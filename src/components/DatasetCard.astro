@@ -12,50 +12,73 @@ const modalities = splitModalities(dataset.modalities);
 const owner = dataset.owner_username ?? "NEMAR";
 const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
 const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
+
+interface Fact {
+  label: string;
+  value: string;
+}
+
+const facts: Fact[] = [];
+if (dataset.participants > 0) {
+  facts.push({ label: "Participants", value: String(dataset.participants) });
+}
+if (dataset.file_size > 0) {
+  facts.push({ label: "Size", value: formatBytes(dataset.file_size) });
+}
+if (dataset.latest_version) {
+  facts.push({ label: "Version", value: `v${dataset.latest_version}` });
+}
+const updated = formatDate(dataset.updated_at);
+if (updated) {
+  facts.push({ label: "Updated", value: updated });
+}
 ---
 
 <article class="ds-card">
-  <header class="ds-card__head">
-    <a class="ds-card__title" href={detailHref}>
-      <span class="ds-card__id">{dataset.dataset_id}</span>
-      <h3 class="ds-card__name">{dataset.name}</h3>
-    </a>
-    {modalities.length > 0 && (
-      <div class="ds-card__mods">
-        {modalities.map((m) => <ModalityBadge modality={m} />)}
+  <a class="ds-card__link" href={detailHref} aria-label={`Open ${dataset.name}`}>
+    <header class="ds-card__head">
+      <div class="ds-card__title-block">
+        <span class="ds-card__id">{dataset.dataset_id}</span>
+        <h3 class="ds-card__name">{dataset.name}</h3>
       </div>
+      {modalities.length > 0 ? (
+        <div class="ds-card__mods">
+          {modalities.map((m) => <ModalityBadge modality={m} />)}
+        </div>
+      ) : (
+        <span class="ds-card__mods-empty">Modalities pending</span>
+      )}
+    </header>
+
+    {dataset.description && (
+      <p class="ds-card__desc">{dataset.description}</p>
     )}
-  </header>
 
-  {dataset.description && (
-    <p class="ds-card__desc">{dataset.description}</p>
-  )}
-
-  <dl class="ds-card__facts">
-    <div>
-      <dt>Participants</dt>
-      <dd>{dataset.participants || "—"}</dd>
-    </div>
-    <div>
-      <dt>Size</dt>
-      <dd>{dataset.file_size > 0 ? formatBytes(dataset.file_size) : "—"}</dd>
-    </div>
-    <div>
-      <dt>Version</dt>
-      <dd>{dataset.latest_version ?? "—"}</dd>
-    </div>
-    <div>
-      <dt>Updated</dt>
-      <dd>{formatDate(dataset.updated_at)}</dd>
-    </div>
-  </dl>
+    {facts.length > 0 && (
+      <dl class="ds-card__facts">
+        {facts.map((f) => (
+          <div>
+            <dt>{f.label}</dt>
+            <dd>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+    )}
+  </a>
 
   <footer class="ds-card__foot">
     <span class="ds-card__owner">by {owner}</span>
     {openneuroId && (
-      <span class="ds-card__source">
-        <a href={`https://openneuro.org/datasets/${openneuroId}`} rel="external">OpenNeuro {openneuroId}</a>
-      </span>
+      <a
+        class="ds-card__source"
+        href={`https://openneuro.org/datasets/${openneuroId}`}
+        rel="external"
+      >
+        OpenNeuro {openneuroId}
+        <svg class="ds-card__ext" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 17 17 7M9 7h8v8"/>
+        </svg>
+      </a>
     )}
   </footer>
 </article>
@@ -63,16 +86,39 @@ const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
 <style>
   .ds-card {
     display: grid;
-    gap: var(--space-3);
-    padding: var(--space-5) var(--space-6);
+    gap: 0;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    overflow: hidden;
   }
   .ds-card:hover {
     border-color: var(--color-border-strong);
     box-shadow: var(--shadow-md);
+  }
+  .ds-card:focus-within {
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .ds-card__link {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-6);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .ds-card__link:hover {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .ds-card__link:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+  .ds-card__link:hover .ds-card__name {
+    color: var(--color-link);
   }
   .ds-card__head {
     display: grid;
@@ -80,16 +126,8 @@ const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
     gap: var(--space-4);
     align-items: baseline;
   }
-  .ds-card__title {
-    color: var(--color-fg);
-    text-decoration: none;
-  }
-  .ds-card__title:hover {
-    color: var(--color-fg);
-    text-decoration: none;
-  }
-  .ds-card__title:hover .ds-card__name {
-    color: var(--color-link);
+  .ds-card__title-block {
+    min-inline-size: 0;
   }
   .ds-card__id {
     display: inline-block;
@@ -105,6 +143,7 @@ const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
     color: var(--color-fg);
     margin: 0;
     line-height: var(--lh-snug);
+    text-wrap: pretty;
     transition: color 0.15s ease;
   }
   .ds-card__mods {
@@ -112,6 +151,15 @@ const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
     flex-wrap: wrap;
     gap: var(--space-1);
     justify-content: flex-end;
+    flex-shrink: 0;
+  }
+  .ds-card__mods-empty {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    align-self: center;
   }
   .ds-card__desc {
     color: var(--color-fg-muted);
@@ -119,37 +167,65 @@ const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
     line-height: var(--lh-normal);
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
   .ds-card__facts {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: var(--space-4);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-5);
     margin: 0;
-    padding-block-start: var(--space-3);
-    border-block-start: 1px solid var(--color-border);
+  }
+  .ds-card__facts > div {
+    display: flex;
+    flex-direction: column;
   }
   .ds-card__facts dt {
     font-size: var(--fs-xs);
     color: var(--color-fg-subtle);
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    line-height: var(--lh-tight);
   }
   .ds-card__facts dd {
-    margin: 0;
-    margin-block-start: 2px;
+    margin: 2px 0 0;
     font-family: var(--font-display);
     font-weight: var(--fw-medium);
     color: var(--color-fg);
     font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
   }
   .ds-card__foot {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
     color: var(--color-fg-subtle);
     font-size: var(--fs-xs);
-    padding-block-start: var(--space-2);
+  }
+  .ds-card__owner {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ds-card__source {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-fg-muted);
+    text-decoration: none;
+  }
+  .ds-card__source:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .ds-card__ext {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
   }
   @media (max-width: 540px) {
     .ds-card__head {
@@ -157,9 +233,6 @@ const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
     }
     .ds-card__mods {
       justify-content: flex-start;
-    }
-    .ds-card__facts {
-      grid-template-columns: repeat(2, 1fr);
     }
   }
 </style>

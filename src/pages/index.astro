@@ -70,7 +70,7 @@ try {
         </div>
       </div>
       <aside class="hero__brain" aria-hidden="true">
-        <div class="hero__brain-orb"></div>
+        <img src="/hero-brain.svg" alt="" class="hero__brain-img" />
       </aside>
     </div>
   </section>
@@ -178,21 +178,22 @@ try {
   .hero__brain {
     display: flex;
     justify-content: center;
+    align-items: center;
+    color: var(--color-fg-muted);
   }
-  .hero__brain-orb {
-    inline-size: clamp(220px, 30vw, 360px);
+  .hero__brain-img {
+    inline-size: clamp(280px, 36vw, 440px);
+    block-size: auto;
     aspect-ratio: 1;
-    border-radius: 50%;
-    background:
-      radial-gradient(circle at 30% 30%, var(--brand-teal), transparent 50%),
-      radial-gradient(circle at 70% 70%, var(--brand-purple), transparent 50%),
-      conic-gradient(from 220deg, var(--brand-teal), var(--brand-purple), var(--brand-teal));
-    filter: blur(8px) saturate(140%);
-    opacity: 0.6;
-    animation: hero-pulse 12s ease-in-out infinite;
+    animation: hero-float 14s ease-in-out infinite;
   }
-  @keyframes hero-pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.06); }
+  @keyframes hero-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero__brain-img {
+      animation: none;
+    }
   }
 </style>

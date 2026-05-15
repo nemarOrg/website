@@ -96,10 +96,13 @@ nemar login</code></pre>
     align-items: center;
   }
   .primary-nav__list a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 44px;
     color: var(--color-fg-muted);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
-    padding: var(--space-2) var(--space-1);
+    padding: var(--space-2) var(--space-2);
     border-radius: var(--radius-sm);
     text-decoration: none;
     transition: color 0.15s ease;
@@ -117,7 +120,8 @@ nemar login</code></pre>
     align-items: center;
   }
   .login-stub {
-    padding: var(--space-2) var(--space-4);
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
     color: var(--color-fg);
@@ -170,6 +174,9 @@ nemar login</code></pre>
     background: var(--color-bg-elevated);
     color: var(--color-fg);
     padding: var(--space-6);
+    font-family: var(--font-sans);
+    font-size: var(--fs-base);
+    line-height: var(--lh-normal);
   }
   .login-dialog::backdrop {
     background: rgb(15 23 42 / 55%);
