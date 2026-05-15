@@ -1,0 +1,114 @@
+---
+// Theme toggle: cycles light -> dark -> system. Persists choice to localStorage.
+---
+
+<button
+  type="button"
+  class="theme-toggle"
+  data-theme-toggle
+  aria-label="Toggle color theme"
+  title="Toggle color theme"
+>
+  <svg
+    class="theme-icon icon-sun"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="4"></circle>
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+  </svg>
+  <svg
+    class="theme-icon icon-moon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+  </svg>
+</button>
+
+<style>
+  .theme-toggle {
+    inline-size: 36px;
+    block-size: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-fg-muted);
+    border-radius: var(--radius-md);
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .theme-toggle:hover {
+    color: var(--color-fg);
+    background: var(--color-bg-elevated);
+  }
+  .theme-icon {
+    inline-size: 20px;
+    block-size: 20px;
+  }
+  .icon-moon {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .icon-sun {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .icon-moon {
+    display: block;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .icon-sun {
+      display: none;
+    }
+    :global(:root:not([data-theme="light"])) .icon-moon {
+      display: block;
+    }
+  }
+</style>
+
+<script>
+  const STORAGE_KEY = "nemar:theme";
+  const root = document.documentElement;
+
+  function applyTheme(value: "light" | "dark" | "system"): void {
+    if (value === "system") {
+      root.removeAttribute("data-theme");
+    } else {
+      root.setAttribute("data-theme", value);
+    }
+  }
+
+  function nextTheme(current: "light" | "dark" | "system"): "light" | "dark" | "system" {
+    if (current === "system") return "dark";
+    if (current === "dark") return "light";
+    return "system";
+  }
+
+  function currentTheme(): "light" | "dark" | "system" {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+    return "system";
+  }
+
+  applyTheme(currentTheme());
+
+  document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const next = nextTheme(currentTheme());
+      if (next === "system") {
+        localStorage.removeItem(STORAGE_KEY);
+      } else {
+        localStorage.setItem(STORAGE_KEY, next);
+      }
+      applyTheme(next);
+    });
+  });
+</script>

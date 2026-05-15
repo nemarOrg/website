@@ -1,0 +1,39 @@
+---
+interface Props {
+  variant?: "full" | "mark";
+  href?: string | null;
+  size?: "sm" | "md" | "lg";
+  class?: string;
+}
+
+const { variant = "full", href = "/", size = "md", class: className } = Astro.props;
+const heights = {
+  sm: 28,
+  md: 36,
+  lg: 48,
+} as const;
+const h = heights[size];
+const w = variant === "mark" ? h : Math.round((h * 268.8) / 56.3);
+const src = variant === "mark" ? "/nemar-mark.svg" : "/nemar-logo.svg";
+---
+
+<a class:list={["brand", className]} href={href ?? undefined} aria-label="NEMAR home">
+  <img src={src} alt="NEMAR" height={h} width={w} class="brand-img" />
+</a>
+
+<style>
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .brand:hover {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .brand-img {
+    display: block;
+    block-size: auto;
+  }
+</style>

@@ -1,17 +1,86 @@
 ---
-
+import Base from "../layouts/Base.astro";
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+<Base title="NEMAR">
+  <section class="hero container">
+    <div class="hero__copy">
+      <p class="hero__eyebrow">Open neuroscience data, ready to use</p>
+      <h1 class="hero__title">
+        Search, visualize, analyze, and download human neuroimaging datasets.
+      </h1>
+      <p class="hero__lede">
+        NEMAR is an open-access archive of EEG, MEG, iEEG, and EMG data shared
+        by its authors through OpenNeuro. Curated, BIDS-formatted, with data
+        quality and HED-event annotation summaries.
+      </p>
+      <form class="hero__search" action="/discover" method="get" role="search">
+        <label class="visually-hidden" for="hero-search">Search datasets</label>
+        <input
+          id="hero-search"
+          name="q"
+          type="search"
+          placeholder="Search 200+ EEG, MEG, iEEG, EMG datasets..."
+          autocomplete="off"
+        />
+        <button type="submit">Search</button>
+      </form>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .hero {
+    padding-block: var(--space-20) var(--space-24);
+    display: grid;
+    gap: var(--space-12);
+  }
+  .hero__copy {
+    max-inline-size: 56ch;
+  }
+  .hero__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+    margin-block-end: var(--space-4);
+  }
+  .hero__title {
+    font-weight: var(--fw-semibold);
+  }
+  .hero__lede {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    margin-block: var(--space-6) var(--space-8);
+    max-inline-size: 50ch;
+  }
+  .hero__search {
+    display: flex;
+    gap: var(--space-2);
+    max-inline-size: 44rem;
+  }
+  .hero__search input[type="search"] {
+    flex: 1;
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-lg);
+  }
+  .hero__search input[type="search"]::placeholder {
+    color: var(--color-fg-subtle);
+  }
+  .hero__search button {
+    padding: var(--space-4) var(--space-8);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+  }
+  .hero__search button:hover {
+    background: color-mix(in srgb, var(--color-fg) 88%, var(--brand-teal));
+  }
+</style>

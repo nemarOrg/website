@@ -1,0 +1,62 @@
+---
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** When true, suppresses the standard Nav (used for fullscreen marketing pages). */
+  bareLayout?: boolean;
+}
+
+const {
+  title,
+  description = "NEMAR (Neuroelectromagnetic Data Archive and Tools Resource): search, visualize, analyze, and download EEG, MEG, iEEG, and EMG datasets.",
+  bareLayout = false,
+} = Astro.props;
+
+const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={description} />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://api.nemar.org" crossorigin />
+    <link rel="preconnect" href="https://data.nemar.org" crossorigin />
+    <title>{title}{titleSuffix}</title>
+    <script is:inline>
+      // Prevent FOUC by applying the stored theme before paint.
+      (() => {
+        try {
+          const stored = localStorage.getItem("nemar:theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch {
+          /* localStorage may be unavailable; fall back to prefers-color-scheme. */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    {!bareLayout && <Nav />}
+    <main id="main">
+      <slot />
+    </main>
+    {!bareLayout && <Footer />}
+  </body>
+</html>
+
+<style is:global>
+  main {
+    min-block-size: calc(100dvh - var(--header-height));
+  }
+</style>
