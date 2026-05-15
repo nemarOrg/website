@@ -1,0 +1,33 @@
+{
+  "name": "nemar-website",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "nemar.org redesign on Astro + Cloudflare Pages",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "biome check src",
+    "format": "biome format --write src",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^12.6.7",
+    "astro": "^6.3.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@biomejs/biome": "^1.9.4",
+    "@playwright/test": "^1.49.1",
+    "typescript": "^6.0.3",
+    "vitest": "^2.1.8"
+  }
+}
