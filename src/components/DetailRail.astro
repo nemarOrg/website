@@ -18,7 +18,19 @@ const modalitiesList = metadata.recording_modality ?? [];
 const tasksList = metadata.tasks ?? [];
 const datatypesList = metadata.datatypes ?? [];
 const fundingList = metadata.funding ?? [];
-const keywordsList = metadata.keywords ?? [];
+// Keywords are object-shaped in neuroschema 0.3.0 ({term, subject_scheme?, value_uri?})
+// but older docs may serialize them as strings. Normalize both.
+interface KeywordItem {
+  term: string;
+  value_uri: string | null;
+}
+const keywordsList: KeywordItem[] = (metadata.keywords ?? [])
+  .map((k): KeywordItem => {
+    if (typeof k === "string") return { term: k, value_uri: null };
+    const obj = k as { term?: string; value_uri?: string | null };
+    return { term: obj.term ?? "", value_uri: obj.value_uri ?? null };
+  })
+  .filter((k) => k.term);
 const authorsList = metadata.authors ?? [];
 ---
 
@@ -101,7 +113,11 @@ const authorsList = metadata.authors ?? [];
     <div class="rail__row">
       <dt>Keywords</dt>
       <dd class="rail__chips">
-        {keywordsList.map((k) => <Chip label={k} size="sm" />)}
+        {keywordsList.map((k) => (
+          k.value_uri
+            ? <Chip label={k.term} size="sm" href={k.value_uri} />
+            : <Chip label={k.term} size="sm" />
+        ))}
       </dd>
     </div>
   )}

@@ -17,6 +17,14 @@
   src: local("Inter");
 }
 
+html {
+  /* Root-level font so top-layer elements (dialog) inherit, not the UA serif default. */
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  line-height: var(--lh-normal);
+  color-scheme: light dark;
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-fg);

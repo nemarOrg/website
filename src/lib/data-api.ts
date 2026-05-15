@@ -26,12 +26,26 @@ async function jsonFetch<T>(
   const onParentAbort = () => controller.abort();
   if (init.signal) init.signal.addEventListener("abort", onParentAbort);
 
+  async function attempt(): Promise<Response> {
+    return fetch(url, { signal: controller.signal, headers: { Accept: accept } });
+  }
+
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { Accept: accept },
-    });
+    let res = await attempt();
+    if (res.status === 429) {
+      // Rate-limited. Wait the Retry-After header (or 1s default) and try once more.
+      const retryAfter = Number.parseInt(res.headers.get("retry-after") ?? "1", 10);
+      const waitMs = Math.min(Math.max(retryAfter, 1) * 1000, 5_000);
+      await new Promise((r) => setTimeout(r, waitMs));
+      res = await attempt();
+    }
     if (res.status === 404) return null;
+    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      // Treat persistent rate-limiting / upstream errors as "data unavailable"
+      // rather than 500ing the entire page. The caller renders an empty state.
+      console.warn(`data.nemar.org ${url}: ${res.status} ${res.statusText}; rendering empty state`);
+      return null;
+    }
     if (!res.ok) {
       throw new Error(`data.nemar.org ${url}: ${res.status} ${res.statusText}`);
     }
@@ -103,6 +117,49 @@ export function findReadmeEntry(manifest: Manifest): Manifest[number] | null {
     if (candidates.includes(lower)) return entry;
   }
   return null;
+}
+
+/**
+ * Best-effort fetch of the README from the dataset's GitHub repo, used when
+ * the data.nemar.org manifest doesn't list one (git-annex manifests typically
+ * carry annexed content only, not git-tracked files like README.md at root).
+ * Tries HEAD, then main, then master, with a few common filename variants.
+ * Returns null on any failure. SSR-only — no CORS concerns.
+ */
+export async function fetchGithubReadme(
+  githubUrl: string,
+  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<string | null> {
+  const match = /github\.com\/([^/]+)\/([^/?#]+)/.exec(githubUrl);
+  if (!match) return null;
+  const owner = match[1];
+  const repo = match[2].replace(/\.git$/, "");
+  const branches = ["HEAD", "main", "master"];
+  const filenames = ["README.md", "README", "README.txt", "readme.md"];
+
+  const controller = new AbortController();
+  const timeout = init.timeoutMs ?? 3_000;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  const onParentAbort = () => controller.abort();
+  if (init.signal) init.signal.addEventListener("abort", onParentAbort);
+
+  try {
+    for (const branch of branches) {
+      for (const filename of filenames) {
+        const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`;
+        try {
+          const res = await fetch(url, { signal: controller.signal });
+          if (res.ok) return await res.text();
+        } catch {
+          /* try next combination */
+        }
+      }
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+    if (init.signal) init.signal.removeEventListener("abort", onParentAbort);
+  }
 }
 
 /** Build a download URL for the dataset zip archive at a given version. */

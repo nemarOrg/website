@@ -32,7 +32,6 @@ function countFilesDeep(n: TreeNode): number {
           <svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 6 6 6-6 6"/>
           </svg>
-          <span class="tree__icon" aria-hidden="true">▸</span>
           <span class="tree__name">{child.name}/</span>
           <span class="tree__counts">
             {child.children.length > 0 ? `${child.children.length} dirs · ` : ""}{countFilesDeep(child)} files
@@ -48,9 +47,8 @@ function countFilesDeep(n: TreeNode): number {
     return (
       <li
         class="tree__row tree__row--file"
-        style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5) + 12px)`}
+        style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5) + 16px)`}
       >
-        <span class="tree__icon" aria-hidden="true">·</span>
         <a class="tree__name" href={f.url} rel="external" title={`Download ${f.path}`}>
           {f.path.split("/").pop()}
         </a>
@@ -69,6 +67,10 @@ function countFilesDeep(n: TreeNode): number {
     padding: 0;
     margin: 0;
   }
+  /* Row layout has to be duplicated here because Astro scopes styles
+     per-component file. The same row markup exists in BidsTree.astro;
+     keep both stylesheets in sync. */
+  .tree__row,
   .tree__row--file {
     display: flex;
     align-items: center;
@@ -76,6 +78,70 @@ function countFilesDeep(n: TreeNode): number {
     padding: 6px var(--space-5);
     font-size: var(--fs-sm);
     border-block-start: 1px solid var(--color-border);
+  }
+  .tree__row--dir {
+    cursor: pointer;
+    background: var(--color-bg);
+    user-select: none;
+  }
+  .tree__row--dir:hover {
+    background: var(--color-bg-elevated);
+  }
+  details > summary {
+    list-style: none;
+  }
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .tree__chevron {
+    color: var(--color-fg-subtle);
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+  details[open] > summary > .tree__chevron {
+    transform: rotate(90deg);
+  }
+  .tree__icon {
+    flex-shrink: 0;
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+  }
+  .tree__name {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  a.tree__name:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .tree__counts {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+  .tree__size {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-inline-size: 4.5rem;
+    text-align: end;
+  }
+  .tree__tag {
+    font-size: var(--fs-xs);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
   }
   .tree__tag--soon {
     color: var(--color-fg-subtle);
