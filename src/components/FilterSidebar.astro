@@ -1,0 +1,294 @@
+---
+import type { FilterState } from "../lib/filters";
+import { MODALITY_CODES, SORT_OPTIONS } from "../lib/types";
+
+interface Props {
+  state: FilterState;
+}
+
+const { state } = Astro.props;
+---
+
+<form
+  class="filters"
+  method="get"
+  action="/discover"
+  data-filter-form
+  aria-label="Dataset filters"
+>
+  <div class="filters__group">
+    <h3>Modality</h3>
+    <div class="filters__op">
+      <label>
+        <input
+          type="radio"
+          name="modality_op"
+          value="OR"
+          checked={state.modalityOp === "OR"}
+        />
+        OR
+      </label>
+      <label>
+        <input
+          type="radio"
+          name="modality_op"
+          value="AND"
+          checked={state.modalityOp === "AND"}
+        />
+        AND
+      </label>
+    </div>
+    <div class="filters__chips">
+      {MODALITY_CODES.map((mod) => {
+        const selected = state.modalities.includes(mod);
+        return (
+          <label class:list={["chip", selected && "chip--on"]}>
+            <input
+              type="checkbox"
+              name="modality"
+              value={mod}
+              checked={selected}
+            />
+            <span>{mod}</span>
+          </label>
+        );
+      })}
+    </div>
+  </div>
+
+  <div class="filters__group">
+    <h3>Participants</h3>
+    <div class="filters__range">
+      <input
+        type="number"
+        name="p_min"
+        min="0"
+        placeholder="Min"
+        value={state.participants.min ?? ""}
+      />
+      <span aria-hidden="true">to</span>
+      <input
+        type="number"
+        name="p_max"
+        min="0"
+        placeholder="Max"
+        value={state.participants.max ?? ""}
+      />
+    </div>
+  </div>
+
+  <div class="filters__group">
+    <h3>Features</h3>
+    <ul class="filters__flags" role="list">
+      <li>
+        <label>
+          <input
+            type="checkbox"
+            name="has_hed"
+            value="1"
+            checked={state.hasHed}
+          />
+          Has HED annotation
+        </label>
+      </li>
+      <li>
+        <label class="flag--soon">
+          <input
+            type="checkbox"
+            name="has_qa"
+            value="1"
+            checked={state.hasDataQuality}
+            disabled
+          />
+          Has data quality
+          <span class="soon-pill">Phase 3</span>
+        </label>
+      </li>
+      <li>
+        <label class="flag--soon">
+          <input
+            type="checkbox"
+            name="has_1020"
+            value="1"
+            checked={state.has10_20}
+            disabled
+          />
+          Has 10-20 montage
+          <span class="soon-pill">Phase 3</span>
+        </label>
+      </li>
+    </ul>
+  </div>
+
+  <div class="filters__group">
+    <h3>Sort</h3>
+    <select name="sort">
+      {SORT_OPTIONS.map((opt) => (
+        <option value={opt.value} selected={state.sort === opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  </div>
+
+  <div class="filters__actions">
+    <button type="submit" class="filters__apply">Apply</button>
+    <a href="/discover" class="filters__reset">Reset</a>
+  </div>
+</form>
+
+<style>
+  .filters {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    padding: var(--space-5);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-4));
+  }
+  .filters__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .filters__group h3 {
+    font-size: var(--fs-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-muted);
+    font-weight: var(--fw-semibold);
+    margin: 0;
+  }
+  .filters__op {
+    display: inline-flex;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    padding: 2px;
+    background: var(--color-bg);
+    inline-size: fit-content;
+  }
+  .filters__op label {
+    padding: 4px 14px;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+    cursor: pointer;
+    border-radius: var(--radius-pill);
+  }
+  .filters__op input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .filters__op label:has(input:checked) {
+    background: var(--color-fg);
+    color: var(--color-bg);
+  }
+  .filters__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    color: var(--color-fg-muted);
+    background: var(--color-bg);
+  }
+  .chip input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+  }
+  .chip--on,
+  .chip:has(input:checked) {
+    background: color-mix(in srgb, var(--brand-teal) 15%, transparent);
+    border-color: var(--brand-teal);
+    color: var(--color-fg);
+  }
+  .filters__range {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .filters__range input {
+    inline-size: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .filters__range span {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .filters__flags {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .filters__flags label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    cursor: pointer;
+  }
+  .filters__flags label.flag--soon {
+    color: var(--color-fg-subtle);
+    cursor: not-allowed;
+  }
+  .soon-pill {
+    margin-inline-start: auto;
+    font-size: var(--fs-xs);
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
+  }
+  .filters select {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .filters__actions {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .filters__apply {
+    flex: 1;
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+  }
+  .filters__reset {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    text-decoration: underline;
+  }
+  .filters__reset:hover {
+    color: var(--color-fg);
+  }
+</style>

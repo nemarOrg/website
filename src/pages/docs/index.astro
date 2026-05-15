@@ -1,0 +1,30 @@
+---
+import Base from "../../layouts/Base.astro";
+---
+
+<Base title="Documentation">
+  <section class="container page">
+    <h1>Documentation</h1>
+    <p>
+      User and operator documentation will move into Astro Content Collections
+      in Phase 4. For now, the
+      <a href="https://docs.nemar.org">docs.nemar.org</a> site hosts the
+      developer documentation.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .page {
+    padding-block: var(--space-12) var(--space-16);
+    max-inline-size: var(--max-width-prose);
+  }
+  .page h1 {
+    font-size: var(--fs-3xl);
+    margin-block-end: var(--space-6);
+  }
+  .page p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+</style>
