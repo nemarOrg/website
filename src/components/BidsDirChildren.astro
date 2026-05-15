@@ -7,9 +7,14 @@ interface Props {
   node: TreeNode;
   basePath: string;
   depth: number;
+  datasetId: string;
+  version: string;
 }
 
-const { node, basePath, depth } = Astro.props;
+const { node, basePath, depth, datasetId, version } = Astro.props;
+// Strip the trailing /id/version off basePath to get the data.nemar.org root
+// for the QA endpoints (which sit alongside the version routes, not inside).
+const dataBase = basePath.replace(/\/[^/]+\/[^/]+$/, "");
 const indentVar = `--depth: ${depth}`;
 // Auto-open is conservative: only the first level when the subject count is
 // small. Large BIDS datasets (e.g. nm000104 with 1000+ subjects) stay
@@ -38,7 +43,7 @@ function countFilesDeep(n: TreeNode): number {
           </span>
           <span class="tree__size">{formatBytes(child.totalSize)}</span>
         </summary>
-        <Astro.self node={child} basePath={basePath} depth={depth + 1} />
+        <Astro.self node={child} basePath={basePath} depth={depth + 1} datasetId={datasetId} version={version} />
       </details>
     </li>
   ))}
@@ -53,8 +58,34 @@ function countFilesDeep(n: TreeNode): number {
           {f.path.split("/").pop()}
         </a>
         <span class="tree__size">{formatBytes(f.size)}</span>
-        {cls.isEEG && <span class="tree__tag tree__tag--soon" title="Visualizer ships in Phase 5">Vis · soon</span>}
-        {cls.isTSV && <span class="tree__tag tree__tag--soon" title="TSV viewer ships in Phase 5">View · soon</span>}
+        {cls.isEEG && (
+          <button
+            type="button"
+            class="tree__action tree__action--vis"
+            data-open-vis
+            data-dataset-id={datasetId}
+            data-bids-path={f.path}
+            data-version={version}
+            data-base={dataBase}
+            title="Open QA plots for this file"
+          >
+            Vis
+          </button>
+        )}
+        {cls.isTSV && (
+          <button
+            type="button"
+            class="tree__action tree__action--view"
+            data-open-view
+            data-dataset-id={datasetId}
+            data-bids-path={f.path}
+            data-version={version}
+            data-base={dataBase}
+            title="Preview this TSV file"
+          >
+            View
+          </button>
+        )}
         {cls.isJSON && <span class="tree__tag">JSON</span>}
       </li>
     );
@@ -147,5 +178,27 @@ function countFilesDeep(n: TreeNode): number {
     color: var(--color-fg-subtle);
     background: var(--color-bg-subtle);
     cursor: help;
+  }
+  .tree__action {
+    font-size: var(--fs-xs);
+    padding: 4px 10px;
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .tree__action:hover {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .tree__action--vis:hover {
+    background: var(--brand-teal);
+    border-color: var(--brand-teal);
+    color: var(--brand-navy);
   }
 </style>

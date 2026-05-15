@@ -1,0 +1,270 @@
+---
+/**
+ * TSV preview modal — renders the first N lines of a .tsv file as a table.
+ *
+ * Wired the same way as FileVisModal: any element with [data-open-view]
+ * carrying data-dataset-id, data-bids-path, data-version, data-base
+ * fires the modal. BidsDirChildren.astro emits these on the View button
+ * for .tsv files.
+ */
+---
+
+<dialog class="view-dialog" data-view-dialog>
+  <header class="view-dialog__head">
+    <div>
+      <p class="view-dialog__id" data-view-id></p>
+      <h2 class="view-dialog__path" data-view-path></h2>
+    </div>
+    <form method="dialog">
+      <button type="submit" class="view-dialog__close" aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6 6 18"/>
+        </svg>
+      </button>
+    </form>
+  </header>
+  <div class="view-dialog__body">
+    <div class="view-dialog__skeleton" data-view-skeleton>Loading…</div>
+    <div class="view-dialog__error" data-view-error hidden></div>
+    <div class="view-dialog__tablewrap" data-view-tablewrap hidden></div>
+  </div>
+  <footer class="view-dialog__foot">
+    <span class="view-dialog__rows" data-view-rows></span>
+    <a class="view-dialog__download" href="" data-view-download rel="external">
+      Download full file
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+    </a>
+  </footer>
+</dialog>
+
+<style>
+  .view-dialog {
+    max-inline-size: 70rem;
+    inline-size: calc(100vw - 4rem);
+    max-block-size: 80vh;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .view-dialog::backdrop {
+    background: rgb(15 23 42 / 60%);
+  }
+  .view-dialog__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-6);
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+  }
+  .view-dialog__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
+  }
+  .view-dialog__path {
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+    margin: 4px 0 0;
+    word-break: break-all;
+  }
+  .view-dialog__close {
+    inline-size: 36px;
+    block-size: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    color: var(--color-fg-muted);
+    background: transparent;
+  }
+  .view-dialog__close:hover {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+  }
+  .view-dialog__body {
+    flex: 1;
+    overflow: auto;
+    padding: var(--space-5) var(--space-6);
+  }
+  .view-dialog__skeleton {
+    padding: var(--space-8);
+    text-align: center;
+    color: var(--color-fg-muted);
+  }
+  .view-dialog__error {
+    padding: var(--space-5);
+    background: color-mix(in srgb, var(--color-danger) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+    border-radius: var(--radius-md);
+    color: var(--color-fg);
+  }
+  .view-dialog__tablewrap {
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+  .view-dialog__tablewrap table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .view-dialog__tablewrap th,
+  .view-dialog__tablewrap td {
+    padding: 6px var(--space-3);
+    text-align: start;
+    border-block-end: 1px solid var(--color-border);
+    white-space: nowrap;
+    vertical-align: top;
+  }
+  .view-dialog__tablewrap th {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .view-dialog__tablewrap td {
+    color: var(--color-fg-muted);
+  }
+  .view-dialog__foot {
+    padding: var(--space-3) var(--space-6);
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: var(--fs-sm);
+  }
+  .view-dialog__rows {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .view-dialog__download {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-link);
+    text-decoration: none;
+    min-block-size: 44px;
+    padding-inline: var(--space-3);
+  }
+  .view-dialog__download:hover {
+    text-decoration: underline;
+  }
+</style>
+
+<script>
+  const MAX_ROWS = 100;
+  const cache = new Map<string, string>();
+
+  async function loadTsv(url: string): Promise<string | null> {
+    if (cache.has(url)) return cache.get(url) ?? null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const text = await res.text();
+      cache.set(url, text);
+      return text;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderTable(text: string, target: HTMLElement, rowsEl: HTMLElement): void {
+    const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
+    if (lines.length === 0) {
+      target.innerHTML = "<p>(empty file)</p>";
+      rowsEl.textContent = "0 rows";
+      return;
+    }
+    const header = lines[0].split("\t");
+    const dataLines = lines.slice(1, MAX_ROWS + 1);
+    const totalRows = lines.length - 1;
+    const shown = dataLines.length;
+
+    const esc = (s: string) =>
+      s
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+    target.innerHTML =
+      "<table>" +
+      "<thead><tr>" +
+      header.map((h) => `<th>${esc(h)}</th>`).join("") +
+      "</tr></thead>" +
+      "<tbody>" +
+      dataLines
+        .map(
+          (line) =>
+            "<tr>" +
+            line
+              .split("\t")
+              .map((cell) => `<td>${esc(cell)}</td>`)
+              .join("") +
+            "</tr>",
+        )
+        .join("") +
+      "</tbody>" +
+      "</table>";
+    rowsEl.textContent = `Showing ${shown} of ${totalRows} rows`;
+  }
+
+  document.addEventListener("click", async (e) => {
+    const trigger = (e.target as Element | null)?.closest<HTMLElement>("[data-open-view]");
+    if (!trigger) return;
+    const dialog = document.querySelector<HTMLDialogElement>("[data-view-dialog]");
+    if (!dialog) return;
+
+    const id = trigger.dataset.datasetId ?? "";
+    const bidsPath = trigger.dataset.bidsPath ?? "";
+    const version = trigger.dataset.version ?? "";
+    const base = trigger.dataset.base ?? "https://data.nemar.org";
+    if (!id || !bidsPath || !version) return;
+
+    const url = `${base.replace(/\/$/, "")}/${encodeURIComponent(id)}/${encodeURIComponent(version)}/${bidsPath}`;
+    const idEl = dialog.querySelector<HTMLElement>("[data-view-id]")!;
+    const pathEl = dialog.querySelector<HTMLElement>("[data-view-path]")!;
+    const tableWrap = dialog.querySelector<HTMLElement>("[data-view-tablewrap]")!;
+    const skeleton = dialog.querySelector<HTMLElement>("[data-view-skeleton]")!;
+    const errorEl = dialog.querySelector<HTMLElement>("[data-view-error]")!;
+    const rowsEl = dialog.querySelector<HTMLElement>("[data-view-rows]")!;
+    const downloadEl = dialog.querySelector<HTMLAnchorElement>("[data-view-download]")!;
+
+    idEl.textContent = `${id} · v${version}`;
+    pathEl.textContent = bidsPath;
+    downloadEl.href = url;
+    tableWrap.hidden = true;
+    errorEl.hidden = true;
+    skeleton.hidden = false;
+    rowsEl.textContent = "";
+
+    dialog.showModal();
+
+    const text = await loadTsv(url);
+    skeleton.hidden = true;
+    if (text == null) {
+      errorEl.hidden = false;
+      errorEl.textContent = "Couldn't load this file. Use the download link below to get it directly.";
+      return;
+    }
+    tableWrap.hidden = false;
+    renderTable(text, tableWrap, rowsEl);
+  });
+</script>

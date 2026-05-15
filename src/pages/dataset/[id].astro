@@ -165,7 +165,7 @@ Astro.response.headers.set("Cache-Control", "public, max-age=60");
       <div class="detail__main">
         <QualityPanel aggregates={qaAggregates} hedSummary={hedSummary} />
         <Readme source={readmeSource} fallbackKind={readmeSourceKind === "manifest" ? null : readmeSourceKind} githubUrl={metadata.external_links.github_url} />
-        {tree && <BidsTree root={tree} basePath={basePath} />}
+        {tree && <BidsTree root={tree} basePath={basePath} datasetId={id} version={selectedVersion ?? ""} />}
         {!tree && (
           <section class="detail__no-manifest" role="alert">
             <h2>Manifest unavailable</h2>

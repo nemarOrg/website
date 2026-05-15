@@ -3,13 +3,17 @@ import type { TreeNode } from "../lib/bids-tree";
 import { classifyFile } from "../lib/bids-tree";
 import { formatBytes } from "../lib/format";
 import BidsDirChildren from "./BidsDirChildren.astro";
+import FileVisModal from "./FileVisModal.astro";
+import FileViewModal from "./FileViewModal.astro";
 
 interface Props {
   root: TreeNode;
   basePath: string;
+  datasetId: string;
+  version: string;
 }
 
-const { root, basePath } = Astro.props;
+const { root, basePath, datasetId, version } = Astro.props;
 const topLevel = root.children;
 const rootFiles = root.files;
 
@@ -62,12 +66,15 @@ function countFilesDeep(n: TreeNode): number {
             </span>
             <span class="tree__size">{formatBytes(node.totalSize)}</span>
           </summary>
-          <BidsDirChildren node={node} basePath={basePath} depth={1} />
+          <BidsDirChildren node={node} basePath={basePath} depth={1} datasetId={datasetId} version={version} />
         </details>
       </li>
     ))}
   </ul>
 </section>
+
+<FileVisModal />
+<FileViewModal />
 
 <style>
   .tree {

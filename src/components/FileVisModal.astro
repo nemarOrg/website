@@ -1,0 +1,334 @@
+---
+/**
+ * Per-file Vis modal — opens with the 5 QA plots + dataqual stats strip
+ * for a .set file. Lazy-fetches on first open, caches in-memory per id+path.
+ *
+ * Wiring: any element with [data-open-vis] attribute carrying
+ *   data-dataset-id, data-bids-path, data-version, data-base
+ * fires the modal. BidsDirChildren.astro emits those attributes on the
+ * Vis button for each .set file.
+ */
+---
+
+<dialog class="vis-dialog" data-vis-dialog>
+  <header class="vis-dialog__head">
+    <div>
+      <p class="vis-dialog__id" data-vis-id></p>
+      <h2 class="vis-dialog__path" data-vis-path></h2>
+    </div>
+    <form method="dialog">
+      <button type="submit" class="vis-dialog__close" aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6 6 18"/>
+        </svg>
+      </button>
+    </form>
+  </header>
+
+  <div class="vis-dialog__stats" data-vis-stats hidden>
+    <div><dt>Data frames retained</dt><dd data-vis-stat="data"></dd></div>
+    <div><dt>Channels retained</dt><dd data-vis-stat="chans"></dd></div>
+    <div><dt>ICs flagged as brain</dt><dd data-vis-stat="ica"></dd></div>
+    <div><dt>Line noise</dt><dd data-vis-stat="noise"></dd></div>
+  </div>
+
+  <div class="vis-dialog__plots" data-vis-plots>
+    <div class="vis-dialog__skeleton" data-vis-skeleton>Loading QA artifacts…</div>
+  </div>
+
+  <div class="vis-dialog__empty" data-vis-empty hidden>
+    <h3>QA artifacts not synced for this file yet</h3>
+    <p>
+      The processing pipeline runs on a schedule. If this dataset was
+      added recently, plots may show up here within a day. For now,
+      <a href="" data-vis-download rel="external">download the original file</a>
+      and run your own pipeline.
+    </p>
+  </div>
+</dialog>
+
+<style>
+  .vis-dialog {
+    max-inline-size: 80rem;
+    inline-size: calc(100vw - 4rem);
+    max-block-size: 90vh;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    overflow: hidden;
+  }
+  .vis-dialog::backdrop {
+    background: rgb(15 23 42 / 60%);
+  }
+  .vis-dialog__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    gap: var(--space-4);
+    padding: var(--space-5) var(--space-6);
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .vis-dialog__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
+  }
+  .vis-dialog__path {
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+    margin: 4px 0 0;
+    word-break: break-all;
+  }
+  .vis-dialog__close {
+    inline-size: 36px;
+    block-size: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    color: var(--color-fg-muted);
+    background: transparent;
+  }
+  .vis-dialog__close:hover {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+  }
+  .vis-dialog__stats {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    padding: var(--space-4) var(--space-6);
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-bg-subtle);
+  }
+  @media (max-width: 720px) {
+    .vis-dialog__stats {
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-3);
+    }
+  }
+  .vis-dialog__stats > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .vis-dialog__stats dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .vis-dialog__stats dd {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .vis-dialog__plots {
+    padding: var(--space-5) var(--space-6);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+    overflow-y: auto;
+    max-block-size: calc(90vh - 200px);
+  }
+  @media (max-width: 880px) {
+    .vis-dialog__plots {
+      grid-template-columns: 1fr;
+    }
+  }
+  .vis-dialog__plot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .vis-dialog__plot-title {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .vis-dialog__plot img,
+  .vis-dialog__plot object {
+    inline-size: 100%;
+    block-size: auto;
+    background: white;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+  }
+  .vis-dialog__plot--missing {
+    padding: var(--space-6);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    text-align: center;
+  }
+  .vis-dialog__skeleton {
+    grid-column: 1 / -1;
+    padding: var(--space-12);
+    text-align: center;
+    color: var(--color-fg-muted);
+  }
+  .vis-dialog__empty {
+    padding: var(--space-8) var(--space-6);
+    text-align: center;
+  }
+  .vis-dialog__empty h3 {
+    font-size: var(--fs-xl);
+    color: var(--color-fg);
+    margin-block-end: var(--space-2);
+  }
+  .vis-dialog__empty p {
+    color: var(--color-fg-muted);
+    max-inline-size: 50ch;
+    margin-inline: auto;
+    line-height: var(--lh-relaxed);
+  }
+</style>
+
+<script>
+  const PLOTS = [
+    { kind: "eegplot_mid-sample", label: "Cleaned scalp channel data (mid 2-sec window)" },
+    { kind: "icaact", label: "Independent component activations" },
+    { kind: "icahist", label: "Independent component histogram" },
+    { kind: "icamaps", label: "Independent component topomaps" },
+    { kind: "spectopo", label: "Channel log spectra with topomaps" },
+  ];
+
+  const cache = new Map<string, { qa: any; plotOk: boolean[] }>();
+
+  function plotUrl(base: string, id: string, bidsPath: string, kind: string): string {
+    const stripped = bidsPath.replace(/\.set$/, "");
+    const encoded = stripped
+      .split("/")
+      .map((s) => encodeURIComponent(s))
+      .join("/");
+    return `${base.replace(/\/$/, "")}/${encodeURIComponent(id)}/qa/${encoded}_${kind}.svg`;
+  }
+
+  function qaUrl(base: string, id: string, bidsPath: string): string {
+    const stripped = bidsPath.replace(/\.set$/, "");
+    const encoded = stripped
+      .split("/")
+      .map((s) => encodeURIComponent(s))
+      .join("/");
+    return `${base.replace(/\/$/, "")}/${encodeURIComponent(id)}/qa/${encoded}_dataqual.json`;
+  }
+
+  async function loadOne(url: string): Promise<{ ok: boolean; data?: any }> {
+    try {
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) return { ok: false };
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.includes("application/json")) {
+        return { ok: true, data: await res.json() };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  async function probeSvg(url: string): Promise<boolean> {
+    try {
+      const res = await fetch(url, { method: "HEAD" });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  function render(
+    dialog: HTMLDialogElement,
+    id: string,
+    bidsPath: string,
+    version: string,
+    base: string,
+  ): void {
+    const idEl = dialog.querySelector<HTMLElement>("[data-vis-id]")!;
+    const pathEl = dialog.querySelector<HTMLElement>("[data-vis-path]")!;
+    const statsEl = dialog.querySelector<HTMLElement>("[data-vis-stats]")!;
+    const plotsEl = dialog.querySelector<HTMLElement>("[data-vis-plots]")!;
+    const emptyEl = dialog.querySelector<HTMLElement>("[data-vis-empty]")!;
+    const downloadEl = dialog.querySelector<HTMLAnchorElement>("[data-vis-download]")!;
+
+    idEl.textContent = `${id} · v${version}`;
+    pathEl.textContent = bidsPath;
+    downloadEl.href = `${base.replace(/\/$/, "")}/${encodeURIComponent(id)}/${encodeURIComponent(version)}/${bidsPath}`;
+    statsEl.hidden = true;
+    emptyEl.hidden = true;
+    plotsEl.innerHTML = '<div class="vis-dialog__skeleton">Loading QA artifacts…</div>';
+
+    const cacheKey = `${id}|${bidsPath}`;
+    const cached = cache.get(cacheKey);
+
+    const apply = (qa: any, plotOk: boolean[]) => {
+      cache.set(cacheKey, { qa, plotOk });
+      const anyPlot = plotOk.some(Boolean);
+      const hasQa = qa != null;
+
+      if (hasQa) {
+        statsEl.hidden = false;
+        statsEl.querySelector<HTMLElement>('[data-vis-stat="data"]')!.textContent = qa.goodDataPercent ?? "—";
+        statsEl.querySelector<HTMLElement>('[data-vis-stat="chans"]')!.textContent = qa.goodChansPercent ?? "—";
+        statsEl.querySelector<HTMLElement>('[data-vis-stat="ica"]')!.textContent = qa.goodICA ?? "—";
+        statsEl.querySelector<HTMLElement>('[data-vis-stat="noise"]')!.textContent = qa.linenoise_magn ?? "—";
+      }
+
+      if (!anyPlot && !hasQa) {
+        plotsEl.innerHTML = "";
+        emptyEl.hidden = false;
+        return;
+      }
+
+      plotsEl.innerHTML = PLOTS.map((p, i) => {
+        if (!plotOk[i]) {
+          return `<figure class="vis-dialog__plot"><figcaption class="vis-dialog__plot-title">${p.label}</figcaption><div class="vis-dialog__plot--missing">Not available</div></figure>`;
+        }
+        const url = plotUrl(base, id, bidsPath, p.kind);
+        return `<figure class="vis-dialog__plot"><figcaption class="vis-dialog__plot-title">${p.label}</figcaption><img src="${url}" alt="${p.label}" loading="lazy"/></figure>`;
+      }).join("");
+    };
+
+    if (cached) {
+      apply(cached.qa, cached.plotOk);
+      return;
+    }
+
+    // Fan out fetches: 1 JSON + 5 SVG HEADs
+    Promise.all([
+      loadOne(qaUrl(base, id, bidsPath)),
+      ...PLOTS.map((p) => probeSvg(plotUrl(base, id, bidsPath, p.kind))),
+    ]).then(([qaRes, ...plotResults]) => {
+      const qa = qaRes.ok ? qaRes.data : null;
+      const plotOk = plotResults as boolean[];
+      apply(qa, plotOk);
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    const trigger = (e.target as Element | null)?.closest<HTMLElement>("[data-open-vis]");
+    if (!trigger) return;
+    const dialog = document.querySelector<HTMLDialogElement>("[data-vis-dialog]");
+    if (!dialog) return;
+    const id = trigger.dataset.datasetId ?? "";
+    const bidsPath = trigger.dataset.bidsPath ?? "";
+    const version = trigger.dataset.version ?? "";
+    const base = trigger.dataset.base ?? "https://data.nemar.org";
+    if (!id || !bidsPath) return;
+    render(dialog, id, bidsPath, version, base);
+    dialog.showModal();
+  });
+</script>
