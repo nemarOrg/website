@@ -3,13 +3,34 @@ import { renderMarkdown } from "../lib/markdown";
 
 interface Props {
   source: string | null;
+  /** What origin produced the rendered content. `null` = manifest README (no banner). */
+  fallbackKind?: "github" | "description" | null;
+  githubUrl?: string | null;
 }
 
-const { source } = Astro.props;
+const { source, fallbackKind = null, githubUrl = null } = Astro.props;
 const html = source ? renderMarkdown(source) : null;
+const isFallback = fallbackKind !== null;
 ---
 
 <article class="readme">
+  {html && fallbackKind === "github" && (
+    <div class="readme__fallback-note" role="note">
+      <strong>README from GitHub repository</strong>
+      <span>
+        This README isn't in the version manifest yet. Showing the latest
+        from
+        {githubUrl ? <a href={githubUrl} rel="external">{githubUrl.replace(/^https?:\/\//, "")}</a> : <span>the dataset repository</span>}
+        instead.
+      </span>
+    </div>
+  )}
+  {html && fallbackKind === "description" && (
+    <div class="readme__fallback-note" role="note">
+      <strong>Description (from dataset metadata)</strong>
+      <span>This dataset doesn't ship a README. Showing the BIDS description instead.</span>
+    </div>
+  )}
   {html ? (
     <div class="readme__wrap" data-readme-wrap>
       <div class="readme__body" set:html={html} />
@@ -28,11 +49,12 @@ const html = source ? renderMarkdown(source) : null;
     </div>
   ) : (
     <div class="readme__empty">
-      <h2>README not available</h2>
+      <h2>No description available</h2>
       <p>
-        This dataset doesn't ship a README. Check the BIDS file tree and the
-        right rail for dataset metadata, or visit the GitHub repository for
-        the latest curation notes.
+        This dataset doesn't ship a README and the BIDS metadata has no
+        description either. The file tree below and the metadata panel on
+        the right are the authoritative description for now. The dataset's
+        GitHub repository may have curation notes added later.
       </p>
     </div>
   )}
@@ -49,6 +71,26 @@ const html = source ? renderMarkdown(source) : null;
     .readme {
       padding: var(--space-5);
     }
+  }
+  .readme__fallback-note {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 30%, transparent);
+    background: color-mix(in srgb, var(--brand-teal) 6%, transparent);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+  }
+  .readme__fallback-note strong {
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .readme__fallback-note span {
+    color: var(--color-fg-muted);
   }
   .readme__wrap {
     position: relative;

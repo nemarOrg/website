@@ -10,6 +10,7 @@ import BidsTree from "../../components/BidsTree.astro";
 import DetailRail from "../../components/DetailRail.astro";
 import {
   archiveZipUrl,
+  fetchGithubReadme,
   fetchManifestEntryText,
   findReadmeEntry,
   getLanding,
@@ -48,15 +49,29 @@ const selectedVersion =
 
 const manifest = selectedVersion ? await getManifest(id, selectedVersion) : null;
 
-// README is the first README* in the manifest. Fetch its bytes once at SSR
-// time and pass markdown source to the Readme component.
+// README resolution order:
+//   1. data.nemar.org manifest README* (preferred; version-locked to <ver>)
+//   2. GitHub raw README on the dataset repo (covers manifests that don't
+//      surface git-tracked files at root, e.g. on005262)
+//   3. neuroschema description (last-resort fallback so the section is never blank)
 let readmeSource: string | null = null;
+let readmeSourceKind: "manifest" | "github" | "description" | null = null;
 if (manifest) {
   const readmeEntry = findReadmeEntry(manifest);
   if (readmeEntry?.url) {
     readmeSource = await fetchManifestEntryText(readmeEntry.url, { timeoutMs: 2_500 });
+    if (readmeSource) readmeSourceKind = "manifest";
   }
 }
+if (!readmeSource && metadata.external_links.github_url) {
+  readmeSource = await fetchGithubReadme(metadata.external_links.github_url, { timeoutMs: 3_000 });
+  if (readmeSource) readmeSourceKind = "github";
+}
+if (!readmeSource && metadata.description && metadata.description !== metadata.name) {
+  readmeSource = metadata.description;
+  readmeSourceKind = "description";
+}
+// readmeSourceKind tells the component which banner (if any) to render.
 
 const provenance = detectProvenance(metadata, landing);
 const modalities = metadata.recording_modality.length
@@ -125,7 +140,7 @@ Astro.response.headers.set("Cache-Control", "public, max-age=60");
 
     <div class="container detail__body">
       <div class="detail__main">
-        <Readme source={readmeSource} />
+        <Readme source={readmeSource} fallbackKind={readmeSourceKind === "manifest" ? null : readmeSourceKind} githubUrl={metadata.external_links.github_url} />
         {tree && <BidsTree root={tree} basePath={basePath} />}
         {!tree && (
           <section class="detail__no-manifest" role="alert">

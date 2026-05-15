@@ -32,7 +32,6 @@ function countFilesDeep(n: TreeNode): number {
           <svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m9 6 6 6-6 6"/>
           </svg>
-          <span class="tree__icon" aria-hidden="true">▸</span>
           <span class="tree__name">{child.name}/</span>
           <span class="tree__counts">
             {child.children.length > 0 ? `${child.children.length} dirs · ` : ""}{countFilesDeep(child)} files
@@ -48,9 +47,8 @@ function countFilesDeep(n: TreeNode): number {
     return (
       <li
         class="tree__row tree__row--file"
-        style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5) + 12px)`}
+        style={`padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5) + 16px)`}
       >
-        <span class="tree__icon" aria-hidden="true">·</span>
         <a class="tree__name" href={f.url} rel="external" title={`Download ${f.path}`}>
           {f.path.split("/").pop()}
         </a>
