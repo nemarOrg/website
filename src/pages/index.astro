@@ -28,10 +28,10 @@ try {
 
 <Base title="NEMAR">
   <section class="hero">
-    <div class="hero__brain" aria-hidden="true"></div>
     <div class="hero__sparkles" aria-hidden="true"></div>
 
     <div class="container hero__grid">
+      <div class="hero__brain" aria-hidden="true"></div>
       <div class="hero__copy">
         <p class="hero__eyebrow">Open neuroscience data, ready to use</p>
         <h1 class="hero__title">
@@ -144,23 +144,28 @@ try {
   }
 
   /* Brain layer: legacy hero-brain.png (teal wireframe on transparent black).
-     Dark mode: screen blend lets the teal glow through black drops out.
-     Light mode: invert + multiply turns it into a dark blue outline on light. */
+     Dark mode: screen blend lets the teal glow through, black drops out.
+     Light mode: invert + multiply turns it into a dark blue outline on light.
+     Anchored inside .hero__grid (the .container-bound layer) so on wide
+     viewports the brain tracks the content's right edge instead of drifting
+     off into the empty margin. */
   .hero__brain {
     position: absolute;
     inset-block: -8% -12%;
+    /* Anchor so the brain's center sits roughly at the right third of the
+       content column; on huge viewports it stays paired with the copy. */
     inset-inline-end: -10%;
-    inline-size: clamp(560px, 75%, 1100px);
+    inline-size: clamp(480px, 60%, 820px);
     background: url("/hero-brain.png") no-repeat center / contain;
     mix-blend-mode: var(--hero-brain-blend);
     filter: var(--hero-brain-filter);
     opacity: var(--hero-brain-opacity);
     pointer-events: none;
-    z-index: -1;
+    z-index: 0;
   }
   @media (max-width: 880px) {
     .hero__brain {
-      inset-inline-end: -30%;
+      inset-inline-end: -25%;
       opacity: calc(var(--hero-brain-opacity) * 0.55);
     }
   }
@@ -225,6 +230,8 @@ try {
     position: relative;
   }
   .hero__copy {
+    position: relative;
+    z-index: 1;
     max-inline-size: 56ch;
   }
   .hero__eyebrow {
