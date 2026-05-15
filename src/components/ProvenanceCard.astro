@@ -1,0 +1,220 @@
+---
+import type { DerivedProvenance } from "../lib/provenance";
+import DoiBadge from "./DoiBadge.astro";
+
+interface Props {
+  datasetId: string;
+  nemarDoi: string | null;
+  provenance: DerivedProvenance;
+}
+
+const { datasetId, nemarDoi, provenance } = Astro.props;
+const originalId = provenance.originalDatasetId;
+const mirrorVersions = provenance.allMirrorVersions ?? [];
+const showMultiMirror = mirrorVersions.length > 1;
+---
+
+<section class="prov" aria-labelledby="prov-title">
+  <header class="prov__head">
+    <span class="prov__icon" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 8h4v8M20 8 8 20H4v-4L16 4z"/>
+        <circle cx="16" cy="8" r="0.5" fill="currentColor"/>
+      </svg>
+    </span>
+    <h2 id="prov-title" class="prov__title">
+      {originalId
+        ? `NEMAR-curated copy of OpenNeuro ${originalId}`
+        : "NEMAR-curated copy of an OpenNeuro dataset"}
+    </h2>
+  </header>
+
+  <p class="prov__body">
+    This is the NEMAR-curated copy. We pull from OpenNeuro periodically; each
+    pull is a major version bump (<code>vN.0.0</code>). Versions between
+    pulls (<code>vN.x.y</code>) are NEMAR-side fixes and improvements.
+    {!originalId && (
+      <span> The exact OpenNeuro identifier could not be auto-resolved — see the manual lookup link below.</span>
+    )}
+  </p>
+
+  <div class="prov__doi-grid">
+    <div class="prov__doi-cell">
+      <div class="prov__doi-label">NEMAR DOI</div>
+      {nemarDoi ? <DoiBadge doi={nemarDoi} label={datasetId} variant="compact" /> : <span class="prov__none">not published</span>}
+    </div>
+    <div class="prov__doi-cell">
+      <div class="prov__doi-label">OpenNeuro DOI</div>
+      {provenance.originalDoi
+        ? <DoiBadge doi={provenance.originalDoi} label={originalId ?? "OpenNeuro"} variant="compact" />
+        : <span class="prov__none">unknown</span>}
+    </div>
+  </div>
+
+  <div class="prov__actions">
+    {provenance.originalUrl && (
+      <a class="prov__btn" href={provenance.originalUrl} rel="external">
+        View original on OpenNeuro
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 17 17 7M9 7h8v8"/>
+        </svg>
+      </a>
+    )}
+    {provenance.mirrorVersion && (
+      <a
+        class="prov__btn prov__btn--accent"
+        href={`?v=${encodeURIComponent(provenance.mirrorVersion)}`}
+      >
+        View as-imported mirror ({provenance.mirrorVersion})
+      </a>
+    )}
+    {!originalId && (
+      <a
+        class="prov__btn"
+        href={`https://openneuro.org/search/datasets?query=${encodeURIComponent(datasetId.replace(/^on/, "ds"))}`}
+        rel="external"
+      >
+        Search OpenNeuro
+      </a>
+    )}
+  </div>
+
+  {showMultiMirror && (
+    <details class="prov__mirrors">
+      <summary>All mirror snapshots ({mirrorVersions.length})</summary>
+      <ul role="list">
+        {mirrorVersions.map((v) => (
+          <li>
+            <a href={`?v=${encodeURIComponent(v)}`}>{v}</a>
+            <span class="prov__mirror-hint">as-imported from a separate OpenNeuro pull</span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )}
+</section>
+
+<style>
+  .prov {
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 30%, transparent);
+    background: color-mix(in srgb, var(--brand-teal) 5%, var(--color-bg));
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-6);
+    display: grid;
+    gap: var(--space-4);
+  }
+  .prov__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .prov__icon {
+    color: var(--brand-teal);
+    display: inline-flex;
+  }
+  .prov__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    margin: 0;
+  }
+  .prov__body {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+  }
+  .prov__body code {
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+  }
+  .prov__doi-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+  @media (max-width: 540px) {
+    .prov__doi-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .prov__doi-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .prov__doi-label {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .prov__none {
+    color: var(--color-fg-subtle);
+    font-style: italic;
+    font-size: var(--fs-sm);
+    padding: var(--space-2) 0;
+  }
+  .prov__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .prov__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    border-radius: var(--radius-pill);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    min-block-size: 36px;
+  }
+  .prov__btn:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .prov__btn--accent {
+    background: var(--brand-teal);
+    border-color: var(--brand-teal);
+    color: var(--brand-navy);
+    font-weight: var(--fw-medium);
+  }
+  .prov__btn--accent:hover {
+    background: color-mix(in srgb, var(--brand-teal) 85%, var(--brand-purple));
+    color: var(--brand-navy);
+  }
+  .prov__mirrors {
+    margin-block-start: var(--space-2);
+    font-size: var(--fs-sm);
+  }
+  .prov__mirrors summary {
+    cursor: pointer;
+    color: var(--color-fg-muted);
+    user-select: none;
+  }
+  .prov__mirrors ul {
+    margin-block-start: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .prov__mirrors li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .prov__mirror-hint {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-sans);
+  }
+</style>

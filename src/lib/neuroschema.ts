@@ -1,0 +1,114 @@
+/**
+ * Types for the data.nemar.org responses we consume on the detail page.
+ *
+ * These mirror the live shapes verified against `nm000103`, `nm000104`,
+ * and `on005262`. The canonical server-side definitions live in
+ * `nemar-cli/backend/src/services/data-router.ts`; if those drift, the
+ * Phase 2 PR description will call it out and we update here.
+ */
+
+export interface Affiliation {
+  name: string;
+  identifier: string | null;
+  scheme: string | null;
+}
+
+export interface Author {
+  name: string;
+  name_type: "Personal" | "Organizational" | string;
+  orcid: string | null;
+  affiliations: Affiliation[];
+}
+
+export interface RelatedIdentifier {
+  identifier: string;
+  identifier_type: "DOI" | "URL" | "PMID" | string;
+  relation_type:
+    | "References"
+    | "IsDescribedBy"
+    | "IsIdenticalTo"
+    | "IsDerivedFrom"
+    | "IsVariantFormOf"
+    | "IsSupplementTo"
+    | "Cites"
+    | string;
+}
+
+export interface Rights {
+  rights: string;
+  rights_uri: string | null;
+  rights_identifier: string | null;
+  rights_identifier_scheme: string | null;
+}
+
+export interface Funding {
+  funder: string;
+  award_number?: string | null;
+  award_title?: string | null;
+  funder_identifier?: string | null;
+}
+
+export interface ExternalLinks {
+  dataset_doi: string | null;
+  github_url: string | null;
+}
+
+export interface Provenance {
+  latest_snapshot: string | null;
+  publish_date: string | null;
+}
+
+export interface NeuroschemaDataset {
+  schema_version: string;
+  doc_type: "dataset" | string;
+  dataset_id: string;
+  name: string;
+  description: string | null;
+  source: "nemar" | "openneuro" | string;
+  recording_modality: string[];
+  bids_version: string | null;
+  license: string | null;
+  authors: Author[];
+  keywords: string[];
+  related_identifiers: RelatedIdentifier[];
+  contributors: Author[];
+  dates: Array<{ date: string; date_type: string }>;
+  rights: Rights[];
+  language: string | null;
+  funding: Funding[];
+  tasks: string[];
+  datatypes: string[];
+  sessions: string[];
+  sessions_count: number | null;
+  demographics: unknown | null;
+  data_summary: unknown | null;
+  provenance: Provenance;
+  external_links: ExternalLinks;
+  extensions?: Record<string, unknown>;
+}
+
+export interface LandingVersion {
+  version: string;
+  doi: string | null;
+  created_at: string;
+  manifest_url: string;
+  browse_url: string;
+}
+
+export interface LandingPayload {
+  dataset_id: string;
+  latest: string | null;
+  metadata_url: string;
+  versions: LandingVersion[];
+}
+
+export interface ManifestEntry {
+  path: string;
+  size: number;
+  checksum_algorithm: string;
+  checksum: string;
+  url: string;
+  error?: string;
+}
+
+export type Manifest = ManifestEntry[];

@@ -1,0 +1,102 @@
+---
+interface Props {
+  doi: string;
+  label?: string;
+  variant?: "default" | "compact";
+}
+
+const { doi, label = "DOI", variant = "default" } = Astro.props;
+const href = doi.startsWith("http") ? doi : `https://doi.org/${doi}`;
+const display = doi.replace(/^https?:\/\/(?:dx\.)?doi\.org\//, "");
+---
+
+<div class:list={["doi-badge", `doi-badge--${variant}`]}>
+  <span class="doi-badge__label">{label}</span>
+  <a class="doi-badge__value" href={href} rel="external" title={display}>{display}</a>
+  <button
+    class="doi-badge__copy"
+    type="button"
+    data-copy-doi={display}
+    aria-label={`Copy ${label}`}
+  >
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+    </svg>
+  </button>
+</div>
+
+<style>
+  .doi-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    font-size: var(--fs-xs);
+    max-inline-size: 100%;
+    min-block-size: 36px;
+  }
+  .doi-badge--compact {
+    padding: 2px var(--space-2);
+    min-block-size: 28px;
+  }
+  .doi-badge__label {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+  .doi-badge__value {
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-inline-size: 0;
+  }
+  .doi-badge__value:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .doi-badge__copy {
+    inline-size: 28px;
+    block-size: 28px;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .doi-badge__copy:hover {
+    color: var(--color-fg);
+    background: var(--color-bg-elevated);
+  }
+  .doi-badge__copy.is-copied {
+    color: var(--color-success);
+  }
+</style>
+
+<script>
+  document.addEventListener("click", (e) => {
+    const btn = (e.target as Element | null)?.closest<HTMLButtonElement>("[data-copy-doi]");
+    if (!btn) return;
+    const value = btn.dataset.copyDoi ?? "";
+    if (!value) return;
+    navigator.clipboard?.writeText(value).then(
+      () => {
+        btn.classList.add("is-copied");
+        setTimeout(() => btn.classList.remove("is-copied"), 1200);
+      },
+      () => {
+        /* Clipboard API unavailable; user can still click the link. */
+      },
+    );
+  });
+</script>

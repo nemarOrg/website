@@ -1,0 +1,164 @@
+---
+import type { LandingVersion } from "../lib/neuroschema";
+import { formatDate } from "../lib/format";
+
+interface Props {
+  versions: LandingVersion[];
+  current: string;
+  mirrorVersions?: string[];
+}
+
+const { versions, current, mirrorVersions = [] } = Astro.props;
+const visible = versions.slice(0, 4);
+const overflow = versions.slice(4);
+const isMirror = (v: string) => mirrorVersions.includes(v);
+---
+
+{versions.length > 1 && (
+  <nav class="vsw" aria-label="Dataset version">
+    <span class="vsw__label">Version</span>
+    <div class="vsw__tabs" role="tablist">
+      {visible.map((v) => (
+        <a
+          role="tab"
+          class:list={["vsw__tab", v.version === current && "vsw__tab--active"]}
+          aria-selected={v.version === current}
+          href={`?v=${encodeURIComponent(v.version)}`}
+          title={v.doi ?? undefined}
+        >
+          <span class="vsw__ver">{v.version}</span>
+          <span class="vsw__date">{formatDate(v.created_at)}</span>
+          {isMirror(v.version) && <span class="vsw__mirror">mirror</span>}
+        </a>
+      ))}
+      {overflow.length > 0 && (
+        <details class="vsw__more">
+          <summary>More versions ({overflow.length})</summary>
+          <ul role="list">
+            {overflow.map((v) => (
+              <li>
+                <a href={`?v=${encodeURIComponent(v.version)}`} title={v.doi ?? undefined}>
+                  <span class="vsw__ver">{v.version}</span>
+                  <span class="vsw__date">{formatDate(v.created_at)}</span>
+                  {isMirror(v.version) && <span class="vsw__mirror">mirror</span>}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  </nav>
+)}
+
+<style>
+  .vsw {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) 0;
+    border-block-end: 1px solid var(--color-border);
+  }
+  .vsw__label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .vsw__tabs {
+    display: flex;
+    gap: var(--space-1);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .vsw__tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--space-2) var(--space-4);
+    min-block-size: 44px;
+    border-radius: var(--radius-md);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+    border-block-end: 2px solid transparent;
+  }
+  .vsw__tab:hover {
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .vsw__tab--active {
+    color: var(--color-fg);
+    border-block-end-color: var(--brand-teal);
+  }
+  .vsw__ver {
+    font-family: var(--font-mono);
+    font-weight: var(--fw-medium);
+  }
+  .vsw__date {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .vsw__mirror {
+    font-size: var(--fs-xs);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--brand-teal) 20%, transparent);
+    color: var(--brand-teal);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .vsw__more {
+    position: relative;
+  }
+  .vsw__more summary {
+    cursor: pointer;
+    padding: var(--space-2) var(--space-4);
+    min-block-size: 44px;
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    border-radius: var(--radius-md);
+    list-style: none;
+  }
+  .vsw__more summary::-webkit-details-marker {
+    display: none;
+  }
+  .vsw__more summary:hover {
+    background: var(--color-bg-elevated);
+  }
+  .vsw__more[open] summary {
+    color: var(--color-fg);
+  }
+  .vsw__more ul {
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block-start: 100%;
+    min-inline-size: 12rem;
+    padding: var(--space-2);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .vsw__more li a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .vsw__more li a:hover {
+    background: var(--color-bg-elevated);
+    text-decoration: none;
+  }
+</style>
