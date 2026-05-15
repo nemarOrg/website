@@ -39,10 +39,11 @@ try {
           <em>human neuroimaging</em> data.
         </h1>
         <p class="hero__lede">
-          NEMAR is an open archive of EEG, MEG, iEEG, and EMG datasets shared
-          by their authors through
-          <a href="https://openneuro.org" rel="external">OpenNeuro</a>. Curated,
-          BIDS-formatted, with data quality and HED event annotations.
+          NEMAR hosts open EEG, MEG, iEEG, and EMG datasets — contributed by
+          NEMAR researchers, mirrored from
+          <a href="https://openneuro.org" rel="external">OpenNeuro</a>, or
+          uploaded by you. BIDS-formatted, with data quality and HED event
+          annotations.
         </p>
         <form class="hero__search" action="/discover" method="get" role="search">
           <label class="visually-hidden" for="hero-search">Search datasets</label>
@@ -59,6 +60,15 @@ try {
           />
           <button type="submit">Search</button>
         </form>
+        <div class="hero__ctas">
+          <a class="hero__cta" href="/discover">Browse datasets</a>
+          <a class="hero__cta hero__cta--ghost" href="/contribute">
+            Contribute your dataset
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6"/>
+            </svg>
+          </a>
+        </div>
         <div class="hero__stats">
           <StatTile value={formatCount(totalDatasets)} label="Public datasets" />
           <StatTile
@@ -315,6 +325,43 @@ try {
   }
   .hero__search button:hover {
     background: color-mix(in srgb, var(--brand-navy) 82%, var(--brand-teal));
+  }
+  .hero__ctas {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-block-end: var(--space-10);
+  }
+  .hero__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 var(--space-5);
+    min-block-size: 44px;
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    background: var(--hero-fg);
+    color: var(--hero-bg-1);
+    border: 1px solid var(--hero-fg);
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .hero__cta:hover {
+    background: color-mix(in srgb, var(--hero-fg) 80%, var(--brand-teal));
+    color: var(--hero-bg-1);
+    text-decoration: none;
+  }
+  .hero__cta--ghost {
+    background: transparent;
+    color: var(--hero-fg);
+    border-color: color-mix(in srgb, var(--hero-fg) 30%, transparent);
+  }
+  .hero__cta--ghost:hover {
+    background: color-mix(in srgb, var(--hero-fg) 8%, transparent);
+    color: var(--hero-fg);
+    border-color: color-mix(in srgb, var(--hero-fg) 50%, transparent);
   }
   .hero__stats {
     display: flex;
