@@ -1,0 +1,29 @@
+{
+  "eventFiles": 24,
+  "totalEvents": 3287,
+  "tags": [
+    { "tag": "Visual-presentation", "count": 412, "category": "Sensory-event" },
+    { "tag": "Face", "count": 387, "category": "Item" },
+    { "tag": "Experimental-stimulus", "count": 380, "category": "Experimental-structure" },
+    { "tag": "Image", "count": 372, "category": "Item" },
+    { "tag": "Participant-response", "count": 280, "category": "Agent-action" },
+    { "tag": "Famous", "count": 124, "category": "Property" },
+    { "tag": "Unfamiliar", "count": 121, "category": "Property" },
+    { "tag": "Scrambled", "count": 137, "category": "Property" },
+    { "tag": "Right-side-of", "count": 119, "category": "Spatial" },
+    { "tag": "Left-side-of", "count": 118, "category": "Spatial" },
+    { "tag": "Keyboard-key", "count": 270, "category": "Item" },
+    { "tag": "Press", "count": 268, "category": "Agent-action" },
+    { "tag": "Computer-screen", "count": 248, "category": "Item" },
+    { "tag": "Item-count", "count": 96, "category": "Property" },
+    { "tag": "Grayscale", "count": 92, "category": "Property" },
+    { "tag": "White", "count": 76, "category": "Property" },
+    { "tag": "Black", "count": 71, "category": "Property" },
+    { "tag": "Cross", "count": 58, "category": "Item" },
+    { "tag": "Intended-effect", "count": 52, "category": "Property" },
+    { "tag": "Hair", "count": 47, "category": "Item" },
+    { "tag": "Sensory-event", "count": 41, "category": "Event" },
+    { "tag": "Condition-variable", "count": 38, "category": "Experimental-structure" },
+    { "tag": "Agent-action", "count": 36, "category": "Event" }
+  ]
+}

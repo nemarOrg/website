@@ -8,6 +8,7 @@ import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Readme from "../../components/Readme.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DetailRail from "../../components/DetailRail.astro";
+import QualityPanel from "../../components/QualityPanel.astro";
 import {
   archiveZipUrl,
   fetchGithubReadme,
@@ -21,6 +22,8 @@ import { buildTree } from "../../lib/bids-tree";
 import { detectProvenance } from "../../lib/provenance";
 import { splitModalities } from "../../lib/format";
 import { ORG_DATASETS } from "../../lib/constants";
+import type { HedSummary, QaAggregates } from "../../lib/qa";
+import { getHedSummary, getQaAggregates } from "../../lib/qa";
 
 const { id } = Astro.params;
 if (!id) {
@@ -35,6 +38,26 @@ const [landing, metadata] = await Promise.all([
   getLanding(id),
   getMetadata(id),
 ]);
+
+// Dev-only fixture toggle: ?qa=fixture lets us render the QualityPanel
+// while nemarOrg/nemar-cli#511 (the hallu sync + /qa/* route) is still in
+// flight. When the live endpoint ships, the toggle becomes a no-op.
+const qaMode = new URL(Astro.request.url).searchParams.get("qa");
+let qaAggregates: QaAggregates | null = null;
+let hedSummary: HedSummary | null = null;
+if (qaMode === "fixture") {
+  // dynamic import to keep the fixtures out of the prod bundle
+  const aggFixture = await import("../../../test/fixtures/qa-aggregates-ds002718.json");
+  const hedFixture = await import("../../../test/fixtures/qa-hed-summary.json");
+  qaAggregates = aggFixture.default as QaAggregates;
+  hedSummary = hedFixture.default as HedSummary;
+} else if (id) {
+  // Live fetch — empty state renders if either endpoint 404s
+  [qaAggregates, hedSummary] = await Promise.all([
+    getQaAggregates(id),
+    getHedSummary(id),
+  ]);
+}
 
 if (!landing || !metadata) {
   Astro.response.status = 404;
@@ -140,6 +163,7 @@ Astro.response.headers.set("Cache-Control", "public, max-age=60");
 
     <div class="container detail__body">
       <div class="detail__main">
+        <QualityPanel aggregates={qaAggregates} hedSummary={hedSummary} />
         <Readme source={readmeSource} fallbackKind={readmeSourceKind === "manifest" ? null : readmeSourceKind} githubUrl={metadata.external_links.github_url} />
         {tree && <BidsTree root={tree} basePath={basePath} />}
         {!tree && (

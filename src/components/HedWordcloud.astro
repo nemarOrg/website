@@ -1,0 +1,116 @@
+---
+import type { HedSummary } from "../lib/qa";
+
+interface Props {
+  summary: HedSummary;
+  maxTags?: number;
+}
+
+const { summary, maxTags = 24 } = Astro.props;
+// Sort by count desc, cap at maxTags.
+const tags = [...summary.tags]
+  .sort((a, b) => b.count - a.count)
+  .slice(0, maxTags);
+
+// Font sizing: log-scaled between minFs and maxFs.
+const minFs = 0.7;
+const maxFs = 1.9;
+const minCount = Math.min(...tags.map((t) => t.count));
+const maxCount = Math.max(...tags.map((t) => t.count));
+const logSpan = Math.log(maxCount + 1) - Math.log(minCount + 1);
+
+function sizeFor(count: number): number {
+  if (logSpan === 0) return (minFs + maxFs) / 2;
+  const t = (Math.log(count + 1) - Math.log(minCount + 1)) / logSpan;
+  return minFs + t * (maxFs - minFs);
+}
+
+// Deterministic shuffle so the layout doesn't shift on every render but
+// also doesn't sort biggest-to-smallest in one corner (which looks like a list).
+// Simple hash → swap pairs.
+function rotate<T>(arr: T[], step: number): T[] {
+  const out = [...arr];
+  for (let i = 0; i < out.length; i++) {
+    const j = (i + step) % out.length;
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+const arranged = rotate(tags, Math.max(1, Math.floor(tags.length / 3)));
+---
+
+<section class="hed">
+  <header class="hed__head">
+    <h3 class="hed__title">HED event tags</h3>
+    <span class="hed__hint">
+      {summary.totalEvents.toLocaleString()} events in {summary.eventFiles} files
+    </span>
+  </header>
+  <div class="hed__cloud" role="list">
+    {arranged.map((t) => (
+      <span
+        role="listitem"
+        class:list={["hed__tag", `hed__tag--${(t.category ?? "default").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`]}
+        style={`font-size: ${sizeFor(t.count).toFixed(2)}rem`}
+        title={`${t.tag}: ${t.count} occurrences${t.category ? ` (${t.category})` : ""}`}
+      >
+        {t.tag}
+      </span>
+    ))}
+  </div>
+</section>
+
+<style>
+  .hed {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .hed__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .hed__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .hed__hint {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .hed__cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    align-items: baseline;
+    align-content: center;
+    padding: var(--space-4) var(--space-5);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-md);
+    min-block-size: 9rem;
+  }
+  .hed__tag {
+    display: inline-block;
+    color: var(--color-fg-muted);
+    line-height: 1;
+    font-weight: var(--fw-medium);
+    transition: color 0.15s ease;
+  }
+  .hed__tag:hover {
+    color: var(--color-fg);
+  }
+  /* Category-based hue cycling — semantic, not rainbow. */
+  .hed__tag--sensory-event { color: var(--modality-eeg); }
+  .hed__tag--agent-action { color: var(--modality-emg); }
+  .hed__tag--item { color: var(--color-fg); }
+  .hed__tag--property { color: var(--modality-meg); }
+  .hed__tag--spatial { color: var(--modality-ieeg); }
+  .hed__tag--experimental-structure { color: var(--color-fg-muted); }
+  .hed__tag--event { color: var(--brand-teal); }
+</style>

@@ -1,0 +1,14 @@
+{
+  "nGoodData": "609,120",
+  "goodDataPercent": "609,120 of 747,750 (81%)",
+  "goodDataPercentRaw": "81",
+  "nGoodChans": 61,
+  "goodChansPercent": "61 of 70 (87%)",
+  "goodChansPercentRaw": "87",
+  "icaFail": 0,
+  "nICs": 60,
+  "nGoodICs": 54,
+  "goodICA": "54 of 60 (90%)",
+  "goodICAPercentRaw": "90",
+  "linenoise_magn": "14.40dB"
+}
