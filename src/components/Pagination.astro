@@ -1,0 +1,126 @@
+---
+interface Props {
+  page: number;
+  pageCount: number;
+  /** Existing query string (without page=). */
+  baseParams: URLSearchParams;
+}
+
+const { page, pageCount, baseParams } = Astro.props;
+
+function urlFor(p: number): string {
+  const sp = new URLSearchParams(baseParams);
+  if (p > 1) sp.set("page", String(p));
+  else sp.delete("page");
+  const qs = sp.toString();
+  return qs ? `?${qs}` : "/discover";
+}
+
+// Build a compact page list with ellipses.
+function pageList(current: number, total: number): Array<number | "..."> {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages: Array<number | "..."> = [1];
+  const start = Math.max(2, current - 1);
+  const end = Math.min(total - 1, current + 1);
+  if (start > 2) pages.push("...");
+  for (let i = start; i <= end; i++) pages.push(i);
+  if (end < total - 1) pages.push("...");
+  pages.push(total);
+  return pages;
+}
+
+const items = pageList(page, pageCount);
+---
+
+{pageCount > 1 && (
+  <nav class="pagination" aria-label="Pagination">
+    <a
+      class="pagination__nav"
+      href={urlFor(Math.max(1, page - 1))}
+      aria-disabled={page === 1}
+      rel="prev"
+    >
+      Previous
+    </a>
+    <ul class="pagination__pages" role="list">
+      {items.map((item) =>
+        item === "..." ? (
+          <li class="pagination__ellipsis" aria-hidden="true">…</li>
+        ) : (
+          <li>
+            <a
+              href={urlFor(item)}
+              class:list={["pagination__page", item === page && "pagination__page--current"]}
+              aria-current={item === page ? "page" : undefined}
+            >
+              {item}
+            </a>
+          </li>
+        ),
+      )}
+    </ul>
+    <a
+      class="pagination__nav"
+      href={urlFor(Math.min(pageCount, page + 1))}
+      aria-disabled={page === pageCount}
+      rel="next"
+    >
+      Next
+    </a>
+  </nav>
+)}
+
+<style>
+  .pagination {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    justify-content: center;
+    margin-block-start: var(--space-8);
+    flex-wrap: wrap;
+  }
+  .pagination__pages {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+  }
+  .pagination__nav {
+    padding: var(--space-2) var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+  }
+  .pagination__nav[aria-disabled="true"] {
+    color: var(--color-fg-subtle);
+    pointer-events: none;
+    opacity: 0.5;
+  }
+  .pagination__page {
+    display: inline-flex;
+    min-inline-size: 36px;
+    block-size: 36px;
+    align-items: center;
+    justify-content: center;
+    padding-inline: var(--space-2);
+    border-radius: var(--radius-md);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-family: var(--font-mono);
+    text-decoration: none;
+  }
+  .pagination__page:hover {
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .pagination__page--current {
+    background: var(--color-fg);
+    color: var(--color-bg);
+  }
+  .pagination__ellipsis {
+    color: var(--color-fg-subtle);
+    padding-inline: var(--space-1);
+  }
+</style>

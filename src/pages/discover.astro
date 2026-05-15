@@ -1,0 +1,147 @@
+---
+import Base from "../layouts/Base.astro";
+import DatasetCard from "../components/DatasetCard.astro";
+import FilterSidebar from "../components/FilterSidebar.astro";
+import Pagination from "../components/Pagination.astro";
+import { listDatasets } from "../lib/api";
+import {
+  applyClientFilters,
+  filterStateFromURL,
+  filterStateToAPIQuery,
+  filterStateToURL,
+} from "../lib/filters";
+
+const url = new URL(Astro.request.url);
+const state = filterStateFromURL(url.searchParams);
+const query = filterStateToAPIQuery(state);
+
+let datasets = [] as Awaited<ReturnType<typeof listDatasets>>["datasets"];
+let totalReturned = 0;
+let fetchError: string | null = null;
+
+try {
+  const page = await listDatasets(query);
+  datasets = applyClientFilters(page.datasets, state);
+  totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+} catch (err) {
+  fetchError = err instanceof Error ? err.message : "Failed to load datasets.";
+}
+
+const filteredCount = datasets.length;
+const start = (state.page - 1) * state.pageSize;
+const visible = datasets.slice(start, start + state.pageSize);
+const pageCount = Math.max(1, Math.ceil(filteredCount / state.pageSize));
+
+// Re-serialize the canonical filter state to drop unknown params.
+const canonicalParams = filterStateToURL(state);
+canonicalParams.delete("page");
+---
+
+<Base title="Discover datasets">
+  <section class="discover container">
+    <header class="discover__head">
+      <h1>Discover datasets</h1>
+      <p class="discover__count">
+        {filteredCount} of {totalReturned.toLocaleString()} datasets match
+      </p>
+    </header>
+    <div class="discover__layout">
+      <aside class="discover__rail" aria-label="Filters">
+        <FilterSidebar state={state} />
+      </aside>
+      <div class="discover__results">
+        {fetchError && (
+          <div class="discover__error" role="alert">
+            <strong>Could not load datasets.</strong>
+            <span>{fetchError}</span>
+          </div>
+        )}
+        {!fetchError && visible.length === 0 && (
+          <div class="discover__empty">
+            <h2>No datasets match these filters.</h2>
+            <p>Try removing a filter or
+              <a href="/discover">resetting all filters</a>.
+            </p>
+          </div>
+        )}
+        <ul class="discover__list" role="list">
+          {visible.map((d) => (
+            <li>
+              <DatasetCard dataset={d} />
+            </li>
+          ))}
+        </ul>
+        <Pagination
+          page={state.page}
+          pageCount={pageCount}
+          baseParams={canonicalParams}
+        />
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .discover {
+    padding-block: var(--space-12) var(--space-16);
+  }
+  .discover__head {
+    margin-block-end: var(--space-8);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .discover__head h1 {
+    font-size: var(--fs-3xl);
+  }
+  .discover__count {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-family: var(--font-mono);
+  }
+  .discover__layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: var(--space-8);
+    align-items: flex-start;
+  }
+  @media (max-width: 880px) {
+    .discover__layout {
+      grid-template-columns: 1fr;
+    }
+    .discover__rail {
+      position: static !important;
+    }
+  }
+  .discover__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .discover__empty {
+    padding: var(--space-12) var(--space-6);
+    text-align: center;
+    color: var(--color-fg-muted);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+  }
+  .discover__empty h2 {
+    font-size: var(--fs-xl);
+    color: var(--color-fg);
+    margin-block-end: var(--space-2);
+  }
+  .discover__error {
+    padding: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    color: var(--color-fg);
+    margin-block-end: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+</style>

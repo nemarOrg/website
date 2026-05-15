@@ -1,0 +1,34 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="Community">
+  <section class="container page">
+    <h1>Community</h1>
+    <p>
+      The community surface (forum links per dataset, news, events) will land in
+      Phase 4 of the website redesign epic (<a href="https://github.com/nemarOrg/website/issues/5">issue #5</a>).
+    </p>
+    <p>
+      In the meantime, each dataset's detail page links to its discussion forum
+      on
+      <a href="https://github.com/nemarDatasets">github.com/nemarDatasets</a>.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .page {
+    padding-block: var(--space-12) var(--space-16);
+    max-inline-size: var(--max-width-prose);
+  }
+  .page h1 {
+    font-size: var(--fs-3xl);
+    margin-block-end: var(--space-6);
+  }
+  .page p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+    margin-block-end: var(--space-4);
+  }
+</style>

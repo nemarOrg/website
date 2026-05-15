@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-50 -50 500 500" aria-hidden="true">
+  <!-- Concentric electrode net suggesting a head-top EEG layout, sized to a 400x400 viewport. -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#5bbad5" stop-opacity="0.18"/>
+      <stop offset="60%" stop-color="#603cba" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#603cba" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="trace" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5bbad5"/>
+      <stop offset="100%" stop-color="#603cba"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Soft glow halo -->
+  <circle cx="200" cy="200" r="260" fill="url(#glow)"/>
+
+  <!-- Concentric circles (electrode rings) -->
+  <g fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1">
+    <circle cx="200" cy="200" r="60"/>
+    <circle cx="200" cy="200" r="115"/>
+    <circle cx="200" cy="200" r="165"/>
+    <circle cx="200" cy="200" r="210"/>
+  </g>
+
+  <!-- Radial lines (10-20 system meridians) -->
+  <g stroke="currentColor" stroke-opacity="0.10" stroke-width="1">
+    <line x1="200" y1="-10" x2="200" y2="410"/>
+    <line x1="-10" y1="200" x2="410" y2="200"/>
+    <line x1="50" y1="50" x2="350" y2="350"/>
+    <line x1="350" y1="50" x2="50" y2="350"/>
+  </g>
+
+  <!-- Electrode dots: inner ring (8 around) -->
+  <g fill="currentColor">
+    <circle cx="200" cy="140" r="3.5"/>
+    <circle cx="242" cy="158" r="3.5"/>
+    <circle cx="260" cy="200" r="3.5"/>
+    <circle cx="242" cy="242" r="3.5"/>
+    <circle cx="200" cy="260" r="3.5"/>
+    <circle cx="158" cy="242" r="3.5"/>
+    <circle cx="140" cy="200" r="3.5"/>
+    <circle cx="158" cy="158" r="3.5"/>
+  </g>
+
+  <!-- Middle ring -->
+  <g fill="currentColor" opacity="0.7">
+    <circle cx="200" cy="85" r="4"/>
+    <circle cx="280" cy="120" r="4"/>
+    <circle cx="315" cy="200" r="4"/>
+    <circle cx="280" cy="280" r="4"/>
+    <circle cx="200" cy="315" r="4"/>
+    <circle cx="120" cy="280" r="4"/>
+    <circle cx="85" cy="200" r="4"/>
+    <circle cx="120" cy="120" r="4"/>
+  </g>
+
+  <!-- Outer ring with brand accent -->
+  <g fill="#5bbad5">
+    <circle cx="200" cy="35" r="5"/>
+    <circle cx="316" cy="84" r="5"/>
+    <circle cx="365" cy="200" r="5"/>
+    <circle cx="316" cy="316" r="5"/>
+  </g>
+  <g fill="#603cba">
+    <circle cx="200" cy="365" r="5"/>
+    <circle cx="84" cy="316" r="5"/>
+    <circle cx="35" cy="200" r="5"/>
+    <circle cx="84" cy="84" r="5"/>
+  </g>
+
+  <!-- Animated traveling wave (signal propagation hint) -->
+  <path
+    d="M 50 200 Q 100 150, 150 200 T 250 200 T 350 200"
+    stroke="url(#trace)"
+    stroke-width="2"
+    fill="none"
+    stroke-linecap="round"
+    stroke-dasharray="6 6"
+    opacity="0.55"
+  >
+    <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="3s" repeatCount="indefinite"/>
+  </path>
+  <path
+    d="M 50 240 Q 100 200, 150 240 T 250 240 T 350 240"
+    stroke="url(#trace)"
+    stroke-width="1.5"
+    fill="none"
+    stroke-linecap="round"
+    stroke-dasharray="4 8"
+    opacity="0.4"
+  >
+    <animate attributeName="stroke-dashoffset" from="0" to="-24" dur="4.5s" repeatCount="indefinite"/>
+  </path>
+</svg>

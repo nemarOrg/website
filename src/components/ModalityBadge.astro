@@ -1,0 +1,56 @@
+---
+interface Props {
+  modality: string;
+  size?: "sm" | "md";
+}
+
+const { modality, size = "sm" } = Astro.props;
+const upper = modality.toUpperCase();
+const variant = upper === "EEG"
+  ? "eeg"
+  : upper === "MEG"
+    ? "meg"
+    : upper === "IEEG"
+      ? "ieeg"
+      : upper === "EMG"
+        ? "emg"
+        : "other";
+---
+
+<span class:list={["mod-badge", `mod-badge--${variant}`, `mod-badge--${size}`]}>{modality}</span>
+
+<style>
+  .mod-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: var(--mod-color, var(--color-fg-muted));
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-family: var(--font-mono);
+  }
+  .mod-badge--md {
+    padding: 4px 10px;
+    font-size: var(--fs-sm);
+  }
+  .mod-badge--eeg {
+    --mod-color: var(--modality-eeg);
+  }
+  .mod-badge--meg {
+    --mod-color: var(--modality-meg);
+  }
+  .mod-badge--ieeg {
+    --mod-color: var(--modality-ieeg);
+  }
+  .mod-badge--emg {
+    --mod-color: var(--modality-emg);
+  }
+  .mod-badge--other {
+    --mod-color: var(--color-fg-muted);
+  }
+</style>

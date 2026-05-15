@@ -1,0 +1,199 @@
+---
+import Base from "../layouts/Base.astro";
+import StatTile from "../components/StatTile.astro";
+import { listDatasets } from "../lib/api";
+import { formatBytes, formatCount } from "../lib/format";
+
+let totalDatasets = 0;
+let totalParticipants = 0;
+let totalSize = 0;
+let statsAvailable = false;
+
+try {
+  // Fetch a single wide page; api caps at 200, total_count surfaces the rest.
+  const page = await listDatasets({ limit: 200 });
+  totalDatasets = page.total_count ?? page.count ?? page.datasets.length;
+  for (const d of page.datasets) {
+    totalParticipants += d.participants ?? 0;
+    totalSize += d.file_size ?? 0;
+  }
+  statsAvailable = totalDatasets > 0;
+} catch {
+  // Fall back to legacy-site figures so the hero never renders empty.
+  totalDatasets = 200;
+  totalParticipants = 29_344;
+  totalSize = 65 * 1024 ** 4;
+}
+---
+
+<Base title="NEMAR">
+  <section class="hero">
+    <div class="container hero__grid">
+      <div class="hero__copy">
+        <p class="hero__eyebrow">Open neuroscience data, ready to use</p>
+        <h1 class="hero__title">
+          Search, visualize, analyze, and download
+          <em>human neuroimaging</em> data.
+        </h1>
+        <p class="hero__lede">
+          NEMAR is an open archive of EEG, MEG, iEEG, and EMG datasets shared by
+          their authors through OpenNeuro. Curated, BIDS-formatted, with data
+          quality and HED event annotations.
+        </p>
+        <form class="hero__search" action="/discover" method="get" role="search">
+          <label class="visually-hidden" for="hero-search">Search datasets</label>
+          <svg class="hero__search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+            <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+          </svg>
+          <input
+            id="hero-search"
+            name="q"
+            type="search"
+            placeholder="Search EEG, MEG, iEEG, EMG datasets..."
+            autocomplete="off"
+          />
+          <button type="submit">Search</button>
+        </form>
+        <div class="hero__stats">
+          <StatTile value={formatCount(totalDatasets)} label="Public datasets" />
+          <StatTile
+            value={formatCount(totalParticipants)}
+            label="Participants"
+            hint={statsAvailable ? undefined : "approx."}
+          />
+          <StatTile
+            value={formatBytes(totalSize)}
+            label="Total size"
+            hint={statsAvailable ? undefined : "approx."}
+          />
+        </div>
+      </div>
+      <aside class="hero__brain" aria-hidden="true">
+        <img src="/hero-brain.svg" alt="" class="hero__brain-img" />
+      </aside>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding-block: var(--space-16) var(--space-20);
+    background:
+      radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--brand-teal) 18%, transparent), transparent 55%),
+      radial-gradient(circle at 20% 90%, color-mix(in srgb, var(--brand-purple) 14%, transparent), transparent 55%);
+  }
+  .hero__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.7fr);
+    gap: var(--space-12);
+    align-items: center;
+  }
+  @media (max-width: 880px) {
+    .hero__grid {
+      grid-template-columns: 1fr;
+    }
+    .hero__brain {
+      display: none;
+    }
+  }
+  .hero__copy {
+    max-inline-size: 56ch;
+  }
+  .hero__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-sm);
+    color: var(--brand-teal);
+    margin-block-end: var(--space-4);
+    font-weight: var(--fw-medium);
+  }
+  .hero__title {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .hero__title em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .hero__lede {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    margin-block: var(--space-6) var(--space-8);
+    max-inline-size: 52ch;
+  }
+  .hero__search {
+    position: relative;
+    display: flex;
+    gap: var(--space-2);
+    max-inline-size: 44rem;
+    margin-block-end: var(--space-10);
+  }
+  .hero__search-icon {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: var(--space-5);
+    transform: translateY(-50%);
+    inline-size: 20px;
+    block-size: 20px;
+    color: var(--color-fg-subtle);
+    pointer-events: none;
+  }
+  .hero__search input[type="search"] {
+    flex: 1;
+    padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 28px);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-lg);
+    box-shadow: var(--shadow-sm);
+  }
+  .hero__search input[type="search"]:focus-visible {
+    border-color: var(--color-focus);
+  }
+  .hero__search button {
+    padding: var(--space-4) var(--space-8);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    box-shadow: var(--shadow-sm);
+  }
+  .hero__search button:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .hero__stats {
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .hero__brain {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: var(--color-fg-muted);
+  }
+  .hero__brain-img {
+    inline-size: clamp(280px, 36vw, 440px);
+    block-size: auto;
+    aspect-ratio: 1;
+    animation: hero-float 14s ease-in-out infinite;
+  }
+  @keyframes hero-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero__brain-img {
+      animation: none;
+    }
+  }
+</style>

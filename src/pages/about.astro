@@ -1,0 +1,37 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base title="About">
+  <section class="container page">
+    <h1>About NEMAR</h1>
+    <p>
+      NEMAR (Neuroelectromagnetic Data Archive and Tools Resource) is an
+      open-access archive of human EEG, MEG, iEEG, and EMG data shared by their
+      authors through OpenNeuro. NEMAR is funded by the National Institutes of
+      Health under award number NIMH R24MH120037.
+    </p>
+    <p>
+      Detailed mission, governance, and partnerships will move here from the
+      legacy nemar.org during the redesign. See
+      <a href="https://nemar.org/about/about-us">the legacy About page</a>
+      for current content.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .page {
+    padding-block: var(--space-12) var(--space-16);
+    max-inline-size: var(--max-width-prose);
+  }
+  .page h1 {
+    font-size: var(--fs-3xl);
+    margin-block-end: var(--space-6);
+  }
+  .page p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+    margin-block-end: var(--space-4);
+  }
+</style>
