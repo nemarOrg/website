@@ -112,7 +112,11 @@ Astro.response.headers.set(
 );
 ---
 
-<Base title={metadata.name} description={metadata.description ?? `${id} dataset on NEMAR`}>
+<Base
+  title={metadata.name}
+  description={metadata.description ?? `${id} dataset on NEMAR`}
+  ogType="article"
+>
   <article class="detail">
     <header class="detail__header container">
       <div class="detail__id-row">
