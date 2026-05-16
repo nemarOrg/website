@@ -1,0 +1,237 @@
+---
+import type { DerivedProvenance } from "../lib/provenance";
+
+interface Props {
+  datasetId: string;
+  nemarDoi: string | null;
+  currentVersion: string | null;
+  provenance: DerivedProvenance;
+}
+
+const { datasetId, nemarDoi, currentVersion, provenance } = Astro.props;
+const originalId = provenance.originalDatasetId;
+const mirrorVersion = provenance.mirrorVersion;
+const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersion;
+---
+
+<details class="prov-toggle" data-prov-toggle>
+  <summary
+    class="prov-toggle__chip"
+    title={originalId
+      ? `NEMAR copy of OpenNeuro ${originalId}. Click to switch view.`
+      : "NEMAR copy of an OpenNeuro dataset"}
+  >
+    <svg class="prov-toggle__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M16 8h4v8M20 8 8 20H4v-4L16 4z"/>
+      <circle cx="16" cy="8" r="0.5" fill="currentColor"/>
+    </svg>
+    <span class="prov-toggle__label">
+      {originalId ? `NEMAR copy of ${originalId}` : "NEMAR copy"}
+    </span>
+    <svg class="prov-toggle__chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m6 9 6 6 6-6"/>
+    </svg>
+  </summary>
+  <div class="prov-toggle__popover" role="dialog" aria-label="Switch dataset source">
+    <p class="prov-toggle__body">
+      <strong>You're viewing the NEMAR copy</strong>{currentVersion ? ` at ${currentVersion}` : ""}.
+      Each OpenNeuro pull is a NEMAR major bump
+      (<code>vN.0.0</code>); intermediate versions are NEMAR-side fixes.
+    </p>
+
+    <div class="prov-toggle__dois">
+      <div>
+        <span class="prov-toggle__dt">NEMAR DOI</span>
+        <span class="prov-toggle__dd">
+          {nemarDoi ? (
+            <a href={nemarDoi.startsWith("http") ? nemarDoi : `https://doi.org/${nemarDoi}`} rel="external">{nemarDoi}</a>
+          ) : (
+            "not published"
+          )}
+        </span>
+      </div>
+      <div>
+        <span class="prov-toggle__dt">OpenNeuro DOI</span>
+        <span class="prov-toggle__dd">
+          {provenance.originalDoi ? (
+            <a href={`https://doi.org/${provenance.originalDoi}`} rel="external">{provenance.originalDoi}</a>
+          ) : (
+            <em>unknown</em>
+          )}
+        </span>
+      </div>
+    </div>
+
+    <div class="prov-toggle__actions">
+      {mirrorVersion && (
+        isViewingMirror ? (
+          <a class="prov-toggle__action prov-toggle__action--accent" href={`/dataset/${datasetId}`}>
+            ← Switch to NEMAR latest
+          </a>
+        ) : (
+          <a class="prov-toggle__action prov-toggle__action--accent" href={`?v=${encodeURIComponent(mirrorVersion)}`}>
+            View as-imported mirror ({mirrorVersion})
+          </a>
+        )
+      )}
+      {provenance.originalUrl && (
+        <a class="prov-toggle__action" href={provenance.originalUrl} rel="external">
+          Open on OpenNeuro
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 17 17 7M9 7h8v8"/>
+          </svg>
+        </a>
+      )}
+    </div>
+  </div>
+</details>
+
+<style>
+  .prov-toggle {
+    position: relative;
+    display: inline-block;
+  }
+  .prov-toggle__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 35%, transparent);
+    background: color-mix(in srgb, var(--brand-teal) 8%, transparent);
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .prov-toggle__chip::-webkit-details-marker {
+    display: none;
+  }
+  .prov-toggle__chip:hover {
+    background: color-mix(in srgb, var(--brand-teal) 14%, transparent);
+    border-color: color-mix(in srgb, var(--brand-teal) 55%, transparent);
+  }
+  .prov-toggle__icon {
+    color: var(--brand-teal);
+    flex-shrink: 0;
+  }
+  .prov-toggle__label {
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .prov-toggle__chevron {
+    color: var(--color-fg-subtle);
+    transition: transform 0.15s ease;
+  }
+  .prov-toggle[open] .prov-toggle__chevron {
+    transform: rotate(180deg);
+  }
+
+  .prov-toggle__popover {
+    position: absolute;
+    inset-block-start: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 30;
+    inline-size: min(24rem, 90vw);
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .prov-toggle__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+  }
+  .prov-toggle__body strong {
+    color: var(--color-fg);
+  }
+  .prov-toggle__body code {
+    background: var(--color-bg-subtle);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+  }
+  .prov-toggle__dois {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-3);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+  }
+  .prov-toggle__dt {
+    display: block;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-block-end: 2px;
+  }
+  .prov-toggle__dd {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+  }
+  .prov-toggle__dd a {
+    color: var(--color-link);
+  }
+  .prov-toggle__dd em {
+    color: var(--color-fg-subtle);
+    font-style: italic;
+  }
+  .prov-toggle__actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .prov-toggle__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    min-block-size: 36px;
+  }
+  .prov-toggle__action:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .prov-toggle__action--accent {
+    background: var(--brand-teal);
+    border-color: var(--brand-teal);
+    color: var(--brand-navy);
+    font-weight: var(--fw-medium);
+  }
+  .prov-toggle__action--accent:hover {
+    background: color-mix(in srgb, var(--brand-teal) 85%, var(--brand-purple));
+    border-color: transparent;
+    color: var(--brand-navy);
+  }
+</style>
+
+<script>
+  // Close popovers on outside click.
+  document.addEventListener("click", (e) => {
+    document.querySelectorAll<HTMLDetailsElement>("[data-prov-toggle]").forEach((el) => {
+      if (!el.contains(e.target as Node)) el.open = false;
+    });
+  });
+</script>

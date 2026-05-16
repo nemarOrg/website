@@ -3,7 +3,7 @@ import Base from "../../layouts/Base.astro";
 import ActionBar from "../../components/ActionBar.astro";
 import DoiBadge from "../../components/DoiBadge.astro";
 import ModalityBadge from "../../components/ModalityBadge.astro";
-import ProvenanceCard from "../../components/ProvenanceCard.astro";
+import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Readme from "../../components/Readme.astro";
 import BidsTree from "../../components/BidsTree.astro";
@@ -136,8 +136,16 @@ Astro.response.headers.set("Cache-Control", "public, max-age=60");
     <header class="detail__header container">
       <div class="detail__id-row">
         <span class="detail__id">{id}</span>
-        {provenance.kind === "derived" && <span class="detail__lineage">NEMAR · OpenNeuro mirror</span>}
-        {provenance.kind === "native" && <span class="detail__lineage">NEMAR-native dataset</span>}
+        {provenance.kind === "derived" ? (
+          <ProvenanceToggle
+            datasetId={id}
+            nemarDoi={metadata.external_links.dataset_doi}
+            currentVersion={selectedVersion}
+            provenance={provenance}
+          />
+        ) : (
+          <span class="detail__lineage">NEMAR-native dataset</span>
+        )}
       </div>
       <h1 class="detail__title">{metadata.name}</h1>
       {metadata.description && metadata.description !== metadata.name && (
@@ -162,14 +170,6 @@ Astro.response.headers.set("Cache-Control", "public, max-age=60");
     </header>
 
     <div class="container">
-      {provenance.kind === "derived" && (
-        <ProvenanceCard
-          datasetId={id}
-          nemarDoi={metadata.external_links.dataset_doi}
-          provenance={provenance}
-        />
-      )}
-
       <VersionSwitcher
         versions={landing.versions}
         current={selectedVersion ?? ""}

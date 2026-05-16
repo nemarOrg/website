@@ -3,6 +3,7 @@ import Base from "../layouts/Base.astro";
 import DatasetCard from "../components/DatasetCard.astro";
 import FilterSidebar from "../components/FilterSidebar.astro";
 import Pagination from "../components/Pagination.astro";
+import SearchBar from "../components/SearchBar.astro";
 import { listDatasets } from "../lib/api";
 import {
   applyClientFilters,
@@ -52,11 +53,14 @@ canonicalParams.delete("page");
 <Base title="Discover datasets">
   <section class="discover container">
     <header class="discover__head">
-      <h1>Discover datasets</h1>
-      <p class="discover__count">
-        Showing {visible.length} of {totalReturned.toLocaleString()} datasets
-        {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
-      </p>
+      <div class="discover__head-row">
+        <h1>Discover datasets</h1>
+        <p class="discover__count">
+          Showing {visible.length} of {totalReturned.toLocaleString()} datasets
+          {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
+        </p>
+      </div>
+      <SearchBar value={state.q} size="md" placeholder="Search by dataset name, ID, or description..." />
     </header>
     <div class="discover__layout">
       <aside class="discover__rail" aria-label="Filters">
@@ -100,6 +104,11 @@ canonicalParams.delete("page");
   }
   .discover__head {
     margin-block-end: var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .discover__head-row {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
