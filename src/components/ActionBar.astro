@@ -145,18 +145,25 @@ cd {datasetId} && nemar dataset get</code></pre>
     border-color: transparent;
   }
   .compute-dialog {
-    max-inline-size: 36rem;
+    /* Native <dialog> uses position: fixed + inset: 0 + margin: auto for
+       auto-centering. Some browsers respect that only when no explicit
+       inset/margin/position is set. We were inheriting top-left placement
+       from the second declaration overriding the first — collapsed both
+       into one and re-asserted margin: auto so centering kicks in. */
+    inset: 0;
+    margin: auto;
+    max-inline-size: 44rem;
+    inline-size: calc(100vw - 4rem);
+    max-block-size: 90vh;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     background: var(--color-bg-elevated);
     color: var(--color-fg);
     padding: var(--space-6);
+    overflow-y: auto;
   }
   .compute-dialog::backdrop {
     background: rgb(15 23 42 / 55%);
-  }
-  .compute-dialog {
-    max-inline-size: 44rem;
   }
   .compute-dialog h2 {
     font-size: var(--fs-2xl);

@@ -13,24 +13,36 @@ import {
 
 const url = new URL(Astro.request.url);
 const state = filterStateFromURL(url.searchParams);
-const query = filterStateToAPIQuery(state);
+const baseQuery = filterStateToAPIQuery(state);
 
-let datasets = [] as Awaited<ReturnType<typeof listDatasets>>["datasets"];
+// Server-side offset pagination. We pass limit + offset directly to the API
+// so a user can page through all 645 datasets, not just the first 200 the
+// client-side window was capped at. Client-side filtering (multi-modality
+// AND/OR, range sliders, etc.) still runs over each page after fetch.
+const PAGE_SIZE = state.pageSize;
+const query = {
+  ...baseQuery,
+  limit: PAGE_SIZE,
+  offset: (state.page - 1) * PAGE_SIZE,
+};
+
+let visible = [] as Awaited<ReturnType<typeof listDatasets>>["datasets"];
 let totalReturned = 0;
 let fetchError: string | null = null;
 
 try {
   const page = await listDatasets(query);
-  datasets = applyClientFilters(page.datasets, state);
+  // Client-side filters narrow this page. Note: multi-modality AND/OR and
+  // range filters reduce the visible count for the *current page* only —
+  // pagination still spans the server-side total. Acceptable for now;
+  // can be improved when range filters move server-side.
+  visible = applyClientFilters(page.datasets, state);
   totalReturned = page.total_count ?? page.count ?? page.datasets.length;
 } catch (err) {
   fetchError = err instanceof Error ? err.message : "Failed to load datasets.";
 }
 
-const filteredCount = datasets.length;
-const start = (state.page - 1) * state.pageSize;
-const visible = datasets.slice(start, start + state.pageSize);
-const pageCount = Math.max(1, Math.ceil(filteredCount / state.pageSize));
+const pageCount = Math.max(1, Math.ceil(totalReturned / PAGE_SIZE));
 
 // Re-serialize the canonical filter state to drop unknown params.
 const canonicalParams = filterStateToURL(state);
@@ -42,7 +54,8 @@ canonicalParams.delete("page");
     <header class="discover__head">
       <h1>Discover datasets</h1>
       <p class="discover__count">
-        {filteredCount} of {totalReturned.toLocaleString()} datasets match
+        Showing {visible.length} of {totalReturned.toLocaleString()} datasets
+        {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
       </p>
     </header>
     <div class="discover__layout">

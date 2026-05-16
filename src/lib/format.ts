@@ -58,10 +58,16 @@ const RELATIVE_RANGES: Array<[number, Intl.RelativeTimeFormatUnit]> = [
 ];
 
 /**
- * Relative time vs. now ("3 days ago", "in 2 hours"). Accepts ISO string
- * or a Date.
+ * Relative time vs. now ("3 days ago", "in 2 hours"). Accepts ISO string,
+ * Date, or nullish. Catalog-only rows (ds*) ship with `updated_at: null`,
+ * so the null branch is hit often; returning "" lets the caller's
+ * `if (updated) push(...)` cleanly skip the row.
  */
-export function formatRelativeTime(value: string | Date, now: Date = new Date()): string {
+export function formatRelativeTime(
+  value: string | Date | null | undefined,
+  now: Date = new Date(),
+): string {
+  if (value == null) return "";
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "";
   const diffSeconds = Math.round((date.getTime() - now.getTime()) / 1000);
@@ -79,9 +85,12 @@ export function formatRelativeTime(value: string | Date, now: Date = new Date())
 }
 
 /**
- * Absolute date display ("2025-10-09" -> "Oct 9, 2025").
+ * Absolute date display ("2025-10-09" -> "Oct 9, 2025"). Nullish input
+ * returns empty string so callers can `if (formatDate(x)) ...` skip rows
+ * cleanly. Catalog rows for ds* datasets ship with null timestamps.
  */
-export function formatDate(value: string | Date): string {
+export function formatDate(value: string | Date | null | undefined): string {
+  if (value == null) return "";
   const date = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });

@@ -55,5 +55,8 @@ export async function getDataset(
   if (!res.ok) {
     throw new Error(`api.nemar.org get dataset failed: ${res.status} ${res.statusText}`);
   }
-  return (await res.json()) as Dataset;
+  // The endpoint returns { dataset: {...} } whereas the list endpoint
+  // returns { datasets: [...] }. Unwrap so callers always get a Dataset.
+  const raw = (await res.json()) as Dataset | { dataset: Dataset };
+  return "dataset" in raw ? raw.dataset : raw;
 }

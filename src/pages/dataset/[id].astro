@@ -17,6 +17,7 @@ import {
   getManifest,
   getMetadata,
 } from "../../lib/data-api";
+import { getDataset } from "../../lib/api";
 import { buildTree } from "../../lib/bids-tree";
 import { detectProvenance } from "../../lib/provenance";
 import { splitModalities } from "../../lib/format";
@@ -30,10 +31,14 @@ if (!id) {
 const url = new URL(Astro.request.url);
 const versionParam = url.searchParams.get("v");
 
-// Fan out the landing and metadata fetches in parallel.
-const [landing, metadata] = await Promise.all([
+// Fan out the landing, metadata, and catalog-row fetches in parallel.
+// The catalog row (api.nemar.org/datasets/<id>) is the fallback for
+// fields that the neuroschema metadata.json doesn't populate yet on
+// OpenNeuro-imported datasets (license, modalities, tasks, etc.).
+const [landing, metadata, catalogRow] = await Promise.all([
   getLanding(id),
   getMetadata(id),
+  getDataset(id).catch(() => null),
 ]);
 
 if (!landing || !metadata) {
@@ -41,6 +46,40 @@ if (!landing || !metadata) {
   Astro.response.headers.set("Cache-Control", "no-store");
   return new Response(null, { status: 404 });
 }
+
+// Merge sparse metadata with catalog row when neuroschema fields are empty.
+// The catalog has license, modalities, tasks, authors as CSV strings — we
+// split them into the array shape DetailRail expects.
+const enrichedMetadata = {
+  ...metadata,
+  license: metadata.license || catalogRow?.doi ? metadata.license : null,
+  recording_modality:
+    (metadata.recording_modality?.length ?? 0) > 0
+      ? metadata.recording_modality
+      : catalogRow?.modalities
+        ? catalogRow.modalities.split(",").map((m) => m.trim()).filter(Boolean)
+        : [],
+  tasks:
+    (metadata.tasks?.length ?? 0) > 0
+      ? metadata.tasks
+      : catalogRow?.tasks
+        ? catalogRow.tasks.split(",").map((t) => t.trim()).filter(Boolean)
+        : [],
+  authors:
+    (metadata.authors?.length ?? 0) > 0
+      ? metadata.authors
+      : catalogRow?.authors
+        ? catalogRow.authors
+            .split(",")
+            .map((name) => ({
+              name: name.trim(),
+              name_type: "Personal" as const,
+              orcid: null,
+              affiliations: [],
+            }))
+            .filter((a) => a.name)
+        : [],
+};
 
 const selectedVersion =
   versionParam && landing.versions.some((v) => v.version === versionParam)
@@ -74,8 +113,8 @@ if (!readmeSource && metadata.description && metadata.description !== metadata.n
 // readmeSourceKind tells the component which banner (if any) to render.
 
 const provenance = detectProvenance(metadata, landing);
-const modalities = metadata.recording_modality.length
-  ? metadata.recording_modality
+const modalities = enrichedMetadata.recording_modality.length
+  ? enrichedMetadata.recording_modality
   : splitModalities("");
 
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
@@ -154,7 +193,7 @@ Astro.response.headers.set("Cache-Control", "public, max-age=60");
           </section>
         )}
       </div>
-      <DetailRail metadata={metadata} />
+      <DetailRail metadata={enrichedMetadata} />
     </div>
   </article>
 </Base>

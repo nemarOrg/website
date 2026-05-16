@@ -16,12 +16,13 @@ function urlFor(p: number): string {
   return qs ? `?${qs}` : "/discover";
 }
 
-// Build a compact page list with ellipses.
+// Build a page list with ellipses. Window of ±3 around current so users
+// see a meaningful range of jumpable pages rather than just [1, ..., N].
 function pageList(current: number, total: number): Array<number | "..."> {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  if (total <= 9) return Array.from({ length: total }, (_, i) => i + 1);
   const pages: Array<number | "..."> = [1];
-  const start = Math.max(2, current - 1);
-  const end = Math.min(total - 1, current + 1);
+  const start = Math.max(2, current - 3);
+  const end = Math.min(total - 1, current + 3);
   if (start > 2) pages.push("...");
   for (let i = start; i <= end; i++) pages.push(i);
   if (end < total - 1) pages.push("...");
