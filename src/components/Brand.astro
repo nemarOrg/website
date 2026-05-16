@@ -1,24 +1,23 @@
 ---
+import logoSvg from "../assets/nemar-logo.svg?raw";
+
 interface Props {
-  variant?: "full" | "mark";
   href?: string | null;
   size?: "sm" | "md" | "lg";
   class?: string;
 }
 
-const { variant = "full", href = "/", size = "md", class: className } = Astro.props;
+const { href = "/", size = "md", class: className } = Astro.props;
 const heights = {
   sm: 28,
   md: 36,
   lg: 48,
 } as const;
 const h = heights[size];
-const w = variant === "mark" ? h : Math.round((h * 268.8) / 56.3);
-const src = variant === "mark" ? "/nemar-mark.svg" : "/nemar-logo.svg";
 ---
 
-<a class:list={["brand", className]} href={href ?? undefined} aria-label="NEMAR home">
-  <img src={src} alt="NEMAR" height={h} width={w} class="brand-img" />
+<a class:list={["brand", `brand--${size}`, className]} href={href ?? undefined} aria-label="NEMAR home" style={`--brand-h: ${h}px`}>
+  <span class="brand-svg" aria-hidden="true" set:html={logoSvg} />
 </a>
 
 <style>
@@ -34,8 +33,13 @@ const src = variant === "mark" ? "/nemar-mark.svg" : "/nemar-logo.svg";
     color: var(--color-fg);
     text-decoration: none;
   }
-  .brand-img {
+  .brand-svg {
+    display: inline-flex;
+    block-size: var(--brand-h);
+  }
+  .brand-svg :global(svg) {
     display: block;
-    block-size: auto;
+    block-size: 100%;
+    inline-size: auto;
   }
 </style>
