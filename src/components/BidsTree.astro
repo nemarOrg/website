@@ -1,81 +1,45 @@
 ---
-import type { TreeNode } from "../lib/bids-tree";
-import { classifyFile } from "../lib/bids-tree";
-import { formatBytes } from "../lib/format";
-import BidsDirChildren from "./BidsDirChildren.astro";
-
 interface Props {
-  root: TreeNode;
-  basePath: string;
+  datasetId: string;
+  version: string | null;
 }
 
-const { root, basePath } = Astro.props;
-const topLevel = root.children;
-const rootFiles = root.files;
-
-function countFilesDeep(n: TreeNode): number {
-  let total = n.files.length;
-  for (const c of n.children) total += countFilesDeep(c);
-  return total;
-}
+const { datasetId, version } = Astro.props;
 ---
 
-<section class="tree" aria-label="Dataset file tree">
-  <header class="tree__head">
-    <h2>Files</h2>
-    <span class="tree__meta">
-      {root.children.length + root.files.length} top-level entries · {formatBytes(root.totalSize)} total
-    </span>
-  </header>
+{version ? (
+  <section class="tree" aria-label="Dataset file tree" data-tree-defer data-id={datasetId} data-version={version} aria-busy="true">
+    <header class="tree__head">
+      <h2>Files</h2>
+      <span class="tree__meta">Loading file index…</span>
+    </header>
+    <div class="tree__skeleton" aria-hidden="true">
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+    </div>
+    <noscript>
+      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`/api/dataset/${datasetId}/tree?v=${encodeURIComponent(version)}`}>View raw HTML</a>.</p>
+    </noscript>
+  </section>
+) : (
+  <section class="tree" aria-label="Dataset file tree">
+    <header class="tree__head">
+      <h2>Files</h2>
+      <span class="tree__meta">No version selected</span>
+    </header>
+  </section>
+)}
 
-  {rootFiles.length > 0 && (
-    <ul class="tree__list tree__list--root" role="list">
-      {rootFiles.map((f) => {
-        const cls = classifyFile(f.path);
-        return (
-          <li class="tree__row">
-            <span class="tree__icon" aria-hidden="true">▪</span>
-            <a
-              class="tree__name"
-              href={`${basePath}/${encodeURI(f.path)}`}
-              rel="external"
-              download={f.path.split("/").pop()}
-              title={`Download ${f.path}`}
-            >
-              {f.path}
-            </a>
-            <span class="tree__size">{formatBytes(f.size)}</span>
-            {cls.isReadme && <span class="tree__tag">README</span>}
-            {cls.isJSON && <span class="tree__tag">JSON</span>}
-          </li>
-        );
-      })}
-    </ul>
-  )}
-
-  <ul class="tree__list" role="list">
-    {topLevel.map((node) => (
-      <li>
-        <details class="tree__dir" open={topLevel.length <= 3}>
-          <summary class="tree__row tree__row--dir">
-            <svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m9 6 6 6-6 6"/>
-            </svg>
-            <span class="tree__icon" aria-hidden="true">▸</span>
-            <span class="tree__name">{node.name}</span>
-            <span class="tree__counts">
-              {node.children.length} dirs · {countFilesDeep(node)} files
-            </span>
-            <span class="tree__size">{formatBytes(node.totalSize)}</span>
-          </summary>
-          <BidsDirChildren node={node} basePath={basePath} depth={1} />
-        </details>
-      </li>
-    ))}
-  </ul>
-</section>
-
-<style>
+<style is:global>
+  /* is:global because the tree HTML can be rendered server-side by the
+     /api/dataset/<id>/tree endpoint and injected client-side, in which case
+     it doesn't carry Astro's component-scope data attribute. .tree__ prefix
+     keeps collision risk low. Keep in sync with BidsDirChildren styles. */
   .tree {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -99,6 +63,35 @@ function countFilesDeep(n: TreeNode): number {
     color: var(--color-fg-subtle);
     font-size: var(--fs-xs);
     font-family: var(--font-mono);
+  }
+  .tree__skeleton {
+    display: flex;
+    flex-direction: column;
+    padding: 0 var(--space-5);
+  }
+  .tree__skeleton-row {
+    block-size: 1.25em;
+    margin-block: 8px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+      90deg,
+      var(--color-bg-subtle) 0%,
+      var(--color-bg-elevated) 50%,
+      var(--color-bg-subtle) 100%
+    );
+    background-size: 200% 100%;
+    animation: tree-shimmer 1.4s ease-in-out infinite;
+  }
+  .tree__skeleton-row:nth-child(1) { inline-size: 45%; }
+  .tree__skeleton-row:nth-child(2) { inline-size: 80%; }
+  .tree__skeleton-row:nth-child(3) { inline-size: 65%; }
+  .tree__skeleton-row:nth-child(4) { inline-size: 88%; }
+  .tree__skeleton-row:nth-child(5) { inline-size: 55%; }
+  .tree__skeleton-row:nth-child(6) { inline-size: 72%; }
+  .tree__skeleton-row:nth-child(7) { inline-size: 40%; }
+  @keyframes tree-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
   }
   .tree__list {
     list-style: none;
@@ -182,5 +175,25 @@ function countFilesDeep(n: TreeNode): number {
     background: var(--color-bg-subtle);
     color: var(--color-fg-muted);
     font-family: var(--font-mono);
+  }
+  /* Empty-state banner shown when the tree endpoint returns no manifest. */
+  .detail__no-manifest {
+    padding: var(--space-6);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 5%, var(--color-bg));
+    border-radius: var(--radius-lg);
+  }
+  .detail__no-manifest h2 {
+    font-size: var(--fs-lg);
+    margin-block-end: var(--space-2);
+  }
+  .detail__no-manifest p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .detail__no-manifest code {
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
   }
 </style>

@@ -8,17 +8,8 @@ import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Readme from "../../components/Readme.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DetailRail from "../../components/DetailRail.astro";
-import {
-  archiveZipUrl,
-  fetchGithubReadme,
-  fetchManifestEntryText,
-  findReadmeEntry,
-  getLanding,
-  getManifest,
-  getMetadata,
-} from "../../lib/data-api";
+import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
 import { getDataset } from "../../lib/api";
-import { buildTree } from "../../lib/bids-tree";
 import { detectProvenance } from "../../lib/provenance";
 import { splitModalities } from "../../lib/format";
 import { ORG_DATASETS } from "../../lib/constants";
@@ -86,41 +77,10 @@ const selectedVersion =
     ? versionParam
     : landing.latest ?? landing.versions[0]?.version ?? null;
 
-// Race manifest fetch and GitHub README fetch in parallel. Manifest may 404
-// (e.g. nm000104 v1.0.0 right now), in which case we fall through to GH; if
-// it succeeds and lists a README, we prefer that and discard the GH work.
-// Cost: one extra GH raw round-trip per page when manifest README is present,
-// but cuts ~500ms off the critical path when manifest is missing.
-const manifestPromise = selectedVersion ? getManifest(id, selectedVersion) : Promise.resolve(null);
-const githubReadmePromise = metadata.external_links.github_url
-  ? fetchGithubReadme(metadata.external_links.github_url, { timeoutMs: 1_500 })
-  : Promise.resolve(null);
-
-const manifest = await manifestPromise;
-
-// README resolution order:
-//   1. data.nemar.org manifest README* (preferred; version-locked to <ver>)
-//   2. GitHub raw README on the dataset repo (covers manifests that don't
-//      surface git-tracked files at root, e.g. on005262)
-//   3. neuroschema description (last-resort fallback so the section is never blank)
-let readmeSource: string | null = null;
-let readmeSourceKind: "manifest" | "github" | "description" | null = null;
-if (manifest) {
-  const readmeEntry = findReadmeEntry(manifest);
-  if (readmeEntry?.url) {
-    readmeSource = await fetchManifestEntryText(readmeEntry.url, { timeoutMs: 2_500 });
-    if (readmeSource) readmeSourceKind = "manifest";
-  }
-}
-if (!readmeSource) {
-  readmeSource = await githubReadmePromise;
-  if (readmeSource) readmeSourceKind = "github";
-}
-if (!readmeSource && metadata.description && metadata.description !== metadata.name) {
-  readmeSource = metadata.description;
-  readmeSourceKind = "description";
-}
-// readmeSourceKind tells the component which banner (if any) to render.
+// README and BIDS tree fetches are deferred to the client (see
+// /api/dataset/[id]/readme.ts and tree.ts). SSR critical path now only awaits
+// landing + metadata + catalog row, so the header renders in ~300 ms instead
+// of waiting on the manifest/GitHub waterfall.
 
 const provenance = detectProvenance(metadata, landing);
 const modalities = enrichedMetadata.recording_modality.length
@@ -132,11 +92,6 @@ const issuesUrl = `${githubUrl}/issues`;
 const openneuroId =
   provenance.kind === "derived" ? provenance.originalDatasetId ?? null : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
-
-const tree = manifest ? buildTree(manifest) : null;
-const basePath = selectedVersion
-  ? `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(selectedVersion)}`
-  : "";
 
 // Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
 // honors s-maxage at the edge; max-age stays short so browsers re-validate on nav.
@@ -195,24 +150,55 @@ Astro.response.headers.set(
 
     <div class="container detail__body">
       <div class="detail__main">
-        <Readme source={readmeSource} fallbackKind={readmeSourceKind === "manifest" ? null : readmeSourceKind} githubUrl={metadata.external_links.github_url} />
-        {tree && <BidsTree root={tree} basePath={basePath} />}
-        {!tree && (
-          <section class="detail__no-manifest" role="alert">
-            <h2>Manifest unavailable</h2>
-            <p>
-              The file index for <code>{selectedVersion ?? "this version"}</code> could not be loaded.
-              The version may not yet be published, or the underlying S3 lookup failed.
-              Use the
-              <a href="/discover">Discover page</a> to pick another dataset or try a different version above.
-            </p>
-          </section>
+        <Readme defer datasetId={id} version={selectedVersion} />
+        {selectedVersion && (
+          <BidsTree datasetId={id} version={selectedVersion} />
         )}
       </div>
       <DetailRail metadata={enrichedMetadata} />
     </div>
   </article>
 </Base>
+
+<script>
+  /**
+   * Replace defer placeholders with rendered HTML fetched from
+   * `/api/dataset/<id>/{readme,tree}?v=<v>` in parallel. Each endpoint is
+   * edge-cached so the first visit's work amortizes across subsequent ones.
+   */
+  async function hydrateDeferred(): Promise<void> {
+    const targets = [
+      ...document.querySelectorAll<HTMLElement>("[data-readme-defer], [data-tree-defer]"),
+    ];
+    await Promise.all(
+      targets.map(async (el) => {
+        const id = el.dataset.id;
+        const version = el.dataset.version;
+        if (!id || !version) return;
+        const endpoint = el.hasAttribute("data-readme-defer") ? "readme" : "tree";
+        const path = `/api/dataset/${encodeURIComponent(id)}/${endpoint}?v=${encodeURIComponent(version)}`;
+        try {
+          const res = await fetch(path, { headers: { Accept: "text/html" } });
+          if (!res.ok) throw new Error(`${path}: ${res.status}`);
+          el.innerHTML = await res.text();
+          el.removeAttribute("aria-busy");
+          if (endpoint === "readme") {
+            const wrap = el.querySelector<HTMLElement>("[data-readme-wrap]");
+            const sync = (window as typeof window & {
+              __nemarSyncReadme?: (wrap: HTMLElement) => void;
+            }).__nemarSyncReadme;
+            if (wrap && sync) sync(wrap);
+          }
+        } catch (err) {
+          el.removeAttribute("aria-busy");
+          console.warn(`[hydrateDeferred] ${path}`, err);
+          el.innerHTML = `<p class="readme__empty">Couldn't load this section. <a href="${path}">View raw HTML</a>.</p>`;
+        }
+      }),
+    );
+  }
+  hydrateDeferred();
+</script>
 
 <style>
   .detail {
