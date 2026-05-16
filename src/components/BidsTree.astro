@@ -35,7 +35,13 @@ function countFilesDeep(n: TreeNode): number {
         return (
           <li class="tree__row">
             <span class="tree__icon" aria-hidden="true">▪</span>
-            <a class="tree__name" href={f.url ?? `${basePath}/${f.path}`} rel="external" title={`Download ${f.path}`}>
+            <a
+              class="tree__name"
+              href={`${basePath}/${encodeURI(f.path)}`}
+              rel="external"
+              download={f.path.split("/").pop()}
+              title={`Download ${f.path}`}
+            >
               {f.path}
             </a>
             <span class="tree__size">{formatBytes(f.size)}</span>
