@@ -24,6 +24,13 @@ try {
   totalParticipants = 29_344;
   totalSize = 65 * 1024 ** 4;
 }
+
+// Stats refresh slowly. Edge-cache for 10 min; serve stale up to a day while
+// revalidating so new visitors always hit cache.
+Astro.response.headers.set(
+  "Cache-Control",
+  "public, max-age=60, s-maxage=600, stale-while-revalidate=86400",
+);
 ---
 
 <Base title="NEMAR">

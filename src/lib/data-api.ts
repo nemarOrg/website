@@ -123,8 +123,8 @@ export function findReadmeEntry(manifest: Manifest): Manifest[number] | null {
  * Best-effort fetch of the README from the dataset's GitHub repo, used when
  * the data.nemar.org manifest doesn't list one (git-annex manifests typically
  * carry annexed content only, not git-tracked files like README.md at root).
- * Tries HEAD, then main, then master, with a few common filename variants.
- * Returns null on any failure. SSR-only — no CORS concerns.
+ * Races HEAD/main/master across README.md/README/README.txt/readme.md in
+ * parallel; first 200 wins. Returns null on any failure. SSR-only — no CORS.
  */
 export async function fetchGithubReadme(
   githubUrl: string,
@@ -138,23 +138,27 @@ export async function fetchGithubReadme(
   const filenames = ["README.md", "README", "README.txt", "readme.md"];
 
   const controller = new AbortController();
-  const timeout = init.timeoutMs ?? 3_000;
+  const timeout = init.timeoutMs ?? 1_500;
   const timer = setTimeout(() => controller.abort(), timeout);
   const onParentAbort = () => controller.abort();
   if (init.signal) init.signal.addEventListener("abort", onParentAbort);
 
-  try {
-    for (const branch of branches) {
-      for (const filename of filenames) {
-        const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`;
-        try {
-          const res = await fetch(url, { signal: controller.signal });
-          if (res.ok) return await res.text();
-        } catch {
-          /* try next combination */
-        }
-      }
+  const urls: string[] = [];
+  for (const branch of branches) {
+    for (const filename of filenames) {
+      urls.push(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`);
     }
+  }
+
+  try {
+    return await Promise.any(
+      urls.map(async (url) => {
+        const res = await fetch(url, { signal: controller.signal });
+        if (!res.ok) throw new Error(`${url}: ${res.status}`);
+        return res.text();
+      }),
+    );
+  } catch {
     return null;
   } finally {
     clearTimeout(timer);

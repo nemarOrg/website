@@ -48,6 +48,14 @@ const pageCount = Math.max(1, Math.ceil(totalReturned / PAGE_SIZE));
 // Re-serialize the canonical filter state to drop unknown params.
 const canonicalParams = filterStateToURL(state);
 canonicalParams.delete("page");
+
+// Discover pages cache at the edge keyed on the full URL (query params),
+// so each filter+page combo gets its own cache entry. New datasets appear
+// when the cache rolls (2 min) or revalidates in the background.
+Astro.response.headers.set(
+  "Cache-Control",
+  "public, max-age=30, s-maxage=120, stale-while-revalidate=3600",
+);
 ---
 
 <Base title="Discover datasets">

@@ -86,7 +86,17 @@ const selectedVersion =
     ? versionParam
     : landing.latest ?? landing.versions[0]?.version ?? null;
 
-const manifest = selectedVersion ? await getManifest(id, selectedVersion) : null;
+// Race manifest fetch and GitHub README fetch in parallel. Manifest may 404
+// (e.g. nm000104 v1.0.0 right now), in which case we fall through to GH; if
+// it succeeds and lists a README, we prefer that and discard the GH work.
+// Cost: one extra GH raw round-trip per page when manifest README is present,
+// but cuts ~500ms off the critical path when manifest is missing.
+const manifestPromise = selectedVersion ? getManifest(id, selectedVersion) : Promise.resolve(null);
+const githubReadmePromise = metadata.external_links.github_url
+  ? fetchGithubReadme(metadata.external_links.github_url, { timeoutMs: 1_500 })
+  : Promise.resolve(null);
+
+const manifest = await manifestPromise;
 
 // README resolution order:
 //   1. data.nemar.org manifest README* (preferred; version-locked to <ver>)
@@ -102,8 +112,8 @@ if (manifest) {
     if (readmeSource) readmeSourceKind = "manifest";
   }
 }
-if (!readmeSource && metadata.external_links.github_url) {
-  readmeSource = await fetchGithubReadme(metadata.external_links.github_url, { timeoutMs: 3_000 });
+if (!readmeSource) {
+  readmeSource = await githubReadmePromise;
   if (readmeSource) readmeSourceKind = "github";
 }
 if (!readmeSource && metadata.description && metadata.description !== metadata.name) {
@@ -128,7 +138,13 @@ const basePath = selectedVersion
   ? `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(selectedVersion)}`
   : "";
 
-Astro.response.headers.set("Cache-Control", "public, max-age=60");
+// Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
+// honors s-maxage at the edge; max-age stays short so browsers re-validate on nav.
+// stale-while-revalidate keeps the edge serving last-good response while it refreshes.
+Astro.response.headers.set(
+  "Cache-Control",
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+);
 ---
 
 <Base title={metadata.name} description={metadata.description ?? `${id} dataset on NEMAR`}>
