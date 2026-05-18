@@ -105,6 +105,58 @@ describe("detectProvenance", () => {
     }
   });
 
+  it("prefers canonical ds when multiple IsDerivedFrom entries exist", () => {
+    // Re-released datasets carry both the original and the canonical id as
+    // IsDerivedFrom. on002718 was originally ds000117 on OpenNeuro, then
+    // re-released as ds002718; the canonical (ds002718) must win the pick.
+    const p = detectProvenance(
+      meta({
+        dataset_id: "on002718",
+        related_identifiers: [
+          {
+            identifier: "10.18112/openneuro.ds000117",
+            identifier_type: "DOI",
+            relation_type: "IsDerivedFrom",
+          },
+          {
+            identifier: "10.18112/openneuro.ds002718.v1.1.0",
+            identifier_type: "DOI",
+            relation_type: "IsDerivedFrom",
+          },
+        ],
+      }),
+      null,
+    );
+    expect(p.kind).toBe("derived");
+    if (p.kind === "derived") {
+      expect(p.originalDatasetId).toBe("ds002718");
+      expect(p.originalDoi).toBe("10.18112/openneuro.ds002718.v1.1.0");
+      expect(p.originalUrl).toBe("https://openneuro.org/datasets/ds002718");
+    }
+  });
+
+  it("falls back to first IsDerivedFrom when canonical is absent", () => {
+    // Some datasets list only the older id (no canonical entry). Use it
+    // rather than silently dropping the provenance signal.
+    const p = detectProvenance(
+      meta({
+        dataset_id: "on999999",
+        related_identifiers: [
+          {
+            identifier: "10.18112/openneuro.ds000117",
+            identifier_type: "DOI",
+            relation_type: "IsDerivedFrom",
+          },
+        ],
+      }),
+      null,
+    );
+    expect(p.kind).toBe("derived");
+    if (p.kind === "derived") {
+      expect(p.originalDatasetId).toBe("ds000117");
+    }
+  });
+
   it("falls back to id prefix swap when no related_identifiers", () => {
     const p = detectProvenance(meta({ dataset_id: "on005262", related_identifiers: [] }), null);
     expect(p.kind).toBe("derived");

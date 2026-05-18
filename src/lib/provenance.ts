@@ -52,31 +52,45 @@ export function detectProvenance(
   const id = metadata.dataset_id;
   if (!id.startsWith("on")) return { kind: "native" };
 
-  let originalDatasetId: string | null = null;
-  let originalDoi: string | null = null;
-  let originalUrl: string | null = null;
+  // A dataset re-released on OpenNeuro under a new id keeps BOTH the old and
+  // new id in related_identifiers as IsDerivedFrom (e.g. on002718 lists both
+  // ds000117 and ds002718). Prefer the candidate whose extracted ds id
+  // matches the canonical on->ds swap so the chip and link agree with the
+  // dataset's actual source_id.
+  const expectedDsId = id.replace(/^on/, "ds").toLowerCase();
+  const candidates: Array<{ datasetId: string; doi: string | null; url: string | null }> = [];
 
   for (const ri of metadata.related_identifiers ?? []) {
     if (!DERIVED_RELATIONS.has(ri.relation_type)) continue;
     const fromUrl = OPENNEURO_HOST_PATTERN.exec(ri.identifier);
     if (fromUrl) {
-      originalDatasetId ??= fromUrl[1].toLowerCase();
-      originalUrl ??= ri.identifier_type === "URL" ? ri.identifier : null;
+      candidates.push({
+        datasetId: fromUrl[1].toLowerCase(),
+        doi: null,
+        url: ri.identifier_type === "URL" ? ri.identifier : null,
+      });
+      continue;
     }
     const fromId = OPENNEURO_ID_PATTERN.exec(ri.identifier);
-    if (fromId && ri.identifier_type === "DOI") {
-      originalDoi ??= ri.identifier;
-      originalDatasetId ??= fromId[1].toLowerCase();
-    } else if (fromId) {
-      originalDatasetId ??= fromId[1].toLowerCase();
+    if (fromId) {
+      candidates.push({
+        datasetId: fromId[1].toLowerCase(),
+        doi: ri.identifier_type === "DOI" ? ri.identifier : null,
+        url: null,
+      });
     }
   }
 
+  const picked = candidates.find((c) => c.datasetId === expectedDsId) ?? candidates[0] ?? null;
+
+  let originalDatasetId: string | null = picked?.datasetId ?? null;
+  const originalDoi: string | null = picked?.doi ?? null;
+  let originalUrl: string | null = picked?.url ?? null;
+
   if (!originalDatasetId) {
     // Last-ditch: convert on005262 -> ds005262.
-    const stripped = id.replace(/^on/, "ds");
-    if (OPENNEURO_ID_PATTERN.test(stripped)) {
-      originalDatasetId = stripped;
+    if (OPENNEURO_ID_PATTERN.test(expectedDsId)) {
+      originalDatasetId = expectedDsId;
     }
   }
 
