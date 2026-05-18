@@ -60,3 +60,25 @@ export async function getDataset(
   const raw = (await res.json()) as Dataset | { dataset: Dataset };
   return "dataset" in raw ? raw.dataset : raw;
 }
+
+/**
+ * Resolve an OpenNeuro source id (ds*) to its canonical NEMAR dataset id (on*),
+ * when a mirror exists in the catalog. Returns null when the id has no mirror
+ * yet or the endpoint is unreachable -- callers should treat null as
+ * "no canonical, render as-is".
+ */
+export async function resolveCanonical(
+  sourceId: string,
+  init: { signal?: AbortSignal; apiBase?: string } = {},
+): Promise<string | null> {
+  const url = `${apiBase(init.apiBase)}/datasets/resolve/${encodeURIComponent(sourceId)}`;
+  const res = await fetch(url, {
+    signal: init.signal,
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    return null;
+  }
+  const json = (await res.json()) as { found?: boolean; dataset_id?: string };
+  return json.found && json.dataset_id ? json.dataset_id : null;
+}
