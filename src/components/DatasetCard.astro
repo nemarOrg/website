@@ -9,8 +9,6 @@ interface Props {
 
 const { dataset } = Astro.props;
 const modalities = splitModalities(dataset.modalities);
-// Prefer the dataset's actual authors when the catalog row is enriched;
-// fall back to the uploader, then to "NEMAR" when neither is known.
 const byline = formatAuthorByline(dataset.authors) || dataset.owner_username || "NEMAR";
 const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
 const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;

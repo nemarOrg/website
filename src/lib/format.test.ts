@@ -34,6 +34,9 @@ describe("formatAuthorByline", () => {
     );
     expect(formatAuthorByline(",Arnaud Delorme,")).toBe("Arnaud Delorme");
   });
+  it("treats a whitespace-only first slot as missing, not as a name", () => {
+    expect(formatAuthorByline("  , Richard N Henson")).toBe("Richard N Henson");
+  });
 });
 
 describe("formatBytes", () => {

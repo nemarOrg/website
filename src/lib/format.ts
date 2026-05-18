@@ -48,15 +48,8 @@ export function splitModalities(raw: string | null | undefined): string[] {
   return result;
 }
 
-/**
- * Format a comma-separated authors string into a compact byline:
- *   - 0 authors -> ""
- *   - 1 author  -> "Daniel G. Wakeman"
- *   - 2+        -> "Daniel G. Wakeman et al."
- * Empty input or all-whitespace returns "". Use the result with a leading
- * "by " when rendering. The list endpoint stores authors as "First Last,
- * First Last, ..." so a simple comma split is sufficient.
- */
+// Comma-split assumes the catalog ships names in display order ("First Last");
+// a "Last, First" value would mis-split into two authors.
 export function formatAuthorByline(raw: string | null | undefined): string {
   if (!raw) return "";
   const names = raw
