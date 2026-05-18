@@ -48,6 +48,26 @@ export function splitModalities(raw: string | null | undefined): string[] {
   return result;
 }
 
+/**
+ * Format a comma-separated authors string into a compact byline:
+ *   - 0 authors -> ""
+ *   - 1 author  -> "Daniel G. Wakeman"
+ *   - 2+        -> "Daniel G. Wakeman et al."
+ * Empty input or all-whitespace returns "". Use the result with a leading
+ * "by " when rendering. The list endpoint stores authors as "First Last,
+ * First Last, ..." so a simple comma split is sufficient.
+ */
+export function formatAuthorByline(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const names = raw
+    .split(",")
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0);
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  return `${names[0]} et al.`;
+}
+
 const RELATIVE_RANGES: Array<[number, Intl.RelativeTimeFormatUnit]> = [
   [60, "second"],
   [60 * 60, "minute"],
