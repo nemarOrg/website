@@ -40,4 +40,4 @@ Don't reimplement these in the frontend — the website already has fallbacks; t
 
 ### Deploy authentication
 
-`cfman wrangler --account sccn` for everything. The token doesn't have memberships scope so always pass `CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c` explicitly. Don't write the token anywhere in this repo.
+`cfman wrangler --account sccn` for everything. The token doesn't have memberships scope so always pass `CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID"` explicitly (export the SCCN account id from your shell rc or pull it from a password manager). Don't write the account id or the token anywhere in this repo.

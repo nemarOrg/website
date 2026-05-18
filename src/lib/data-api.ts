@@ -99,9 +99,14 @@ export async function fetchManifestEntryText(
 
   try {
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      console.warn(`[data-api] manifest entry ${url}: ${res.status} ${res.statusText}`);
+      return null;
+    }
     return await res.text();
-  } catch {
+  } catch (err) {
+    console.warn(`[data-api] manifest entry ${url}: ${(err as Error).message ?? err}`);
     return null;
   } finally {
     clearTimeout(timer);
@@ -158,7 +163,15 @@ export async function fetchGithubReadme(
         return res.text();
       }),
     );
-  } catch {
+  } catch (err) {
+    // AggregateError when all 12 candidate URLs fail; flatten its inner
+    // errors so a GitHub outage or rename leaves a triageable tail-log
+    // entry instead of a silent null.
+    const detail =
+      err instanceof AggregateError
+        ? err.errors.map((e) => (e as Error).message).join(" | ")
+        : ((err as Error).message ?? String(err));
+    console.warn(`[data-api] github readme ${owner}/${repo}: ${detail}`);
     return null;
   } finally {
     clearTimeout(timer);
