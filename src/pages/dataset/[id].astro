@@ -8,10 +8,12 @@ import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Readme from "../../components/Readme.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DetailRail from "../../components/DetailRail.astro";
+import QualityPanel from "../../components/QualityPanel.astro";
 import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
 import { getDataset, resolveCanonical } from "../../lib/api";
 import { detectProvenance } from "../../lib/provenance";
 import { splitModalities } from "../../lib/format";
+import { getQaAggregates } from "../../lib/qa";
 import { ORG_DATASETS } from "../../lib/constants";
 
 const { id } = Astro.params;
@@ -36,10 +38,14 @@ const versionParam = url.searchParams.get("v");
 // The catalog row (api.nemar.org/datasets/<id>) is the fallback for
 // fields that the neuroschema metadata.json doesn't populate yet on
 // OpenNeuro-imported datasets (license, modalities, tasks, etc.).
-const [landing, metadata, catalogRow] = await Promise.all([
+// QA aggregates fetch tolerates 404s by returning null; QualityPanel renders
+// nothing when no data is available, so this is safe for datasets without
+// pipeline output yet.
+const [landing, metadata, catalogRow, qaAggregates] = await Promise.all([
   getLanding(id),
   getMetadata(id),
   getDataset(id).catch(() => null),
+  getQaAggregates(id).catch(() => null),
 ]);
 
 if (!landing || !metadata) {
@@ -165,6 +171,7 @@ Astro.response.headers.set(
     <div class="container detail__body">
       <div class="detail__main">
         <Readme defer datasetId={id} version={selectedVersion} />
+        <QualityPanel aggregates={qaAggregates} hedSummary={null} />
         {selectedVersion && (
           <BidsTree datasetId={id} version={selectedVersion} />
         )}

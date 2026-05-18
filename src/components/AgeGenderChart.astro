@@ -1,0 +1,121 @@
+---
+import { bucketAgesBySex } from "../lib/qa";
+
+interface Props {
+  ages: number[];
+  sexes: Array<"M" | "F" | "O" | null>;
+}
+
+const { ages, sexes } = Astro.props;
+const buckets = bucketAgesBySex(ages, sexes, 10);
+const maxCount = Math.max(1, ...buckets.flatMap((b) => [b.M, b.F, b.O]));
+
+// SVG geometry: each bucket has 3 paired bars (M/F/O), 6px wide each, 1px gap.
+// Bucket cell = 3*6 + 2*1 = 20. Plus a 4px right-margin per bucket = 24 step.
+const BAR_W = 6;
+const BAR_GAP = 1;
+const BUCKET_PAD = 4;
+const CELL_W = 3 * BAR_W + 2 * BAR_GAP + BUCKET_PAD;
+const TOTAL_W = buckets.length * CELL_W;
+const PLOT_H = 50;
+---
+
+<figure class="agender">
+  <figcaption>
+    <span class="agender__title">Age and gender</span>
+    <span class="agender__hint">{ages.length} participants</span>
+  </figcaption>
+  {buckets.length === 0 ? (
+    <div class="agender__empty">No demographics available</div>
+  ) : (
+    <svg viewBox={`0 0 ${TOTAL_W} 64`} preserveAspectRatio="none" class="agender__svg" role="img" aria-label="Age and gender distribution">
+      {buckets.map((b, i) => {
+        const x0 = i * CELL_W;
+        const mH = (b.M / maxCount) * PLOT_H;
+        const fH = (b.F / maxCount) * PLOT_H;
+        const oH = (b.O / maxCount) * PLOT_H;
+        return (
+          <g>
+            <rect x={x0} y={PLOT_H - mH} width={BAR_W} height={mH} fill="var(--modality-eeg)">
+              <title>{`${b.label}: ${b.M} M`}</title>
+            </rect>
+            <rect x={x0 + BAR_W + BAR_GAP} y={PLOT_H - fH} width={BAR_W} height={fH} fill="var(--modality-ieeg)">
+              <title>{`${b.label}: ${b.F} F`}</title>
+            </rect>
+            <rect x={x0 + 2 * (BAR_W + BAR_GAP)} y={PLOT_H - oH} width={BAR_W} height={oH} fill="var(--modality-emg)" opacity="0.8">
+              <title>{`${b.label}: ${b.O} O`}</title>
+            </rect>
+            <text x={x0 + (3 * BAR_W + 2 * BAR_GAP) / 2} y="60" text-anchor="middle" font-size="6" fill="var(--color-fg-subtle)" font-family="var(--font-mono)">
+              {b.label}
+            </text>
+          </g>
+        );
+      })}
+      <line x1="0" y1={PLOT_H} x2={TOTAL_W} y2={PLOT_H} stroke="var(--color-border)" stroke-width="0.5" />
+    </svg>
+  )}
+  <ul class="agender__legend" role="list">
+    <li><span class="agender__swatch" style="background: var(--modality-eeg)"></span> Male</li>
+    <li><span class="agender__swatch" style="background: var(--modality-ieeg)"></span> Female</li>
+    <li><span class="agender__swatch" style="background: var(--modality-emg); opacity:0.8"></span> Other / unknown</li>
+  </ul>
+</figure>
+
+<style>
+  .agender {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .agender figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .agender__title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .agender__hint {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .agender__svg {
+    inline-size: 100%;
+    aspect-ratio: 5 / 2;
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+  }
+  .agender__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .agender__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .agender__swatch {
+    inline-size: 10px;
+    block-size: 10px;
+    border-radius: 2px;
+  }
+  .agender__empty {
+    padding: var(--space-4);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    text-align: center;
+  }
+</style>
