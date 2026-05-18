@@ -1,0 +1,116 @@
+---
+import { buildHistogram } from "../lib/qa";
+
+interface Props {
+  title: string;
+  values: number[];
+  /** Optional domain override e.g. [0,100] for percentages. */
+  domain?: [number, number];
+  /** Units to render after the median value (e.g., "%", "dB"). */
+  unit?: string;
+  /** Bin count, default 10. */
+  binCount?: number;
+  /** Color, defaults to brand teal. */
+  fill?: string;
+}
+
+const { title, values, domain, unit = "", binCount = 10, fill = "var(--brand-teal)" } = Astro.props;
+const finite = values.filter((v) => Number.isFinite(v));
+const bins = buildHistogram(values, binCount, domain);
+const maxCount = Math.max(1, ...bins.map((b) => b.count));
+const sorted = [...finite].sort((a, b) => a - b);
+const median = sorted.length === 0 ? 0 : sorted[Math.floor(sorted.length / 2)];
+
+// SVG geometry: viewBox 0 0 120 60. Bars 10 wide with 2 gap = 12 step.
+const PLOT_H = 50;
+const BAR_W = 10;
+const GAP = 2;
+const TOTAL_W = bins.length * (BAR_W + GAP);
+---
+
+<figure class="hist">
+  <figcaption>
+    <span class="hist__title">{title}</span>
+    <span class="hist__hint">
+      <span class="hist__median">median {Math.round(median * 10) / 10}{unit}</span>
+      <span class="hist__n">n={finite.length}</span>
+    </span>
+  </figcaption>
+  {finite.length === 0 ? (
+    <div class="hist__empty">No data</div>
+  ) : (
+    <svg viewBox={`0 0 ${TOTAL_W} 60`} preserveAspectRatio="none" class="hist__svg" role="img" aria-label={title}>
+      {bins.map((b, i) => {
+        const h = (b.count / maxCount) * PLOT_H;
+        const y = PLOT_H - h;
+        const x = i * (BAR_W + GAP);
+        return (
+          <g>
+            <rect x={x} y={y} width={BAR_W} height={h} fill={fill} opacity={0.85}>
+              <title>{`${b.label}${unit}: ${b.count}`}</title>
+            </rect>
+          </g>
+        );
+      })}
+      {/* Baseline */}
+      <line x1="0" y1={PLOT_H} x2={TOTAL_W} y2={PLOT_H} stroke="var(--color-border)" stroke-width="0.5" />
+    </svg>
+  )}
+  <div class="hist__axis">
+    <span>{Math.round(bins[0]?.lo ?? 0)}{unit}</span>
+    <span>{Math.round(bins[bins.length - 1]?.hi ?? 0)}{unit}</span>
+  </div>
+</figure>
+
+<style>
+  .hist {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .hist figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .hist__title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .hist__hint {
+    display: inline-flex;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .hist__median {
+    color: var(--color-fg-muted);
+  }
+  .hist__svg {
+    inline-size: 100%;
+    aspect-ratio: 2 / 1;
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+  }
+  .hist__axis {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-fg-subtle);
+  }
+  .hist__empty {
+    padding: var(--space-4);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    text-align: center;
+  }
+</style>

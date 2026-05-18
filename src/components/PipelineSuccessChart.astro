@@ -1,0 +1,104 @@
+---
+import type { QaAggregates } from "../lib/qa";
+
+interface Props {
+  status: QaAggregates["pipelineStatus"];
+  total: number;
+}
+
+const { status, total } = Astro.props;
+// Build a single stacked horizontal bar so the eye reads it as ratios at a glance.
+const segments = [
+  { key: "finished", label: "Finished", count: status.finished, color: "var(--qa-good)" },
+  { key: "cleaning", label: "Cleaning", count: status.cleaning, color: "var(--qa-warn)" },
+  { key: "failed", label: "Failed", count: status.failed, color: "var(--qa-bad)" },
+  { key: "other", label: "Other", count: status.other, color: "var(--qa-neutral)" },
+].filter((s) => s.count > 0);
+
+let offset = 0;
+const segmentsWithGeometry = segments.map((s) => {
+  const widthPct = total > 0 ? (s.count / total) * 100 : 0;
+  const x = offset;
+  offset += widthPct;
+  return { ...s, widthPct, x };
+});
+---
+
+<figure class="chart chart--pipeline">
+  <figcaption>
+    <span class="chart__title">Pipeline success</span>
+    <span class="chart__hint">{total} files</span>
+  </figcaption>
+  <svg viewBox="0 0 100 18" preserveAspectRatio="none" class="chart__svg" role="img" aria-label="Pipeline success">
+    {segmentsWithGeometry.map((s) => (
+      <rect x={s.x} y="2" width={s.widthPct} height="14" fill={s.color} />
+    ))}
+  </svg>
+  <ul class="chart__legend" role="list">
+    {segmentsWithGeometry.map((s) => (
+      <li>
+        <span class="chart__swatch" style={`background:${s.color}`}></span>
+        <span class="chart__legend-label">{s.label}</span>
+        <span class="chart__legend-count">{s.count}</span>
+      </li>
+    ))}
+  </ul>
+</figure>
+
+<style>
+  .chart {
+    margin: 0;
+    --qa-good: #22c55e;
+    --qa-warn: #f59e0b;
+    --qa-bad: #ef4444;
+    --qa-neutral: #94a3b8;
+  }
+  .chart figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-block-end: var(--space-2);
+  }
+  .chart__title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .chart__hint {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .chart__svg {
+    inline-size: 100%;
+    block-size: 18px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--color-bg-subtle);
+  }
+  .chart__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-block-start: var(--space-2);
+    list-style: none;
+    padding: 0;
+  }
+  .chart__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .chart__swatch {
+    inline-size: 10px;
+    block-size: 10px;
+    border-radius: 2px;
+  }
+  .chart__legend-count {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+  }
+</style>
