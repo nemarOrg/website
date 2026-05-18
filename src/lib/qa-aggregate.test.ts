@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildQaAggregates } from "./qa-aggregate";
 
 const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -19,10 +23,13 @@ function notFound(): Response {
   return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
 }
 
+// Mock router that requires an EXACT URL match. Production servers behave
+// the same way (the bare `<id>/qa` form 308-redirects to a broken path),
+// so tests verify the code actually appends the trailing slash to listings.
 function makeRouter(routes: Record<string, () => Response>): typeof fetch {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    const route = routes[url] ?? routes[url.replace(/\/$/, "")];
+    const route = routes[url];
     return route ? route() : notFound();
   }) as unknown as typeof fetch;
 }
@@ -35,7 +42,7 @@ describe("buildQaAggregates", () => {
 
   it("returns null when the qa tree has no per-file dataqual files", async () => {
     globalThis.fetch = makeRouter({
-      "https://data.nemar.org/on999999/qa": () =>
+      "https://data.nemar.org/on999999/qa/": () =>
         jsonResponse({
           dataset_id: "on999999",
           path: "",
@@ -44,6 +51,24 @@ describe("buildQaAggregates", () => {
         }),
     }) as typeof fetch;
     expect(await buildQaAggregates("on999999")).toBeNull();
+  });
+
+  it("requires the listing URL to end in '/' (matches production 308 behavior)", async () => {
+    // Only register the trailing-slash form. If the implementation ever
+    // dropped its trailing-slash append, this test would catch the
+    // production-only regression (bare path 308-redirects to a broken
+    // /data/ prefix that returns 404).
+    const id = "on002718";
+    globalThis.fetch = makeRouter({
+      [`https://data.nemar.org/${id}/qa/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "",
+          kind: "directory",
+          children: [{ kind: "file", name: "dataqual.json" }],
+        }),
+    }) as typeof fetch;
+    expect(await buildQaAggregates(id)).toBeNull();
   });
 
   it("aggregates per-file dataqual into QaAggregates arrays", async () => {
@@ -64,7 +89,7 @@ describe("buildQaAggregates", () => {
       ],
     });
     globalThis.fetch = makeRouter({
-      [`https://data.nemar.org/${id}/qa`]: () =>
+      [`https://data.nemar.org/${id}/qa/`]: () =>
         jsonResponse({
           dataset_id: id,
           path: "",
@@ -75,10 +100,10 @@ describe("buildQaAggregates", () => {
             { kind: "file", name: "dataqual.json" },
           ],
         }),
-      [`https://data.nemar.org/${id}/qa/sub-002`]: () => jsonResponse(subjectListing("sub-002")),
-      [`https://data.nemar.org/${id}/qa/sub-003`]: () => jsonResponse(subjectListing("sub-003")),
-      [`https://data.nemar.org/${id}/qa/sub-002/eeg`]: () => jsonResponse(eegListing("sub-002")),
-      [`https://data.nemar.org/${id}/qa/sub-003/eeg`]: () => jsonResponse(eegListing("sub-003")),
+      [`https://data.nemar.org/${id}/qa/sub-002/`]: () => jsonResponse(subjectListing("sub-002")),
+      [`https://data.nemar.org/${id}/qa/sub-003/`]: () => jsonResponse(subjectListing("sub-003")),
+      [`https://data.nemar.org/${id}/qa/sub-002/eeg/`]: () => jsonResponse(eegListing("sub-002")),
+      [`https://data.nemar.org/${id}/qa/sub-003/eeg/`]: () => jsonResponse(eegListing("sub-003")),
       [`https://data.nemar.org/${id}/qa/sub-002/eeg/sub-002_task-X_eeg_dataqual.json`]: () =>
         jsonResponse({
           goodDataPercentRaw: "81",
@@ -108,24 +133,115 @@ describe("buildQaAggregates", () => {
     expect(result?.pipelineStatus.failed).toBe(0);
   });
 
-  it("counts icaFail>0 entries as failed in pipelineStatus", async () => {
-    const id = "on000001";
+  it("descends three+ levels for session-structured BIDS (sub/ses/modality)", async () => {
+    const id = "on003190";
     globalThis.fetch = makeRouter({
-      [`https://data.nemar.org/${id}/qa`]: () =>
+      [`https://data.nemar.org/${id}/qa/`]: () =>
         jsonResponse({
           dataset_id: id,
           path: "",
           kind: "directory",
           children: [{ kind: "dir", name: "sub-01" }],
         }),
-      [`https://data.nemar.org/${id}/qa/sub-01`]: () =>
+      [`https://data.nemar.org/${id}/qa/sub-01/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01",
+          kind: "directory",
+          children: [{ kind: "dir", name: "ses-01" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/ses-01/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01/ses-01",
+          kind: "directory",
+          children: [{ kind: "dir", name: "eeg" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/ses-01/eeg/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01/ses-01/eeg",
+          kind: "directory",
+          children: [
+            { kind: "file", name: "sub-01_ses-01_task-X_eeg_dataqual.json" },
+          ],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/ses-01/eeg/sub-01_ses-01_task-X_eeg_dataqual.json`]:
+        () =>
+          jsonResponse({
+            goodDataPercentRaw: "70",
+            goodChansPercentRaw: "80",
+            goodICAPercentRaw: "85",
+            linenoise_magn: "10.0dB",
+            icaFail: 0,
+          }),
+    }) as typeof fetch;
+
+    const result = await buildQaAggregates(id);
+    expect(result?.files).toBe(1);
+    expect(result?.goodDataPercent).toEqual([70]);
+  });
+
+  it("still aggregates the successful subjects when one subject listing 404s", async () => {
+    const id = "on000002";
+    const goodSubjectListing = {
+      dataset_id: id,
+      path: "sub-01/eeg",
+      kind: "directory" as const,
+      children: [{ kind: "file" as const, name: "sub-01_task-X_eeg_dataqual.json" }],
+    };
+    globalThis.fetch = makeRouter({
+      [`https://data.nemar.org/${id}/qa/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "",
+          kind: "directory",
+          children: [
+            { kind: "dir", name: "sub-01" },
+            { kind: "dir", name: "sub-02" }, // intentionally unregistered -> 404
+          ],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/`]: () =>
         jsonResponse({
           dataset_id: id,
           path: "sub-01",
           kind: "directory",
           children: [{ kind: "dir", name: "eeg" }],
         }),
-      [`https://data.nemar.org/${id}/qa/sub-01/eeg`]: () =>
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/`]: () => jsonResponse(goodSubjectListing),
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/sub-01_task-X_eeg_dataqual.json`]: () =>
+        jsonResponse({
+          goodDataPercentRaw: "88",
+          goodChansPercentRaw: "90",
+          goodICAPercentRaw: "92",
+          linenoise_magn: "8.0dB",
+          icaFail: 0,
+        }),
+    }) as typeof fetch;
+
+    const result = await buildQaAggregates(id);
+    expect(result?.files).toBe(1);
+    expect(result?.goodDataPercent).toEqual([88]);
+  });
+
+  it("counts icaFail>0 entries as failed in pipelineStatus", async () => {
+    const id = "on000001";
+    globalThis.fetch = makeRouter({
+      [`https://data.nemar.org/${id}/qa/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "",
+          kind: "directory",
+          children: [{ kind: "dir", name: "sub-01" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01",
+          kind: "directory",
+          children: [{ kind: "dir", name: "eeg" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/`]: () =>
         jsonResponse({
           dataset_id: id,
           path: "sub-01/eeg",
@@ -143,6 +259,77 @@ describe("buildQaAggregates", () => {
 
     const result = await buildQaAggregates(id);
     expect(result?.pipelineStatus.failed).toBe(1);
+    expect(result?.pipelineStatus.finished).toBe(0);
+  });
+
+  it("classifies a file with only line-noise (no percent fields) as 'other'", async () => {
+    const id = "on000003";
+    globalThis.fetch = makeRouter({
+      [`https://data.nemar.org/${id}/qa/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "",
+          kind: "directory",
+          children: [{ kind: "dir", name: "sub-01" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01",
+          kind: "directory",
+          children: [{ kind: "dir", name: "eeg" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01/eeg",
+          kind: "directory",
+          children: [{ kind: "file", name: "sub-01_task-X_eeg_dataqual.json" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/sub-01_task-X_eeg_dataqual.json`]: () =>
+        jsonResponse({ linenoise_magn: "12.0dB", icaFail: 0 }),
+    }) as typeof fetch;
+
+    const result = await buildQaAggregates(id);
+    expect(result?.pipelineStatus.other).toBe(1);
+    expect(result?.pipelineStatus.finished).toBe(0);
+    expect(result?.linenoiseDb).toEqual([12]);
+  });
+
+  it("classifies a file missing only the ICA percent as 'cleaning'", async () => {
+    const id = "on000004";
+    globalThis.fetch = makeRouter({
+      [`https://data.nemar.org/${id}/qa/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "",
+          kind: "directory",
+          children: [{ kind: "dir", name: "sub-01" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01",
+          kind: "directory",
+          children: [{ kind: "dir", name: "eeg" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/`]: () =>
+        jsonResponse({
+          dataset_id: id,
+          path: "sub-01/eeg",
+          kind: "directory",
+          children: [{ kind: "file", name: "sub-01_task-X_eeg_dataqual.json" }],
+        }),
+      [`https://data.nemar.org/${id}/qa/sub-01/eeg/sub-01_task-X_eeg_dataqual.json`]: () =>
+        jsonResponse({
+          goodDataPercentRaw: "80",
+          goodChansPercentRaw: "85",
+          icaFail: 0,
+        }),
+    }) as typeof fetch;
+
+    const result = await buildQaAggregates(id);
+    expect(result?.pipelineStatus.cleaning).toBe(1);
     expect(result?.pipelineStatus.finished).toBe(0);
   });
 });

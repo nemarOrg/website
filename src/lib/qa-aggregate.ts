@@ -2,6 +2,10 @@ import type { QaAggregates } from "./qa";
 import { parseLinenoiseDb } from "./qa";
 
 const DEFAULT_DATA_BASE = "https://data.nemar.org";
+// Cap simultaneous per-file fetches so a 200-subject dataset doesn't saturate
+// data.nemar.org (triggering 429s) or graze Cloudflare Worker subrequest
+// ceilings. 25 is comfortable below both and keeps cold-call latency reasonable.
+const PER_FILE_CONCURRENCY = 25;
 
 interface ListingNode {
   kind: "dir" | "file";
@@ -32,6 +36,11 @@ interface PerFileDataqual {
  * Returns null when the dataset has no QA tree at all (most datasets
  * today). Skips the root summary file -- it does not have the per-file
  * fields we need.
+ *
+ * pipelineStatus classification is a heuristic over field presence: hallu
+ * doesn't emit an explicit stage flag, so a future shape change that drops
+ * goodDataPercentRaw on a finished file would silently land in `other`.
+ * Worth a re-think when hallu#511 follow-ups expose explicit state.
  */
 export async function buildQaAggregates(
   id: string,
@@ -49,12 +58,14 @@ export async function buildQaAggregates(
   const dataqualUrls = await collectDataqualUrls(root, rootDir, init.signal);
   if (dataqualUrls.length === 0) return null;
 
-  const perFile = await Promise.all(
-    dataqualUrls.map((url) => fetchPerFileDataqual(url, init.signal)),
-  );
-
+  const perFile = await fetchBatched(dataqualUrls, init.signal);
   const valid = perFile.filter((p): p is PerFileDataqual => p != null);
   if (valid.length === 0) return null;
+  if (valid.length < dataqualUrls.length) {
+    console.warn(
+      `[qa-aggregate] ${id}: ${valid.length}/${dataqualUrls.length} per-file dataquals fetched; aggregate may be incomplete`,
+    );
+  }
 
   const goodDataPercent: number[] = [];
   const goodChansPercent: number[] = [];
@@ -75,9 +86,6 @@ export async function buildQaAggregates(
     if (ica != null) goodICAPercent.push(ica);
     if (lineNoise != null) linenoiseDb.push(lineNoise);
 
-    // icaFail > 0 means the ICA stage failed for that file; everything else
-    // we treat as "finished" since hallu only writes dataqual.json on
-    // pipeline completion. Future shapes may expose explicit stage state.
     if ((p.icaFail ?? 0) > 0) failed += 1;
     else if (data == null && chans == null) other += 1;
     else if (ica == null) cleaning += 1;
@@ -95,15 +103,42 @@ export async function buildQaAggregates(
   };
 }
 
+// Fetch URLs in bounded-concurrency batches. Order preservation matters for
+// nothing here (the aggregates are reduced, not aligned), but the simple
+// chunked approach keeps the implementation small and dependency-free.
+async function fetchBatched(
+  urls: string[],
+  signal: AbortSignal | undefined,
+): Promise<(PerFileDataqual | null)[]> {
+  const out: (PerFileDataqual | null)[] = [];
+  for (let i = 0; i < urls.length; i += PER_FILE_CONCURRENCY) {
+    const batch = urls.slice(i, i + PER_FILE_CONCURRENCY);
+    const results = await Promise.all(batch.map((u) => fetchPerFileDataqual(u, signal)));
+    out.push(...results);
+  }
+  return out;
+}
+
 async function fetchListing(
   url: string,
   signal: AbortSignal | undefined,
 ): Promise<ListingResponse | null> {
   try {
     const res = await fetch(url, { signal, headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
-    return (await res.json()) as ListingResponse;
-  } catch {
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      console.warn(`[qa-aggregate] listing ${url}: ${res.status} ${res.statusText}`);
+      return null;
+    }
+    const body = (await res.json()) as ListingResponse;
+    // A truncated listing means the walker silently saw a partial subtree.
+    // Better to surface it than to serve an under-counted aggregate.
+    if (body.truncated) {
+      console.warn(`[qa-aggregate] listing truncated at ${url}; aggregate may be incomplete`);
+    }
+    return body;
+  } catch (err) {
+    console.warn(`[qa-aggregate] listing ${url}: ${(err as Error).message ?? err}`);
     return null;
   }
 }
@@ -114,9 +149,14 @@ async function fetchPerFileDataqual(
 ): Promise<PerFileDataqual | null> {
   try {
     const res = await fetch(url, { signal, headers: { Accept: "application/json" } });
-    if (!res.ok) return null;
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      console.warn(`[qa-aggregate] file ${url}: ${res.status} ${res.statusText}`);
+      return null;
+    }
     return (await res.json()) as PerFileDataqual;
-  } catch {
+  } catch (err) {
+    console.warn(`[qa-aggregate] file ${url}: ${(err as Error).message ?? err}`);
     return null;
   }
 }
