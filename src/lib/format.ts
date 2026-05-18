@@ -48,6 +48,19 @@ export function splitModalities(raw: string | null | undefined): string[] {
   return result;
 }
 
+// Comma-split assumes the catalog ships names in display order ("First Last");
+// a "Last, First" value would mis-split into two authors.
+export function formatAuthorByline(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const names = raw
+    .split(",")
+    .map((n) => n.trim())
+    .filter((n) => n.length > 0);
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  return `${names[0]} et al.`;
+}
+
 const RELATIVE_RANGES: Array<[number, Intl.RelativeTimeFormatUnit]> = [
   [60, "second"],
   [60 * 60, "minute"],

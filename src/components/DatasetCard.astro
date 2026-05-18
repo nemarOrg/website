@@ -1,6 +1,6 @@
 ---
 import type { Dataset } from "../lib/types";
-import { formatBytes, formatDate, splitModalities } from "../lib/format";
+import { formatAuthorByline, formatBytes, formatDate, splitModalities } from "../lib/format";
 import ModalityBadge from "./ModalityBadge.astro";
 
 interface Props {
@@ -9,7 +9,7 @@ interface Props {
 
 const { dataset } = Astro.props;
 const modalities = splitModalities(dataset.modalities);
-const owner = dataset.owner_username ?? "NEMAR";
+const byline = formatAuthorByline(dataset.authors) || dataset.owner_username || "NEMAR";
 const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
 const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
 
@@ -67,7 +67,7 @@ if (updated) {
   </a>
 
   <footer class="ds-card__foot">
-    <span class="ds-card__owner">by {owner}</span>
+    <span class="ds-card__owner">by {byline}</span>
     {openneuroId && (
       <a
         class="ds-card__source"

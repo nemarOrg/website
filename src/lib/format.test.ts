@@ -1,11 +1,43 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatAuthorByline,
   formatBytes,
   formatCount,
   formatDate,
   formatRelativeTime,
   splitModalities,
 } from "./format";
+
+describe("formatAuthorByline", () => {
+  it("returns empty for nullish or whitespace-only input", () => {
+    expect(formatAuthorByline(null)).toBe("");
+    expect(formatAuthorByline(undefined)).toBe("");
+    expect(formatAuthorByline("")).toBe("");
+    expect(formatAuthorByline("   ")).toBe("");
+    expect(formatAuthorByline(", ,")).toBe("");
+  });
+  it("returns a single author verbatim (trimmed)", () => {
+    expect(formatAuthorByline("Arnaud Delorme")).toBe("Arnaud Delorme");
+    expect(formatAuthorByline("  Daniel G. Wakeman  ")).toBe("Daniel G. Wakeman");
+  });
+  it("returns first author with et al. when there are 2 or more", () => {
+    expect(formatAuthorByline("Daniel G. Wakeman, Richard N Henson")).toBe(
+      "Daniel G. Wakeman et al.",
+    );
+    expect(
+      formatAuthorByline("Jonel Morris, Kenneth Cruz, Raydeep Kainth, Daniel Ferris"),
+    ).toBe("Jonel Morris et al.");
+  });
+  it("ignores empty entries between commas", () => {
+    expect(formatAuthorByline("Daniel G. Wakeman,, Richard N Henson")).toBe(
+      "Daniel G. Wakeman et al.",
+    );
+    expect(formatAuthorByline(",Arnaud Delorme,")).toBe("Arnaud Delorme");
+  });
+  it("treats a whitespace-only first slot as missing, not as a name", () => {
+    expect(formatAuthorByline("  , Richard N Henson")).toBe("Richard N Henson");
+  });
+});
 
 describe("formatBytes", () => {
   it("returns 0 B for zero or negative", () => {
