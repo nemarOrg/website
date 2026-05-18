@@ -1,0 +1,14 @@
+name = "nemar-website"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./dist"
+
+# Production env vars
+[vars]
+PUBLIC_API_BASE_URL = "https://api.nemar.org"
+PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
+
+# Preview env vars (override on Pages dashboard if needed)
+[env.preview.vars]
+PUBLIC_API_BASE_URL = "https://api.nemar.org"
+PUBLIC_DATA_BASE_URL = "https://data.nemar.org"

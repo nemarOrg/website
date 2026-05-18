@@ -1,0 +1,238 @@
+---
+import type { Dataset } from "../lib/types";
+import { formatAuthorByline, formatBytes, formatDate, splitModalities } from "../lib/format";
+import ModalityBadge from "./ModalityBadge.astro";
+
+interface Props {
+  dataset: Dataset;
+}
+
+const { dataset } = Astro.props;
+const modalities = splitModalities(dataset.modalities);
+const byline = formatAuthorByline(dataset.authors) || dataset.owner_username || "NEMAR";
+const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
+const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
+
+interface Fact {
+  label: string;
+  value: string;
+}
+
+const facts: Fact[] = [];
+if (dataset.participants > 0) {
+  facts.push({ label: "Participants", value: String(dataset.participants) });
+}
+if (dataset.file_size > 0) {
+  facts.push({ label: "Size", value: formatBytes(dataset.file_size) });
+}
+if (dataset.latest_version) {
+  facts.push({ label: "Version", value: `v${dataset.latest_version}` });
+}
+const updated = formatDate(dataset.updated_at);
+if (updated) {
+  facts.push({ label: "Updated", value: updated });
+}
+---
+
+<article class="ds-card">
+  <a class="ds-card__link" href={detailHref} aria-label={`Open ${dataset.name}`}>
+    <header class="ds-card__head">
+      <div class="ds-card__title-block">
+        <span class="ds-card__id">{dataset.dataset_id}</span>
+        <h3 class="ds-card__name">{dataset.name}</h3>
+      </div>
+      {modalities.length > 0 ? (
+        <div class="ds-card__mods">
+          {modalities.map((m) => <ModalityBadge modality={m} />)}
+        </div>
+      ) : (
+        <span class="ds-card__mods-empty">Modalities pending</span>
+      )}
+    </header>
+
+    {dataset.description && (
+      <p class="ds-card__desc">{dataset.description}</p>
+    )}
+
+    {facts.length > 0 && (
+      <dl class="ds-card__facts">
+        {facts.map((f) => (
+          <div>
+            <dt>{f.label}</dt>
+            <dd>{f.value}</dd>
+          </div>
+        ))}
+      </dl>
+    )}
+  </a>
+
+  <footer class="ds-card__foot">
+    <span class="ds-card__owner">by {byline}</span>
+    {openneuroId && (
+      <a
+        class="ds-card__source"
+        href={`https://openneuro.org/datasets/${openneuroId}`}
+        rel="external"
+      >
+        OpenNeuro {openneuroId}
+        <svg class="ds-card__ext" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 17 17 7M9 7h8v8"/>
+        </svg>
+      </a>
+    )}
+  </footer>
+</article>
+
+<style>
+  .ds-card {
+    display: grid;
+    gap: 0;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .ds-card:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-md);
+  }
+  .ds-card:focus-within {
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .ds-card__link {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-6);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .ds-card__link:hover {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .ds-card__link:focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+  .ds-card__link:hover .ds-card__name {
+    color: var(--color-link);
+  }
+  .ds-card__head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-4);
+    align-items: baseline;
+  }
+  .ds-card__title-block {
+    min-inline-size: 0;
+  }
+  .ds-card__id {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    letter-spacing: 0.04em;
+  }
+  .ds-card__name {
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    margin: 0;
+    line-height: var(--lh-snug);
+    text-wrap: pretty;
+    transition: color 0.15s ease;
+  }
+  .ds-card__mods {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    justify-content: flex-end;
+    flex-shrink: 0;
+  }
+  .ds-card__mods-empty {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    align-self: center;
+  }
+  .ds-card__desc {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ds-card__facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-5);
+    margin: 0;
+  }
+  .ds-card__facts > div {
+    display: flex;
+    flex-direction: column;
+  }
+  .ds-card__facts dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: var(--lh-tight);
+  }
+  .ds-card__facts dd {
+    margin: 2px 0 0;
+    font-family: var(--font-display);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .ds-card__foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-6);
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .ds-card__owner {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .ds-card__source {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-fg-muted);
+    text-decoration: none;
+  }
+  .ds-card__source:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .ds-card__ext {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+  @media (max-width: 540px) {
+    .ds-card__head {
+      grid-template-columns: 1fr;
+    }
+    .ds-card__mods {
+      justify-content: flex-start;
+    }
+  }
+</style>

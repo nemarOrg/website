@@ -1,0 +1,106 @@
+---
+interface Props {
+  value?: string;
+  placeholder?: string;
+  /** Form action URL (defaults to /discover). */
+  action?: string;
+  /** Visual size: 'md' default, 'lg' for hero. */
+  size?: "md" | "lg";
+  /** Optional aria-label override for the input. */
+  label?: string;
+}
+
+const {
+  value = "",
+  placeholder = "Search EEG, MEG, iEEG, EMG datasets...",
+  action = "/discover",
+  size = "md",
+  label = "Search datasets",
+} = Astro.props;
+const inputId = `search-${Math.random().toString(36).slice(2, 8)}`;
+---
+
+<form class:list={["searchbar", `searchbar--${size}`]} action={action} method="get" role="search">
+  <label class="visually-hidden" for={inputId}>{label}</label>
+  <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+    <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+  </svg>
+  <input
+    id={inputId}
+    name="q"
+    type="search"
+    value={value}
+    placeholder={placeholder}
+    autocomplete="off"
+  />
+  <button type="submit" class="searchbar__submit">Search</button>
+</form>
+
+<style>
+  .searchbar {
+    position: relative;
+    display: flex;
+    gap: var(--space-2);
+    inline-size: 100%;
+  }
+  .searchbar--md {
+    max-inline-size: 36rem;
+  }
+  .searchbar--lg {
+    max-inline-size: 44rem;
+  }
+  .searchbar__icon {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: var(--space-4);
+    transform: translateY(-50%);
+    inline-size: 18px;
+    block-size: 18px;
+    color: var(--color-fg-subtle);
+    pointer-events: none;
+  }
+  .searchbar--lg .searchbar__icon {
+    inline-size: 20px;
+    block-size: 20px;
+    inset-inline-start: var(--space-5);
+  }
+  .searchbar input[type="search"] {
+    flex: 1;
+    padding: 10px var(--space-4) 10px calc(var(--space-4) + 24px);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    box-shadow: var(--shadow-sm);
+    min-block-size: 44px;
+  }
+  .searchbar--lg input[type="search"] {
+    padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 28px);
+    font-size: var(--fs-lg);
+  }
+  .searchbar input[type="search"]:focus-visible {
+    border-color: var(--color-focus);
+  }
+  .searchbar input[type="search"]::placeholder {
+    color: var(--color-fg-subtle);
+  }
+  .searchbar__submit {
+    padding: 0 var(--space-5);
+    min-block-size: 44px;
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+    box-shadow: var(--shadow-sm);
+  }
+  .searchbar--lg .searchbar__submit {
+    padding: var(--space-4) var(--space-8);
+    font-size: var(--fs-base);
+  }
+  .searchbar__submit:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+</style>

@@ -1,0 +1,337 @@
+---
+import { renderMarkdown } from "../lib/markdown";
+
+interface Props {
+  /** SSR source. When provided, README is rendered inline. */
+  source?: string | null;
+  /** What origin produced the rendered content. `null` = manifest README (no banner). */
+  fallbackKind?: "github" | "description" | null;
+  githubUrl?: string | null;
+  /**
+   * When true, render an empty skeleton + data attrs and let the client fetch
+   * the rendered README HTML from `/api/dataset/<id>/readme?v=<v>` after page
+   * load. Cuts SSR critical path by ~500–1500 ms.
+   */
+  defer?: boolean;
+  datasetId?: string;
+  version?: string | null;
+}
+
+const {
+  source = null,
+  fallbackKind = null,
+  githubUrl = null,
+  defer = false,
+  datasetId = null,
+  version = null,
+} = Astro.props;
+
+const html = !defer && source ? renderMarkdown(source) : null;
+---
+
+{defer && datasetId && version ? (
+  <article class="readme" data-readme-defer data-id={datasetId} data-version={version} aria-busy="true">
+    <div class="readme__skeleton" aria-hidden="true">
+      <div class="readme__skeleton-row" style="width: 60%"></div>
+      <div class="readme__skeleton-row" style="width: 100%"></div>
+      <div class="readme__skeleton-row" style="width: 88%"></div>
+      <div class="readme__skeleton-row" style="width: 92%"></div>
+      <div class="readme__skeleton-row" style="width: 70%"></div>
+    </div>
+    <noscript>
+      <p class="readme__empty">README requires JavaScript. <a href={`/api/dataset/${datasetId}/readme?v=${encodeURIComponent(version)}`}>View raw HTML</a>.</p>
+    </noscript>
+  </article>
+) : (
+  <article class="readme">
+    {html && fallbackKind === "github" && (
+      <div class="readme__fallback-note" role="note">
+        <strong>README from GitHub repository</strong>
+        <span>
+          This README isn't in the version manifest yet. Showing the latest
+          from
+          {githubUrl ? <a href={githubUrl} rel="external">{githubUrl.replace(/^https?:\/\//, "")}</a> : <span>the dataset repository</span>}
+          instead.
+        </span>
+      </div>
+    )}
+    {html && fallbackKind === "description" && (
+      <div class="readme__fallback-note" role="note">
+        <strong>Description (from dataset metadata)</strong>
+        <span>This dataset doesn't ship a README. Showing the BIDS description instead.</span>
+      </div>
+    )}
+    {html ? (
+      <div class="readme__wrap" data-readme-wrap>
+        <div class="readme__body" set:html={html} />
+        <div class="readme__fade" aria-hidden="true"></div>
+        <div class="readme__toolbar">
+          <button
+            class="readme__toggle"
+            type="button"
+            data-readme-toggle
+            aria-expanded="false"
+            aria-controls="readme-body"
+          >
+            <span class="readme__toggle-label">Expand README</span>
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div class="readme__empty">
+        <h2>No description available</h2>
+        <p>
+          This dataset doesn't ship a README and the BIDS metadata has no
+          description either. The file tree below and the metadata panel on
+          the right are the authoritative description for now. The dataset's
+          GitHub repository may have curation notes added later.
+        </p>
+      </div>
+    )}
+  </article>
+)}
+
+<style is:global>
+  /* is:global because the readme HTML can be rendered server-side by the
+     /api/dataset/<id>/readme endpoint and injected client-side, in which
+     case it doesn't carry Astro's component-scope data attribute. */
+  .readme {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6) var(--space-8);
+  }
+  @media (max-width: 540px) {
+    .readme {
+      padding: var(--space-5);
+    }
+  }
+  .readme__skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding-block: var(--space-2);
+  }
+  .readme__skeleton-row {
+    block-size: 1em;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+      90deg,
+      var(--color-bg-subtle) 0%,
+      var(--color-bg-elevated) 50%,
+      var(--color-bg-subtle) 100%
+    );
+    background-size: 200% 100%;
+    animation: readme-shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes readme-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+  .readme__fallback-note {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 30%, transparent);
+    background: color-mix(in srgb, var(--brand-teal) 6%, transparent);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+  }
+  .readme__fallback-note strong {
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .readme__fallback-note span {
+    color: var(--color-fg-muted);
+  }
+  .readme__wrap {
+    position: relative;
+    max-block-size: 32rem;
+    overflow: hidden;
+    transition: max-block-size 0.2s ease;
+  }
+  .readme__wrap.is-expanded {
+    max-block-size: none;
+    overflow: visible;
+  }
+  .readme__body {
+    max-inline-size: 72ch;
+    overflow-y: auto;
+    max-block-size: inherit;
+    padding-block-end: var(--space-12);
+  }
+  .readme__wrap.is-expanded .readme__body {
+    overflow-y: visible;
+    padding-block-end: 0;
+  }
+  /* Fade-out gradient at the bottom while collapsed. */
+  .readme__fade {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    block-size: 5rem;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      color-mix(in srgb, var(--color-bg) 60%, transparent) 50%,
+      var(--color-bg) 100%
+    );
+  }
+  .readme__wrap.is-expanded .readme__fade {
+    display: none;
+  }
+  .readme__toolbar {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    display: flex;
+    justify-content: center;
+    padding-block-end: var(--space-3);
+    pointer-events: none;
+  }
+  .readme__wrap.is-expanded .readme__toolbar {
+    position: relative;
+    inset: auto;
+    padding-block-start: var(--space-4);
+    padding-block-end: 0;
+  }
+  .readme__toggle {
+    pointer-events: auto;
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .readme__toggle:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+  }
+  /* Body styles for the rendered markdown content. */
+  .readme__body h1,
+  .readme__body h2,
+  .readme__body h3,
+  .readme__body h4 {
+    font-family: var(--font-display);
+    color: var(--color-fg);
+    margin-block-start: var(--space-6);
+    margin-block-end: var(--space-3);
+    line-height: var(--lh-tight);
+  }
+  .readme__body h1 {
+    font-size: var(--fs-3xl);
+    margin-block-start: 0;
+  }
+  .readme__body h2 {
+    font-size: var(--fs-2xl);
+  }
+  .readme__body h3 {
+    font-size: var(--fs-xl);
+  }
+  .readme__body h4 {
+    font-size: var(--fs-lg);
+  }
+  .readme__body p,
+  .readme__body li {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .readme__body p {
+    margin-block-end: var(--space-4);
+  }
+  .readme__body ul,
+  .readme__body ol {
+    margin-block-end: var(--space-4);
+    padding-inline-start: var(--space-5);
+  }
+  .readme__body li {
+    margin-block-end: var(--space-1);
+  }
+  .readme__body a {
+    color: var(--color-link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .readme__body a:hover {
+    color: var(--color-link-hover);
+  }
+  .readme__body code {
+    background: var(--color-bg-subtle);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+  }
+  .readme__body pre {
+    background: var(--color-bg-subtle);
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    margin-block-end: var(--space-4);
+  }
+  .readme__body pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .readme__body hr {
+    border: 0;
+    border-block-start: 1px solid var(--color-border);
+    margin-block: var(--space-6);
+  }
+  .readme__body strong {
+    color: var(--color-fg);
+  }
+  .readme__empty h2 {
+    font-size: var(--fs-xl);
+    margin-block-end: var(--space-2);
+  }
+  .readme__empty p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+</style>
+
+<script>
+  // Expand/collapse uses delegated event listeners so the same handlers work
+  // for the inlined-on-SSR variant AND for HTML loaded later by the defer
+  // path (/api/dataset/<id>/readme).
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest<HTMLButtonElement>("[data-readme-toggle]");
+    if (!btn) return;
+    const wrap = btn.closest<HTMLElement>("[data-readme-wrap]");
+    if (!wrap) return;
+    const expanded = wrap.classList.toggle("is-expanded");
+    btn.setAttribute("aria-expanded", String(expanded));
+    const label = btn.querySelector<HTMLSpanElement>(".readme__toggle-label");
+    if (label) label.textContent = expanded ? "Collapse README" : "Expand README";
+  });
+
+  /** Hide the toggle entirely on short READMEs that fit within the cap. */
+  function syncToggleVisibility(wrap: HTMLElement): void {
+    const body = wrap.querySelector<HTMLElement>(".readme__body");
+    if (!body) return;
+    requestAnimationFrame(() => {
+      if (body.scrollHeight <= wrap.clientHeight + 8) {
+        wrap.classList.add("is-expanded");
+        const toolbar = wrap.querySelector<HTMLElement>(".readme__toolbar");
+        if (toolbar) toolbar.style.display = "none";
+      }
+    });
+  }
+  document.querySelectorAll<HTMLElement>("[data-readme-wrap]").forEach(syncToggleVisibility);
+  // Expose for the deferred path so it can call after injecting HTML.
+  (
+    window as typeof window & { __nemarSyncReadme?: typeof syncToggleVisibility }
+  ).__nemarSyncReadme = syncToggleVisibility;
+</script>

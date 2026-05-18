@@ -1,0 +1,312 @@
+---
+import Base from "../../layouts/Base.astro";
+import ActionBar from "../../components/ActionBar.astro";
+import DoiBadge from "../../components/DoiBadge.astro";
+import ModalityBadge from "../../components/ModalityBadge.astro";
+import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
+import VersionSwitcher from "../../components/VersionSwitcher.astro";
+import Readme from "../../components/Readme.astro";
+import BidsTree from "../../components/BidsTree.astro";
+import DetailRail from "../../components/DetailRail.astro";
+import QualityPanel from "../../components/QualityPanel.astro";
+import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
+import { getDataset, resolveCanonical } from "../../lib/api";
+import { detectProvenance } from "../../lib/provenance";
+import { splitModalities } from "../../lib/format";
+import { getQaAggregates } from "../../lib/qa";
+import { ORG_DATASETS } from "../../lib/constants";
+
+const { id } = Astro.params;
+if (!id) {
+  return Astro.redirect("/discover");
+}
+
+const url = new URL(Astro.request.url);
+
+// OpenNeuro source ids (ds*) redirect to their NEMAR canonical (on*) when a
+// mirror exists. Preserves the query string so deep links survive the hop.
+if (/^ds\d{6}$/.test(id)) {
+  const canonical = await resolveCanonical(id).catch(() => null);
+  if (canonical) {
+    return Astro.redirect(`/dataset/${canonical}${url.search}`, 301);
+  }
+}
+
+const versionParam = url.searchParams.get("v");
+
+// Fan out the landing, metadata, and catalog-row fetches in parallel.
+// The catalog row (api.nemar.org/datasets/<id>) is the fallback for
+// fields that the neuroschema metadata.json doesn't populate yet on
+// OpenNeuro-imported datasets (license, modalities, tasks, etc.).
+// QA aggregates fetch tolerates 404s by returning null; QualityPanel renders
+// nothing when no data is available, so this is safe for datasets without
+// pipeline output yet.
+const [landing, metadata, catalogRow, qaAggregates] = await Promise.all([
+  getLanding(id),
+  getMetadata(id),
+  getDataset(id).catch(() => null),
+  getQaAggregates(id).catch(() => null),
+]);
+
+if (!landing || !metadata) {
+  Astro.response.status = 404;
+  Astro.response.headers.set("Cache-Control", "no-store");
+  return new Response(null, { status: 404 });
+}
+
+// Merge sparse metadata with catalog row when neuroschema fields are empty.
+// The catalog has license, modalities, tasks, authors as CSV strings — we
+// split them into the array shape DetailRail expects.
+const enrichedMetadata = {
+  ...metadata,
+  license: metadata.license || catalogRow?.doi ? metadata.license : null,
+  recording_modality:
+    (metadata.recording_modality?.length ?? 0) > 0
+      ? metadata.recording_modality
+      : catalogRow?.modalities
+        ? catalogRow.modalities.split(",").map((m) => m.trim()).filter(Boolean)
+        : [],
+  tasks:
+    (metadata.tasks?.length ?? 0) > 0
+      ? metadata.tasks
+      : catalogRow?.tasks
+        ? catalogRow.tasks.split(",").map((t) => t.trim()).filter(Boolean)
+        : [],
+  authors:
+    (metadata.authors?.length ?? 0) > 0
+      ? metadata.authors
+      : catalogRow?.authors
+        ? catalogRow.authors
+            .split(",")
+            .map((name) => ({
+              name: name.trim(),
+              name_type: "Personal" as const,
+              orcid: null,
+              affiliations: [],
+            }))
+            .filter((a) => a.name)
+        : [],
+};
+
+const selectedVersion =
+  versionParam && landing.versions.some((v) => v.version === versionParam)
+    ? versionParam
+    : landing.latest ?? landing.versions[0]?.version ?? null;
+
+// README and BIDS tree fetches are deferred to the client (see
+// /api/dataset/[id]/readme.ts and tree.ts). SSR critical path now only awaits
+// landing + metadata + catalog row, so the header renders in ~300 ms instead
+// of waiting on the manifest/GitHub waterfall.
+
+const provenance = detectProvenance(metadata, landing);
+const modalities = enrichedMetadata.recording_modality.length
+  ? enrichedMetadata.recording_modality
+  : splitModalities("");
+
+const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
+const issuesUrl = `${githubUrl}/issues`;
+const openneuroId =
+  provenance.kind === "derived" ? provenance.originalDatasetId ?? null : null;
+const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
+
+// Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
+// honors s-maxage at the edge; max-age stays short so browsers re-validate on nav.
+// stale-while-revalidate keeps the edge serving last-good response while it refreshes.
+Astro.response.headers.set(
+  "Cache-Control",
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+);
+---
+
+<Base
+  title={metadata.name}
+  description={metadata.description ?? `${id} dataset on NEMAR`}
+  ogType="article"
+>
+  <article class="detail">
+    <header class="detail__header container">
+      <div class="detail__id-row">
+        <span class="detail__id">{id}</span>
+        {provenance.kind === "derived" ? (
+          <ProvenanceToggle
+            datasetId={id}
+            nemarDoi={metadata.external_links.dataset_doi}
+            currentVersion={selectedVersion}
+            provenance={provenance}
+          />
+        ) : (
+          <span class="detail__lineage">NEMAR-native dataset</span>
+        )}
+      </div>
+      <h1 class="detail__title">{metadata.name}</h1>
+      {metadata.description && metadata.description !== metadata.name && (
+        <p class="detail__lede">{metadata.description}</p>
+      )}
+      <div class="detail__chips">
+        {modalities.map((m) => <ModalityBadge modality={m} size="md" />)}
+      </div>
+      <div class="detail__actions">
+        <ActionBar
+          datasetId={id}
+          version={selectedVersion}
+          archiveUrl={archiveUrl}
+          issuesUrl={issuesUrl}
+          githubUrl={githubUrl}
+          openneuroId={openneuroId}
+        />
+        {metadata.external_links.dataset_doi && (
+          <DoiBadge doi={metadata.external_links.dataset_doi} />
+        )}
+      </div>
+    </header>
+
+    <div class="container">
+      <VersionSwitcher
+        versions={landing.versions}
+        current={selectedVersion ?? ""}
+        mirrorVersions={provenance.kind === "derived" ? provenance.allMirrorVersions : []}
+      />
+    </div>
+
+    <div class="container detail__body">
+      <div class="detail__main">
+        <Readme defer datasetId={id} version={selectedVersion} />
+        <QualityPanel aggregates={qaAggregates} hedSummary={null} />
+        {selectedVersion && (
+          <BidsTree datasetId={id} version={selectedVersion} />
+        )}
+      </div>
+      <DetailRail metadata={enrichedMetadata} />
+    </div>
+  </article>
+</Base>
+
+<script>
+  /**
+   * Replace defer placeholders with rendered HTML fetched from
+   * `/api/dataset/<id>/{readme,tree}?v=<v>` in parallel. Each endpoint is
+   * edge-cached so the first visit's work amortizes across subsequent ones.
+   */
+  async function hydrateDeferred(): Promise<void> {
+    const targets = [
+      ...document.querySelectorAll<HTMLElement>("[data-readme-defer], [data-tree-defer]"),
+    ];
+    await Promise.all(
+      targets.map(async (el) => {
+        const id = el.dataset.id;
+        const version = el.dataset.version;
+        if (!id || !version) return;
+        const endpoint = el.hasAttribute("data-readme-defer") ? "readme" : "tree";
+        const path = `/api/dataset/${encodeURIComponent(id)}/${endpoint}?v=${encodeURIComponent(version)}`;
+        try {
+          const res = await fetch(path, { headers: { Accept: "text/html" } });
+          if (!res.ok) throw new Error(`${path}: ${res.status}`);
+          el.innerHTML = await res.text();
+          el.removeAttribute("aria-busy");
+          if (endpoint === "readme") {
+            const wrap = el.querySelector<HTMLElement>("[data-readme-wrap]");
+            const sync = (window as typeof window & {
+              __nemarSyncReadme?: (wrap: HTMLElement) => void;
+            }).__nemarSyncReadme;
+            if (wrap && sync) sync(wrap);
+          }
+        } catch (err) {
+          el.removeAttribute("aria-busy");
+          console.warn(`[hydrateDeferred] ${path}`, err);
+          el.innerHTML = `<p class="readme__empty">Couldn't load this section. <a href="${path}">View raw HTML</a>.</p>`;
+        }
+      }),
+    );
+  }
+  hydrateDeferred();
+</script>
+
+<style>
+  .detail {
+    padding-block: var(--space-8) var(--space-16);
+  }
+  .detail__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding-block-end: var(--space-6);
+  }
+  .detail__id-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .detail__id {
+    color: var(--color-fg-muted);
+  }
+  .detail__lineage {
+    color: var(--color-fg-subtle);
+  }
+  .detail__title {
+    font-size: clamp(var(--fs-3xl), 4vw, var(--fs-5xl));
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    line-height: var(--lh-tight);
+    text-wrap: balance;
+    max-inline-size: 28ch;
+  }
+  .detail__lede {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 60ch;
+  }
+  .detail__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+  .detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+    margin-block-start: var(--space-2);
+  }
+  .detail__body {
+    margin-block-start: var(--space-8);
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) 320px;
+    gap: var(--space-8);
+    align-items: flex-start;
+  }
+  @media (max-width: 980px) {
+    .detail__body {
+      grid-template-columns: 1fr;
+    }
+  }
+  .detail__main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    min-inline-size: 0;
+  }
+  .detail__no-manifest {
+    padding: var(--space-6);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 5%, var(--color-bg));
+    border-radius: var(--radius-lg);
+  }
+  .detail__no-manifest h2 {
+    font-size: var(--fs-lg);
+    margin-block-end: var(--space-2);
+  }
+  .detail__no-manifest p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .detail__no-manifest code {
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+</style>

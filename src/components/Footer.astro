@@ -1,0 +1,121 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="container site-footer__inner">
+    <div class="site-footer__about">
+      <h2 class="site-footer__heading">NEMAR</h2>
+      <p>
+        The Neuroelectromagnetic Data Archive and Tools Resource. Funded by the
+        National Institutes of Health under award number NIMH R24MH120037.
+      </p>
+      <p class="site-footer__caveat">
+        Opinions, findings, and conclusions are those of the authors and do not
+        necessarily reflect the views of the National Institutes of Health.
+      </p>
+    </div>
+    <nav class="site-footer__nav" aria-label="Footer">
+      <div>
+        <h3>Explore</h3>
+        <ul role="list">
+          <li><a href="/discover">Discover</a></li>
+          <li><a href="/citation-dashboard">Citations</a></li>
+          <li><a href="/docs">Documentation</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Community</h3>
+        <ul role="list">
+          <li><a href="/community">Forum</a></li>
+          <li><a href="/about">About</a></li>
+          <li><a href="/support">Support</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Data</h3>
+        <ul role="list">
+          <li><a href="https://data.nemar.org/">data.nemar.org</a></li>
+          <li><a href="https://api.nemar.org/">api.nemar.org</a></li>
+          <li><a href="https://docs.nemar.org/">docs.nemar.org</a></li>
+        </ul>
+      </div>
+    </nav>
+  </div>
+  <div class="container site-footer__bottom">
+    <p>&copy; {year} The Regents of the University of California</p>
+    <p>
+      Built with <a href="https://astro.build">Astro</a> on
+      <a href="https://pages.cloudflare.com">Cloudflare Pages</a>
+    </p>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-block-start: var(--space-24);
+    padding-block: var(--space-16);
+    background: var(--color-bg-elevated);
+    border-block-start: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+  }
+  .site-footer__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) 2fr;
+    gap: var(--space-12);
+  }
+  @media (max-width: 720px) {
+    .site-footer__inner {
+      grid-template-columns: 1fr;
+    }
+  }
+  .site-footer__heading {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    color: var(--color-fg);
+    margin-block-end: var(--space-3);
+  }
+  .site-footer__caveat {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+    margin-block-start: var(--space-3);
+  }
+  .site-footer__nav {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-8);
+  }
+  .site-footer__nav h3 {
+    font-size: var(--fs-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg);
+    margin-block-end: var(--space-3);
+    font-weight: var(--fw-semibold);
+  }
+  .site-footer__nav ul {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .site-footer__nav a {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .site-footer__nav a:hover {
+    color: var(--color-fg);
+  }
+  .site-footer__bottom {
+    margin-block-start: var(--space-12);
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  @media (max-width: 600px) {
+    .site-footer__bottom {
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+  }
+</style>

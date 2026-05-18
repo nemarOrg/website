@@ -1,0 +1,177 @@
+---
+import Base from "../layouts/Base.astro";
+import DatasetCard from "../components/DatasetCard.astro";
+import FilterSidebar from "../components/FilterSidebar.astro";
+import Pagination from "../components/Pagination.astro";
+import SearchBar from "../components/SearchBar.astro";
+import { listDatasets } from "../lib/api";
+import {
+  applyClientFilters,
+  filterStateFromURL,
+  filterStateToAPIQuery,
+  filterStateToURL,
+} from "../lib/filters";
+
+const url = new URL(Astro.request.url);
+const state = filterStateFromURL(url.searchParams);
+const baseQuery = filterStateToAPIQuery(state);
+
+// Server-side offset pagination. We pass limit + offset directly to the API
+// so a user can page through all 645 datasets, not just the first 200 the
+// client-side window was capped at. Client-side filtering (multi-modality
+// AND/OR, range sliders, etc.) still runs over each page after fetch.
+const PAGE_SIZE = state.pageSize;
+const query = {
+  ...baseQuery,
+  limit: PAGE_SIZE,
+  offset: (state.page - 1) * PAGE_SIZE,
+};
+
+let visible = [] as Awaited<ReturnType<typeof listDatasets>>["datasets"];
+let totalReturned = 0;
+let fetchError: string | null = null;
+
+try {
+  const page = await listDatasets(query);
+  // Client-side filters narrow this page. Note: multi-modality AND/OR and
+  // range filters reduce the visible count for the *current page* only —
+  // pagination still spans the server-side total. Acceptable for now;
+  // can be improved when range filters move server-side.
+  visible = applyClientFilters(page.datasets, state);
+  totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+} catch (err) {
+  fetchError = err instanceof Error ? err.message : "Failed to load datasets.";
+}
+
+const pageCount = Math.max(1, Math.ceil(totalReturned / PAGE_SIZE));
+
+// Re-serialize the canonical filter state to drop unknown params.
+const canonicalParams = filterStateToURL(state);
+canonicalParams.delete("page");
+
+// Discover pages cache at the edge keyed on the full URL (query params),
+// so each filter+page combo gets its own cache entry. New datasets appear
+// when the cache rolls (2 min) or revalidates in the background.
+Astro.response.headers.set(
+  "Cache-Control",
+  "public, max-age=30, s-maxage=120, stale-while-revalidate=3600",
+);
+---
+
+<Base title="Discover datasets">
+  <section class="discover container">
+    <header class="discover__head">
+      <div class="discover__head-row">
+        <h1>Discover datasets</h1>
+        <p class="discover__count">
+          Showing {visible.length} of {totalReturned.toLocaleString()} datasets
+          {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
+        </p>
+      </div>
+      <SearchBar value={state.q} size="md" placeholder="Search by dataset name, ID, or description..." />
+    </header>
+    <div class="discover__layout">
+      <aside class="discover__rail" aria-label="Filters">
+        <FilterSidebar state={state} />
+      </aside>
+      <div class="discover__results">
+        {fetchError && (
+          <div class="discover__error" role="alert">
+            <strong>Could not load datasets.</strong>
+            <span>{fetchError}</span>
+          </div>
+        )}
+        {!fetchError && visible.length === 0 && (
+          <div class="discover__empty">
+            <h2>No datasets match these filters.</h2>
+            <p>Try removing a filter or
+              <a href="/discover">resetting all filters</a>.
+            </p>
+          </div>
+        )}
+        <ul class="discover__list" role="list">
+          {visible.map((d) => (
+            <li>
+              <DatasetCard dataset={d} />
+            </li>
+          ))}
+        </ul>
+        <Pagination
+          page={state.page}
+          pageCount={pageCount}
+          baseParams={canonicalParams}
+        />
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .discover {
+    padding-block: var(--space-12) var(--space-16);
+  }
+  .discover__head {
+    margin-block-end: var(--space-8);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .discover__head-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .discover__head h1 {
+    font-size: var(--fs-3xl);
+  }
+  .discover__count {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-family: var(--font-mono);
+  }
+  .discover__layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: var(--space-8);
+    align-items: flex-start;
+  }
+  @media (max-width: 880px) {
+    .discover__layout {
+      grid-template-columns: 1fr;
+    }
+    .discover__rail {
+      position: static !important;
+    }
+  }
+  .discover__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .discover__empty {
+    padding: var(--space-12) var(--space-6);
+    text-align: center;
+    color: var(--color-fg-muted);
+    border: 1px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+  }
+  .discover__empty h2 {
+    font-size: var(--fs-xl);
+    color: var(--color-fg);
+    margin-block-end: var(--space-2);
+  }
+  .discover__error {
+    padding: var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 40%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    color: var(--color-fg);
+    margin-block-end: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+</style>

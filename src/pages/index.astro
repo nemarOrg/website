@@ -1,0 +1,392 @@
+---
+import Base from "../layouts/Base.astro";
+import StatTile from "../components/StatTile.astro";
+import { listDatasets } from "../lib/api";
+import { formatBytes, formatCount } from "../lib/format";
+
+let totalDatasets = 0;
+let totalParticipants = 0;
+let totalSize = 0;
+let statsAvailable = false;
+
+try {
+  // Fetch a single wide page; api caps at 200, total_count surfaces the rest.
+  const page = await listDatasets({ limit: 200 });
+  totalDatasets = page.total_count ?? page.count ?? page.datasets.length;
+  for (const d of page.datasets) {
+    totalParticipants += d.participants ?? 0;
+    totalSize += d.file_size ?? 0;
+  }
+  statsAvailable = totalDatasets > 0;
+} catch {
+  // Fall back to legacy-site figures so the hero never renders empty.
+  totalDatasets = 200;
+  totalParticipants = 29_344;
+  totalSize = 65 * 1024 ** 4;
+}
+
+// Stats refresh slowly. Edge-cache for 10 min; serve stale up to a day while
+// revalidating so new visitors always hit cache.
+Astro.response.headers.set(
+  "Cache-Control",
+  "public, max-age=60, s-maxage=600, stale-while-revalidate=86400",
+);
+---
+
+<Base title="NEMAR">
+  <section class="hero">
+    <div class="hero__sparkles" aria-hidden="true"></div>
+
+    <div class="container hero__grid">
+      <div class="hero__brain" aria-hidden="true"></div>
+      <div class="hero__copy">
+        <p class="hero__eyebrow">Open neuroscience data, ready to use</p>
+        <h1 class="hero__title">
+          Search, visualize, analyze, and download
+          <em>human neuroimaging</em> data.
+        </h1>
+        <p class="hero__lede">
+          NEMAR hosts open EEG, MEG, iEEG, and EMG datasets — contributed by
+          NEMAR researchers, mirrored from
+          <a href="https://openneuro.org" rel="external">OpenNeuro</a>, or
+          uploaded by you. BIDS-formatted, with data quality and HED event
+          annotations.
+        </p>
+        <form class="hero__search" action="/discover" method="get" role="search">
+          <label class="visually-hidden" for="hero-search">Search datasets</label>
+          <svg class="hero__search-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+            <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+          </svg>
+          <input
+            id="hero-search"
+            name="q"
+            type="search"
+            placeholder="Search EEG, MEG, iEEG, EMG datasets..."
+            autocomplete="off"
+          />
+          <button type="submit">Search</button>
+        </form>
+        <div class="hero__ctas">
+          <a class="hero__cta" href="/discover">Browse datasets</a>
+          <a class="hero__cta hero__cta--ghost" href="/contribute">
+            Contribute your dataset
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6"/>
+            </svg>
+          </a>
+        </div>
+        <div class="hero__stats">
+          <StatTile value={formatCount(totalDatasets)} label="Public datasets" />
+          <StatTile
+            value={formatCount(totalParticipants)}
+            label="Participants"
+            hint={statsAvailable ? undefined : "approx."}
+          />
+          <StatTile
+            value={formatBytes(totalSize)}
+            label="Total size"
+            hint={statsAvailable ? undefined : "approx."}
+          />
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+  /* Hero is themed — both light and dark variants share the same composition:
+     atmospheric gradient + wireframe brain + animated sparkles + tagline. */
+  .hero {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    padding-block: var(--space-16) var(--space-20);
+    /* Defaults (light mode) */
+    --hero-bg-1: #e8eef9;
+    --hero-bg-2: #f7f9fd;
+    --hero-glow: rgb(91 186 213 / 22%);
+    --hero-fg: var(--color-fg);
+    --hero-fg-muted: var(--color-fg-muted);
+    --hero-eyebrow: #2563eb;
+    --hero-spark: rgb(15 23 42 / 55%);
+    --hero-brain-blend: multiply;
+    --hero-brain-filter: invert(1) hue-rotate(180deg) saturate(0.7) brightness(0.85);
+    --hero-brain-opacity: 0.45;
+    --hero-stat-bg: rgb(255 255 255 / 70%);
+    --hero-stat-border: rgb(15 23 42 / 8%);
+    --hero-search-bg: var(--color-bg);
+    --hero-search-border: var(--color-border-strong);
+
+    background:
+      radial-gradient(ellipse at 70% 0%, var(--hero-glow), transparent 60%),
+      linear-gradient(180deg, var(--hero-bg-1), var(--hero-bg-2));
+    color: var(--hero-fg);
+  }
+
+  /* Dark mode override (system + explicit) */
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .hero {
+      --hero-bg-1: #060d24;
+      --hero-bg-2: #0a1638;
+      --hero-glow: rgb(91 186 213 / 28%);
+      --hero-fg: #f1f5f9;
+      --hero-fg-muted: rgb(241 245 249 / 78%);
+      --hero-eyebrow: #5bbad5;
+      --hero-spark: rgb(255 255 255 / 75%);
+      --hero-brain-blend: screen;
+      --hero-brain-filter: hue-rotate(-10deg) saturate(1.1) brightness(1);
+      --hero-brain-opacity: 0.55;
+      --hero-stat-bg: rgb(255 255 255 / 6%);
+      --hero-stat-border: rgb(255 255 255 / 12%);
+      --hero-search-bg: rgb(255 255 255 / 96%);
+      --hero-search-border: transparent;
+    }
+  }
+  :global(:root[data-theme="dark"]) .hero {
+    --hero-bg-1: #060d24;
+    --hero-bg-2: #0a1638;
+    --hero-glow: rgb(91 186 213 / 28%);
+    --hero-fg: #f1f5f9;
+    --hero-fg-muted: rgb(241 245 249 / 78%);
+    --hero-eyebrow: #5bbad5;
+    --hero-spark: rgb(255 255 255 / 75%);
+    --hero-brain-blend: screen;
+    --hero-brain-filter: hue-rotate(-10deg) saturate(1.1) brightness(1);
+    --hero-brain-opacity: 0.55;
+    --hero-stat-bg: rgb(255 255 255 / 6%);
+    --hero-stat-border: rgb(255 255 255 / 12%);
+    --hero-search-bg: rgb(255 255 255 / 96%);
+    --hero-search-border: transparent;
+  }
+
+  /* Brain layer: legacy hero-brain.png (teal wireframe on transparent black).
+     Dark mode: screen blend lets the teal glow through, black drops out.
+     Light mode: invert + multiply turns it into a dark blue outline on light.
+     Anchored inside .hero__grid (the .container-bound layer) so on wide
+     viewports the brain tracks the content's right edge instead of drifting
+     off into the empty margin. */
+  .hero__brain {
+    position: absolute;
+    inset-block: -8% -12%;
+    /* Anchor so the brain's center sits roughly at the right third of the
+       content column; on huge viewports it stays paired with the copy. */
+    inset-inline-end: -10%;
+    inline-size: clamp(480px, 60%, 820px);
+    background: url("/hero-brain.png") no-repeat center / contain;
+    mix-blend-mode: var(--hero-brain-blend);
+    filter: var(--hero-brain-filter);
+    opacity: var(--hero-brain-opacity);
+    pointer-events: none;
+    z-index: 0;
+  }
+  @media (max-width: 880px) {
+    .hero__brain {
+      inset-inline-end: -25%;
+      opacity: calc(var(--hero-brain-opacity) * 0.55);
+    }
+  }
+
+  /* Sparkle layer: pure CSS, ~40 dots via radial gradients tiled at random
+     offsets. Two stacked sublayers drift at different rates for parallax. */
+  .hero__sparkles {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(1px 1px at 12% 18%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 28% 72%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 44% 32%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 67% 14%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(2px 2px at 81% 58%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 92% 28%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 17% 88%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 36% 12%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 56% 78%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 78% 92%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(2px 2px at 22% 48%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 70% 42%, var(--hero-spark) 50%, transparent 51%);
+    background-size: 100% 100%;
+    animation: hero-twinkle 6s ease-in-out infinite;
+  }
+  .hero__sparkles::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(1px 1px at 8% 60%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 52% 6%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(2px 2px at 33% 64%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 88% 8%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 45% 88%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 73% 36%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 96% 72%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(1px 1px at 5% 33%, var(--hero-spark) 50%, transparent 51%),
+      radial-gradient(2px 2px at 62% 52%, var(--hero-spark) 50%, transparent 51%);
+    animation: hero-twinkle 9s ease-in-out infinite reverse;
+    animation-delay: -3s;
+  }
+  @keyframes hero-twinkle {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.95; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero__sparkles,
+    .hero__sparkles::after {
+      animation: none;
+      opacity: 0.7;
+    }
+  }
+
+  .hero__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-12);
+    align-items: center;
+    position: relative;
+  }
+  .hero__copy {
+    position: relative;
+    z-index: 1;
+    max-inline-size: 56ch;
+  }
+  .hero__eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-sm);
+    color: var(--hero-eyebrow);
+    margin-block-end: var(--space-4);
+    font-weight: var(--fw-medium);
+  }
+  .hero__title {
+    font-weight: var(--fw-semibold);
+    color: var(--hero-fg);
+    line-height: var(--lh-tight);
+    font-size: clamp(var(--fs-4xl), 6vw, var(--fs-6xl));
+    letter-spacing: -0.025em;
+  }
+  .hero__title em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .hero__lede {
+    color: var(--hero-fg-muted);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    margin-block: var(--space-6) var(--space-8);
+    max-inline-size: 52ch;
+  }
+  .hero__lede a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .hero__lede a:hover {
+    color: var(--brand-teal);
+  }
+  .hero__search {
+    position: relative;
+    display: flex;
+    gap: var(--space-2);
+    max-inline-size: 44rem;
+    margin-block-end: var(--space-10);
+  }
+  .hero__search-icon {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: var(--space-5);
+    transform: translateY(-50%);
+    inline-size: 20px;
+    block-size: 20px;
+    color: var(--color-fg-subtle);
+    pointer-events: none;
+  }
+  .hero__search input[type="search"] {
+    flex: 1;
+    padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 28px);
+    border: 1px solid var(--hero-search-border);
+    border-radius: var(--radius-pill);
+    background: var(--hero-search-bg);
+    color: #0f172a;
+    font-size: var(--fs-lg);
+    box-shadow: 0 4px 16px rgb(15 23 42 / 12%);
+  }
+  .hero__search input[type="search"]:focus-visible {
+    border-color: var(--color-focus);
+  }
+  .hero__search input[type="search"]::placeholder {
+    color: rgb(71 85 105 / 70%);
+  }
+  .hero__search button {
+    padding: var(--space-4) var(--space-8);
+    background: var(--brand-navy);
+    color: #f8fafc;
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    box-shadow: 0 4px 16px rgb(15 23 42 / 22%);
+  }
+  .hero__search button:hover {
+    background: color-mix(in srgb, var(--brand-navy) 82%, var(--brand-teal));
+  }
+  .hero__ctas {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-block-end: var(--space-10);
+  }
+  .hero__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 var(--space-5);
+    min-block-size: 44px;
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    background: var(--hero-fg);
+    color: var(--hero-bg-1);
+    border: 1px solid var(--hero-fg);
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .hero__cta:hover {
+    background: color-mix(in srgb, var(--hero-fg) 80%, var(--brand-teal));
+    color: var(--hero-bg-1);
+    text-decoration: none;
+  }
+  .hero__cta--ghost {
+    background: transparent;
+    color: var(--hero-fg);
+    border-color: color-mix(in srgb, var(--hero-fg) 30%, transparent);
+  }
+  .hero__cta--ghost:hover {
+    background: color-mix(in srgb, var(--hero-fg) 8%, transparent);
+    color: var(--hero-fg);
+    border-color: color-mix(in srgb, var(--hero-fg) 50%, transparent);
+  }
+  .hero__stats {
+    display: flex;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  /* Theme the stat tiles to match the hero surface — global override scoped
+     to .hero so the rest of the site keeps the default StatTile look. */
+  .hero__stats :global(.stat-tile) {
+    background: var(--hero-stat-bg);
+    border-color: var(--hero-stat-border);
+    backdrop-filter: blur(8px);
+  }
+  .hero__stats :global(.stat-tile__value) {
+    color: var(--hero-fg);
+  }
+  .hero__stats :global(.stat-tile__label),
+  .hero__stats :global(.stat-tile__hint) {
+    color: var(--hero-fg-muted);
+  }
+</style>

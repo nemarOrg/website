@@ -1,0 +1,199 @@
+---
+interface Props {
+  datasetId: string;
+  version: string | null;
+}
+
+const { datasetId, version } = Astro.props;
+---
+
+{version ? (
+  <section class="tree" aria-label="Dataset file tree" data-tree-defer data-id={datasetId} data-version={version} aria-busy="true">
+    <header class="tree__head">
+      <h2>Files</h2>
+      <span class="tree__meta">Loading file index…</span>
+    </header>
+    <div class="tree__skeleton" aria-hidden="true">
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+      <div class="tree__skeleton-row"></div>
+    </div>
+    <noscript>
+      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`/api/dataset/${datasetId}/tree?v=${encodeURIComponent(version)}`}>View raw HTML</a>.</p>
+    </noscript>
+  </section>
+) : (
+  <section class="tree" aria-label="Dataset file tree">
+    <header class="tree__head">
+      <h2>Files</h2>
+      <span class="tree__meta">No version selected</span>
+    </header>
+  </section>
+)}
+
+<style is:global>
+  /* is:global because the tree HTML can be rendered server-side by the
+     /api/dataset/<id>/tree endpoint and injected client-side, in which case
+     it doesn't carry Astro's component-scope data attribute. .tree__ prefix
+     keeps collision risk low. Keep in sync with BidsDirChildren styles. */
+  .tree {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    overflow: hidden;
+  }
+  .tree__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+  }
+  .tree__head h2 {
+    font-size: var(--fs-lg);
+    color: var(--color-fg);
+    margin: 0;
+  }
+  .tree__meta {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+  }
+  .tree__skeleton {
+    display: flex;
+    flex-direction: column;
+    padding: 0 var(--space-5);
+  }
+  .tree__skeleton-row {
+    block-size: 1.25em;
+    margin-block: 8px;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+      90deg,
+      var(--color-bg-subtle) 0%,
+      var(--color-bg-elevated) 50%,
+      var(--color-bg-subtle) 100%
+    );
+    background-size: 200% 100%;
+    animation: tree-shimmer 1.4s ease-in-out infinite;
+  }
+  .tree__skeleton-row:nth-child(1) { inline-size: 45%; }
+  .tree__skeleton-row:nth-child(2) { inline-size: 80%; }
+  .tree__skeleton-row:nth-child(3) { inline-size: 65%; }
+  .tree__skeleton-row:nth-child(4) { inline-size: 88%; }
+  .tree__skeleton-row:nth-child(5) { inline-size: 55%; }
+  .tree__skeleton-row:nth-child(6) { inline-size: 72%; }
+  .tree__skeleton-row:nth-child(7) { inline-size: 40%; }
+  @keyframes tree-shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+  .tree__list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .tree__list--root {
+    border-block-end: 1px solid var(--color-border);
+  }
+  .tree__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 8px var(--space-5);
+    font-size: var(--fs-sm);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .tree__list--root .tree__row:first-child {
+    border-block-start: none;
+  }
+  .tree__row--dir {
+    cursor: pointer;
+    background: var(--color-bg);
+    user-select: none;
+  }
+  .tree__row--dir:hover {
+    background: var(--color-bg-elevated);
+  }
+  details > summary {
+    list-style: none;
+  }
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+  .tree__chevron {
+    color: var(--color-fg-subtle);
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+  details[open] > summary > .tree__chevron {
+    transform: rotate(90deg);
+  }
+  .tree__icon {
+    flex-shrink: 0;
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+  }
+  .tree__name {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  a.tree__name:hover {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .tree__counts {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+  .tree__size {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    min-inline-size: 4.5rem;
+    text-align: end;
+  }
+  .tree__tag {
+    font-size: var(--fs-xs);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
+  }
+  /* Empty-state banner shown when the tree endpoint returns no manifest. */
+  .detail__no-manifest {
+    padding: var(--space-6);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 5%, var(--color-bg));
+    border-radius: var(--radius-lg);
+  }
+  .detail__no-manifest h2 {
+    font-size: var(--fs-lg);
+    margin-block-end: var(--space-2);
+  }
+  .detail__no-manifest p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .detail__no-manifest code {
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+</style>

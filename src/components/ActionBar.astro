@@ -1,0 +1,269 @@
+---
+interface Props {
+  datasetId: string;
+  version: string | null;
+  archiveUrl: string | null;
+  issuesUrl: string;
+  githubUrl: string | null;
+  openneuroId: string | null;
+}
+
+const { datasetId, version, archiveUrl, issuesUrl, githubUrl, openneuroId } = Astro.props;
+const ds = datasetId;
+const versionSuffix = version ?? "latest";
+---
+
+<div class="actions">
+  {archiveUrl && (
+    <a class="action action--primary" href={archiveUrl} download={`${ds}-${versionSuffix}.zip`} rel="external">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      Download zip
+    </a>
+  )}
+  <button class="action action--ghost" type="button" data-compute-stub>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 4h16v16H4zM9 9h6v6H9z"/>
+    </svg>
+    Compute instructions
+  </button>
+  <a class="action action--ghost" href={issuesUrl} rel="external">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="12" y1="8" x2="12" y2="12"/>
+      <line x1="12" y1="16" x2="12" y2="16"/>
+    </svg>
+    Issues
+  </a>
+  {githubUrl && (
+    <a class="action action--ghost" href={githubUrl} rel="external">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.6.2 2.9.1 3.2.8.8 1.3 1.9 1.3 3.1 0 4.6-2.9 5.7-5.5 6 .4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/>
+      </svg>
+      GitHub
+    </a>
+  )}
+  {openneuroId && (
+    <a class="action action--ghost" href={`https://openneuro.org/datasets/${openneuroId}`} rel="external">
+      OpenNeuro {openneuroId}
+    </a>
+  )}
+</div>
+
+<dialog class="compute-dialog" data-compute-dialog>
+  <h2>Compute on this dataset</h2>
+  <p class="compute-dialog__intro">
+    Two routes today, with a third (in-browser one-click submission)
+    landing soon.
+  </p>
+
+  <ol class="compute-dialog__steps">
+    <li>
+      <strong>NeuroScience Gateway (NSG) portal.</strong>
+      <p>
+        NSG runs EEGLAB / Brainstorm / MNE pipelines on supercomputing
+        time donated by SDSC. Create an account, point a job at this
+        dataset's S3 prefix (<code>s3://nemar/{datasetId}</code>), and
+        submit.
+        <br />
+        <a href="https://nsgportal.org" rel="external">nsgportal.org →</a>
+      </p>
+    </li>
+    <li>
+      <strong>Local processing with <code>nemar-cli</code>.</strong>
+      <p>
+        Pull the dataset to your machine and run any toolbox locally.
+        Honors the published version pinning.
+      </p>
+      <pre><code>npm install -g nemar-cli
+nemar dataset clone {datasetId}
+cd {datasetId} && nemar dataset get</code></pre>
+    </li>
+    <li>
+      <strong>Just the files.</strong>
+      <p>
+        <code>rclone</code>, <code>aria2c</code>, or any HTTPS client
+        works against <a href={`https://data.nemar.org/${datasetId}/`} rel="external">data.nemar.org/{datasetId}/</a>
+        — the manifest carries presigned S3 URLs.
+      </p>
+    </li>
+  </ol>
+
+  <div class="compute-dialog__soon" role="note">
+    <strong>Direct compute access is coming soon.</strong>
+    <span>
+      One-click NSG submission from this page is scoped for a follow-up
+      phase. Tracked on
+      <a href="https://github.com/nemarOrg/website/issues/6" rel="external">nemarOrg/website#6</a>.
+    </span>
+  </div>
+
+  <form method="dialog">
+    <button type="submit" class="dialog-close">Close</button>
+  </form>
+</dialog>
+
+<style>
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 var(--space-4);
+    min-block-size: 44px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  }
+  .action:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .action:active {
+    transform: translateY(1px);
+  }
+  .action--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .action--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 88%, var(--brand-teal));
+    color: var(--color-bg);
+    border-color: transparent;
+  }
+  .compute-dialog {
+    /* Native <dialog> uses position: fixed + inset: 0 + margin: auto for
+       auto-centering. Some browsers respect that only when no explicit
+       inset/margin/position is set. We were inheriting top-left placement
+       from the second declaration overriding the first — collapsed both
+       into one and re-asserted margin: auto so centering kicks in. */
+    inset: 0;
+    margin: auto;
+    max-inline-size: 44rem;
+    inline-size: calc(100vw - 4rem);
+    max-block-size: 90vh;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    padding: var(--space-6);
+    overflow-y: auto;
+  }
+  .compute-dialog::backdrop {
+    background: rgb(15 23 42 / 55%);
+  }
+  .compute-dialog h2 {
+    font-size: var(--fs-2xl);
+    margin-block-end: var(--space-3);
+  }
+  .compute-dialog__intro {
+    color: var(--color-fg-muted);
+    margin-block-end: var(--space-5);
+  }
+  .compute-dialog__steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+    margin-block-end: var(--space-5);
+    padding-inline-start: 0;
+    list-style: none;
+    counter-reset: compute-step;
+  }
+  .compute-dialog__steps > li {
+    position: relative;
+    padding-inline-start: var(--space-10);
+    counter-increment: compute-step;
+  }
+  .compute-dialog__steps > li::before {
+    content: counter(compute-step);
+    position: absolute;
+    inset-inline-start: 0;
+    inset-block-start: 2px;
+    inline-size: 28px;
+    block-size: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-pill);
+    background: var(--brand-teal);
+    color: var(--brand-navy);
+    font-family: var(--font-mono);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog__steps strong {
+    color: var(--color-fg);
+    display: block;
+    margin-block-end: 4px;
+  }
+  .compute-dialog__steps p {
+    color: var(--color-fg-muted);
+    margin: 0;
+    line-height: var(--lh-relaxed);
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog pre {
+    background: var(--color-bg-subtle);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    margin-block-start: var(--space-2);
+    overflow-x: auto;
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+  }
+  .compute-dialog code {
+    background: var(--color-bg-subtle);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .compute-dialog pre code {
+    background: transparent;
+    padding: 0;
+  }
+  .compute-dialog__soon {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-5);
+    border: 1px solid color-mix(in srgb, var(--brand-purple) 30%, transparent);
+    background: color-mix(in srgb, var(--brand-purple) 6%, transparent);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog__soon strong {
+    color: var(--color-fg);
+  }
+  .compute-dialog__soon span {
+    color: var(--color-fg-muted);
+  }
+  .dialog-close {
+    padding: 0 var(--space-5);
+    min-block-size: 44px;
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-medium);
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>("[data-compute-stub]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
+    });
+  });
+</script>

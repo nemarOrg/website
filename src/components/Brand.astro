@@ -1,0 +1,45 @@
+---
+import logoSvg from "../assets/nemar-logo.svg?raw";
+
+interface Props {
+  href?: string | null;
+  size?: "sm" | "md" | "lg";
+  class?: string;
+}
+
+const { href = "/", size = "md", class: className } = Astro.props;
+const heights = {
+  sm: 28,
+  md: 36,
+  lg: 48,
+} as const;
+const h = heights[size];
+---
+
+<a class:list={["brand", `brand--${size}`, className]} href={href ?? undefined} aria-label="NEMAR home" style={`--brand-h: ${h}px`}>
+  <span class="brand-svg" aria-hidden="true" set:html={logoSvg} />
+</a>
+
+<style>
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 44px;
+    padding-block: var(--space-1);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .brand:hover {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .brand-svg {
+    display: inline-flex;
+    block-size: var(--brand-h);
+  }
+  .brand-svg :global(svg) {
+    display: block;
+    block-size: 100%;
+    inline-size: auto;
+  }
+</style>
