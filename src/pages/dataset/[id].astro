@@ -44,8 +44,14 @@ const versionParam = url.searchParams.get("v");
 const [landing, metadata, catalogRow, qaAggregates] = await Promise.all([
   getLanding(id),
   getMetadata(id),
-  getDataset(id).catch(() => null),
-  getQaAggregates(id).catch(() => null),
+  getDataset(id).catch((err) => {
+    console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
+    return null;
+  }),
+  getQaAggregates(id).catch((err) => {
+    console.warn(`[dataset/${id}] qa aggregates unavailable: ${(err as Error).message ?? err}`);
+    return null;
+  }),
 ]);
 
 if (!landing || !metadata) {

@@ -93,7 +93,7 @@ open "http://localhost:4321/dataset/nm000104?qa=fixture"
 ```bash
 cd /Users/yahya/Documents/git/nemar/epic-website-redesign
 rm -rf dist && bun run build
-CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c \
+CLOUDFLARE_ACCOUNT_ID=<sccn-account-id> \
   bunx cfman wrangler --account sccn pages deploy dist \
   --project-name nemar-website \
   --branch feature/issue-1-epic-nemar-redesign \
@@ -134,7 +134,7 @@ In rough priority order:
 - **Discover pagination is server-side offset-based.** Multi-modality AND/OR filtering across selections >1 is a known tradeoff with this pagination model — the `total_count` reflects server total, not client-filtered count. Move AND/OR server-side when the backend supports it.
 - **Provenance fallback is in place** but useless for `on005262` because the upstream catalog row also has nulls. Real fix is nemar-cli#512.
 - **Download links route through `data.nemar.org/<id>/<v>/<path>`**, not the manifest's direct presigned URL. This puts the Worker in the chain so nemar-cli#513's `response-content-disposition` fix will start producing BIDS-shaped filenames as soon as it deploys, without any further frontend change.
-- **Cloudflare token doesn't have memberships scope** — always pass `CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c` explicitly with `bunx cfman wrangler --account sccn ...`.
+- **Cloudflare token doesn't have memberships scope** — always pass `CLOUDFLARE_ACCOUNT_ID=<sccn-account-id>` explicitly with `bunx cfman wrangler --account sccn ...`.
 
 ## Files to know
 

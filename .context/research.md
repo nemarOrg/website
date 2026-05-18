@@ -93,7 +93,7 @@ LIKE-based search hits the catalog's `search_text` precomputed column. Doesn't h
 ## Deploy auth on the SCCN Cloudflare account
 
 ```bash
-CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c \
+CLOUDFLARE_ACCOUNT_ID=<sccn-account-id> \
   bunx cfman wrangler --account sccn pages deploy dist \
   --project-name nemar-website --branch <branch> --commit-dirty=true
 ```

@@ -68,12 +68,14 @@ bun run lint       # biome
 # Build
 rm -rf dist && bun run build
 
-# Deploy — CLOUDFLARE_ACCOUNT_ID is required because the SCCN token lacks
-# the memberships scope wrangler tries to call when enumerating accounts.
-CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c \
+# Deploy — CLOUDFLARE_ACCOUNT_ID must be set in your shell because the SCCN
+# token lacks the memberships scope wrangler tries to call when enumerating
+# accounts. The account id is org-internal; export it from your shell rc or
+# read it from a password manager rather than committing it here.
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:?set SCCN account id in env}" \
   bunx cfman wrangler --account sccn pages deploy dist \
   --project-name nemar-website \
-  --branch feature/issue-1-epic-nemar-redesign \
+  --branch main \
   --commit-dirty=true
 ```
 

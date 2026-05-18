@@ -46,7 +46,7 @@ Failed attempts, gotchas hit, and lessons that don't fit cleanly into rules yet.
 
 **Fix:** Pass `CLOUDFLARE_ACCOUNT_ID=<sccn-account-id>` as env var. Wrangler skips the memberships lookup when account ID is supplied.
 
-**Account ID:** `da8d7a2a8680dab01592bbbc6f67f12c` (SCCN). Now baked into `.context/handoff.md`.
+**Account ID:** `<sccn-account-id>` (SCCN). Now baked into `.context/handoff.md`.
 
 ## Browse skill expected Playwright Chromium 1208, system had 1217
 
