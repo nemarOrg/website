@@ -9,7 +9,7 @@ import Readme from "../../components/Readme.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DetailRail from "../../components/DetailRail.astro";
 import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
-import { getDataset } from "../../lib/api";
+import { getDataset, resolveCanonical } from "../../lib/api";
 import { detectProvenance } from "../../lib/provenance";
 import { splitModalities } from "../../lib/format";
 import { ORG_DATASETS } from "../../lib/constants";
@@ -20,6 +20,16 @@ if (!id) {
 }
 
 const url = new URL(Astro.request.url);
+
+// OpenNeuro source ids (ds*) redirect to their NEMAR canonical (on*) when a
+// mirror exists. Preserves the query string so deep links survive the hop.
+if (/^ds\d{6}$/.test(id)) {
+  const canonical = await resolveCanonical(id).catch(() => null);
+  if (canonical) {
+    return Astro.redirect(`/dataset/${canonical}${url.search}`, 301);
+  }
+}
+
 const versionParam = url.searchParams.get("v");
 
 // Fan out the landing, metadata, and catalog-row fetches in parallel.
