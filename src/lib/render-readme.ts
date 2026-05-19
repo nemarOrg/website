@@ -11,7 +11,6 @@ function esc(s: string): string {
 
 export type ReadmeSourceKind = "manifest" | "github" | "description" | null;
 
-/** Unpublished-state placeholder for the README panel. */
 export function renderUnpublishedReadme(): string {
   return `<div class="readme__empty">
       <h2>Not yet published</h2>

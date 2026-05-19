@@ -123,7 +123,6 @@ export function renderBidsTree(root: TreeNode, basePath: string): string {
   return out.join("");
 }
 
-/** Unpublished-state placeholder for the file tree panel. */
 export function renderUnpublishedTree(): string {
   return `<section class="detail__no-manifest" role="note">
     <h2>Not yet published</h2>

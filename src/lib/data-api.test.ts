@@ -40,4 +40,10 @@ describe("isUnpublished", () => {
   it("returns false for null landing (dataset not found is not 'unpublished')", () => {
     expect(isUnpublished(null)).toBe(false);
   });
+
+  it("returns true when latest is an empty string", () => {
+    // Defensive against an upstream API that emits "" instead of null for the
+    // unpublished case; the OR-then-falsy check covers both.
+    expect(isUnpublished(makeLanding({ latest: "" as unknown as null, versions: [] }))).toBe(true);
+  });
 });
