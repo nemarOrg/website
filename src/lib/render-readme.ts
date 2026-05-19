@@ -11,6 +11,13 @@ function esc(s: string): string {
 
 export type ReadmeSourceKind = "manifest" | "github" | "description" | null;
 
+export function renderUnpublishedReadme(): string {
+  return `<div class="readme__empty">
+      <h2>Not yet published</h2>
+      <p>This dataset has been registered but no published version is available yet. Check back later or visit the dataset's GitHub repository for curation progress.</p>
+    </div>`;
+}
+
 /**
  * Produce the inner HTML of an <article class="readme">. Matches the
  * Readme.astro component output 1:1 so the API endpoint can return a
@@ -38,13 +45,17 @@ export function renderReadme(
     out.push(`<strong>README from GitHub repository</strong>`);
     out.push(`<span>This README isn't in the version manifest yet. Showing the latest from `);
     out.push(
-      gh ? `<a href="${esc(githubUrl ?? "")}" rel="external">${gh}</a>` : `<span>the dataset repository</span>`,
+      gh
+        ? `<a href="${esc(githubUrl ?? "")}" rel="external">${gh}</a>`
+        : `<span>the dataset repository</span>`,
     );
     out.push(` instead.</span></div>`);
   } else if (fallbackKind === "description") {
     out.push(`<div class="readme__fallback-note" role="note">`);
     out.push(`<strong>Description (from dataset metadata)</strong>`);
-    out.push(`<span>This dataset doesn't ship a README. Showing the BIDS description instead.</span>`);
+    out.push(
+      `<span>This dataset doesn't ship a README. Showing the BIDS description instead.</span>`,
+    );
     out.push(`</div>`);
   }
   out.push(`<div class="readme__wrap" data-readme-wrap>`);
