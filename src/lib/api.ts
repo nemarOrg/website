@@ -77,6 +77,11 @@ export async function resolveCanonical(
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
+    // 404 is the normal "no mirror" case — skip the log. Anything else
+    // is a real upstream blip worth surfacing so degradation is visible.
+    if (res.status !== 404) {
+      console.warn(`[api] resolveCanonical ${sourceId}: ${res.status} ${res.statusText}`);
+    }
     return null;
   }
   const json = (await res.json()) as { found?: boolean; dataset_id?: string };

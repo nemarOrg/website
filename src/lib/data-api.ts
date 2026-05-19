@@ -55,10 +55,9 @@ export type FetchOutcome<T> =
   | { kind: "parse_error"; message: string };
 
 /**
- * Fetch + parse JSON, return a tagged outcome. Catches every error mode
- * (network, timeout, HTTP non-200, JSON parse) so callers don't need
- * their own try/catch. Retries once on 429 honoring Retry-After before
- * settling on `rate_limited`.
+ * Retries once on 429 honoring Retry-After before settling on
+ * `rate_limited`. Bails the wait early when the parent abort signal
+ * fires so caller cancellation doesn't burn the full Retry-After delay.
  */
 async function jsonFetch<T>(
   url: string,
@@ -71,8 +70,25 @@ async function jsonFetch<T>(
   const onParentAbort = () => controller.abort();
   if (init.signal) init.signal.addEventListener("abort", onParentAbort);
 
+  // When the inner controller aborts we need to know WHY for the outcome
+  // tag: parent caller cancellation vs our own timeout vs an upstream
+  // abort. AbortError alone doesn't carry that signal. Track it ourselves.
+  const isParentAborted = () => init.signal?.aborted === true;
+
   async function attempt(): Promise<Response> {
     return fetch(url, { signal: controller.signal, headers: { Accept: accept } });
+  }
+
+  function abortToOutcome(err: unknown): FetchOutcome<T> {
+    const name = (err as { name?: string }).name ?? "";
+    const message = (err as Error).message ?? String(err);
+    if (name === "AbortError") {
+      if (isParentAborted()) {
+        return { kind: "network_error", message: "request cancelled by caller" };
+      }
+      return { kind: "timeout" };
+    }
+    return { kind: "network_error", message };
   }
 
   try {
@@ -80,26 +96,33 @@ async function jsonFetch<T>(
     try {
       res = await attempt();
     } catch (err) {
-      // fetch() itself rejected — either AbortError (timeout/cancellation)
-      // or a network/DNS failure. Distinguish so the caller can act.
-      const name = (err as { name?: string }).name ?? "";
-      const message = (err as Error).message ?? String(err);
-      if (name === "AbortError") return { kind: "timeout" };
-      return { kind: "network_error", message };
+      return abortToOutcome(err);
     }
 
     if (res.status === 429) {
       // Rate-limited. Wait Retry-After (or 1s default) and try once more.
+      // Listen on the inner controller so an abort during the wait bails
+      // immediately instead of burning the full Retry-After delay.
       const retryAfter = Number.parseInt(res.headers.get("retry-after") ?? "1", 10);
       const waitMs = Math.min(Math.max(retryAfter, 1) * 1000, 5_000);
-      await new Promise((r) => setTimeout(r, waitMs));
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, waitMs);
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            resolve();
+          },
+          { once: true },
+        );
+      });
+      if (controller.signal.aborted) {
+        return abortToOutcome({ name: "AbortError" });
+      }
       try {
         res = await attempt();
       } catch (err) {
-        const name = (err as { name?: string }).name ?? "";
-        const message = (err as Error).message ?? String(err);
-        if (name === "AbortError") return { kind: "timeout" };
-        return { kind: "network_error", message };
+        return abortToOutcome(err);
       }
       if (res.status === 429) return { kind: "rate_limited" };
     }
@@ -143,17 +166,55 @@ async function jsonFetchOrNull<T>(
   return null;
 }
 
-/**
- * Type-narrowing helper: returns the parsed value when the outcome was ok,
- * else null. Equivalent to `out.kind === "ok" ? out.value : null` but
- * lets call sites stay terse without losing the discriminant info above.
- */
 export function outcomeValue<T>(outcome: FetchOutcome<T>): T | null {
   return outcome.kind === "ok" ? outcome.value : null;
 }
 
+/**
+ * Dataset detail page status resolution.
+ *
+ * The SSR page needs to choose between 404 (real "this dataset does not
+ * exist"), 503 (degraded — dataset may exist but the data layer can't
+ * answer right now), and 200 (render normally). The decision is non-
+ * obvious because the two upstream signals (landing + metadata) can each
+ * be any of seven outcomes, and only one of the nine combinations is a
+ * confirmed 404 — both reporting not_found independently. A single
+ * not_found from either signal could be a partial publish or a transient
+ * 404 from the data layer.
+ */
+export type DatasetPageStatus =
+  | { kind: "ok" }
+  | { kind: "not_found" }
+  | { kind: "degraded"; signal: "landing" | "metadata"; outcome: string };
+
+export function resolveDatasetPageStatus<L, M>(
+  landingOut: FetchOutcome<L>,
+  metadataOut: FetchOutcome<M>,
+): DatasetPageStatus {
+  // Confirmed 404: both signals independently report missing.
+  if (landingOut.kind === "not_found" && metadataOut.kind === "not_found") {
+    return { kind: "not_found" };
+  }
+  // Landing not_found alone is treated as degraded, not 404 — a partial
+  // publish (metadata exists but no landing yet, or vice versa) is a real
+  // state we shouldn't mask as a typo.
+  if (landingOut.kind !== "ok" && landingOut.kind !== "not_found") {
+    return { kind: "degraded", signal: "landing", outcome: landingOut.kind };
+  }
+  if (landingOut.kind === "not_found") {
+    return { kind: "degraded", signal: "landing", outcome: "not_found" };
+  }
+  // metadata.json is OPTIONAL on the data side — a fresh dataset can have
+  // landing without metadata yet. Only degrade on hard failures, not on
+  // not_found.
+  if (metadataOut.kind !== "ok" && metadataOut.kind !== "not_found") {
+    return { kind: "degraded", signal: "metadata", outcome: metadataOut.kind };
+  }
+  return { kind: "ok" };
+}
+
 // ============================================================================
-// Typed fetchers — preserve the legacy `T | null` API.
+// Typed fetchers — preserve the existing `T | null` API.
 // ============================================================================
 
 export async function getLanding(
