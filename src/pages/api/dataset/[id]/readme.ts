@@ -3,16 +3,27 @@ import {
   fetchGithubReadme,
   fetchManifestEntryText,
   findReadmeEntry,
+  findReadmePathInSummary,
   getManifest,
   getMetadata,
+  getSummary,
 } from "../../../../lib/data-api";
-import { renderReadme, type ReadmeSourceKind } from "../../../../lib/render-readme";
+import { type ReadmeSourceKind, renderReadme } from "../../../../lib/render-readme";
 
 /**
  * `GET /api/dataset/<id>/readme?v=<version>` — returns the rendered
- * README HTML for `<id>` at `<version>`. Resolution order matches the
- * legacy SSR path: manifest README -> GitHub raw README -> BIDS
- * description. Edge-cached so repeat visitors get instant content.
+ * README HTML for `<id>` at `<version>`. Resolution order:
+ *
+ * Fast path (summary.json present + readme path known):
+ *   1. GitHub raw README (no presigned URL needed)
+ *   2. description fallback
+ *
+ * Slow path (no summary.json):
+ *   1. manifest README via presigned URL
+ *   2. GitHub raw README
+ *   3. description fallback
+ *
+ * Edge-cached so repeat visitors get instant content.
  */
 export const GET: APIRoute = async ({ params, request }) => {
   const id = params.id;
@@ -23,29 +34,40 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
-  // Manifest README + metadata fetched in parallel. metadata only used for
-  // the GitHub URL + description fallback, so we don't block on it before
-  // attempting the manifest README.
-  const [manifest, metadata] = await Promise.all([
-    getManifest(id, version, { timeoutMs: 4_000 }),
+  const [summary, metadata] = await Promise.all([
+    getSummary(id, version, { timeoutMs: 1_500 }),
     getMetadata(id, { timeoutMs: 4_000 }),
   ]);
+
+  const githubUrl = metadata?.external_links.github_url ?? null;
 
   let source: string | null = null;
   let kind: ReadmeSourceKind = null;
 
-  if (manifest) {
-    const entry = findReadmeEntry(manifest);
-    if (entry?.url) {
-      source = await fetchManifestEntryText(entry.url, { timeoutMs: 2_500 });
-      if (source) kind = "manifest";
+  const readmePath = summary ? findReadmePathInSummary(summary) : null;
+
+  if (summary && readmePath !== null) {
+    // Fast path: summary confirms a README exists; fetch it from GitHub.
+    if (githubUrl) {
+      source = await fetchGithubReadme(githubUrl, { timeoutMs: 1_500 });
+      if (source) kind = "github";
+    }
+  } else {
+    // Slow path: no summary — fall back to manifest-based lookup unchanged.
+    const manifest = await getManifest(id, version, { timeoutMs: 4_000 });
+    if (manifest) {
+      const entry = findReadmeEntry(manifest);
+      if (entry?.url) {
+        source = await fetchManifestEntryText(entry.url, { timeoutMs: 2_500 });
+        if (source) kind = "manifest";
+      }
+    }
+    if (!source && githubUrl) {
+      source = await fetchGithubReadme(githubUrl, { timeoutMs: 1_500 });
+      if (source) kind = "github";
     }
   }
-  const githubUrl = metadata?.external_links.github_url ?? null;
-  if (!source && githubUrl) {
-    source = await fetchGithubReadme(githubUrl, { timeoutMs: 1_500 });
-    if (source) kind = "github";
-  }
+
   if (!source && metadata?.description && metadata.description !== metadata.name) {
     source = metadata.description;
     kind = "description";

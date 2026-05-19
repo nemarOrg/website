@@ -60,6 +60,21 @@ export function buildTree(manifest: Manifest): TreeNode {
   return root;
 }
 
+/**
+ * Build a tree from a flat list of paths (as provided by summary.json).
+ * Sizes are unknown so totalSize is always 0; files carry size=0, url="".
+ */
+export function buildTreeFromPaths(paths: string[]): TreeNode {
+  const entries = paths.map((p) => ({
+    path: p,
+    size: 0,
+    checksum_algorithm: "",
+    checksum: "",
+    url: "",
+  }));
+  return buildTree(entries);
+}
+
 function sortAndSum(node: TreeNode): number {
   let total = 0;
   for (const f of node.files) total += f.size;
