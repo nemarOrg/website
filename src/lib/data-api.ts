@@ -64,6 +64,16 @@ export async function getLanding(
   return jsonFetch<LandingPayload>(url, init);
 }
 
+/**
+ * Returns true when the top-level landing payload indicates the dataset has
+ * no published versions yet (versions array empty or latest is null).
+ * Pure function — safe to unit test with synthetic inputs.
+ */
+export function isUnpublished(landing: LandingPayload | null): boolean {
+  if (!landing) return false;
+  return landing.latest === null || landing.versions.length === 0;
+}
+
 export async function getMetadata(
   datasetId: string,
   init: DataApiInit = {},

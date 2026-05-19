@@ -1,7 +1,13 @@
 import type { APIRoute } from "astro";
-import { getManifest } from "../../../../lib/data-api";
 import { buildTree } from "../../../../lib/bids-tree";
-import { renderBidsTree, renderNoManifest } from "../../../../lib/render-tree";
+import { getLanding, getManifest, isUnpublished } from "../../../../lib/data-api";
+import {
+  renderBidsTree,
+  renderNoManifest,
+  renderUnpublishedTree,
+} from "../../../../lib/render-tree";
+
+const CACHE = "public, max-age=300, s-maxage=600, stale-while-revalidate=86400";
 
 /**
  * `GET /api/dataset/<id>/tree?v=<version>` — returns the rendered BIDS
@@ -17,6 +23,17 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
+  const landing = await getLanding(id, { timeoutMs: 1_500 });
+  if (isUnpublished(landing)) {
+    return new Response(renderUnpublishedTree(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": CACHE,
+      },
+    });
+  }
+
   const manifest = await getManifest(id, version, { timeoutMs: 5_000 });
   const basePath = `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(version)}`;
   const html = manifest ? renderBidsTree(buildTree(manifest), basePath) : renderNoManifest(version);
@@ -28,7 +45,7 @@ export const GET: APIRoute = async ({ params, request }) => {
       // Long edge cache; tree only changes when a new dataset version is
       // published. Stale-while-revalidate keeps responses snappy after the
       // 10-minute window expires.
-      "Cache-Control": "public, max-age=300, s-maxage=600, stale-while-revalidate=86400",
+      "Cache-Control": CACHE,
     },
   });
 };

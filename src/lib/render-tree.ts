@@ -54,8 +54,14 @@ function renderDirChildren(node: TreeNode, basePath: string, depth: number): str
       `<a class="tree__name" href="${esc(`${basePath}/${encodeURI(f.path)}`)}" rel="external" download="${esc(name)}" title="Download ${esc(f.path)}">${esc(name)}</a>`,
     );
     out.push(`<span class="tree__size">${esc(formatBytes(f.size))}</span>`);
-    if (cls.isEEG) out.push(`<span class="tree__tag tree__tag--soon" title="Visualizer ships in Phase 5">Vis · soon</span>`);
-    if (cls.isTSV) out.push(`<span class="tree__tag tree__tag--soon" title="TSV viewer ships in Phase 5">View · soon</span>`);
+    if (cls.isEEG)
+      out.push(
+        `<span class="tree__tag tree__tag--soon" title="Visualizer ships in Phase 5">Vis · soon</span>`,
+      );
+    if (cls.isTSV)
+      out.push(
+        `<span class="tree__tag tree__tag--soon" title="TSV viewer ships in Phase 5">View · soon</span>`,
+      );
     if (cls.isJSON) out.push(`<span class="tree__tag">JSON</span>`);
     out.push(`</li>`);
   }
@@ -115,6 +121,14 @@ export function renderBidsTree(root: TreeNode, basePath: string): string {
   out.push(`</ul>`);
   out.push(`</section>`);
   return out.join("");
+}
+
+/** Unpublished-state placeholder for the file tree panel. */
+export function renderUnpublishedTree(): string {
+  return `<section class="detail__no-manifest" role="note">
+    <h2>Not yet published</h2>
+    <p>No published version exists for this dataset. The file tree will appear here once a version is released.</p>
+  </section>`;
 }
 
 /** No-manifest empty state HTML. */

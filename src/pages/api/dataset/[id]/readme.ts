@@ -3,10 +3,18 @@ import {
   fetchGithubReadme,
   fetchManifestEntryText,
   findReadmeEntry,
+  getLanding,
   getManifest,
   getMetadata,
+  isUnpublished,
 } from "../../../../lib/data-api";
-import { renderReadme, type ReadmeSourceKind } from "../../../../lib/render-readme";
+import {
+  type ReadmeSourceKind,
+  renderReadme,
+  renderUnpublishedReadme,
+} from "../../../../lib/render-readme";
+
+const UNPUBLISHED_CACHE = "public, max-age=300, s-maxage=600, stale-while-revalidate=86400";
 
 /**
  * `GET /api/dataset/<id>/readme?v=<version>` — returns the rendered
@@ -21,6 +29,17 @@ export const GET: APIRoute = async ({ params, request }) => {
 
   if (!id || !version) {
     return new Response("Missing id or v= query parameter", { status: 400 });
+  }
+
+  const landing = await getLanding(id, { timeoutMs: 1_500 });
+  if (isUnpublished(landing)) {
+    return new Response(renderUnpublishedReadme(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": UNPUBLISHED_CACHE,
+      },
+    });
   }
 
   // Manifest README + metadata fetched in parallel. metadata only used for
@@ -56,7 +75,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=300, s-maxage=600, stale-while-revalidate=86400",
+      "Cache-Control": UNPUBLISHED_CACHE,
     },
   });
 };

@@ -1,20 +1,20 @@
 ---
-import Base from "../../layouts/Base.astro";
 import ActionBar from "../../components/ActionBar.astro";
+import BidsTree from "../../components/BidsTree.astro";
+import DetailRail from "../../components/DetailRail.astro";
 import DoiBadge from "../../components/DoiBadge.astro";
 import ModalityBadge from "../../components/ModalityBadge.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
-import VersionSwitcher from "../../components/VersionSwitcher.astro";
-import Readme from "../../components/Readme.astro";
-import BidsTree from "../../components/BidsTree.astro";
-import DetailRail from "../../components/DetailRail.astro";
 import QualityPanel from "../../components/QualityPanel.astro";
-import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
+import Readme from "../../components/Readme.astro";
+import VersionSwitcher from "../../components/VersionSwitcher.astro";
+import Base from "../../layouts/Base.astro";
 import { getDataset, resolveCanonical } from "../../lib/api";
-import { detectProvenance } from "../../lib/provenance";
-import { splitModalities } from "../../lib/format";
-import { getQaAggregates } from "../../lib/qa";
 import { ORG_DATASETS } from "../../lib/constants";
+import { archiveZipUrl, getLanding, getMetadata, isUnpublished } from "../../lib/data-api";
+import { splitModalities } from "../../lib/format";
+import { detectProvenance } from "../../lib/provenance";
+import { getQaAggregates } from "../../lib/qa";
 
 const { id } = Astro.params;
 if (!id) {
@@ -70,13 +70,19 @@ const enrichedMetadata = {
     (metadata.recording_modality?.length ?? 0) > 0
       ? metadata.recording_modality
       : catalogRow?.modalities
-        ? catalogRow.modalities.split(",").map((m) => m.trim()).filter(Boolean)
+        ? catalogRow.modalities
+            .split(",")
+            .map((m) => m.trim())
+            .filter(Boolean)
         : [],
   tasks:
     (metadata.tasks?.length ?? 0) > 0
       ? metadata.tasks
       : catalogRow?.tasks
-        ? catalogRow.tasks.split(",").map((t) => t.trim()).filter(Boolean)
+        ? catalogRow.tasks
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean)
         : [],
   authors:
     (metadata.authors?.length ?? 0) > 0
@@ -94,10 +100,12 @@ const enrichedMetadata = {
         : [],
 };
 
+const unpublished = isUnpublished(landing);
+
 const selectedVersion =
   versionParam && landing.versions.some((v) => v.version === versionParam)
     ? versionParam
-    : landing.latest ?? landing.versions[0]?.version ?? null;
+    : (landing.latest ?? landing.versions[0]?.version ?? null);
 
 // README and BIDS tree fetches are deferred to the client (see
 // /api/dataset/[id]/readme.ts and tree.ts). SSR critical path now only awaits
@@ -111,8 +119,7 @@ const modalities = enrichedMetadata.recording_modality.length
 
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
 const issuesUrl = `${githubUrl}/issues`;
-const openneuroId =
-  provenance.kind === "derived" ? provenance.originalDatasetId ?? null : null;
+const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
 
 // Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
@@ -176,10 +183,19 @@ Astro.response.headers.set(
 
     <div class="container detail__body">
       <div class="detail__main">
-        <Readme defer datasetId={id} version={selectedVersion} />
-        <QualityPanel aggregates={qaAggregates} hedSummary={null} />
-        {selectedVersion && (
-          <BidsTree datasetId={id} version={selectedVersion} />
+        {unpublished ? (
+          <div class="detail__unpublished">
+            <h2>Not yet published</h2>
+            <p>This dataset has been registered but no published version is available yet. Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</p>
+          </div>
+        ) : (
+          <>
+            <Readme defer datasetId={id} version={selectedVersion} />
+            <QualityPanel aggregates={qaAggregates} hedSummary={null} />
+            {selectedVersion && (
+              <BidsTree datasetId={id} version={selectedVersion} />
+            )}
+          </>
         )}
       </div>
       <DetailRail metadata={enrichedMetadata} />
@@ -295,6 +311,20 @@ Astro.response.headers.set(
     flex-direction: column;
     gap: var(--space-6);
     min-inline-size: 0;
+  }
+  .detail__unpublished {
+    padding: var(--space-6);
+    border: 1px solid color-mix(in srgb, var(--color-fg-subtle) 30%, transparent);
+    background: var(--color-bg-elevated);
+    border-radius: var(--radius-lg);
+  }
+  .detail__unpublished h2 {
+    font-size: var(--fs-lg);
+    margin-block-end: var(--space-2);
+  }
+  .detail__unpublished p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
   }
   .detail__no-manifest {
     padding: var(--space-6);
