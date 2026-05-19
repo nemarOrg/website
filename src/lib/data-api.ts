@@ -39,11 +39,32 @@ export interface DataApiInit {
   timeoutMs?: number;
 }
 
+/**
+ * Tagged result of a `jsonFetch` call. Every failure mode is captured as
+ * data — nothing throws. Lets callers branch on the real reason a fetch
+ * didn't succeed (404 vs timeout vs 5xx vs malformed JSON), which is the
+ * difference between "render real 404" and "render degraded state."
+ */
+export type FetchOutcome<T> =
+  | { kind: "ok"; value: T }
+  | { kind: "not_found" }
+  | { kind: "rate_limited" }
+  | { kind: "upstream_error"; status: number; statusText: string }
+  | { kind: "timeout" }
+  | { kind: "network_error"; message: string }
+  | { kind: "parse_error"; message: string };
+
+/**
+ * Fetch + parse JSON, return a tagged outcome. Catches every error mode
+ * (network, timeout, HTTP non-200, JSON parse) so callers don't need
+ * their own try/catch. Retries once on 429 honoring Retry-After before
+ * settling on `rate_limited`.
+ */
 async function jsonFetch<T>(
   url: string,
   init: DataApiInit,
   accept = "application/json",
-): Promise<T | null> {
+): Promise<FetchOutcome<T>> {
   const controller = new AbortController();
   const timeout = init.timeoutMs ?? 5_000;
   const timer = setTimeout(() => controller.abort(), timeout);
@@ -55,37 +76,180 @@ async function jsonFetch<T>(
   }
 
   try {
-    let res = await attempt();
+    let res: Response;
+    try {
+      res = await attempt();
+    } catch (err) {
+      // fetch() itself rejected — either AbortError (timeout/cancellation)
+      // or a network/DNS failure. Distinguish so the caller can act.
+      const name = (err as { name?: string }).name ?? "";
+      const message = (err as Error).message ?? String(err);
+      if (name === "AbortError") return { kind: "timeout" };
+      return { kind: "network_error", message };
+    }
+
     if (res.status === 429) {
-      // Rate-limited. Wait the Retry-After header (or 1s default) and try once more.
+      // Rate-limited. Wait Retry-After (or 1s default) and try once more.
       const retryAfter = Number.parseInt(res.headers.get("retry-after") ?? "1", 10);
       const waitMs = Math.min(Math.max(retryAfter, 1) * 1000, 5_000);
       await new Promise((r) => setTimeout(r, waitMs));
-      res = await attempt();
+      try {
+        res = await attempt();
+      } catch (err) {
+        const name = (err as { name?: string }).name ?? "";
+        const message = (err as Error).message ?? String(err);
+        if (name === "AbortError") return { kind: "timeout" };
+        return { kind: "network_error", message };
+      }
+      if (res.status === 429) return { kind: "rate_limited" };
     }
-    if (res.status === 404) return null;
-    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-      // Treat persistent rate-limiting / upstream errors as "data unavailable"
-      // rather than 500ing the entire page. The caller renders an empty state.
-      console.warn(`data.nemar.org ${url}: ${res.status} ${res.statusText}; rendering empty state`);
-      return null;
+
+    if (res.status === 404) return { kind: "not_found" };
+    if (res.status >= 500 && res.status < 600) {
+      return { kind: "upstream_error", status: res.status, statusText: res.statusText };
     }
     if (!res.ok) {
-      throw new Error(`data.nemar.org ${url}: ${res.status} ${res.statusText}`);
+      return { kind: "upstream_error", status: res.status, statusText: res.statusText };
     }
-    return (await res.json()) as T;
+
+    try {
+      const value = (await res.json()) as T;
+      return { kind: "ok", value };
+    } catch (err) {
+      return { kind: "parse_error", message: (err as Error).message ?? String(err) };
+    }
   } finally {
     clearTimeout(timer);
     if (init.signal) init.signal.removeEventListener("abort", onParentAbort);
   }
 }
 
+/**
+ * Compatibility wrapper for callers that just want `T | null`. Logs every
+ * non-ok outcome except `not_found` (which is a routine "the resource
+ * doesn't exist" — not worth a log line on every dataset page render).
+ */
+async function jsonFetchOrNull<T>(
+  url: string,
+  init: DataApiInit,
+  accept = "application/json",
+): Promise<T | null> {
+  const out = await jsonFetch<T>(url, init, accept);
+  if (out.kind === "ok") return out.value;
+  if (out.kind !== "not_found") {
+    const detail = out.kind === "upstream_error" ? `${out.kind} ${out.status}` : out.kind;
+    console.warn(`[data-api] ${url}: ${detail}`);
+  }
+  return null;
+}
+
+/**
+ * Type-narrowing helper: returns the parsed value when the outcome was ok,
+ * else null. Equivalent to `out.kind === "ok" ? out.value : null` but
+ * lets call sites stay terse without losing the discriminant info above.
+ */
+export function outcomeValue<T>(outcome: FetchOutcome<T>): T | null {
+  return outcome.kind === "ok" ? outcome.value : null;
+}
+
+// ============================================================================
+// Typed fetchers — preserve the legacy `T | null` API.
+// ============================================================================
+
 export async function getLanding(
   datasetId: string,
   init: DataApiInit = {},
 ): Promise<LandingPayload | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/`;
-  return jsonFetch<LandingPayload>(url, init);
+  return jsonFetchOrNull<LandingPayload>(landingUrl(datasetId, init), init);
+}
+
+export async function getMetadata(
+  datasetId: string,
+  init: DataApiInit = {},
+): Promise<NeuroschemaDataset | null> {
+  return jsonFetchOrNull<NeuroschemaDataset>(metadataUrl(datasetId, init), init);
+}
+
+export async function getSummary(
+  datasetId: string,
+  version: string,
+  init: DataApiInit = {},
+): Promise<Summary | null> {
+  return jsonFetchOrNull<Summary>(summaryUrl(datasetId, version, init), {
+    ...init,
+    timeoutMs: init.timeoutMs ?? 1_500,
+  });
+}
+
+export async function getManifest(
+  datasetId: string,
+  version: string,
+  init: DataApiInit = {},
+): Promise<Manifest | null> {
+  return jsonFetchOrNull<Manifest>(manifestUrl(datasetId, version, init), init);
+}
+
+// ============================================================================
+// Outcome variants — for callers that need to distinguish failure modes
+// (e.g., real 404 vs degraded data layer). Same URLs + same fetch semantics
+// as the legacy helpers; the only difference is the return shape.
+// ============================================================================
+
+export async function getLandingOutcome(
+  datasetId: string,
+  init: DataApiInit = {},
+): Promise<FetchOutcome<LandingPayload>> {
+  return jsonFetch<LandingPayload>(landingUrl(datasetId, init), init);
+}
+
+export async function getMetadataOutcome(
+  datasetId: string,
+  init: DataApiInit = {},
+): Promise<FetchOutcome<NeuroschemaDataset>> {
+  return jsonFetch<NeuroschemaDataset>(metadataUrl(datasetId, init), init);
+}
+
+export async function getSummaryOutcome(
+  datasetId: string,
+  version: string,
+  init: DataApiInit = {},
+): Promise<FetchOutcome<Summary>> {
+  return jsonFetch<Summary>(summaryUrl(datasetId, version, init), {
+    ...init,
+    timeoutMs: init.timeoutMs ?? 1_500,
+  });
+}
+
+export async function getManifestOutcome(
+  datasetId: string,
+  version: string,
+  init: DataApiInit = {},
+): Promise<FetchOutcome<Manifest>> {
+  return jsonFetch<Manifest>(manifestUrl(datasetId, version, init), init);
+}
+
+// ============================================================================
+// URL helpers (shared between the legacy + outcome variants)
+// ============================================================================
+
+function landingUrl(datasetId: string, init: DataApiInit): string {
+  return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/`;
+}
+
+function metadataUrl(datasetId: string, init: DataApiInit): string {
+  return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/metadata.json`;
+}
+
+function summaryUrl(datasetId: string, version: string, init: DataApiInit): string {
+  return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/${encodeURIComponent(
+    version,
+  )}/summary.json`;
+}
+
+function manifestUrl(datasetId: string, version: string, init: DataApiInit): string {
+  return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/${encodeURIComponent(
+    version,
+  )}/manifest.json`;
 }
 
 /**
@@ -104,36 +268,6 @@ export async function getLanding(
 export function isUnpublished(landing: LandingPayload | null): boolean {
   if (!landing) return false;
   return !landing.latest || landing.versions.length === 0;
-}
-
-export async function getMetadata(
-  datasetId: string,
-  init: DataApiInit = {},
-): Promise<NeuroschemaDataset | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/metadata.json`;
-  return jsonFetch<NeuroschemaDataset>(url, init);
-}
-
-export async function getSummary(
-  datasetId: string,
-  version: string,
-  init: DataApiInit = {},
-): Promise<Summary | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/${encodeURIComponent(
-    version,
-  )}/summary.json`;
-  return jsonFetch<Summary>(url, { ...init, timeoutMs: init.timeoutMs ?? 1_500 });
-}
-
-export async function getManifest(
-  datasetId: string,
-  version: string,
-  init: DataApiInit = {},
-): Promise<Manifest | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/${encodeURIComponent(
-    version,
-  )}/manifest.json`;
-  return jsonFetch<Manifest>(url, init);
 }
 
 /**
@@ -250,12 +384,15 @@ export async function fetchGithubReadme(
   }
 }
 
-/** Build a download URL for the dataset zip archive at a given version. */
+/**
+ * Build a download URL for the dataset zip archive at a given version.
+ *
+ * The archives live at `s3://nemar/<id>/archives/<v>.zip`. The link points
+ * at `<root>/<id>/<v>.zip`; data.nemar.org's worker resolves and signs the
+ * S3 path on demand. If the worker route ever 404s, the UI surfaces the
+ * upstream error rather than masking it.
+ */
 export function archiveZipUrl(datasetId: string, version: string, base?: string): string {
-  // The archives live at s3://nemar/<id>/archives/<v>.zip. We route the request
-  // through data.nemar.org so the worker can issue a presigned URL on demand.
-  // Until the worker exposes /archives, the link points at the legacy
-  // download/<id>/<v>.zip path; if that 404s, the UI falls back to the manifest.
   const root = (base ?? dataBase()).replace(/\/$/, "");
   return `${root}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}.zip`;
 }

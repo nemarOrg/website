@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { findReadmePathInSummary, isUnpublished } from "./data-api";
-import type { Summary } from "./data-api";
+import { findReadmePathInSummary, isUnpublished, outcomeValue } from "./data-api";
+import type { FetchOutcome, Summary } from "./data-api";
 import type { LandingPayload } from "./neuroschema";
 
 function makeSummary(overrides: Partial<Summary> = {}): Summary {
@@ -102,5 +102,29 @@ describe("isUnpublished", () => {
     // Defensive against an upstream API that emits "" instead of null for the
     // unpublished case; the OR-then-falsy check covers both.
     expect(isUnpublished(makeLanding({ latest: "" as unknown as null, versions: [] }))).toBe(true);
+  });
+});
+
+describe("outcomeValue", () => {
+  it("returns the parsed value when outcome is ok", () => {
+    const ok: FetchOutcome<{ x: number }> = { kind: "ok", value: { x: 42 } };
+    expect(outcomeValue(ok)).toEqual({ x: 42 });
+  });
+
+  it("returns null for every non-ok outcome kind", () => {
+    // Pin the contract: any non-ok outcome collapses to null, regardless of
+    // which specific failure mode it represents. Callers that need to
+    // discriminate must inspect the outcome directly, not via this helper.
+    const kinds: FetchOutcome<unknown>[] = [
+      { kind: "not_found" },
+      { kind: "rate_limited" },
+      { kind: "upstream_error", status: 500, statusText: "Internal Server Error" },
+      { kind: "timeout" },
+      { kind: "network_error", message: "ECONNREFUSED" },
+      { kind: "parse_error", message: "Unexpected token < in JSON at position 0" },
+    ];
+    for (const o of kinds) {
+      expect(outcomeValue(o)).toBeNull();
+    }
   });
 });

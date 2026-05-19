@@ -11,7 +11,13 @@ import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
 import { getDataset, resolveCanonical } from "../../lib/api";
 import { ORG_DATASETS } from "../../lib/constants";
-import { archiveZipUrl, getLanding, getMetadata, isUnpublished } from "../../lib/data-api";
+import {
+  archiveZipUrl,
+  getLandingOutcome,
+  getMetadataOutcome,
+  isUnpublished,
+  outcomeValue,
+} from "../../lib/data-api";
 import { splitModalities } from "../../lib/format";
 import { detectProvenance } from "../../lib/provenance";
 import { getQaAggregates } from "../../lib/qa";
@@ -41,9 +47,9 @@ const versionParam = url.searchParams.get("v");
 // QA aggregates fetch tolerates 404s by returning null; QualityPanel renders
 // nothing when no data is available, so this is safe for datasets without
 // pipeline output yet.
-const [landing, metadata, catalogRow, qaAggregates] = await Promise.all([
-  getLanding(id),
-  getMetadata(id),
+const [landingOut, metadataOut, catalogRow, qaAggregates] = await Promise.all([
+  getLandingOutcome(id),
+  getMetadataOutcome(id),
   getDataset(id).catch((err) => {
     console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
     return null;
@@ -54,10 +60,34 @@ const [landing, metadata, catalogRow, qaAggregates] = await Promise.all([
   }),
 ]);
 
-if (!landing || !metadata) {
+// Real 404 only when the data layer explicitly says "this dataset does not
+// exist." Degraded responses (timeout, 5xx, parse error) are NOT 404 — the
+// dataset may exist but we couldn't fetch it. Return 503 so monitoring
+// distinguishes "you typed a bad URL" from "the data layer is down."
+if (landingOut.kind === "not_found" && metadataOut.kind === "not_found") {
   Astro.response.status = 404;
   Astro.response.headers.set("Cache-Control", "no-store");
   return new Response(null, { status: 404 });
+}
+if (landingOut.kind !== "ok") {
+  console.warn(`[dataset/${id}] landing fetch failed: ${landingOut.kind}`);
+  Astro.response.status = 503;
+  Astro.response.headers.set("Cache-Control", "no-store");
+  return new Response(null, { status: 503 });
+}
+if (metadataOut.kind !== "ok") {
+  console.warn(`[dataset/${id}] metadata fetch failed: ${metadataOut.kind}`);
+  Astro.response.status = 503;
+  Astro.response.headers.set("Cache-Control", "no-store");
+  return new Response(null, { status: 503 });
+}
+
+const landing = outcomeValue(landingOut);
+const metadata = outcomeValue(metadataOut);
+if (!landing || !metadata) {
+  // Type-narrowing safety net: we already returned above for any non-ok
+  // outcome, but TypeScript can't see through the discriminant.
+  return new Response(null, { status: 500 });
 }
 
 // Merge sparse metadata with catalog row when neuroschema fields are empty.
