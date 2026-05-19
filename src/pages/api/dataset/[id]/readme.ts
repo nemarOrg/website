@@ -4,11 +4,12 @@ import {
   fetchManifestEntryText,
   findReadmeEntry,
   findReadmePathInSummary,
-  getLanding,
+  getLandingOutcome,
   getManifest,
   getMetadata,
   getSummary,
   isUnpublished,
+  outcomeValue,
 } from "../../../../lib/data-api";
 import {
   type ReadmeSourceKind,
@@ -49,16 +50,25 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
-  const [landing, summary, metadata] = await Promise.all([
-    getLanding(id, { timeoutMs: 1_500 }),
+  const [landingOut, summary, metadata] = await Promise.all([
+    getLandingOutcome(id, { timeoutMs: 1_500 }),
     getSummary(id, version, { timeoutMs: 1_500 }),
     getMetadata(id, { timeoutMs: 4_000 }),
   ]);
 
-  if (landing === null) {
-    console.warn(`[readme/${id}] getLanding returned null; proceeding to manifest path`);
+  // Real 404 when the dataset itself doesn't exist — short-circuits the
+  // fall-through that would otherwise render an empty "no manifest" state
+  // for what's actually a typo'd URL.
+  if (landingOut.kind === "not_found") {
+    return new Response("Dataset not found", { status: 404 });
+  }
+  if (landingOut.kind !== "ok") {
+    console.warn(
+      `[readme/${id}] landing fetch failed (${landingOut.kind}); proceeding to manifest path`,
+    );
   }
 
+  const landing = outcomeValue(landingOut);
   if (isUnpublished(landing)) {
     return new Response(renderUnpublishedReadme(), {
       status: 200,

@@ -1,6 +1,12 @@
 import type { APIRoute } from "astro";
 import { buildTree, buildTreeFromPaths } from "../../../../lib/bids-tree";
-import { getLanding, getManifest, getSummary, isUnpublished } from "../../../../lib/data-api";
+import {
+  getLandingOutcome,
+  getManifest,
+  getSummary,
+  isUnpublished,
+  outcomeValue,
+} from "../../../../lib/data-api";
 import {
   renderBidsTree,
   renderNoManifest,
@@ -37,15 +43,24 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
-  const [landing, summary] = await Promise.all([
-    getLanding(id, { timeoutMs: 1_500 }),
+  const [landingOut, summary] = await Promise.all([
+    getLandingOutcome(id, { timeoutMs: 1_500 }),
     getSummary(id, version, { timeoutMs: 1_500 }),
   ]);
 
-  if (landing === null) {
-    console.warn(`[tree/${id}] getLanding returned null; proceeding to manifest path`);
+  // Real 404 when the dataset itself doesn't exist — short-circuits the
+  // fall-through that would otherwise render an empty "no manifest" state
+  // for what's actually a typo'd URL.
+  if (landingOut.kind === "not_found") {
+    return new Response("Dataset not found", { status: 404 });
+  }
+  if (landingOut.kind !== "ok") {
+    console.warn(
+      `[tree/${id}] landing fetch failed (${landingOut.kind}); proceeding to manifest path`,
+    );
   }
 
+  const landing = outcomeValue(landingOut);
   if (isUnpublished(landing)) {
     return new Response(renderUnpublishedTree(), {
       status: 200,
