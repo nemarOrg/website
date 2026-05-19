@@ -60,6 +60,30 @@ export function buildTree(manifest: Manifest): TreeNode {
   return root;
 }
 
+/**
+ * Build a tree from a flat path list (as provided by summary.json).
+ *
+ * summary.json deliberately omits per-entry sizes, checksums, and
+ * presigned URLs (that's the whole point — it's ~50-200 KB vs the full
+ * manifest's 5-10+ MB). Synthetic zero-size + empty-string fillers are
+ * the only viable bridge to buildTree, which expects ManifestEntry shape.
+ *
+ * The renderer (render-tree.ts) constructs download anchors from
+ * `basePath + entry.path` and does not read `entry.url`, so the empty
+ * url filler is harmless. `totalSize` propagates as 0 throughout — the
+ * tree UI displays no size hints when the source is summary-backed.
+ */
+export function buildTreeFromPaths(paths: string[]): TreeNode {
+  const entries = paths.map((p) => ({
+    path: p,
+    size: 0,
+    checksum_algorithm: "",
+    checksum: "",
+    url: "",
+  }));
+  return buildTree(entries);
+}
+
 function sortAndSum(node: TreeNode): number {
   let total = 0;
   for (const f of node.files) total += f.size;

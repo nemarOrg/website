@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
-import { buildTree } from "../../../../lib/bids-tree";
-import { getLanding, getManifest, isUnpublished } from "../../../../lib/data-api";
+import { buildTree, buildTreeFromPaths } from "../../../../lib/bids-tree";
+import { getLanding, getManifest, getSummary, isUnpublished } from "../../../../lib/data-api";
 import {
   renderBidsTree,
   renderNoManifest,
@@ -16,10 +16,17 @@ const UNPUBLISHED_CACHE = "public, max-age=60, s-maxage=60, stale-while-revalida
 
 /**
  * `GET /api/dataset/<id>/tree?v=<version>` — returns the rendered BIDS
- * file tree HTML for `<id>` at `<version>`. Used by the detail page to
- * defer the manifest fetch off the SSR critical path. Both upstream
- * fetches fire in parallel so the unpublished detection doesn't add
- * serial RTT to the published-dataset latency budget. Edge-cached.
+ * file tree HTML for `<id>` at `<version>`.
+ *
+ * Resolution order:
+ *   0. If landing says unpublished → render "not yet published" placeholder.
+ *   1. Fast path: summary.json's flat path list builds the tree.
+ *   2. Slow path: full manifest builds the tree.
+ *   3. No-manifest empty state.
+ *
+ * Landing + summary fetched in parallel so unpublished detection and the
+ * fast path don't add serial RTT. Manifest only fires when summary is
+ * absent or malformed.
  */
 export const GET: APIRoute = async ({ params, request }) => {
   const id = params.id;
@@ -30,9 +37,9 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
-  const [landing, manifest] = await Promise.all([
+  const [landing, summary] = await Promise.all([
     getLanding(id, { timeoutMs: 1_500 }),
-    getManifest(id, version, { timeoutMs: 5_000 }),
+    getSummary(id, version, { timeoutMs: 1_500 }),
   ]);
 
   if (landing === null) {
@@ -50,7 +57,21 @@ export const GET: APIRoute = async ({ params, request }) => {
   }
 
   const basePath = `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(version)}`;
-  const html = manifest ? renderBidsTree(buildTree(manifest), basePath) : renderNoManifest(version);
+  const summaryUsable =
+    summary !== null && Array.isArray(summary.paths) && summary.paths.length > 0;
+
+  let html: string;
+  if (summaryUsable) {
+    html = renderBidsTree(buildTreeFromPaths(summary.paths), basePath);
+  } else {
+    if (summary === null) {
+      console.warn(`[tree/${id}] summary null; falling back to manifest path`);
+    } else {
+      console.warn(`[tree/${id}] summary present but paths empty; falling back to manifest`);
+    }
+    const manifest = await getManifest(id, version, { timeoutMs: 5_000 });
+    html = manifest ? renderBidsTree(buildTree(manifest), basePath) : renderNoManifest(version);
+  }
 
   return new Response(html, {
     status: 200,

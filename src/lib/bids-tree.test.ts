@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, classifyFile } from "./bids-tree";
+import { buildTree, buildTreeFromPaths, classifyFile } from "./bids-tree";
 import type { ManifestEntry } from "./neuroschema";
 
 function entry(path: string, size = 100): ManifestEntry {
@@ -15,10 +15,7 @@ describe("buildTree", () => {
       entry("sub-01/eeg/sub-01_task-rest_eeg.fdt", 100_000),
       entry("sub-02/eeg/sub-02_task-rest_eeg.set", 60_000),
     ]);
-    expect(tree.files.map((f) => f.path).sort()).toEqual([
-      "README.md",
-      "dataset_description.json",
-    ]);
+    expect(tree.files.map((f) => f.path).sort()).toEqual(["README.md", "dataset_description.json"]);
     expect(tree.children.map((c) => c.name)).toEqual(["sub-01", "sub-02"]);
     expect(tree.children[0]!.totalSize).toBe(150_000);
     expect(tree.totalSize).toBe(1000 + 200 + 50_000 + 100_000 + 60_000);
@@ -30,7 +27,11 @@ describe("buildTree", () => {
   });
 
   it("aggregates sizes deep", () => {
-    const tree = buildTree([entry("a/b/c/d.txt", 1), entry("a/b/c/e.txt", 2), entry("a/b/f.txt", 4)]);
+    const tree = buildTree([
+      entry("a/b/c/d.txt", 1),
+      entry("a/b/c/e.txt", 2),
+      entry("a/b/f.txt", 4),
+    ]);
     expect(tree.totalSize).toBe(7);
     expect(tree.children[0]!.totalSize).toBe(7);
     expect(tree.children[0]!.children[0]!.totalSize).toBe(7);
@@ -41,6 +42,51 @@ describe("buildTree", () => {
     expect(tree.children).toEqual([]);
     expect(tree.files).toEqual([]);
     expect(tree.totalSize).toBe(0);
+  });
+});
+
+describe("buildTreeFromPaths", () => {
+  it("builds a tree from a path list", () => {
+    const tree = buildTreeFromPaths([
+      "README.md",
+      "dataset_description.json",
+      "sub-01/eeg/sub-01_task-rest_eeg.set",
+      "sub-02/eeg/sub-02_task-rest_eeg.set",
+    ]);
+    expect(tree.files.map((f) => f.path).sort()).toEqual(["README.md", "dataset_description.json"]);
+    expect(tree.children.map((c) => c.name)).toEqual(["sub-01", "sub-02"]);
+  });
+
+  it("sets size to 0 and url to empty string for all entries", () => {
+    const tree = buildTreeFromPaths(["sub-01/eeg/x.set"]);
+    const file = tree.children[0]!.children[0]!.files[0]!;
+    expect(file.size).toBe(0);
+    expect(file.url).toBe("");
+  });
+
+  it("handles empty path list", () => {
+    const tree = buildTreeFromPaths([]);
+    expect(tree.children).toEqual([]);
+    expect(tree.files).toEqual([]);
+    expect(tree.totalSize).toBe(0);
+  });
+
+  it("sorts numerically like buildTree", () => {
+    const tree = buildTreeFromPaths(["sub-10/x.txt", "sub-2/x.txt", "sub-1/x.txt"]);
+    expect(tree.children.map((c) => c.name)).toEqual(["sub-1", "sub-2", "sub-10"]);
+  });
+
+  it("handles malformed segments without throwing", () => {
+    // Empty + slash-only paths are dropped (filter(Boolean) in buildTree
+    // discards zero-length segments). A trailing-slash path like "sub-01/"
+    // currently degrades to a one-segment file named "sub-01" at the root —
+    // not ideal, but locking in current behavior so a refactor doesn't
+    // silently change it. Real data from data.nemar.org/summary.json never
+    // contains these shapes; this test exists to pin the defensive contract.
+    expect(() => buildTreeFromPaths(["", "/", "sub-01/", "sub-01/eeg/x.set"])).not.toThrow();
+    const tree = buildTreeFromPaths(["", "/", "sub-01/", "sub-01/eeg/x.set"]);
+    expect(tree.children.map((c) => c.name)).toEqual(["sub-01"]);
+    expect(tree.children[0]!.children.map((c) => c.name)).toEqual(["eeg"]);
   });
 });
 

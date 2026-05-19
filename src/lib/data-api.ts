@@ -2,6 +2,30 @@ import type { LandingPayload, Manifest, NeuroschemaDataset } from "./neuroschema
 
 const DEFAULT_DATA_BASE = "https://data.nemar.org";
 
+export interface SummaryTotals {
+  files?: number;
+  bytes?: number;
+  subjects?: number;
+}
+
+export interface SummaryReadme {
+  path?: string;
+}
+
+export interface Summary {
+  schema_version?: string;
+  dataset_id: string;
+  version: string;
+  doi?: string;
+  concept_doi?: string;
+  created?: string;
+  totals?: SummaryTotals;
+  modalities?: string[];
+  subjects?: string[];
+  readme?: SummaryReadme;
+  paths: string[];
+}
+
 function dataBase(envOverride?: string): string {
   if (envOverride) return envOverride.replace(/\/$/, "");
   const fromEnv =
@@ -90,6 +114,17 @@ export async function getMetadata(
   return jsonFetch<NeuroschemaDataset>(url, init);
 }
 
+export async function getSummary(
+  datasetId: string,
+  version: string,
+  init: DataApiInit = {},
+): Promise<Summary | null> {
+  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/${encodeURIComponent(
+    version,
+  )}/summary.json`;
+  return jsonFetch<Summary>(url, { ...init, timeoutMs: init.timeoutMs ?? 1_500 });
+}
+
 export async function getManifest(
   datasetId: string,
   version: string,
@@ -130,6 +165,24 @@ export async function fetchManifestEntryText(
     clearTimeout(timer);
     if (init.signal) init.signal.removeEventListener("abort", onParentAbort);
   }
+}
+
+/**
+ * Locate the README path in a summary. Priority:
+ *   1. Explicit `summary.readme.path` (the publisher's authoritative pick,
+ *      may point at a non-root README like `docs/README.md`)
+ *   2. Root-level README in `summary.paths` matched case-insensitively
+ *      against {readme.md, readme, readme.txt}. Subdirectory READMEs are
+ *      intentionally NOT matched here — BIDS treats only the root one
+ *      as the dataset README.
+ */
+export function findReadmePathInSummary(summary: Summary): string | null {
+  if (summary.readme?.path) return summary.readme.path;
+  const candidates = ["readme.md", "readme", "readme.txt"];
+  for (const p of summary.paths) {
+    if (candidates.includes(p.toLowerCase())) return p;
+  }
+  return null;
 }
 
 /** Find the README entry in a manifest by case-insensitive name match. */
