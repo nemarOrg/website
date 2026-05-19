@@ -1,17 +1,32 @@
 import type { APIRoute } from "astro";
 import { buildTree, buildTreeFromPaths } from "../../../../lib/bids-tree";
-import { getManifest, getSummary } from "../../../../lib/data-api";
-import { renderBidsTree, renderNoManifest } from "../../../../lib/render-tree";
+import { getLanding, getManifest, getSummary, isUnpublished } from "../../../../lib/data-api";
+import {
+  renderBidsTree,
+  renderNoManifest,
+  renderUnpublishedTree,
+} from "../../../../lib/render-tree";
+
+const PUBLISHED_CACHE = "public, max-age=300, s-maxage=600, stale-while-revalidate=86400";
+// Short SWR for the unpublished branch: a dataset can flip to published at any
+// moment, and we don't want the CF edge to keep serving "not yet published"
+// HTML for hours after a real release. 60s s-maxage + 300s SWR caps the
+// staleness window without hammering origin.
+const UNPUBLISHED_CACHE = "public, max-age=60, s-maxage=60, stale-while-revalidate=300";
 
 /**
  * `GET /api/dataset/<id>/tree?v=<version>` — returns the rendered BIDS
- * file tree HTML for `<id>` at `<version>`. Used by the detail page to
- * defer the manifest fetch off the SSR critical path. Edge-cached.
+ * file tree HTML for `<id>` at `<version>`.
  *
- * Fast path: summary.json is small (~50-200 KB) and contains the full
- * path list needed to build the tree. Falls back to fetching the full
- * manifest when summary is unavailable OR when summary.paths is empty
- * (a defensive guard against schema evolution or partial uploads).
+ * Resolution order:
+ *   0. If landing says unpublished → render "not yet published" placeholder.
+ *   1. Fast path: summary.json's flat path list builds the tree.
+ *   2. Slow path: full manifest builds the tree.
+ *   3. No-manifest empty state.
+ *
+ * Landing + summary fetched in parallel so unpublished detection and the
+ * fast path don't add serial RTT. Manifest only fires when summary is
+ * absent or malformed.
  */
 export const GET: APIRoute = async ({ params, request }) => {
   const id = params.id;
@@ -22,9 +37,26 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
-  const basePath = `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(version)}`;
+  const [landing, summary] = await Promise.all([
+    getLanding(id, { timeoutMs: 1_500 }),
+    getSummary(id, version, { timeoutMs: 1_500 }),
+  ]);
 
-  const summary = await getSummary(id, version, { timeoutMs: 1_500 });
+  if (landing === null) {
+    console.warn(`[tree/${id}] getLanding returned null; proceeding to manifest path`);
+  }
+
+  if (isUnpublished(landing)) {
+    return new Response(renderUnpublishedTree(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": UNPUBLISHED_CACHE,
+      },
+    });
+  }
+
+  const basePath = `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(version)}`;
   const summaryUsable =
     summary !== null && Array.isArray(summary.paths) && summary.paths.length > 0;
 
@@ -45,10 +77,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      // Long edge cache; tree only changes when a new dataset version is
-      // published. Stale-while-revalidate keeps responses snappy after the
-      // 10-minute window expires.
-      "Cache-Control": "public, max-age=300, s-maxage=600, stale-while-revalidate=86400",
+      "Cache-Control": PUBLISHED_CACHE,
     },
   });
 };

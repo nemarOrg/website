@@ -4,25 +4,41 @@ import {
   fetchManifestEntryText,
   findReadmeEntry,
   findReadmePathInSummary,
+  getLanding,
   getManifest,
   getMetadata,
   getSummary,
+  isUnpublished,
 } from "../../../../lib/data-api";
-import { type ReadmeSourceKind, renderReadme } from "../../../../lib/render-readme";
+import {
+  type ReadmeSourceKind,
+  renderReadme,
+  renderUnpublishedReadme,
+} from "../../../../lib/render-readme";
+
+const PUBLISHED_CACHE = "public, max-age=300, s-maxage=600, stale-while-revalidate=86400";
+// Short SWR for the unpublished branch: a dataset can flip to published at any
+// moment, and we don't want the CF edge to keep serving "not yet published"
+// HTML for hours after a real release. 60s s-maxage + 300s SWR caps the
+// staleness window without hammering origin.
+const UNPUBLISHED_CACHE = "public, max-age=60, s-maxage=60, stale-while-revalidate=300";
 
 /**
  * `GET /api/dataset/<id>/readme?v=<version>` — returns the rendered
- * README HTML for `<id>` at `<version>`. Resolution order:
+ * README HTML for `<id>` at `<version>`.
  *
+ * Resolution order:
+ *   0. If landing says unpublished → render "not yet published" placeholder.
  *   1. Fast path (summary.json present + summary.readme.path resolved):
- *      GitHub raw README (no presigned URL needed)
- *   2. Manifest README via presigned URL
- *   3. GitHub raw README (without summary)
- *   4. BIDS dataset_description fallback
+ *      GitHub raw README (no presigned URL needed).
+ *   2. Manifest README via presigned URL.
+ *   3. GitHub raw README (without summary signal).
+ *   4. BIDS dataset_description fallback.
  *
  * Each step only runs if the previous step yielded nothing, so a dataset
  * without a linked GitHub repo (or with a GitHub fetch failure) still
- * gets the manifest path. Edge-cached.
+ * gets the manifest path. Landing + summary + metadata fetched in parallel
+ * so unpublished detection and the fast path don't add serial RTT.
  */
 export const GET: APIRoute = async ({ params, request }) => {
   const id = params.id;
@@ -33,10 +49,25 @@ export const GET: APIRoute = async ({ params, request }) => {
     return new Response("Missing id or v= query parameter", { status: 400 });
   }
 
-  const [summary, metadata] = await Promise.all([
+  const [landing, summary, metadata] = await Promise.all([
+    getLanding(id, { timeoutMs: 1_500 }),
     getSummary(id, version, { timeoutMs: 1_500 }),
     getMetadata(id, { timeoutMs: 4_000 }),
   ]);
+
+  if (landing === null) {
+    console.warn(`[readme/${id}] getLanding returned null; proceeding to manifest path`);
+  }
+
+  if (isUnpublished(landing)) {
+    return new Response(renderUnpublishedReadme(), {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": UNPUBLISHED_CACHE,
+      },
+    });
+  }
 
   const githubUrl = metadata?.external_links.github_url ?? null;
   const readmePath = summary ? findReadmePathInSummary(summary) : null;
@@ -50,12 +81,10 @@ export const GET: APIRoute = async ({ params, request }) => {
     if (source) kind = "github";
   }
 
-  // Step 2: manifest README. Runs when:
-  //   - no summary (slow path), OR
-  //   - summary present but the GitHub fast path produced nothing (no
-  //     githubUrl, GH unreachable, or summary reported a README the GH
-  //     repo doesn't actually serve). Falling through to manifest avoids
-  //     silently dropping the README for datasets without a GitHub URL.
+  // Step 2: manifest README. Runs when summary was absent OR when the GitHub
+  // fast path produced nothing (no GH URL, GH unreachable, or summary
+  // reported a README the GH repo doesn't actually serve). Falling through
+  // here avoids silently dropping the README for datasets without GitHub.
   if (!source) {
     if (summary === null) {
       console.warn(`[readme/${id}] summary null; falling back to manifest path`);
@@ -70,14 +99,13 @@ export const GET: APIRoute = async ({ params, request }) => {
     }
   }
 
-  // Step 3: GitHub raw without summary signal (covers the case where summary
-  // is absent and the manifest README path also failed).
+  // Step 3: GitHub raw without a summary signal (manifest also missed).
   if (!source && githubUrl) {
     source = await fetchGithubReadme(githubUrl, { timeoutMs: 1_500 });
     if (source) kind = "github";
   }
 
-  // Step 4: BIDS description.
+  // Step 4: BIDS dataset_description.
   if (!source && metadata?.description && metadata.description !== metadata.name) {
     source = metadata.description;
     kind = "description";
@@ -88,7 +116,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=300, s-maxage=600, stale-while-revalidate=86400",
+      "Cache-Control": PUBLISHED_CACHE,
     },
   });
 };
