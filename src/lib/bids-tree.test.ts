@@ -75,6 +75,19 @@ describe("buildTreeFromPaths", () => {
     const tree = buildTreeFromPaths(["sub-10/x.txt", "sub-2/x.txt", "sub-1/x.txt"]);
     expect(tree.children.map((c) => c.name)).toEqual(["sub-1", "sub-2", "sub-10"]);
   });
+
+  it("handles malformed segments without throwing", () => {
+    // Empty + slash-only paths are dropped (filter(Boolean) in buildTree
+    // discards zero-length segments). A trailing-slash path like "sub-01/"
+    // currently degrades to a one-segment file named "sub-01" at the root —
+    // not ideal, but locking in current behavior so a refactor doesn't
+    // silently change it. Real data from data.nemar.org/summary.json never
+    // contains these shapes; this test exists to pin the defensive contract.
+    expect(() => buildTreeFromPaths(["", "/", "sub-01/", "sub-01/eeg/x.set"])).not.toThrow();
+    const tree = buildTreeFromPaths(["", "/", "sub-01/", "sub-01/eeg/x.set"]);
+    expect(tree.children.map((c) => c.name)).toEqual(["sub-01"]);
+    expect(tree.children[0]!.children.map((c) => c.name)).toEqual(["eeg"]);
+  });
 });
 
 describe("classifyFile", () => {

@@ -149,7 +149,15 @@ export async function fetchManifestEntryText(
   }
 }
 
-/** Find the README path in a summary by case-insensitive name match. */
+/**
+ * Locate the README path in a summary. Priority:
+ *   1. Explicit `summary.readme.path` (the publisher's authoritative pick,
+ *      may point at a non-root README like `docs/README.md`)
+ *   2. Root-level README in `summary.paths` matched case-insensitively
+ *      against {readme.md, readme, readme.txt}. Subdirectory READMEs are
+ *      intentionally NOT matched here — BIDS treats only the root one
+ *      as the dataset README.
+ */
 export function findReadmePathInSummary(summary: Summary): string | null {
   if (summary.readme?.path) return summary.readme.path;
   const candidates = ["readme.md", "readme", "readme.txt"];

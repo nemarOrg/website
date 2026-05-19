@@ -10,7 +10,8 @@ import { renderBidsTree, renderNoManifest } from "../../../../lib/render-tree";
  *
  * Fast path: summary.json is small (~50-200 KB) and contains the full
  * path list needed to build the tree. Falls back to fetching the full
- * manifest when summary is unavailable.
+ * manifest when summary is unavailable OR when summary.paths is empty
+ * (a defensive guard against schema evolution or partial uploads).
  */
 export const GET: APIRoute = async ({ params, request }) => {
   const id = params.id;
@@ -24,11 +25,18 @@ export const GET: APIRoute = async ({ params, request }) => {
   const basePath = `https://data.nemar.org/${encodeURIComponent(id)}/${encodeURIComponent(version)}`;
 
   const summary = await getSummary(id, version, { timeoutMs: 1_500 });
+  const summaryUsable =
+    summary !== null && Array.isArray(summary.paths) && summary.paths.length > 0;
 
   let html: string;
-  if (summary) {
+  if (summaryUsable) {
     html = renderBidsTree(buildTreeFromPaths(summary.paths), basePath);
   } else {
+    if (summary === null) {
+      console.warn(`[tree/${id}] summary null; falling back to manifest path`);
+    } else {
+      console.warn(`[tree/${id}] summary present but paths empty; falling back to manifest`);
+    }
     const manifest = await getManifest(id, version, { timeoutMs: 5_000 });
     html = manifest ? renderBidsTree(buildTree(manifest), basePath) : renderNoManifest(version);
   }

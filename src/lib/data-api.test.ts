@@ -51,4 +51,9 @@ describe("findReadmePathInSummary", () => {
     const s = makeSummary({ readme: {}, paths: ["README.md"] });
     expect(findReadmePathInSummary(s)).toBe("README.md");
   });
+
+  it("ignores README inside a subdirectory (BIDS treats only the root README as canonical)", () => {
+    const s = makeSummary({ paths: ["sub-01/README.md", "code/README.md"] });
+    expect(findReadmePathInSummary(s)).toBeNull();
+  });
 });
