@@ -1,0 +1,222 @@
+---
+import Base from "../layouts/Base.astro";
+import { safeRedirectPath } from "../lib/auth";
+
+const url = new URL(Astro.request.url);
+const next = safeRedirectPath(url.searchParams.get("next"));
+const errorParam = url.searchParams.get("error");
+const errorMessage =
+  errorParam === "expired"
+    ? "Your previous code expired. Enter your email to receive a new one."
+    : errorParam === "unknown"
+      ? "Something went wrong. Try again."
+      : null;
+---
+
+<Base title="Sign in" description="Sign in to NEMAR. We email you a one-time code; no password required.">
+  <section class="login-shell">
+    <div class="login-card">
+      <h1 class="login-card__heading">Sign in to NEMAR</h1>
+      <p class="login-card__lede">
+        We&rsquo;ll email you a one-time 6-digit code. No password required.
+      </p>
+
+      {errorMessage && <p class="login-card__error" role="alert">{errorMessage}</p>}
+
+      <form class="login-form" data-login-form data-next={next}>
+        <label class="field">
+          <span class="field__label">Email</span>
+          <input
+            class="field__input"
+            type="email"
+            name="email"
+            autocomplete="email"
+            inputmode="email"
+            required
+            spellcheck="false"
+            autocapitalize="none"
+            placeholder="you@example.com"
+            data-login-email
+          />
+        </label>
+
+        <label class="remember">
+          <input
+            class="remember__checkbox"
+            type="checkbox"
+            name="remember"
+            value="1"
+            data-login-remember
+          />
+          <span>Remember me on this device (30 days)</span>
+        </label>
+
+        <button class="login-form__submit" type="submit" data-login-submit>Email me a code</button>
+        <p class="login-form__inline-error" role="alert" data-login-inline-error hidden></p>
+      </form>
+
+      <p class="login-card__fineprint">
+        First time? An account is created automatically when you verify your code. Existing
+        CLI users can keep using their token; the web flow opens a separate session.
+      </p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .login-shell {
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+    min-block-size: calc(100dvh - var(--header-height) - 4rem);
+  }
+  .login-card {
+    inline-size: 100%;
+    max-inline-size: 28rem;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-md);
+  }
+  .login-card__heading {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    margin-block-end: var(--space-3);
+  }
+  .login-card__lede {
+    color: var(--color-fg-muted);
+    margin-block-end: var(--space-6);
+    line-height: var(--lh-normal);
+  }
+  .login-card__error {
+    background: color-mix(in srgb, var(--color-danger) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .login-card__fineprint {
+    margin-block-start: var(--space-6);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .login-form {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .field__input {
+    padding: 10px var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    min-block-size: 44px;
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .remember {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .remember__checkbox {
+    inline-size: 18px;
+    block-size: 18px;
+    accent-color: var(--brand-teal);
+  }
+  .login-form__submit {
+    min-block-size: 44px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s ease;
+  }
+  .login-form__submit:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .login-form__submit[disabled] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+  .login-form__inline-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>("[data-login-form]");
+  const emailEl = document.querySelector<HTMLInputElement>("[data-login-email]");
+  const rememberEl = document.querySelector<HTMLInputElement>("[data-login-remember]");
+  const submitEl = document.querySelector<HTMLButtonElement>("[data-login-submit]");
+  const errorEl = document.querySelector<HTMLElement>("[data-login-inline-error]");
+
+  if (form && emailEl && rememberEl && submitEl && errorEl) {
+    const nextPath = form.dataset.next ?? "/";
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = emailEl.value.trim().toLowerCase();
+      if (!email) return;
+      submitEl.disabled = true;
+      errorEl.hidden = true;
+      try {
+        const res = await fetch("/api/auth/code/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          let detail = "unknown";
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (data?.error) detail = data.error;
+          } catch {
+            /* keep "unknown" */
+          }
+          errorEl.textContent =
+            detail === "invalid_email"
+              ? "That doesn't look like an email address."
+              : "We couldn't send a code. Try again in a moment.";
+          errorEl.hidden = false;
+          submitEl.disabled = false;
+          return;
+        }
+        const params = new URLSearchParams({
+          email,
+          remember: rememberEl.checked ? "1" : "0",
+        });
+        if (nextPath && nextPath !== "/") params.set("next", nextPath);
+        location.href = `/login/verify?${params.toString()}`;
+      } catch {
+        errorEl.textContent = "Network error. Check your connection and try again.";
+        errorEl.hidden = false;
+        submitEl.disabled = false;
+      }
+    });
+  }
+</script>

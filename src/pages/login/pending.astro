@@ -1,0 +1,58 @@
+---
+import Base from "../../layouts/Base.astro";
+---
+
+<Base title="Account under review" description="Your NEMAR account is being reviewed by an admin.">
+  <section class="login-shell">
+    <div class="login-card">
+      <h1 class="login-card__heading">Account under review</h1>
+      <p class="login-card__lede">
+        Thanks for signing up. A NEMAR admin will review your account shortly and you&rsquo;ll get an
+        email once it&rsquo;s approved. You can close this tab in the meantime.
+      </p>
+      <p class="login-card__lede">
+        If you don&rsquo;t hear back within a few business days, write to <a href="mailto:nemar@sccn.ucsd.edu">nemar@sccn.ucsd.edu</a>.
+      </p>
+      <p class="login-card__fineprint">
+        Already approved? <a href="/login">Sign in again</a>.
+      </p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .login-shell {
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+    min-block-size: calc(100dvh - var(--header-height) - 4rem);
+  }
+  .login-card {
+    inline-size: 100%;
+    max-inline-size: 32rem;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-md);
+  }
+  .login-card__heading {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    margin-block-end: var(--space-3);
+  }
+  .login-card__lede {
+    color: var(--color-fg-muted);
+    margin-block-end: var(--space-4);
+    line-height: var(--lh-normal);
+  }
+  .login-card__fineprint {
+    margin-block-start: var(--space-4);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .login-card__fineprint a,
+  .login-card__lede a {
+    color: var(--color-link);
+  }
+</style>
