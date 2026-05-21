@@ -6,6 +6,12 @@ import { isValidEmail, maskEmail } from "../../../../lib/auth";
 const MOCK_CODE = "123456";
 
 export const POST: APIRoute = async ({ request }) => {
+  // The mock is dev-only. In production the deploy must proxy /api/auth/* to
+  // the real backend; reaching this handler means the proxy is misconfigured.
+  if (!import.meta.env.DEV) {
+    return json({ ok: false, error: "not_implemented" }, 501);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -22,10 +28,7 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ ok: false, error: "invalid_email" }, 400);
   }
 
-  if (import.meta.env.DEV) {
-    // Dev-only signal so the developer doesn't need to guess.
-    console.info(`[auth/mock] code for ${email}: ${MOCK_CODE}`);
-  }
+  console.info(`[auth/mock] code for ${email}: ${MOCK_CODE}`);
 
   return json({ ok: true, masked_email: maskEmail(email) }, 200);
 };

@@ -2,16 +2,10 @@ import type { APIRoute } from "astro";
 import { getSession } from "../../../lib/auth";
 
 export const GET: APIRoute = async ({ locals }) => {
+  // Return only the identity-bearing fields; exp and remember are
+  // session-internal and never leave the server.
   const session = getSession(locals);
-  const user = session
-    ? {
-        id: session.id,
-        email: session.email,
-        role: session.role,
-        status: session.status,
-      }
-    : null;
-  return new Response(JSON.stringify({ user }), {
+  return new Response(JSON.stringify({ user: session?.user ?? null }), {
     status: 200,
     headers: {
       "Content-Type": "application/json; charset=utf-8",

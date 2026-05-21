@@ -7,6 +7,6 @@ declare namespace App {
       ctx?: { waitUntil?: (p: Promise<unknown>) => void };
       caches?: CacheStorage;
     };
-    session?: import("./lib/auth").AuthSession | null;
+    session: import("./lib/auth").AuthSession | null;
   }
 }

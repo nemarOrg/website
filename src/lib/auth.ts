@@ -1,20 +1,25 @@
 import type { AstroCookieSetOptions, AstroCookies } from "astro";
 
 export interface AuthUser {
-  id: string;
-  email: string;
-  role: "user" | "admin";
-  status: "active" | "pending";
+  readonly id: string;
+  readonly email: string;
+  readonly role: "user" | "admin";
+  readonly status: "active" | "pending" | "disabled";
 }
 
-export interface AuthSession extends AuthUser {
-  exp: number;
-  remember: boolean;
+export interface AuthSession {
+  readonly user: AuthUser;
+  readonly exp: number;
+  readonly remember: boolean;
 }
 
 export const SESSION_COOKIE = "nemar_session";
 export const REMEMBER_TTL_SECONDS = 30 * 86_400;
+// Renewal fires only when fewer than SESSION_RENEW_WHEN_REMAINING seconds
+// remain. With the defaults above that is the final ~24 h of a 30-day window,
+// so dormant cookies expire and active users get rolled forward.
 export const SESSION_RENEW_WHEN_REMAINING = 29 * 86_400;
+export const SHORT_SESSION_SECONDS = 60 * 60 * 8;
 
 const DEV_FALLBACK_SECRET = "phase1-dev-insecure-rotate-in-prod";
 let warnedAboutDevSecret = false;
@@ -126,26 +131,31 @@ export async function verifySession(
   return session;
 }
 
+function isAuthUser(value: unknown): value is AuthUser {
+  if (!value || typeof value !== "object") return false;
+  const u = value as Record<string, unknown>;
+  if (typeof u.id !== "string" || u.id.length === 0) return false;
+  if (typeof u.email !== "string" || !isValidEmail(u.email)) return false;
+  if (u.role !== "user" && u.role !== "admin") return false;
+  if (u.status !== "active" && u.status !== "pending" && u.status !== "disabled") return false;
+  return true;
+}
+
 function isAuthSession(value: unknown): value is AuthSession {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.id === "string" &&
-    typeof v.email === "string" &&
-    (v.role === "user" || v.role === "admin") &&
-    (v.status === "active" || v.status === "pending") &&
-    typeof v.exp === "number" &&
-    typeof v.remember === "boolean"
-  );
+  if (typeof v.exp !== "number") return false;
+  if (typeof v.remember !== "boolean") return false;
+  return isAuthUser(v.user);
 }
 
-export function sessionCookieOptions(remember: boolean): AstroCookieSetOptions {
+export function sessionCookieOptions(maxAgeSeconds: number): AstroCookieSetOptions {
   return {
     httpOnly: true,
     secure: !import.meta.env.DEV,
     sameSite: "lax",
     path: "/",
-    ...(remember ? { maxAge: REMEMBER_TTL_SECONDS } : {}),
+    maxAge: maxAgeSeconds,
   };
 }
 
@@ -155,7 +165,8 @@ export async function setSessionCookie(
   secret: string,
 ): Promise<void> {
   const token = await signSession(session, secret);
-  cookies.set(SESSION_COOKIE, token, sessionCookieOptions(session.remember));
+  const maxAge = session.remember ? REMEMBER_TTL_SECONDS : SHORT_SESSION_SECONDS;
+  cookies.set(SESSION_COOKIE, token, sessionCookieOptions(maxAge));
 }
 
 export function clearSessionCookie(cookies: AstroCookies): void {
@@ -169,8 +180,18 @@ export function getSession(locals: App.Locals | undefined): AuthSession | null {
 export function safeRedirectPath(raw: string | null | undefined): string {
   if (!raw || typeof raw !== "string") return "/";
   if (raw.includes("\\") || raw.includes("\n") || raw.includes("\r")) return "/";
-  if (!raw.startsWith("/")) return "/";
-  if (raw.startsWith("//")) return "/";
+  // URL-encoded bypass guard: decode once so "/%2F%2Fevil.com" is checked as
+  // "//evil.com" rather than passed through as a same-origin-looking string.
+  // decodeURIComponent can throw on malformed sequences; treat those as unsafe.
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return "/";
+  }
+  if (!decoded.startsWith("/")) return "/";
+  if (decoded.startsWith("//")) return "/";
+  if (decoded.includes("\\") || decoded.includes("\n") || decoded.includes("\r")) return "/";
   return raw;
 }
 

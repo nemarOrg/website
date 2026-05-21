@@ -4,8 +4,8 @@
 // theme flash. Two buttons set localStorage["nemar:cookie-consent"] to
 // "accepted" (strict + analytics) or "strict" (auth cookie only) and dismiss.
 //
-// Analytics scripts are NOT wired here. The choice is recorded for the moment
-// any analytics is added later — see issue #10 Phase 5.
+// Analytics scripts are NOT wired here yet. When they are added, gate the
+// script load on `localStorage.getItem("nemar:cookie-consent") === "accepted"`.
 ---
 
 <aside class="cookie-notice" role="region" aria-label="Cookie notice" hidden data-cookie-notice>

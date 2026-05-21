@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "astro";
 import {
+  type AuthSession,
   REMEMBER_TTL_SECONDS,
   SESSION_COOKIE,
   SESSION_RENEW_WHEN_REMAINING,
@@ -100,7 +101,10 @@ async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<
   let secret: string;
   try {
     secret = getSessionSecret(context.locals);
-  } catch {
+  } catch (err) {
+    // If SESSION_SECRET is missing in prod, every authenticated user appears
+    // logged out and we'd have no signal in the logs. Surface it.
+    console.error("[auth] getSessionSecret failed; treating request as unauthenticated", err);
     context.locals.session = null;
     return;
   }
@@ -109,20 +113,19 @@ async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<
 
   if (!session?.remember) return;
 
-  // Sliding-window renewal: if the cookie still has more than the renewal
-  // threshold left, leave it alone. Otherwise mint a fresh 30-day cookie.
-  // This keeps active users signed in indefinitely while letting truly
-  // dormant cookies expire naturally.
+  // Only renew within the last day of the 30-day window so dormant sessions
+  // expire rather than rolling forward forever.
   const now = Math.floor(Date.now() / 1000);
   if (session.exp - now < SESSION_RENEW_WHEN_REMAINING) {
-    const refreshed = { ...session, exp: now + REMEMBER_TTL_SECONDS };
+    const refreshed: AuthSession = { ...session, exp: now + REMEMBER_TTL_SECONDS };
     try {
       const token = await signSession(refreshed, secret);
-      context.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(true));
+      context.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(REMEMBER_TTL_SECONDS));
       context.locals.session = refreshed;
-    } catch {
-      // Renewal failure is non-fatal; the user keeps the existing session
-      // until it expires naturally.
+    } catch (err) {
+      // Non-fatal: the user keeps the existing session until it expires
+      // naturally. Worth a warn so we notice if renewal fails systemically.
+      console.warn("[auth] session renewal failed; user keeps existing session", err);
     }
   }
 }

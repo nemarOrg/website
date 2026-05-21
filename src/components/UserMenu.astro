@@ -6,13 +6,17 @@ interface Props {
 }
 const { session } = Astro.props;
 
-const initial = session?.email?.[0]?.toUpperCase() ?? "?";
+const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
 ---
 
 {
   session ? (
     <details class="user-menu" data-user-menu>
-      <summary class="user-menu__trigger" aria-label={`Signed in as ${session.email}`}>
+      <summary
+        class="user-menu__trigger"
+        role="button"
+        aria-label={`Signed in as ${session.user.email}`}
+      >
         <span class="user-menu__avatar" aria-hidden="true">{initial}</span>
         <span class="user-menu__caret" aria-hidden="true">
           <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -22,8 +26,8 @@ const initial = session?.email?.[0]?.toUpperCase() ?? "?";
       </summary>
       <div class="user-menu__panel" role="menu">
         <div class="user-menu__header">
-          <div class="user-menu__email" title={session.email}>{session.email}</div>
-          {session.status === "pending" && (
+          <div class="user-menu__email" title={session.user.email}>{session.user.email}</div>
+          {session.user.status === "pending" && (
             <div class="user-menu__status">Account under review</div>
           )}
         </div>
