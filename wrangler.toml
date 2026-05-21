@@ -12,3 +12,7 @@ PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
 [env.preview.vars]
 PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
+
+# SESSION_SECRET is a server-only secret used to HMAC-sign the auth cookie.
+# Set it via `wrangler secret put SESSION_SECRET` or the Cloudflare Pages
+# dashboard. In local dev an insecure fallback is used; see src/lib/auth.ts.

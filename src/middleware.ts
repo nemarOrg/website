@@ -1,7 +1,26 @@
 import type { MiddlewareHandler } from "astro";
+import {
+  REMEMBER_TTL_SECONDS,
+  SESSION_COOKIE,
+  SESSION_RENEW_WHEN_REMAINING,
+  getSessionSecret,
+  sessionCookieOptions,
+  signSession,
+  verifySession,
+} from "./lib/auth";
 
 /**
- * Edge cache via Cloudflare Workers Cache API.
+ * Two responsibilities in one handler:
+ *
+ *   1. Read the `nemar_session` cookie, verify it, and stash the session on
+ *      `context.locals.session`. Remember-me sessions get a sliding-window
+ *      cookie refresh when they're within the renewal threshold so an active
+ *      user stays signed in for another 30 days from their last visit.
+ *
+ *   2. Edge-cache GETs for unauthenticated traffic via Cloudflare's
+ *      `caches.default`. Authenticated traffic skips the cache entirely so
+ *      personalized responses (e.g. the Nav's UserMenu) don't get served to
+ *      anonymous visitors out of the edge.
  *
  * Cloudflare's automatic CDN cache honors `Cache-Control: s-maxage=...` on
  * production custom domains, but skips caching on `*.pages.dev` preview URLs.
@@ -18,13 +37,15 @@ import type { MiddlewareHandler } from "astro";
  * Worker cold-start tax for repeat visitors too.
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
+  await applySession(context);
+
   const request = context.request;
   if (request.method !== "GET") return next();
+  // Skip edge cache entirely for authenticated traffic: the Nav and any
+  // future personalized surface vary by session, so serving a cached anon
+  // response to a signed-in user is incorrect.
+  if (context.locals.session) return next();
 
-  // Cloudflare exposes the Workers runtime via locals.runtime when the
-  // @astrojs/cloudflare adapter is configured. We pull `caches` from there
-  // for compatibility with Astro's typing; in production this resolves to
-  // the global `caches` provided by the Workers runtime.
   type Runtime = { caches?: CacheStorage };
   const runtime = (context.locals as { runtime?: Runtime } | undefined)?.runtime;
   const cacheStorage: CacheStorage | undefined =
@@ -36,7 +57,6 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 
   const cached = await cache.match(request);
   if (cached) {
-    // Surface that this came from our cache so we can see it in `curl -I`.
     const headers = new Headers(cached.headers);
     headers.set("x-nemar-cache", "HIT");
     return new Response(cached.body, {
@@ -47,13 +67,8 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   const response = await next();
-  // Only cache successful, explicitly-public responses. Skip 5xx/4xx and
-  // anything carrying `Cache-Control: no-store` or `private`.
   if (response.status === 200 && isPublicCacheable(response)) {
     const clone = response.clone();
-    // Fire-and-forget. The Workers runtime gives middleware access to
-    // `waitUntil` via locals.runtime.ctx when available; fall back to a
-    // bare promise so dev still works.
     type EdgeCtx = { waitUntil?: (p: Promise<unknown>) => void };
     const ctx = (context.locals as { runtime?: { ctx?: EdgeCtx } } | undefined)?.runtime?.ctx;
     const putPromise = cache.put(request, clone).catch(() => {
@@ -75,6 +90,42 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 
   return response;
 };
+
+async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {
+  const raw = context.cookies.get(SESSION_COOKIE)?.value;
+  if (!raw) {
+    context.locals.session = null;
+    return;
+  }
+  let secret: string;
+  try {
+    secret = getSessionSecret(context.locals);
+  } catch {
+    context.locals.session = null;
+    return;
+  }
+  const session = await verifySession(raw, secret);
+  context.locals.session = session;
+
+  if (!session?.remember) return;
+
+  // Sliding-window renewal: if the cookie still has more than the renewal
+  // threshold left, leave it alone. Otherwise mint a fresh 30-day cookie.
+  // This keeps active users signed in indefinitely while letting truly
+  // dormant cookies expire naturally.
+  const now = Math.floor(Date.now() / 1000);
+  if (session.exp - now < SESSION_RENEW_WHEN_REMAINING) {
+    const refreshed = { ...session, exp: now + REMEMBER_TTL_SECONDS };
+    try {
+      const token = await signSession(refreshed, secret);
+      context.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(true));
+      context.locals.session = refreshed;
+    } catch {
+      // Renewal failure is non-fatal; the user keeps the existing session
+      // until it expires naturally.
+    }
+  }
+}
 
 function isPublicCacheable(response: Response): boolean {
   const cc = response.headers.get("Cache-Control");
