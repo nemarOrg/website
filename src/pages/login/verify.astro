@@ -199,8 +199,9 @@ const masked = maskEmail(emailRaw);
       submitEl.disabled = true;
       errorEl.hidden = true;
       try {
-        const apiBaseUrl = (import.meta.env.PUBLIC_API_BASE_URL ?? "https://api.nemar.org").replace(/\/$/, "");
-        const res = await fetch(`${apiBaseUrl}/auth/code/verify`, {
+        // Same-origin route: in production this proxies to the backend;
+        // in `astro dev` it short-circuits with demo code 123456.
+        const res = await fetch("/api/auth/code/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
