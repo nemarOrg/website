@@ -1,0 +1,120 @@
+---
+import CollaboratorList from "../../../components/CollaboratorList.astro";
+import InviteCollaboratorForm from "../../../components/InviteCollaboratorForm.astro";
+import Base from "../../../layouts/Base.astro";
+import { getSession } from "../../../lib/auth";
+import { isCollaboratorManager } from "../../../lib/collaborators-api";
+import { findDatasetAnyOwner, listCollaboratorsForDataset } from "../../api/datasets/_store";
+
+const session = getSession(Astro.locals);
+const datasetId = (Astro.params.id ?? "").trim();
+
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent(`/dataset/${datasetId}/collaborators`)}`);
+}
+
+const found = datasetId ? findDatasetAnyOwner(datasetId) : undefined;
+// 404 (not 403) when the caller is not an owner / admin / current
+// collaborator: don't leak the surface's existence to outsiders.
+if (!found) {
+  return new Response("Not found", { status: 404 });
+}
+const { dataset, ownerEmail } = found;
+
+const callerUsername = session.user.email.split("@")[0] ?? "";
+const collaborators = listCollaboratorsForDataset(ownerEmail, datasetId);
+const isOwner = ownerEmail.trim().toLowerCase() === session.user.email.trim().toLowerCase();
+const isAdmin = session.user.role === "admin";
+const isCurrentCollaborator = collaborators.some((c) => c.username === callerUsername);
+
+if (!isOwner && !isAdmin && !isCurrentCollaborator) {
+  return new Response("Not found", { status: 404 });
+}
+
+const canManage = isCollaboratorManager(session, dataset);
+const ownerUsername = dataset.owner_username ?? ownerEmail.split("@")[0] ?? "";
+---
+
+<Base
+  title={`Collaborators - ${dataset.name}`}
+  description={`Manage collaborators on ${dataset.name}.`}
+>
+  <section class="collab-shell">
+    <header class="collab-header">
+      <a class="collab-header__back" href="/dashboard">&larr; Back to my datasets</a>
+      <div>
+        <span class="collab-header__id">{dataset.dataset_id}</span>
+        <h1 class="collab-header__title">{dataset.name}</h1>
+        <p class="collab-header__lede">Manage the people who can push to this dataset's repository.</p>
+      </div>
+    </header>
+
+    {canManage ? (
+      <InviteCollaboratorForm datasetId={datasetId} />
+    ) : (
+      <p class="collab-notice" role="status">You can see the list because you collaborate on this dataset, but only the owner or an admin can invite or remove people.</p>
+    )}
+
+    <CollaboratorList collaborators={collaborators} ownerUsername={ownerUsername} />
+
+    {canManage && (
+      <p class="collab-footer-note">
+        Need to remove a collaborator? Contact <a href="mailto:nemar@sccn.ucsd.edu">nemar@sccn.ucsd.edu</a>
+        for now &mdash; owner-callable removal is filed as nemar-cli#577.
+      </p>
+    )}
+  </section>
+</Base>
+
+<style>
+  .collab-shell {
+    max-inline-size: 56rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .collab-header {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .collab-header__back {
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+  }
+  .collab-header__back:hover {
+    text-decoration: underline;
+  }
+  .collab-header__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .collab-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: var(--space-1) 0 var(--space-2);
+  }
+  .collab-header__lede {
+    color: var(--color-fg-muted);
+    margin: 0;
+  }
+  .collab-notice {
+    margin: 0;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .collab-footer-note {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .collab-footer-note a {
+    color: var(--color-link);
+  }
+</style>
