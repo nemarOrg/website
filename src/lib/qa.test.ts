@@ -61,10 +61,7 @@ describe("buildHistogram", () => {
 
 describe("bucketAgesBySex", () => {
   it("buckets 10-year ranges and splits by sex", () => {
-    const buckets = bucketAgesBySex(
-      [5, 15, 25, 25, 35, 8],
-      ["M", "F", "F", "M", "O", null],
-    );
+    const buckets = bucketAgesBySex([5, 15, 25, 25, 35, 8], ["M", "F", "F", "M", "O", null]);
     expect(buckets.map((b: AgeBucket) => b.label)).toEqual(["0-9", "10-19", "20-29", "30-39"]);
     expect(buckets[0]).toMatchObject({ label: "0-9", M: 1, F: 0, O: 1 });
     expect(buckets[1]).toMatchObject({ label: "10-19", M: 0, F: 1, O: 0 });
@@ -76,7 +73,14 @@ describe("bucketAgesBySex", () => {
   });
   it("respects custom bucket width", () => {
     const buckets = bucketAgesBySex([5, 15, 25], ["M", "F", "O"], 5);
-    expect(buckets.map((b: AgeBucket) => b.label)).toEqual(["0-4", "5-9", "10-14", "15-19", "20-24", "25-29"]);
+    expect(buckets.map((b: AgeBucket) => b.label)).toEqual([
+      "0-4",
+      "5-9",
+      "10-14",
+      "15-19",
+      "20-24",
+      "25-29",
+    ]);
   });
   it("ignores invalid ages", () => {
     const buckets = bucketAgesBySex([10, Number.NaN, -3, 20], ["M", "F", "F", "M"]);

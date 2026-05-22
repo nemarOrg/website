@@ -1,7 +1,6 @@
 /**
  * Collaborators API client: list per-dataset collaborators and invite a new
- * one by username. Today these calls go to the local `/api/datasets/[id]/
- * collaborators` mock; point them at `api.nemar.org/datasets/:id/{collabora
+ * one by username. Point these calls at `api.nemar.org/datasets/:id/{collabora
  * tors,invite}` once nemar-cli#572 (cookie-aware auth) and #578 (invite by
  * email) land.
  */
@@ -79,8 +78,12 @@ export async function inviteCollaborator(
 
 /**
  * True when the caller is allowed to add/remove collaborators on this
- * dataset. Mirrors the backend's owner-or-admin gate in
- * `datasets.ts:1782`.
+ * dataset. Mirrors the owner-or-admin gate enforced on the real backend;
+ * keep in sync when nemar-cli's collaborator write permission changes.
+ *
+ * Note: the username is derived from the email local part because the
+ * mock's `code/verify.ts` builds usernames that way. Once nemar-cli#572
+ * adds a real `username` field to the session payload, switch to it.
  */
 export function isCollaboratorManager(
   session: AuthSession | null,

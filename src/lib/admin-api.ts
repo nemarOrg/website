@@ -1,15 +1,25 @@
 /**
  * Admin API client: list pending publication requests across all owners and
- * approve or deny them. Today these calls go to the local `/api/admin/*`
- * mock; point them at `api.nemar.org/admin/publish/*` once nemar-cli#572
- * (cookie-aware auth on /admin) lands.
+ * approve or deny them. Point these calls at `api.nemar.org/admin/publish/*`
+ * once nemar-cli#572 (cookie-aware auth on /admin) lands.
  */
-import { DashboardApiError, type PublicationStatus } from "./dashboard-api";
+import {
+  DashboardApiError,
+  type DatasetPublishState,
+  type PublicationStatus,
+  deriveAdminBadgeState,
+} from "./dashboard-api";
 
 export interface PublicationRequest {
-  readonly dataset_id: string;
+  /** Human-readable dataset name, included for display without a second fetch. */
   readonly dataset_name: string;
+  /** Email of the dataset owner; used for the "Requested by" column. */
   readonly owner_email: string;
+  /**
+   * Full discriminated-union status. `status.dataset_id` is the canonical
+   * id for this row; we deliberately do not duplicate it at this level to
+   * avoid two-sources-of-truth drift.
+   */
   readonly status: PublicationStatus;
 }
 
@@ -111,6 +121,10 @@ export async function denyPublicationRequest(
 export function isAdminActionable(req: PublicationRequest): boolean {
   return req.status.status === "requested";
 }
+
+/** Re-export to keep admin surfaces importing from a single module. */
+export { deriveAdminBadgeState };
+export type { DatasetPublishState };
 
 async function readError(res: Response): Promise<{ message?: string; code?: string }> {
   try {

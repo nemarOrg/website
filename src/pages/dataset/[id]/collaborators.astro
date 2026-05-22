@@ -17,7 +17,7 @@ const found = datasetId ? findDatasetAnyOwner(datasetId) : undefined;
 // 404 (not 403) when the caller is not an owner / admin / current
 // collaborator: don't leak the surface's existence to outsiders.
 if (!found) {
-  return new Response("Not found", { status: 404 });
+  return Astro.redirect("/404");
 }
 const { dataset, ownerEmail } = found;
 
@@ -28,7 +28,7 @@ const isAdmin = session.user.role === "admin";
 const isCurrentCollaborator = collaborators.some((c) => c.username === callerUsername);
 
 if (!isOwner && !isAdmin && !isCurrentCollaborator) {
-  return new Response("Not found", { status: 404 });
+  return Astro.redirect("/404");
 }
 
 const canManage = isCollaboratorManager(session, dataset);

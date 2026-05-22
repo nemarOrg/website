@@ -10,7 +10,6 @@ import type { PublicationStatus } from "./dashboard-api";
 
 function req(s: PublicationStatus): PublicationRequest {
   return {
-    dataset_id: "nm-xyz",
     dataset_name: "Some dataset",
     owner_email: "alice@example.com",
     status: s,
@@ -21,7 +20,12 @@ describe("isAdminActionable", () => {
   it("true only when status is requested", () => {
     expect(
       isAdminActionable(
-        req({ dataset_id: "nm-xyz", status: "requested", requested_at: "2026-05-22T00:00:00Z" }),
+        req({
+          dataset_id: "nm-xyz",
+          status: "requested",
+          requested_at: "2026-05-22T00:00:00Z",
+          requested_by: "alice@example.com",
+        }),
       ),
     ).toBe(true);
   });
@@ -31,21 +35,27 @@ describe("isAdminActionable", () => {
       const baseFields = {
         dataset_id: "nm-xyz",
         requested_at: "2026-05-20T00:00:00Z",
+        requested_by: "alice@example.com",
       };
       let s: PublicationStatus;
       if (status === "approving") {
-        s = { ...baseFields, status, approved_at: "2026-05-21T00:00:00Z" };
+        s = { ...baseFields, status, approval_started_at: "2026-05-21T00:00:00Z" };
       } else if (status === "published") {
         s = {
           ...baseFields,
           status,
-          approved_at: "2026-05-21T00:00:00Z",
+          approval_started_at: "2026-05-21T00:00:00Z",
           published_at: "2026-05-22T00:00:00Z",
         };
       } else if (status === "denied") {
         s = { ...baseFields, status, denied_at: "2026-05-22T00:00:00Z", denied_reason: "x" };
       } else {
-        s = { ...baseFields, status, block_reason: "BIDS failing" };
+        s = {
+          ...baseFields,
+          status,
+          blocked_at: "2026-05-21T00:00:00Z",
+          block_reason: "BIDS failing",
+        };
       }
       expect(isAdminActionable(req(s))).toBe(false);
     },

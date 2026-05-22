@@ -7,13 +7,13 @@ import { getSession } from "../../lib/auth";
 import { listAllPublicationRequests } from "../api/datasets/_store";
 
 const session = getSession(Astro.locals);
-// Non-admin visitors get a 404 rather than a 403 to avoid leaking the
-// existence of the admin surface to non-admin users.
 if (!session) {
   return Astro.redirect(`/login?next=${encodeURIComponent("/admin/publication-requests")}`);
 }
+// Non-admin visitors get a 404 (not 403) to avoid leaking the existence of
+// the admin surface to non-admin users.
 if (session.user.role !== "admin") {
-  return new Response("Not found", { status: 404 });
+  return Astro.redirect("/404");
 }
 
 const url = new URL(Astro.request.url);
@@ -30,7 +30,6 @@ const records = listAllPublicationRequests(
   effectiveFilter ? { status: effectiveFilter } : undefined,
 );
 const requests: PublicationRequest[] = records.map((r) => ({
-  dataset_id: r.datasetId,
   dataset_name: r.datasetName,
   owner_email: r.ownerEmail,
   status: r.status,
@@ -222,7 +221,10 @@ const filters: { value: string; label: string }[] = [
     errorEl.textContent = "";
   }
 
-  let pending: { kind: "approve" | "deny"; datasetId: string } | null = null;
+  type PendingAction =
+    | { kind: "approve"; datasetId: string }
+    | { kind: "deny"; datasetId: string; reason: string };
+  let pending: PendingAction | null = null;
   let inFlight = false;
 
   function openDialog(dialogId: string): void {
@@ -233,7 +235,7 @@ const filters: { value: string; label: string }[] = [
     );
   }
 
-  function queue(next: NonNullable<typeof pending>): void {
+  function queue(next: PendingAction): void {
     if (inFlight) return;
     if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
     pending = next;
@@ -253,17 +255,23 @@ const filters: { value: string; label: string }[] = [
     btn.addEventListener("click", () => {
       const id = btn.dataset.datasetId;
       if (!id) return;
-      queue({ kind: "deny", datasetId: id });
-      // Deny needs a reason. Prompt the admin via a plain prompt() before the
-      // confirm dialog. Simple, no extra component scaffolding; the real
-      // backend's body { reason: string } accepts whatever we send.
-      const reason = window.prompt("Reason for denial?")?.trim() ?? "";
-      if (!reason) {
+      // Deny needs a reason. Prompt the admin via `window.prompt()` to avoid
+      // scaffolding a second styled modal for the textarea. A future
+      // follow-up could replace this with a textarea field inside the
+      // confirm dialog.
+      const rawReason = window.prompt("Reason for denial?");
+      if (rawReason === null) {
+        // Explicit cancel; no further action.
         pending = null;
         return;
       }
-      // Stash the reason on the pending slot so the confirm handler can read it.
-      pending = { kind: "deny", datasetId: id, reason } as never;
+      const reason = rawReason.trim();
+      if (reason.length === 0) {
+        pending = null;
+        showError("A denial reason is required. Click Deny again to retry.");
+        return;
+      }
+      queue({ kind: "deny", datasetId: id, reason });
       openDialog("admin-deny");
     });
   });
@@ -286,7 +294,7 @@ const filters: { value: string; label: string }[] = [
       return;
     }
     if (e.detail.dialogId === "admin-deny" && pending.kind === "deny") {
-      const target = pending as { kind: "deny"; datasetId: string; reason: string };
+      const target = pending;
       pending = null;
       inFlight = true;
       try {

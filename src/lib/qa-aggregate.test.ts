@@ -162,9 +162,7 @@ describe("buildQaAggregates", () => {
           dataset_id: id,
           path: "sub-01/ses-01/eeg",
           kind: "directory",
-          children: [
-            { kind: "file", name: "sub-01_ses-01_task-X_eeg_dataqual.json" },
-          ],
+          children: [{ kind: "file", name: "sub-01_ses-01_task-X_eeg_dataqual.json" }],
         }),
       [`https://data.nemar.org/${id}/qa/sub-01/ses-01/eeg/sub-01_ses-01_task-X_eeg_dataqual.json`]:
         () =>

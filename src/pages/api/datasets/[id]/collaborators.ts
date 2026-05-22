@@ -3,7 +3,6 @@ import { getSession } from "../../../../lib/auth";
 import {
   addCollaboratorForDataset,
   findDatasetAnyOwner,
-  findForOwner,
   listCollaboratorsForDataset,
 } from "../_store";
 
@@ -28,7 +27,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const found = findDatasetAnyOwner(datasetId);
   if (!found) return json({ ok: false, error: "not_found" }, 404);
 
-  if (!canSeeCollaborators(session.user, found.ownerEmail)) {
+  if (!canSeeCollaborators(session.user, found.ownerEmail, datasetId)) {
     // Mirror the surface as 404 rather than 403 — non-owners shouldn't even
     // know this dataset has a collaborators surface.
     return json({ ok: false, error: "not_found" }, 404);
@@ -103,17 +102,17 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
   );
 };
 
-function canSeeCollaborators(user: { email: string; role: string }, ownerEmail: string): boolean {
+function canSeeCollaborators(
+  user: { email: string; role: string },
+  ownerEmail: string,
+  datasetId: string,
+): boolean {
   if (user.role === "admin") return true;
   if (user.email.trim().toLowerCase() === ownerEmail.trim().toLowerCase()) return true;
-  // A collaborator on the dataset can also see the list (read-only). We
-  // don't have a quick reverse-index, so check the owner's collab list.
-  const collabs = findForOwner(ownerEmail, "");
-  void collabs;
+  // A collaborator on this dataset can see the list read-only.
   const callerUsername = user.email.split("@")[0] ?? "";
-  const list = listCollaboratorsForDataset(ownerEmail, "");
-  if (list.some((c) => c.username === callerUsername)) return true;
-  return false;
+  const list = listCollaboratorsForDataset(ownerEmail, datasetId);
+  return list.some((c) => c.username === callerUsername);
 }
 
 function canManageCollaborators(

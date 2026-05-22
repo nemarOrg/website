@@ -28,11 +28,20 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
 
   const result = applyAdminApprove(id);
   if (!result.ok) {
-    return json({ ok: false, error: "not_invitable", message: result.reason }, 409);
+    return json(
+      { ok: false, error: "not_invitable", message: "This request is no longer pending." },
+      409,
+    );
   }
 
   const record = getPublicationRequestRecord(id);
-  return json({ status: record?.status }, 200);
+  if (!record) {
+    // applyAdminApprove just wrote this record; a missing lookup here is a
+    // programming error, not a user-visible state we should masquerade as success.
+    console.error("[admin/approve] record missing after successful applyAdminApprove for", id);
+    return json({ ok: false, error: "internal_error" }, 500);
+  }
+  return json({ status: record.status }, 200);
 };
 
 function json(payload: unknown, status: number): Response {

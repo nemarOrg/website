@@ -1,8 +1,7 @@
 /**
  * Dashboard API client: list owned datasets, request publication, delete a
- * draft. These calls currently go to the local `/api/datasets/*` mock routes;
- * point them at `api.nemar.org` once nemar-cli#572 (cookie-aware auth) and
- * #575 (owner-deletion) land.
+ * draft. Point these calls at `api.nemar.org` once nemar-cli#572 (cookie-aware
+ * auth) and #575 (owner-deletion) land.
  */
 import type { Dataset, DatasetListResponse } from "./types";
 
@@ -33,7 +32,9 @@ export type DatasetPublishState =
 /**
  * Discriminated union for the publication-request side. Required fields
  * differ by status; the union encodes the invariants so callers don't have
- * to guard timestamps after narrowing on `status`.
+ * to guard timestamps after narrowing on `status`. `requested_by` is required
+ * on every non-`"none"` branch — the backend creates these rows in response
+ * to a user-initiated request, so the field is always set in practice.
  */
 export type PublicationStatus =
   | { readonly dataset_id: string; readonly status: "none" }
@@ -41,24 +42,28 @@ export type PublicationStatus =
       readonly dataset_id: string;
       readonly status: "requested";
       readonly requested_at: string;
-      readonly requested_by?: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     }
   | {
       readonly dataset_id: string;
       readonly status: "approving";
       readonly requested_at: string;
-      readonly approved_at: string;
-      readonly requested_by?: string;
+      readonly approval_started_at: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     }
   | {
+      // The backend always reaches `"published"` via `"approving"`, so
+      // `approval_started_at` and `published_at` are both required. The mock
+      // collapses the orchestrator into one step but still records both
+      // timestamps (they end up identical).
       readonly dataset_id: string;
       readonly status: "published";
       readonly requested_at: string;
-      readonly approved_at: string;
+      readonly approval_started_at: string;
       readonly published_at: string;
-      readonly requested_by?: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     }
   | {
@@ -67,15 +72,16 @@ export type PublicationStatus =
       readonly requested_at: string;
       readonly denied_at: string;
       readonly denied_reason: string;
-      readonly requested_by?: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     }
   | {
       readonly dataset_id: string;
       readonly status: "blocked";
       readonly requested_at: string;
+      readonly blocked_at: string;
       readonly block_reason: string;
-      readonly requested_by?: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     };
 
@@ -187,9 +193,15 @@ export function derivePublishState(
   dataset: Pick<Dataset, "visibility" | "concept_doi">,
   publishStatus: PublicationStatus | null,
 ): DatasetPublishState {
+  // Dataset visibility is authoritative: if the orchestrator has flipped
+  // the dataset to public (or assigned a DOI), the surface is published
+  // regardless of the publication-request row.
   if (dataset.visibility === "public" || dataset.concept_doi) return "published";
   if (publishStatus?.status === "blocked") return "validation_failed";
   if (publishStatus?.status === "denied") return "denied";
+  // `"published"` here means the backend's publication_request row says
+  // published but the dataset hasn't flipped yet — the orchestrator window.
+  // We show "awaiting review" until the visibility check above resolves it.
   if (
     publishStatus?.status === "requested" ||
     publishStatus?.status === "approving" ||
@@ -200,14 +212,28 @@ export function derivePublishState(
   return "draft";
 }
 
+/**
+ * Status-only badge state for admin surfaces, where we don't have a Dataset
+ * on hand. `"published"` here surfaces as "Published" (the orchestrator is
+ * done from the admin's perspective). The owner-side `derivePublishState`
+ * keeps it as "awaiting_review" until the dataset row flips.
+ */
+export function deriveAdminBadgeState(
+  publishStatus: PublicationStatus | null,
+): DatasetPublishState {
+  if (!publishStatus || publishStatus.status === "none") return "draft";
+  if (publishStatus.status === "published") return "published";
+  if (publishStatus.status === "blocked") return "validation_failed";
+  if (publishStatus.status === "denied") return "denied";
+  return "awaiting_review";
+}
+
 export function isDeletable(
   dataset: Pick<Dataset, "visibility" | "concept_doi">,
   publishStatus: PublicationStatus | null,
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
-  // Once the admin has started the orchestrator (approving) or finished it
-  // (published), the dataset is no longer the owner's to delete.
   if (
     publishStatus?.status === "requested" ||
     publishStatus?.status === "approving" ||

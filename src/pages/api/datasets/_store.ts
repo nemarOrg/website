@@ -1,31 +1,24 @@
 // MOCK: replaced when nemar-cli#572 (cookie-aware auth on /datasets and
 // /admin), #575 (owner-callable delete-draft), #577 (collaborator remove),
 // and #578 (invite by email) land. Shared in-memory store backing every
-// dashboard mock route (list / publish-request / delete / collaborators /
-// admin publication-requests) and the upload flow's create mock.
+// dashboard mock route and the upload flow's create mock.
 //
-// A single module-scoped Map is sufficient because both `astro dev` and
-// `wrangler pages dev` run in one process; there is no cross-worker shared
-// state requirement that would need KV or D1. Under `astro dev` the Map
-// survives HMR. Under `wrangler pages dev` it can reset per Worker
-// invocation, but the deterministic email-hash seed keeps reads idempotent.
+// A module-scoped Map is sufficient because both `astro dev` and
+// `wrangler pages dev` run in one process and the cutover removes this file
+// entirely. Under `astro dev` the Map survives HMR; under `wrangler pages
+// dev` it can reset per Worker invocation, but the deterministic email-hash
+// seed keeps reads idempotent so the reset is invisible from the UI.
 
+import type { Collaborator } from "../../../lib/collaborators-api";
 import type { PublicationStatus } from "../../../lib/dashboard-api";
 import type { Dataset } from "../../../lib/types";
 
-export interface Collaborator {
-  readonly username: string;
-  readonly github_username: string;
-  readonly access_type: "invited" | "requested";
-  readonly granted_at: string;
-  readonly granted_by_username: string;
-}
-
 interface OwnerEntry {
-  // Intentionally mutable: helpers below splice/unshift/set against these
-  // collections in place.
+  // Intentionally mutable: splice/unshift call sites in the helpers below
+  // need to add and remove drafts in place.
   datasets: Dataset[];
   publishStatusByDatasetId: Map<string, PublicationStatus>;
+  // Intentionally mutable: addCollaboratorForDataset writes through this Map.
   collaboratorsByDatasetId: Map<string, Collaborator[]>;
 }
 
@@ -164,14 +157,12 @@ function seedDatasets(email: string): {
       dataset_id: published.dataset_id,
       status: "published",
       requested_at: days(30),
-      approved_at: days(20),
+      approval_started_at: days(20),
       published_at: days(14),
       requested_by: email,
     },
   ];
 
-  // The second dataset gets one seeded collaborator so the dashboard's
-  // "Manage collaborators" page has something to display on first load.
   const collaborators = new Map<string, Collaborator[]>();
   collaborators.set(awaiting.dataset_id, [
     {
@@ -199,7 +190,6 @@ function ensureEntry(email: string): OwnerEntry {
       collaboratorsByDatasetId: collaborators,
     };
     store.set(k, entry);
-    // Mirror the seed into the cross-owner index so admin surfaces see it.
     for (const d of datasets) {
       const status = statusMap.get(d.dataset_id);
       if (status && status.status !== "none") {
@@ -287,7 +277,10 @@ export function appendDraft(email: string, draft: Dataset): void {
 
 // --- Collaborators ----------------------------------------------------------
 
-export function listCollaboratorsForDataset(email: string, datasetId: string): Collaborator[] {
+export function listCollaboratorsForDataset(
+  email: string,
+  datasetId: string,
+): readonly Collaborator[] {
   return ensureEntry(email).collaboratorsByDatasetId.get(datasetId) ?? [];
 }
 
@@ -312,15 +305,9 @@ export function addCollaboratorForDataset(
 export function listAllPublicationRequests(filter?: {
   status?: PublicationStatus["status"];
 }): PublicationRequestRecord[] {
-  // Touch every owner so seeded data is materialized before the admin scans.
-  // Without this, an admin signing in fresh (no other owners have hit the
-  // store yet) would see an empty list.
-  for (const entry of store.values()) void entry;
   const items = Array.from(publicationRequestsByDatasetId.values());
-  if (filter?.status) {
-    return items.filter((r) => r.status.status === filter.status);
-  }
-  return items.sort((a, b) => {
+  const filtered = filter?.status ? items.filter((r) => r.status.status === filter.status) : items;
+  return filtered.slice().sort((a, b) => {
     const aReq = "requested_at" in a.status ? a.status.requested_at : "";
     const bReq = "requested_at" in b.status ? b.status.requested_at : "";
     return bReq.localeCompare(aReq);
@@ -334,9 +321,9 @@ export function getPublicationRequestRecord(
 }
 
 /**
- * Applies the result of an admin approve action to the underlying dataset
- * and the cross-owner index. The real backend runs a 17-step orchestrator;
- * the mock collapses it into a single transition.
+ * Applies the admin approve transition in the mock. The real backend runs
+ * a multi-step orchestrator (BIDS CI gate, DOI mint, S3 object lock, ...);
+ * see the route-level MOCK comment in `[id]/approve.ts` for the full list.
  */
 export function applyAdminApprove(datasetId: string): { ok: true } | { ok: false; reason: string } {
   const record = publicationRequestsByDatasetId.get(datasetId);
@@ -363,9 +350,9 @@ export function applyAdminApprove(datasetId: string): { ok: true } | { ok: false
     dataset_id: datasetId,
     status: "published",
     requested_at: record.status.requested_at,
-    approved_at: now,
+    approval_started_at: now,
     published_at: now,
-    requested_by: "requested_by" in record.status ? record.status.requested_by : undefined,
+    requested_by: "requested_by" in record.status ? record.status.requested_by : record.ownerEmail,
   };
   entry.publishStatusByDatasetId.set(datasetId, next);
   publicationRequestsByDatasetId.set(datasetId, { ...record, status: next });
@@ -389,7 +376,7 @@ export function applyAdminDeny(
     requested_at: record.status.requested_at,
     denied_at: now,
     denied_reason: reason,
-    requested_by: "requested_by" in record.status ? record.status.requested_by : undefined,
+    requested_by: "requested_by" in record.status ? record.status.requested_by : record.ownerEmail,
   };
   entry.publishStatusByDatasetId.set(datasetId, next);
   publicationRequestsByDatasetId.set(datasetId, { ...record, status: next });

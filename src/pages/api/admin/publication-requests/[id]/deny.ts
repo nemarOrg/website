@@ -45,11 +45,18 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
 
   const result = applyAdminDeny(id, reason);
   if (!result.ok) {
-    return json({ ok: false, error: "not_invitable", message: result.reason }, 409);
+    return json(
+      { ok: false, error: "not_invitable", message: "This request is no longer pending." },
+      409,
+    );
   }
 
   const record = getPublicationRequestRecord(id);
-  return json({ status: record?.status }, 200);
+  if (!record) {
+    console.error("[admin/deny] record missing after successful applyAdminDeny for", id);
+    return json({ ok: false, error: "internal_error" }, 500);
+  }
+  return json({ status: record.status }, 200);
 };
 
 function json(payload: unknown, status: number): Response {

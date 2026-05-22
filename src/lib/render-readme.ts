@@ -42,21 +42,21 @@ export function renderReadme(
   if (fallbackKind === "github") {
     const gh = githubUrl ? esc(githubUrl.replace(/^https?:\/\//, "")) : null;
     out.push(`<div class="readme__fallback-note" role="note">`);
-    out.push(`<strong>README from GitHub repository</strong>`);
+    out.push("<strong>README from GitHub repository</strong>");
     out.push(`<span>This README isn't in the version manifest yet. Showing the latest from `);
     out.push(
       gh
         ? `<a href="${esc(githubUrl ?? "")}" rel="external">${gh}</a>`
-        : `<span>the dataset repository</span>`,
+        : "<span>the dataset repository</span>",
     );
-    out.push(` instead.</span></div>`);
+    out.push(" instead.</span></div>");
   } else if (fallbackKind === "description") {
     out.push(`<div class="readme__fallback-note" role="note">`);
-    out.push(`<strong>Description (from dataset metadata)</strong>`);
+    out.push("<strong>Description (from dataset metadata)</strong>");
     out.push(
       `<span>This dataset doesn't ship a README. Showing the BIDS description instead.</span>`,
     );
-    out.push(`</div>`);
+    out.push("</div>");
   }
   out.push(`<div class="readme__wrap" data-readme-wrap>`);
   out.push(`<div class="readme__body">${html}</div>`);
@@ -66,7 +66,7 @@ export function renderReadme(
     `<button class="readme__toggle" type="button" data-readme-toggle aria-expanded="false" aria-controls="readme-body">`,
   );
   out.push(`<span class="readme__toggle-label">Expand README</span>`);
-  out.push(`</button></div></div>`);
+  out.push("</button></div></div>");
   // Mark fallback for downstream logic (lazy-detail script unused atm but harmless).
   void isFallback;
   return out.join("");

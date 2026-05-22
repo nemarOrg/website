@@ -1,6 +1,9 @@
 ---
-import { type PublicationRequest, isAdminActionable } from "../lib/admin-api";
-import { derivePublishState } from "../lib/dashboard-api";
+import {
+  type PublicationRequest,
+  deriveAdminBadgeState,
+  isAdminActionable,
+} from "../lib/admin-api";
 import { formatRelativeTime } from "../lib/format";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
@@ -9,22 +12,22 @@ interface Props {
 }
 
 const { request } = Astro.props;
-// Use the same derivation the owner-side dashboard uses so the badge tone is
-// consistent across surfaces. The derived `published` state requires we pass
-// the would-be dataset shape: in this admin context we only have the request
-// row, but visibility is implicitly private until published, so passing an
-// empty dataset is safe.
-const state = derivePublishState({ visibility: "private", concept_doi: null }, request.status);
+const datasetId = request.status.dataset_id;
+// Admin-side badge derivation: status-only (no Dataset row needed). The
+// owner-side `derivePublishState` keeps "awaiting_review" until the dataset's
+// visibility actually flips; the admin queue surfaces the orchestrator's
+// terminal state directly.
+const state = deriveAdminBadgeState(request.status);
 const requestedAt = "requested_at" in request.status ? request.status.requested_at : null;
 const actionable = isAdminActionable(request);
 const denyReason = request.status.status === "denied" ? request.status.denied_reason : null;
 const blockReason = request.status.status === "blocked" ? request.status.block_reason : null;
 ---
 
-<article class="pubreq-row" data-pubreq-row data-dataset-id={request.dataset_id}>
+<article class="pubreq-row" data-pubreq-row data-dataset-id={datasetId}>
   <div class="pubreq-row__primary">
     <div class="pubreq-row__heading">
-      <span class="pubreq-row__id">{request.dataset_id}</span>
+      <span class="pubreq-row__id">{datasetId}</span>
       <h3 class="pubreq-row__name">{request.dataset_name}</h3>
     </div>
     <PublishStateBadge state={state} />
@@ -52,7 +55,7 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
   )}
 
   <footer class="pubreq-row__actions">
-    <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(request.dataset_id)}`}>
+    <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(datasetId)}`}>
       View dataset
     </a>
     {actionable && (
@@ -60,7 +63,7 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
         type="button"
         class="pubreq-row__btn pubreq-row__btn--danger-ghost"
         data-pubreq-deny
-        data-dataset-id={request.dataset_id}
+        data-dataset-id={datasetId}
       >
         Deny
       </button>
@@ -70,7 +73,7 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
         type="button"
         class="pubreq-row__btn pubreq-row__btn--primary"
         data-pubreq-approve
-        data-dataset-id={request.dataset_id}
+        data-dataset-id={datasetId}
       >
         Approve and publish
       </button>

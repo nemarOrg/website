@@ -27,7 +27,7 @@ function renderDirChildren(node: TreeNode, basePath: string, depth: number): str
     const open = depth < MAX_AUTO_OPEN_DEPTH && node.children.length <= AUTO_OPEN_CHILD_CAP;
     const childFiles = countFilesDeep(child);
     const dirCount = child.children.length;
-    out.push(`<li>`);
+    out.push("<li>");
     out.push(`<details class="tree__dir"${open ? " open" : ""}>`);
     out.push(
       `<summary class="tree__row tree__row--dir" style="padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5))">`,
@@ -40,9 +40,9 @@ function renderDirChildren(node: TreeNode, basePath: string, depth: number): str
       `<span class="tree__counts">${dirCount > 0 ? `${dirCount} dirs · ` : ""}${childFiles} files</span>`,
     );
     out.push(`<span class="tree__size">${esc(formatBytes(child.totalSize))}</span>`);
-    out.push(`</summary>`);
+    out.push("</summary>");
     out.push(renderDirChildren(child, basePath, depth + 1));
-    out.push(`</details></li>`);
+    out.push("</details></li>");
   }
   for (const f of node.files) {
     const name = f.path.split("/").pop() ?? f.path;
@@ -63,9 +63,9 @@ function renderDirChildren(node: TreeNode, basePath: string, depth: number): str
         `<span class="tree__tag tree__tag--soon" title="TSV viewer ships in Phase 5">View · soon</span>`,
       );
     if (cls.isJSON) out.push(`<span class="tree__tag">JSON</span>`);
-    out.push(`</li>`);
+    out.push("</li>");
   }
-  out.push(`</ul>`);
+  out.push("</ul>");
   return out.join("");
 }
 
@@ -76,11 +76,11 @@ export function renderBidsTree(root: TreeNode, basePath: string): string {
   const rootFiles = root.files;
   out.push(`<section class="tree" aria-label="Dataset file tree">`);
   out.push(`<header class="tree__head">`);
-  out.push(`<h2>Files</h2>`);
+  out.push("<h2>Files</h2>");
   out.push(
     `<span class="tree__meta">${root.children.length + root.files.length} top-level entries · ${esc(formatBytes(root.totalSize))} total</span>`,
   );
-  out.push(`</header>`);
+  out.push("</header>");
 
   if (rootFiles.length > 0) {
     out.push(`<ul class="tree__list tree__list--root" role="list">`);
@@ -94,15 +94,15 @@ export function renderBidsTree(root: TreeNode, basePath: string): string {
       out.push(`<span class="tree__size">${esc(formatBytes(f.size))}</span>`);
       if (cls.isReadme) out.push(`<span class="tree__tag">README</span>`);
       if (cls.isJSON) out.push(`<span class="tree__tag">JSON</span>`);
-      out.push(`</li>`);
+      out.push("</li>");
     }
-    out.push(`</ul>`);
+    out.push("</ul>");
   }
 
   out.push(`<ul class="tree__list" role="list">`);
   for (const node of topLevel) {
     const open = topLevel.length <= 3;
-    out.push(`<li>`);
+    out.push("<li>");
     out.push(`<details class="tree__dir"${open ? " open" : ""}>`);
     out.push(`<summary class="tree__row tree__row--dir">`);
     out.push(
@@ -114,12 +114,12 @@ export function renderBidsTree(root: TreeNode, basePath: string): string {
       `<span class="tree__counts">${node.children.length} dirs · ${countFilesDeep(node)} files</span>`,
     );
     out.push(`<span class="tree__size">${esc(formatBytes(node.totalSize))}</span>`);
-    out.push(`</summary>`);
+    out.push("</summary>");
     out.push(renderDirChildren(node, basePath, 1));
-    out.push(`</details></li>`);
+    out.push("</details></li>");
   }
-  out.push(`</ul>`);
-  out.push(`</section>`);
+  out.push("</ul>");
+  out.push("</section>");
   return out.join("");
 }
 

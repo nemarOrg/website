@@ -84,7 +84,7 @@ const pendingNotice =
       <ul class="dashboard-list" role="list">
         {datasets.map((d) => (
           <li>
-            <MyDatasetCard dataset={d} publishStatus={statuses[d.dataset_id]} />
+            <MyDatasetCard dataset={d} publishStatus={statuses[d.dataset_id]} canManage={true} />
           </li>
         ))}
       </ul>

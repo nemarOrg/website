@@ -179,10 +179,7 @@ async function collectDataqualUrls(
   return perSubject.flat();
 }
 
-async function walkForDataqual(
-  url: string,
-  signal: AbortSignal | undefined,
-): Promise<string[]> {
+async function walkForDataqual(url: string, signal: AbortSignal | undefined): Promise<string[]> {
   const listing = await fetchListing(`${url}/`, signal);
   if (!listing) return [];
 

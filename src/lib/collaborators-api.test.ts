@@ -46,6 +46,15 @@ describe("isCollaboratorManager", () => {
   it("false when the dataset has no recorded owner_username", () => {
     expect(isCollaboratorManager(session("user"), ds(null))).toBe(false);
   });
+  it("false when the email local part doesn't match owner_username (no SSO username yet)", () => {
+    // Pins the mock-era behavior that username is derived from email.
+    // Once nemar-cli#572 ships a real `username` field on the session, the
+    // implementation switches to using that field directly and this test
+    // should be revisited.
+    expect(
+      isCollaboratorManager(session("user", "alice.smith@example.com"), ds("alicesmith")),
+    ).toBe(false);
+  });
 });
 
 describe("listCollaborators", () => {

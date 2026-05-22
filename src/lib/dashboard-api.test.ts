@@ -47,29 +47,30 @@ function ds(overrides: Partial<Dataset> = {}): Dataset {
  * inspecting the timestamps; the helper only cares about `.status`.
  */
 function status(s: PublicationRequestStatus): PublicationStatus {
+  const base = { dataset_id: "mock-1", requested_by: "alice@example.com" } as const;
   switch (s) {
     case "none":
       return { dataset_id: "mock-1", status: "none" };
     case "requested":
-      return { dataset_id: "mock-1", status: "requested", requested_at: "2026-05-22T00:00:00Z" };
+      return { ...base, status: "requested", requested_at: "2026-05-22T00:00:00Z" };
     case "approving":
       return {
-        dataset_id: "mock-1",
+        ...base,
         status: "approving",
         requested_at: "2026-05-20T00:00:00Z",
-        approved_at: "2026-05-22T00:00:00Z",
+        approval_started_at: "2026-05-22T00:00:00Z",
       };
     case "published":
       return {
-        dataset_id: "mock-1",
+        ...base,
         status: "published",
         requested_at: "2026-05-20T00:00:00Z",
-        approved_at: "2026-05-21T00:00:00Z",
+        approval_started_at: "2026-05-21T00:00:00Z",
         published_at: "2026-05-22T00:00:00Z",
       };
     case "denied":
       return {
-        dataset_id: "mock-1",
+        ...base,
         status: "denied",
         requested_at: "2026-05-20T00:00:00Z",
         denied_at: "2026-05-22T00:00:00Z",
@@ -77,9 +78,10 @@ function status(s: PublicationRequestStatus): PublicationStatus {
       };
     case "blocked":
       return {
-        dataset_id: "mock-1",
+        ...base,
         status: "blocked",
         requested_at: "2026-05-20T00:00:00Z",
+        blocked_at: "2026-05-21T00:00:00Z",
         block_reason: "validation failed",
       };
   }
@@ -105,6 +107,17 @@ describe("derivePublishState", () => {
   });
   it("awaiting_review when publish status is approving (admin running orchestrator)", () => {
     expect(derivePublishState(ds(), status("approving"))).toBe("awaiting_review");
+  });
+  it("awaiting_review when status=published but visibility is still private (orchestrator window)", () => {
+    // The publication_request row flips to "published" before the dataset
+    // row's visibility flips. The owner-side surface stays as "awaiting
+    // review" until the dataset itself becomes public.
+    expect(
+      derivePublishState(ds({ visibility: "private", concept_doi: null }), status("published")),
+    ).toBe("awaiting_review");
+  });
+  it("published when status=published AND the dataset has flipped to public", () => {
+    expect(derivePublishState(ds({ visibility: "public" }), status("published"))).toBe("published");
   });
   it("draft when private + no DOI + no publish status", () => {
     expect(derivePublishState(ds(), null)).toBe("draft");
