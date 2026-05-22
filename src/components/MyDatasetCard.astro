@@ -65,6 +65,12 @@ const githubUrl = dataset.github_repo ? `https://github.com/${dataset.github_rep
     <a class="my-dataset-card__btn" href={`/dataset/${encodeURIComponent(dataset.dataset_id)}`}>
       View
     </a>
+    <a
+      class="my-dataset-card__btn"
+      href={`/dataset/${encodeURIComponent(dataset.dataset_id)}/collaborators`}
+    >
+      Collaborators
+    </a>
     {githubUrl && (
       <a class="my-dataset-card__btn" href={githubUrl} rel="external noopener">
         GitHub
