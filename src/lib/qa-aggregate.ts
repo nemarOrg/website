@@ -40,7 +40,6 @@ interface PerFileDataqual {
  * pipelineStatus classification is a heuristic over field presence: hallu
  * doesn't emit an explicit stage flag, so a future shape change that drops
  * goodDataPercentRaw on a finished file would silently land in `other`.
- * Worth a re-think when hallu#511 follow-ups expose explicit state.
  */
 export async function buildQaAggregates(
   id: string,
@@ -179,10 +178,7 @@ async function collectDataqualUrls(
   return perSubject.flat();
 }
 
-async function walkForDataqual(
-  url: string,
-  signal: AbortSignal | undefined,
-): Promise<string[]> {
+async function walkForDataqual(url: string, signal: AbortSignal | undefined): Promise<string[]> {
   const listing = await fetchListing(`${url}/`, signal);
   if (!listing) return [];
 

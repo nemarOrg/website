@@ -1,0 +1,175 @@
+---
+import Base from "../../layouts/Base.astro";
+import { getSession } from "../../lib/auth";
+
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/upload")}`);
+}
+
+const url = new URL(Astro.request.url);
+const id = (url.searchParams.get("id") ?? "").trim();
+const validId = /^[a-zA-Z0-9_-]{3,64}$/.test(id);
+
+if (!validId) {
+  return Astro.redirect("/upload");
+}
+
+const githubUrl = `https://github.com/nemarDatasets/${id}`;
+---
+
+<Base title="Upload complete" description="Your dataset has been uploaded and BIDS validation is running.">
+  <section class="success-shell">
+    <div class="success-card">
+      <div class="success-card__badge" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="m9 12 2 2 4-4" />
+        </svg>
+      </div>
+      <h1 class="success-card__heading">Uploaded</h1>
+      <p class="success-card__lede">
+        Your files are in NEMAR&rsquo;s storage and BIDS validation is queued. You&rsquo;ll get an
+        email when it&rsquo;s done. Until then, the dataset is private to you.
+      </p>
+
+      <dl class="success-card__meta">
+        <div>
+          <dt>Dataset ID</dt>
+          <dd><code>{id}</code></dd>
+        </div>
+        <div>
+          <dt>Visibility</dt>
+          <dd>Private (draft)</dd>
+        </div>
+        <div>
+          <dt>BIDS validation</dt>
+          <dd>
+            <a href={`${githubUrl}/actions`} rel="external noopener">
+              View workflow runs on GitHub
+            </a>
+          </dd>
+        </div>
+      </dl>
+
+      <div class="success-card__actions">
+        <a class="success-card__btn success-card__btn--primary" href="/upload">Upload another</a>
+        <a class="success-card__btn" href="/dashboard">Go to dashboard</a>
+      </div>
+
+      <p class="success-card__fineprint">
+        Dashboard not built yet? It&rsquo;s coming in Phase 3 of the researcher epic. For now,
+        the dataset lives at <a href={githubUrl} rel="external noopener">{githubUrl}</a>.
+      </p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .success-shell {
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+    min-block-size: calc(100dvh - var(--header-height) - 4rem);
+  }
+  .success-card {
+    inline-size: 100%;
+    max-inline-size: 36rem;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-md);
+    display: grid;
+    gap: var(--space-4);
+  }
+  .success-card__badge {
+    inline-size: 56px;
+    block-size: 56px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--color-success) 18%, transparent);
+    color: var(--color-success);
+    display: grid;
+    place-items: center;
+  }
+  .success-card__heading {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    margin: 0;
+  }
+  .success-card__lede {
+    color: var(--color-fg-muted);
+    margin: 0;
+    line-height: var(--lh-normal);
+  }
+  .success-card__meta {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-4);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+  .success-card__meta > div {
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+  .success-card__meta dt {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .success-card__meta dd {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .success-card__meta code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    background: var(--color-bg-subtle);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .success-card__meta a {
+    color: var(--color-link);
+  }
+  .success-card__actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .success-card__btn {
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-fg);
+    text-decoration: none;
+    font-weight: var(--fw-medium);
+  }
+  .success-card__btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .success-card__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .success-card__btn--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .success-card__fineprint {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .success-card__fineprint a {
+    color: var(--color-link);
+  }
+</style>

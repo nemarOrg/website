@@ -1,0 +1,382 @@
+---
+import Base from "../layouts/Base.astro";
+import { getSession } from "../lib/auth";
+
+const session = getSession(Astro.locals);
+// The welcome page is auth-gated: it's only meaningful for users who just
+// signed in. Anonymous visitors land on the home page.
+if (!session) {
+  return Astro.redirect("/login?next=%2Fwelcome");
+}
+const firstName = session.user.email.split("@")[0] ?? "researcher";
+const isPending = session.user.status === "pending";
+
+const steps: { title: string; body: string; cta?: { href: string; label: string } }[] = [
+  {
+    title: "Your account was created automatically",
+    body: "When you verified your email, NEMAR created a researcher account for you. There is no separate sign-up step.",
+  },
+  {
+    title: "Upload a BIDS folder when you're ready",
+    body: "NEMAR datasets follow the BIDS standard. Drop your folder, we run a pre-check, walk you through any fixes, and create the dataset entry while files transfer in the background.",
+    cta: { href: "/docs/upload", label: "Read the upload guide" },
+  },
+  {
+    title: "Request publication review to get a DOI",
+    body: "Datasets start private. When you're ready, click Request publication on your dashboard. An admin reviews the BIDS validation and metadata, then either approves (DOI is minted) or sends a denial with feedback.",
+    cta: { href: "/docs/publishing", label: "How publication review works" },
+  },
+  {
+    title: "The CLI is here for power users",
+    body: "Everything on the web also works on the NEMAR CLI. Most researchers stay on the web. The CLI is yours for scripted publishes, server-side workflows, or git-annex parallel uploads.",
+    cta: { href: "/docs/cli-vs-web", label: "When to use the CLI vs the web" },
+  },
+];
+---
+
+<Base title="Welcome to NEMAR" description="Get started with your NEMAR account.">
+  <section class="welcome">
+    <div class="welcome__atmosphere" aria-hidden="true"></div>
+
+    <header class="welcome__hero">
+      <p class="welcome__eyebrow">Welcome aboard</p>
+      <h1 class="welcome__title">
+        Hi {firstName}, you&rsquo;re in. Now what?
+      </h1>
+      <p class="welcome__lede">
+        A quick orientation so you know what comes next. Revisit any of this in the
+        <a href="/docs">docs</a> later.
+      </p>
+      {isPending && (
+        <p class="welcome__notice" role="status">
+          Your account is awaiting admin approval. You can browse and explore now;
+          uploads and publication requests unlock once you&rsquo;re approved.
+        </p>
+      )}
+    </header>
+
+    <ol class="timeline">
+      {steps.map((s, i) => (
+        <li class="timeline__step">
+          <div class="timeline__node" aria-hidden="true">
+            <span class="timeline__node-ring"></span>
+            <span class="timeline__node-num">{i + 1}</span>
+          </div>
+          <div class="timeline__card">
+            <h2 class="timeline__title">{s.title}</h2>
+            <p class="timeline__body">{s.body}</p>
+            {s.cta && (
+              <a class="timeline__link" href={s.cta.href}>
+                {s.cta.label}
+                <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                  <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </a>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+
+    <div class="welcome__cta-row">
+      <a class="welcome__cta welcome__cta--primary" href="/dashboard" data-welcome-cta>
+        Go to my dashboard
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </a>
+      <a class="welcome__cta welcome__cta--ghost" href="/upload" data-welcome-cta>
+        Upload my first dataset
+      </a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .welcome {
+    position: relative;
+    isolation: isolate;
+    max-inline-size: 52rem;
+    margin: 0 auto;
+    padding: var(--space-12) var(--space-4) var(--space-20);
+
+    --welcome-bg-1: #eef3fb;
+    --welcome-bg-2: #f8fafc;
+    --welcome-glow: rgb(91 186 213 / 12%);
+    --welcome-card-bg: var(--color-bg);
+    --welcome-card-border: var(--color-border);
+    --welcome-rail: linear-gradient(180deg, var(--brand-teal), var(--brand-purple));
+    --welcome-node-bg: var(--color-bg);
+    --welcome-node-ring: color-mix(in srgb, var(--brand-teal) 35%, transparent);
+
+    background:
+      radial-gradient(ellipse at 20% 0%, var(--welcome-glow), transparent 55%),
+      linear-gradient(180deg, var(--welcome-bg-1), var(--welcome-bg-2));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .welcome {
+      --welcome-bg-1: #060d24;
+      --welcome-bg-2: #0a1638;
+      --welcome-glow: rgb(91 186 213 / 18%);
+      --welcome-card-bg: rgb(255 255 255 / 4%);
+      --welcome-card-border: rgb(255 255 255 / 10%);
+      --welcome-node-bg: #0a1638;
+      --welcome-node-ring: color-mix(in srgb, var(--brand-teal) 55%, transparent);
+    }
+  }
+  :global(:root[data-theme="dark"]) .welcome {
+    --welcome-bg-1: #060d24;
+    --welcome-bg-2: #0a1638;
+    --welcome-glow: rgb(91 186 213 / 18%);
+    --welcome-card-bg: rgb(255 255 255 / 4%);
+    --welcome-card-border: rgb(255 255 255 / 10%);
+    --welcome-node-bg: #0a1638;
+    --welcome-node-ring: color-mix(in srgb, var(--brand-teal) 55%, transparent);
+  }
+
+  .welcome__atmosphere {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 12% 12%, rgb(91 186 213 / 25%) 50%, transparent 51%),
+      radial-gradient(1px 1px at 88% 28%, rgb(96 60 186 / 25%) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 92% 78%, rgb(91 186 213 / 22%) 50%, transparent 51%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* ---------- Hero ---------- */
+  .welcome__hero {
+    margin-block-end: var(--space-10);
+    animation: welcome-rise 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .welcome__eyebrow {
+    margin: 0 0 var(--space-3);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .welcome__title {
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-display);
+    font-size: clamp(var(--fs-3xl), 5vw, var(--fs-5xl));
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.02em;
+    line-height: var(--lh-tight);
+  }
+  .welcome__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 42rem;
+  }
+  .welcome__lede a {
+    color: var(--color-link);
+  }
+  .welcome__notice {
+    margin: var(--space-5) 0 0;
+    padding: var(--space-3) var(--space-4);
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 32%, transparent);
+    border-radius: var(--radius-md);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+
+  /* ---------- Timeline ---------- */
+  .timeline {
+    position: relative;
+    list-style: none;
+    margin: 0 0 var(--space-12);
+    padding: 0;
+    display: grid;
+    gap: var(--space-6);
+  }
+  /* Vertical rail running through the node centers */
+  .timeline::before {
+    content: "";
+    position: absolute;
+    inset-block: 24px;
+    inset-inline-start: 19px;
+    inline-size: 2px;
+    background: var(--welcome-rail);
+    opacity: 0.4;
+    border-radius: 999px;
+  }
+
+  .timeline__step {
+    position: relative;
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: var(--space-5);
+    align-items: start;
+    animation: welcome-rise 600ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .timeline__step:nth-child(1) { animation-delay: 80ms; }
+  .timeline__step:nth-child(2) { animation-delay: 160ms; }
+  .timeline__step:nth-child(3) { animation-delay: 240ms; }
+  .timeline__step:nth-child(4) { animation-delay: 320ms; }
+
+  .timeline__node {
+    position: relative;
+    inline-size: 40px;
+    block-size: 40px;
+    display: grid;
+    place-items: center;
+    background: var(--welcome-node-bg);
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--brand-teal) 70%, transparent);
+    z-index: 1;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .timeline__node-ring {
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid var(--welcome-node-ring);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .timeline__step:hover .timeline__node-ring {
+    opacity: 1;
+  }
+  .timeline__node-num {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+
+  .timeline__card {
+    background: var(--welcome-card-bg);
+    border: 1px solid var(--welcome-card-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-6);
+    transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .timeline__step:hover .timeline__card {
+    border-color: color-mix(in srgb, var(--brand-teal) 38%, transparent);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 28px -16px rgb(15 23 42 / 18%);
+  }
+
+  .timeline__title {
+    margin: 0 0 var(--space-2);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    line-height: var(--lh-snug);
+  }
+  .timeline__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .timeline__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-block-start: var(--space-3);
+    color: var(--brand-teal);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+    transition: gap 0.2s ease;
+  }
+  .timeline__link:hover {
+    gap: 10px;
+  }
+  .timeline__link svg {
+    flex-shrink: 0;
+  }
+
+  /* ---------- Bottom CTA row ---------- */
+  .welcome__cta-row {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .welcome__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+    font-size: var(--fs-base);
+    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+  }
+  .welcome__cta svg {
+    transition: transform 0.2s ease;
+  }
+  .welcome__cta--primary {
+    background: var(--brand-navy);
+    color: #f8fafc;
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 0 color-mix(in srgb, var(--brand-teal) 40%, transparent);
+  }
+  .welcome__cta--primary:hover {
+    background: color-mix(in srgb, var(--brand-navy) 84%, var(--brand-teal));
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 6px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .welcome__cta--primary:hover svg {
+    transform: translateX(3px);
+  }
+  .welcome__cta--ghost {
+    background: transparent;
+    color: var(--color-fg);
+    border: 1px solid var(--color-border-strong);
+  }
+  .welcome__cta--ghost:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+  }
+
+  @keyframes welcome-rise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .welcome__hero, .timeline__step { animation: none; }
+  }
+
+  @media (max-width: 560px) {
+    .timeline {
+      gap: var(--space-4);
+    }
+    .timeline__step {
+      gap: var(--space-3);
+    }
+    .timeline__card {
+      padding: var(--space-4);
+    }
+  }
+</style>
+
+<script>
+  // Mark the welcome page as seen on either CTA click. Arriving via direct URL
+  // doesn't count; only an explicit click sets the dismissal so a user who
+  // bounces sees the page again on their next sign-in.
+  document.querySelectorAll<HTMLAnchorElement>("[data-welcome-cta]").forEach((el) => {
+    el.addEventListener("click", () => {
+      try {
+        localStorage.setItem("nemar:welcomed", "yes");
+      } catch {
+        /* localStorage unavailable; the user will see welcome again next sign-in. */
+      }
+    });
+  });
+</script>

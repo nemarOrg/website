@@ -24,9 +24,9 @@ describe("formatAuthorByline", () => {
     expect(formatAuthorByline("Daniel G. Wakeman, Richard N Henson")).toBe(
       "Daniel G. Wakeman et al.",
     );
-    expect(
-      formatAuthorByline("Jonel Morris, Kenneth Cruz, Raydeep Kainth, Daniel Ferris"),
-    ).toBe("Jonel Morris et al.");
+    expect(formatAuthorByline("Jonel Morris, Kenneth Cruz, Raydeep Kainth, Daniel Ferris")).toBe(
+      "Jonel Morris et al.",
+    );
   });
   it("ignores empty entries between commas", () => {
     expect(formatAuthorByline("Daniel G. Wakeman,, Richard N Henson")).toBe(

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { LandingPayload, NeuroschemaDataset } from "./neuroschema";
 import {
   compareVersionTag,
   detectProvenance,
@@ -6,7 +7,6 @@ import {
   listMirrorVersions,
   pickMirrorVersion,
 } from "./provenance";
-import type { LandingPayload, NeuroschemaDataset } from "./neuroschema";
 
 function meta(over: Partial<NeuroschemaDataset> = {}): NeuroschemaDataset {
   return {
@@ -170,11 +170,9 @@ describe("detectProvenance", () => {
 
 describe("listMirrorVersions", () => {
   it("returns vN.0.0 only, newest-first", () => {
-    expect(listMirrorVersions(landing(["v3.0.0", "v2.0.1", "v2.0.0", "v1.1.0", "v1.0.0"]))).toEqual([
-      "v3.0.0",
-      "v2.0.0",
-      "v1.0.0",
-    ]);
+    expect(listMirrorVersions(landing(["v3.0.0", "v2.0.1", "v2.0.0", "v1.1.0", "v1.0.0"]))).toEqual(
+      ["v3.0.0", "v2.0.0", "v1.0.0"],
+    );
   });
   it("returns empty for null", () => {
     expect(listMirrorVersions(null)).toEqual([]);
@@ -205,15 +203,27 @@ describe("findReferencePaperDoi", () => {
   it("returns the first non-dataset References DOI", () => {
     expect(
       findReferencePaperDoi([
-        { identifier: "10.18112/openneuro.ds005262.v1.0.0", identifier_type: "DOI", relation_type: "IsDerivedFrom" },
-        { identifier: "10.1038/sdata.2017.181", identifier_type: "DOI", relation_type: "References" },
+        {
+          identifier: "10.18112/openneuro.ds005262.v1.0.0",
+          identifier_type: "DOI",
+          relation_type: "IsDerivedFrom",
+        },
+        {
+          identifier: "10.1038/sdata.2017.181",
+          identifier_type: "DOI",
+          relation_type: "References",
+        },
       ]),
     ).toBe("10.1038/sdata.2017.181");
   });
   it("returns null when only dataset DOIs are present", () => {
     expect(
       findReferencePaperDoi([
-        { identifier: "10.18112/openneuro.ds005262.v1.0.0", identifier_type: "DOI", relation_type: "References" },
+        {
+          identifier: "10.18112/openneuro.ds005262.v1.0.0",
+          identifier_type: "DOI",
+          relation_type: "References",
+        },
       ]),
     ).toBeNull();
   });

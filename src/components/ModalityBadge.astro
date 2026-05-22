@@ -6,15 +6,16 @@ interface Props {
 
 const { modality, size = "sm" } = Astro.props;
 const upper = modality.toUpperCase();
-const variant = upper === "EEG"
-  ? "eeg"
-  : upper === "MEG"
-    ? "meg"
-    : upper === "IEEG"
-      ? "ieeg"
-      : upper === "EMG"
-        ? "emg"
-        : "other";
+const variant =
+  upper === "EEG"
+    ? "eeg"
+    : upper === "MEG"
+      ? "meg"
+      : upper === "IEEG"
+        ? "ieeg"
+        : upper === "EMG"
+          ? "emg"
+          : "other";
 ---
 
 <span class:list={["mod-badge", `mod-badge--${variant}`, `mod-badge--${size}`]}>{modality}</span>

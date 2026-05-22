@@ -1,0 +1,199 @@
+---
+import type { AuthSession } from "../lib/auth";
+
+interface Props {
+  session: AuthSession | null;
+}
+const { session } = Astro.props;
+
+const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
+---
+
+{
+  session ? (
+    <details class="user-menu" data-user-menu>
+      <summary
+        class="user-menu__trigger"
+        role="button"
+        aria-label={`Signed in as ${session.user.email}`}
+      >
+        <span class="user-menu__avatar" aria-hidden="true">{initial}</span>
+        <span class="user-menu__caret" aria-hidden="true">
+          <svg viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 4.5 6 7.5l3-3" />
+          </svg>
+        </span>
+      </summary>
+      <div class="user-menu__panel" role="menu">
+        <div class="user-menu__header">
+          <div class="user-menu__email" title={session.user.email}>{session.user.email}</div>
+          {session.user.status === "pending" && (
+            <div class="user-menu__status">Account under review</div>
+          )}
+        </div>
+        <ul class="user-menu__list" role="none">
+          {session.user.role === "admin" && (
+            <li role="none">
+              <a class="user-menu__item user-menu__item--admin" href="/admin/publication-requests" role="menuitem">
+                Admin: publication requests
+              </a>
+            </li>
+          )}
+          <li role="none">
+            <a class="user-menu__item" href="/upload" role="menuitem">Upload dataset</a>
+          </li>
+          <li role="none">
+            <a class="user-menu__item" href="/dashboard" role="menuitem">My datasets</a>
+          </li>
+          <li role="none">
+            <a class="user-menu__item" href="/settings" role="menuitem">Settings</a>
+          </li>
+        </ul>
+        <form class="user-menu__signout" method="POST" action="/api/auth/logout">
+          <button type="submit" class="user-menu__item user-menu__item--danger">Sign out</button>
+        </form>
+      </div>
+    </details>
+  ) : (
+    <a class="user-menu__signin" href="/login">Sign in</a>
+  )
+}
+
+<style>
+  .user-menu {
+    position: relative;
+  }
+  .user-menu__trigger {
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    padding: 4px 10px 4px 4px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    min-block-size: 40px;
+    color: var(--color-fg);
+  }
+  .user-menu__trigger::-webkit-details-marker {
+    display: none;
+  }
+  .user-menu__trigger:hover {
+    background: var(--color-bg-elevated);
+  }
+  .user-menu__avatar {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 28px;
+    block-size: 28px;
+    border-radius: 50%;
+    background: var(--brand-teal);
+    color: var(--brand-navy);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+  }
+  .user-menu__caret {
+    color: var(--color-fg-muted);
+    display: inline-flex;
+  }
+  .user-menu__panel {
+    position: absolute;
+    inset-block-start: calc(100% + var(--space-2));
+    inset-inline-end: 0;
+    min-inline-size: 16rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-2);
+    z-index: 70;
+  }
+  .user-menu__header {
+    padding: var(--space-3) var(--space-3) var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    margin-block-end: var(--space-2);
+  }
+  .user-menu__email {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .user-menu__status {
+    margin-block-start: 2px;
+    font-size: var(--fs-xs);
+    color: var(--color-warning);
+  }
+  .user-menu__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .user-menu__item {
+    display: block;
+    inline-size: 100%;
+    text-align: start;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+  .user-menu__item:hover {
+    background: var(--color-bg-elevated);
+  }
+  .user-menu__item--danger {
+    color: var(--color-danger);
+  }
+  .user-menu__item--admin {
+    font-weight: var(--fw-semibold);
+    color: var(--brand-teal);
+  }
+  .user-menu__signout {
+    margin: 0;
+    border-block-start: 1px solid var(--color-border);
+    margin-block-start: var(--space-2);
+    padding-block-start: var(--space-2);
+  }
+
+  .user-menu__signin {
+    min-block-size: 40px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--space-5);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    background: transparent;
+    text-decoration: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .user-menu__signin:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+  }
+</style>
+
+<script>
+  // Close the open menu when the user clicks outside it, or presses Escape.
+  // <details> handles toggle natively; we just add the outside-click + key
+  // close behavior so it feels like a real menu.
+  document.querySelectorAll<HTMLDetailsElement>("[data-user-menu]").forEach((menu) => {
+    document.addEventListener("click", (e) => {
+      if (!menu.open) return;
+      if (e.target instanceof Node && menu.contains(e.target)) return;
+      menu.open = false;
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && menu.open) menu.open = false;
+    });
+  });
+</script>

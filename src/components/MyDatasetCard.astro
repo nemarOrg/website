@@ -1,0 +1,225 @@
+---
+import {
+  type PublicationStatus,
+  derivePublishState,
+  isDeletable,
+  isPublishRequestable,
+} from "../lib/dashboard-api";
+import { formatBytes, formatRelativeTime, splitModalities } from "../lib/format";
+import type { Dataset } from "../lib/types";
+import ModalityBadge from "./ModalityBadge.astro";
+import PublishStateBadge from "./PublishStateBadge.astro";
+
+interface Props {
+  dataset: Dataset;
+  publishStatus: PublicationStatus | null;
+  /** True when the viewer is the dataset owner or an admin. Drives the Collaborators link. */
+  canManage?: boolean;
+}
+
+const { dataset, publishStatus, canManage = false } = Astro.props;
+const state = derivePublishState(dataset, publishStatus);
+const showDelete = isDeletable(dataset, publishStatus);
+const showRequest = isPublishRequestable(dataset, publishStatus);
+const modalities = splitModalities(dataset.modalities);
+const description = (dataset.description ?? "").trim();
+const githubUrl = dataset.github_repo ? `https://github.com/${dataset.github_repo}` : null;
+---
+
+<article class="my-dataset-card" data-dataset-id={dataset.dataset_id}>
+  <header class="my-dataset-card__header">
+    <div class="my-dataset-card__heading">
+      <span class="my-dataset-card__id">{dataset.dataset_id}</span>
+      <h3 class="my-dataset-card__name">{dataset.name}</h3>
+    </div>
+    <div class="my-dataset-card__badges">
+      <PublishStateBadge state={state} />
+      {modalities.map((m) => <ModalityBadge modality={m} />)}
+    </div>
+  </header>
+
+  {description && <p class="my-dataset-card__description">{description}</p>}
+
+  <dl class="my-dataset-card__facts">
+    <div>
+      <dt>Subjects</dt>
+      <dd>{dataset.participants > 0 ? dataset.participants.toLocaleString() : "—"}</dd>
+    </div>
+    <div>
+      <dt>Size</dt>
+      <dd>{dataset.file_size > 0 ? formatBytes(dataset.file_size) : (dataset.file_size_formatted || "—")}</dd>
+    </div>
+    <div>
+      <dt>Version</dt>
+      <dd>{dataset.latest_version ?? "—"}</dd>
+    </div>
+    <div>
+      <dt>DOI</dt>
+      <dd>{dataset.concept_doi ?? "—"}</dd>
+    </div>
+    <div>
+      <dt>Last updated</dt>
+      <dd>{formatRelativeTime(dataset.updated_at) || "—"}</dd>
+    </div>
+  </dl>
+
+  <footer class="my-dataset-card__actions">
+    <a class="my-dataset-card__btn" href={`/dataset/${encodeURIComponent(dataset.dataset_id)}`}>
+      View
+    </a>
+    {canManage && (
+      <a
+        class="my-dataset-card__btn"
+        href={`/dataset/${encodeURIComponent(dataset.dataset_id)}/collaborators`}
+      >
+        Collaborators
+      </a>
+    )}
+    {githubUrl && (
+      <a class="my-dataset-card__btn" href={githubUrl} rel="external noopener">
+        GitHub
+      </a>
+    )}
+    {showRequest && (
+      <button
+        type="button"
+        class="my-dataset-card__btn my-dataset-card__btn--primary"
+        data-request-publication
+        data-dataset-id={dataset.dataset_id}
+      >
+        Request publication
+      </button>
+    )}
+    {showDelete && (
+      <button
+        type="button"
+        class="my-dataset-card__btn my-dataset-card__btn--danger-ghost"
+        data-delete-dataset
+        data-dataset-id={dataset.dataset_id}
+        data-dataset-name={dataset.name}
+      >
+        Delete
+      </button>
+    )}
+  </footer>
+</article>
+
+<style>
+  .my-dataset-card {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-4);
+  }
+  .my-dataset-card__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .my-dataset-card__heading {
+    display: grid;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .my-dataset-card__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .my-dataset-card__name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .my-dataset-card__badges {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .my-dataset-card__description {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .my-dataset-card__facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .my-dataset-card__facts > div {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+  }
+  .my-dataset-card__facts dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-block-end: 2px;
+  }
+  .my-dataset-card__facts dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .my-dataset-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    border-block-start: 1px solid var(--color-border);
+    padding-block-start: var(--space-3);
+  }
+  .my-dataset-card__btn {
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .my-dataset-card__btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .my-dataset-card__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .my-dataset-card__btn--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .my-dataset-card__btn--danger-ghost {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  }
+  .my-dataset-card__btn--danger-ghost:hover {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: var(--color-danger);
+  }
+</style>

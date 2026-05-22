@@ -8,9 +8,7 @@ interface Props {
 
 const { summary, maxTags = 24 } = Astro.props;
 // Sort by count desc, cap at maxTags.
-const tags = [...summary.tags]
-  .sort((a, b) => b.count - a.count)
-  .slice(0, maxTags);
+const tags = [...summary.tags].sort((a, b) => b.count - a.count).slice(0, maxTags);
 
 // Font sizing: log-scaled between minFs and maxFs.
 const minFs = 0.7;

@@ -1,8 +1,8 @@
 import {
   type Dataset,
   type DatasetQuery,
-  type ModalityCode,
   MODALITY_CODES,
+  type ModalityCode,
   type ModalityOp,
   type SortOption,
 } from "./types";
@@ -85,9 +85,7 @@ function parseModalities(value: string | null): ModalityCode[] {
   const result: ModalityCode[] = [];
   for (const c of candidates) {
     const norm =
-      c.toUpperCase() === "IEEG"
-        ? ("iEEG" as ModalityCode)
-        : (c.toUpperCase() as ModalityCode);
+      c.toUpperCase() === "IEEG" ? ("iEEG" as ModalityCode) : (c.toUpperCase() as ModalityCode);
     if (MODALITY_CODES.includes(norm) && !result.includes(norm)) {
       result.push(norm);
     }

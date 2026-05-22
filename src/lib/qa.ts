@@ -1,9 +1,8 @@
 /**
- * Types + client for the data.nemar.org/<id>/qa/* endpoints (Phase 3).
- *
- * The backend half is tracked at nemarOrg/nemar-cli#511. Until that ships,
- * the website renders against captured fixtures via the ?qa=fixture toggle.
- * Once #511 deploys, no website code changes — every endpoint becomes live.
+ * Types and client for the `data.nemar.org/<id>/qa/*` endpoints.
+ * The backend aggregation endpoint is tracked at nemarOrg/nemar-cli#511;
+ * QualityPanel renders an empty state for datasets without an existing
+ * qa/ tree, so no frontend changes are needed when that ships.
  */
 
 /**
@@ -143,7 +142,10 @@ async function jsonOrNull<T>(url: string, init: FetchInit): Promise<T | null> {
 }
 
 export async function getQaSummary(id: string, init: FetchInit = {}): Promise<QaSummary | null> {
-  return jsonOrNull<QaSummary>(`${dataBase(init.dataBase)}/${encodeURIComponent(id)}/qa/dataqual.json`, init);
+  return jsonOrNull<QaSummary>(
+    `${dataBase(init.dataBase)}/${encodeURIComponent(id)}/qa/dataqual.json`,
+    init,
+  );
 }
 
 export async function getQaAggregates(
@@ -171,10 +173,7 @@ export async function getFileQa(
   );
 }
 
-export async function getHedSummary(
-  id: string,
-  init: FetchInit = {},
-): Promise<HedSummary | null> {
+export async function getHedSummary(id: string, init: FetchInit = {}): Promise<HedSummary | null> {
   return jsonOrNull<HedSummary>(
     `${dataBase(init.dataBase)}/${encodeURIComponent(id)}/qa/hed-summary.json`,
     init,

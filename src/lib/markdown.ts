@@ -57,7 +57,8 @@ function renderInline(escaped: string): string {
   // Bare URL autolinks (only when not already inside an href).
   out = out.replace(
     /(^|[^"\(\[])(https?:\/\/[^\s<>)]+)(?![^<]*>)/g,
-    (_, prefix: string, url: string) => `${prefix}<a href="${safeUrl(url)}" rel="external">${url}</a>`,
+    (_, prefix: string, url: string) =>
+      `${prefix}<a href="${safeUrl(url)}" rel="external">${url}</a>`,
   );
   return out;
 }
@@ -115,7 +116,9 @@ export function renderMarkdown(input: string): string {
     if (state.inCodeFence) {
       if (FENCE_RE.test(line)) {
         const langAttr = state.codeLang ? ` class="language-${escapeHtml(state.codeLang)}"` : "";
-        state.buf.push(`<pre><code${langAttr}>${escapeHtml(state.codeBuf.join("\n"))}</code></pre>`);
+        state.buf.push(
+          `<pre><code${langAttr}>${escapeHtml(state.codeBuf.join("\n"))}</code></pre>`,
+        );
         state.codeBuf.length = 0;
         state.codeLang = "";
         state.inCodeFence = false;
