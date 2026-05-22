@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type DroppedFileMeta,
+  MAX_DATASET_BYTES,
   MAX_FILE_BYTES,
   MAX_PATH_LENGTH,
   detectDatatypeFromPath,
@@ -10,8 +11,7 @@ import {
 } from "./bids-precheck";
 
 function f(path: string, size = 1024): DroppedFileMeta {
-  const name = path.split("/").pop() ?? path;
-  return { path, size, name };
+  return { path, size };
 }
 
 describe("scanBidsDrop", () => {
@@ -93,6 +93,24 @@ describe("scanBidsDrop", () => {
     expect(result.errors.map((e) => e.code)).toContain("path_too_long");
   });
 
+  it("flags a drop whose total size exceeds 50 GB", () => {
+    const result = scanBidsDrop([
+      f("dataset_description.json", 1),
+      f("sub-01/eeg/sub-01_eeg.set", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_b.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_c.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_d.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_e.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_f.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_g.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_h.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_i.eeg", MAX_FILE_BYTES),
+      f("sub-01/eeg/sub-01_eeg_j.eeg", MAX_FILE_BYTES),
+    ]);
+    expect(result.totalBytes).toBeGreaterThan(MAX_DATASET_BYTES);
+    expect(result.errors.map((e) => e.code)).toContain("total_size_too_large");
+  });
+
   it("warns on zero-byte files without counting them in totalBytes", () => {
     const result = scanBidsDrop([
       f("dataset_description.json", 200),
@@ -144,25 +162,28 @@ describe("validateDatasetDescription", () => {
     });
     const result = validateDatasetDescription(text);
     expect(result.ok).toBe(true);
-    expect(result.errors).toEqual([]);
+    if (result.ok) {
+      expect(result.parsed.Name).toBe("Test dataset");
+      expect(result.parsed.BIDSVersion).toBe("1.7.0");
+    }
   });
 
   it("rejects invalid JSON", () => {
     const result = validateDatasetDescription("{not json}");
     expect(result.ok).toBe(false);
-    expect(result.errors[0]).toContain("not valid JSON");
+    if (!result.ok) expect(result.errors[0]).toContain("not valid JSON");
   });
 
   it("rejects missing Name", () => {
     const result = validateDatasetDescription(JSON.stringify({ BIDSVersion: "1.7.0" }));
     expect(result.ok).toBe(false);
-    expect(result.errors.some((e) => e.includes("Name"))).toBe(true);
+    if (!result.ok) expect(result.errors.some((e) => e.includes("Name"))).toBe(true);
   });
 
   it("rejects missing BIDSVersion", () => {
     const result = validateDatasetDescription(JSON.stringify({ Name: "Test" }));
     expect(result.ok).toBe(false);
-    expect(result.errors.some((e) => e.includes("BIDSVersion"))).toBe(true);
+    if (!result.ok) expect(result.errors.some((e) => e.includes("BIDSVersion"))).toBe(true);
   });
 
   it("warns on missing Authors but does not block", () => {
@@ -170,6 +191,14 @@ describe("validateDatasetDescription", () => {
     const result = validateDatasetDescription(text);
     expect(result.ok).toBe(true);
     expect(result.warnings.some((w) => w.includes("Authors"))).toBe(true);
+  });
+
+  it("warns when Authors is a string rather than an array", () => {
+    const text = JSON.stringify({ Name: "Test", BIDSVersion: "1.7.0", Authors: "Jane Doe" });
+    const result = validateDatasetDescription(text);
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some((w) => w.includes("Authors"))).toBe(true);
+    if (result.ok) expect(result.parsed.Authors).toBeUndefined();
   });
 
   it("rejects a JSON array (not an object)", () => {

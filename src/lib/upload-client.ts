@@ -1,50 +1,47 @@
 /**
  * Client-side upload coordinator. Walks dropped directories, asks the backend
- * for presigned PUT URLs (today: local /api/datasets mock; after Phase 5
- * cutover: api.nemar.org directly), uploads each file with XMLHttpRequest
- * for upload-progress events, and finalizes the dataset.
+ * for presigned PUT URLs, uploads with XMLHttpRequest for upload-progress
+ * events (fetch doesn't expose them), and finalizes the dataset.
  */
+import type { DroppedFileMeta } from "./bids-precheck";
 
-export interface DroppedFile {
-  /** Path relative to the BIDS root, e.g. "sub-01/eeg/file.set". */
-  path: string;
-  size: number;
-  name: string;
-  file: File;
+export interface DroppedFile extends DroppedFileMeta {
+  readonly file: File;
 }
 
 export interface DraftDataset {
-  id: string;
-  visibility: "private" | "public";
-  upload_urls: Record<string, string>;
-  github_url?: string;
+  readonly id: string;
+  readonly visibility: "private" | "public";
+  readonly upload_urls: Readonly<Record<string, string>>;
+  readonly github_url?: string;
 }
 
-export type UploadEventType =
-  | "queued"
-  | "started"
-  | "progress"
-  | "complete"
-  | "failed"
-  | "all_done";
-
-export interface UploadEvent {
-  type: UploadEventType;
-  file?: string;
-  bytesUploaded?: number;
-  totalBytes?: number;
-  error?: string;
-}
+export type UploadEvent =
+  | { readonly type: "queued"; readonly file: string }
+  | { readonly type: "started"; readonly file: string }
+  | {
+      readonly type: "progress";
+      readonly file: string;
+      readonly bytesUploaded: number;
+      readonly totalBytes: number;
+    }
+  | {
+      readonly type: "complete";
+      readonly file: string;
+      readonly bytesUploaded: number;
+      readonly totalBytes: number;
+    }
+  | { readonly type: "failed"; readonly file: string; readonly error: string }
+  | { readonly type: "all_done"; readonly bytesUploaded: number; readonly totalBytes: number };
 
 export type UploadEventListener = (event: UploadEvent) => void;
 
 export class UploadError extends Error {
-  constructor(
-    message: string,
-    public readonly status?: number,
-  ) {
+  readonly status?: number;
+  constructor(message: string, status?: number) {
     super(message);
     this.name = "UploadError";
+    this.status = status;
   }
 }
 
@@ -61,8 +58,10 @@ export async function createDraftDataset(input: {
   });
   if (!res.ok) {
     const detail = await safeJson(res);
-    const code = (detail as { error?: string } | null)?.error;
-    throw new UploadError(`Could not create dataset: ${code ?? res.statusText}`, res.status);
+    throw new UploadError(
+      `Could not create dataset: ${extractErrorMessage(detail) ?? res.statusText}`,
+      res.status,
+    );
   }
   const data = (await res.json()) as {
     dataset: DraftDataset;
@@ -78,59 +77,65 @@ export async function finalizeDataset(id: string): Promise<{ ok: true; status?: 
   const res = await fetch(`/api/datasets/${encodeURIComponent(id)}/finalize`, {
     method: "POST",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
   });
   if (!res.ok) {
     const detail = await safeJson(res);
-    const code = (detail as { error?: string } | null)?.error;
-    throw new UploadError(`Finalize failed: ${code ?? res.statusText}`, res.status);
+    throw new UploadError(
+      `Finalize failed: ${extractErrorMessage(detail) ?? res.statusText}`,
+      res.status,
+    );
   }
   const data = (await res.json()) as { dataset?: { status?: string } };
   return { ok: true, status: data.dataset?.status };
 }
 
-export function walkEntry(entry: FileSystemEntry, basePath = ""): Promise<DroppedFile[]> {
-  return new Promise((resolve, reject) => {
-    if (entry.isFile) {
+async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+  // The FileSystem API hands out at most 100 entries per readEntries call.
+  // Loop until we get an empty batch. Sequential awaits keep ownership of the
+  // accumulator with a single iterator and avoid the partially-walked-tree
+  // race that a callback-based recursive accumulator can produce.
+  const all: FileSystemEntry[] = [];
+  while (true) {
+    const batch = await new Promise<FileSystemEntry[]>((resolve, reject) =>
+      reader.readEntries(resolve, reject),
+    );
+    if (batch.length === 0) break;
+    all.push(...batch);
+  }
+  return all;
+}
+
+export async function walkEntry(entry: FileSystemEntry, basePath = ""): Promise<DroppedFile[]> {
+  if (entry.isFile) {
+    return new Promise<DroppedFile[]>((resolve, reject) => {
       (entry as FileSystemFileEntry).file(
         (file) => {
-          if (shouldSkipName(file.name)) return resolve([]);
-          const path = basePath ? `${basePath}/${file.name}` : file.name;
-          resolve([{ path, size: file.size, name: file.name, file }]);
-        },
-        (err) => reject(err),
-      );
-      return;
-    }
-    if (!entry.isDirectory) {
-      resolve([]);
-      return;
-    }
-    const reader = (entry as FileSystemDirectoryEntry).createReader();
-    const out: DroppedFile[] = [];
-    const readBatch = (): void => {
-      reader.readEntries(
-        async (entries) => {
-          if (entries.length === 0) {
-            resolve(out);
+          if (shouldSkipName(file.name)) {
+            resolve([]);
             return;
           }
-          try {
-            for (const sub of entries) {
-              const subBase = basePath ? `${basePath}/${entry.name}` : entry.name;
-              const subFiles = await walkEntry(sub, subBase);
-              out.push(...subFiles);
-            }
-            readBatch();
-          } catch (err) {
-            reject(err);
-          }
+          const path = basePath ? `${basePath}/${file.name}` : file.name;
+          resolve([{ path, size: file.size, file }]);
         },
         (err) => reject(err),
       );
-    };
-    readBatch();
-  });
+    });
+  }
+  if (!entry.isDirectory) return [];
+
+  const reader = (entry as FileSystemDirectoryEntry).createReader();
+  const entries = await readAllEntries(reader);
+  const subBase = basePath ? `${basePath}/${entry.name}` : entry.name;
+  const collected: DroppedFile[] = [];
+  for (const sub of entries) {
+    const subFiles = await walkEntry(sub, subBase);
+    collected.push(...subFiles);
+  }
+  return collected;
 }
 
 export async function walkDataTransferItems(items: DataTransferItem[]): Promise<DroppedFile[]> {
@@ -162,7 +167,7 @@ export function filesFromInput(fileList: FileList): DroppedFile[] {
     if (shouldSkipName(file.name)) continue;
     const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "";
     const path = relative || file.name;
-    out.push({ path, size: file.size, name: file.name, file });
+    out.push({ path, size: file.size, file });
   }
   return out;
 }
@@ -185,20 +190,22 @@ export function stripLeadingDirectory(files: DroppedFile[]): DroppedFile[] {
   const lead = firstSegments[0];
   if (!lead) return files;
   if (!firstSegments.every((s) => s === lead)) return files;
-  // Don't strip if the only path IS the directory name (no children to keep).
+  // Don't strip when one of the paths IS the leading segment itself (a
+  // root-level file named exactly the directory name — would slice to "").
   if (files.some((f) => f.path === lead)) return files;
   return files.map((f) => ({ ...f, path: f.path.slice(lead.length + 1) }));
 }
 
 export interface UploadQueueOptions {
-  concurrency?: number;
-  retries?: number;
-  signal?: AbortSignal;
+  readonly concurrency?: number;
+  readonly retries?: number;
+  readonly signal?: AbortSignal;
   /**
-   * Override the per-file PUT. Defaults to {@link putToPresignedUrl}. Tests
-   * inject a synchronous stub; production callers leave this undefined.
+   * Override the per-file PUT for testing. Tests inject a controlled stub
+   * that resolves immediately; production callers omit this field and the
+   * default {@link putToPresignedUrl} XHR implementation is used.
    */
-  putFn?: (
+  readonly putFn?: (
     file: DroppedFile,
     url: string,
     onProgress: (bytesUploaded: number) => void,
@@ -207,7 +214,7 @@ export interface UploadQueueOptions {
 }
 
 export async function runUploadQueue(
-  plan: { file: DroppedFile; url: string }[],
+  plan: readonly { file: DroppedFile; url: string }[],
   onEvent: UploadEventListener,
   options: UploadQueueOptions = {},
 ): Promise<void> {
@@ -239,9 +246,14 @@ export async function runUploadQueue(
             file,
             url,
             (n) => {
+              // Treat per-file progress as a monotonic high-water mark: a
+              // retried PUT that reports n below the last attempt's peak is
+              // ignored. Keeps the aggregate bytesUploaded non-decreasing.
+              const cap = Math.min(n, file.size);
               const prev = perFileBytes.get(file.path) ?? 0;
-              perFileBytes.set(file.path, n);
-              bytesUploaded += n - prev;
+              if (cap <= prev) return;
+              perFileBytes.set(file.path, cap);
+              bytesUploaded += cap - prev;
               onEvent({
                 type: "progress",
                 file: file.path,
@@ -251,8 +263,6 @@ export async function runUploadQueue(
             },
             options.signal,
           );
-          // Make sure final aggregate accounts for the full file size even if
-          // the put implementation didn't emit a terminal progress event.
           const prev = perFileBytes.get(file.path) ?? 0;
           if (prev < file.size) {
             bytesUploaded += file.size - prev;
@@ -295,22 +305,31 @@ export function putToPresignedUrl(
       return;
     }
     const xhr = new XMLHttpRequest();
+    const onAbort = (): void => xhr.abort();
+    const cleanup = (): void => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+    };
     xhr.open("PUT", url);
     xhr.upload.addEventListener("progress", (e) => {
       if (e.lengthComputable) onProgress(e.loaded);
     });
     xhr.addEventListener("load", () => {
+      cleanup();
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
       } else {
         reject(new UploadError(`PUT ${xhr.status} ${xhr.statusText}`, xhr.status));
       }
     });
-    xhr.addEventListener("error", () => reject(new UploadError("Network error during PUT")));
-    xhr.addEventListener("abort", () => reject(new UploadError("Upload aborted")));
-    if (signal) {
-      signal.addEventListener("abort", () => xhr.abort(), { once: true });
-    }
+    xhr.addEventListener("error", () => {
+      cleanup();
+      reject(new UploadError("Network error during PUT"));
+    });
+    xhr.addEventListener("abort", () => {
+      cleanup();
+      reject(new UploadError("Upload aborted"));
+    });
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
     xhr.send(file.file);
   });
 }
@@ -318,7 +337,16 @@ export function putToPresignedUrl(
 async function safeJson(res: Response): Promise<unknown> {
   try {
     return await res.json();
-  } catch {
-    return null;
+  } catch (err) {
+    if (err instanceof SyntaxError) return null;
+    throw err;
   }
+}
+
+function extractErrorMessage(detail: unknown): string | undefined {
+  if (!detail || typeof detail !== "object") return undefined;
+  const d = detail as Record<string, unknown>;
+  if (typeof d.error === "string" && d.error.length > 0) return d.error;
+  if (typeof d.message === "string" && d.message.length > 0) return d.message;
+  return undefined;
 }

@@ -1,7 +1,8 @@
 ---
 // Drop zone for a BIDS folder. Dispatches a custom `nemar:files-dropped`
-// CustomEvent on document with `detail: { files: DroppedFile[] }`. The page
-// listens, runs scanBidsDrop, and decides what to do.
+// CustomEvent on document with `detail: { files: DroppedFile[] }`. On walk
+// failure it dispatches `nemar:drop-error` instead so the page can show a
+// distinct error rather than the misleading "drop something" empty state.
 //
 // Supports both drag-and-drop (with directory walking via webkitGetAsEntry)
 // and the click-to-browse fallback via <input type="file" webkitdirectory>.
@@ -151,7 +152,14 @@
         dispatch(files);
       } catch (err) {
         console.error("[upload-dropzone] failed to walk drop", err);
-        dispatch([]);
+        document.dispatchEvent(
+          new CustomEvent<{ message: string }>("nemar:drop-error", {
+            detail: {
+              message:
+                "Could not read the dropped folder. Check that you have permission to access it and try again.",
+            },
+          }),
+        );
       }
     });
 

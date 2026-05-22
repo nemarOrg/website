@@ -23,6 +23,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ ok: false, error: "not_implemented" }, 501);
   }
 
+  // CSRF: the session cookie is SameSite=Lax (issued in Phase 1), which blocks
+  // cross-site form POSTs. A `Content-Type: application/json` requirement
+  // additionally forces a CORS preflight for cross-origin scripts, which
+  // unauthorized origins cannot satisfy.
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return json({ ok: false, error: "bad_content_type" }, 415);
+  }
+
   const session = getSession(locals);
   if (!session) return json({ ok: false, error: "unauthenticated" }, 401);
 

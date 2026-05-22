@@ -1,62 +1,66 @@
 /**
  * Client-side BIDS structure pre-check for the upload flow. Pure helpers,
- * no DOM dependencies. The authoritative check happens server-side via the
- * BIDS validator GitHub Action that `POST /datasets/:id/finalize` deploys.
- *
- * The job here is to catch obviously-broken drops before we waste user time
- * uploading, and to surface enough metadata for a useful pre-upload preview.
+ * no DOM dependencies. The job here is to catch obviously-broken drops
+ * before we waste user time uploading; the authoritative check is the
+ * server-side BIDS validator triggered after finalization.
  */
 
-export type ModalityCode = "EEG" | "MEG" | "iEEG" | "EMG" | "MRI";
+export type BidsModalityCode = "EEG" | "MEG" | "iEEG" | "EMG" | "MRI";
 
 export interface DroppedFileMeta {
-  /** Path relative to the drop root, e.g. "sub-01/eeg/sub-01_task-rest_eeg.set". */
-  path: string;
+  /** Path relative to the BIDS root, e.g. "sub-01/eeg/sub-01_task-rest_eeg.set". */
+  readonly path: string;
   /** Size in bytes; zero is treated as a soft warning. */
-  size: number;
-  /** Basename, e.g. "sub-01_task-rest_eeg.set". */
-  name: string;
+  readonly size: number;
 }
 
 export interface BidsScanError {
-  code:
+  readonly code:
     | "empty_drop"
     | "no_dataset_description"
+    | "invalid_dataset_description"
     | "no_subjects"
     | "no_modality"
     | "path_traversal"
     | "path_too_long"
     | "file_too_large"
     | "total_size_too_large";
-  message: string;
+  readonly message: string;
   /** Optional path for file-scoped errors. */
-  path?: string;
+  readonly path?: string;
 }
 
 export interface BidsScanWarning {
-  code: "missing_readme" | "zero_byte_file" | "non_bids_top_level";
-  message: string;
-  path?: string;
+  readonly code:
+    | "missing_readme"
+    | "zero_byte_file"
+    | "non_bids_top_level"
+    | "dataset_description_warning";
+  readonly message: string;
+  readonly path?: string;
 }
 
 export interface BidsScanResult {
-  subjects: string[];
-  sessions: string[];
-  modalities: ModalityCode[];
-  datatypes: string[];
-  totalBytes: number;
-  fileCount: number;
-  hasDatasetDescription: boolean;
-  hasReadme: boolean;
-  errors: BidsScanError[];
-  warnings: BidsScanWarning[];
+  readonly subjects: readonly string[];
+  readonly sessions: readonly string[];
+  readonly modalities: readonly BidsModalityCode[];
+  readonly datatypes: readonly string[];
+  readonly totalBytes: number;
+  readonly fileCount: number;
+  readonly hasDatasetDescription: boolean;
+  readonly hasReadme: boolean;
+  readonly errors: readonly BidsScanError[];
+  readonly warnings: readonly BidsScanWarning[];
 }
 
+// 5 GB: S3 single-PUT maximum. Multipart required above this; see nemar-cli#573.
 export const MAX_FILE_BYTES = 5 * 1024 ** 3;
+// 50 GB: soft frontend cap. The backend will enforce its own limit when it lands.
 export const MAX_DATASET_BYTES = 50 * 1024 ** 3;
+// 1024 chars: the S3 object key length cap (UTF-8 bytes; we approximate via .length).
 export const MAX_PATH_LENGTH = 1024;
 
-const DATATYPE_TO_MODALITY: Record<string, ModalityCode> = {
+const DATATYPE_TO_MODALITY: Record<string, BidsModalityCode> = {
   eeg: "EEG",
   meg: "MEG",
   ieeg: "iEEG",
@@ -70,7 +74,7 @@ const DATATYPE_TO_MODALITY: Record<string, ModalityCode> = {
 
 const VALID_DATATYPES = new Set(Object.keys(DATATYPE_TO_MODALITY));
 
-export function scanBidsDrop(files: DroppedFileMeta[]): BidsScanResult {
+export function scanBidsDrop(files: readonly DroppedFileMeta[]): BidsScanResult {
   const errors: BidsScanError[] = [];
   const warnings: BidsScanWarning[] = [];
 
@@ -84,7 +88,7 @@ export function scanBidsDrop(files: DroppedFileMeta[]): BidsScanResult {
 
   const subjects = new Set<string>();
   const sessions = new Set<string>();
-  const modalities = new Set<ModalityCode>();
+  const modalities = new Set<BidsModalityCode>();
   const datatypes = new Set<string>();
   let totalBytes = 0;
   let fileCount = 0;
@@ -234,7 +238,7 @@ function emptyResult(errors: BidsScanError[], warnings: BidsScanWarning[]): Bids
   };
 }
 
-export function detectModalityFromPath(bidsPath: string): ModalityCode | null {
+export function detectModalityFromPath(bidsPath: string): BidsModalityCode | null {
   const parts = bidsPath.split("/").filter((p) => p.length > 0);
   for (const p of parts) {
     const m = DATATYPE_TO_MODALITY[p];
@@ -251,12 +255,32 @@ export function detectDatatypeFromPath(bidsPath: string): string | null {
   return null;
 }
 
-export interface DatasetDescriptionValidation {
-  ok: boolean;
-  parsed?: { Name?: string; BIDSVersion?: string; Authors?: string[]; License?: string };
-  errors: string[];
-  warnings: string[];
+interface ParsedDatasetDescription {
+  readonly Name: string;
+  readonly BIDSVersion: string;
+  readonly Authors?: readonly string[];
+  readonly License?: string;
 }
+
+interface PartialDatasetDescription {
+  readonly Name?: string;
+  readonly BIDSVersion?: string;
+  readonly Authors?: readonly string[];
+  readonly License?: string;
+}
+
+export type DatasetDescriptionValidation =
+  | {
+      readonly ok: true;
+      readonly parsed: ParsedDatasetDescription;
+      readonly warnings: readonly string[];
+    }
+  | {
+      readonly ok: false;
+      readonly parsed?: PartialDatasetDescription;
+      readonly errors: readonly string[];
+      readonly warnings: readonly string[];
+    };
 
 export function validateDatasetDescription(text: string): DatasetDescriptionValidation {
   const errors: string[] = [];
@@ -279,26 +303,42 @@ export function validateDatasetDescription(text: string): DatasetDescriptionVali
     };
   }
   const obj = parsed as Record<string, unknown>;
-  if (typeof obj.Name !== "string" || obj.Name.trim().length === 0) {
-    errors.push("Name (required) is missing or empty.");
+
+  const nameOk = typeof obj.Name === "string" && obj.Name.trim().length > 0;
+  if (!nameOk) errors.push("Name (required) is missing or empty.");
+
+  const bidsVersionOk = typeof obj.BIDSVersion === "string" && obj.BIDSVersion.trim().length > 0;
+  if (!bidsVersionOk) errors.push("BIDSVersion (required) is missing or empty.");
+
+  const authorsArrayOk = Array.isArray(obj.Authors) && obj.Authors.length > 0;
+  if (!authorsArrayOk) {
+    if (obj.Authors !== undefined && !Array.isArray(obj.Authors)) {
+      warnings.push("Authors should be a JSON array of strings.");
+    } else {
+      warnings.push("Authors is recommended.");
+    }
   }
-  if (typeof obj.BIDSVersion !== "string" || obj.BIDSVersion.trim().length === 0) {
-    errors.push("BIDSVersion (required) is missing or empty.");
-  }
-  if (!Array.isArray(obj.Authors) || obj.Authors.length === 0) {
-    warnings.push("Authors is recommended.");
-  }
-  return {
-    ok: errors.length === 0,
-    parsed: {
-      Name: typeof obj.Name === "string" ? obj.Name : undefined,
-      BIDSVersion: typeof obj.BIDSVersion === "string" ? obj.BIDSVersion : undefined,
-      Authors: Array.isArray(obj.Authors)
-        ? (obj.Authors.filter((a) => typeof a === "string") as string[])
-        : undefined,
-      License: typeof obj.License === "string" ? obj.License : undefined,
-    },
-    errors,
-    warnings,
+
+  const partial: PartialDatasetDescription = {
+    Name: typeof obj.Name === "string" ? obj.Name : undefined,
+    BIDSVersion: typeof obj.BIDSVersion === "string" ? obj.BIDSVersion : undefined,
+    Authors: Array.isArray(obj.Authors)
+      ? (obj.Authors.filter((a) => typeof a === "string") as string[])
+      : undefined,
+    License: typeof obj.License === "string" ? obj.License : undefined,
   };
+
+  if (errors.length === 0) {
+    return {
+      ok: true,
+      parsed: {
+        Name: partial.Name as string,
+        BIDSVersion: partial.BIDSVersion as string,
+        Authors: partial.Authors,
+        License: partial.License,
+      },
+      warnings,
+    };
+  }
+  return { ok: false, parsed: partial, errors, warnings };
 }

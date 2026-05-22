@@ -259,8 +259,11 @@ const pendingNotice =
 
 <script>
   import {
+    type BidsScanError,
     type BidsScanResult,
+    type BidsScanWarning,
     scanBidsDrop,
+    validateDatasetDescription,
   } from "../lib/bids-precheck";
   import {
     createDraftDataset,
@@ -269,7 +272,6 @@ const pendingNotice =
     runUploadQueue,
     stripLeadingDirectory,
     UploadError,
-    type UploadEvent,
   } from "../lib/upload-client";
 
   const form = document.querySelector<HTMLFormElement>("[data-upload-form]");
@@ -294,6 +296,14 @@ const pendingNotice =
     files: DroppedFile[];
     scan: BidsScanResult | null;
   } = { rawFiles: [], files: [], scan: null };
+
+  // Mutex while the precheck (which has an async file-read step) is running,
+  // so a second drop can't race with the first and leave us showing stale
+  // pre-check results for a different file set.
+  let scanInProgress = false;
+  // Controller for the in-flight upload's PUT queue, so resetPrecheck or a
+  // second submit can cancel cleanly instead of writing into the same DOM.
+  let uploadAbort: AbortController | null = null;
 
   function showError(msg: string) {
     if (!errorEl) return;
@@ -374,22 +384,94 @@ const pendingNotice =
   }
 
   function resetPrecheck() {
+    if (uploadAbort) {
+      uploadAbort.abort();
+      uploadAbort = null;
+    }
     state = { rawFiles: [], files: [], scan: null };
     if (precheckEl) precheckEl.hidden = true;
     if (submitBtn) submitBtn.disabled = true;
+    if (progressEl) progressEl.hidden = true;
+    if (nameEl) nameEl.disabled = false;
+    if (descEl) descEl.disabled = false;
+    if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
     clearError();
+  }
+
+  async function readTextFile(file: File): Promise<string | null> {
+    try {
+      return await file.text();
+    } catch {
+      return null;
+    }
+  }
+
+  async function runPrecheck(raw: DroppedFile[]): Promise<void> {
+    if (scanInProgress) return;
+    scanInProgress = true;
+    if (dropzone) dropzone.dataset.dropzoneDisabled = "true";
+    try {
+      const files = stripLeadingDirectory(raw);
+      const scan = scanBidsDrop(files.map((f) => ({ path: f.path, size: f.size })));
+
+      // Augment with dataset_description.json content validation when present.
+      let mergedScan: BidsScanResult = scan;
+      const dd = files.find((f) => f.path === "dataset_description.json");
+      if (dd) {
+        const text = await readTextFile(dd.file);
+        if (text === null) {
+          const extraError: BidsScanError = {
+            code: "invalid_dataset_description",
+            message: "Could not read dataset_description.json from your drop.",
+            path: dd.path,
+          };
+          mergedScan = { ...scan, errors: [...scan.errors, extraError] };
+        } else {
+          const v = validateDatasetDescription(text);
+          if (!v.ok) {
+            const extraErrors: BidsScanError[] = v.errors.map((m) => ({
+              code: "invalid_dataset_description",
+              message: `dataset_description.json: ${m}`,
+              path: dd.path,
+            }));
+            const extraWarnings: BidsScanWarning[] = v.warnings.map((m) => ({
+              code: "dataset_description_warning",
+              message: `dataset_description.json: ${m}`,
+              path: dd.path,
+            }));
+            mergedScan = {
+              ...scan,
+              errors: [...scan.errors, ...extraErrors],
+              warnings: [...scan.warnings, ...extraWarnings],
+            };
+          } else if (v.warnings.length > 0) {
+            const extraWarnings: BidsScanWarning[] = v.warnings.map((m) => ({
+              code: "dataset_description_warning",
+              message: `dataset_description.json: ${m}`,
+              path: dd.path,
+            }));
+            mergedScan = { ...scan, warnings: [...scan.warnings, ...extraWarnings] };
+          }
+        }
+      }
+
+      state = { rawFiles: raw, files, scan: mergedScan };
+      renderPrecheck(mergedScan);
+      clearError();
+    } finally {
+      scanInProgress = false;
+      if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
+    }
   }
 
   document.addEventListener("nemar:files-dropped", ((evt: Event) => {
     const e = evt as CustomEvent<{ files: DroppedFile[] }>;
-    const raw = e.detail?.files ?? [];
-    const files = stripLeadingDirectory(raw);
-    const scan = scanBidsDrop(
-      files.map((f) => ({ path: f.path, size: f.size, name: f.name })),
-    );
-    state = { rawFiles: raw, files, scan };
-    renderPrecheck(scan);
-    clearError();
+    void runPrecheck(e.detail?.files ?? []);
+  }) as EventListener);
+
+  document.addEventListener("nemar:drop-error", ((evt: Event) => {
+    const e = evt as CustomEvent<{ message: string }>;
+    showError(e.detail?.message ?? "Could not read the dropped folder.");
   }) as EventListener);
 
   precheckReset?.addEventListener("click", () => {
@@ -419,16 +501,12 @@ const pendingNotice =
 
   function setRowStatus(path: string, status: string, label: string) {
     const row = progressList?.querySelector<HTMLElement>(
-      `[data-path="${cssEscape(path)}"]`,
+      `[data-path="${CSS.escape(path)}"]`,
     );
     if (!row) return;
     row.dataset.status = status;
     const statusEl = row.querySelector<HTMLElement>(".upload-progress__row-status");
     if (statusEl) statusEl.textContent = label;
-  }
-
-  function cssEscape(value: string): string {
-    return value.replace(/(["\\])/g, "\\$1");
   }
 
   function setAggregateProgress(bytesUploaded: number, totalBytes: number, completed: number, total: number) {
@@ -441,14 +519,26 @@ const pendingNotice =
 
   let lastAggregateRender = 0;
   let pendingRaf = false;
+  let pendingArgs: [number, number, number, number] | null = null;
   function scheduleAggregate(bytesUploaded: number, totalBytes: number, completed: number, total: number) {
+    // If a RAF is already queued, just stash the latest args; the queued
+    // callback will pick them up. This is the throttle path.
+    if (pendingRaf) {
+      pendingArgs = [bytesUploaded, totalBytes, completed, total];
+      return;
+    }
     const now = performance.now();
-    if (now - lastAggregateRender < 100 && !pendingRaf) {
+    if (now - lastAggregateRender < 100) {
       pendingRaf = true;
+      pendingArgs = [bytesUploaded, totalBytes, completed, total];
       requestAnimationFrame(() => {
         pendingRaf = false;
         lastAggregateRender = performance.now();
-        setAggregateProgress(bytesUploaded, totalBytes, completed, total);
+        if (pendingArgs) {
+          const [b, t, c, n] = pendingArgs;
+          pendingArgs = null;
+          setAggregateProgress(b, t, c, n);
+        }
       });
       return;
     }
@@ -469,8 +559,12 @@ const pendingNotice =
     if (submitBtn) submitBtn.disabled = true;
     if (nameEl) nameEl.disabled = true;
     if (descEl) descEl.disabled = true;
+    // data-dropzone-disabled is the cross-script signal that tells the
+    // UploadDropzone component to ignore drop/click events; we toggle it
+    // around any operation that owns the DOM (upload, precheck).
     if (dropzone) dropzone.dataset.dropzoneDisabled = "true";
     clearError();
+    uploadAbort = new AbortController();
 
     try {
       const draft = await createDraftDataset({
@@ -488,33 +582,31 @@ const pendingNotice =
       renderProgressInit(state.files);
       let completed = 0;
 
-      await runUploadQueue(plan, (evt: UploadEvent) => {
-        switch (evt.type) {
-          case "started":
-            if (evt.file) setRowStatus(evt.file, "started", "Uploading...");
-            break;
-          case "progress":
-            if (typeof evt.bytesUploaded === "number" && typeof evt.totalBytes === "number") {
+      await runUploadQueue(
+        plan,
+        (evt) => {
+          switch (evt.type) {
+            case "started":
+              setRowStatus(evt.file, "started", "Uploading...");
+              break;
+            case "progress":
               scheduleAggregate(evt.bytesUploaded, evt.totalBytes, completed, plan.length);
-            }
-            break;
-          case "complete":
-            completed += 1;
-            if (evt.file) setRowStatus(evt.file, "complete", "Done");
-            if (typeof evt.bytesUploaded === "number" && typeof evt.totalBytes === "number") {
+              break;
+            case "complete":
+              completed += 1;
+              setRowStatus(evt.file, "complete", "Done");
               scheduleAggregate(evt.bytesUploaded, evt.totalBytes, completed, plan.length);
-            }
-            break;
-          case "failed":
-            if (evt.file) setRowStatus(evt.file, "failed", evt.error ?? "Failed");
-            break;
-          case "all_done":
-            if (typeof evt.bytesUploaded === "number" && typeof evt.totalBytes === "number") {
+              break;
+            case "failed":
+              setRowStatus(evt.file, "failed", evt.error);
+              break;
+            case "all_done":
               setAggregateProgress(evt.bytesUploaded, evt.totalBytes, plan.length, plan.length);
-            }
-            break;
-        }
-      });
+              break;
+          }
+        },
+        { signal: uploadAbort.signal },
+      );
 
       await finalizeDataset(draft.id);
       location.href = `/upload/success?id=${encodeURIComponent(draft.id)}`;
@@ -525,6 +617,7 @@ const pendingNotice =
       if (nameEl) nameEl.disabled = false;
       if (descEl) descEl.disabled = false;
       if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
+      uploadAbort = null;
     }
   });
 </script>

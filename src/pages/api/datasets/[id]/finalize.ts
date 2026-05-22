@@ -5,9 +5,16 @@ import { getSession } from "../../../../lib/auth";
 // Real backend deploys the BIDS validation workflow, applies branch
 // protection, and enables auto-merge. This mock just returns success and
 // logs the finalize call for dev visibility.
-export const POST: APIRoute = async ({ params, locals }) => {
+export const POST: APIRoute = async ({ params, locals, request }) => {
   if (!import.meta.env.DEV) {
     return json({ ok: false, error: "not_implemented" }, 501);
+  }
+
+  // CSRF: same defense as /api/datasets/create — SameSite=Lax cookie plus a
+  // JSON Content-Type requirement that forces a preflight cross-origin.
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return json({ ok: false, error: "bad_content_type" }, 415);
   }
 
   const session = getSession(locals);
