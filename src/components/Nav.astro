@@ -1,6 +1,8 @@
 ---
+import { getSession } from "../lib/auth";
 import Brand from "./Brand.astro";
 import ThemeToggle from "./ThemeToggle.astro";
+import UserMenu from "./UserMenu.astro";
 
 const links = [
   { href: "/about", label: "About" },
@@ -12,6 +14,7 @@ const links = [
 ];
 
 const pathname = new URL(Astro.request.url).pathname;
+const session = getSession(Astro.locals);
 ---
 
 <header class="site-header">
@@ -35,7 +38,7 @@ const pathname = new URL(Astro.request.url).pathname;
     </nav>
     <div class="site-header__actions">
       <ThemeToggle />
-      <button class="login-stub" type="button" data-login-stub>Login</button>
+      <UserMenu session={session} />
     </div>
     <button
       class="nav-toggle"
@@ -59,19 +62,6 @@ const pathname = new URL(Astro.request.url).pathname;
     </button>
   </div>
 </header>
-
-<dialog class="login-dialog" data-login-dialog>
-  <h2>Login is moving</h2>
-  <p>
-    Authentication for nemar.org is migrating from the legacy system to the new
-    Cloudflare-backed identity. Until that ships, sign in via the CLI:
-  </p>
-  <pre><code>npm install -g nemar-cli
-nemar login</code></pre>
-  <form method="dialog">
-    <button type="submit" class="dialog-close">Got it</button>
-  </form>
-</dialog>
 
 <style>
   .site-header {
@@ -119,21 +109,6 @@ nemar login</code></pre>
     gap: var(--space-2);
     align-items: center;
   }
-  .login-stub {
-    min-block-size: 44px;
-    padding: 0 var(--space-5);
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-pill);
-    color: var(--color-fg);
-    font-weight: var(--fw-medium);
-    font-size: var(--fs-sm);
-    background: transparent;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-  .login-stub:hover {
-    background: var(--color-bg-elevated);
-    border-color: var(--color-fg-muted);
-  }
   .nav-toggle {
     display: none;
     color: var(--color-fg);
@@ -167,42 +142,6 @@ nemar login</code></pre>
     }
   }
 
-  .login-dialog {
-    max-inline-size: 36rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-elevated);
-    color: var(--color-fg);
-    padding: var(--space-6);
-    font-family: var(--font-sans);
-    font-size: var(--fs-base);
-    line-height: var(--lh-normal);
-  }
-  .login-dialog::backdrop {
-    background: rgb(15 23 42 / 55%);
-  }
-  .login-dialog h2 {
-    font-size: var(--fs-2xl);
-    margin-block-end: var(--space-3);
-  }
-  .login-dialog p {
-    color: var(--color-fg-muted);
-    margin-block-end: var(--space-4);
-  }
-  .login-dialog pre {
-    background: var(--color-bg-subtle);
-    padding: var(--space-4);
-    border-radius: var(--radius-md);
-    overflow-x: auto;
-    margin-block-end: var(--space-4);
-  }
-  .dialog-close {
-    padding: var(--space-2) var(--space-5);
-    border-radius: var(--radius-pill);
-    background: var(--color-fg);
-    color: var(--color-bg);
-    font-weight: var(--fw-medium);
-  }
 </style>
 
 <script>
@@ -211,12 +150,6 @@ nemar login</code></pre>
       const nav = document.querySelector<HTMLElement>(".primary-nav");
       const open = nav?.classList.toggle("is-open") ?? false;
       btn.setAttribute("aria-expanded", String(open));
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>("[data-login-stub]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelector<HTMLDialogElement>("[data-login-dialog]")?.showModal();
     });
   });
 </script>

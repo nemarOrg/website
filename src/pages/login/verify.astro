@@ -1,0 +1,240 @@
+---
+import Base from "../../layouts/Base.astro";
+import { isValidEmail, maskEmail, safeRedirectPath } from "../../lib/auth";
+
+const url = new URL(Astro.request.url);
+const emailRaw = (url.searchParams.get("email") ?? "").trim().toLowerCase();
+const remember = url.searchParams.get("remember") === "1";
+const next = safeRedirectPath(url.searchParams.get("next"));
+const isDev = import.meta.env.DEV;
+
+// If someone hits /login/verify with no (or invalid) email, bounce back to
+// /login. Avoids users typing the URL directly and getting a stuck form.
+if (!isValidEmail(emailRaw)) {
+  return Astro.redirect("/login");
+}
+
+const masked = maskEmail(emailRaw);
+---
+
+<Base title="Enter your code" description="Enter the 6-digit code we just emailed you.">
+  <section class="login-shell">
+    <div class="login-card">
+      <h1 class="login-card__heading">Enter your code</h1>
+      <p class="login-card__lede">
+        We sent a 6-digit code to <strong>{masked}</strong>. It expires in 10 minutes.
+      </p>
+
+      {isDev && (
+        <p class="login-card__devhint" role="status">
+          <strong>Dev mock mode.</strong> The code is <code>123456</code>. The real backend lives in
+          nemar-cli#569.
+        </p>
+      )}
+
+      <form
+        class="login-form"
+        data-verify-form
+        data-email={emailRaw}
+        data-remember={remember ? "1" : "0"}
+        data-next={next}
+      >
+        <label class="field">
+          <span class="field__label">6-digit code</span>
+          <input
+            class="field__input field__input--code"
+            type="text"
+            name="code"
+            inputmode="numeric"
+            pattern="\d{6}"
+            maxlength="6"
+            autocomplete="one-time-code"
+            required
+            data-verify-code
+          />
+        </label>
+
+        <button class="login-form__submit" type="submit" data-verify-submit>Verify and sign in</button>
+        <p class="login-form__inline-error" role="alert" data-verify-error hidden></p>
+      </form>
+
+      <p class="login-card__fineprint">
+        Didn&rsquo;t get the email? Check spam, or
+        <a href={`/login${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`}>start over</a>.
+      </p>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .login-shell {
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+    min-block-size: calc(100dvh - var(--header-height) - 4rem);
+  }
+  .login-card {
+    inline-size: 100%;
+    max-inline-size: 28rem;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-md);
+  }
+  .login-card__heading {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    margin-block-end: var(--space-3);
+  }
+  .login-card__lede {
+    color: var(--color-fg-muted);
+    margin-block-end: var(--space-6);
+    line-height: var(--lh-normal);
+  }
+  .login-card__lede strong {
+    color: var(--color-fg);
+  }
+  .login-card__devhint {
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    margin-block-end: var(--space-5);
+    font-size: var(--fs-sm);
+  }
+  .login-card__devhint code {
+    font-family: var(--font-mono);
+    background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .login-card__fineprint {
+    margin-block-start: var(--space-6);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .login-card__fineprint a {
+    color: var(--color-link);
+  }
+  .login-form {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .field__input {
+    padding: 10px var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    min-block-size: 44px;
+  }
+  .field__input--code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xl);
+    letter-spacing: 0.5em;
+    text-align: center;
+    padding-inline-end: calc(var(--space-4) - 0.5em);
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .login-form__submit {
+    min-block-size: 44px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s ease;
+  }
+  .login-form__submit:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .login-form__submit[disabled] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+  .login-form__inline-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>("[data-verify-form]");
+  const codeEl = document.querySelector<HTMLInputElement>("[data-verify-code]");
+  const submitEl = document.querySelector<HTMLButtonElement>("[data-verify-submit]");
+  const errorEl = document.querySelector<HTMLElement>("[data-verify-error]");
+
+  if (form && codeEl && submitEl && errorEl) {
+    const email = form.dataset.email ?? "";
+    const remember = form.dataset.remember === "1";
+    const nextPath = form.dataset.next ?? "/";
+    codeEl.focus();
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const code = codeEl.value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        errorEl.textContent = "Enter the 6-digit code from your email.";
+        errorEl.hidden = false;
+        return;
+      }
+      submitEl.disabled = true;
+      errorEl.hidden = true;
+      try {
+        const res = await fetch("/api/auth/code/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, code, remember }),
+        });
+        if (!res.ok) {
+          let detail = "unknown";
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (data?.error) detail = data.error;
+          } catch {
+            /* keep "unknown" */
+          }
+          errorEl.textContent =
+            detail === "code_incorrect"
+              ? "That code didn't match. Double-check or request a new one."
+              : detail === "invalid_code_format"
+                ? "The code must be 6 digits."
+                : "Couldn't verify. Try again."
+          ;
+          errorEl.hidden = false;
+          submitEl.disabled = false;
+          return;
+        }
+        const data = (await res.json()) as { user?: { status?: string } };
+        if (data?.user?.status === "pending") {
+          location.href = "/login/pending";
+        } else {
+          location.href = nextPath || "/";
+        }
+      } catch {
+        errorEl.textContent = "Network error. Check your connection and try again.";
+        errorEl.hidden = false;
+        submitEl.disabled = false;
+      }
+    });
+  }
+</script>
