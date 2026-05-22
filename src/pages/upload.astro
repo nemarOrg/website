@@ -1,0 +1,530 @@
+---
+import UploadDropzone from "../components/UploadDropzone.astro";
+import UploadProgress from "../components/UploadProgress.astro";
+import Base from "../layouts/Base.astro";
+import { getSession } from "../lib/auth";
+
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/upload")}`);
+}
+
+const pendingNotice =
+  session.user.status === "pending"
+    ? "Your account is still under admin review. Uploads will start working as soon as you're approved."
+    : null;
+---
+
+<Base title="Upload a dataset" description="Upload your BIDS dataset to NEMAR.">
+  <section class="upload-shell">
+    <header class="upload-header">
+      <h1 class="upload-header__title">Contribute your dataset</h1>
+      <p class="upload-header__lede">
+        Drop a BIDS folder, we&rsquo;ll check the structure in your browser, then upload
+        the files straight to NEMAR&rsquo;s storage. BIDS validation runs on the dataset
+        repository once the upload completes.
+      </p>
+    </header>
+
+    {pendingNotice && (
+      <p class="upload-pending" role="status">{pendingNotice}</p>
+    )}
+
+    <form class="upload-form" data-upload-form>
+      <div class="field">
+        <label for="dataset-name" class="field__label">Dataset name</label>
+        <input
+          id="dataset-name"
+          class="field__input"
+          name="name"
+          type="text"
+          required
+          minlength="1"
+          maxlength="200"
+          placeholder="A short, descriptive name"
+          data-upload-name
+        />
+      </div>
+
+      <div class="field">
+        <label for="dataset-description" class="field__label">
+          Description <span class="field__optional">(optional)</span>
+        </label>
+        <textarea
+          id="dataset-description"
+          class="field__input field__input--textarea"
+          name="description"
+          rows="3"
+          maxlength="2000"
+          placeholder="A few sentences describing what's in the dataset."
+          data-upload-description
+        ></textarea>
+      </div>
+
+      <UploadDropzone />
+
+      <section class="precheck" data-precheck hidden>
+        <header class="precheck__header">
+          <h2 class="precheck__title">Pre-check results</h2>
+          <button type="button" class="precheck__reset" data-precheck-reset>Drop something else</button>
+        </header>
+        <div class="precheck__summary" data-precheck-summary></div>
+        <ul class="precheck__messages" data-precheck-errors></ul>
+        <ul class="precheck__messages precheck__messages--warn" data-precheck-warnings></ul>
+      </section>
+
+      <div class="upload-actions">
+        <button
+          type="submit"
+          class="upload-form__submit"
+          data-upload-submit
+          disabled
+        >
+          Create dataset and upload
+        </button>
+        <p class="upload-error" role="alert" data-upload-error hidden></p>
+      </div>
+
+      <UploadProgress />
+    </form>
+  </section>
+</Base>
+
+<style>
+  .upload-shell {
+    max-inline-size: 52rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .upload-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin-block-end: var(--space-3);
+  }
+  .upload-header__lede {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    max-inline-size: 42rem;
+  }
+  .upload-pending {
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .upload-form {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .field__optional {
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-regular);
+  }
+  .field__input {
+    padding: 10px var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    min-block-size: 44px;
+    font-family: inherit;
+  }
+  .field__input--textarea {
+    min-block-size: 6rem;
+    resize: vertical;
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .upload-actions {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .upload-form__submit {
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    box-shadow: var(--shadow-sm);
+    transition: background 0.15s ease, opacity 0.15s ease;
+  }
+  .upload-form__submit:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .upload-form__submit[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .upload-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--fs-sm);
+  }
+
+  .precheck {
+    padding: var(--space-5);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .precheck__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+  .precheck__title {
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    margin: 0;
+  }
+  .precheck__reset {
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+  .precheck__summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .precheck__stat {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+  }
+  .precheck__stat-label {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .precheck__stat-value {
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  .precheck__messages {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: var(--space-2);
+  }
+  .precheck__messages li {
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    color: var(--color-fg);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+    font-size: var(--fs-sm);
+  }
+  .precheck__messages--warn li {
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 30%, transparent);
+  }
+  .precheck__messages-path {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    display: block;
+    margin-block-start: 2px;
+  }
+</style>
+
+<script>
+  import {
+    type BidsScanResult,
+    scanBidsDrop,
+  } from "../lib/bids-precheck";
+  import {
+    createDraftDataset,
+    type DroppedFile,
+    finalizeDataset,
+    runUploadQueue,
+    stripLeadingDirectory,
+    UploadError,
+    type UploadEvent,
+  } from "../lib/upload-client";
+
+  const form = document.querySelector<HTMLFormElement>("[data-upload-form]");
+  const nameEl = document.querySelector<HTMLInputElement>("[data-upload-name]");
+  const descEl = document.querySelector<HTMLTextAreaElement>("[data-upload-description]");
+  const dropzone = document.querySelector<HTMLElement>("[data-dropzone]");
+  const submitBtn = document.querySelector<HTMLButtonElement>("[data-upload-submit]");
+  const errorEl = document.querySelector<HTMLElement>("[data-upload-error]");
+  const precheckEl = document.querySelector<HTMLElement>("[data-precheck]");
+  const precheckSummary = document.querySelector<HTMLElement>("[data-precheck-summary]");
+  const precheckErrors = document.querySelector<HTMLElement>("[data-precheck-errors]");
+  const precheckWarnings = document.querySelector<HTMLElement>("[data-precheck-warnings]");
+  const precheckReset = document.querySelector<HTMLButtonElement>("[data-precheck-reset]");
+  const progressEl = document.querySelector<HTMLElement>("[data-upload-progress]");
+  const progressList = document.querySelector<HTMLElement>("[data-upload-progress-list]");
+  const progressFill = document.querySelector<HTMLElement>("[data-upload-progress-fill]");
+  const progressText = document.querySelector<HTMLElement>("[data-upload-progress-text]");
+  const progressPercent = document.querySelector<HTMLElement>("[data-upload-progress-percent]");
+
+  let state: {
+    rawFiles: DroppedFile[];
+    files: DroppedFile[];
+    scan: BidsScanResult | null;
+  } = { rawFiles: [], files: [], scan: null };
+
+  function showError(msg: string) {
+    if (!errorEl) return;
+    errorEl.textContent = msg;
+    errorEl.hidden = false;
+  }
+  function clearError() {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    const units = ["KB", "MB", "GB", "TB"];
+    let v = n / 1024;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i += 1;
+    }
+    return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
+  }
+
+  function renderPrecheck(scan: BidsScanResult) {
+    if (!precheckEl || !precheckSummary || !precheckErrors || !precheckWarnings) return;
+    precheckEl.hidden = false;
+
+    precheckSummary.innerHTML = "";
+    const stats: [string, string][] = [
+      ["Files", String(scan.fileCount)],
+      ["Subjects", String(scan.subjects.length)],
+      ["Sessions", String(scan.sessions.length)],
+      ["Modalities", scan.modalities.length === 0 ? "—" : scan.modalities.join(", ")],
+      ["Total", formatBytes(scan.totalBytes)],
+    ];
+    for (const [label, value] of stats) {
+      const card = document.createElement("div");
+      card.className = "precheck__stat";
+      const labelEl = document.createElement("div");
+      labelEl.className = "precheck__stat-label";
+      labelEl.textContent = label;
+      const valueEl = document.createElement("div");
+      valueEl.className = "precheck__stat-value";
+      valueEl.textContent = value;
+      card.append(labelEl, valueEl);
+      precheckSummary.append(card);
+    }
+
+    precheckErrors.innerHTML = "";
+    for (const e of scan.errors) {
+      const li = document.createElement("li");
+      li.textContent = e.message;
+      if (e.path) {
+        const p = document.createElement("span");
+        p.className = "precheck__messages-path";
+        p.textContent = e.path;
+        li.append(p);
+      }
+      precheckErrors.append(li);
+    }
+
+    precheckWarnings.innerHTML = "";
+    for (const w of scan.warnings) {
+      const li = document.createElement("li");
+      li.textContent = w.message;
+      if (w.path) {
+        const p = document.createElement("span");
+        p.className = "precheck__messages-path";
+        p.textContent = w.path;
+        li.append(p);
+      }
+      precheckWarnings.append(li);
+    }
+
+    const okToUpload = scan.errors.length === 0 && scan.fileCount > 0;
+    if (submitBtn) submitBtn.disabled = !okToUpload;
+  }
+
+  function resetPrecheck() {
+    state = { rawFiles: [], files: [], scan: null };
+    if (precheckEl) precheckEl.hidden = true;
+    if (submitBtn) submitBtn.disabled = true;
+    clearError();
+  }
+
+  document.addEventListener("nemar:files-dropped", ((evt: Event) => {
+    const e = evt as CustomEvent<{ files: DroppedFile[] }>;
+    const raw = e.detail?.files ?? [];
+    const files = stripLeadingDirectory(raw);
+    const scan = scanBidsDrop(
+      files.map((f) => ({ path: f.path, size: f.size, name: f.name })),
+    );
+    state = { rawFiles: raw, files, scan };
+    renderPrecheck(scan);
+    clearError();
+  }) as EventListener);
+
+  precheckReset?.addEventListener("click", () => {
+    resetPrecheck();
+  });
+
+  function renderProgressInit(files: DroppedFile[]) {
+    if (!progressEl || !progressList) return;
+    progressEl.hidden = false;
+    progressList.innerHTML = "";
+    for (const f of files) {
+      const li = document.createElement("li");
+      li.className = "upload-progress__row";
+      li.dataset.status = "queued";
+      li.dataset.path = f.path;
+      const pathEl = document.createElement("span");
+      pathEl.className = "upload-progress__row-path";
+      pathEl.textContent = f.path;
+      pathEl.title = f.path;
+      const statusEl = document.createElement("span");
+      statusEl.className = "upload-progress__row-status";
+      statusEl.textContent = "Queued";
+      li.append(pathEl, statusEl);
+      progressList.append(li);
+    }
+  }
+
+  function setRowStatus(path: string, status: string, label: string) {
+    const row = progressList?.querySelector<HTMLElement>(
+      `[data-path="${cssEscape(path)}"]`,
+    );
+    if (!row) return;
+    row.dataset.status = status;
+    const statusEl = row.querySelector<HTMLElement>(".upload-progress__row-status");
+    if (statusEl) statusEl.textContent = label;
+  }
+
+  function cssEscape(value: string): string {
+    return value.replace(/(["\\])/g, "\\$1");
+  }
+
+  function setAggregateProgress(bytesUploaded: number, totalBytes: number, completed: number, total: number) {
+    if (!progressFill || !progressText || !progressPercent) return;
+    const pct = totalBytes > 0 ? Math.min(100, (bytesUploaded / totalBytes) * 100) : 0;
+    progressFill.style.inlineSize = `${pct}%`;
+    progressPercent.textContent = `${pct.toFixed(0)}%`;
+    progressText.textContent = `${completed} of ${total} files`;
+  }
+
+  let lastAggregateRender = 0;
+  let pendingRaf = false;
+  function scheduleAggregate(bytesUploaded: number, totalBytes: number, completed: number, total: number) {
+    const now = performance.now();
+    if (now - lastAggregateRender < 100 && !pendingRaf) {
+      pendingRaf = true;
+      requestAnimationFrame(() => {
+        pendingRaf = false;
+        lastAggregateRender = performance.now();
+        setAggregateProgress(bytesUploaded, totalBytes, completed, total);
+      });
+      return;
+    }
+    lastAggregateRender = now;
+    setAggregateProgress(bytesUploaded, totalBytes, completed, total);
+  }
+
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.scan || state.scan.errors.length > 0 || state.files.length === 0) return;
+    const name = nameEl?.value.trim() ?? "";
+    if (!name) {
+      showError("Give your dataset a name.");
+      return;
+    }
+    const description = descEl?.value.trim() ?? "";
+
+    if (submitBtn) submitBtn.disabled = true;
+    if (nameEl) nameEl.disabled = true;
+    if (descEl) descEl.disabled = true;
+    if (dropzone) dropzone.dataset.dropzoneDisabled = "true";
+    clearError();
+
+    try {
+      const draft = await createDraftDataset({
+        name,
+        description,
+        files: state.files.map((f) => ({ path: f.path, size: f.size })),
+      });
+
+      const plan = state.files
+        .map((file) => ({ file, url: draft.upload_urls[file.path] }))
+        .filter((p): p is { file: DroppedFile; url: string } => Boolean(p.url));
+
+      if (plan.length === 0) throw new UploadError("Backend did not return any upload URLs.");
+
+      renderProgressInit(state.files);
+      let completed = 0;
+
+      await runUploadQueue(plan, (evt: UploadEvent) => {
+        switch (evt.type) {
+          case "started":
+            if (evt.file) setRowStatus(evt.file, "started", "Uploading...");
+            break;
+          case "progress":
+            if (typeof evt.bytesUploaded === "number" && typeof evt.totalBytes === "number") {
+              scheduleAggregate(evt.bytesUploaded, evt.totalBytes, completed, plan.length);
+            }
+            break;
+          case "complete":
+            completed += 1;
+            if (evt.file) setRowStatus(evt.file, "complete", "Done");
+            if (typeof evt.bytesUploaded === "number" && typeof evt.totalBytes === "number") {
+              scheduleAggregate(evt.bytesUploaded, evt.totalBytes, completed, plan.length);
+            }
+            break;
+          case "failed":
+            if (evt.file) setRowStatus(evt.file, "failed", evt.error ?? "Failed");
+            break;
+          case "all_done":
+            if (typeof evt.bytesUploaded === "number" && typeof evt.totalBytes === "number") {
+              setAggregateProgress(evt.bytesUploaded, evt.totalBytes, plan.length, plan.length);
+            }
+            break;
+        }
+      });
+
+      await finalizeDataset(draft.id);
+      location.href = `/upload/success?id=${encodeURIComponent(draft.id)}`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Upload failed.";
+      showError(msg);
+      if (submitBtn) submitBtn.disabled = false;
+      if (nameEl) nameEl.disabled = false;
+      if (descEl) descEl.disabled = false;
+      if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
+    }
+  });
+</script>

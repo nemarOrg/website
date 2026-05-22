@@ -1,0 +1,99 @@
+---
+// Progress UI shell. The /upload page script populates rows and updates the
+// fill based on UploadEvent emissions from `runUploadQueue`. Hidden by
+// default; revealed when the upload starts.
+---
+
+<div class="upload-progress" data-upload-progress hidden>
+  <div class="upload-progress__aggregate">
+    <div class="upload-progress__label">
+      <span class="upload-progress__label-text" data-upload-progress-text>0 of 0 files</span>
+      <span class="upload-progress__label-percent" data-upload-progress-percent>0%</span>
+    </div>
+    <div class="upload-progress__bar">
+      <div class="upload-progress__bar-fill" data-upload-progress-fill></div>
+    </div>
+  </div>
+  <ul class="upload-progress__list" data-upload-progress-list></ul>
+</div>
+
+<style>
+  .upload-progress {
+    margin-block-start: var(--space-5);
+    padding: var(--space-5);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .upload-progress__aggregate {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .upload-progress__label {
+    display: flex;
+    justify-content: space-between;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .upload-progress__label-percent {
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+  }
+  .upload-progress__bar {
+    block-size: 8px;
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+  }
+  .upload-progress__bar-fill {
+    block-size: 100%;
+    inline-size: 0;
+    background: var(--brand-teal);
+    transition: inline-size 0.15s ease;
+  }
+  .upload-progress__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    margin-block-start: var(--space-4);
+    max-block-size: 18rem;
+    overflow-y: auto;
+    display: grid;
+    gap: var(--space-2);
+  }
+  .upload-progress__row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-bg);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+  }
+  .upload-progress__row-path {
+    color: var(--color-fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .upload-progress__row-status {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .upload-progress__row[data-status="started"] .upload-progress__row-status {
+    color: var(--color-info);
+  }
+  .upload-progress__row[data-status="complete"] .upload-progress__row-status {
+    color: var(--color-success);
+  }
+  .upload-progress__row[data-status="failed"] {
+    background: color-mix(in srgb, var(--color-danger) 8%, var(--color-bg));
+  }
+  .upload-progress__row[data-status="failed"] .upload-progress__row-status {
+    color: var(--color-danger);
+  }
+</style>
