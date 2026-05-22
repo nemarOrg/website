@@ -1,0 +1,315 @@
+---
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+import PublicationRequestRow from "../../components/PublicationRequestRow.astro";
+import Base from "../../layouts/Base.astro";
+import type { PublicationRequest } from "../../lib/admin-api";
+import { getSession } from "../../lib/auth";
+import { listAllPublicationRequests } from "../api/datasets/_store";
+
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/admin/publication-requests")}`);
+}
+// Non-admin visitors get a 404 (not 403) to avoid leaking the existence of
+// the admin surface to non-admin users.
+if (session.user.role !== "admin") {
+  return Astro.redirect("/404");
+}
+
+const url = new URL(Astro.request.url);
+const statusFilter = url.searchParams.get("status") ?? "";
+const validStatuses = ["requested", "approving", "published", "denied", "blocked"] as const;
+type ValidStatus = (typeof validStatuses)[number];
+const effectiveFilter: ValidStatus | undefined = (validStatuses as readonly string[]).includes(
+  statusFilter,
+)
+  ? (statusFilter as ValidStatus)
+  : undefined;
+
+const records = listAllPublicationRequests(
+  effectiveFilter ? { status: effectiveFilter } : undefined,
+);
+const requests: PublicationRequest[] = records.map((r) => ({
+  dataset_name: r.datasetName,
+  owner_email: r.ownerEmail,
+  status: r.status,
+}));
+
+const filters: { value: string; label: string }[] = [
+  { value: "", label: "All" },
+  { value: "requested", label: "Pending" },
+  { value: "published", label: "Published" },
+  { value: "denied", label: "Denied" },
+  { value: "blocked", label: "Blocked" },
+];
+---
+
+<Base
+  title="Admin - Publication requests"
+  description="Review and approve dataset publication requests."
+>
+  <section class="admin-shell">
+    <header class="admin-header">
+      <div>
+        <h1 class="admin-header__title">Publication requests</h1>
+        <p class="admin-header__lede">
+          Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
+          publicly visible.
+        </p>
+      </div>
+    </header>
+
+    <nav class="admin-filters" aria-label="Filter by status">
+      {filters.map((f) => {
+        const href = f.value ? `/admin/publication-requests?status=${f.value}` : "/admin/publication-requests";
+        const active = (effectiveFilter ?? "") === f.value;
+        return (
+          <a
+            class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]}
+            href={href}
+          >
+            {f.label}
+          </a>
+        );
+      })}
+    </nav>
+
+    {requests.length === 0 ? (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">No publication requests in this view</h2>
+        <p class="admin-empty__body">Requests appear here as researchers submit them for review.</p>
+      </div>
+    ) : (
+      <ul class="admin-list" role="list">
+        {requests.map((r) => (
+          <li>
+            <PublicationRequestRow request={r} />
+          </li>
+        ))}
+      </ul>
+    )}
+
+    <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
+  </section>
+
+  <ConfirmDialog
+    dialogId="admin-approve"
+    title="Approve and publish?"
+    body="This is irreversible. The dataset becomes public immediately and a DOI is minted."
+    confirmLabel="Approve and publish"
+    confirmTone="primary"
+    requireTyping="PUBLISH"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-deny"
+    title="Deny this publication request?"
+    body="The requester gets an email with the reason and can fix the issue and re-request."
+    confirmLabel="Send denial"
+    confirmTone="danger"
+  />
+</Base>
+
+<style>
+  .admin-shell {
+    max-inline-size: 64rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .admin-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: 0 0 var(--space-1);
+  }
+  .admin-header__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    max-inline-size: 48rem;
+  }
+  .admin-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .admin-filters__chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+  }
+  .admin-filters__chip:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .admin-filters__chip--active {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .admin-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .admin-empty__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  import { DashboardApiError } from "../../lib/dashboard-api";
+  import { approvePublicationRequest, denyPublicationRequest } from "../../lib/admin-api";
+
+  const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
+
+  const FRIENDLY: Record<string, string> = {
+    forbidden: "You no longer have admin access. Sign in again.",
+    not_invitable: "This request is no longer pending.",
+    not_found: "Request not found.",
+    missing_field: "Provide a reason for denial.",
+    internal_error: "Server error. Try again in a moment.",
+  };
+
+  function friendly(err: unknown): string {
+    if (err instanceof DashboardApiError && err.code && FRIENDLY[err.code]) {
+      return FRIENDLY[err.code];
+    }
+    return err instanceof Error ? err.message : "Action failed.";
+  }
+  function showError(msg: string): void {
+    if (!errorEl) return;
+    errorEl.hidden = false;
+    errorEl.textContent = msg;
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  type PendingAction =
+    | { kind: "approve"; datasetId: string }
+    | { kind: "deny"; datasetId: string; reason: string };
+  let pending: PendingAction | null = null;
+  let inFlight = false;
+
+  function openDialog(dialogId: string): void {
+    document.dispatchEvent(
+      new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", {
+        detail: { dialogId },
+      }),
+    );
+  }
+
+  function queue(next: PendingAction): void {
+    if (inFlight) return;
+    if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
+    pending = next;
+    clearError();
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("[data-pubreq-approve]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.datasetId;
+      if (!id) return;
+      queue({ kind: "approve", datasetId: id });
+      openDialog("admin-approve");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-pubreq-deny]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.datasetId;
+      if (!id) return;
+      // Deny needs a reason. Prompt the admin via `window.prompt()` to avoid
+      // scaffolding a second styled modal for the textarea. A future
+      // follow-up could replace this with a textarea field inside the
+      // confirm dialog.
+      const rawReason = window.prompt("Reason for denial?");
+      if (rawReason === null) {
+        // Explicit cancel; no further action.
+        pending = null;
+        return;
+      }
+      const reason = rawReason.trim();
+      if (reason.length === 0) {
+        pending = null;
+        showError("A denial reason is required. Click Deny again to retry.");
+        return;
+      }
+      queue({ kind: "deny", datasetId: id, reason });
+      openDialog("admin-deny");
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const e = evt as CustomEvent<{ dialogId: string }>;
+    if (!pending) return;
+
+    if (e.detail.dialogId === "admin-approve" && pending.kind === "approve") {
+      const target = pending;
+      pending = null;
+      inFlight = true;
+      try {
+        await approvePublicationRequest(target.datasetId);
+        location.reload();
+      } catch (err) {
+        showError(`Couldn't approve: ${friendly(err)}`);
+        inFlight = false;
+      }
+      return;
+    }
+    if (e.detail.dialogId === "admin-deny" && pending.kind === "deny") {
+      const target = pending;
+      pending = null;
+      inFlight = true;
+      try {
+        await denyPublicationRequest(target.datasetId, target.reason);
+        location.reload();
+      } catch (err) {
+        showError(`Couldn't deny: ${friendly(err)}`);
+        inFlight = false;
+      }
+      return;
+    }
+    console.error(
+      "[admin] confirm-dialog event did not match queued pending action",
+      e.detail.dialogId,
+      pending,
+    );
+  });
+</script>

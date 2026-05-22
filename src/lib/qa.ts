@@ -143,7 +143,10 @@ async function jsonOrNull<T>(url: string, init: FetchInit): Promise<T | null> {
 }
 
 export async function getQaSummary(id: string, init: FetchInit = {}): Promise<QaSummary | null> {
-  return jsonOrNull<QaSummary>(`${dataBase(init.dataBase)}/${encodeURIComponent(id)}/qa/dataqual.json`, init);
+  return jsonOrNull<QaSummary>(
+    `${dataBase(init.dataBase)}/${encodeURIComponent(id)}/qa/dataqual.json`,
+    init,
+  );
 }
 
 export async function getQaAggregates(
@@ -171,10 +174,7 @@ export async function getFileQa(
   );
 }
 
-export async function getHedSummary(
-  id: string,
-  init: FetchInit = {},
-): Promise<HedSummary | null> {
+export async function getHedSummary(id: string, init: FetchInit = {}): Promise<HedSummary | null> {
   return jsonOrNull<HedSummary>(
     `${dataBase(init.dataBase)}/${encodeURIComponent(id)}/qa/hed-summary.json`,
     init,

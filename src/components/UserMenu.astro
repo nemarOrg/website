@@ -32,6 +32,13 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
           )}
         </div>
         <ul class="user-menu__list" role="none">
+          {session.user.role === "admin" && (
+            <li role="none">
+              <a class="user-menu__item user-menu__item--admin" href="/admin/publication-requests" role="menuitem">
+                Admin: publication requests
+              </a>
+            </li>
+          )}
           <li role="none">
             <a class="user-menu__item" href="/upload" role="menuitem">Upload dataset</a>
           </li>
@@ -143,6 +150,10 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
   }
   .user-menu__item--danger {
     color: var(--color-danger);
+  }
+  .user-menu__item--admin {
+    font-weight: var(--fw-semibold);
+    color: var(--brand-teal);
   }
   .user-menu__signout {
     margin: 0;

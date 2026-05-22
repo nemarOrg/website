@@ -10,29 +10,33 @@ afterEach(() => {
 
 describe("resolveCanonical", () => {
   it("returns the canonical id when the catalog has a mirror", async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ found: true, dataset_id: "on002718" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ found: true, dataset_id: "on002718" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     ) as unknown as typeof fetch;
 
     expect(await resolveCanonical("ds002718")).toBe("on002718");
   });
 
   it("returns null when found is false", async () => {
-    globalThis.fetch = vi.fn(async () =>
-      new Response(JSON.stringify({ found: false }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ found: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
     ) as unknown as typeof fetch;
 
     expect(await resolveCanonical("ds007222")).toBeNull();
   });
 
   it("returns null when the endpoint responds non-2xx", async () => {
-    globalThis.fetch = vi.fn(async () => new Response("nope", { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn(
+      async () => new Response("nope", { status: 503 }),
+    ) as unknown as typeof fetch;
     expect(await resolveCanonical("ds002718")).toBeNull();
   });
 

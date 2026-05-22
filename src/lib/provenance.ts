@@ -23,11 +23,7 @@ export interface DerivedProvenance {
 
 export type Provenance = NativeProvenance | DerivedProvenance;
 
-const DERIVED_RELATIONS = new Set([
-  "IsDerivedFrom",
-  "IsVariantFormOf",
-  "IsSupplementTo",
-]);
+const DERIVED_RELATIONS = new Set(["IsDerivedFrom", "IsVariantFormOf", "IsSupplementTo"]);
 
 const OPENNEURO_ID_PATTERN = /\b(ds\d{4,7})\b/i;
 const OPENNEURO_HOST_PATTERN = /openneuro\.org\/datasets\/(ds\d{4,7})/i;

@@ -13,9 +13,11 @@ import PublishStateBadge from "./PublishStateBadge.astro";
 interface Props {
   dataset: Dataset;
   publishStatus: PublicationStatus | null;
+  /** True when the viewer is the dataset owner or an admin. Drives the Collaborators link. */
+  canManage?: boolean;
 }
 
-const { dataset, publishStatus } = Astro.props;
+const { dataset, publishStatus, canManage = false } = Astro.props;
 const state = derivePublishState(dataset, publishStatus);
 const showDelete = isDeletable(dataset, publishStatus);
 const showRequest = isPublishRequestable(dataset, publishStatus);
@@ -65,6 +67,14 @@ const githubUrl = dataset.github_repo ? `https://github.com/${dataset.github_rep
     <a class="my-dataset-card__btn" href={`/dataset/${encodeURIComponent(dataset.dataset_id)}`}>
       View
     </a>
+    {canManage && (
+      <a
+        class="my-dataset-card__btn"
+        href={`/dataset/${encodeURIComponent(dataset.dataset_id)}/collaborators`}
+      >
+        Collaborators
+      </a>
+    )}
     {githubUrl && (
       <a class="my-dataset-card__btn" href={githubUrl} rel="external noopener">
         GitHub

@@ -1,14 +1,15 @@
-// MOCK: replaced when nemar-cli#572 (cookie-aware auth on /datasets) and #575
-// (owner-callable delete-draft) land. Shared in-memory store backing the
-// dashboard's list / publish-request / delete mocks and the upload flow's
-// create mock.
+// MOCK: replaced when nemar-cli#572 (cookie-aware auth on /datasets and
+// /admin), #575 (owner-callable delete-draft), #577 (collaborator remove),
+// and #578 (invite by email) land. Shared in-memory store backing every
+// dashboard mock route and the upload flow's create mock.
 //
-// A single module-scoped Map is sufficient because both `astro dev` and
-// `wrangler pages dev` run in one process; there is no cross-worker shared
-// state requirement that would need KV or D1. Under `astro dev` the Map
-// survives HMR. Under `wrangler pages dev` it can reset per Worker
-// invocation, but the deterministic email-hash seed keeps reads idempotent.
+// A module-scoped Map is sufficient because both `astro dev` and
+// `wrangler pages dev` run in one process and the cutover removes this file
+// entirely. Under `astro dev` the Map survives HMR; under `wrangler pages
+// dev` it can reset per Worker invocation, but the deterministic email-hash
+// seed keeps reads idempotent so the reset is invisible from the UI.
 
+import type { Collaborator } from "../../../lib/collaborators-api";
 import type { PublicationStatus } from "../../../lib/dashboard-api";
 import type { Dataset } from "../../../lib/types";
 
@@ -17,9 +18,24 @@ interface OwnerEntry {
   // need to add and remove drafts in place.
   datasets: Dataset[];
   publishStatusByDatasetId: Map<string, PublicationStatus>;
+  // Intentionally mutable: addCollaboratorForDataset writes through this Map.
+  collaboratorsByDatasetId: Map<string, Collaborator[]>;
+}
+
+/**
+ * Cross-owner index of every publication request the admin surface needs to
+ * see. Mirrors mutations made through {@link setPublishStatus} so the admin
+ * route can list across owners without scanning every {@link OwnerEntry}.
+ */
+interface PublicationRequestRecord {
+  readonly ownerEmail: string;
+  readonly datasetId: string;
+  readonly datasetName: string;
+  status: PublicationStatus;
 }
 
 const store = new Map<string, OwnerEntry>();
+const publicationRequestsByDatasetId = new Map<string, PublicationRequestRecord>();
 
 function emailKey(email: string): string {
   return email.trim().toLowerCase();
@@ -36,9 +52,15 @@ function hash32(s: string): number {
 
 /**
  * Three datasets, one per renderable publish-state, so the dashboard
- * exercises every card variant on first load without manual setup.
+ * exercises every card variant on first load without manual setup. The
+ * second dataset's "requested" status doubles as a fixture for the admin
+ * publication-review surface.
  */
-function seedDatasets(email: string): { datasets: Dataset[]; statuses: PublicationStatus[] } {
+function seedDatasets(email: string): {
+  datasets: Dataset[];
+  statuses: PublicationStatus[];
+  collaborators: Map<string, Collaborator[]>;
+} {
   const h = hash32(emailKey(email));
   const username = email.split("@")[0] ?? "researcher";
   const now = Date.now();
@@ -133,25 +155,52 @@ function seedDatasets(email: string): { datasets: Dataset[]; statuses: Publicati
     },
     {
       dataset_id: published.dataset_id,
-      status: "approved",
+      status: "published",
       requested_at: days(30),
-      approved_at: days(14),
+      approval_started_at: days(20),
+      published_at: days(14),
       requested_by: email,
     },
   ];
 
-  return { datasets: [draft, awaiting, published], statuses };
+  const collaborators = new Map<string, Collaborator[]>();
+  collaborators.set(awaiting.dataset_id, [
+    {
+      username: "labmate",
+      github_username: "labmate",
+      access_type: "invited",
+      granted_at: days(10),
+      granted_by_username: username,
+    },
+  ]);
+
+  return { datasets: [draft, awaiting, published], statuses, collaborators };
 }
 
 function ensureEntry(email: string): OwnerEntry {
   const k = emailKey(email);
   let entry = store.get(k);
   if (!entry) {
-    const { datasets, statuses } = seedDatasets(email);
-    const map = new Map<string, PublicationStatus>();
-    for (const s of statuses) map.set(s.dataset_id, s);
-    entry = { datasets, publishStatusByDatasetId: map };
+    const { datasets, statuses, collaborators } = seedDatasets(email);
+    const statusMap = new Map<string, PublicationStatus>();
+    for (const s of statuses) statusMap.set(s.dataset_id, s);
+    entry = {
+      datasets,
+      publishStatusByDatasetId: statusMap,
+      collaboratorsByDatasetId: collaborators,
+    };
     store.set(k, entry);
+    for (const d of datasets) {
+      const status = statusMap.get(d.dataset_id);
+      if (status && status.status !== "none") {
+        publicationRequestsByDatasetId.set(d.dataset_id, {
+          ownerEmail: email,
+          datasetId: d.dataset_id,
+          datasetName: d.name,
+          status,
+        });
+      }
+    }
   }
   return entry;
 }
@@ -171,8 +220,17 @@ export function listForOwner(
 }
 
 export function findForOwner(email: string, id: string): Dataset | undefined {
-  const entry = ensureEntry(email);
-  return entry.datasets.find((d) => d.dataset_id === id);
+  return ensureEntry(email).datasets.find((d) => d.dataset_id === id);
+}
+
+export function findDatasetAnyOwner(
+  id: string,
+): { dataset: Dataset; ownerEmail: string } | undefined {
+  for (const [k, entry] of store) {
+    const dataset = entry.datasets.find((d) => d.dataset_id === id);
+    if (dataset) return { dataset, ownerEmail: k };
+  }
+  return undefined;
 }
 
 export function getPublishStatus(email: string, id: string): PublicationStatus | undefined {
@@ -180,7 +238,20 @@ export function getPublishStatus(email: string, id: string): PublicationStatus |
 }
 
 export function setPublishStatus(email: string, status: PublicationStatus): void {
-  ensureEntry(email).publishStatusByDatasetId.set(status.dataset_id, status);
+  const entry = ensureEntry(email);
+  entry.publishStatusByDatasetId.set(status.dataset_id, status);
+  const dataset = entry.datasets.find((d) => d.dataset_id === status.dataset_id);
+  if (!dataset) return;
+  if (status.status === "none") {
+    publicationRequestsByDatasetId.delete(status.dataset_id);
+    return;
+  }
+  publicationRequestsByDatasetId.set(status.dataset_id, {
+    ownerEmail: email,
+    datasetId: status.dataset_id,
+    datasetName: dataset.name,
+    status,
+  });
 }
 
 export function removeForOwner(email: string, id: string): boolean {
@@ -189,6 +260,8 @@ export function removeForOwner(email: string, id: string): boolean {
   if (idx === -1) return false;
   entry.datasets.splice(idx, 1);
   entry.publishStatusByDatasetId.delete(id);
+  entry.collaboratorsByDatasetId.delete(id);
+  publicationRequestsByDatasetId.delete(id);
   return true;
 }
 
@@ -200,4 +273,112 @@ export function appendDraft(email: string, draft: Dataset): void {
     dataset_id: draft.dataset_id,
     status: "none",
   });
+}
+
+// --- Collaborators ----------------------------------------------------------
+
+export function listCollaboratorsForDataset(
+  email: string,
+  datasetId: string,
+): readonly Collaborator[] {
+  return ensureEntry(email).collaboratorsByDatasetId.get(datasetId) ?? [];
+}
+
+export function addCollaboratorForDataset(
+  ownerEmail: string,
+  datasetId: string,
+  collaborator: Collaborator,
+): { ok: true } | { ok: false; reason: "duplicate" | "self" } {
+  const owner = ownerEmail.split("@")[0] ?? "";
+  if (collaborator.username === owner) return { ok: false, reason: "self" };
+  const entry = ensureEntry(ownerEmail);
+  const existing = entry.collaboratorsByDatasetId.get(datasetId) ?? [];
+  if (existing.some((c) => c.username === collaborator.username)) {
+    return { ok: false, reason: "duplicate" };
+  }
+  entry.collaboratorsByDatasetId.set(datasetId, [...existing, collaborator]);
+  return { ok: true };
+}
+
+// --- Cross-owner publication requests (admin view) --------------------------
+
+export function listAllPublicationRequests(filter?: {
+  status?: PublicationStatus["status"];
+}): PublicationRequestRecord[] {
+  const items = Array.from(publicationRequestsByDatasetId.values());
+  const filtered = filter?.status ? items.filter((r) => r.status.status === filter.status) : items;
+  return filtered.slice().sort((a, b) => {
+    const aReq = "requested_at" in a.status ? a.status.requested_at : "";
+    const bReq = "requested_at" in b.status ? b.status.requested_at : "";
+    return bReq.localeCompare(aReq);
+  });
+}
+
+export function getPublicationRequestRecord(
+  datasetId: string,
+): PublicationRequestRecord | undefined {
+  return publicationRequestsByDatasetId.get(datasetId);
+}
+
+/**
+ * Applies the admin approve transition in the mock. The real backend runs
+ * a multi-step orchestrator (BIDS CI gate, DOI mint, S3 object lock, ...);
+ * see the route-level MOCK comment in `[id]/approve.ts` for the full list.
+ */
+export function applyAdminApprove(datasetId: string): { ok: true } | { ok: false; reason: string } {
+  const record = publicationRequestsByDatasetId.get(datasetId);
+  if (!record) return { ok: false, reason: "not_found" };
+  if (record.status.status !== "requested") {
+    return { ok: false, reason: `not_in_requested_state (${record.status.status})` };
+  }
+  const entry = ensureEntry(record.ownerEmail);
+  const dataset = entry.datasets.find((d) => d.dataset_id === datasetId);
+  if (!dataset) return { ok: false, reason: "dataset_missing" };
+  const now = new Date().toISOString();
+  const fakeDoi = `10.18112/nemar-mock.${datasetId}.v1`;
+  const updated: Dataset = {
+    ...dataset,
+    visibility: "public",
+    concept_doi: fakeDoi,
+    doi: fakeDoi,
+    latest_version: "1.0.0",
+    updated_at: now,
+  };
+  const idx = entry.datasets.findIndex((d) => d.dataset_id === datasetId);
+  entry.datasets[idx] = updated;
+  const next: PublicationStatus = {
+    dataset_id: datasetId,
+    status: "published",
+    requested_at: record.status.requested_at,
+    approval_started_at: now,
+    published_at: now,
+    requested_by: "requested_by" in record.status ? record.status.requested_by : record.ownerEmail,
+  };
+  entry.publishStatusByDatasetId.set(datasetId, next);
+  publicationRequestsByDatasetId.set(datasetId, { ...record, status: next });
+  return { ok: true };
+}
+
+export function applyAdminDeny(
+  datasetId: string,
+  reason: string,
+): { ok: true } | { ok: false; reason: string } {
+  const record = publicationRequestsByDatasetId.get(datasetId);
+  if (!record) return { ok: false, reason: "not_found" };
+  if (record.status.status !== "requested") {
+    return { ok: false, reason: `not_in_requested_state (${record.status.status})` };
+  }
+  const entry = ensureEntry(record.ownerEmail);
+  const now = new Date().toISOString();
+  const next: PublicationStatus = {
+    dataset_id: datasetId,
+    status: "denied",
+    requested_at: record.status.requested_at,
+    denied_at: now,
+    denied_reason: reason,
+    requested_by: "requested_by" in record.status ? record.status.requested_by : record.ownerEmail,
+  };
+  entry.publishStatusByDatasetId.set(datasetId, next);
+  publicationRequestsByDatasetId.set(datasetId, { ...record, status: next });
+  return { ok: true };
 }

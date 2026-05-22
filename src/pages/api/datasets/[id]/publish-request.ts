@@ -29,7 +29,11 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
     return json({ ok: false, error: "already_published" }, 409);
   }
   const current = getPublishStatus(session.user.email, id);
-  if (current?.status === "requested" || current?.status === "approved") {
+  if (
+    current?.status === "requested" ||
+    current?.status === "approving" ||
+    current?.status === "published"
+  ) {
     return json({ ok: false, error: "already_in_flight" }, 409);
   }
 

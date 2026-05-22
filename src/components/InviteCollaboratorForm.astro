@@ -1,0 +1,150 @@
+---
+interface Props {
+  datasetId: string;
+}
+const { datasetId } = Astro.props;
+---
+
+<form class="invite-form" data-invite-form data-dataset-id={datasetId}>
+  <label class="invite-form__field">
+    <span class="invite-form__label">Invite by username</span>
+    <input
+      type="text"
+      class="invite-form__input"
+      name="username"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      maxlength="64"
+      placeholder="github-style username"
+      data-invite-username
+      required
+    />
+  </label>
+  <button type="submit" class="invite-form__submit" data-invite-submit>Invite</button>
+  <p class="invite-form__status" role="status" data-invite-status hidden></p>
+</form>
+
+<style>
+  .invite-form {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-3);
+    align-items: end;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+  }
+  .invite-form__field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .invite-form__label {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    font-weight: var(--fw-medium);
+  }
+  .invite-form__input {
+    min-block-size: 44px;
+    padding: 8px var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+  }
+  .invite-form__input:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .invite-form__submit {
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    cursor: pointer;
+    border: 1px solid var(--color-fg);
+  }
+  .invite-form__submit:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .invite-form__submit[disabled] {
+    opacity: 0.55;
+    cursor: progress;
+  }
+  .invite-form__status {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .invite-form__status[data-tone="error"] {
+    color: var(--color-danger);
+  }
+  .invite-form__status[data-tone="success"] {
+    color: var(--color-success);
+  }
+  @media (max-width: 640px) {
+    .invite-form {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  import { DashboardApiError } from "../lib/dashboard-api";
+  import { inviteCollaborator } from "../lib/collaborators-api";
+
+  const FRIENDLY: Record<string, string> = {
+    not_invitable: "Couldn't invite this user.",
+    forbidden: "Only the owner or an admin can invite collaborators.",
+    missing_field: "Enter a username before submitting.",
+    not_found: "Dataset not found.",
+    internal_error: "Server error. Try again in a moment.",
+  };
+
+  document.querySelectorAll<HTMLFormElement>("[data-invite-form]").forEach((form) => {
+    const datasetId = form.dataset.datasetId ?? "";
+    const usernameEl = form.querySelector<HTMLInputElement>("[data-invite-username]");
+    const submitBtn = form.querySelector<HTMLButtonElement>("[data-invite-submit]");
+    const statusEl = form.querySelector<HTMLElement>("[data-invite-status]");
+
+    function showStatus(message: string, tone: "error" | "success"): void {
+      if (!statusEl) return;
+      statusEl.textContent = message;
+      statusEl.dataset.tone = tone;
+      statusEl.hidden = false;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!datasetId || !usernameEl || !submitBtn) return;
+      const username = usernameEl.value.trim();
+      if (username.length === 0) {
+        showStatus("Enter a username before submitting.", "error");
+        return;
+      }
+      submitBtn.disabled = true;
+      if (statusEl) statusEl.hidden = true;
+      try {
+        await inviteCollaborator(datasetId, username);
+        showStatus(`Invited ${username}. The list will refresh.`, "success");
+        usernameEl.value = "";
+        // Soft refresh: simplest way to update the list reliably.
+        setTimeout(() => location.reload(), 600);
+      } catch (err) {
+        const friendly =
+          err instanceof DashboardApiError && err.code && FRIENDLY[err.code]
+            ? FRIENDLY[err.code]
+            : err instanceof Error
+              ? err.message
+              : "Invite failed.";
+        showStatus(friendly, "error");
+        submitBtn.disabled = false;
+      }
+    });
+  });
+</script>

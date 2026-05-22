@@ -1,27 +1,40 @@
 /**
  * Dashboard API client: list owned datasets, request publication, delete a
- * draft. These calls currently go to the local `/api/datasets/*` mock routes;
- * point them at `api.nemar.org` once nemar-cli#572 (cookie-aware auth) and
- * #575 (owner-deletion) land.
+ * draft. Point these calls at `api.nemar.org` once nemar-cli#572 (cookie-aware
+ * auth) and #575 (owner-deletion) land.
  */
 import type { Dataset, DatasetListResponse } from "./types";
 
 /**
- * The DB-side status of a publication_request row. Distinct from the
- * derived rendering state in {@link DatasetPublishState}.
+ * The DB-side status of a publication_request row. Mirrors the backend's
+ * enum exactly so we can shuttle values through without lossy translation.
+ * Distinct from the derived rendering state in {@link DatasetPublishState}.
  */
-export type PublicationRequestStatus = "none" | "requested" | "approved" | "blocked";
+export type PublicationRequestStatus =
+  | "none"
+  | "requested"
+  | "approving"
+  | "published"
+  | "denied"
+  | "blocked";
 
 /**
  * The frontend's rendering state for a dataset on the dashboard, computed
  * from `visibility + concept_doi + publication_request.status`.
  */
-export type DatasetPublishState = "draft" | "awaiting_review" | "published" | "validation_failed";
+export type DatasetPublishState =
+  | "draft"
+  | "awaiting_review"
+  | "published"
+  | "validation_failed"
+  | "denied";
 
 /**
  * Discriminated union for the publication-request side. Required fields
  * differ by status; the union encodes the invariants so callers don't have
- * to guard timestamps after narrowing on `status`.
+ * to guard timestamps after narrowing on `status`. `requested_by` is required
+ * on every non-`"none"` branch — the backend creates these rows in response
+ * to a user-initiated request, so the field is always set in practice.
  */
 export type PublicationStatus =
   | { readonly dataset_id: string; readonly status: "none" }
@@ -29,44 +42,65 @@ export type PublicationStatus =
       readonly dataset_id: string;
       readonly status: "requested";
       readonly requested_at: string;
-      readonly requested_by?: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     }
   | {
       readonly dataset_id: string;
-      readonly status: "approved";
+      readonly status: "approving";
       readonly requested_at: string;
-      readonly approved_at: string;
-      readonly requested_by?: string;
+      readonly approval_started_at: string;
+      readonly requested_by: string;
+      readonly ci_url?: string;
+    }
+  | {
+      // The backend always reaches `"published"` via `"approving"`, so
+      // `approval_started_at` and `published_at` are both required. The mock
+      // collapses the orchestrator into one step but still records both
+      // timestamps (they end up identical).
+      readonly dataset_id: string;
+      readonly status: "published";
+      readonly requested_at: string;
+      readonly approval_started_at: string;
+      readonly published_at: string;
+      readonly requested_by: string;
+      readonly ci_url?: string;
+    }
+  | {
+      readonly dataset_id: string;
+      readonly status: "denied";
+      readonly requested_at: string;
+      readonly denied_at: string;
+      readonly denied_reason: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     }
   | {
       readonly dataset_id: string;
       readonly status: "blocked";
       readonly requested_at: string;
+      readonly blocked_at: string;
       readonly block_reason: string;
-      readonly requested_by?: string;
+      readonly requested_by: string;
       readonly ci_url?: string;
     };
 
-/**
- * Codes the dashboard mocks emit. `code` on `DashboardApiError` stays
- * `string` so that unknown codes from a future real backend don't blow up
- * type-checking at call sites; the union below documents what we expect.
- */
 export type KnownErrorCode =
   | "not_implemented"
   | "bad_content_type"
   | "unauthenticated"
+  | "forbidden"
   | "invalid_json"
   | "invalid_name"
   | "invalid_files"
   | "empty_files"
   | "missing_id"
+  | "missing_field"
   | "not_found"
   | "already_published"
   | "already_in_flight"
   | "not_deletable"
+  | "not_invitable"
   | "internal_error";
 
 export class DashboardApiError extends Error {
@@ -91,10 +125,6 @@ export async function listMyDatasets(
   const url = `/api/datasets/list${qs ? `?${qs}` : ""}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
-  // Explicit cookie forwarding for SSR callers: Astro's server-side fetch
-  // doesn't carry the request cookie jar automatically. Currently unused
-  // because dashboard.astro reads the store directly; needed once nemar-cli#572
-  // routes through this function.
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(url, {
     method: "GET",
@@ -163,12 +193,39 @@ export function derivePublishState(
   dataset: Pick<Dataset, "visibility" | "concept_doi">,
   publishStatus: PublicationStatus | null,
 ): DatasetPublishState {
+  // Dataset visibility is authoritative: if the orchestrator has flipped
+  // the dataset to public (or assigned a DOI), the surface is published
+  // regardless of the publication-request row.
   if (dataset.visibility === "public" || dataset.concept_doi) return "published";
   if (publishStatus?.status === "blocked") return "validation_failed";
-  if (publishStatus?.status === "requested" || publishStatus?.status === "approved") {
+  if (publishStatus?.status === "denied") return "denied";
+  // `"published"` here means the backend's publication_request row says
+  // published but the dataset hasn't flipped yet — the orchestrator window.
+  // We show "awaiting review" until the visibility check above resolves it.
+  if (
+    publishStatus?.status === "requested" ||
+    publishStatus?.status === "approving" ||
+    publishStatus?.status === "published"
+  ) {
     return "awaiting_review";
   }
   return "draft";
+}
+
+/**
+ * Status-only badge state for admin surfaces, where we don't have a Dataset
+ * on hand. `"published"` here surfaces as "Published" (the orchestrator is
+ * done from the admin's perspective). The owner-side `derivePublishState`
+ * keeps it as "awaiting_review" until the dataset row flips.
+ */
+export function deriveAdminBadgeState(
+  publishStatus: PublicationStatus | null,
+): DatasetPublishState {
+  if (!publishStatus || publishStatus.status === "none") return "draft";
+  if (publishStatus.status === "published") return "published";
+  if (publishStatus.status === "blocked") return "validation_failed";
+  if (publishStatus.status === "denied") return "denied";
+  return "awaiting_review";
 }
 
 export function isDeletable(
@@ -177,7 +234,13 @@ export function isDeletable(
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
-  if (publishStatus?.status === "approved" || publishStatus?.status === "requested") return false;
+  if (
+    publishStatus?.status === "requested" ||
+    publishStatus?.status === "approving" ||
+    publishStatus?.status === "published"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -187,7 +250,16 @@ export function isPublishRequestable(
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
-  if (publishStatus?.status === "requested" || publishStatus?.status === "approved") return false;
+  if (
+    publishStatus?.status === "requested" ||
+    publishStatus?.status === "approving" ||
+    publishStatus?.status === "published"
+  ) {
+    return false;
+  }
+  // Blocked (BIDS validation failed) requires the owner to fix and re-upload
+  // before re-requesting. Denied (admin rejected with a reason) allows the
+  // owner to re-request after addressing the feedback.
   if (publishStatus?.status === "blocked") return false;
   return true;
 }
