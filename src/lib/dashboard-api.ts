@@ -7,16 +7,28 @@
 import type { Dataset, DatasetListResponse } from "./types";
 
 /**
- * The DB-side status of a publication_request row. Distinct from the
- * derived rendering state in {@link DatasetPublishState}.
+ * The DB-side status of a publication_request row. Mirrors the backend's
+ * enum exactly so we can shuttle values through without lossy translation.
+ * Distinct from the derived rendering state in {@link DatasetPublishState}.
  */
-export type PublicationRequestStatus = "none" | "requested" | "approved" | "blocked";
+export type PublicationRequestStatus =
+  | "none"
+  | "requested"
+  | "approving"
+  | "published"
+  | "denied"
+  | "blocked";
 
 /**
  * The frontend's rendering state for a dataset on the dashboard, computed
  * from `visibility + concept_doi + publication_request.status`.
  */
-export type DatasetPublishState = "draft" | "awaiting_review" | "published" | "validation_failed";
+export type DatasetPublishState =
+  | "draft"
+  | "awaiting_review"
+  | "published"
+  | "validation_failed"
+  | "denied";
 
 /**
  * Discriminated union for the publication-request side. Required fields
@@ -34,9 +46,27 @@ export type PublicationStatus =
     }
   | {
       readonly dataset_id: string;
-      readonly status: "approved";
+      readonly status: "approving";
       readonly requested_at: string;
       readonly approved_at: string;
+      readonly requested_by?: string;
+      readonly ci_url?: string;
+    }
+  | {
+      readonly dataset_id: string;
+      readonly status: "published";
+      readonly requested_at: string;
+      readonly approved_at: string;
+      readonly published_at: string;
+      readonly requested_by?: string;
+      readonly ci_url?: string;
+    }
+  | {
+      readonly dataset_id: string;
+      readonly status: "denied";
+      readonly requested_at: string;
+      readonly denied_at: string;
+      readonly denied_reason: string;
       readonly requested_by?: string;
       readonly ci_url?: string;
     }
@@ -49,24 +79,22 @@ export type PublicationStatus =
       readonly ci_url?: string;
     };
 
-/**
- * Codes the dashboard mocks emit. `code` on `DashboardApiError` stays
- * `string` so that unknown codes from a future real backend don't blow up
- * type-checking at call sites; the union below documents what we expect.
- */
 export type KnownErrorCode =
   | "not_implemented"
   | "bad_content_type"
   | "unauthenticated"
+  | "forbidden"
   | "invalid_json"
   | "invalid_name"
   | "invalid_files"
   | "empty_files"
   | "missing_id"
+  | "missing_field"
   | "not_found"
   | "already_published"
   | "already_in_flight"
   | "not_deletable"
+  | "not_invitable"
   | "internal_error";
 
 export class DashboardApiError extends Error {
@@ -91,10 +119,6 @@ export async function listMyDatasets(
   const url = `/api/datasets/list${qs ? `?${qs}` : ""}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
-  // Explicit cookie forwarding for SSR callers: Astro's server-side fetch
-  // doesn't carry the request cookie jar automatically. Currently unused
-  // because dashboard.astro reads the store directly; needed once nemar-cli#572
-  // routes through this function.
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(url, {
     method: "GET",
@@ -165,7 +189,12 @@ export function derivePublishState(
 ): DatasetPublishState {
   if (dataset.visibility === "public" || dataset.concept_doi) return "published";
   if (publishStatus?.status === "blocked") return "validation_failed";
-  if (publishStatus?.status === "requested" || publishStatus?.status === "approved") {
+  if (publishStatus?.status === "denied") return "denied";
+  if (
+    publishStatus?.status === "requested" ||
+    publishStatus?.status === "approving" ||
+    publishStatus?.status === "published"
+  ) {
     return "awaiting_review";
   }
   return "draft";
@@ -177,7 +206,15 @@ export function isDeletable(
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
-  if (publishStatus?.status === "approved" || publishStatus?.status === "requested") return false;
+  // Once the admin has started the orchestrator (approving) or finished it
+  // (published), the dataset is no longer the owner's to delete.
+  if (
+    publishStatus?.status === "requested" ||
+    publishStatus?.status === "approving" ||
+    publishStatus?.status === "published"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -187,7 +224,16 @@ export function isPublishRequestable(
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
-  if (publishStatus?.status === "requested" || publishStatus?.status === "approved") return false;
+  if (
+    publishStatus?.status === "requested" ||
+    publishStatus?.status === "approving" ||
+    publishStatus?.status === "published"
+  ) {
+    return false;
+  }
+  // Blocked (BIDS validation failed) requires the owner to fix and re-upload
+  // before re-requesting. Denied (admin rejected with a reason) allows the
+  // owner to re-request after addressing the feedback.
   if (publishStatus?.status === "blocked") return false;
   return true;
 }

@@ -52,12 +52,28 @@ function status(s: PublicationRequestStatus): PublicationStatus {
       return { dataset_id: "mock-1", status: "none" };
     case "requested":
       return { dataset_id: "mock-1", status: "requested", requested_at: "2026-05-22T00:00:00Z" };
-    case "approved":
+    case "approving":
       return {
         dataset_id: "mock-1",
-        status: "approved",
+        status: "approving",
         requested_at: "2026-05-20T00:00:00Z",
         approved_at: "2026-05-22T00:00:00Z",
+      };
+    case "published":
+      return {
+        dataset_id: "mock-1",
+        status: "published",
+        requested_at: "2026-05-20T00:00:00Z",
+        approved_at: "2026-05-21T00:00:00Z",
+        published_at: "2026-05-22T00:00:00Z",
+      };
+    case "denied":
+      return {
+        dataset_id: "mock-1",
+        status: "denied",
+        requested_at: "2026-05-20T00:00:00Z",
+        denied_at: "2026-05-22T00:00:00Z",
+        denied_reason: "BIDS validation failing",
       };
     case "blocked":
       return {
@@ -81,11 +97,14 @@ describe("derivePublishState", () => {
   it("validation_failed when publish status is blocked", () => {
     expect(derivePublishState(ds(), status("blocked"))).toBe("validation_failed");
   });
+  it("denied when publish status is denied", () => {
+    expect(derivePublishState(ds(), status("denied"))).toBe("denied");
+  });
   it("awaiting_review when publish status is requested", () => {
     expect(derivePublishState(ds(), status("requested"))).toBe("awaiting_review");
   });
-  it("awaiting_review when publish status is approved (but not yet public)", () => {
-    expect(derivePublishState(ds(), status("approved"))).toBe("awaiting_review");
+  it("awaiting_review when publish status is approving (admin running orchestrator)", () => {
+    expect(derivePublishState(ds(), status("approving"))).toBe("awaiting_review");
   });
   it("draft when private + no DOI + no publish status", () => {
     expect(derivePublishState(ds(), null)).toBe("draft");
@@ -105,11 +124,14 @@ describe("isDeletable", () => {
   it("false when a publication request is in flight", () => {
     expect(isDeletable(ds(), status("requested"))).toBe(false);
   });
-  it("false when a publication request was approved", () => {
-    expect(isDeletable(ds(), status("approved"))).toBe(false);
+  it("false when an admin has started the approving orchestrator", () => {
+    expect(isDeletable(ds(), status("approving"))).toBe(false);
   });
   it("true when blocked (validation failed) — owner should be able to remove and re-upload", () => {
     expect(isDeletable(ds(), status("blocked"))).toBe(true);
+  });
+  it("true when denied (admin rejected) — owner can remove and re-upload", () => {
+    expect(isDeletable(ds(), status("denied"))).toBe(true);
   });
   it("false for a public dataset", () => {
     expect(isDeletable(ds({ visibility: "public" }), null)).toBe(false);
@@ -132,8 +154,14 @@ describe("isPublishRequestable", () => {
   it("false when a request is already in flight", () => {
     expect(isPublishRequestable(ds(), status("requested"))).toBe(false);
   });
+  it("false when an admin is currently approving", () => {
+    expect(isPublishRequestable(ds(), status("approving"))).toBe(false);
+  });
   it("false when blocked (must fix and re-upload before requesting again)", () => {
     expect(isPublishRequestable(ds(), status("blocked"))).toBe(false);
+  });
+  it("true when denied (owner can re-request after addressing feedback)", () => {
+    expect(isPublishRequestable(ds(), status("denied"))).toBe(true);
   });
 });
 
