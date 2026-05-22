@@ -1,31 +1,51 @@
 import type { APIRoute } from "astro";
-import { clearSessionCookie } from "../../../lib/auth";
+import { apiBase } from "../../../lib/api-base";
 
-// Logout stays after Phase 5 backend swap: the endpoint contract matches the
-// upstream `nemar-cli#569` shape, so the only thing that changes is which
-// service the cookie was minted by.
-//
-// CSRF: this is a logout-only mutation (no privilege escalation), and the
-// session cookie is SameSite=Lax which blocks cross-site form POSTs in modern
-// browsers. The user-visible worst case from a forged POST is forced sign-out.
-export const POST: APIRoute = async ({ cookies, request }) => {
-  clearSessionCookie(cookies);
-
-  // Allow either an HTML form submission (redirects home) or an XHR call
-  // (returns JSON). The form path lets the sign-out button live inside a
-  // tiny <form method="POST"> without client-side JS.
-  const accept = request.headers.get("Accept") ?? "";
-  if (accept.includes("text/html")) {
-    return new Response(null, {
-      status: 303,
-      headers: { Location: "/", "Cache-Control": "no-store" },
+/**
+ * Proxies POST /auth/logout to the backend. The backend clears the cookie
+ * (Set-Cookie with Max-Age=0) on its `.nemar.org` domain; we just forward
+ * that header verbatim so the browser sees the same Set-Cookie response.
+ *
+ * CSRF: SameSite=Lax on the session cookie blocks cross-site form POSTs.
+ * The user-visible worst case from a forged POST is a forced sign-out.
+ */
+export const POST: APIRoute = async ({ request }) => {
+  const cookie = request.headers.get("cookie") ?? "";
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/auth/logout`, {
+      method: "POST",
+      headers: {
+        Cookie: cookie,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: "{}",
+    });
+  } catch (err) {
+    console.warn("[auth/logout proxy] backend fetch failed", err);
+    res = new Response(JSON.stringify({ ok: false, error: "internal_error" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
     });
   }
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
+
+  const accept = request.headers.get("Accept") ?? "";
+  if (accept.includes("text/html")) {
+    // Form-submit path: redirect home with the backend's Set-Cookie carried
+    // through so the browser drops the session cookie.
+    const headers = new Headers({ Location: "/", "Cache-Control": "no-store" });
+    const setCookie = res.headers.get("set-cookie");
+    if (setCookie) headers.set("Set-Cookie", setCookie);
+    return new Response(null, { status: 303, headers });
+  }
+
+  const body = await res.text();
+  const headers = new Headers({
+    "Content-Type": res.headers.get("Content-Type") ?? "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
   });
+  const setCookie = res.headers.get("set-cookie");
+  if (setCookie) headers.set("Set-Cookie", setCookie);
+  return new Response(body, { status: res.status, headers });
 };

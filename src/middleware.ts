@@ -1,50 +1,30 @@
 import type { MiddlewareHandler } from "astro";
-import {
-  type AuthSession,
-  REMEMBER_TTL_SECONDS,
-  SESSION_COOKIE,
-  SESSION_RENEW_WHEN_REMAINING,
-  getSessionSecret,
-  sessionCookieOptions,
-  signSession,
-  verifySession,
-} from "./lib/auth";
+import { apiBase } from "./lib/api-base";
+import { type AuthSession, SESSION_COOKIE_NAME } from "./lib/auth";
 
 /**
  * Two responsibilities in one handler:
  *
- *   1. Read the `nemar_session` cookie, verify it, and stash the session on
- *      `context.locals.session`. Remember-me sessions get a sliding-window
- *      cookie refresh when they're within the renewal threshold so an active
- *      user stays signed in for another 30 days from their last visit.
+ *   1. Read the `nemar_session` cookie, resolve it to a user via
+ *      `GET ${apiBase}/auth/me`, and stash the result on
+ *      `context.locals.session`. The backend owns cookie verification and
+ *      renewal; this just trusts the backend's `/auth/me` answer.
  *
  *   2. Edge-cache GETs for unauthenticated traffic via Cloudflare's
  *      `caches.default`. Authenticated traffic skips the cache entirely so
  *      personalized responses (e.g. the Nav's UserMenu) don't get served to
  *      anonymous visitors out of the edge.
  *
- * Cloudflare's automatic CDN cache honors `Cache-Control: s-maxage=...` on
- * production custom domains, but skips caching on `*.pages.dev` preview URLs.
- * This middleware closes that gap by talking to `caches.default` directly:
- *
- *   - On hit: return the cached response. No Worker SSR runs at all.
- *   - On miss: run the next handler, then stash the response if it's cacheable.
- *
- * "Cacheable" = GET request + response has a `Cache-Control` header with
- * `public` (and either `max-age` or `s-maxage`). The cache key is the full
- * request URL, so query-string filters on /discover get their own entries.
- *
- * Side benefit: warm-cache hits don't run any Astro SSR, so we sidestep the
- * Worker cold-start tax for repeat visitors too.
+ * The cache key is the full request URL, so query-string filters on /discover
+ * get their own entries. Authenticated requests fan out one extra HTTP call
+ * to /auth/me; that overhead is acceptable since the cache is bypassed anyway
+ * (every authed request runs middleware).
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
   await applySession(context);
 
   const request = context.request;
   if (request.method !== "GET") return next();
-  // Skip edge cache entirely for authenticated traffic: the Nav and any
-  // future personalized surface vary by session, so serving a cached anon
-  // response to a signed-in user is incorrect.
   if (context.locals.session) return next();
 
   type Runtime = { caches?: CacheStorage };
@@ -93,41 +73,33 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {
-  const raw = context.cookies.get(SESSION_COOKIE)?.value;
-  if (!raw) {
+  const cookie = context.cookies.get(SESSION_COOKIE_NAME)?.value;
+  if (!cookie) {
     context.locals.session = null;
     return;
   }
-  let secret: string;
+
+  // Forward the full cookie header (not just our session cookie) so the
+  // backend sees the request as it came from the browser. Avoids the case
+  // where a cookie that depends on a sibling (CSRF token, etc.) fails to
+  // verify because we stripped it.
+  const fullCookie = context.request.headers.get("cookie") ?? `${SESSION_COOKIE_NAME}=${cookie}`;
+  let session: AuthSession | null = null;
   try {
-    secret = getSessionSecret(context.locals);
-  } catch (err) {
-    // If SESSION_SECRET is missing in prod, every authenticated user appears
-    // logged out and we'd have no signal in the logs. Surface it.
-    console.error("[auth] getSessionSecret failed; treating request as unauthenticated", err);
-    context.locals.session = null;
-    return;
-  }
-  const session = await verifySession(raw, secret);
-  context.locals.session = session;
-
-  if (!session?.remember) return;
-
-  // Only renew within the last day of the 30-day window so dormant sessions
-  // expire rather than rolling forward forever.
-  const now = Math.floor(Date.now() / 1000);
-  if (session.exp - now < SESSION_RENEW_WHEN_REMAINING) {
-    const refreshed: AuthSession = { ...session, exp: now + REMEMBER_TTL_SECONDS };
-    try {
-      const token = await signSession(refreshed, secret);
-      context.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(REMEMBER_TTL_SECONDS));
-      context.locals.session = refreshed;
-    } catch (err) {
-      // Non-fatal: the user keeps the existing session until it expires
-      // naturally. Worth a warn so we notice if renewal fails systemically.
-      console.warn("[auth] session renewal failed; user keeps existing session", err);
+    const res = await fetch(`${apiBase()}/auth/me`, {
+      method: "GET",
+      headers: { Cookie: fullCookie, Accept: "application/json" },
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { user?: AuthSession["user"] | null };
+      if (data?.user) session = { user: data.user };
+    } else if (res.status >= 500) {
+      console.warn(`[auth] /auth/me returned ${res.status}; treating request as unauthenticated`);
     }
+  } catch (err) {
+    console.warn("[auth] /auth/me fetch failed; treating request as unauthenticated", err);
   }
+  context.locals.session = session;
 }
 
 function isPublicCacheable(response: Response): boolean {

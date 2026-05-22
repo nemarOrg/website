@@ -1,0 +1,73 @@
+---
+import DocsLayout from "../../components/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Docs - Publication review"
+  description="What admin review looks at, the DOI minting process, and what to do if you're denied."
+  active="publishing"
+>
+  <p>
+    Publication review is how a private NEMAR dataset becomes a citable, public, archived
+    resource. It&rsquo;s an admin-mediated step; this page explains what the admin checks and
+    what to expect once you click <strong>Request publication</strong>.
+  </p>
+
+  <h2>What &ldquo;published&rdquo; means</h2>
+  <p>When a dataset is published, three things change:</p>
+  <ul>
+    <li><strong>Visibility.</strong> The dataset moves from private to public; anyone can find
+    it on <a href="/discover">Discover</a>.</li>
+    <li><strong>DOI.</strong> A concept DOI is minted (via DataCite/Zenodo) so the dataset
+    becomes citable. Each future version gets its own version DOI under the concept.</li>
+    <li><strong>S3 lock.</strong> Files are written under S3 Object Lock so they can&rsquo;t
+    be tampered with after publication.</li>
+  </ul>
+  <p>
+    Publishing is irreversible by design &mdash; a published DOI cannot be retracted, only
+    superseded. The confirmation dialog on the admin side requires typing
+    <code>PUBLISH</code> for that reason.
+  </p>
+
+  <h2>What the admin checks</h2>
+  <ul>
+    <li><strong>BIDS validation.</strong> Must pass against the current BIDS schema.</li>
+    <li><strong>Metadata completeness.</strong> <code>dataset_description.json</code> has
+    <code>Authors</code>, <code>License</code>, and <code>HowToAcknowledge</code> populated.</li>
+    <li><strong>HED tags (if present).</strong> Events are validated against the current
+    Hierarchical Event Descriptor schema.</li>
+    <li><strong>Modality consistency.</strong> The modality folders inside participants
+    match what&rsquo;s declared.</li>
+  </ul>
+
+  <h2>How long does review take?</h2>
+  <p>
+    Most reviews land within 1&ndash;2 business days. Submissions that pass on the first try
+    move through quickly; the slower ones are usually waiting on a metadata fix or a
+    re-upload after an HED tagging issue.
+  </p>
+
+  <h2>If you&rsquo;re denied</h2>
+  <p>
+    A denial isn&rsquo;t the end of the road. The admin sends a reason (which appears on your
+    dashboard card and goes to your email). Address the feedback, re-upload if needed, and
+    click <strong>Request publication</strong> again. There&rsquo;s no penalty for multiple
+    rounds.
+  </p>
+
+  <h2>If BIDS validation is failing</h2>
+  <p>
+    The card shows <strong>Validation failed</strong> with a short error summary. The fix is
+    almost always in your BIDS folder, not in NEMAR &mdash; the
+    <a href="https://bids-standard.github.io/bids-validator/" rel="external noopener">BIDS
+    validator</a> can reproduce the error locally. Fix, re-upload, and the badge clears on the
+    next validation pass.
+  </p>
+
+  <h2>Getting cited</h2>
+  <p>
+    Once your dataset has a DOI, citations show up automatically in the
+    <a href="/citation-dashboard">citation dashboard</a> as publications referencing it appear.
+    NEMAR pulls citations from OpenAlex and DataCite Event Data.
+  </p>
+</DocsLayout>

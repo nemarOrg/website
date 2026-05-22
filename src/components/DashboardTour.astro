@@ -1,0 +1,185 @@
+---
+/**
+ * First-run overlay on /dashboard. Renders nothing once dismissed.
+ * Walks the user through Upload CTA, the first dataset card, and the user
+ * menu in three steps. Persists dismissal in localStorage so the second
+ * dashboard load is uninterrupted.
+ */
+---
+
+<aside class="dashboard-tour" data-dashboard-tour hidden aria-live="polite">
+  <div class="dashboard-tour__panel">
+    <span class="dashboard-tour__counter" data-tour-counter>Step 1 of 3</span>
+    <h2 class="dashboard-tour__title" data-tour-title>Upload your first dataset</h2>
+    <p class="dashboard-tour__body" data-tour-body>
+      Click <strong>Upload dataset</strong> in the top right to drop a BIDS folder. We&rsquo;ll
+      validate it and create your dataset entry.
+    </p>
+    <div class="dashboard-tour__actions">
+      <button type="button" class="dashboard-tour__btn dashboard-tour__btn--ghost" data-tour-skip>
+        Skip tour
+      </button>
+      <span class="dashboard-tour__spacer"></span>
+      <button
+        type="button"
+        class="dashboard-tour__btn dashboard-tour__btn--ghost"
+        data-tour-back
+        disabled
+      >
+        Back
+      </button>
+      <button type="button" class="dashboard-tour__btn dashboard-tour__btn--primary" data-tour-next>
+        Next
+      </button>
+    </div>
+  </div>
+</aside>
+
+<style>
+  .dashboard-tour {
+    position: fixed;
+    inset-block-end: var(--space-4);
+    inset-inline-end: var(--space-4);
+    max-inline-size: 24rem;
+    z-index: 80;
+  }
+  .dashboard-tour__panel {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .dashboard-tour__counter {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .dashboard-tour__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    margin: 0;
+  }
+  .dashboard-tour__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .dashboard-tour__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .dashboard-tour__spacer {
+    flex: 1;
+  }
+  .dashboard-tour__btn {
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    cursor: pointer;
+  }
+  .dashboard-tour__btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .dashboard-tour__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .dashboard-tour__btn--primary:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .dashboard-tour__btn--ghost:hover:not([disabled]) {
+    background: var(--color-bg-subtle);
+  }
+</style>
+
+<script>
+  const tour = document.querySelector<HTMLElement>("[data-dashboard-tour]");
+  if (tour) {
+    const STORAGE_KEY = "nemar:dashboard-tour";
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem(STORAGE_KEY) === "yes";
+    } catch {
+      /* localStorage may be unavailable — show the tour. */
+    }
+
+    if (!dismissed) {
+      const counterEl = tour.querySelector<HTMLElement>("[data-tour-counter]");
+      const titleEl = tour.querySelector<HTMLElement>("[data-tour-title]");
+      const bodyEl = tour.querySelector<HTMLElement>("[data-tour-body]");
+      const backBtn = tour.querySelector<HTMLButtonElement>("[data-tour-back]");
+      const nextBtn = tour.querySelector<HTMLButtonElement>("[data-tour-next]");
+      const skipBtn = tour.querySelector<HTMLButtonElement>("[data-tour-skip]");
+
+      const steps: { title: string; body: string }[] = [
+        {
+          title: "Upload your first dataset",
+          body:
+            "Click <strong>Upload dataset</strong> in the top right to drop a BIDS folder. We'll validate it and create your dataset entry.",
+        },
+        {
+          title: "Status badges show where each dataset stands",
+          body:
+            "Drafts stay private until you click <strong>Request publication</strong>. Once approved, the dataset becomes public and gets a DOI.",
+        },
+        {
+          title: "Your account lives in the top-right menu",
+          body:
+            "Settings, sign-out, and admin tools (if you have access) are under the avatar.",
+        },
+      ];
+      let cursor = 0;
+
+      function render(): void {
+        const step = steps[cursor];
+        if (!step || !counterEl || !titleEl || !bodyEl || !backBtn || !nextBtn) return;
+        counterEl.textContent = `Step ${cursor + 1} of ${steps.length}`;
+        titleEl.textContent = step.title;
+        bodyEl.innerHTML = step.body;
+        backBtn.disabled = cursor === 0;
+        nextBtn.textContent = cursor === steps.length - 1 ? "Done" : "Next";
+      }
+
+      function dismiss(): void {
+        try {
+          localStorage.setItem(STORAGE_KEY, "yes");
+        } catch {
+          /* ignore */
+        }
+        tour?.remove();
+      }
+
+      backBtn?.addEventListener("click", () => {
+        if (cursor > 0) {
+          cursor -= 1;
+          render();
+        }
+      });
+      nextBtn?.addEventListener("click", () => {
+        if (cursor < steps.length - 1) {
+          cursor += 1;
+          render();
+        } else {
+          dismiss();
+        }
+      });
+      skipBtn?.addEventListener("click", dismiss);
+
+      render();
+      tour.hidden = false;
+    }
+  }
+</script>

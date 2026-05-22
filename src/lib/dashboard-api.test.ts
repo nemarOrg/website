@@ -194,9 +194,9 @@ describe("listMyDatasets", () => {
     vi.restoreAllMocks();
   });
 
-  it("hits /api/datasets/list with credentials and the requested limit/offset", async () => {
+  it("hits /datasets?mine=true with credentials and the requested limit/offset", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/datasets/list?limit=25&offset=10");
+      expect(url).toBe("https://api.nemar.org/datasets?mine=true&limit=25&offset=10");
       expect(init.credentials).toBe("include");
       expect((init.headers as Record<string, string>).Accept).toBe("application/json");
       return new Response(
@@ -253,9 +253,9 @@ describe("listMyDatasets", () => {
 });
 
 describe("requestPublication", () => {
-  it("POSTs to /api/datasets/:id/publish-request with credentials", async () => {
+  it("POSTs to /datasets/:id/publish/request with credentials", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/datasets/nm-xyz/publish-request");
+      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/publish/request");
       expect(init.method).toBe("POST");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
       expect(init.credentials).toBe("include");
@@ -274,7 +274,7 @@ describe("requestPublication", () => {
 
   it("encodes the dataset id in the URL", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
-      expect(url).toBe("/api/datasets/nm%2Fweird/publish-request");
+      expect(url).toBe("https://api.nemar.org/datasets/nm%2Fweird/publish/request");
       return new Response(
         JSON.stringify({
           dataset_id: "x",
@@ -290,10 +290,10 @@ describe("requestPublication", () => {
 });
 
 describe("deleteDraftDataset", () => {
-  it("POSTs to /api/datasets/:id/delete and resolves to ok:true on 200", async () => {
+  it("DELETEs /datasets/:id and resolves to ok:true on 200", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/datasets/nm-xyz/delete");
-      expect(init.method).toBe("POST");
+      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz");
+      expect(init.method).toBe("DELETE");
       expect(init.credentials).toBe("include");
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,

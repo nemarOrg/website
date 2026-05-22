@@ -2,9 +2,9 @@
 import ConfirmDialog from "../../components/ConfirmDialog.astro";
 import PublicationRequestRow from "../../components/PublicationRequestRow.astro";
 import Base from "../../layouts/Base.astro";
-import type { PublicationRequest } from "../../lib/admin-api";
+import { type PublicationRequest, listPublicationRequests } from "../../lib/admin-api";
 import { getSession } from "../../lib/auth";
-import { listAllPublicationRequests } from "../api/datasets/_store";
+import { DashboardApiError, type PublicationStatus } from "../../lib/dashboard-api";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -18,22 +18,35 @@ if (session.user.role !== "admin") {
 
 const url = new URL(Astro.request.url);
 const statusFilter = url.searchParams.get("status") ?? "";
-const validStatuses = ["requested", "approving", "published", "denied", "blocked"] as const;
-type ValidStatus = (typeof validStatuses)[number];
-const effectiveFilter: ValidStatus | undefined = (validStatuses as readonly string[]).includes(
-  statusFilter,
-)
-  ? (statusFilter as ValidStatus)
+const validStatuses: ReadonlyArray<PublicationStatus["status"]> = [
+  "requested",
+  "approving",
+  "published",
+  "denied",
+  "blocked",
+];
+const effectiveFilter: PublicationStatus["status"] | undefined = (
+  validStatuses as readonly string[]
+).includes(statusFilter)
+  ? (statusFilter as PublicationStatus["status"])
   : undefined;
 
-const records = listAllPublicationRequests(
-  effectiveFilter ? { status: effectiveFilter } : undefined,
-);
-const requests: PublicationRequest[] = records.map((r) => ({
-  dataset_name: r.datasetName,
-  owner_email: r.ownerEmail,
-  status: r.status,
-}));
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let requests: readonly PublicationRequest[] = [];
+let listError: string | null = null;
+try {
+  const result = await listPublicationRequests(effectiveFilter ? { status: effectiveFilter } : {}, {
+    cookieHeader,
+  });
+  requests = result.requests;
+} catch (err) {
+  listError =
+    err instanceof DashboardApiError
+      ? `Could not load publication requests (${err.status}).`
+      : err instanceof Error
+        ? err.message
+        : "Could not load publication requests.";
+}
 
 const filters: { value: string; label: string }[] = [
   { value: "", label: "All" },
@@ -61,7 +74,9 @@ const filters: { value: string; label: string }[] = [
 
     <nav class="admin-filters" aria-label="Filter by status">
       {filters.map((f) => {
-        const href = f.value ? `/admin/publication-requests?status=${f.value}` : "/admin/publication-requests";
+        const href = f.value
+          ? `/admin/publication-requests?status=${f.value}`
+          : "/admin/publication-requests";
         const active = (effectiveFilter ?? "") === f.value;
         return (
           <a
@@ -74,14 +89,16 @@ const filters: { value: string; label: string }[] = [
       })}
     </nav>
 
-    {requests.length === 0 ? (
+    {listError && <p class="admin-action-error" role="alert">{listError}</p>}
+
+    {!listError && requests.length === 0 ? (
       <div class="admin-empty">
         <h2 class="admin-empty__title">No publication requests in this view</h2>
         <p class="admin-empty__body">Requests appear here as researchers submit them for review.</p>
       </div>
     ) : (
       <ul class="admin-list" role="list">
-        {requests.map((r) => (
+        {requests.map((r: PublicationRequest) => (
           <li>
             <PublicationRequestRow request={r} />
           </li>
@@ -191,8 +208,8 @@ const filters: { value: string; label: string }[] = [
 </style>
 
 <script>
-  import { DashboardApiError } from "../../lib/dashboard-api";
   import { approvePublicationRequest, denyPublicationRequest } from "../../lib/admin-api";
+  import { DashboardApiError } from "../../lib/dashboard-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
 
@@ -255,13 +272,8 @@ const filters: { value: string; label: string }[] = [
     btn.addEventListener("click", () => {
       const id = btn.dataset.datasetId;
       if (!id) return;
-      // Deny needs a reason. Prompt the admin via `window.prompt()` to avoid
-      // scaffolding a second styled modal for the textarea. A future
-      // follow-up could replace this with a textarea field inside the
-      // confirm dialog.
       const rawReason = window.prompt("Reason for denial?");
       if (rawReason === null) {
-        // Explicit cancel; no further action.
         pending = null;
         return;
       }

@@ -200,9 +200,11 @@ const masked = maskEmail(emailRaw);
       submitEl.disabled = true;
       errorEl.hidden = true;
       try {
-        const res = await fetch("/api/auth/code/verify", {
+        const apiBaseUrl = (import.meta.env.PUBLIC_API_BASE_URL ?? "https://api.nemar.org").replace(/\/$/, "");
+        const res = await fetch(`${apiBaseUrl}/auth/code/verify`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ email, code, remember }),
         });
         if (!res.ok) {
@@ -218,8 +220,7 @@ const masked = maskEmail(emailRaw);
               ? "That code didn't match. Double-check or request a new one."
               : detail === "invalid_code_format"
                 ? "The code must be 6 digits."
-                : "Couldn't verify. Try again."
-          ;
+                : "Couldn't verify. Try again.";
           errorEl.hidden = false;
           submitEl.disabled = false;
           return;
@@ -227,9 +228,17 @@ const masked = maskEmail(emailRaw);
         const data = (await res.json()) as { user?: { status?: string } };
         if (data?.user?.status === "pending") {
           location.href = "/login/pending";
-        } else {
-          location.href = nextPath || "/";
+          return;
         }
+        // First-verify redirect: show the welcome page unless the user has
+        // already dismissed it. The welcome page sets the localStorage key.
+        let firstVisit = true;
+        try {
+          firstVisit = localStorage.getItem("nemar:welcomed") !== "yes";
+        } catch {
+          /* localStorage may be unavailable; default to showing welcome. */
+        }
+        location.href = firstVisit ? "/welcome" : nextPath || "/";
       } catch {
         errorEl.textContent = "Network error. Check your connection and try again.";
         errorEl.hidden = false;

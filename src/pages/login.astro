@@ -185,9 +185,11 @@ const errorMessage =
       submitEl.disabled = true;
       errorEl.hidden = true;
       try {
-        const res = await fetch("/api/auth/code/request", {
+        const apiBaseUrl = (import.meta.env.PUBLIC_API_BASE_URL ?? "https://api.nemar.org").replace(/\/$/, "");
+        const res = await fetch(`${apiBaseUrl}/auth/code/request`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ email }),
         });
         if (!res.ok) {

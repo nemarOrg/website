@@ -1,8 +1,9 @@
 /**
  * Dashboard API client: list owned datasets, request publication, delete a
- * draft. Point these calls at `api.nemar.org` once nemar-cli#572 (cookie-aware
- * auth) and #575 (owner-deletion) land.
+ * draft. Calls `api.nemar.org` directly; the session cookie travels via
+ * `credentials: "include"`.
  */
+import { apiBase } from "./api-base";
 import type { Dataset, DatasetListResponse } from "./types";
 
 /**
@@ -118,11 +119,10 @@ export async function listMyDatasets(
   query: { limit?: number; offset?: number } = {},
   init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<DatasetListResponse> {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ mine: "true" });
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   if (query.offset !== undefined) params.set("offset", String(query.offset));
-  const qs = params.toString();
-  const url = `/api/datasets/list${qs ? `?${qs}` : ""}`;
+  const url = `${apiBase()}/datasets?${params.toString()}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
@@ -143,12 +143,35 @@ export async function listMyDatasets(
   return (await res.json()) as DatasetListResponse;
 }
 
+export async function getPublishStatus(
+  datasetId: string,
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+): Promise<PublicationStatus | null> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${apiBase()}/datasets/${encodeURIComponent(datasetId)}/publish/status`,
+    { method: "GET", headers, credentials: "include", signal: init.signal },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const detail = await readError(res);
+    throw new DashboardApiError(
+      `Publish status failed: ${detail.message ?? res.statusText}`,
+      res.status,
+      detail.code,
+    );
+  }
+  return (await res.json()) as PublicationStatus;
+}
+
 export async function requestPublication(
   id: string,
   init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<PublicationStatus> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`/api/datasets/${encodeURIComponent(id)}/publish-request`, {
+  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(id)}/publish/request`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     credentials: "include",
@@ -171,8 +194,8 @@ export async function deleteDraftDataset(
   init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<{ ok: true }> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`/api/datasets/${encodeURIComponent(id)}/delete`, {
-    method: "POST",
+  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(id)}`, {
+    method: "DELETE",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     credentials: "include",
     body: "{}",

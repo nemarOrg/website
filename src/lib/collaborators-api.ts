@@ -1,9 +1,8 @@
 /**
  * Collaborators API client: list per-dataset collaborators and invite a new
- * one by username. Point these calls at `api.nemar.org/datasets/:id/{collabora
- * tors,invite}` once nemar-cli#572 (cookie-aware auth) and #578 (invite by
- * email) land.
+ * one. Calls `api.nemar.org/datasets/:id/{collaborators,invite}` directly.
  */
+import { apiBase } from "./api-base";
 import type { AuthSession } from "./auth";
 import { DashboardApiError } from "./dashboard-api";
 import type { Dataset } from "./types";
@@ -29,12 +28,10 @@ export async function listCollaborators(
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
-  const res = await fetchImpl(`/api/datasets/${encodeURIComponent(datasetId)}/collaborators`, {
-    method: "GET",
-    headers,
-    credentials: "include",
-    signal: init.signal,
-  });
+  const res = await fetchImpl(
+    `${apiBase()}/datasets/${encodeURIComponent(datasetId)}/collaborators`,
+    { method: "GET", headers, credentials: "include", signal: init.signal },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
@@ -52,13 +49,18 @@ export interface InviteResponse {
   readonly invitee: string;
 }
 
+/**
+ * Invite a collaborator by NEMAR username. The backend's POST /datasets/:id/invite
+ * accepts `{ username }` today; once `nemar-cli#578` ships, it also accepts
+ * `{ email }` and the second arg here can be widened to a union.
+ */
 export async function inviteCollaborator(
   datasetId: string,
   username: string,
   init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<InviteResponse> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`/api/datasets/${encodeURIComponent(datasetId)}/collaborators`, {
+  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(datasetId)}/invite`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     credentials: "include",

@@ -9,11 +9,7 @@ import {
 import type { Dataset } from "./types";
 
 function session(role: AuthSession["user"]["role"], email = "alice@example.com"): AuthSession {
-  return {
-    user: { id: "u1", email, role, status: "active" },
-    exp: Math.floor(Date.now() / 1000) + 3600,
-    remember: false,
-  };
+  return { user: { id: "u1", email, role, status: "active" } };
 }
 
 function ds(owner: string | null = "alice"): Pick<Dataset, "owner_username"> {
@@ -60,7 +56,7 @@ describe("isCollaboratorManager", () => {
 describe("listCollaborators", () => {
   it("hits /api/datasets/:id/collaborators with credentials", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/datasets/nm-xyz/collaborators");
+      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/collaborators");
       expect(init.method).toBe("GET");
       expect(init.credentials).toBe("include");
       return new Response(
@@ -102,9 +98,9 @@ describe("listCollaborators", () => {
 });
 
 describe("inviteCollaborator", () => {
-  it("POSTs to /api/datasets/:id/collaborators with the username body", async () => {
+  it("POSTs to /datasets/:id/invite with the username body", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/datasets/nm-xyz/collaborators");
+      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/invite");
       expect(init.method).toBe("POST");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
       expect(init.body).toBe(JSON.stringify({ username: "bob" }));
@@ -134,7 +130,7 @@ describe("inviteCollaborator", () => {
 
   it("encodes the dataset id and uses the body verbatim", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/datasets/nm%2Fweird/collaborators");
+      expect(url).toBe("https://api.nemar.org/datasets/nm%2Fweird/invite");
       expect(init.body).toBe(JSON.stringify({ username: "carol" }));
       return new Response(
         JSON.stringify({ message: "ok", dataset_id: "nm/weird", invitee: "carol" }),

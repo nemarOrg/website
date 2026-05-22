@@ -1,0 +1,213 @@
+---
+import Base from "../layouts/Base.astro";
+import { getSession } from "../lib/auth";
+
+const session = getSession(Astro.locals);
+// The welcome page is auth-gated: it's only meaningful for users who just
+// signed in. Anonymous visitors land on the home page.
+if (!session) {
+  return Astro.redirect("/login?next=%2Fwelcome");
+}
+const firstName = session.user.email.split("@")[0] ?? "researcher";
+---
+
+<Base title="Welcome to NEMAR" description="Get started with your NEMAR account.">
+  <section class="welcome">
+    <header class="welcome__hero">
+      <p class="welcome__eyebrow">Welcome to NEMAR</p>
+      <h1 class="welcome__title">Hi {firstName} &mdash; your account is ready.</h1>
+      <p class="welcome__lede">
+        Here&rsquo;s a quick orientation so you know what comes next. You can revisit any of this
+        in the <a href="/docs">docs</a> later.
+      </p>
+    </header>
+
+    <ol class="welcome__steps">
+      <li class="welcome__step">
+        <h2 class="welcome__step-title">1. Your account was created automatically</h2>
+        <p class="welcome__step-body">
+          When you verified your email, NEMAR created a researcher account for you. There&rsquo;s
+          no separate sign-up step. New visitors who type their email into the sign-in form
+          today and verify will land here tomorrow.
+        </p>
+        {session.user.status === "pending" && (
+          <p class="welcome__notice">
+            Your account is awaiting admin approval. You can browse and explore now; uploads and
+            publication requests unlock once you&rsquo;re approved.
+          </p>
+        )}
+      </li>
+
+      <li class="welcome__step">
+        <h2 class="welcome__step-title">2. Upload a BIDS folder when you&rsquo;re ready</h2>
+        <p class="welcome__step-body">
+          NEMAR datasets follow the
+          <a href="https://bids.neuroimaging.io" rel="external noopener">BIDS</a>
+          (Brain Imaging Data Structure) standard. Drop your folder on the upload page; we
+          run a quick pre-check, walk you through any fixes, and create the dataset entry
+          while your files transfer to S3 in the background.
+        </p>
+        <p>
+          <a class="welcome__inline-link" href="/docs/upload">Read the upload guide</a>
+        </p>
+      </li>
+
+      <li class="welcome__step">
+        <h2 class="welcome__step-title">3. Request publication review to get a DOI</h2>
+        <p class="welcome__step-body">
+          Datasets start private. When you&rsquo;re ready, click <strong>Request
+          publication</strong> on your dashboard. An admin reviews the BIDS validation, checks
+          the metadata, and either approves (which mints a DOI and makes the dataset public)
+          or sends a denial with feedback you can act on.
+        </p>
+        <p>
+          <a class="welcome__inline-link" href="/docs/publishing">How publication review works</a>
+        </p>
+      </li>
+
+      <li class="welcome__step">
+        <h2 class="welcome__step-title">4. The CLI is here for power users</h2>
+        <p class="welcome__step-body">
+          Everything you can do on the web also works on the
+          <a href="https://github.com/nemarOrg/nemar-cli" rel="external noopener">NEMAR CLI</a>.
+          Most researchers start (and stay) on the web. If you script publishes, run server-side
+          workflows, or want git-annex parallel uploads, the CLI is your friend.
+        </p>
+        <p>
+          <a class="welcome__inline-link" href="/docs/cli-vs-web">When to use the CLI vs the web</a>
+        </p>
+      </li>
+    </ol>
+
+    <div class="welcome__cta-row">
+      <a class="welcome__cta welcome__cta--primary" href="/dashboard" data-welcome-cta>
+        Go to my dashboard
+      </a>
+      <a class="welcome__cta welcome__cta--ghost" href="/upload" data-welcome-cta>
+        Upload my first dataset
+      </a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .welcome {
+    max-inline-size: 48rem;
+    margin: 0 auto;
+    padding: var(--space-12) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-8);
+  }
+  .welcome__hero {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .welcome__eyebrow {
+    color: var(--brand-teal);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    margin: 0;
+  }
+  .welcome__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-4xl);
+    margin: 0;
+    line-height: 1.15;
+  }
+  .welcome__lede {
+    color: var(--color-fg-muted);
+    margin: 0;
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+  }
+  .welcome__lede a {
+    color: var(--color-link);
+  }
+  .welcome__steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-5);
+  }
+  .welcome__step {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-6);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .welcome__step-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .welcome__step-body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .welcome__step a {
+    color: var(--color-link);
+  }
+  .welcome__inline-link {
+    font-size: var(--fs-sm);
+  }
+  .welcome__notice {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .welcome__cta-row {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .welcome__cta {
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+    font-size: var(--fs-base);
+  }
+  .welcome__cta--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+  }
+  .welcome__cta--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .welcome__cta--ghost {
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-fg);
+  }
+  .welcome__cta--ghost:hover {
+    background: var(--color-bg-subtle);
+  }
+</style>
+
+<script>
+  // Mark the welcome page as seen as soon as either CTA is clicked. We don't
+  // gate landing on the page itself; arriving directly via URL is allowed,
+  // and only the CTA click (or the first-verify redirect's localStorage
+  // check) controls whether future logins bypass this page.
+  document.querySelectorAll<HTMLAnchorElement>("[data-welcome-cta]").forEach((el) => {
+    el.addEventListener("click", () => {
+      try {
+        localStorage.setItem("nemar:welcomed", "yes");
+      } catch {
+        /* localStorage unavailable; user will see welcome again next sign-in. */
+      }
+    });
+  });
+</script>
