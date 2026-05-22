@@ -1,8 +1,9 @@
 /**
- * Admin API client: list pending publication requests across all owners and
- * approve or deny them. Point these calls at `api.nemar.org/admin/publish/*`
- * once nemar-cli#572 (cookie-aware auth on /admin) lands.
+ * Admin API client: list pending publication requests and approve or deny
+ * them. Targets the backend's `${apiBase}/admin/publish/*` endpoints; the
+ * session cookie travels via `credentials: "include"`.
  */
+import { apiBase } from "./api-base";
 import {
   DashboardApiError,
   type DatasetPublishState,
@@ -35,7 +36,7 @@ export async function listPublicationRequests(
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
   const qs = params.toString();
-  const url = `/api/admin/publication-requests${qs ? `?${qs}` : ""}`;
+  const url = `${apiBase()}/admin/publish/requests${qs ? `?${qs}` : ""}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
@@ -62,7 +63,7 @@ export async function approvePublicationRequest(
 ): Promise<{ status: PublicationStatus }> {
   const fetchImpl = init.fetch ?? fetch;
   const res = await fetchImpl(
-    `/api/admin/publication-requests/${encodeURIComponent(datasetId)}/approve`,
+    `${apiBase()}/admin/publish/${encodeURIComponent(datasetId)}/approve`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
@@ -92,16 +93,13 @@ export async function denyPublicationRequest(
     throw new DashboardApiError("Deny requires a non-empty reason", 0, "missing_field");
   }
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(
-    `/api/admin/publication-requests/${encodeURIComponent(datasetId)}/deny`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ reason: trimmed }),
-      signal: init.signal,
-    },
-  );
+  const res = await fetchImpl(`${apiBase()}/admin/publish/${encodeURIComponent(datasetId)}/deny`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ reason: trimmed }),
+    signal: init.signal,
+  });
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(

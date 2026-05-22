@@ -11,6 +11,7 @@ const errorMessage =
     : errorParam === "unknown"
       ? "Something went wrong. Try again."
       : null;
+const isDev = import.meta.env.DEV;
 ---
 
 <Base title="Sign in" description="Sign in to NEMAR. We email you a one-time code; no password required.">
@@ -20,6 +21,13 @@ const errorMessage =
       <p class="login-card__lede">
         We&rsquo;ll email you a one-time 6-digit code. No password required.
       </p>
+
+      {isDev && (
+        <p class="login-card__dev" role="note">
+          <strong>Dev mode:</strong> any valid email + code <code>123456</code> will sign you in.
+          Use <code>admin@nemar.admin</code> to land in an admin session.
+        </p>
+      )}
 
       {errorMessage && <p class="login-card__error" role="alert">{errorMessage}</p>}
 
@@ -166,6 +174,22 @@ const errorMessage =
     margin: 0;
     color: var(--color-danger);
     font-size: var(--fs-sm);
+  }
+  .login-card__dev {
+    margin: var(--space-3) 0 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--brand-teal);
+    background: color-mix(in srgb, var(--brand-teal) 8%, transparent);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+  }
+  .login-card__dev code {
+    font-family: var(--font-mono);
+    background: var(--color-bg);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
   }
 </style>
 

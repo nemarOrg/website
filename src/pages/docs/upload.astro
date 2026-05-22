@@ -33,7 +33,7 @@ import DocsLayout from "../../components/DocsLayout.astro";
   <h2>What we check at upload time</h2>
   <ul>
     <li><strong>BIDS validation.</strong> Server-side, against the current BIDS schema. Failures
-    block publication but not the upload itself &mdash; you can keep iterating.</li>
+    block publication but not the upload itself, you can keep iterating.</li>
     <li><strong>File size.</strong> Single files cap at 5&nbsp;GB. Multi-gigabyte datasets
     transfer fine; the cap is per-file, not per-dataset. (Multipart-upload UX for very large
     files is on the roadmap.)</li>
@@ -57,7 +57,7 @@ import DocsLayout from "../../components/DocsLayout.astro";
     <li><strong>A single file failed.</strong> Click the file in the progress list to retry.
     The presigned URLs are valid for 24 h.</li>
     <li><strong>BIDS validation failed after upload.</strong> Your dashboard card shows
-    <strong>Validation failed</strong>. Fix the issues locally and re-upload &mdash; the dataset
+    <strong>Validation failed</strong>. Fix the issues locally and re-upload, the dataset
     id stays the same.</li>
     <li><strong>Browser crashed mid-upload.</strong> Files already in S3 are kept; just refresh
     the page and re-drop the folder. The pre-check skips already-uploaded files.</li>

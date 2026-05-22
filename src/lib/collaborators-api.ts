@@ -49,11 +49,7 @@ export interface InviteResponse {
   readonly invitee: string;
 }
 
-/**
- * Invite a collaborator by NEMAR username. The backend's POST /datasets/:id/invite
- * accepts `{ username }` today; once `nemar-cli#578` ships, it also accepts
- * `{ email }` and the second arg here can be widened to a union.
- */
+/** Invite a collaborator by NEMAR username via POST /datasets/:id/invite. */
 export async function inviteCollaborator(
   datasetId: string,
   username: string,
@@ -80,12 +76,12 @@ export async function inviteCollaborator(
 
 /**
  * True when the caller is allowed to add/remove collaborators on this
- * dataset. Mirrors the owner-or-admin gate enforced on the real backend;
- * keep in sync when nemar-cli's collaborator write permission changes.
+ * dataset. Mirrors the owner-or-admin gate enforced on the real backend.
  *
- * Note: the username is derived from the email local part because the
- * mock's `code/verify.ts` builds usernames that way. Once nemar-cli#572
- * adds a real `username` field to the session payload, switch to it.
+ * The local-part-of-email derivation is a workaround until the backend
+ * session payload exposes a real `username` field (nemar-cli#572). Switch
+ * `session.user.email.split("@")[0]` to `session.user.username` once that
+ * field ships.
  */
 export function isCollaboratorManager(
   session: AuthSession | null,

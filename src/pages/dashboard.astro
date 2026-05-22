@@ -40,16 +40,19 @@ try {
         : "Could not load your datasets.";
 }
 
-// Fan-out publish-status lookups in parallel so a slow one doesn't serialize
-// the page. Backend can drop these into the list endpoint later; for now
-// it's an N+1 acknowledged in the listMyDatasets follow-up.
+// Fan-out publish-status lookups in parallel so a slow one doesn't
+// serialize the page. N+1 until the list endpoint includes publish status
+// inline; tracked upstream.
 const statuses: Record<string, PublicationStatus | null> = {};
+let statusFetchFailures = 0;
 await Promise.all(
   datasets.map(async (d) => {
     try {
       statuses[d.dataset_id] = await getPublishStatus(d.dataset_id, { cookieHeader });
-    } catch {
+    } catch (err) {
+      console.warn(`[dashboard] getPublishStatus failed for ${d.dataset_id}`, err);
       statuses[d.dataset_id] = null;
+      statusFetchFailures += 1;
     }
   }),
 );
@@ -83,6 +86,12 @@ const pendingNotice =
 
     {listError && (
       <p class="dashboard-error" role="alert">{listError}</p>
+    )}
+
+    {statusFetchFailures > 0 && (
+      <p class="dashboard-notice" role="status">
+        Publication status didn&rsquo;t load for {statusFetchFailures} dataset{statusFetchFailures === 1 ? "" : "s"}. Badges may be stale; refresh to retry.
+      </p>
     )}
 
     {!listError && datasets.length === 0 ? (

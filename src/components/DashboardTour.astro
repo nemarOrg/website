@@ -157,7 +157,7 @@
         try {
           localStorage.setItem(STORAGE_KEY, "yes");
         } catch {
-          /* ignore */
+          /* localStorage unavailable; the tour won't persist across sessions but the user already dismissed it. */
         }
         tour?.remove();
       }

@@ -39,8 +39,13 @@ try {
   collaborators = result.collaborators;
 } catch (err) {
   // 403 or 404 from the backend → render the surface as not-found (don't
-  // leak the existence of a collaborators page to outsiders).
+  // leak the existence of a collaborators page to outsiders). Log the
+  // actual status to the Worker tail so we can debug backend/frontend
+  // role drift later.
   if (err instanceof DashboardApiError && (err.status === 403 || err.status === 404)) {
+    console.warn(
+      `[collaborators] listCollaborators returned ${err.status} for ${datasetId}; redirecting to /404`,
+    );
     return Astro.redirect("/404");
   }
   loadError = err instanceof Error ? err.message : "Could not load this dataset's collaborators.";
@@ -81,7 +86,7 @@ const ownerUsername = dataset.owner_username ?? "";
 
     {canManage && (
       <p class="collab-footer-note">
-        Need to remove a collaborator? Contact <a href="mailto:nemar@sccn.ucsd.edu">nemar@sccn.ucsd.edu</a> for now &mdash;
+        Need to remove a collaborator? Contact <a href="mailto:nemar@sccn.ucsd.edu">nemar@sccn.ucsd.edu</a> for now, 
         owner-callable removal is filed as nemar-cli#577.
       </p>
     )}

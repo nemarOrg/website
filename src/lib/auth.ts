@@ -1,6 +1,6 @@
 /**
  * Auth types + pure helpers. The cookie lifecycle (issue, sign, verify) is
- * owned by the backend at `api.nemar.org`; the website only reads
+ * owned by the backend at `api.nemar.org`; the website reads
  * `${apiBase}/auth/me` to resolve the current user from a request's cookie.
  */
 

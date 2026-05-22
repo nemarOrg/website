@@ -4,7 +4,9 @@ import {
   type PublicationRequestStatus,
   type PublicationStatus,
   deleteDraftDataset,
+  deriveAdminBadgeState,
   derivePublishState,
+  getPublishStatus,
   isDeletable,
   isPublishRequestable,
   listMyDatasets,
@@ -317,6 +319,75 @@ describe("deleteDraftDataset", () => {
       status: 403,
       code: "not_deletable",
     });
+  });
+});
+
+describe("deriveAdminBadgeState", () => {
+  it("returns 'draft' for a null status (no publication-request row yet)", () => {
+    expect(deriveAdminBadgeState(null)).toBe("draft");
+  });
+  it("returns 'draft' for explicit 'none' status", () => {
+    expect(deriveAdminBadgeState(status("none"))).toBe("draft");
+  });
+  it("returns 'awaiting_review' for requested", () => {
+    expect(deriveAdminBadgeState(status("requested"))).toBe("awaiting_review");
+  });
+  it("returns 'awaiting_review' for approving", () => {
+    expect(deriveAdminBadgeState(status("approving"))).toBe("awaiting_review");
+  });
+  it("returns 'published' for published (distinct from derivePublishState's awaiting_review)", () => {
+    // This is the key reason the helper exists: admin surfaces don't have
+    // the Dataset row to short-circuit on visibility, so they need to map
+    // the orchestrator's terminal state directly.
+    expect(deriveAdminBadgeState(status("published"))).toBe("published");
+  });
+  it("returns 'denied' for denied", () => {
+    expect(deriveAdminBadgeState(status("denied"))).toBe("denied");
+  });
+  it("returns 'validation_failed' for blocked", () => {
+    expect(deriveAdminBadgeState(status("blocked"))).toBe("validation_failed");
+  });
+});
+
+describe("getPublishStatus", () => {
+  it("returns null on 404 (no publication-request row yet)", async () => {
+    const fakeFetch = vi.fn(
+      async () => new Response("not found", { status: 404 }),
+    ) as unknown as typeof fetch;
+    const out = await getPublishStatus("nm-xyz", { fetch: fakeFetch });
+    expect(out).toBeNull();
+  });
+
+  it("throws DashboardApiError on a 5xx", async () => {
+    const fakeFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "internal_error" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ) as unknown as typeof fetch;
+    await expect(getPublishStatus("nm-xyz", { fetch: fakeFetch })).rejects.toMatchObject({
+      name: "DashboardApiError",
+      status: 500,
+      code: "internal_error",
+    });
+  });
+
+  it("returns the status body on 200", async () => {
+    const fakeFetch = vi.fn(async (url: string) => {
+      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/publish/status");
+      return new Response(
+        JSON.stringify({
+          dataset_id: "nm-xyz",
+          status: "requested",
+          requested_at: "2026-05-22T00:00:00Z",
+          requested_by: "alice@example.com",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const out = await getPublishStatus("nm-xyz", { fetch: fakeFetch });
+    expect(out?.status).toBe("requested");
   });
 });
 

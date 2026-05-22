@@ -56,9 +56,7 @@ export type PublicationStatus =
     }
   | {
       // The backend always reaches `"published"` via `"approving"`, so
-      // `approval_started_at` and `published_at` are both required. The mock
-      // collapses the orchestrator into one step but still records both
-      // timestamps (they end up identical).
+      // `approval_started_at` and `published_at` are both required.
       readonly dataset_id: string;
       readonly status: "published";
       readonly requested_at: string;
@@ -154,6 +152,8 @@ export async function getPublishStatus(
     `${apiBase()}/datasets/${encodeURIComponent(datasetId)}/publish/status`,
     { method: "GET", headers, credentials: "include", signal: init.signal },
   );
+  // 404 here means "no publication-request row yet"; that's a valid domain
+  // default for fresh datasets and maps to the "draft" badge state.
   if (res.status === 404) return null;
   if (!res.ok) {
     const detail = await readError(res);
