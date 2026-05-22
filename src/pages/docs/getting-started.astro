@@ -13,19 +13,33 @@ import DocsLayout from "../../components/DocsLayout.astro";
     flow: signing in, getting an account, and uploading your first dataset.
   </p>
 
-  <h2>Signing in (and signing up)</h2>
+  <h2>Signing up (CLI for now)</h2>
   <p>
-    Sign-up is part of sign-in. The first time you enter your email on the
-    <a href="/login">login page</a>, NEMAR sends a 6-digit code; verifying it creates your account
-    automatically. There&rsquo;s no separate &ldquo;create account&rdquo; form. If you&rsquo;ve
-    used the
-    <a href="https://github.com/nemarOrg/nemar-cli" rel="external noopener">CLI</a>
-    before, your email is already known to NEMAR, just sign in with the same address.
+    Creating a NEMAR account asks for your email, an ORCID, a GitHub handle, and a
+    couple of consent confirmations. The CLI runs the full flow in about two
+    minutes:
+  </p>
+  <pre><code>{`bun install -g @nemar/cli
+nemar auth signup`}</code></pre>
+  <p>
+    The CLI opens a browser tab for ORCID authorization, collects the rest, and
+    submits your account for a short admin review (typically same-day). See
+    <a href="/signup">the sign-up page</a> for the field-by-field breakdown.
   </p>
   <p>
-    New accounts go through a brief admin review (typically same-day). You can browse and read
-    docs immediately; uploads and publication requests unlock once you&rsquo;re approved. The
-    dashboard tells you which state you&rsquo;re in.
+    A web sign-up flow is on the way. Until then, returning users sign in here
+    with their existing email; the web and CLI share the same backend account.
+  </p>
+
+  <h2>Signing in</h2>
+  <p>
+    Once your account is approved, sign in at the
+    <a href="/login">login page</a>: enter your email, NEMAR sends a 6-digit code,
+    and you land on your dashboard. No password.
+  </p>
+  <p>
+    Uploads and publication requests unlock when your account is in the
+    <code>active</code> state. The dashboard tells you which state you&rsquo;re in.
   </p>
 
   <h2>The dashboard at a glance</h2>

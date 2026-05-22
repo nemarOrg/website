@@ -79,8 +79,9 @@ const isDev = import.meta.env.DEV;
 
         <footer class="signin__foot">
           <p>
-            First time? An account is created automatically when you verify your code.
-            Existing CLI users keep their token; the web flow opens a separate session.
+            New to NEMAR? Sign-up requires ORCID and a GitHub handle, and currently
+            runs through the CLI. <a href="/signup">How to create an account</a>.
+            A web sign-up flow is on the way.
           </p>
         </footer>
       </article>
@@ -406,6 +407,9 @@ const isDev = import.meta.env.DEV;
     color: var(--color-fg-subtle);
     font-size: var(--fs-xs);
     line-height: var(--lh-normal);
+  }
+  .signin__foot a {
+    color: var(--color-link);
   }
 
   /* ---------- Signal column (right, desktop only) ---------- */
