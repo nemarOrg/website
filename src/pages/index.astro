@@ -1,6 +1,6 @@
 ---
-import Base from "../layouts/Base.astro";
 import StatTile from "../components/StatTile.astro";
+import Base from "../layouts/Base.astro";
 import { listDatasets } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
 
@@ -69,7 +69,7 @@ Astro.response.headers.set(
         </form>
         <div class="hero__ctas">
           <a class="hero__cta" href="/discover">Browse datasets</a>
-          <a class="hero__cta hero__cta--ghost" href="/contribute">
+          <a class="hero__cta hero__cta--ghost" href="/upload">
             Contribute your dataset
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M5 12h14M13 6l6 6-6 6"/>
