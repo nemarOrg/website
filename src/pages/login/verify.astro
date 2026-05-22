@@ -45,7 +45,6 @@ const masked = maskEmail(emailRaw);
             type="text"
             name="code"
             inputmode="numeric"
-            pattern="\d{6}"
             maxlength="6"
             autocomplete="one-time-code"
             required
@@ -188,9 +187,18 @@ const masked = maskEmail(emailRaw);
     const nextPath = form.dataset.next ?? "/";
     codeEl.focus();
 
+    // Autofill (iOS one-time-code), paste, and the field's letter-spacing
+    // can introduce real whitespace into the input value. Strip everything
+    // that isn't a digit so the user's typing intent always matches the
+    // submit-side `^\d{6}$` check.
+    codeEl.addEventListener("input", () => {
+      const cleaned = codeEl.value.replace(/\D/g, "").slice(0, 6);
+      if (cleaned !== codeEl.value) codeEl.value = cleaned;
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const code = codeEl.value.trim();
+      const code = codeEl.value.replace(/\D/g, "");
       if (!/^\d{6}$/.test(code)) {
         errorEl.textContent = "Enter the 6-digit code from your email.";
         errorEl.hidden = false;
