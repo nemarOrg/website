@@ -1,0 +1,193 @@
+---
+import { type PublicationRequest, isAdminActionable } from "../lib/admin-api";
+import { derivePublishState } from "../lib/dashboard-api";
+import { formatRelativeTime } from "../lib/format";
+import PublishStateBadge from "./PublishStateBadge.astro";
+
+interface Props {
+  request: PublicationRequest;
+}
+
+const { request } = Astro.props;
+// Use the same derivation the owner-side dashboard uses so the badge tone is
+// consistent across surfaces. The derived `published` state requires we pass
+// the would-be dataset shape: in this admin context we only have the request
+// row, but visibility is implicitly private until published, so passing an
+// empty dataset is safe.
+const state = derivePublishState({ visibility: "private", concept_doi: null }, request.status);
+const requestedAt = "requested_at" in request.status ? request.status.requested_at : null;
+const actionable = isAdminActionable(request);
+const denyReason = request.status.status === "denied" ? request.status.denied_reason : null;
+const blockReason = request.status.status === "blocked" ? request.status.block_reason : null;
+---
+
+<article class="pubreq-row" data-pubreq-row data-dataset-id={request.dataset_id}>
+  <div class="pubreq-row__primary">
+    <div class="pubreq-row__heading">
+      <span class="pubreq-row__id">{request.dataset_id}</span>
+      <h3 class="pubreq-row__name">{request.dataset_name}</h3>
+    </div>
+    <PublishStateBadge state={state} />
+  </div>
+
+  <dl class="pubreq-row__meta">
+    <div>
+      <dt>Requested by</dt>
+      <dd>{request.owner_email}</dd>
+    </div>
+    <div>
+      <dt>Requested</dt>
+      <dd>{requestedAt ? formatRelativeTime(requestedAt) || "—" : "—"}</dd>
+    </div>
+    <div>
+      <dt>Status</dt>
+      <dd>{request.status.status}</dd>
+    </div>
+  </dl>
+
+  {(denyReason || blockReason) && (
+    <p class="pubreq-row__reason" role="note">
+      <strong>Reason:</strong> {denyReason ?? blockReason}
+    </p>
+  )}
+
+  <footer class="pubreq-row__actions">
+    <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(request.dataset_id)}`}>
+      View dataset
+    </a>
+    {actionable && (
+      <button
+        type="button"
+        class="pubreq-row__btn pubreq-row__btn--danger-ghost"
+        data-pubreq-deny
+        data-dataset-id={request.dataset_id}
+      >
+        Deny
+      </button>
+    )}
+    {actionable && (
+      <button
+        type="button"
+        class="pubreq-row__btn pubreq-row__btn--primary"
+        data-pubreq-approve
+        data-dataset-id={request.dataset_id}
+      >
+        Approve and publish
+      </button>
+    )}
+  </footer>
+</article>
+
+<style>
+  .pubreq-row {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-4);
+  }
+  .pubreq-row__primary {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .pubreq-row__heading {
+    display: grid;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .pubreq-row__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .pubreq-row__name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+  }
+  .pubreq-row__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .pubreq-row__meta > div {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+  }
+  .pubreq-row__meta dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-block-end: 2px;
+  }
+  .pubreq-row__meta dd {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pubreq-row__reason {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .pubreq-row__reason strong {
+    color: var(--color-danger);
+  }
+  .pubreq-row__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    border-block-start: 1px solid var(--color-border);
+    padding-block-start: var(--space-3);
+  }
+  .pubreq-row__btn {
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .pubreq-row__btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .pubreq-row__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .pubreq-row__btn--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .pubreq-row__btn--danger-ghost {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  }
+  .pubreq-row__btn--danger-ghost:hover {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: var(--color-danger);
+  }
+</style>
