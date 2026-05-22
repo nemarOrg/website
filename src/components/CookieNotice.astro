@@ -34,6 +34,12 @@
     place-items: center;
     pointer-events: none;
   }
+  /* `.cookie-notice` is a class selector with higher specificity than the
+     default `[hidden] { display: none }` user-agent rule, so without this
+     override the JS-set `hidden` attribute would have no visual effect. */
+  .cookie-notice[hidden] {
+    display: none;
+  }
   .cookie-notice__inner {
     pointer-events: auto;
     inline-size: min(48rem, 100%);

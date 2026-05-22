@@ -1,73 +1,67 @@
 import type { APIRoute } from "astro";
+import { apiBase } from "../../../../lib/api-base";
+import { isValidEmail } from "../../../../lib/auth";
 import {
-  type AuthSession,
-  REMEMBER_TTL_SECONDS,
-  SHORT_SESSION_SECONDS,
-  getSessionSecret,
-  isValidEmail,
-  mockUserIdFromEmail,
-  setSessionCookie,
-} from "../../../../lib/auth";
+  DEV_ACCEPTED_CODE,
+  buildDevUser,
+  devSessionCookie,
+  signDevSession,
+} from "../../../../lib/auth-dev";
 
-// MOCK: removed in Phase 5 cutover (nemar-cli#569).
-// Accepts a fixed code; the real backend will validate against a stored hash.
-const MOCK_ACCEPTED_CODE = "123456";
+/**
+ * Same-origin proxy for the password-less code verification. In production
+ * this forwards to `${apiBase}/auth/code/verify`, then mirrors the backend's
+ * Set-Cookie so the browser drops the real session cookie. In `astro dev`
+ * the mock accepts demo code `123456` for any valid email and issues a
+ * locally-signed session cookie; the middleware's dev path verifies it.
+ */
+export const POST: APIRoute = async ({ request }) => {
+  if (import.meta.env.DEV) {
+    let body: { email?: unknown; code?: unknown };
+    try {
+      body = (await request.json()) as { email?: unknown; code?: unknown };
+    } catch {
+      return json({ ok: false, error: "invalid_json" }, 400);
+    }
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const code = typeof body.code === "string" ? body.code.trim() : "";
+    if (!isValidEmail(email)) return json({ ok: false, error: "invalid_email" }, 400);
+    if (!/^\d{6}$/.test(code)) return json({ ok: false, error: "invalid_code_format" }, 400);
+    if (code !== DEV_ACCEPTED_CODE) return json({ ok: false, error: "code_incorrect" }, 401);
 
-export const POST: APIRoute = async ({ request, cookies, locals }) => {
-  // The mock is dev-only. In production the deploy must proxy /api/auth/* to
-  // the real backend; reaching this handler means the proxy is misconfigured.
-  if (!import.meta.env.DEV) {
-    return json({ ok: false, error: "not_implemented" }, 501);
+    const user = buildDevUser(email);
+    const token = await signDevSession(user);
+    return new Response(JSON.stringify({ user }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Set-Cookie": devSessionCookie(token),
+      },
+    });
   }
 
-  let body: unknown;
+  // Production proxy: forward to the real backend, mirror its Set-Cookie.
+  const reqBody = await request.text();
+  let res: Response;
   try {
-    body = await request.json();
-  } catch {
-    return json({ ok: false, error: "invalid_json" }, 400);
-  }
-  const b = body as { email?: unknown; code?: unknown; remember?: unknown };
-  const email = typeof b.email === "string" ? b.email.trim().toLowerCase() : "";
-  const code = typeof b.code === "string" ? b.code.trim() : "";
-  const remember = b.remember === true;
-
-  if (!isValidEmail(email)) return json({ ok: false, error: "invalid_email" }, 400);
-  if (!/^\d{6}$/.test(code)) return json({ ok: false, error: "invalid_code_format" }, 400);
-  if (code !== MOCK_ACCEPTED_CODE) {
-    return json({ ok: false, error: "code_incorrect" }, 401);
-  }
-
-  const ttl = remember ? REMEMBER_TTL_SECONDS : SHORT_SESSION_SECONDS;
-  // Dev override: a NEMAR_DEV_ADMIN_EMAIL env var (or its default
-  // "admin@example.com") promotes the matching login to `role: "admin"` so
-  // the admin surfaces are exercisable in dev without touching the real
-  // role assignment flow. The check only runs in DEV.
-  const devAdminEmail = (import.meta.env.NEMAR_DEV_ADMIN_EMAIL ?? "admin@example.com")
-    .toString()
-    .trim()
-    .toLowerCase();
-  const role: "user" | "admin" = email === devAdminEmail ? "admin" : "user";
-  const session: AuthSession = {
-    user: {
-      id: await mockUserIdFromEmail(email),
-      email,
-      role,
-      status: "active",
-    },
-    exp: Math.floor(Date.now() / 1000) + ttl,
-    remember,
-  };
-
-  try {
-    await setSessionCookie(cookies, session, getSessionSecret(locals));
+    res = await fetch(`${apiBase()}/auth/code/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: reqBody,
+    });
   } catch (err) {
-    // SESSION_SECRET unset, crypto failure, or malformed key — return a
-    // structured 500 instead of letting Astro emit a raw worker error page.
-    console.error("[auth/verify] failed to issue session cookie", err);
-    return json({ ok: false, error: "internal_error" }, 500);
+    console.warn("[auth/code/verify proxy] backend fetch failed", err);
+    return json({ ok: false, error: "internal_error" }, 502);
   }
-
-  return json({ user: session.user }, 200);
+  const respBody = await res.text();
+  const headers = new Headers({
+    "Content-Type": res.headers.get("Content-Type") ?? "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  const setCookie = res.headers.get("set-cookie");
+  if (setCookie) headers.set("Set-Cookie", setCookie);
+  return new Response(respBody, { status: res.status, headers });
 };
 
 function json(payload: unknown, status: number): Response {

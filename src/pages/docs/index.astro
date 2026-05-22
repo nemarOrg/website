@@ -1,30 +1,88 @@
 ---
-import Base from "../../layouts/Base.astro";
+import DocsLayout from "../../components/DocsLayout.astro";
+
+const sections: { href: string; title: string; body: string }[] = [
+  {
+    href: "/docs/getting-started",
+    title: "Getting started",
+    body: "Sign in, create your first dataset, and find your way around the dashboard.",
+  },
+  {
+    href: "/docs/upload",
+    title: "Uploading a dataset",
+    body: "What a BIDS folder looks like, what the validator checks, and how uploads work.",
+  },
+  {
+    href: "/docs/managing-datasets",
+    title: "Managing your datasets",
+    body: "Status badges, draft cleanup, collaborators, and the dashboard tour in text form.",
+  },
+  {
+    href: "/docs/publishing",
+    title: "Publication review",
+    body: "What admin review looks at, the DOI minting process, and what to do if you're denied.",
+  },
+  {
+    href: "/docs/cli-vs-web",
+    title: "CLI vs the web",
+    body: "When to use each. The CLI is here for power users; most researchers can stay on the web.",
+  },
+];
 ---
 
-<Base title="Documentation">
-  <section class="container page">
-    <h1>Documentation</h1>
-    <p>
-      User and operator documentation will move into Astro Content Collections
-      in Phase 4. For now, the
-      <a href="https://docs.nemar.org">docs.nemar.org</a> site hosts the
-      developer documentation.
-    </p>
-  </section>
-</Base>
+<DocsLayout title="Documentation" description="Guides for using NEMAR.">
+  <p>
+    These guides cover the everyday flows: signing in, uploading a BIDS dataset, getting it
+    reviewed and published, and managing the people you collaborate with. New here? Start with
+    <a href="/docs/getting-started">Getting started</a>.
+  </p>
+
+  <ul class="docs-index">
+    {sections.map((s) => (
+      <li>
+        <a class="docs-index__link" href={s.href}>
+          <span class="docs-index__title">{s.title}</span>
+          <span class="docs-index__body">{s.body}</span>
+        </a>
+      </li>
+    ))}
+  </ul>
+
+  <p>
+    For API reference and operator-facing material, see
+    <a href="https://docs.nemar.org" rel="external noopener">docs.nemar.org</a>.
+  </p>
+</DocsLayout>
 
 <style>
-  .page {
-    padding-block: var(--space-12) var(--space-16);
-    max-inline-size: var(--max-width-prose);
+  .docs-index {
+    list-style: none;
+    margin: 0 0 var(--space-6);
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
   }
-  .page h1 {
-    font-size: var(--fs-3xl);
-    margin-block-end: var(--space-6);
+  .docs-index__link {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    text-decoration: none;
   }
-  .page p {
+  .docs-index__link:hover {
+    border-color: var(--color-border-strong);
+    background: color-mix(in srgb, var(--brand-teal) 6%, var(--color-bg-elevated));
+  }
+  .docs-index__title {
+    font-weight: var(--fw-semibold);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+  }
+  .docs-index__body {
     color: var(--color-fg-muted);
-    line-height: var(--lh-relaxed);
+    font-size: var(--fs-sm);
   }
 </style>

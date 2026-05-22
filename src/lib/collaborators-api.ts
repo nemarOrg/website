@@ -1,9 +1,8 @@
 /**
  * Collaborators API client: list per-dataset collaborators and invite a new
- * one by username. Point these calls at `api.nemar.org/datasets/:id/{collabora
- * tors,invite}` once nemar-cli#572 (cookie-aware auth) and #578 (invite by
- * email) land.
+ * one. Calls `api.nemar.org/datasets/:id/{collaborators,invite}` directly.
  */
+import { apiBase } from "./api-base";
 import type { AuthSession } from "./auth";
 import { DashboardApiError } from "./dashboard-api";
 import type { Dataset } from "./types";
@@ -29,12 +28,10 @@ export async function listCollaborators(
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
-  const res = await fetchImpl(`/api/datasets/${encodeURIComponent(datasetId)}/collaborators`, {
-    method: "GET",
-    headers,
-    credentials: "include",
-    signal: init.signal,
-  });
+  const res = await fetchImpl(
+    `${apiBase()}/datasets/${encodeURIComponent(datasetId)}/collaborators`,
+    { method: "GET", headers, credentials: "include", signal: init.signal },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
@@ -52,13 +49,14 @@ export interface InviteResponse {
   readonly invitee: string;
 }
 
+/** Invite a collaborator by NEMAR username via POST /datasets/:id/invite. */
 export async function inviteCollaborator(
   datasetId: string,
   username: string,
   init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<InviteResponse> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`/api/datasets/${encodeURIComponent(datasetId)}/collaborators`, {
+  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(datasetId)}/invite`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     credentials: "include",
@@ -78,12 +76,12 @@ export async function inviteCollaborator(
 
 /**
  * True when the caller is allowed to add/remove collaborators on this
- * dataset. Mirrors the owner-or-admin gate enforced on the real backend;
- * keep in sync when nemar-cli's collaborator write permission changes.
+ * dataset. Mirrors the owner-or-admin gate enforced on the real backend.
  *
- * Note: the username is derived from the email local part because the
- * mock's `code/verify.ts` builds usernames that way. Once nemar-cli#572
- * adds a real `username` field to the session payload, switch to it.
+ * The local-part-of-email derivation is a workaround until the backend
+ * session payload exposes a real `username` field (nemar-cli#572). Switch
+ * `session.user.email.split("@")[0]` to `session.user.username` once that
+ * field ships.
  */
 export function isCollaboratorManager(
   session: AuthSession | null,

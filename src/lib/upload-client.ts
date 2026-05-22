@@ -3,6 +3,7 @@
  * for presigned PUT URLs, uploads with XMLHttpRequest for upload-progress
  * events (fetch doesn't expose them), and finalizes the dataset.
  */
+import { apiBase } from "./api-base";
 import type { DroppedFileMeta } from "./bids-precheck";
 
 export interface DroppedFile extends DroppedFileMeta {
@@ -50,7 +51,7 @@ export async function createDraftDataset(input: {
   description?: string;
   files: { path: string; size: number }[];
 }): Promise<DraftDataset> {
-  const res = await fetch("/api/datasets/create", {
+  const res = await fetch(`${apiBase()}/datasets`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -74,7 +75,7 @@ export async function createDraftDataset(input: {
 }
 
 export async function finalizeDataset(id: string): Promise<{ ok: true; status?: string }> {
-  const res = await fetch(`/api/datasets/${encodeURIComponent(id)}/finalize`, {
+  const res = await fetch(`${apiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
     method: "POST",
     credentials: "include",
     headers: {

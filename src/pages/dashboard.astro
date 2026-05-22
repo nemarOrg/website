@@ -1,45 +1,61 @@
 ---
 import ConfirmDialog from "../components/ConfirmDialog.astro";
+import DashboardTour from "../components/DashboardTour.astro";
 import MyDatasetCard from "../components/MyDatasetCard.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
-import type { PublicationStatus } from "../lib/dashboard-api";
-import { getPublishStatus, listForOwner } from "./api/datasets/_store";
+import {
+  DashboardApiError,
+  type PublicationStatus,
+  getPublishStatus,
+  listMyDatasets,
+} from "../lib/dashboard-api";
+import type { Dataset } from "../lib/types";
 
 const session = getSession(Astro.locals);
 if (!session) {
   return Astro.redirect(`/login?next=${encodeURIComponent("/dashboard")}`);
 }
 
-// Same-origin SSR shortcut: bypass the network and read the in-memory store
-// directly because the SSR context already has the authenticated email.
-// Replace with api.nemar.org/datasets?mine=true once nemar-cli#572 lands.
 const url = new URL(Astro.request.url);
 const limit = 50;
 const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
 
-let datasets: Awaited<ReturnType<typeof listForOwner>>["datasets"] = [];
+// SSR: forward the request's cookie so the backend resolves the session.
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+
+let datasets: Dataset[] = [];
 let total = 0;
 let listError: string | null = null;
-// NOTE: the in-memory store cannot throw, so this try/catch is scaffolding
-// for the post-cutover path. When this becomes an HTTP call (nemar-cli#572),
-// the catch will need timeout + abort signal handling; do not assume this
-// alone covers network failure modes.
 try {
-  const result = listForOwner(session.user.email, { limit, offset });
+  const result = await listMyDatasets({ limit, offset }, { cookieHeader });
   datasets = result.datasets;
-  total = result.total;
+  total = result.total_count;
 } catch (err) {
-  listError = err instanceof Error ? err.message : "Could not load your datasets.";
+  listError =
+    err instanceof DashboardApiError
+      ? `Could not load your datasets (${err.status}). Try refreshing.`
+      : err instanceof Error
+        ? err.message
+        : "Could not load your datasets.";
 }
 
-// Per-dataset publish status drives the badge + actions. In-memory lookup
-// today; will become a batched fan-out fetch when this routes through
-// api.nemar.org.
+// Fan-out publish-status lookups in parallel so a slow one doesn't
+// serialize the page. N+1 until the list endpoint includes publish status
+// inline; tracked upstream.
 const statuses: Record<string, PublicationStatus | null> = {};
-for (const d of datasets) {
-  statuses[d.dataset_id] = getPublishStatus(session.user.email, d.dataset_id) ?? null;
-}
+let statusFetchFailures = 0;
+await Promise.all(
+  datasets.map(async (d) => {
+    try {
+      statuses[d.dataset_id] = await getPublishStatus(d.dataset_id, { cookieHeader });
+    } catch (err) {
+      console.warn(`[dashboard] getPublishStatus failed for ${d.dataset_id}`, err);
+      statuses[d.dataset_id] = null;
+      statusFetchFailures += 1;
+    }
+  }),
+);
 
 const pendingNotice =
   session.user.status === "pending"
@@ -61,7 +77,7 @@ const pendingNotice =
             : `${total} dataset${total === 1 ? "" : "s"} owned by you.`}
         </p>
       </div>
-      <a class="dashboard-header__cta" href="/upload">Upload dataset</a>
+      <a class="dashboard-header__cta" href="/upload" data-tour-target="upload">Upload dataset</a>
     </header>
 
     {pendingNotice && (
@@ -70,6 +86,12 @@ const pendingNotice =
 
     {listError && (
       <p class="dashboard-error" role="alert">{listError}</p>
+    )}
+
+    {statusFetchFailures > 0 && (
+      <p class="dashboard-notice" role="status">
+        Publication status didn&rsquo;t load for {statusFetchFailures} dataset{statusFetchFailures === 1 ? "" : "s"}. Badges may be stale; refresh to retry.
+      </p>
     )}
 
     {!listError && datasets.length === 0 ? (
@@ -82,9 +104,14 @@ const pendingNotice =
       </div>
     ) : (
       <ul class="dashboard-list" role="list">
-        {datasets.map((d) => (
+        {datasets.map((d: Dataset, i: number) => (
           <li>
-            <MyDatasetCard dataset={d} publishStatus={statuses[d.dataset_id]} canManage={true} />
+            <MyDatasetCard
+              dataset={d}
+              publishStatus={statuses[d.dataset_id]}
+              canManage={true}
+              {...(i === 0 ? { "data-tour-target": "first-card" } : {})}
+            />
           </li>
         ))}
       </ul>
@@ -109,6 +136,8 @@ const pendingNotice =
     confirmTone="danger"
     requireTyping="DELETE"
   />
+
+  {datasets.length > 0 && <DashboardTour />}
 </Base>
 
 <style>
@@ -226,8 +255,6 @@ const pendingNotice =
 
   const errorEl = document.querySelector<HTMLElement>("[data-dashboard-action-error]");
 
-  // User-facing fallback messages for known mock error codes. Without this
-  // map a raw "already_in_flight" would surface verbatim in the UI.
   const ERROR_MESSAGES: Record<string, string> = {
     already_in_flight: "A review request is already in progress for this dataset.",
     already_published: "This dataset is already published.",
@@ -260,8 +287,6 @@ const pendingNotice =
     | { kind: "request"; datasetId: string }
     | { kind: "delete"; datasetId: string; datasetName: string }
     | null = null;
-  // Single guard prevents the user from clicking another card's Delete or
-  // Request button while a previous action's network call is still in flight.
   let actionInFlight = false;
 
   function openDialog(dialogId: string): void {
@@ -304,9 +329,6 @@ const pendingNotice =
     const e = evt as CustomEvent<{ dialogId: string }>;
     if (!pending) return;
 
-    // Only consume `pending` after the dialog id is matched to its action.
-    // An unmatched event indicates a programming error elsewhere; surface it
-    // rather than silently dropping the user's confirmed action.
     if (e.detail.dialogId === "dashboard-request-publication" && pending.kind === "request") {
       const target = pending;
       pending = null;

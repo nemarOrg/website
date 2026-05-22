@@ -63,9 +63,9 @@ describe("isAdminActionable", () => {
 });
 
 describe("listPublicationRequests", () => {
-  it("hits /api/admin/publication-requests with no query when filter is empty", async () => {
+  it("hits /admin/publish/requests with no query when filter is empty", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/admin/publication-requests");
+      expect(url).toBe("https://api.nemar.org/admin/publish/requests");
       expect(init.credentials).toBe("include");
       return new Response(JSON.stringify({ requests: [], count: 0 }), {
         status: 200,
@@ -78,7 +78,7 @@ describe("listPublicationRequests", () => {
 
   it("appends ?status= when provided", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
-      expect(url).toBe("/api/admin/publication-requests?status=requested");
+      expect(url).toBe("https://api.nemar.org/admin/publish/requests?status=requested");
       return new Response(JSON.stringify({ requests: [], count: 0 }), { status: 200 });
     }) as unknown as typeof fetch;
     await listPublicationRequests({ status: "requested" }, { fetch: fakeFetch });
@@ -102,9 +102,9 @@ describe("listPublicationRequests", () => {
 });
 
 describe("approvePublicationRequest", () => {
-  it("POSTs to /api/admin/publication-requests/:id/approve", async () => {
+  it("POSTs to /admin/publish/:id/approve", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/admin/publication-requests/nm-xyz/approve");
+      expect(url).toBe("https://api.nemar.org/admin/publish/nm-xyz/approve");
       expect(init.method).toBe("POST");
       expect(init.credentials).toBe("include");
       return new Response(
@@ -126,9 +126,9 @@ describe("approvePublicationRequest", () => {
 });
 
 describe("denyPublicationRequest", () => {
-  it("POSTs to /api/admin/publication-requests/:id/deny with the reason body", async () => {
+  it("POSTs to /admin/publish/:id/deny with the reason body", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/admin/publication-requests/nm-xyz/deny");
+      expect(url).toBe("https://api.nemar.org/admin/publish/nm-xyz/deny");
       expect(init.body).toBe(JSON.stringify({ reason: "BIDS validation failing" }));
       return new Response(
         JSON.stringify({

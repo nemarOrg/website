@@ -1,0 +1,69 @@
+---
+import DocsLayout from "../../components/DocsLayout.astro";
+---
+
+<DocsLayout
+  title="Docs - CLI vs the web"
+  description="When to use each. The CLI is here for power users; most researchers can stay on the web."
+  active="cli-vs-web"
+>
+  <p>
+    NEMAR has two surfaces: the web app you&rsquo;re reading right now, and the
+    <a href="https://docs.nemar.org" rel="external noopener">CLI</a>. They share
+    the same backend, the same accounts, and the same datasets. The difference is workflow
+    style, not capability.
+  </p>
+
+  <h2>What the web is best for</h2>
+  <ul>
+    <li><strong>Signing up.</strong> The web is the only place to create an account today;
+    the CLI authenticates against an existing account.</li>
+    <li><strong>Browsing and exploring.</strong> <a href="/discover">Discover</a>, dataset
+    detail pages, READMEs, and the citation dashboard live here.</li>
+    <li><strong>One-off uploads.</strong> Drop a folder, walk through validation, request
+    publication. No tooling to install.</li>
+    <li><strong>Collaborator management.</strong> Inviting and (eventually) removing
+    collaborators happens on the dataset&rsquo;s collaborators page.</li>
+    <li><strong>Admin review.</strong> The admin queue at
+    <code>/admin/publication-requests</code> is web-only.</li>
+  </ul>
+
+  <h2>What the CLI is best for</h2>
+  <ul>
+    <li><strong>Scripted publishes.</strong> CI pipelines that publish a dataset version when
+    a tag is pushed.</li>
+    <li><strong>Parallel uploads.</strong> The CLI uses git-annex parallel transfers for very
+    large datasets that would be tedious to drop in a browser.</li>
+    <li><strong>Server-side workflows.</strong> Running on a compute node or a shared lab
+    server where the web UI isn&rsquo;t convenient.</li>
+    <li><strong>Diffing and version checks.</strong> The CLI exposes tooling for inspecting
+    dataset state, comparing local vs remote, and so on.</li>
+    <li><strong>Bulk operations.</strong> If you&rsquo;re managing 20+ datasets, the CLI&rsquo;s
+    JSON output integrates with shell scripts.</li>
+  </ul>
+
+  <h2>You don&rsquo;t have to pick one</h2>
+  <p>
+    Most researchers use the web for sign-in, discovery, and publication-review interactions,
+    and reach for the CLI when they need to script something. They&rsquo;re the same account,
+    the same datasets, the same permissions. Switching back and forth is fine.
+  </p>
+
+  <h2>Installing the CLI</h2>
+  <p>
+    The full install guide lives at
+    <a href="https://docs.nemar.org" rel="external noopener">docs.nemar.org</a>.
+    Quick start (Bun-based; works on macOS and Linux):
+  </p>
+  <pre><code>{`bunx nemar-cli auth login    # opens a browser to sign in
+bunx nemar-cli datasets list # shows your datasets
+bunx nemar-cli upload <path> # uploads a BIDS folder`}</code></pre>
+
+  <h2>Permissions and accounts</h2>
+  <p>
+    The CLI and the web share session state via the same backend. Signing in on the CLI
+    issues a long-lived API token tied to your account; signing in on the web issues a
+    cookie-backed session. Both honor the same admin role, the same dataset ownership, and
+    the same collaborator permissions.
+  </p>
+</DocsLayout>

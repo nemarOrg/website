@@ -2,9 +2,15 @@
 import CollaboratorList from "../../../components/CollaboratorList.astro";
 import InviteCollaboratorForm from "../../../components/InviteCollaboratorForm.astro";
 import Base from "../../../layouts/Base.astro";
+import { getDataset } from "../../../lib/api";
 import { getSession } from "../../../lib/auth";
-import { isCollaboratorManager } from "../../../lib/collaborators-api";
-import { findDatasetAnyOwner, listCollaboratorsForDataset } from "../../api/datasets/_store";
+import {
+  type Collaborator,
+  isCollaboratorManager,
+  listCollaborators,
+} from "../../../lib/collaborators-api";
+import { DashboardApiError } from "../../../lib/dashboard-api";
+import type { Dataset } from "../../../lib/types";
 
 const session = getSession(Astro.locals);
 const datasetId = (Astro.params.id ?? "").trim();
@@ -13,26 +19,40 @@ if (!session) {
   return Astro.redirect(`/login?next=${encodeURIComponent(`/dataset/${datasetId}/collaborators`)}`);
 }
 
-const found = datasetId ? findDatasetAnyOwner(datasetId) : undefined;
-// 404 (not 403) when the caller is not an owner / admin / current
-// collaborator: don't leak the surface's existence to outsiders.
-if (!found) {
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+
+let dataset: Dataset | null = null;
+let collaborators: readonly Collaborator[] = [];
+let loadError: string | null = null;
+try {
+  // getDataset reads the public catalog; the dataset has to exist to land here.
+  dataset = await getDataset(datasetId);
+} catch {
   return Astro.redirect("/404");
 }
-const { dataset, ownerEmail } = found;
-
-const callerUsername = session.user.email.split("@")[0] ?? "";
-const collaborators = listCollaboratorsForDataset(ownerEmail, datasetId);
-const isOwner = ownerEmail.trim().toLowerCase() === session.user.email.trim().toLowerCase();
-const isAdmin = session.user.role === "admin";
-const isCurrentCollaborator = collaborators.some((c) => c.username === callerUsername);
-
-if (!isOwner && !isAdmin && !isCurrentCollaborator) {
+if (!dataset) {
   return Astro.redirect("/404");
+}
+
+try {
+  const result = await listCollaborators(datasetId, { cookieHeader });
+  collaborators = result.collaborators;
+} catch (err) {
+  // 403 or 404 from the backend → render the surface as not-found (don't
+  // leak the existence of a collaborators page to outsiders). Log the
+  // actual status to the Worker tail so we can debug backend/frontend
+  // role drift later.
+  if (err instanceof DashboardApiError && (err.status === 403 || err.status === 404)) {
+    console.warn(
+      `[collaborators] listCollaborators returned ${err.status} for ${datasetId}; redirecting to /404`,
+    );
+    return Astro.redirect("/404");
+  }
+  loadError = err instanceof Error ? err.message : "Could not load this dataset's collaborators.";
 }
 
 const canManage = isCollaboratorManager(session, dataset);
-const ownerUsername = dataset.owner_username ?? ownerEmail.split("@")[0] ?? "";
+const ownerUsername = dataset.owner_username ?? "";
 ---
 
 <Base
@@ -45,22 +65,29 @@ const ownerUsername = dataset.owner_username ?? ownerEmail.split("@")[0] ?? "";
       <div>
         <span class="collab-header__id">{dataset.dataset_id}</span>
         <h1 class="collab-header__title">{dataset.name}</h1>
-        <p class="collab-header__lede">Manage the people who can push to this dataset's repository.</p>
+        <p class="collab-header__lede">
+          Manage the people who can push to this dataset&rsquo;s repository.
+        </p>
       </div>
     </header>
+
+    {loadError && <p class="collab-error" role="alert">{loadError}</p>}
 
     {canManage ? (
       <InviteCollaboratorForm datasetId={datasetId} />
     ) : (
-      <p class="collab-notice" role="status">You can see the list because you collaborate on this dataset, but only the owner or an admin can invite or remove people.</p>
+      <p class="collab-notice" role="status">
+        You can see the list because you collaborate on this dataset, but only the owner or an admin
+        can invite or remove people.
+      </p>
     )}
 
     <CollaboratorList collaborators={collaborators} ownerUsername={ownerUsername} />
 
     {canManage && (
       <p class="collab-footer-note">
-        Need to remove a collaborator? Contact <a href="mailto:nemar@sccn.ucsd.edu">nemar@sccn.ucsd.edu</a>
-        for now &mdash; owner-callable removal is filed as nemar-cli#577.
+        Need to remove a collaborator? Contact <a href="mailto:nemar@sccn.ucsd.edu">nemar@sccn.ucsd.edu</a> for now, 
+        owner-callable removal is filed as nemar-cli#577.
       </p>
     )}
   </section>
@@ -105,6 +132,15 @@ const ownerUsername = dataset.owner_username ?? ownerEmail.split("@")[0] ?? "";
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border);
     color: var(--color-fg-muted);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .collab-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
     border-radius: var(--radius-md);
     padding: var(--space-3) var(--space-4);
     font-size: var(--fs-sm);

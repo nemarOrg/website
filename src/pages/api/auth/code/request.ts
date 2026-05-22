@@ -1,39 +1,56 @@
 import type { APIRoute } from "astro";
-import { isValidEmail, maskEmail } from "../../../../lib/auth";
+import { apiBase } from "../../../../lib/api-base";
+import { isValidEmail } from "../../../../lib/auth";
 
-// MOCK: removed in Phase 5 cutover (nemar-cli#569).
-// Single source of truth for the dev mock code.
-const MOCK_CODE = "123456";
-
+/**
+ * Same-origin proxy for the password-less code request. In production this
+ * forwards verbatim to `${apiBase}/auth/code/request`. In `astro dev` the
+ * mock short-circuits: any valid email gets an "ok" response, the demo
+ * code `123456` is printed to the terminal so the developer can paste it
+ * into the verify form.
+ */
 export const POST: APIRoute = async ({ request }) => {
-  // The mock is dev-only. In production the deploy must proxy /api/auth/* to
-  // the real backend; reaching this handler means the proxy is misconfigured.
-  if (!import.meta.env.DEV) {
-    return json({ ok: false, error: "not_implemented" }, 501);
+  const accept = request.headers.get("Accept") ?? "";
+  if (import.meta.env.DEV) {
+    let body: { email?: unknown };
+    try {
+      body = (await request.json()) as { email?: unknown };
+    } catch {
+      return json({ ok: false, error: "invalid_json" }, 400, accept);
+    }
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (!isValidEmail(email)) {
+      return json({ ok: false, error: "invalid_email" }, 400, accept);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[dev-auth] code request for ${email} — use code 123456 on /login/verify`);
+    return json({ ok: true }, 200, accept);
   }
 
-  let body: unknown;
+  // Production proxy: forward to the real backend.
+  const body = await request.text();
+  let res: Response;
   try {
-    body = await request.json();
-  } catch {
-    return json({ ok: false, error: "invalid_json" }, 400);
+    res = await fetch(`${apiBase()}/auth/code/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body,
+    });
+  } catch (err) {
+    console.warn("[auth/code/request proxy] backend fetch failed", err);
+    return json({ ok: false, error: "internal_error" }, 502, accept);
   }
-
-  const email =
-    typeof (body as { email?: unknown })?.email === "string"
-      ? (body as { email: string }).email.trim().toLowerCase()
-      : "";
-
-  if (!isValidEmail(email)) {
-    return json({ ok: false, error: "invalid_email" }, 400);
-  }
-
-  console.info(`[auth/mock] code for ${email}: ${MOCK_CODE}`);
-
-  return json({ ok: true, masked_email: maskEmail(email) }, 200);
+  const respBody = await res.text();
+  return new Response(respBody, {
+    status: res.status,
+    headers: {
+      "Content-Type": res.headers.get("Content-Type") ?? "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 };
 
-function json(payload: unknown, status: number): Response {
+function json(payload: unknown, status: number, _accept: string): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
