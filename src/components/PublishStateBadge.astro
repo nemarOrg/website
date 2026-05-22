@@ -1,0 +1,56 @@
+---
+import type { DatasetPublishState } from "../lib/dashboard-api";
+
+interface Props {
+  state: DatasetPublishState;
+}
+
+const { state } = Astro.props;
+
+const LABELS: Record<DatasetPublishState, string> = {
+  draft: "Draft",
+  awaiting_review: "Awaiting review",
+  published: "Published",
+  validation_failed: "Validation failed",
+};
+const label = LABELS[state];
+---
+
+<span class:list={["publish-state-badge", `publish-state-badge--${state}`]}>
+  {label}
+</span>
+
+<style>
+  .publish-state-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    font-weight: var(--fw-medium);
+  }
+  .publish-state-badge--draft {
+    color: var(--color-fg-muted);
+    background: var(--color-bg-subtle);
+    border-color: var(--color-border);
+  }
+  .publish-state-badge--awaiting_review {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  .publish-state-badge--published {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  }
+  .publish-state-badge--validation_failed {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  }
+</style>
