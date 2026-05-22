@@ -31,7 +31,11 @@ export const POST: APIRoute = async ({ params, request, locals }) => {
     );
   }
   const status = getPublishStatus(session.user.email, id);
-  if (status?.status === "requested" || status?.status === "approved") {
+  if (
+    status?.status === "requested" ||
+    status?.status === "approving" ||
+    status?.status === "published"
+  ) {
     return json(
       {
         ok: false,
