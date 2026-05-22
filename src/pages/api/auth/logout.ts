@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { apiBase } from "../../../lib/api-base";
+import { apiBase, copySetCookies } from "../../../lib/api-base";
 import { SESSION_COOKIE_NAME } from "../../../lib/auth";
 import { devClearSessionCookie } from "../../../lib/auth-dev";
 
@@ -15,30 +15,12 @@ import { devClearSessionCookie } from "../../../lib/auth-dev";
  * Defensive clear: if the backend doesn't issue a Set-Cookie (unreachable,
  * synthesized 502), we still clear the cookie locally so the browser
  * doesn't keep a stale session that the backend will reject on every
- * subsequent request.
+ * subsequent request. `Secure` is set unconditionally because the Workers
+ * runtime serves over HTTPS in production; `Domain` is intentionally
+ * omitted (the backend's host-only cookie clears with a host-only delete,
+ * and we don't know the backend's chosen domain scope from here).
  */
-
-/** Belt-and-braces cookie clear when the backend doesn't supply one. */
-const DEFENSIVE_CLEAR_COOKIE = `${SESSION_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax`;
-
-/**
- * Append every Set-Cookie value from `src` onto `dest`. Cloudflare Workers'
- * Fetch implementation exposes `Headers.getSetCookie()`; we fall back to
- * `.get("set-cookie")` for runtimes that don't (the comma-joined form is
- * lossy for cookies with `Expires=...` but acceptable as a last resort).
- */
-function copySetCookies(src: Response, dest: Headers): boolean {
-  const getter = (src.headers as Headers & { getSetCookie?: () => string[] }).getSetCookie;
-  if (typeof getter === "function") {
-    const values = getter.call(src.headers);
-    for (const v of values) dest.append("Set-Cookie", v);
-    return values.length > 0;
-  }
-  const single = src.headers.get("set-cookie");
-  if (!single) return false;
-  dest.append("Set-Cookie", single);
-  return true;
-}
+const DEFENSIVE_CLEAR_COOKIE = `${SESSION_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax; Secure`;
 
 export const POST: APIRoute = async ({ request }) => {
   const accept = request.headers.get("Accept") ?? "";
@@ -74,8 +56,6 @@ export const POST: APIRoute = async ({ request }) => {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
-      // Body `{}` required; some backends reject a missing or non-JSON
-      // content-type body even when no payload is needed.
       body: "{}",
     });
   } catch (err) {

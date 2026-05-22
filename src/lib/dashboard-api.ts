@@ -3,7 +3,7 @@
  * draft. Calls `api.nemar.org` directly; the session cookie travels via
  * `credentials: "include"`.
  */
-import { apiBase } from "./api-base";
+import { apiBase, readError } from "./api-base";
 import type { Dataset, DatasetListResponse } from "./types";
 
 /**
@@ -285,18 +285,4 @@ export function isPublishRequestable(
   // owner to re-request after addressing the feedback.
   if (publishStatus?.status === "blocked") return false;
   return true;
-}
-
-async function readError(res: Response): Promise<{ message?: string; code?: string }> {
-  try {
-    const body = (await res.json()) as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") return {};
-    const code = typeof body.error === "string" ? body.error : undefined;
-    const message =
-      typeof body.message === "string" && body.message.length > 0 ? body.message : undefined;
-    return { message, code };
-  } catch (err) {
-    if (err instanceof SyntaxError) return {};
-    throw err;
-  }
 }

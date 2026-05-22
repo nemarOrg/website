@@ -156,7 +156,7 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   };
 }
 
-function isPublicCacheable(response: Response): boolean {
+export function isPublicCacheable(response: Response): boolean {
   const cc = response.headers.get("Cache-Control");
   if (!cc) return false;
   const lower = cc.toLowerCase();

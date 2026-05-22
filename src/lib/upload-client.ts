@@ -51,12 +51,22 @@ export async function createDraftDataset(input: {
   description?: string;
   files: { path: string; size: number }[];
 }): Promise<DraftDataset> {
-  const res = await fetch(`${apiBase()}/datasets`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(input),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/datasets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(input),
+    });
+  } catch (err) {
+    // Naked `fetch` throws on network failure (offline, DNS, CORS). Wrap so
+    // the upload page surfaces a contextual error rather than "Failed to fetch".
+    throw new UploadError(
+      `Could not reach the server while creating your dataset. Check your connection and try again. (${err instanceof Error ? err.message : "unknown"})`,
+      0,
+    );
+  }
   if (!res.ok) {
     const detail = await safeJson(res);
     throw new UploadError(
@@ -75,14 +85,24 @@ export async function createDraftDataset(input: {
 }
 
 export async function finalizeDataset(id: string): Promise<{ ok: true; status?: string }> {
-  const res = await fetch(`${apiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (err) {
+    // Finalize failure after files uploaded is the worst case: the user has
+    // an orphaned draft they can't see. Make the message actionable.
+    throw new UploadError(
+      `Files uploaded but finalizing failed. Open your dashboard to check the draft status. (${err instanceof Error ? err.message : "unknown"})`,
+      0,
+    );
+  }
   if (!res.ok) {
     const detail = await safeJson(res);
     throw new UploadError(

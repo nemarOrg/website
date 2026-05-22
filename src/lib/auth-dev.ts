@@ -3,12 +3,11 @@
  * `import.meta.env.DEV`. The signing key is hardcoded (insecure by design);
  * production never reads this file's exports.
  *
- * Why it exists: after the Phase 5 cutover, login goes to api.nemar.org and
- * the session cookie is issued by the backend. Local dev against the real
- * backend works fine if you have an account; without one, you can't sign in
- * and can't exercise the dashboard / upload / admin surfaces. This module
- * lets the dev login route accept a demo code, issue a locally-signed
- * cookie, and the middleware to verify it without a network hop.
+ * Why it exists: production login goes to api.nemar.org and the backend
+ * issues the session cookie. A developer without a NEMAR account can't
+ * exercise the dashboard / upload / admin surfaces locally. This module
+ * lets the dev login route accept a demo code and issue a locally-signed
+ * cookie; the middleware verifies it without a network hop.
  */
 
 import type { AuthSession, AuthUser } from "./auth";

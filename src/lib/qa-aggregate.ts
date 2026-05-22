@@ -40,7 +40,6 @@ interface PerFileDataqual {
  * pipelineStatus classification is a heuristic over field presence: hallu
  * doesn't emit an explicit stage flag, so a future shape change that drops
  * goodDataPercentRaw on a finished file would silently land in `other`.
- * Worth a re-think when hallu#511 follow-ups expose explicit state.
  */
 export async function buildQaAggregates(
   id: string,

@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+import { buildDevUser, signDevSession, verifyDevSession } from "./auth-dev";
+
+describe("buildDevUser", () => {
+  it("returns role=user for a normal email", () => {
+    const u = buildDevUser("alice@example.com");
+    expect(u.role).toBe("user");
+    expect(u.email).toBe("alice@example.com");
+    expect(u.status).toBe("active");
+  });
+
+  it("promotes @nemar.admin emails to role=admin", () => {
+    const u = buildDevUser("anyone@nemar.admin");
+    expect(u.role).toBe("admin");
+  });
+
+  it("derives a stable id from the lowercased email", () => {
+    const a = buildDevUser("Alice@Example.com");
+    const b = buildDevUser("alice@example.com");
+    expect(a.id).toBe(b.id);
+    expect(a.id).toBe("dev-alice_example_com");
+  });
+
+  it("lowercases the email regardless of input case", () => {
+    expect(buildDevUser("Boss@NEMAR.ADMIN").email).toBe("boss@nemar.admin");
+    expect(buildDevUser("Boss@NEMAR.ADMIN").role).toBe("admin");
+  });
+});
+
+describe("signDevSession + verifyDevSession round-trip", () => {
+  it("verifies a freshly-signed token back to the original user", async () => {
+    const user = buildDevUser("alice@example.com");
+    const token = await signDevSession(user);
+    const out = await verifyDevSession(token);
+    expect(out).not.toBeNull();
+    expect(out?.user).toEqual(user);
+  });
+
+  it("returns null for a token with a tampered signature", async () => {
+    const user = buildDevUser("alice@example.com");
+    const token = await signDevSession(user);
+    // Flip the first character of the signature so the HMAC fails.
+    const [payload, sig] = token.split(".");
+    const tamperChar = sig[0] === "A" ? "B" : "A";
+    const tampered = `${payload}.${tamperChar}${sig.slice(1)}`;
+    expect(await verifyDevSession(tampered)).toBeNull();
+  });
+
+  it("returns null for a token missing the dot separator", async () => {
+    expect(await verifyDevSession("notatoken")).toBeNull();
+    expect(await verifyDevSession("")).toBeNull();
+  });
+
+  it("returns null for a token with three segments (more than expected)", async () => {
+    expect(await verifyDevSession("a.b.c")).toBeNull();
+  });
+
+  it("returns null for a token with garbage in the payload", async () => {
+    // Sign a real token first, then replace the payload with invalid base64url.
+    const token = await signDevSession(buildDevUser("alice@example.com"));
+    const sig = token.split(".")[1];
+    expect(await verifyDevSession(`!!!notbase64.${sig}`)).toBeNull();
+  });
+});

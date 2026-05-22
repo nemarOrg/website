@@ -53,9 +53,9 @@ export interface BidsScanResult {
   readonly warnings: readonly BidsScanWarning[];
 }
 
-// 5 GB: S3 single-PUT maximum. Multipart required above this; see nemar-cli#573.
+// 5 GB: S3 single-PUT maximum. Multipart required above this (nemar-cli#573).
 export const MAX_FILE_BYTES = 5 * 1024 ** 3;
-// 50 GB: soft frontend cap. The backend will enforce its own limit when it lands.
+// 50 GB: soft frontend cap to keep the drop-zone responsive on slow networks.
 export const MAX_DATASET_BYTES = 50 * 1024 ** 3;
 // 1024 chars: the S3 object key length cap (UTF-8 bytes; we approximate via .length).
 export const MAX_PATH_LENGTH = 1024;

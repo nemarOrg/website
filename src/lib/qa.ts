@@ -1,9 +1,8 @@
 /**
- * Types + client for the data.nemar.org/<id>/qa/* endpoints (Phase 3).
- *
- * The backend half is tracked at nemarOrg/nemar-cli#511. Until that ships,
- * the website renders against captured fixtures via the ?qa=fixture toggle.
- * Once #511 deploys, no website code changes — every endpoint becomes live.
+ * Types and client for the `data.nemar.org/<id>/qa/*` endpoints.
+ * The backend aggregation endpoint is tracked at nemarOrg/nemar-cli#511;
+ * QualityPanel renders an empty state for datasets without an existing
+ * qa/ tree, so no frontend changes are needed when that ships.
  */
 
 /**

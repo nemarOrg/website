@@ -67,7 +67,6 @@ export function renderReadme(
   );
   out.push(`<span class="readme__toggle-label">Expand README</span>`);
   out.push("</button></div></div>");
-  // Mark fallback for downstream logic (lazy-detail script unused atm but harmless).
   void isFallback;
   return out.join("");
 }

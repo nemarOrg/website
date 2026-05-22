@@ -1,17 +1,5 @@
+import { apiBase } from "./api-base";
 import type { Dataset, DatasetListResponse, DatasetQuery } from "./types";
-
-const DEFAULT_API_BASE = "https://api.nemar.org";
-
-/**
- * Resolve the API base URL at call time. Cloudflare Pages exposes env vars
- * via runtime; falling back to PUBLIC_API_BASE_URL for local dev.
- */
-function apiBase(envOverride?: string): string {
-  if (envOverride) return envOverride.replace(/\/$/, "");
-  const fromEnv =
-    (typeof import.meta.env !== "undefined" && import.meta.env.PUBLIC_API_BASE_URL) || null;
-  return (fromEnv ?? DEFAULT_API_BASE).replace(/\/$/, "");
-}
 
 function buildQuery(params: DatasetQuery): string {
   const sp = new URLSearchParams();
@@ -29,9 +17,9 @@ function buildQuery(params: DatasetQuery): string {
 
 export async function listDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal; apiBase?: string } = {},
+  init: { signal?: AbortSignal } = {},
 ): Promise<DatasetListResponse> {
-  const url = `${apiBase(init.apiBase)}/datasets${buildQuery(query)}`;
+  const url = `${apiBase()}/datasets${buildQuery(query)}`;
   const res = await fetch(url, {
     signal: init.signal,
     headers: { Accept: "application/json" },
@@ -45,9 +33,9 @@ export async function listDatasets(
 
 export async function getDataset(
   id: string,
-  init: { signal?: AbortSignal; apiBase?: string } = {},
+  init: { signal?: AbortSignal } = {},
 ): Promise<Dataset> {
-  const url = `${apiBase(init.apiBase)}/datasets/${encodeURIComponent(id)}`;
+  const url = `${apiBase()}/datasets/${encodeURIComponent(id)}`;
   const res = await fetch(url, {
     signal: init.signal,
     headers: { Accept: "application/json" },
@@ -69,9 +57,9 @@ export async function getDataset(
  */
 export async function resolveCanonical(
   sourceId: string,
-  init: { signal?: AbortSignal; apiBase?: string } = {},
+  init: { signal?: AbortSignal } = {},
 ): Promise<string | null> {
-  const url = `${apiBase(init.apiBase)}/datasets/resolve/${encodeURIComponent(sourceId)}`;
+  const url = `${apiBase()}/datasets/resolve/${encodeURIComponent(sourceId)}`;
   const res = await fetch(url, {
     signal: init.signal,
     headers: { Accept: "application/json" },

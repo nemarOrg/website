@@ -2,7 +2,7 @@
  * Collaborators API client: list per-dataset collaborators and invite a new
  * one. Calls `api.nemar.org/datasets/:id/{collaborators,invite}` directly.
  */
-import { apiBase } from "./api-base";
+import { apiBase, readError } from "./api-base";
 import type { AuthSession } from "./auth";
 import { DashboardApiError } from "./dashboard-api";
 import type { Dataset } from "./types";
@@ -76,12 +76,12 @@ export async function inviteCollaborator(
 
 /**
  * True when the caller is allowed to add/remove collaborators on this
- * dataset. Mirrors the owner-or-admin gate enforced on the real backend.
+ * dataset. Mirrors the owner-or-admin gate enforced on the backend.
  *
- * The local-part-of-email derivation is a workaround until the backend
- * session payload exposes a real `username` field (nemar-cli#572). Switch
- * `session.user.email.split("@")[0]` to `session.user.username` once that
- * field ships.
+ * Username is derived from the email local part because the backend session
+ * payload does not yet expose a dedicated `username` field (nemar-cli#572).
+ * When #572 ships, replace `session.user.email.split("@")[0]` with
+ * `session.user.username`.
  */
 export function isCollaboratorManager(
   session: AuthSession | null,
@@ -91,18 +91,4 @@ export function isCollaboratorManager(
   if (session.user.role === "admin") return true;
   const username = session.user.email.split("@")[0] ?? "";
   return Boolean(dataset.owner_username) && username === dataset.owner_username;
-}
-
-async function readError(res: Response): Promise<{ message?: string; code?: string }> {
-  try {
-    const body = (await res.json()) as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") return {};
-    const code = typeof body.error === "string" ? body.error : undefined;
-    const message =
-      typeof body.message === "string" && body.message.length > 0 ? body.message : undefined;
-    return { message, code };
-  } catch (err) {
-    if (err instanceof SyntaxError) return {};
-    throw err;
-  }
 }

@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { apiBase } from "../../../../lib/api-base";
+import { apiBase, copySetCookies } from "../../../../lib/api-base";
 import { isValidEmail } from "../../../../lib/auth";
 import {
   DEV_ACCEPTED_CODE,
@@ -59,8 +59,10 @@ export const POST: APIRoute = async ({ request }) => {
     "Content-Type": res.headers.get("Content-Type") ?? "application/json; charset=utf-8",
     "Cache-Control": "no-store",
   });
-  const setCookie = res.headers.get("set-cookie");
-  if (setCookie) headers.set("Set-Cookie", setCookie);
+  // Use the iteration helper: the backend may set multiple cookies (session
+  // plus CSRF, etc.) and `headers.get("set-cookie")` would comma-join them
+  // into a single malformed value.
+  copySetCookies(res, headers);
   return new Response(respBody, { status: res.status, headers });
 };
 

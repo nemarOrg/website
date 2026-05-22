@@ -4,6 +4,7 @@ import DashboardTour from "../components/DashboardTour.astro";
 import MyDatasetCard from "../components/MyDatasetCard.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
+import { isCollaboratorManager } from "../lib/collaborators-api";
 import {
   DashboardApiError,
   type PublicationStatus,
@@ -40,11 +41,11 @@ try {
         : "Could not load your datasets.";
 }
 
-// Fan-out publish-status lookups in parallel so a slow one doesn't
-// serialize the page. N+1 until the list endpoint includes publish status
-// inline; tracked upstream.
+// Fan-out publish-status lookups in parallel: one request per visible
+// dataset. Acceptable while page limits cap this at 50 datasets per render.
 const statuses: Record<string, PublicationStatus | null> = {};
 let statusFetchFailures = 0;
+let statusSessionExpired = false;
 await Promise.all(
   datasets.map(async (d) => {
     try {
@@ -52,7 +53,13 @@ await Promise.all(
     } catch (err) {
       console.warn(`[dashboard] getPublishStatus failed for ${d.dataset_id}`, err);
       statuses[d.dataset_id] = null;
-      statusFetchFailures += 1;
+      // A 401 means the cookie is dead, not that the network blipped. The
+      // correct action is signing in again, not refreshing the same dashboard.
+      if (err instanceof DashboardApiError && err.status === 401) {
+        statusSessionExpired = true;
+      } else {
+        statusFetchFailures += 1;
+      }
     }
   }),
 );
@@ -88,7 +95,13 @@ const pendingNotice =
       <p class="dashboard-error" role="alert">{listError}</p>
     )}
 
-    {statusFetchFailures > 0 && (
+    {statusSessionExpired && (
+      <p class="dashboard-error" role="alert">
+        Your session expired while loading. <a href={`/login?next=${encodeURIComponent("/dashboard")}`}>Sign in again</a> to refresh.
+      </p>
+    )}
+
+    {statusFetchFailures > 0 && !statusSessionExpired && (
       <p class="dashboard-notice" role="status">
         Publication status didn&rsquo;t load for {statusFetchFailures} dataset{statusFetchFailures === 1 ? "" : "s"}. Badges may be stale; refresh to retry.
       </p>
@@ -109,7 +122,7 @@ const pendingNotice =
             <MyDatasetCard
               dataset={d}
               publishStatus={statuses[d.dataset_id]}
-              canManage={true}
+              canManage={isCollaboratorManager(session, d)}
               {...(i === 0 ? { "data-tour-target": "first-card" } : {})}
             />
           </li>

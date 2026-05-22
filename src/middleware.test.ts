@@ -1,5 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { parseAuthMeResponse } from "./middleware";
+import { isPublicCacheable, parseAuthMeResponse } from "./middleware";
+
+describe("isPublicCacheable", () => {
+  const r = (cc: string | null) =>
+    new Response(null, { status: 200, headers: cc ? { "Cache-Control": cc } : {} });
+
+  it("returns false when Cache-Control is missing", () => {
+    expect(isPublicCacheable(r(null))).toBe(false);
+  });
+
+  it("returns false for private responses", () => {
+    expect(isPublicCacheable(r("private, max-age=600"))).toBe(false);
+  });
+
+  it("returns false for no-store", () => {
+    expect(isPublicCacheable(r("public, no-store, max-age=600"))).toBe(false);
+  });
+
+  it("returns false for public without a max-age / s-maxage", () => {
+    expect(isPublicCacheable(r("public"))).toBe(false);
+  });
+
+  it("returns true for public + max-age", () => {
+    expect(isPublicCacheable(r("public, max-age=600"))).toBe(true);
+  });
+
+  it("returns true for public + s-maxage", () => {
+    expect(isPublicCacheable(r("public, s-maxage=600"))).toBe(true);
+  });
+});
 
 describe("parseAuthMeResponse", () => {
   it("returns a valid session for a well-formed /auth/me body", () => {

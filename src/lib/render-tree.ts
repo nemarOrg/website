@@ -56,11 +56,11 @@ function renderDirChildren(node: TreeNode, basePath: string, depth: number): str
     out.push(`<span class="tree__size">${esc(formatBytes(f.size))}</span>`);
     if (cls.isEEG)
       out.push(
-        `<span class="tree__tag tree__tag--soon" title="Visualizer ships in Phase 5">Vis · soon</span>`,
+        `<span class="tree__tag tree__tag--soon" title="Visualizer coming soon">Vis · soon</span>`,
       );
     if (cls.isTSV)
       out.push(
-        `<span class="tree__tag tree__tag--soon" title="TSV viewer ships in Phase 5">View · soon</span>`,
+        `<span class="tree__tag tree__tag--soon" title="TSV viewer coming soon">View · soon</span>`,
       );
     if (cls.isJSON) out.push(`<span class="tree__tag">JSON</span>`);
     out.push("</li>");

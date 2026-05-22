@@ -3,7 +3,7 @@
  * them. Targets the backend's `${apiBase}/admin/publish/*` endpoints; the
  * session cookie travels via `credentials: "include"`.
  */
-import { apiBase } from "./api-base";
+import { apiBase, readError } from "./api-base";
 import {
   DashboardApiError,
   type DatasetPublishState,
@@ -123,17 +123,3 @@ export function isAdminActionable(req: PublicationRequest): boolean {
 /** Re-export to keep admin surfaces importing from a single module. */
 export { deriveAdminBadgeState };
 export type { DatasetPublishState };
-
-async function readError(res: Response): Promise<{ message?: string; code?: string }> {
-  try {
-    const body = (await res.json()) as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") return {};
-    const code = typeof body.error === "string" ? body.error : undefined;
-    const message =
-      typeof body.message === "string" && body.message.length > 0 ? body.message : undefined;
-    return { message, code };
-  } catch (err) {
-    if (err instanceof SyntaxError) return {};
-    throw err;
-  }
-}
