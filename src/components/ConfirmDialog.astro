@@ -1,0 +1,220 @@
+---
+interface Props {
+  /** Stable id used by callers to open/close the dialog. Must be unique per page. */
+  dialogId: string;
+  title: string;
+  body: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  confirmTone?: "primary" | "danger";
+  /**
+   * When provided, the confirm button stays disabled until the user types
+   * this exact string into a verification input. Used for destructive
+   * actions like deleting a dataset.
+   */
+  requireTyping?: string;
+}
+
+const {
+  dialogId,
+  title,
+  body,
+  confirmLabel,
+  cancelLabel = "Cancel",
+  confirmTone = "primary",
+  requireTyping,
+} = Astro.props;
+---
+
+<dialog
+  class="confirm-dialog"
+  data-confirm-dialog
+  data-dialog-id={dialogId}
+  data-require-typing={requireTyping ?? ""}
+>
+  <form class="confirm-dialog__form" method="dialog" data-confirm-form>
+    <h2 class="confirm-dialog__title">{title}</h2>
+    <p class="confirm-dialog__body">{body}</p>
+    {requireTyping && (
+      <label class="confirm-dialog__verify">
+        <span class="confirm-dialog__verify-label">
+          Type <code>{requireTyping}</code> to confirm
+        </span>
+        <input
+          type="text"
+          class="confirm-dialog__verify-input"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          data-confirm-verify-input
+        />
+      </label>
+    )}
+    <div class="confirm-dialog__actions">
+      <button type="button" class="confirm-dialog__btn" data-confirm-cancel value="cancel">
+        {cancelLabel}
+      </button>
+      <button
+        type="submit"
+        class:list={["confirm-dialog__btn", `confirm-dialog__btn--${confirmTone}`]}
+        data-confirm-submit
+        value="confirm"
+        disabled={Boolean(requireTyping)}
+      >
+        {confirmLabel}
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<style>
+  .confirm-dialog {
+    max-inline-size: 32rem;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+  .confirm-dialog::backdrop {
+    background: rgb(15 23 42 / 55%);
+  }
+  .confirm-dialog__form {
+    padding: var(--space-6);
+    display: grid;
+    gap: var(--space-4);
+  }
+  .confirm-dialog__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .confirm-dialog__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+  .confirm-dialog__verify {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .confirm-dialog__verify-label {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .confirm-dialog__verify-label code {
+    font-family: var(--font-mono);
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg);
+  }
+  .confirm-dialog__verify-input {
+    padding: 8px var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    min-block-size: 40px;
+  }
+  .confirm-dialog__verify-input:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .confirm-dialog__actions {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: flex-end;
+  }
+  .confirm-dialog__btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-fg);
+    background: transparent;
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .confirm-dialog__btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .confirm-dialog__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .confirm-dialog__btn--primary:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .confirm-dialog__btn--danger {
+    background: var(--color-danger);
+    color: var(--color-bg);
+    border-color: var(--color-danger);
+  }
+  .confirm-dialog__btn--danger:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--color-danger) 82%, #000);
+  }
+  .confirm-dialog__btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLDialogElement>("[data-confirm-dialog]").forEach((dialog) => {
+    const id = dialog.dataset.dialogId;
+    if (!id) return;
+    const requireTyping = dialog.dataset.requireTyping || "";
+    const submitBtn = dialog.querySelector<HTMLButtonElement>("[data-confirm-submit]");
+    const cancelBtn = dialog.querySelector<HTMLButtonElement>("[data-confirm-cancel]");
+    const verifyInput = dialog.querySelector<HTMLInputElement>("[data-confirm-verify-input]");
+    const form = dialog.querySelector<HTMLFormElement>("[data-confirm-form]");
+
+    function syncSubmitEnabled(): void {
+      if (!submitBtn) return;
+      if (!requireTyping) {
+        submitBtn.disabled = false;
+        return;
+      }
+      submitBtn.disabled = (verifyInput?.value ?? "") !== requireTyping;
+    }
+
+    verifyInput?.addEventListener("input", syncSubmitEnabled);
+    cancelBtn?.addEventListener("click", () => dialog.close("cancel"));
+    form?.addEventListener("submit", (e) => {
+      // Only emit the confirm event when the submit button is enabled.
+      if (submitBtn?.disabled) {
+        e.preventDefault();
+        return;
+      }
+    });
+
+    document.addEventListener("nemar:open-confirm-dialog", (event) => {
+      const e = event as CustomEvent<{ dialogId: string }>;
+      if (e.detail?.dialogId !== id) return;
+      if (verifyInput) verifyInput.value = "";
+      syncSubmitEnabled();
+      dialog.showModal();
+      // Focus the verify input if present, otherwise the cancel button.
+      (verifyInput ?? cancelBtn)?.focus();
+    });
+
+    dialog.addEventListener("close", () => {
+      if (dialog.returnValue === "confirm" && !submitBtn?.disabled) {
+        document.dispatchEvent(
+          new CustomEvent<{ dialogId: string }>("nemar:confirm-dialog-confirm", {
+            detail: { dialogId: id },
+          }),
+        );
+      }
+      // Clean up state for next open.
+      if (verifyInput) verifyInput.value = "";
+      syncSubmitEnabled();
+    });
+  });
+</script>
