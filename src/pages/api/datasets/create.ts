@@ -3,13 +3,10 @@ import { getSession } from "../../../lib/auth";
 import type { Dataset } from "../../../lib/types";
 import { appendDraft } from "./_store";
 
-// MOCK: removed in Phase 5 cutover. Frontend will call api.nemar.org/datasets
-// directly once nemar-cli#572 lands (cookie-aware auth on /datasets routes).
+// MOCK: replaced when nemar-cli#572 (cookie-aware auth on /datasets) lands.
 // Real backend creates the GitHub repo, S3 prefix, and presigned URLs; this
 // mock just returns a synthesized dataset id and presigned URLs pointing at
 // the local upload-stub PUT route so the queue exercises the full XHR path.
-// The created dataset is also recorded in the in-memory store so the
-// dashboard at /dashboard reflects it immediately during the same dev session.
 
 interface CreateRequest {
   name?: unknown;
@@ -27,10 +24,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return json({ ok: false, error: "not_implemented" }, 501);
   }
 
-  // CSRF: the session cookie is SameSite=Lax (issued in Phase 1), which blocks
-  // cross-site form POSTs. A `Content-Type: application/json` requirement
-  // additionally forces a CORS preflight for cross-origin scripts, which
-  // unauthorized origins cannot satisfy.
+  // CSRF: the session cookie is SameSite=Lax, which blocks cross-site form
+  // POSTs. The Content-Type: application/json requirement additionally
+  // forces a CORS preflight for cross-origin scripts, which unauthorized
+  // origins cannot satisfy.
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
     return json({ ok: false, error: "bad_content_type" }, 415);

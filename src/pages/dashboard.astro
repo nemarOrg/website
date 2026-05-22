@@ -3,8 +3,8 @@ import ConfirmDialog from "../components/ConfirmDialog.astro";
 import MyDatasetCard from "../components/MyDatasetCard.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
-import type { PublicationStatus, listMyDatasets } from "../lib/dashboard-api";
-import { listForOwner } from "./api/datasets/_store";
+import type { PublicationStatus } from "../lib/dashboard-api";
+import { getPublishStatus, listForOwner } from "./api/datasets/_store";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -12,15 +12,19 @@ if (!session) {
 }
 
 // Same-origin SSR shortcut: bypass the network and read the in-memory store
-// directly. Phase 5 cutover swaps both this and the listMyDatasets HTTP path
-// for a direct `api.nemar.org/datasets?mine=true` call.
+// directly because the SSR context already has the authenticated email.
+// Replace with api.nemar.org/datasets?mine=true once nemar-cli#572 lands.
 const url = new URL(Astro.request.url);
 const limit = 50;
 const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
 
-let datasets: Awaited<ReturnType<typeof listMyDatasets>>["datasets"] = [];
+let datasets: Awaited<ReturnType<typeof listForOwner>>["datasets"] = [];
 let total = 0;
 let listError: string | null = null;
+// NOTE: the in-memory store cannot throw, so this try/catch is scaffolding
+// for the post-cutover path. When this becomes an HTTP call (nemar-cli#572),
+// the catch will need timeout + abort signal handling; do not assume this
+// alone covers network failure modes.
 try {
   const result = listForOwner(session.user.email, { limit, offset });
   datasets = result.datasets;
@@ -29,10 +33,9 @@ try {
   listError = err instanceof Error ? err.message : "Could not load your datasets.";
 }
 
-// Get publish status for each dataset to drive the badges + actions. The
-// mock store is in-process so this is a synchronous map lookup; with the
-// real backend, this becomes a fan-out fetch we'd batch.
-import { getPublishStatus } from "./api/datasets/_store";
+// Per-dataset publish status drives the badge + actions. In-memory lookup
+// today; will become a batched fan-out fetch when this routes through
+// api.nemar.org.
 const statuses: Record<string, PublicationStatus | null> = {};
 for (const d of datasets) {
   statuses[d.dataset_id] = getPublishStatus(session.user.email, d.dataset_id) ?? null;
@@ -222,6 +225,26 @@ const pendingNotice =
   } from "../lib/dashboard-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-dashboard-action-error]");
+
+  // User-facing fallback messages for known mock error codes. Without this
+  // map a raw "already_in_flight" would surface verbatim in the UI.
+  const ERROR_MESSAGES: Record<string, string> = {
+    already_in_flight: "A review request is already in progress for this dataset.",
+    already_published: "This dataset is already published.",
+    not_deletable: "This dataset can't be deleted in its current state.",
+    not_found: "Dataset not found.",
+    bad_content_type: "Couldn't process the request. Refresh and try again.",
+    unauthenticated: "Sign in again to continue.",
+    internal_error: "Server error. Try again in a moment.",
+  };
+
+  function friendlyError(err: unknown): string {
+    if (err instanceof DashboardApiError && err.code && ERROR_MESSAGES[err.code]) {
+      return ERROR_MESSAGES[err.code];
+    }
+    return err instanceof Error ? err.message : "Something went wrong.";
+  }
+
   function showError(msg: string): void {
     if (!errorEl) return;
     errorEl.hidden = false;
@@ -237,6 +260,9 @@ const pendingNotice =
     | { kind: "request"; datasetId: string }
     | { kind: "delete"; datasetId: string; datasetName: string }
     | null = null;
+  // Single guard prevents the user from clicking another card's Delete or
+  // Request button while a previous action's network call is still in flight.
+  let actionInFlight = false;
 
   function openDialog(dialogId: string): void {
     document.dispatchEvent(
@@ -246,12 +272,20 @@ const pendingNotice =
     );
   }
 
+  function queueAction(next: NonNullable<typeof pending>): void {
+    if (actionInFlight) return;
+    if (pending) {
+      console.warn("[dashboard] overwriting un-confirmed pending action", pending);
+    }
+    pending = next;
+    clearError();
+  }
+
   document.querySelectorAll<HTMLButtonElement>("[data-request-publication]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.datasetId;
       if (!id) return;
-      pending = { kind: "request", datasetId: id };
-      clearError();
+      queueAction({ kind: "request", datasetId: id });
       openDialog("dashboard-request-publication");
     });
   });
@@ -261,8 +295,7 @@ const pendingNotice =
       const id = btn.dataset.datasetId;
       const name = btn.dataset.datasetName;
       if (!id || !name) return;
-      pending = { kind: "delete", datasetId: id, datasetName: name };
-      clearError();
+      queueAction({ kind: "delete", datasetId: id, datasetName: name });
       openDialog("dashboard-delete-dataset");
     });
   });
@@ -270,34 +303,40 @@ const pendingNotice =
   document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
     const e = evt as CustomEvent<{ dialogId: string }>;
     if (!pending) return;
-    const current = pending;
-    pending = null;
 
-    if (e.detail.dialogId === "dashboard-request-publication" && current.kind === "request") {
+    // Only consume `pending` after the dialog id is matched to its action.
+    // An unmatched event indicates a programming error elsewhere; surface it
+    // rather than silently dropping the user's confirmed action.
+    if (e.detail.dialogId === "dashboard-request-publication" && pending.kind === "request") {
+      const target = pending;
+      pending = null;
+      actionInFlight = true;
       try {
-        await requestPublication(current.datasetId);
+        await requestPublication(target.datasetId);
         location.reload();
       } catch (err) {
-        const msg =
-          err instanceof DashboardApiError
-            ? `Couldn't request publication: ${err.message}`
-            : "Couldn't request publication. Try again.";
-        showError(msg);
+        showError(`Couldn't request publication: ${friendlyError(err)}`);
+        actionInFlight = false;
       }
       return;
     }
-    if (e.detail.dialogId === "dashboard-delete-dataset" && current.kind === "delete") {
+    if (e.detail.dialogId === "dashboard-delete-dataset" && pending.kind === "delete") {
+      const target = pending;
+      pending = null;
+      actionInFlight = true;
       try {
-        await deleteDraftDataset(current.datasetId);
+        await deleteDraftDataset(target.datasetId);
         location.reload();
       } catch (err) {
-        const msg =
-          err instanceof DashboardApiError
-            ? `Couldn't delete: ${err.message}`
-            : "Couldn't delete. Try again.";
-        showError(msg);
+        showError(`Couldn't delete: ${friendlyError(err)}`);
+        actionInFlight = false;
       }
       return;
     }
+    console.error(
+      "[dashboard] confirm-dialog event did not match queued pending action",
+      e.detail.dialogId,
+      pending,
+    );
   });
 </script>

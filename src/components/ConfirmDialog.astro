@@ -24,6 +24,9 @@ const {
   confirmTone = "primary",
   requireTyping,
 } = Astro.props;
+
+const titleId = `${dialogId}-title`;
+const bodyId = `${dialogId}-body`;
 ---
 
 <dialog
@@ -31,10 +34,12 @@ const {
   data-confirm-dialog
   data-dialog-id={dialogId}
   data-require-typing={requireTyping ?? ""}
+  aria-labelledby={titleId}
+  aria-describedby={bodyId}
 >
   <form class="confirm-dialog__form" method="dialog" data-confirm-form>
-    <h2 class="confirm-dialog__title">{title}</h2>
-    <p class="confirm-dialog__body">{body}</p>
+    <h2 id={titleId} class="confirm-dialog__title">{title}</h2>
+    <p id={bodyId} class="confirm-dialog__body">{body}</p>
     {requireTyping && (
       <label class="confirm-dialog__verify">
         <span class="confirm-dialog__verify-label">
@@ -186,11 +191,12 @@ const {
 
     verifyInput?.addEventListener("input", syncSubmitEnabled);
     cancelBtn?.addEventListener("click", () => dialog.close("cancel"));
+    // Prevent the close event from firing with returnValue="confirm" when
+    // typing verification is required but unmet (keyboard Enter would
+    // otherwise submit a disabled button via some browser quirks).
     form?.addEventListener("submit", (e) => {
-      // Only emit the confirm event when the submit button is enabled.
       if (submitBtn?.disabled) {
         e.preventDefault();
-        return;
       }
     });
 
@@ -200,19 +206,26 @@ const {
       if (verifyInput) verifyInput.value = "";
       syncSubmitEnabled();
       dialog.showModal();
-      // Focus the verify input if present, otherwise the cancel button.
       (verifyInput ?? cancelBtn)?.focus();
     });
 
     dialog.addEventListener("close", () => {
-      if (dialog.returnValue === "confirm" && !submitBtn?.disabled) {
-        document.dispatchEvent(
-          new CustomEvent<{ dialogId: string }>("nemar:confirm-dialog-confirm", {
-            detail: { dialogId: id },
-          }),
-        );
+      if (dialog.returnValue === "confirm") {
+        if (submitBtn?.disabled) {
+          // The submit guard above should keep this unreachable; warn loudly
+          // if a browser quirk gets us here so the drop is debuggable.
+          console.warn(
+            "[ConfirmDialog] close fired with returnValue=confirm while submit was disabled; dropping",
+            id,
+          );
+        } else {
+          document.dispatchEvent(
+            new CustomEvent<{ dialogId: string }>("nemar:confirm-dialog-confirm", {
+              detail: { dialogId: id },
+            }),
+          );
+        }
       }
-      // Clean up state for next open.
       if (verifyInput) verifyInput.value = "";
       syncSubmitEnabled();
     });

@@ -2,7 +2,7 @@ import type { APIRoute } from "astro";
 import { getSession } from "../../../../lib/auth";
 import { findForOwner, getPublishStatus, removeForOwner } from "../_store";
 
-// MOCK: removed in Phase 5 cutover (nemar-cli#575).
+// MOCK: replaced when nemar-cli#575 (owner-callable delete-draft) lands.
 // Real backend: DELETE api.nemar.org/datasets/:id with owner-of-draft scope
 // (currently admin-only; #575 makes owners able to delete their own drafts).
 export const POST: APIRoute = async ({ params, request, locals }) => {

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DashboardApiError,
+  type PublicationRequestStatus,
   type PublicationStatus,
-  type PublishStatusState,
   deleteDraftDataset,
   derivePublishState,
   isDeletable,
@@ -41,16 +41,40 @@ function ds(overrides: Partial<Dataset> = {}): Dataset {
   };
 }
 
-function status(s: PublishStatusState): PublicationStatus {
-  return { dataset_id: "mock-1", status: s };
+/**
+ * Build a discriminated-union PublicationStatus with the required fields for
+ * the given branch. Tests below pass these through the helpers without
+ * inspecting the timestamps; the helper only cares about `.status`.
+ */
+function status(s: PublicationRequestStatus): PublicationStatus {
+  switch (s) {
+    case "none":
+      return { dataset_id: "mock-1", status: "none" };
+    case "requested":
+      return { dataset_id: "mock-1", status: "requested", requested_at: "2026-05-22T00:00:00Z" };
+    case "approved":
+      return {
+        dataset_id: "mock-1",
+        status: "approved",
+        requested_at: "2026-05-20T00:00:00Z",
+        approved_at: "2026-05-22T00:00:00Z",
+      };
+    case "blocked":
+      return {
+        dataset_id: "mock-1",
+        status: "blocked",
+        requested_at: "2026-05-20T00:00:00Z",
+        block_reason: "validation failed",
+      };
+  }
 }
 
 describe("derivePublishState", () => {
   it("published when visibility is public", () => {
-    expect(derivePublishState(ds({ visibility: "public" }))).toBe("published");
+    expect(derivePublishState(ds({ visibility: "public" }), null)).toBe("published");
   });
   it("published when a concept_doi exists, even if visibility is private", () => {
-    expect(derivePublishState(ds({ visibility: "private", concept_doi: "10.x/y" }))).toBe(
+    expect(derivePublishState(ds({ visibility: "private", concept_doi: "10.x/y" }), null)).toBe(
       "published",
     );
   });
@@ -64,7 +88,7 @@ describe("derivePublishState", () => {
     expect(derivePublishState(ds(), status("approved"))).toBe("awaiting_review");
   });
   it("draft when private + no DOI + no publish status", () => {
-    expect(derivePublishState(ds())).toBe("draft");
+    expect(derivePublishState(ds(), null)).toBe("draft");
   });
   it("draft when private + no DOI + status none", () => {
     expect(derivePublishState(ds(), status("none"))).toBe("draft");
@@ -73,7 +97,7 @@ describe("derivePublishState", () => {
 
 describe("isDeletable", () => {
   it("true for a clean draft", () => {
-    expect(isDeletable(ds())).toBe(true);
+    expect(isDeletable(ds(), null)).toBe(true);
   });
   it("true for a draft with status none", () => {
     expect(isDeletable(ds(), status("none"))).toBe(true);
@@ -88,22 +112,22 @@ describe("isDeletable", () => {
     expect(isDeletable(ds(), status("blocked"))).toBe(true);
   });
   it("false for a public dataset", () => {
-    expect(isDeletable(ds({ visibility: "public" }))).toBe(false);
+    expect(isDeletable(ds({ visibility: "public" }), null)).toBe(false);
   });
   it("false when a concept_doi is assigned", () => {
-    expect(isDeletable(ds({ concept_doi: "10.x/y" }))).toBe(false);
+    expect(isDeletable(ds({ concept_doi: "10.x/y" }), null)).toBe(false);
   });
 });
 
 describe("isPublishRequestable", () => {
   it("true for a clean private draft", () => {
-    expect(isPublishRequestable(ds())).toBe(true);
+    expect(isPublishRequestable(ds(), null)).toBe(true);
   });
   it("false for an already-public dataset", () => {
-    expect(isPublishRequestable(ds({ visibility: "public" }))).toBe(false);
+    expect(isPublishRequestable(ds({ visibility: "public" }), null)).toBe(false);
   });
   it("false for a DOI'd dataset (already published)", () => {
-    expect(isPublishRequestable(ds({ concept_doi: "10.x/y" }))).toBe(false);
+    expect(isPublishRequestable(ds({ concept_doi: "10.x/y" }), null)).toBe(false);
   });
   it("false when a request is already in flight", () => {
     expect(isPublishRequestable(ds(), status("requested"))).toBe(false);
@@ -113,6 +137,12 @@ describe("isPublishRequestable", () => {
   });
 });
 
+// The fetch-touching tests below inject `fetch` via the `init.fetch` seam.
+// This is intentional: the lib functions are URL/header/method plumbing
+// around the network, not business logic. The injection lets us pin the
+// outgoing contract (URL shape, method, credentials, cookie forwarding,
+// error code propagation) without spinning up a real server. The pure
+// helper tests above stay mock-free per project policy.
 describe("listMyDatasets", () => {
   let originalFetch: typeof fetch;
   beforeEach(() => {
@@ -164,6 +194,21 @@ describe("listMyDatasets", () => {
       code: "unauthenticated",
     });
   });
+
+  it("throws DashboardApiError with code: undefined when the 5xx body is non-JSON HTML", async () => {
+    const fakeFetch = vi.fn(
+      async () =>
+        new Response("<html>Internal Server Error</html>", {
+          status: 500,
+          headers: { "Content-Type": "text/html" },
+        }),
+    ) as unknown as typeof fetch;
+    await expect(listMyDatasets({}, { fetch: fakeFetch })).rejects.toMatchObject({
+      name: "DashboardApiError",
+      status: 500,
+      code: undefined,
+    });
+  });
 });
 
 describe("requestPublication", () => {
@@ -173,10 +218,14 @@ describe("requestPublication", () => {
       expect(init.method).toBe("POST");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
       expect(init.credentials).toBe("include");
-      return new Response(JSON.stringify({ dataset_id: "nm-xyz", status: "requested" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          dataset_id: "nm-xyz",
+          status: "requested",
+          requested_at: "2026-05-22T00:00:00Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
     }) as unknown as typeof fetch;
     const out = await requestPublication("nm-xyz", { fetch: fakeFetch });
     expect(out.status).toBe("requested");
@@ -185,9 +234,14 @@ describe("requestPublication", () => {
   it("encodes the dataset id in the URL", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
       expect(url).toBe("/api/datasets/nm%2Fweird/publish-request");
-      return new Response(JSON.stringify({ dataset_id: "x", status: "requested" }), {
-        status: 200,
-      });
+      return new Response(
+        JSON.stringify({
+          dataset_id: "x",
+          status: "requested",
+          requested_at: "2026-05-22T00:00:00Z",
+        }),
+        { status: 200 },
+      );
     }) as unknown as typeof fetch;
     await requestPublication("nm/weird", { fetch: fakeFetch });
     expect(fakeFetch).toHaveBeenCalledOnce();

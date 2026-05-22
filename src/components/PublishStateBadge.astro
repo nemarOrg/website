@@ -1,13 +1,13 @@
 ---
-import type { PublishState } from "../lib/dashboard-api";
+import type { DatasetPublishState } from "../lib/dashboard-api";
 
 interface Props {
-  state: PublishState;
+  state: DatasetPublishState;
 }
 
 const { state } = Astro.props;
 
-const LABELS: Record<PublishState, string> = {
+const LABELS: Record<DatasetPublishState, string> = {
   draft: "Draft",
   awaiting_review: "Awaiting review",
   published: "Published",

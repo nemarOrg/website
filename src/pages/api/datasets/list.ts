@@ -2,7 +2,7 @@ import type { APIRoute } from "astro";
 import { getSession } from "../../../lib/auth";
 import { listForOwner } from "./_store";
 
-// MOCK: removed in Phase 5 cutover (nemar-cli#572).
+// MOCK: replaced when nemar-cli#572 (cookie-aware auth) lands.
 // Real backend: GET api.nemar.org/datasets?mine=true reads the session cookie
 // and returns the owner's datasets (plus collaborator-shared ones in a future
 // phase). This mock reads the in-memory seed store keyed by session email.

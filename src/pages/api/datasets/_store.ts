@@ -1,29 +1,20 @@
-// MOCK: removed in Phase 5 cutover (nemar-cli#572 + #575).
-// Shared in-memory store backing the dashboard's list / publish-request /
-// delete mock routes and the upload flow's create mock. The state resets
-// with every dev server restart, which is fine for dev usage.
+// MOCK: replaced when nemar-cli#572 (cookie-aware auth on /datasets) and #575
+// (owner-callable delete-draft) land. Shared in-memory store backing the
+// dashboard's list / publish-request / delete mocks and the upload flow's
+// create mock.
 //
-// Note: under `astro dev`, modules are cached per Vite reload, so the Map
-// survives HMR'd page reloads. Under `wrangler pages dev` each worker
-// invocation may use a fresh module instance; in DEV that's still OK
-// because the fixture is deterministically seeded by email hash.
+// A single module-scoped Map is sufficient because both `astro dev` and
+// `wrangler pages dev` run in one process; there is no cross-worker shared
+// state requirement that would need KV or D1. Under `astro dev` the Map
+// survives HMR. Under `wrangler pages dev` it can reset per Worker
+// invocation, but the deterministic email-hash seed keeps reads idempotent.
 
+import type { PublicationStatus } from "../../../lib/dashboard-api";
 import type { Dataset } from "../../../lib/types";
 
-export type PublishStatusState = "none" | "requested" | "approved" | "blocked";
-
-export interface PublicationStatus {
-  readonly dataset_id: string;
-  readonly status: PublishStatusState;
-  readonly requested_at?: string;
-  readonly approved_at?: string;
-  readonly denied_at?: string;
-  readonly block_reason?: string;
-  readonly requested_by?: string;
-  readonly ci_url?: string;
-}
-
 interface OwnerEntry {
+  // Intentionally mutable: splice/unshift call sites in the helpers below
+  // need to add and remove drafts in place.
   datasets: Dataset[];
   publishStatusByDatasetId: Map<string, PublicationStatus>;
 }
@@ -43,6 +34,10 @@ function hash32(s: string): number {
   return h >>> 0;
 }
 
+/**
+ * Three datasets, one per renderable publish-state, so the dashboard
+ * exercises every card variant on first load without manual setup.
+ */
 function seedDatasets(email: string): { datasets: Dataset[]; statuses: PublicationStatus[] } {
   const h = hash32(emailKey(email));
   const username = email.split("@")[0] ?? "researcher";

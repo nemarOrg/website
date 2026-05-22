@@ -2,7 +2,7 @@ import type { APIRoute } from "astro";
 import { getSession } from "../../../../lib/auth";
 import { findForOwner, getPublishStatus, setPublishStatus } from "../_store";
 
-// MOCK: removed in Phase 5 cutover (nemar-cli#572).
+// MOCK: replaced when nemar-cli#572 (cookie-aware auth) lands.
 // Real backend: POST api.nemar.org/datasets/:id/publish/request runs BIDS
 // validation status checks and creates a publication_request row. This mock
 // just flips the in-memory publish status to "requested" so the dashboard

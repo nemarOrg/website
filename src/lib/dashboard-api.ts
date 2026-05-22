@@ -1,30 +1,78 @@
 /**
  * Dashboard API client: list owned datasets, request publication, delete a
- * draft. Today these calls go to the local `/api/datasets/*` mock; at Phase 5
- * cutover the same call sites point at `api.nemar.org` once the upstream
- * cookie-aware auth (nemar-cli#572) and owner-deletion (nemar-cli#575) land.
+ * draft. These calls currently go to the local `/api/datasets/*` mock routes;
+ * point them at `api.nemar.org` once nemar-cli#572 (cookie-aware auth) and
+ * #575 (owner-deletion) land.
  */
 import type { Dataset, DatasetListResponse } from "./types";
 
-export type PublishState = "draft" | "awaiting_review" | "published" | "validation_failed";
+/**
+ * The DB-side status of a publication_request row. Distinct from the
+ * derived rendering state in {@link DatasetPublishState}.
+ */
+export type PublicationRequestStatus = "none" | "requested" | "approved" | "blocked";
 
-export type PublishStatusState = "none" | "requested" | "approved" | "blocked";
+/**
+ * The frontend's rendering state for a dataset on the dashboard, computed
+ * from `visibility + concept_doi + publication_request.status`.
+ */
+export type DatasetPublishState = "draft" | "awaiting_review" | "published" | "validation_failed";
 
-export interface PublicationStatus {
-  readonly dataset_id: string;
-  readonly status: PublishStatusState;
-  readonly requested_at?: string;
-  readonly approved_at?: string;
-  readonly denied_at?: string;
-  readonly block_reason?: string;
-  readonly requested_by?: string;
-  readonly ci_url?: string;
-}
+/**
+ * Discriminated union for the publication-request side. Required fields
+ * differ by status; the union encodes the invariants so callers don't have
+ * to guard timestamps after narrowing on `status`.
+ */
+export type PublicationStatus =
+  | { readonly dataset_id: string; readonly status: "none" }
+  | {
+      readonly dataset_id: string;
+      readonly status: "requested";
+      readonly requested_at: string;
+      readonly requested_by?: string;
+      readonly ci_url?: string;
+    }
+  | {
+      readonly dataset_id: string;
+      readonly status: "approved";
+      readonly requested_at: string;
+      readonly approved_at: string;
+      readonly requested_by?: string;
+      readonly ci_url?: string;
+    }
+  | {
+      readonly dataset_id: string;
+      readonly status: "blocked";
+      readonly requested_at: string;
+      readonly block_reason: string;
+      readonly requested_by?: string;
+      readonly ci_url?: string;
+    };
+
+/**
+ * Codes the dashboard mocks emit. `code` on `DashboardApiError` stays
+ * `string` so that unknown codes from a future real backend don't blow up
+ * type-checking at call sites; the union below documents what we expect.
+ */
+export type KnownErrorCode =
+  | "not_implemented"
+  | "bad_content_type"
+  | "unauthenticated"
+  | "invalid_json"
+  | "invalid_name"
+  | "invalid_files"
+  | "empty_files"
+  | "missing_id"
+  | "not_found"
+  | "already_published"
+  | "already_in_flight"
+  | "not_deletable"
+  | "internal_error";
 
 export class DashboardApiError extends Error {
   readonly status: number;
-  readonly code?: string;
-  constructor(message: string, status: number, code?: string) {
+  readonly code?: KnownErrorCode | string;
+  constructor(message: string, status: number, code?: KnownErrorCode | string) {
     super(message);
     this.name = "DashboardApiError";
     this.status = status;
@@ -43,8 +91,10 @@ export async function listMyDatasets(
   const url = `/api/datasets/list${qs ? `?${qs}` : ""}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
-  // Server-side rendering needs explicit cookie forwarding because Astro's
-  // server-side fetch doesn't carry the request's cookie jar automatically.
+  // Explicit cookie forwarding for SSR callers: Astro's server-side fetch
+  // doesn't carry the request cookie jar automatically. Currently unused
+  // because dashboard.astro reads the store directly; needed once nemar-cli#572
+  // routes through this function.
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(url, {
     method: "GET",
@@ -111,8 +161,8 @@ export async function deleteDraftDataset(
 
 export function derivePublishState(
   dataset: Pick<Dataset, "visibility" | "concept_doi">,
-  publishStatus?: PublicationStatus | null,
-): PublishState {
+  publishStatus: PublicationStatus | null,
+): DatasetPublishState {
   if (dataset.visibility === "public" || dataset.concept_doi) return "published";
   if (publishStatus?.status === "blocked") return "validation_failed";
   if (publishStatus?.status === "requested" || publishStatus?.status === "approved") {
@@ -123,7 +173,7 @@ export function derivePublishState(
 
 export function isDeletable(
   dataset: Pick<Dataset, "visibility" | "concept_doi">,
-  publishStatus?: PublicationStatus | null,
+  publishStatus: PublicationStatus | null,
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
@@ -133,7 +183,7 @@ export function isDeletable(
 
 export function isPublishRequestable(
   dataset: Pick<Dataset, "visibility" | "concept_doi">,
-  publishStatus?: PublicationStatus | null,
+  publishStatus: PublicationStatus | null,
 ): boolean {
   if (dataset.visibility !== "private") return false;
   if (dataset.concept_doi) return false;
@@ -146,15 +196,10 @@ async function readError(res: Response): Promise<{ message?: string; code?: stri
   try {
     const body = (await res.json()) as Record<string, unknown> | null;
     if (!body || typeof body !== "object") return {};
-    return {
-      message:
-        typeof body.message === "string"
-          ? body.message
-          : typeof body.error === "string"
-            ? body.error
-            : undefined,
-      code: typeof body.error === "string" ? body.error : undefined,
-    };
+    const code = typeof body.error === "string" ? body.error : undefined;
+    const message =
+      typeof body.message === "string" && body.message.length > 0 ? body.message : undefined;
+    return { message, code };
   } catch (err) {
     if (err instanceof SyntaxError) return {};
     throw err;

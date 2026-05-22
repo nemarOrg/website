@@ -12,10 +12,10 @@ import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
   dataset: Dataset;
-  publishStatus?: PublicationStatus | null;
+  publishStatus: PublicationStatus | null;
 }
 
-const { dataset, publishStatus = null } = Astro.props;
+const { dataset, publishStatus } = Astro.props;
 const state = derivePublishState(dataset, publishStatus);
 const showDelete = isDeletable(dataset, publishStatus);
 const showRequest = isPublishRequestable(dataset, publishStatus);
