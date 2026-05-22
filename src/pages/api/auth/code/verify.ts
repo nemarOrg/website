@@ -38,11 +38,20 @@ export const POST: APIRoute = async ({ request, cookies, locals }) => {
   }
 
   const ttl = remember ? REMEMBER_TTL_SECONDS : SHORT_SESSION_SECONDS;
+  // Dev override: a NEMAR_DEV_ADMIN_EMAIL env var (or its default
+  // "admin@example.com") promotes the matching login to `role: "admin"` so
+  // the admin surfaces are exercisable in dev without touching the real
+  // role assignment flow. The check only runs in DEV.
+  const devAdminEmail = (import.meta.env.NEMAR_DEV_ADMIN_EMAIL ?? "admin@example.com")
+    .toString()
+    .trim()
+    .toLowerCase();
+  const role: "user" | "admin" = email === devAdminEmail ? "admin" : "user";
   const session: AuthSession = {
     user: {
       id: await mockUserIdFromEmail(email),
       email,
-      role: "user",
+      role,
       status: "active",
     },
     exp: Math.floor(Date.now() / 1000) + ttl,
