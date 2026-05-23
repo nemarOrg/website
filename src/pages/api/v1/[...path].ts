@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
+import { isSafeProxyPath } from "../../../lib/proxy-path";
 
 /**
  * Same-origin proxy for dashboard / admin / collaborator API calls (#59).
@@ -34,31 +35,6 @@ const FORWARD_REQUEST_HEADERS = [
 ];
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);
-
-/**
- * Reject paths that could redirect the upstream fetch off api.nemar.org
- * or produce a malformed upstream URL. The path comes from a `[...path]`
- * capture, so it can never be empty when the route matches; the empty
- * check is a belt-and-braces guard.
- *
- * - `..` blocks traversal segments.
- * - `://` blocks scheme injection.
- * - `@` blocks userinfo-style URL fragments that could be reinterpreted
- *   by an upstream URL parser as a different authority.
- * - `//` blocks double-slash sequences that produce confusing upstream
- *   URLs (`https://api.nemar.org//datasets//`) and 4xxs that look like
- *   route bugs.
- * - A leading `/` is also rejected (would produce `${apiBase()}//path`).
- */
-export function isSafeProxyPath(path: string | undefined): path is string {
-  if (!path) return false;
-  if (path.startsWith("/")) return false;
-  if (path.includes("..")) return false;
-  if (path.includes("://")) return false;
-  if (path.includes("@")) return false;
-  if (path.includes("//")) return false;
-  return true;
-}
 
 const proxy: APIRoute = async ({ params, request }) => {
   const rawPath = params.path;
