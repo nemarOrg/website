@@ -27,13 +27,24 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ ok: true }, 200, accept);
   }
 
-  // Production proxy: forward to the real backend.
+  // Production proxy: forward to the real backend. Forward Origin too —
+  // backend route guards on it, and a server-side fetch from the Worker
+  // doesn't carry one by default.
   const body = await request.text();
+  const browserOrigin = request.headers.get("Origin");
+  if (!browserOrigin) {
+    console.warn("[auth/code/request proxy] no Origin header; falling back to app.nemar.org");
+  }
+  const origin = browserOrigin ?? "https://app.nemar.org";
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/auth/code/request`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Origin: origin,
+      },
       body,
     });
   } catch (err) {
