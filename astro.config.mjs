@@ -21,7 +21,12 @@ export default defineConfig({
   image: {
     service: { entrypoint: "astro/assets/services/noop" },
   },
-  site: "https://nemar.org",
+  // Where the marketing build is actually served. Keep in lockstep with
+  // `MARKETING_BASE_URL` in `src/lib/host.ts` — both flip to `https://nemar.org`
+  // at apex DNS cutover. Used by Astro for sitemap/RSS-style absolute URLs;
+  // per-page `<link rel="canonical">` and `og:url` are derived from the request
+  // hostname in `src/layouts/Base.astro` so app-host pages get the right origin.
+  site: "https://ww2.nemar.org",
   trailingSlash: "ignore",
   experimental: {
     clientPrerender: true,
