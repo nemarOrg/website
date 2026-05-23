@@ -1,5 +1,7 @@
+import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
-import { isPublicCacheable, parseAuthMeResponse } from "./middleware";
+import { APP_HOST, MARKETING_HOST } from "./lib/host";
+import { isPublicCacheable, onRequest, parseAuthMeResponse } from "./middleware";
 
 describe("isPublicCacheable", () => {
   const r = (cc: string | null) =>
@@ -108,5 +110,64 @@ describe("parseAuthMeResponse", () => {
       status: "active",
     });
     expect((out?.user as { admin?: unknown }).admin).toBeUndefined();
+  });
+});
+
+describe("onRequest host dispatch", () => {
+  // Minimal APIContext shim. `locals` is observable from the outside so we
+  // can verify the marketing-host fast-path sets `session = null` without
+  // touching the network. A stale cookie is included on purpose: the fast
+  // path must ignore it.
+  type TestCtx = APIContext & { locals: { session?: unknown } };
+  function ctx(url: string, method = "GET"): TestCtx {
+    const request = new Request(url, { method });
+    return {
+      request,
+      locals: {},
+      cookies: { get: () => ({ value: "stale-cookie-from-other-host" }) },
+    } as unknown as TestCtx;
+  }
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  it("301s an app path requested on the marketing host", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe(`https://${APP_HOST}/dashboard`);
+  });
+
+  it("301s a marketing path requested on the app host, preserving query", async () => {
+    const res = await onRequest(ctx(`https://${APP_HOST}/discover?modality=eeg`), passthrough);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe(`https://${MARKETING_HOST}/discover?modality=eeg`);
+  });
+
+  it("uses 307 for non-GET methods so body and method aren't dropped", async () => {
+    const res = await onRequest(
+      ctx(`https://${MARKETING_HOST}/api/auth/logout`, "POST"),
+      passthrough,
+    );
+    expect(res?.status).toBe(307);
+    expect(res?.headers.get("Location")).toBe(`https://${APP_HOST}/api/auth/logout`);
+  });
+
+  it("doesn't set Cache-Control on cross-host redirects (deploy churn safety)", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
+    expect(res?.headers.get("Cache-Control")).toBeNull();
+  });
+
+  it("skips /auth/me on the marketing host and passes through with session=null", async () => {
+    const c = ctx(`https://${MARKETING_HOST}/discover`);
+    const res = await onRequest(c, passthrough);
+    expect(res?.status).toBe(200);
+    expect(c.locals.session).toBeNull();
+  });
+
+  it("passes through in single-host mode (preview / localhost)", async () => {
+    const res = await onRequest(
+      ctx("https://fa9dbfa0.nemar-website.pages.dev/dashboard"),
+      passthrough,
+    );
+    expect(res?.status).toBe(200);
+    expect(await res?.text()).toBe("ok");
   });
 });

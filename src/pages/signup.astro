@@ -1,5 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
+import { appUrl } from "../lib/host";
+
+const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
 ---
 
 <Base
@@ -55,7 +58,7 @@ import Base from "../layouts/Base.astro";
             <p class="signup__step-body">
               Approval is usually same-day. We send an email when your account is
               active. Then come back to the
-              <a href="/login">web sign-in</a>, enter the same email, and the
+              <a href={loginHref}>web sign-in</a>, enter the same email, and the
               6-digit code flow gets you to your dashboard.
             </p>
           </div>
@@ -101,7 +104,7 @@ import Base from "../layouts/Base.astro";
             <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </a>
-        <a class="signup__cta signup__cta--ghost" href="/login">
+        <a class="signup__cta signup__cta--ghost" href={loginHref}>
           I already have an account
         </a>
       </footer>
