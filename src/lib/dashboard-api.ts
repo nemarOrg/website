@@ -1,9 +1,11 @@
 /**
  * Dashboard API client: list owned datasets, request publication, delete a
- * draft. Calls `api.nemar.org` directly; the session cookie travels via
- * `credentials: "include"`.
+ * draft. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly.
+ * Browser callers hit the same-origin `/api/v1` proxy (see `dashboardApiBase`
+ * in `./api-base.ts`) so the `Domain=app.nemar.org` session cookie attaches
+ * automatically without broadening it to all `*.nemar.org` siblings.
  */
-import { apiBase, readError } from "./api-base";
+import { dashboardApiBase, readError } from "./api-base";
 import type { Dataset, DatasetListResponse } from "./types";
 
 /**
@@ -120,7 +122,7 @@ export async function listMyDatasets(
   const params = new URLSearchParams({ mine: "true" });
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   if (query.offset !== undefined) params.set("offset", String(query.offset));
-  const url = `${apiBase()}/datasets?${params.toString()}`;
+  const url = `${dashboardApiBase(init.cookieHeader)}/datasets?${params.toString()}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
@@ -149,7 +151,7 @@ export async function getPublishStatus(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${apiBase()}/datasets/${encodeURIComponent(datasetId)}/publish/status`,
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(datasetId)}/publish/status`,
     { method: "GET", headers, credentials: "include", signal: init.signal },
   );
   // 404 here means "no publication-request row yet"; that's a valid domain
@@ -168,16 +170,24 @@ export async function getPublishStatus(
 
 export async function requestPublication(
   id: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<PublicationStatus> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(id)}/publish/request`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    credentials: "include",
-    body: "{}",
-    signal: init.signal,
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(id)}/publish/request`,
+    {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: "{}",
+      signal: init.signal,
+    },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
@@ -191,16 +201,24 @@ export async function requestPublication(
 
 export async function deleteDraftDataset(
   id: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<{ ok: true }> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    credentials: "include",
-    body: "{}",
-    signal: init.signal,
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers,
+      credentials: "include",
+      body: "{}",
+      signal: init.signal,
+    },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(

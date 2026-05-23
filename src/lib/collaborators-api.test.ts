@@ -56,7 +56,7 @@ describe("isCollaboratorManager", () => {
 describe("listCollaborators", () => {
   it("hits /api/datasets/:id/collaborators with credentials", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/collaborators");
+      expect(url).toBe("/api/v1/datasets/nm-xyz/collaborators");
       expect(init.method).toBe("GET");
       expect(init.credentials).toBe("include");
       return new Response(
@@ -100,7 +100,7 @@ describe("listCollaborators", () => {
 describe("inviteCollaborator", () => {
   it("POSTs to /datasets/:id/invite with the username body", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/invite");
+      expect(url).toBe("/api/v1/datasets/nm-xyz/invite");
       expect(init.method).toBe("POST");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
       expect(init.body).toBe(JSON.stringify({ username: "bob" }));
@@ -130,7 +130,7 @@ describe("inviteCollaborator", () => {
 
   it("encodes the dataset id and uses the body verbatim", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm%2Fweird/invite");
+      expect(url).toBe("/api/v1/datasets/nm%2Fweird/invite");
       expect(init.body).toBe(JSON.stringify({ username: "carol" }));
       return new Response(
         JSON.stringify({ message: "ok", dataset_id: "nm/weird", invitee: "carol" }),

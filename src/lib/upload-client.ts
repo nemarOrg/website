@@ -2,8 +2,14 @@
  * Client-side upload coordinator. Walks dropped directories, asks the backend
  * for presigned PUT URLs, uploads with XMLHttpRequest for upload-progress
  * events (fetch doesn't expose them), and finalizes the dataset.
+ *
+ * Browser-only — always goes through the same-origin `/api/v1` proxy so the
+ * `Domain=app.nemar.org` session cookie attaches (see `dashboardApiBase` in
+ * `./api-base.ts`). The presigned PUT URLs returned by `createDraftDataset`
+ * point at S3 directly, not at the proxy, so the actual byte upload stays
+ * a single client → S3 hop.
  */
-import { apiBase } from "./api-base";
+import { dashboardApiBase } from "./api-base";
 import type { DroppedFileMeta } from "./bids-precheck";
 
 export interface DroppedFile extends DroppedFileMeta {
@@ -53,7 +59,7 @@ export async function createDraftDataset(input: {
 }): Promise<DraftDataset> {
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}/datasets`, {
+    res = await fetch(`${dashboardApiBase()}/datasets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -87,7 +93,7 @@ export async function createDraftDataset(input: {
 export async function finalizeDataset(id: string): Promise<{ ok: true; status?: string }> {
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
+    res = await fetch(`${dashboardApiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
       method: "POST",
       credentials: "include",
       headers: {

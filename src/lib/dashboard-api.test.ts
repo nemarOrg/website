@@ -198,7 +198,7 @@ describe("listMyDatasets", () => {
 
   it("hits /datasets?mine=true with credentials and the requested limit/offset", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/datasets?mine=true&limit=25&offset=10");
+      expect(url).toBe("/api/v1/datasets?mine=true&limit=25&offset=10");
       expect(init.credentials).toBe("include");
       expect((init.headers as Record<string, string>).Accept).toBe("application/json");
       return new Response(
@@ -257,7 +257,7 @@ describe("listMyDatasets", () => {
 describe("requestPublication", () => {
   it("POSTs to /datasets/:id/publish/request with credentials", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/publish/request");
+      expect(url).toBe("/api/v1/datasets/nm-xyz/publish/request");
       expect(init.method).toBe("POST");
       expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
       expect(init.credentials).toBe("include");
@@ -276,7 +276,7 @@ describe("requestPublication", () => {
 
   it("encodes the dataset id in the URL", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm%2Fweird/publish/request");
+      expect(url).toBe("/api/v1/datasets/nm%2Fweird/publish/request");
       return new Response(
         JSON.stringify({
           dataset_id: "x",
@@ -294,7 +294,7 @@ describe("requestPublication", () => {
 describe("deleteDraftDataset", () => {
   it("DELETEs /datasets/:id and resolves to ok:true on 200", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz");
+      expect(url).toBe("/api/v1/datasets/nm-xyz");
       expect(init.method).toBe("DELETE");
       expect(init.credentials).toBe("include");
       return new Response(JSON.stringify({ ok: true }), {
@@ -375,7 +375,7 @@ describe("getPublishStatus", () => {
 
   it("returns the status body on 200", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
-      expect(url).toBe("https://api.nemar.org/datasets/nm-xyz/publish/status");
+      expect(url).toBe("/api/v1/datasets/nm-xyz/publish/status");
       return new Response(
         JSON.stringify({
           dataset_id: "nm-xyz",

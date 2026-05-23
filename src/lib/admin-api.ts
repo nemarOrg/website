@@ -1,9 +1,11 @@
 /**
  * Admin API client: list pending publication requests and approve or deny
- * them. Targets the backend's `${apiBase}/admin/publish/*` endpoints; the
- * session cookie travels via `credentials: "include"`.
+ * them. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
+ * browser callers go through the same-origin `/api/v1` proxy (see
+ * `dashboardApiBase` in `./api-base.ts`) so the session cookie attaches
+ * automatically without broadening it to other `*.nemar.org` hosts.
  */
-import { apiBase, readError } from "./api-base";
+import { dashboardApiBase, readError } from "./api-base";
 import {
   DashboardApiError,
   type DatasetPublishState,
@@ -36,7 +38,7 @@ export async function listPublicationRequests(
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
   const qs = params.toString();
-  const url = `${apiBase()}/admin/publish/requests${qs ? `?${qs}` : ""}`;
+  const url = `${dashboardApiBase(init.cookieHeader)}/admin/publish/requests${qs ? `?${qs}` : ""}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
@@ -59,14 +61,19 @@ export async function listPublicationRequests(
 
 export async function approvePublicationRequest(
   datasetId: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<{ status: PublicationStatus }> {
   const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${apiBase()}/admin/publish/${encodeURIComponent(datasetId)}/approve`,
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/approve`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers,
       credentials: "include",
       body: "{}",
       signal: init.signal,
@@ -86,20 +93,28 @@ export async function approvePublicationRequest(
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<{ status: PublicationStatus }> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
     throw new DashboardApiError("Deny requires a non-empty reason", 0, "missing_field");
   }
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`${apiBase()}/admin/publish/${encodeURIComponent(datasetId)}/deny`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ reason: trimmed }),
-    signal: init.signal,
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/deny`,
+    {
+      method: "POST",
+      headers,
+      credentials: "include",
+      body: JSON.stringify({ reason: trimmed }),
+      signal: init.signal,
+    },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
