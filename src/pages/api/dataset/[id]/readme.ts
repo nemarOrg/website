@@ -23,6 +23,12 @@ const PUBLISHED_CACHE = "public, max-age=300, s-maxage=600, stale-while-revalida
 // HTML for hours after a real release. 60s s-maxage + 300s SWR caps the
 // staleness window without hammering origin.
 const UNPUBLISHED_CACHE = "public, max-age=60, s-maxage=60, stale-while-revalidate=300";
+// When all four fallback steps come back empty for a published version it's
+// usually transient (manifest fetch timed out from a cold isolate, GitHub raw
+// 5xx, etc.), not "this dataset has no description forever." Caching the
+// empty placeholder pins the symptom for hours via SWR; `no-store` keeps it
+// scoped to the one unlucky request. Issue #53.
+const FALLBACK_CACHE = "no-store";
 
 /**
  * `GET /api/dataset/<id>/readme?v=<version>` — returns the rendered
@@ -126,7 +132,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": PUBLISHED_CACHE,
+      "Cache-Control": source ? PUBLISHED_CACHE : FALLBACK_CACHE,
     },
   });
 };
