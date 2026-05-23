@@ -25,7 +25,10 @@ export const APP_HOST = "app.nemar.org";
  * Long-term canonical marketing host. Today `nemar.org` itself is on a
  * legacy origin so requests there never reach this middleware, but it's
  * still in the marketing classification set so future DNS cutover lands
- * cleanly without a code change.
+ * cleanly without a code change. The full set of hosts classified as
+ * marketing (including `www.nemar.org` and `ww2.nemar.org`) lives in the
+ * private `MARKETING_HOSTS` Set below — renaming this constant does NOT
+ * rename the others.
  */
 export const MARKETING_HOST = "nemar.org";
 
@@ -82,7 +85,9 @@ export function isAppRoute(pathname: string): boolean {
  * redirects always go to `MARKETING_BASE_URL` (so a user on
  * `ww2.nemar.org/dashboard` lands on `app.nemar.org/dashboard`, and a user
  * on `app.nemar.org/discover` lands on `ww2.nemar.org/discover` today /
- * `nemar.org/discover` after cutover).
+ * `nemar.org/discover` after cutover). Callers are responsible for the
+ * 301 vs 307 status-code choice based on request method — this function
+ * only computes the Location URL.
  */
 export function getCrossHostRedirect(url: URL): string | null {
   const mode = hostMode(url.hostname);

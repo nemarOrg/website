@@ -2,6 +2,7 @@
 import CookieNotice from "../components/CookieNotice.astro";
 import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
+import { APP_HOST, MARKETING_BASE_URL, hostMode } from "../lib/host";
 import "../styles/global.css";
 
 interface Props {
@@ -29,8 +30,13 @@ const {
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
 const fullTitle = `${title}${titleSuffix}`;
 
-// Build absolute URLs for OG / canonical. Astro.site is set in astro.config.
-const siteOrigin = Astro.site?.origin ?? "https://nemar.org";
+// Build absolute URLs for OG / canonical against the host actually serving
+// this request. The same build runs on `ww2.nemar.org` (marketing today)
+// and `app.nemar.org`, so a static `Astro.site` value would lie. Falling
+// back to `MARKETING_BASE_URL` covers single-host preview deploys where
+// hostMode() returns "single".
+const reqHost = Astro.url.hostname;
+const siteOrigin = hostMode(reqHost) === "app" ? `https://${APP_HOST}` : MARKETING_BASE_URL;
 const canonicalUrl = new URL(Astro.url.pathname, siteOrigin).toString();
 const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrigin).toString();
 ---

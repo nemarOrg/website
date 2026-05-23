@@ -102,6 +102,13 @@ describe("getCrossHostRedirect", () => {
     );
   });
 
+  it("redirects app paths from the www.nemar.org alias too", () => {
+    expect(getCrossHostRedirect(url(`www.${MARKETING_HOST}`, "/dashboard"))).toBe(
+      `https://${APP_HOST}/dashboard`,
+    );
+    expect(getCrossHostRedirect(url(`www.${MARKETING_HOST}`, "/discover"))).toBeNull();
+  });
+
   it("redirects marketing paths from app host to the live marketing base URL", () => {
     expect(getCrossHostRedirect(url(APP_HOST, "/discover"))).toBe(`${MARKETING_BASE_URL}/discover`);
     expect(getCrossHostRedirect(url(APP_HOST, "/dataset/nm000103"))).toBe(
