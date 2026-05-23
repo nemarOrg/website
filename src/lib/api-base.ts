@@ -19,6 +19,28 @@ export function apiBase(): string {
 }
 
 /**
+ * Resolve the base URL for a cookie-authenticated client call.
+ *
+ * - **SSR** (`init.cookieHeader` passed): use `apiBase()` direct so the
+ *   worker → api.nemar.org hop is just one network call. The caller has
+ *   already attached the cookie to the upstream request via the explicit
+ *   `Cookie` header.
+ * - **Browser** (no `cookieHeader`): use the same-origin `/api/v1` proxy
+ *   defined at `src/pages/api/v1/[...path].ts`. The `Domain=app.nemar.org`
+ *   session cookie attaches automatically (same-origin), and the worker
+ *   forwards it to api.nemar.org server-side.
+ *
+ * The split exists because the session cookie is deliberately scoped
+ * `Domain=app.nemar.org`. Broadening to `.nemar.org` would fix the
+ * client-side path trivially but would leak the cookie to every
+ * `*.nemar.org` host. The proxy keeps the cookie narrow while still
+ * letting browser-side dashboard mutations authenticate.
+ */
+export function dashboardApiBase(cookieHeader?: string): string {
+  return cookieHeader ? apiBase() : "/api/v1";
+}
+
+/**
  * Parses the backend's error envelope. Used by every lib client when a
  * fetch returns non-OK. Returns `{}` for non-JSON / empty bodies so the
  * caller can still build a useful `DashboardApiError` from the status code.

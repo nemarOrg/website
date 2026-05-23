@@ -65,7 +65,7 @@ describe("isAdminActionable", () => {
 describe("listPublicationRequests", () => {
   it("hits /admin/publish/requests with no query when filter is empty", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/admin/publish/requests");
+      expect(url).toBe("/api/v1/admin/publish/requests");
       expect(init.credentials).toBe("include");
       return new Response(JSON.stringify({ requests: [], count: 0 }), {
         status: 200,
@@ -78,7 +78,7 @@ describe("listPublicationRequests", () => {
 
   it("appends ?status= when provided", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
-      expect(url).toBe("https://api.nemar.org/admin/publish/requests?status=requested");
+      expect(url).toBe("/api/v1/admin/publish/requests?status=requested");
       return new Response(JSON.stringify({ requests: [], count: 0 }), { status: 200 });
     }) as unknown as typeof fetch;
     await listPublicationRequests({ status: "requested" }, { fetch: fakeFetch });
@@ -104,7 +104,7 @@ describe("listPublicationRequests", () => {
 describe("approvePublicationRequest", () => {
   it("POSTs to /admin/publish/:id/approve", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/admin/publish/nm-xyz/approve");
+      expect(url).toBe("/api/v1/admin/publish/nm-xyz/approve");
       expect(init.method).toBe("POST");
       expect(init.credentials).toBe("include");
       return new Response(
@@ -128,7 +128,7 @@ describe("approvePublicationRequest", () => {
 describe("denyPublicationRequest", () => {
   it("POSTs to /admin/publish/:id/deny with the reason body", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("https://api.nemar.org/admin/publish/nm-xyz/deny");
+      expect(url).toBe("/api/v1/admin/publish/nm-xyz/deny");
       expect(init.body).toBe(JSON.stringify({ reason: "BIDS validation failing" }));
       return new Response(
         JSON.stringify({

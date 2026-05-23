@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { copySetCookies, readError } from "./api-base";
+import { copySetCookies, dashboardApiBase, readError } from "./api-base";
 
 describe("readError", () => {
   it("extracts code + message from a well-formed error body", async () => {
@@ -68,5 +68,17 @@ describe("copySetCookies", () => {
     const dest = new Headers();
     expect(copySetCookies(src, dest)).toBe(true);
     expect(dest.get("set-cookie")).toBe("session=abc; Path=/");
+  });
+});
+
+describe("dashboardApiBase", () => {
+  it("returns the same-origin /api/v1 proxy when no cookieHeader is passed (browser path)", () => {
+    expect(dashboardApiBase()).toBe("/api/v1");
+    expect(dashboardApiBase(undefined)).toBe("/api/v1");
+    expect(dashboardApiBase("")).toBe("/api/v1");
+  });
+
+  it("returns apiBase() direct when cookieHeader is provided (SSR path)", () => {
+    expect(dashboardApiBase("nemar_session=abc")).toBe("https://api.nemar.org");
   });
 });

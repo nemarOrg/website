@@ -1,8 +1,11 @@
 /**
  * Collaborators API client: list per-dataset collaborators and invite a new
- * one. Calls `api.nemar.org/datasets/:id/{collaborators,invite}` directly.
+ * one. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
+ * browser callers go through the same-origin `/api/v1` proxy (see
+ * `dashboardApiBase` in `./api-base.ts`) so the session cookie attaches
+ * automatically without broadening it to other `*.nemar.org` hosts.
  */
-import { apiBase, readError } from "./api-base";
+import { dashboardApiBase, readError } from "./api-base";
 import type { AuthSession } from "./auth";
 import { DashboardApiError } from "./dashboard-api";
 import type { Dataset } from "./types";
@@ -29,7 +32,7 @@ export async function listCollaborators(
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${apiBase()}/datasets/${encodeURIComponent(datasetId)}/collaborators`,
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(datasetId)}/collaborators`,
     { method: "GET", headers, credentials: "include", signal: init.signal },
   );
   if (!res.ok) {
@@ -56,13 +59,16 @@ export async function inviteCollaborator(
   init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
 ): Promise<InviteResponse> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`${apiBase()}/datasets/${encodeURIComponent(datasetId)}/invite`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ username }),
-    signal: init.signal,
-  });
+  const res = await fetchImpl(
+    `${dashboardApiBase()}/datasets/${encodeURIComponent(datasetId)}/invite`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ username }),
+      signal: init.signal,
+    },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
