@@ -1,5 +1,8 @@
 ---
 import DocsLayout from "../../components/DocsLayout.astro";
+import { appUrl } from "../../lib/host";
+
+const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
 ---
 
 <DocsLayout
@@ -34,7 +37,7 @@ nemar auth signup`}</code></pre>
   <h2>Signing in</h2>
   <p>
     Once your account is approved, sign in at the
-    <a href="/login">login page</a>: enter your email, NEMAR sends a 6-digit code,
+    <a href={loginHref}>login page</a>: enter your email, NEMAR sends a 6-digit code,
     and you land on your dashboard. No password.
   </p>
   <p>

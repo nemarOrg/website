@@ -1,5 +1,7 @@
+import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
-import { isPublicCacheable, parseAuthMeResponse } from "./middleware";
+import { APP_HOST, MARKETING_HOST } from "./lib/host";
+import { isPublicCacheable, onRequest, parseAuthMeResponse } from "./middleware";
 
 describe("isPublicCacheable", () => {
   const r = (cc: string | null) =>
@@ -108,5 +110,36 @@ describe("parseAuthMeResponse", () => {
       status: "active",
     });
     expect((out?.user as { admin?: unknown }).admin).toBeUndefined();
+  });
+});
+
+describe("onRequest host dispatch", () => {
+  // Minimal APIContext shim: the redirect short-circuit only touches
+  // `request`, so we don't need cookies / locals / runtime for these paths.
+  function ctx(url: string): APIContext {
+    const request = new Request(url);
+    return { request, locals: {}, cookies: { get: () => undefined } } as unknown as APIContext;
+  }
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  it("301s an app path requested on the marketing host", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe(`https://${APP_HOST}/dashboard`);
+  });
+
+  it("301s a marketing path requested on the app host, preserving query", async () => {
+    const res = await onRequest(ctx(`https://${APP_HOST}/discover?modality=eeg`), passthrough);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe(`https://${MARKETING_HOST}/discover?modality=eeg`);
+  });
+
+  it("passes through in single-host mode (preview / localhost)", async () => {
+    const res = await onRequest(
+      ctx("https://fa9dbfa0.nemar-website.pages.dev/dashboard"),
+      passthrough,
+    );
+    expect(res?.status).toBe(200);
+    expect(await res?.text()).toBe("ok");
   });
 });

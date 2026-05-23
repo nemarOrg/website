@@ -2,19 +2,27 @@ import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
+import { getCrossHostRedirect, hostMode } from "./lib/host";
 
 /**
- * Two responsibilities in one handler:
+ * Three responsibilities in one handler:
  *
- *   1. Read the `nemar_session` cookie, resolve it to a user via
+ *   1. Two-host routing. `nemar.org` and `app.nemar.org` share one Astro
+ *      build but expose different surfaces. Authenticated routes requested
+ *      on the marketing host (and marketing routes requested on the app
+ *      host) get 301'd to the right home. Any other hostname runs in
+ *      single-host mode (localhost, preview *.pages.dev) with no redirect,
+ *      so QA against a preview URL doesn't need both domains wired up.
+ *
+ *   2. Read the `nemar_session` cookie, resolve it to a user via
  *      `GET ${apiBase}/auth/me`, and stash the result on
- *      `context.locals.session`. The backend owns cookie verification and
- *      renewal; this just trusts the backend's `/auth/me` answer. In
- *      `astro dev` mode the cookie may have been issued by the local dev
- *      mock; we verify that against the dev HMAC secret first to save a
- *      network round-trip.
+ *      `context.locals.session`. Skipped on the marketing host so anonymous
+ *      traffic never pays the round-trip and a stale wildcard cookie can't
+ *      accidentally personalize a cacheable response. In `astro dev` mode
+ *      the cookie may have been issued by the local dev mock; that path
+ *      verifies against the dev HMAC secret first.
  *
- *   2. Edge-cache GETs for unauthenticated traffic via Cloudflare's
+ *   3. Edge-cache GETs for unauthenticated traffic via Cloudflare's
  *      `caches.default`. Authenticated traffic skips the cache entirely so
  *      personalized responses (e.g. the Nav's UserMenu) don't get served to
  *      anonymous visitors out of the edge.
@@ -25,7 +33,21 @@ import { verifyDevSession } from "./lib/auth-dev";
  * (every authed request runs middleware).
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
-  await applySession(context);
+  const url = new URL(context.request.url);
+
+  const redirectTarget = getCrossHostRedirect(url);
+  if (redirectTarget) {
+    return new Response(null, {
+      status: 301,
+      headers: { Location: redirectTarget, "Cache-Control": "public, max-age=300" },
+    });
+  }
+
+  if (hostMode(url.hostname) === "marketing") {
+    context.locals.session = null;
+  } else {
+    await applySession(context);
+  }
 
   const request = context.request;
   if (request.method !== "GET") return next();

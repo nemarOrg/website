@@ -1,5 +1,8 @@
 ---
 import DocsLayout from "../../components/DocsLayout.astro";
+import { appUrl } from "../../lib/host";
+
+const dashboardHref = appUrl("/dashboard", new URL(Astro.request.url).hostname);
 ---
 
 <DocsLayout
@@ -8,7 +11,7 @@ import DocsLayout from "../../components/DocsLayout.astro";
   active="managing-datasets"
 >
   <p>
-    The <a href="/dashboard">dashboard</a> is your home base. Every dataset you own appears
+    The <a href={dashboardHref}>dashboard</a> is your home base. Every dataset you own appears
     there, sorted by most recently updated. This page is the dashboard tour in written form, 
     handy if you dismissed the on-screen tour or want a reference.
   </p>

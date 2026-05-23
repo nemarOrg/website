@@ -14,6 +14,12 @@
 
 **Deploy target:** Cloudflare Pages, project `nemar-website` on the SCCN Cloudflare account. Production branch is currently `feature/issue-1-epic-nemar-redesign` until Phase 5 cutover, then swaps to `main`.
 
+**Two custom domains, one build:**
+- `nemar.org` — public marketing surface (anonymous, cacheable). Skips `/auth/me` entirely.
+- `app.nemar.org` — authenticated surface (cookie-scoped to this host, no edge cache).
+
+`src/middleware.ts` reads `Astro.url.hostname` and 301-redirects mismatches across the two production hosts (e.g. `/dashboard` on `nemar.org` → `https://app.nemar.org/dashboard`). Anything else (localhost, `*.pages.dev` previews) runs in single-host mode with no redirects so QA stays cheap. Route classification lives in `src/lib/host.ts`. The session cookie is host-only on `app.nemar.org` (NOT `.nemar.org`) so it never leaks to `data.nemar.org`, `api.nemar.org`, or `docs.nemar.org`. **Cloudflare Pages dashboard:** both custom domains must be attached to the `nemar-website` Pages project (Settings → Custom domains → add `app.nemar.org`).
+
 **Architecture:** Server-rendered Astro pages at the Worker edge. Three backend services are reused, never reimplemented:
 - `api.nemar.org/datasets` — D1-backed catalog list + per-id catalog row
 - `data.nemar.org/<id>/metadata.json` — neuroschema v0.3.0 doc

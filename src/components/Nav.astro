@@ -1,10 +1,16 @@
 ---
 import { getSession } from "../lib/auth";
+import { appUrl, hostMode, marketingUrl } from "../lib/host";
 import Brand from "./Brand.astro";
 import ThemeToggle from "./ThemeToggle.astro";
 import UserMenu from "./UserMenu.astro";
 
-const links = [
+const url = new URL(Astro.request.url);
+const pathname = url.pathname;
+const mode = hostMode(url.hostname);
+const session = getSession(Astro.locals);
+
+const marketingLinks = [
   { href: "/about", label: "About" },
   { href: "/discover", label: "Discover" },
   { href: "/citation-dashboard", label: "Citation Dashboard" },
@@ -13,8 +19,17 @@ const links = [
   { href: "/support", label: "Support" },
 ];
 
-const pathname = new URL(Astro.request.url).pathname;
-const session = getSession(Astro.locals);
+// On the app host the primary nav collapses to a single cross-host link
+// back to the public surface so the authed shell stays focused. Single-host
+// mode (dev, *.pages.dev previews) keeps the full marketing nav so a QA
+// against one URL still sees every link.
+const links =
+  mode === "app"
+    ? [{ href: marketingUrl("/discover", url.hostname), label: "Explore datasets" }]
+    : marketingLinks;
+
+const showUserMenu = mode !== "marketing";
+const signInHref = appUrl("/login", url.hostname);
 ---
 
 <header class="site-header">
@@ -38,7 +53,13 @@ const session = getSession(Astro.locals);
     </nav>
     <div class="site-header__actions">
       <ThemeToggle />
-      <UserMenu session={session} />
+      {
+        showUserMenu ? (
+          <UserMenu session={session} />
+        ) : (
+          <a class="site-header__signin" href={signInHref}>Sign in</a>
+        )
+      }
     </div>
     <button
       class="nav-toggle"
@@ -108,6 +129,24 @@ const session = getSession(Astro.locals);
     display: flex;
     gap: var(--space-2);
     align-items: center;
+  }
+  .site-header__signin {
+    min-block-size: 40px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 var(--space-5);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    background: transparent;
+    text-decoration: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .site-header__signin:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
   }
   .nav-toggle {
     display: none;
