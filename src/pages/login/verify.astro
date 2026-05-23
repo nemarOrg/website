@@ -497,17 +497,24 @@ const masked = maskEmail(emailRaw);
     const loginHref =
       nextPath && nextPath !== "/" ? `/login?next=${encodeURIComponent(nextPath)}` : "/login";
 
+    // Hoist non-null references so the closure doesn't lose TS narrowing.
+    // The outer `if (form && codeEl && submitEl && errorEl && cells.length === 6)`
+    // already guarantees these are non-null here.
+    const errorElLocal = errorEl;
+    const submitElLocal = submitEl;
+
     function showError(message: string, withSignupHint = false): void {
-      if (!errorEl || !submitEl) return;
-      // innerHTML is safe here: every value below is a hardcoded literal.
-      // No interpolation from user input or backend response bodies.
+      // `message` and the hint URL are hardcoded literals. `loginHref` is
+      // derived from `nextPath` (form dataset) but is safely URL-encoded via
+      // encodeURIComponent above, which percent-encodes any HTML-special
+      // characters including `"` and `<`. So innerHTML is XSS-safe here.
       const tryAgainLink = ` <a class="verify__error-link" href="${loginHref}">Try again</a>.`;
       const signupHint = withSignupHint
         ? `<br /><span class="verify__error-hint">Not registered? <a class="verify__error-link" href="https://docs.nemar.org" rel="noopener" target="_blank">Sign up via the NEMAR CLI</a>.</span>`
         : "";
-      errorEl.innerHTML = message + tryAgainLink + signupHint;
-      errorEl.hidden = false;
-      submitEl.disabled = false;
+      errorElLocal.innerHTML = message + tryAgainLink + signupHint;
+      errorElLocal.hidden = false;
+      submitElLocal.disabled = false;
     }
 
     form.addEventListener("submit", async (e) => {
@@ -542,8 +549,14 @@ const masked = maskEmail(emailRaw);
             showError(
               "Your account isn't active. Contact support if this is unexpected.",
             );
+          } else if (res.status === 429) {
+            showError("Too many attempts. Wait a few minutes before trying again.");
           } else if (res.status === 400) {
-            showError("The code must be 6 digits.");
+            // 400 covers both invalid email and invalid code format. The
+            // pre-submit `/^\d{6}$/` check rules out most code-format slips,
+            // so the realistic cause is an email problem upstream. Keep the
+            // message generic and route the user back to step 1.
+            showError("Something was wrong with the request. Start over.");
           } else {
             showError("Couldn't verify right now. Try again in a moment.");
           }
@@ -563,7 +576,12 @@ const masked = maskEmail(emailRaw);
           /* localStorage may be unavailable; default to showing welcome. */
         }
         location.href = firstVisit ? "/welcome" : nextPath || "/";
-      } catch {
+      } catch (err) {
+        // `fetch()` rejects on network failures, but `res.json()` parse
+        // failures and any JS thrown inside the `if (!res.ok)` block also
+        // land here. Log so non-network errors don't masquerade as a
+        // missing-connection message in the user's debugging session.
+        console.error("[verify] unexpected error", err);
         showError("Network error. Check your connection.");
       }
     });
