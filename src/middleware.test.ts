@@ -55,7 +55,7 @@ describe("parseAuthMeResponse", () => {
     expect(parseAuthMeResponse({ user: "not-an-object" })).toBeNull();
   });
 
-  it("returns null when `id` is empty or non-string", () => {
+  it("returns null when `id` is empty, null, or a non-finite number", () => {
     expect(
       parseAuthMeResponse({
         user: { id: "", email: "a@b.com", role: "user", status: "active" },
@@ -63,9 +63,29 @@ describe("parseAuthMeResponse", () => {
     ).toBeNull();
     expect(
       parseAuthMeResponse({
-        user: { id: 42, email: "a@b.com", role: "user", status: "active" },
+        user: { id: null, email: "a@b.com", role: "user", status: "active" },
       }),
     ).toBeNull();
+    expect(
+      parseAuthMeResponse({
+        user: { id: Number.NaN, email: "a@b.com", role: "user", status: "active" },
+      }),
+    ).toBeNull();
+  });
+
+  it("coerces a numeric id to string (backend's INTEGER PRIMARY KEY shape)", () => {
+    const out = parseAuthMeResponse({
+      user: { id: 42, email: "a@b.com", role: "user", status: "active" },
+    });
+    expect(out?.user.id).toBe("42");
+  });
+
+  it("accepts backend's default role 'member' as the website's 'user' role", () => {
+    const out = parseAuthMeResponse({
+      user: { id: 17, email: "researcher@example.com", role: "member", status: "active" },
+    });
+    expect(out?.user.role).toBe("user");
+    expect(out?.user.id).toBe("17");
   });
 
   it("returns null for unknown role values", () => {

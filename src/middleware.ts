@@ -161,6 +161,15 @@ async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<
 /**
  * Validates the /auth/me response shape at the trust boundary. Anything
  * malformed becomes null rather than coercing through a runtime cast.
+ *
+ * Normalize-don't-reject at this boundary: the backend ships `id` as a
+ * number (INTEGER PRIMARY KEY) and uses `"member"` as the default role.
+ * Earlier versions of this parser strictly required string ids and a
+ * `"user" | "admin"` role, which silently rejected every valid sign-in.
+ * Now we coerce id to string and map `"member"` to the website's `"user"`
+ * role; anything else (unknown role string, malformed object) still
+ * returns null.
+ *
  * Exported for the middleware unit tests.
  */
 export function parseAuthMeResponse(raw: unknown): AuthSession | null {
@@ -169,20 +178,32 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   const u = body.user;
   if (!u || typeof u !== "object") return null;
   const user = u as Record<string, unknown>;
-  if (typeof user.id !== "string" || user.id.length === 0) return null;
-  if (typeof user.email !== "string") return null;
-  if (user.role !== "user" && user.role !== "admin") return null;
+
+  let id: string;
+  if (typeof user.id === "string" && user.id.length > 0) {
+    id = user.id;
+  } else if (typeof user.id === "number" && Number.isFinite(user.id)) {
+    id = String(user.id);
+  } else {
+    return null;
+  }
+
+  if (typeof user.email !== "string" || user.email.length === 0) return null;
+
+  let role: "user" | "admin";
+  if (user.role === "admin") {
+    role = "admin";
+  } else if (user.role === "user" || user.role === "member") {
+    role = "user";
+  } else {
+    return null;
+  }
+
   if (user.status !== "active" && user.status !== "pending" && user.status !== "disabled") {
     return null;
   }
-  return {
-    user: {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      status: user.status,
-    },
-  };
+
+  return { user: { id, email: user.email, role, status: user.status } };
 }
 
 export function isPublicCacheable(response: Response): boolean {
