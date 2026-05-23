@@ -17,7 +17,7 @@ if (!isValidEmail(emailRaw)) {
 const masked = maskEmail(emailRaw);
 ---
 
-<Base title="Enter your code" description="Enter the 6-digit code we just emailed you.">
+<Base title="Enter your code" description="Enter the 6-digit code from your email.">
   <section class="verify">
     <div class="verify__atmosphere" aria-hidden="true"></div>
 
@@ -40,7 +40,8 @@ const masked = maskEmail(emailRaw);
         <p class="verify__eyebrow">Step 2 of 2</p>
         <h1 class="verify__title">Enter your code</h1>
         <p class="verify__lede">
-          We sent a 6-digit code to <strong>{masked}</strong>. It expires in 10 minutes.
+          If your email is registered, a 6-digit code is on the way to
+          <strong>{masked}</strong>. It expires in 10 minutes.
         </p>
       </header>
 
