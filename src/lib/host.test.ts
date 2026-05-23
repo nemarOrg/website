@@ -52,6 +52,10 @@ describe("isAppRoute", () => {
     "/api/auth/logout",
     "/api/admin",
     "/api/admin/publication-requests",
+    "/api/v1",
+    "/api/v1/datasets",
+    "/api/v1/datasets/nm000103",
+    "/api/v1/admin/publish/requests",
     "/dataset/nm000103/collaborators",
     "/dataset/nm000103/collaborators/",
   ])("treats %s as app", (path) => {

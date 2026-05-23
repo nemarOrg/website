@@ -56,6 +56,12 @@ const APP_ROUTE_PREFIXES: readonly string[] = [
   "/settings",
   "/api/auth",
   "/api/admin",
+  // Same-origin proxy for cookie-authenticated dashboard mutations
+  // (issue #59). Lives only on the app host because the cookie scope is
+  // `Domain=app.nemar.org`; if marketing classified this prefix, the
+  // middleware would 301 browser-side dashboard calls away from app and
+  // break the proxy entirely.
+  "/api/v1",
 ];
 
 const DATASET_COLLABORATORS_RE = /^\/dataset\/[^/]+\/collaborators\/?$/;
