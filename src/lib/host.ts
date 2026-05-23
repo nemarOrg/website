@@ -36,8 +36,10 @@ const DATASET_COLLABORATORS_RE = /^\/dataset\/[^/]+\/collaborators\/?$/;
 export type HostMode = "app" | "marketing" | "single";
 
 export function hostMode(hostname: string): HostMode {
-  if (APP_HOSTS.has(hostname)) return "app";
-  if (MARKETING_HOSTS.has(hostname)) return "marketing";
+  // Browsers normalize Host to lowercase, but proxies and tests don't always.
+  const h = hostname.toLowerCase();
+  if (APP_HOSTS.has(h)) return "app";
+  if (MARKETING_HOSTS.has(h)) return "marketing";
   return "single";
 }
 
@@ -76,8 +78,8 @@ export function appUrl(pathname: string, currentHostname: string): string {
 
 /**
  * Mirror of `appUrl` for the marketing host. Returns an absolute
- * `https://nemar.org/...` URL when called from the app host, relative
- * otherwise.
+ * `https://nemar.org/...` URL when called from the app host, relative when
+ * already on the marketing host or in single-host mode.
  */
 export function marketingUrl(pathname: string, currentHostname: string): string {
   return hostMode(currentHostname) === "app" ? `https://${MARKETING_HOST}${pathname}` : pathname;

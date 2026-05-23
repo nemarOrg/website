@@ -24,6 +24,12 @@ describe("hostMode", () => {
     expect(hostMode("127.0.0.1")).toBe("single");
     expect(hostMode("fa9dbfa0.nemar-website.pages.dev")).toBe("single");
   });
+
+  it("normalizes uppercase host headers (browsers do this, proxies sometimes don't)", () => {
+    expect(hostMode(APP_HOST.toUpperCase())).toBe("app");
+    expect(hostMode("App.Nemar.Org")).toBe("app");
+    expect(hostMode(MARKETING_HOST.toUpperCase())).toBe("marketing");
+  });
 });
 
 describe("isAppRoute", () => {
@@ -40,6 +46,8 @@ describe("isAppRoute", () => {
     "/settings",
     "/api/auth/code/request",
     "/api/auth/logout",
+    "/api/admin",
+    "/api/admin/publication-requests",
     "/dataset/nm000103/collaborators",
     "/dataset/nm000103/collaborators/",
   ])("treats %s as app", (path) => {

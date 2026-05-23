@@ -28,18 +28,25 @@ import { getCrossHostRedirect, hostMode } from "./lib/host";
  *      anonymous visitors out of the edge.
  *
  * The cache key is the full request URL, so query-string filters on /discover
- * get their own entries. Authenticated requests fan out one extra HTTP call
- * to /auth/me; that overhead is acceptable since the cache is bypassed anyway
- * (every authed request runs middleware).
+ * get their own entries. App-host requests fan out one extra HTTP call to
+ * /auth/me; that overhead is acceptable since the cache is bypassed for
+ * authed traffic anyway. Marketing-host requests never call /auth/me
+ * regardless of any cookies present.
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(context.request.url);
 
   const redirectTarget = getCrossHostRedirect(url);
   if (redirectTarget) {
+    // 307 preserves method + body on POST/PUT/DELETE; 301 is fine for GET/HEAD
+    // navigation. No Cache-Control: browser redirect cache is plenty, and
+    // CDN-caching the redirect would pin clients to the wrong host if we ever
+    // re-balance the route split.
+    const method = context.request.method;
+    const status = method === "GET" || method === "HEAD" ? 301 : 307;
     return new Response(null, {
-      status: 301,
-      headers: { Location: redirectTarget, "Cache-Control": "public, max-age=300" },
+      status,
+      headers: { Location: redirectTarget },
     });
   }
 
