@@ -19,6 +19,12 @@ const PUBLISHED_CACHE = "public, max-age=300, s-maxage=600, stale-while-revalida
 // HTML for hours after a real release. 60s s-maxage + 300s SWR caps the
 // staleness window without hammering origin.
 const UNPUBLISHED_CACHE = "public, max-age=60, s-maxage=60, stale-while-revalidate=300";
+// Once landing reports a published version we expect a manifest to exist; a
+// missing one is a transient upstream symptom (cold-isolate fetch timeout,
+// data.nemar.org 5xx, summary slow-path stall) — not a state we should pin
+// at the edge. `no-store` keeps the failure local to the one unlucky request
+// instead of broadcasting it via s-maxage + SWR. Issue #53.
+const FALLBACK_CACHE = "no-store";
 
 /**
  * `GET /api/dataset/<id>/tree?v=<version>` — returns the rendered BIDS
@@ -76,6 +82,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     summary !== null && Array.isArray(summary.paths) && summary.paths.length > 0;
 
   let html: string;
+  let fellBackToEmpty = false;
   if (summaryUsable) {
     html = renderBidsTree(buildTreeFromPaths(summary.paths), basePath);
   } else {
@@ -85,14 +92,19 @@ export const GET: APIRoute = async ({ params, request }) => {
       console.warn(`[tree/${id}] summary present but paths empty; falling back to manifest`);
     }
     const manifest = await getManifest(id, version, { timeoutMs: 5_000 });
-    html = manifest ? renderBidsTree(buildTree(manifest), basePath) : renderNoManifest(version);
+    if (manifest) {
+      html = renderBidsTree(buildTree(manifest), basePath);
+    } else {
+      html = renderNoManifest(version);
+      fellBackToEmpty = true;
+    }
   }
 
   return new Response(html, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": PUBLISHED_CACHE,
+      "Cache-Control": fellBackToEmpty ? FALLBACK_CACHE : PUBLISHED_CACHE,
     },
   });
 };
