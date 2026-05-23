@@ -190,8 +190,12 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
 
   if (typeof user.email !== "string" || user.email.length === 0) return null;
 
+  // Backend ships UserRole = "owner" | "admin" | "member" (hierarchy
+  // owner > admin > member). The website only has "admin" vs "user", so
+  // `"owner"` collapses to `"admin"` (full admin UI) and `"member"` /
+  // `"user"` collapse to `"user"`. Anything else returns null.
   let role: "user" | "admin";
-  if (user.role === "admin") {
+  if (user.role === "owner" || user.role === "admin") {
     role = "admin";
   } else if (user.role === "user" || user.role === "member") {
     role = "user";

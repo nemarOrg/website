@@ -88,6 +88,13 @@ describe("parseAuthMeResponse", () => {
     expect(out?.user.id).toBe("17");
   });
 
+  it("accepts backend's 'owner' role and maps to website's 'admin' (full admin UI)", () => {
+    const out = parseAuthMeResponse({
+      user: { id: 1, email: "founder@example.com", role: "owner", status: "active" },
+    });
+    expect(out?.user.role).toBe("admin");
+  });
+
   it("returns null for unknown role values", () => {
     expect(
       parseAuthMeResponse({
