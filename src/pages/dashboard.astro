@@ -276,6 +276,10 @@ const pendingNotice =
     bad_content_type: "Couldn't process the request. Refresh and try again.",
     unauthenticated: "Sign in again to continue.",
     internal_error: "Server error. Try again in a moment.",
+    // Returned by /api/v1/* when the upstream api.nemar.org fetch throws
+    // (network failure, DNS, Worker-to-backend disruption). Distinct from
+    // a backend 502 — this one is the worker → backend hop failing.
+    upstream_unreachable: "Can't reach the dataset service. Try again in a moment.",
   };
 
   function friendlyError(err: unknown): string {

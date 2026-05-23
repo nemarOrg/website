@@ -56,14 +56,19 @@ export interface InviteResponse {
 export async function inviteCollaborator(
   datasetId: string,
   username: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<InviteResponse> {
   const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${dashboardApiBase()}/datasets/${encodeURIComponent(datasetId)}/invite`,
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(datasetId)}/invite`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers,
       credentials: "include",
       body: JSON.stringify({ username }),
       signal: init.signal,

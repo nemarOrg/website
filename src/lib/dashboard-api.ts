@@ -170,14 +170,19 @@ export async function getPublishStatus(
 
 export async function requestPublication(
   id: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<PublicationStatus> {
   const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${dashboardApiBase()}/datasets/${encodeURIComponent(id)}/publish/request`,
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(id)}/publish/request`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers,
       credentials: "include",
       body: "{}",
       signal: init.signal,
@@ -196,16 +201,24 @@ export async function requestPublication(
 
 export async function deleteDraftDataset(
   id: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<{ ok: true }> {
   const fetchImpl = init.fetch ?? fetch;
-  const res = await fetchImpl(`${dashboardApiBase()}/datasets/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    credentials: "include",
-    body: "{}",
-    signal: init.signal,
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers,
+      credentials: "include",
+      body: "{}",
+      signal: init.signal,
+    },
+  );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(

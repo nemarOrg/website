@@ -61,14 +61,19 @@ export async function listPublicationRequests(
 
 export async function approvePublicationRequest(
   datasetId: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<{ status: PublicationStatus }> {
   const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${dashboardApiBase()}/admin/publish/${encodeURIComponent(datasetId)}/approve`,
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/approve`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers,
       credentials: "include",
       body: "{}",
       signal: init.signal,
@@ -88,18 +93,23 @@ export async function approvePublicationRequest(
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch } = {},
+  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
 ): Promise<{ status: PublicationStatus }> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
     throw new DashboardApiError("Deny requires a non-empty reason", 0, "missing_field");
   }
   const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${dashboardApiBase()}/admin/publish/${encodeURIComponent(datasetId)}/deny`,
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/deny`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers,
       credentials: "include",
       body: JSON.stringify({ reason: trimmed }),
       signal: init.signal,

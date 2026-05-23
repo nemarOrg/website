@@ -38,4 +38,19 @@ describe("isSafeProxyPath", () => {
     // crafted path like `foo/https://evil.example` concatenated onto the
     // upstream base would otherwise become a URL with a different host.
   });
+
+  it("rejects userinfo-style `@` in path", () => {
+    // `evil.example@api.nemar.org/datasets` could be reinterpreted by
+    // some URL parsers as authority `evil.example` with userinfo
+    // `api.nemar.org`. Whether `fetch` would honor that is uncertain;
+    // we belt-and-braces reject `@` entirely.
+    expect(isSafeProxyPath("datasets@evil.example/foo")).toBe(false);
+    expect(isSafeProxyPath("evil.example@api.nemar.org/datasets")).toBe(false);
+  });
+
+  it("rejects double-slash sequences that would produce malformed upstream URLs", () => {
+    expect(isSafeProxyPath("datasets//")).toBe(false);
+    expect(isSafeProxyPath("datasets//foo")).toBe(false);
+    expect(isSafeProxyPath("admin//publish/requests")).toBe(false);
+  });
 });

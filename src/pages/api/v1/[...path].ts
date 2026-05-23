@@ -36,15 +36,27 @@ const FORWARD_REQUEST_HEADERS = [
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);
 
 /**
- * Reject paths that could redirect the upstream fetch off api.nemar.org.
- * The path comes from a `[...path]` capture, so it can never be empty when
- * the route matches; the empty check is a belt-and-braces guard.
+ * Reject paths that could redirect the upstream fetch off api.nemar.org
+ * or produce a malformed upstream URL. The path comes from a `[...path]`
+ * capture, so it can never be empty when the route matches; the empty
+ * check is a belt-and-braces guard.
+ *
+ * - `..` blocks traversal segments.
+ * - `://` blocks scheme injection.
+ * - `@` blocks userinfo-style URL fragments that could be reinterpreted
+ *   by an upstream URL parser as a different authority.
+ * - `//` blocks double-slash sequences that produce confusing upstream
+ *   URLs (`https://api.nemar.org//datasets//`) and 4xxs that look like
+ *   route bugs.
+ * - A leading `/` is also rejected (would produce `${apiBase()}//path`).
  */
 export function isSafeProxyPath(path: string | undefined): path is string {
   if (!path) return false;
   if (path.startsWith("/")) return false;
   if (path.includes("..")) return false;
   if (path.includes("://")) return false;
+  if (path.includes("@")) return false;
+  if (path.includes("//")) return false;
   return true;
 }
 
@@ -90,11 +102,16 @@ const proxy: APIRoute = async ({ params, request }) => {
   // wrong encoding. Set-Cookie matters when the upstream issues or
   // refreshes a session (e.g. sliding /auth/me); copy via the helper that
   // preserves multi-value cookies.
+  //
+  // Cache-Control is NOT forwarded from upstream. `/api/v1/*` serves
+  // authenticated content by design; even a misconfigured upstream that
+  // returns `Cache-Control: public, max-age=60` on a /datasets?mine=true
+  // response must not let the edge cache replay that body to another
+  // anonymous visitor. Hardcoding `no-store` here is the safe default.
   const respHeaders = new Headers();
   const contentType = upstream.headers.get("content-type");
   if (contentType) respHeaders.set("Content-Type", contentType);
-  const cacheControl = upstream.headers.get("cache-control");
-  if (cacheControl) respHeaders.set("Cache-Control", cacheControl);
+  respHeaders.set("Cache-Control", "no-store");
   copySetCookies(upstream, respHeaders);
 
   return new Response(upstream.body, { status: upstream.status, headers: respHeaders });
