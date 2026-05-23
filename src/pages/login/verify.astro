@@ -401,6 +401,24 @@ const masked = maskEmail(emailRaw);
     font-size: var(--fs-sm);
     text-align: center;
   }
+  .verify__error-link {
+    color: var(--color-danger);
+    text-decoration: underline;
+    font-weight: var(--fw-medium);
+  }
+  .verify__error-link:hover {
+    text-decoration: none;
+  }
+  .verify__error-hint {
+    display: inline-block;
+    margin-block-start: var(--space-2);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .verify__error-hint .verify__error-link {
+    color: var(--color-link);
+    font-weight: var(--fw-regular);
+  }
 
   .verify__foot {
     margin-block-start: var(--space-6);
@@ -474,12 +492,29 @@ const masked = maskEmail(emailRaw);
     codeEl.focus();
     syncCells(true);
 
+    // Build the "back to login" href once. Honors the `next` query param so
+    // a deep-linked sign-in flow still returns to the right page after retry.
+    const loginHref =
+      nextPath && nextPath !== "/" ? `/login?next=${encodeURIComponent(nextPath)}` : "/login";
+
+    function showError(message: string, withSignupHint = false): void {
+      if (!errorEl || !submitEl) return;
+      // innerHTML is safe here: every value below is a hardcoded literal.
+      // No interpolation from user input or backend response bodies.
+      const tryAgainLink = ` <a class="verify__error-link" href="${loginHref}">Try again</a>.`;
+      const signupHint = withSignupHint
+        ? `<br /><span class="verify__error-hint">Not registered? <a class="verify__error-link" href="https://docs.nemar.org" rel="noopener" target="_blank">Sign up via the NEMAR CLI</a>.</span>`
+        : "";
+      errorEl.innerHTML = message + tryAgainLink + signupHint;
+      errorEl.hidden = false;
+      submitEl.disabled = false;
+    }
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const code = codeEl.value.replace(/\D/g, "");
       if (!/^\d{6}$/.test(code)) {
-        errorEl.textContent = "Enter the 6-digit code from your email.";
-        errorEl.hidden = false;
+        showError("Enter the 6-digit code from your email.");
         return;
       }
       submitEl.disabled = true;
@@ -494,21 +529,24 @@ const masked = maskEmail(emailRaw);
           body: JSON.stringify({ email, code, remember }),
         });
         if (!res.ok) {
-          let detail = "unknown";
-          try {
-            const data = (await res.json()) as { error?: string };
-            if (data?.error) detail = data.error;
-          } catch {
-            /* keep "unknown" */
+          // Map by HTTP status; the backend collapses wrong-code, expired,
+          // and consumed into 401 with a single string. Treat all 401 the
+          // same way (request a new code) and offer the signup hint for
+          // typo'd-email cases that get this far.
+          if (res.status === 401) {
+            showError(
+              "That code didn't match, or it expired. Request a new one.",
+              true,
+            );
+          } else if (res.status === 403) {
+            showError(
+              "Your account isn't active. Contact support if this is unexpected.",
+            );
+          } else if (res.status === 400) {
+            showError("The code must be 6 digits.");
+          } else {
+            showError("Couldn't verify right now. Try again in a moment.");
           }
-          errorEl.textContent =
-            detail === "code_incorrect"
-              ? "That code didn't match. Double-check or request a new one."
-              : detail === "invalid_code_format"
-                ? "The code must be 6 digits."
-                : "Couldn't verify. Try again.";
-          errorEl.hidden = false;
-          submitEl.disabled = false;
           return;
         }
         const data = (await res.json()) as { user?: { status?: string } };
@@ -526,9 +564,7 @@ const masked = maskEmail(emailRaw);
         }
         location.href = firstVisit ? "/welcome" : nextPath || "/";
       } catch {
-        errorEl.textContent = "Network error. Check your connection and try again.";
-        errorEl.hidden = false;
-        submitEl.disabled = false;
+        showError("Network error. Check your connection.");
       }
     });
   }

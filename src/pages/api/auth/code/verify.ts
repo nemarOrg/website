@@ -42,12 +42,20 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   // Production proxy: forward to the real backend, mirror its Set-Cookie.
+  // Forward Origin — the backend's verify endpoint gates on
+  // `isAllowedOrigin` and returns 403 if it's missing; a server-side Worker
+  // fetch doesn't carry one by default.
   const reqBody = await request.text();
+  const origin = request.headers.get("Origin") ?? "https://app.nemar.org";
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/auth/code/verify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Origin: origin,
+      },
       body: reqBody,
     });
   } catch (err) {

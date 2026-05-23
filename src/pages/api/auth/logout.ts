@@ -47,6 +47,9 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const cookie = request.headers.get("cookie") ?? "";
+  // Forward Origin — backend's logout endpoint guards on it (CSRF defense)
+  // and 403s without one. A Worker-side fetch carries none by default.
+  const origin = request.headers.get("Origin") ?? "https://app.nemar.org";
   let res: Response;
   try {
     res = await fetch(`${apiBase()}/auth/logout`, {
@@ -55,6 +58,7 @@ export const POST: APIRoute = async ({ request }) => {
         Cookie: cookie,
         Accept: "application/json",
         "Content-Type": "application/json",
+        Origin: origin,
       },
       body: "{}",
     });
