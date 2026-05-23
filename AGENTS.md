@@ -14,11 +14,12 @@
 
 **Deploy target:** Cloudflare Pages, project `nemar-website` on the SCCN Cloudflare account. Production branch is currently `feature/issue-1-epic-nemar-redesign` until Phase 5 cutover, then swaps to `main`.
 
-**Two custom domains, one build:**
-- `nemar.org` — public marketing surface (anonymous, cacheable). Skips `/auth/me` entirely.
+**Two custom domains on Pages, one build:**
+- `ww2.nemar.org` — beta marketing surface (anonymous, cacheable). Skips `/auth/me` entirely. The redesigned Astro build lives here today.
 - `app.nemar.org` — authenticated surface (cookie-scoped to this host, no edge cache).
+- `nemar.org` (apex) — **still on the legacy F5 origin**, NOT this Pages project. Classified as "marketing" in code so the eventual DNS cutover is a one-line constant flip (`MARKETING_BASE_URL` in `src/lib/host.ts`) plus a redeploy; nothing else changes.
 
-`src/middleware.ts` reads `Astro.url.hostname` and 301-redirects mismatches across the two production hosts (e.g. `/dashboard` on `nemar.org` → `https://app.nemar.org/dashboard`). Anything else (localhost, `*.pages.dev` previews) runs in single-host mode with no redirects so QA stays cheap. Route classification lives in `src/lib/host.ts`. The session cookie is host-only on `app.nemar.org` (NOT `.nemar.org`) so it never leaks to `data.nemar.org`, `api.nemar.org`, or `docs.nemar.org`. **Cloudflare Pages dashboard:** both custom domains must be attached to the `nemar-website` Pages project (Settings → Custom domains → add `app.nemar.org`).
+`src/middleware.ts` reads `Astro.url.hostname` and 301-redirects mismatches across known production hosts (e.g. `/dashboard` on `ww2.nemar.org` → `https://app.nemar.org/dashboard`). Anything else (localhost, `*.pages.dev` previews) runs in single-host mode with no redirects so QA stays cheap. Route classification lives in `src/lib/host.ts`. The session cookie is scoped to `app.nemar.org` so it never leaks to `data.nemar.org`, `api.nemar.org`, or `docs.nemar.org`. **Cloudflare Pages dashboard:** custom domains attached to the `nemar-website` Pages project are `ww2.nemar.org` and `app.nemar.org`; the apex `nemar.org` is not attached yet.
 
 **Architecture:** Server-rendered Astro pages at the Worker edge. Three backend services are reused, never reimplemented:
 - `api.nemar.org/datasets` — D1-backed catalog list + per-id catalog row

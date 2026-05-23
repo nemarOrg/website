@@ -1,12 +1,17 @@
 /**
  * Two-host routing model.
  *
- * `nemar.org` is the public marketing surface; everything anonymous and
- * cacheable lives there. `app.nemar.org` is the authenticated surface;
- * cookies and personalized SSR only happen there. The session cookie is
- * scoped to `app.nemar.org` (host-only) so it never attaches to byte-range
- * fetches against `data.nemar.org`, search hits to `api.nemar.org`, or any
- * future `discuss.nemar.org` traffic.
+ * The authenticated surface is `app.nemar.org`. The marketing surface is
+ * whatever production host serves the Astro build to the public — today
+ * that's `ww2.nemar.org` (beta of the redesign), and after the apex DNS
+ * cutover it'll be `nemar.org`. The apex `nemar.org` is still on a legacy
+ * F5 origin as of 2026-05-23 and is NOT served by this Pages project; we
+ * still classify it as "marketing" so the long-term cutover doesn't need
+ * a code change beyond flipping `MARKETING_BASE_URL` below.
+ *
+ * The session cookie is scoped to `app.nemar.org` so it never attaches to
+ * byte-range fetches against `data.nemar.org`, search hits to
+ * `api.nemar.org`, or any future `discuss.nemar.org` traffic.
  *
  * Any other hostname (localhost, *.pages.dev preview, ad-hoc dev tunnels)
  * runs in "single" mode: no redirects, full nav, normal session lookup.
@@ -15,10 +20,29 @@
  */
 
 export const APP_HOST = "app.nemar.org";
+
+/**
+ * Long-term canonical marketing host. Today `nemar.org` itself is on a
+ * legacy origin so requests there never reach this middleware, but it's
+ * still in the marketing classification set so future DNS cutover lands
+ * cleanly without a code change.
+ */
 export const MARKETING_HOST = "nemar.org";
 
+/**
+ * Where outbound cross-host marketing links and redirects actually
+ * point. Today the redesigned Astro build is live at `ww2.nemar.org`;
+ * once `nemar.org` DNS moves to Pages, change this to
+ * `https://nemar.org` and redeploy. One-line cutover.
+ */
+export const MARKETING_BASE_URL = "https://ww2.nemar.org";
+
 const APP_HOSTS: ReadonlySet<string> = new Set([APP_HOST]);
-const MARKETING_HOSTS: ReadonlySet<string> = new Set([MARKETING_HOST, `www.${MARKETING_HOST}`]);
+const MARKETING_HOSTS: ReadonlySet<string> = new Set([
+  MARKETING_HOST,
+  `www.${MARKETING_HOST}`,
+  "ww2.nemar.org",
+]);
 
 const APP_ROUTE_PREFIXES: readonly string[] = [
   "/login",
@@ -54,7 +78,11 @@ export function isAppRoute(pathname: string): boolean {
  * Returns an absolute URL on the other production host when the path is
  * misrouted, or null when the current host already serves this path. Always
  * null in single-host mode; redirects only fire across the two production
- * domains.
+ * surfaces. App-bound redirects always go to `app.nemar.org`; marketing-bound
+ * redirects always go to `MARKETING_BASE_URL` (so a user on
+ * `ww2.nemar.org/dashboard` lands on `app.nemar.org/dashboard`, and a user
+ * on `app.nemar.org/discover` lands on `ww2.nemar.org/discover` today /
+ * `nemar.org/discover` after cutover).
  */
 export function getCrossHostRedirect(url: URL): string | null {
   const mode = hostMode(url.hostname);
@@ -62,8 +90,8 @@ export function getCrossHostRedirect(url: URL): string | null {
   const wantsApp = isAppRoute(url.pathname);
   const onAppHost = mode === "app";
   if (wantsApp === onAppHost) return null;
-  const targetHost = wantsApp ? APP_HOST : MARKETING_HOST;
-  return `https://${targetHost}${url.pathname}${url.search}`;
+  const targetBase = wantsApp ? `https://${APP_HOST}` : MARKETING_BASE_URL;
+  return `${targetBase}${url.pathname}${url.search}`;
 }
 
 /**
@@ -77,10 +105,10 @@ export function appUrl(pathname: string, currentHostname: string): string {
 }
 
 /**
- * Mirror of `appUrl` for the marketing host. Returns an absolute
- * `https://nemar.org/...` URL when called from the app host, relative when
- * already on the marketing host or in single-host mode.
+ * Mirror of `appUrl` for the marketing host. Returns an absolute URL on
+ * `MARKETING_BASE_URL` when called from the app host, relative when
+ * already on a marketing host or in single-host mode.
  */
 export function marketingUrl(pathname: string, currentHostname: string): string {
-  return hostMode(currentHostname) === "app" ? `https://${MARKETING_HOST}${pathname}` : pathname;
+  return hostMode(currentHostname) === "app" ? `${MARKETING_BASE_URL}${pathname}` : pathname;
 }

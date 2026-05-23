@@ -1,6 +1,6 @@
 import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
-import { APP_HOST, MARKETING_HOST } from "./lib/host";
+import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import { isPublicCacheable, onRequest, parseAuthMeResponse } from "./middleware";
 
 describe("isPublicCacheable", () => {
@@ -138,7 +138,7 @@ describe("onRequest host dispatch", () => {
   it("301s a marketing path requested on the app host, preserving query", async () => {
     const res = await onRequest(ctx(`https://${APP_HOST}/discover?modality=eeg`), passthrough);
     expect(res?.status).toBe(301);
-    expect(res?.headers.get("Location")).toBe(`https://${MARKETING_HOST}/discover?modality=eeg`);
+    expect(res?.headers.get("Location")).toBe(`${MARKETING_BASE_URL}/discover?modality=eeg`);
   });
 
   it("uses 307 for non-GET methods so body and method aren't dropped", async () => {
