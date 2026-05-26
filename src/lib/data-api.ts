@@ -10,11 +10,13 @@ export interface SummaryTotals {
 
 export interface SummaryReadme {
   path?: string;
-  // Schema 1.1+ fields (nemar-cli#616). Older summary.json docs have only
-  // `path`; consumers must tolerate the absence of every field below. The
-  // generator sets `truncated: true` and leaves `content` null when the
-  // README exceeded the inline cap (currently 256 KB on the generator side).
-  content?: string;
+  // Schema 1.1+ fields (nemar-cli#616, still open at time of writing — the
+  // 256 KB inline cap referenced below is proposed, not yet enforced). Older
+  // summary.json docs have only `path`; consumers must tolerate the absence
+  // of every field below. On a truncated README the generator emits
+  // `truncated: true` with `content: null` (declared as `string | null` so
+  // the wire shape and the static type agree).
+  content?: string | null;
   content_bytes?: number;
   sha256?: string;
   truncated?: boolean;
@@ -399,7 +401,13 @@ export function findReadmeContentInSummary(summary: Summary): string | null {
   const r = summary.readme;
   if (!r) return null;
   if (r.truncated === true) return null;
-  if (typeof r.content !== "string" || r.content.length === 0) return null;
+  if (typeof r.content !== "string") return null;
+  // Reject whitespace-only content: the markdown renderer turns it into
+  // empty HTML, which (because `source` is then non-null) gets cached with
+  // PUBLISHED_CACHE for the full SWR window instead of falling through to
+  // Steps 1-4. Trim-check the existence, but return the original content
+  // so leading whitespace inside otherwise-valid markdown is preserved.
+  if (r.content.trim().length === 0) return null;
   return r.content;
 }
 

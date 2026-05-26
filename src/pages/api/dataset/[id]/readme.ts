@@ -101,8 +101,11 @@ export const GET: APIRoute = async ({ params, request }) => {
   // README directly in summary.json (and didn't mark it truncated), use it
   // and skip every outbound fetch below. The content is the dataset's own
   // README markdown, just delivered via the manifest pipeline instead of
-  // GitHub — `kind = "manifest"` gives the renderer the right (no-banner)
-  // behavior without introducing a parallel ReadmeSourceKind value.
+  // GitHub — `kind = "manifest"` is the renderer's existing no-banner path,
+  // which is the right output here. Reusing the value avoids churn from
+  // adding a `"inline"` enum case for cosmetic naming; revisit if a future
+  // change to `ReadmeSourceKind` needs to distinguish inline vs presigned
+  // sources at render time (e.g., per-source telemetry on the renderer).
   // Back-compat: on schema 1.0 docs `findReadmeContentInSummary` returns
   // null and this branch is a no-op; Steps 1-4 run as before.
   if (summary) {

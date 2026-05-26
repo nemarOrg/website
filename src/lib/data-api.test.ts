@@ -104,6 +104,21 @@ describe("findReadmeContentInSummary", () => {
     const s = makeSummary({ paths: ["dataset_description.json"] });
     expect(findReadmeContentInSummary(s)).toBeNull();
   });
+
+  it("returns null for whitespace-only content (would render to empty HTML)", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: "   \n\n\t  " } });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("returns null when content is explicitly null (generator's truncation signal)", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: null, truncated: true } });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("preserves leading whitespace inside otherwise-valid markdown", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: "  # Title\n\nbody" } });
+    expect(findReadmeContentInSummary(s)).toBe("  # Title\n\nbody");
+  });
 });
 
 describe("isUnpublished", () => {
