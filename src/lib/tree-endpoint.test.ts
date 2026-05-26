@@ -1,6 +1,6 @@
 import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
-import { GET } from "./tree";
+import { GET } from "../pages/api/dataset/[id]/tree";
 
 /**
  * Endpoint-boundary tests that exercise the synchronous validation gates
@@ -9,6 +9,12 @@ import { GET } from "./tree";
  * Anything that requires those upstreams to resolve stays out of scope per
  * the project's no-mocks rule and is verified by `/browse` against a real
  * Pages preview instead.
+ *
+ * Lives in `src/lib/` (not next to the route source) because Astro file-
+ * routes anything under `src/pages/**` — a `.test.ts` sibling there gets
+ * picked up as a route entry and breaks the Cloudflare Pages build. PR
+ * #62 hot-fixed the same class of issue for the /api/v1 proxy by keeping
+ * its test under src/lib/.
  */
 
 type Ctx = Pick<APIContext, "params" | "request">;
