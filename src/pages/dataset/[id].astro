@@ -270,6 +270,52 @@ Astro.response.headers.set(
     );
   }
   hydrateDeferred();
+
+  /**
+   * Lazy-load per-subject subtrees as the user expands them. The skeleton
+   * tree response emits each `sub-XYZ` as a closed <details> with a
+   * `[data-subject-target]` placeholder; on first toggle we fetch the
+   * subtree HTML and drop it into the placeholder. Capture phase because
+   * the `toggle` event on <details> does NOT bubble (per HTML spec).
+   * Delegating on document so dynamically-injected rows participate
+   * without re-binding — matches the readme-toggle pattern elsewhere.
+   */
+  document.addEventListener(
+    "toggle",
+    (event) => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement)) return;
+      if (!details.open) return;
+      const subject = details.dataset.subject;
+      if (!subject) return;
+      const slot = details.querySelector<HTMLElement>("[data-subject-target]");
+      if (!slot || slot.dataset.loaded === "true") return;
+      const section = details.closest<HTMLElement>("[data-tree-defer]");
+      const treeId = section?.dataset.id;
+      const treeVersion = section?.dataset.version;
+      if (!treeId || !treeVersion) return;
+      slot.setAttribute("aria-busy", "true");
+      const subPath = `/api/dataset/${encodeURIComponent(treeId)}/tree?v=${encodeURIComponent(
+        treeVersion,
+      )}&subject=${encodeURIComponent(subject)}`;
+      fetch(subPath, { headers: { Accept: "text/html" } })
+        .then((res) => {
+          if (!res.ok) throw new Error(`${subPath}: ${res.status}`);
+          return res.text();
+        })
+        .then((html) => {
+          slot.innerHTML = html;
+          slot.dataset.loaded = "true";
+          slot.removeAttribute("aria-busy");
+        })
+        .catch((err) => {
+          console.warn("[tree] subject expand failed", err);
+          slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files for this subject. Collapse and re-open to retry.</p>`;
+          slot.removeAttribute("aria-busy");
+        });
+    },
+    true,
+  );
 </script>
 
 <style>
