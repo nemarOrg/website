@@ -196,4 +196,16 @@ const { datasetId, version } = Astro.props;
     padding: 1px 6px;
     border-radius: var(--radius-sm);
   }
+  /* Lazy subject-subtree failure state. Distinguishes a transient fetch
+     error from regular tree content so the user reads it as a retry
+     prompt, not as a file row. Sits inside [data-subject-target]. */
+  .tree__error {
+    margin: var(--space-2) 0 var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-fg-muted);
+    background: color-mix(in srgb, var(--color-warning) 8%, var(--color-bg));
+    border-inline-start: 2px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+  }
 </style>
