@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { buildTree, buildTreeFromPaths } from "../../../../lib/bids-tree";
+import type { TreeNode } from "../../../../lib/bids-tree";
 import {
   getLandingOutcome,
   getManifest,
@@ -27,6 +28,12 @@ const UNPUBLISHED_CACHE = "public, max-age=60, s-maxage=60, stale-while-revalida
 // at the edge. `no-store` keeps the failure local to the one unlucky request
 // instead of broadcasting it via s-maxage + SWR. Issue #53.
 const FALLBACK_CACHE = "no-store";
+// A well-formed `?subject=` whose label genuinely doesn't exist in this
+// version's tree (typo'd URL, race against a newer version) is a real
+// not-found, not a transient. Short cache absorbs repeated misses on the
+// same bad URL without pinning the answer for long if the dataset
+// gains the subject in a future version.
+const NOT_FOUND_SUBJECT_CACHE = "public, max-age=60, s-maxage=60";
 
 /**
  * `GET /api/dataset/<id>/tree?v=<version>` — returns the rendered BIDS
@@ -59,15 +66,23 @@ export const GET: APIRoute = async ({ params, request }) => {
   const subjectParam = url.searchParams.get("subject");
 
   if (!id || !version) {
-    return new Response("Missing id or v= query parameter", { status: 400 });
+    return new Response("Missing id or v= query parameter", {
+      status: 400,
+      headers: { "Cache-Control": FALLBACK_CACHE },
+    });
   }
 
   // Validate the subject param at the boundary: anything that doesn't match
   // the BIDS sub-XYZ shape (path traversal, empty string, embedded slash) is
   // rejected before any tree is built. The same predicate gates the
-  // skeleton render so the value is symmetric.
+  // skeleton render — if `isSubjectDir` is ever widened (e.g., to support
+  // BIDS 2.0 hyphenated labels), this validation must change to match so
+  // the two stay symmetric.
   if (subjectParam !== null && !isSubjectDir(subjectParam)) {
-    return new Response("Invalid subject parameter", { status: 400 });
+    return new Response("Invalid subject parameter", {
+      status: 400,
+      headers: { "Cache-Control": FALLBACK_CACHE },
+    });
   }
 
   const [landingOut, summary] = await Promise.all([
@@ -104,7 +119,7 @@ export const GET: APIRoute = async ({ params, request }) => {
 
   // Build the shared TreeNode root for both response modes. Skeleton uses
   // the root directly; subtree picks the matching subject child off it.
-  let root: import("../../../../lib/bids-tree").TreeNode | null = null;
+  let root: TreeNode | null = null;
   let fellBackToEmpty = false;
   if (summaryUsable && summary) {
     root = buildTreeFromPaths(summary.paths);
@@ -122,18 +137,24 @@ export const GET: APIRoute = async ({ params, request }) => {
     }
   }
 
-  // Subtree branch: locate the subject child or 404. A missing subject for
-  // a tree that *does* otherwise exist is a real not-found (typo'd URL or
-  // race against a newer version), not a transient failure — `no-store`
-  // would only mean the next request retries against the same missing
-  // subject, so use a short cache to absorb expected misses cheaply.
+  // Subtree branch: locate the subject child or 404. The 503 branch matches
+  // the skeleton path's no-manifest treatment — both summary and manifest
+  // failed, which is a transient upstream symptom and must not be pinned
+  // at the edge. The 404 is genuine (typo'd URL or race against a newer
+  // version) so a short cache absorbs repeated misses on the same bad URL.
   if (subjectParam !== null) {
     if (!root) {
-      return new Response("Manifest unavailable", { status: 503 });
+      return new Response("Manifest unavailable", {
+        status: 503,
+        headers: { "Cache-Control": FALLBACK_CACHE },
+      });
     }
     const subjectNode = root.children.find((c) => c.name === subjectParam);
     if (!subjectNode) {
-      return new Response("Subject not found in this version", { status: 404 });
+      return new Response("Subject not found in this version", {
+        status: 404,
+        headers: { "Cache-Control": NOT_FOUND_SUBJECT_CACHE },
+      });
     }
     return new Response(renderBidsSubtree(subjectNode, basePath), {
       status: 200,

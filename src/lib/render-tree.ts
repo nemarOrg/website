@@ -5,12 +5,20 @@ import { formatBytes } from "./format";
 const MAX_AUTO_OPEN_DEPTH = 1;
 const AUTO_OPEN_CHILD_CAP = 6;
 
-// BIDS subject directory naming: `sub-` followed by alphanumeric label.
-// Used by the skeleton path to identify which top-level directories should
-// be rendered collapsed (with a lazy-load slot) instead of inlined. The
-// same regex also gates the `?subject=` query parameter on the tree
-// endpoint so a malformed value can't pass through as a tree key.
-const SUBJECT_RE = /^sub-[A-Za-z0-9]+$/;
+// BIDS subject directory naming: `sub-` followed by a label of letters,
+// digits, and hyphens. BIDS 1.x technically restricts labels to
+// alphanumeric only, but BIDS 2.0 (currently RC) and several real
+// OpenNeuro datasets ship hyphenated labels like `sub-NDAR-AC904DMU` or
+// `sub-group-A-01`. The character class accepts both. Embedded path
+// separators stay rejected (the closing `$` anchor + the class without
+// `/` keeps the traversal guard intact). Used by the skeleton path to
+// identify which top-level directories should be rendered collapsed (with
+// a lazy-load slot) instead of inlined. The same regex also gates the
+// `?subject=` query parameter on the tree endpoint so a malformed value
+// can't pass through as a tree key. If this regex is ever widened (e.g.,
+// to support `ses-` directories), the endpoint's validation gate must be
+// updated to match so the two stay symmetric.
+const SUBJECT_RE = /^sub-[A-Za-z0-9-]+$/;
 export function isSubjectDir(name: string): boolean {
   return SUBJECT_RE.test(name);
 }
@@ -154,8 +162,12 @@ export function renderBidsTree(root: TreeNode, basePath: string): string {
  * drop the response directly into the matching `[data-subject-target]`
  * placeholder produced by `renderBidsTree`. No `<section>` wrapper, no
  * header — just the same `<ul class="tree__children">` markup that
- * `renderDirChildren` emits for the inline case, so the expanded look
- * matches a non-deferred render byte-for-byte.
+ * `renderDirChildren` emits for the inline case.
+ *
+ * Equivalence with the non-deferred render is concrete, not theoretical:
+ * both paths reach the same `renderDirChildren(node, basePath, 1)` call.
+ * If the inline path ever changes its call depth or wraps the result
+ * differently, this function must change in lockstep.
  */
 export function renderBidsSubtree(node: TreeNode, basePath: string): string {
   return renderDirChildren(node, basePath, 1);

@@ -16,6 +16,12 @@ describe("isSubjectDir", () => {
     expect(isSubjectDir("sub-A")).toBe(true);
   });
 
+  it("accepts hyphenated labels (BIDS 2.0 + real OpenNeuro datasets)", () => {
+    expect(isSubjectDir("sub-NDAR-AC904DMU")).toBe(true);
+    expect(isSubjectDir("sub-group-A-01")).toBe(true);
+    expect(isSubjectDir("sub-john-doe")).toBe(true);
+  });
+
   it("rejects values that aren't BIDS subject labels", () => {
     expect(isSubjectDir("subject")).toBe(false);
     expect(isSubjectDir("sub_01")).toBe(false);
@@ -82,6 +88,36 @@ describe("renderBidsTree skeleton behavior", () => {
     expect(html).not.toContain("sub-01_task-rest_eeg.set");
     // code/ expanded
     expect(html).toContain("run.py");
+  });
+
+  it("renders a subjects-only tree without a root file list", () => {
+    // No root-level files (all paths under sub-*/...) is the common
+    // shape for high-subject OpenNeuro datasets. Skeleton must not emit
+    // a dangling empty tree__list--root ul.
+    const root = buildTree([
+      entry("sub-01/eeg/sub-01_task-rest_eeg.set", 50_000),
+      entry("sub-02/eeg/sub-02_task-rest_eeg.set", 60_000),
+    ]);
+    const html = renderBidsTree(root, BASE);
+    expect(html).not.toContain("tree__list--root");
+    expect(html).toContain(`data-subject="sub-01"`);
+    expect(html).toContain(`data-subject="sub-02"`);
+  });
+});
+
+describe("renderBidsSubtree non-propagation", () => {
+  it("does not collapse nested sub-* directories inside a subject subtree", () => {
+    // Lazy deferral applies only at the top level. A path that contains
+    // an inner sub-* segment (synthetic here) must render fully inline
+    // once the user expands the parent subject — no second-level
+    // data-subject-target slot.
+    const root = buildTree([entry("sub-01/sub-ses-01/eeg/x.set", 100)]);
+    const subject = root.children.find((c) => c.name === "sub-01");
+    if (!subject) return;
+    const subtree = renderBidsSubtree(subject, BASE);
+    expect(subtree).not.toContain("data-subject=");
+    expect(subtree).not.toContain("data-subject-target");
+    expect(subtree).toContain("x.set");
   });
 });
 
