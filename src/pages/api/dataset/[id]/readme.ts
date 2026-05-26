@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import {
   fetchGithubReadme,
   fetchManifestEntryText,
+  findReadmeContentInSummary,
   findReadmeEntry,
   findReadmePathInSummary,
   getLandingOutcome,
@@ -38,12 +39,14 @@ const FALLBACK_CACHE = "no-store";
  * README HTML for `<id>` at `<version>`.
  *
  * Resolution order:
- *   0. If landing says unpublished → render "not yet published" placeholder.
- *   1. Fast path (summary.json present + summary.readme.path resolved):
- *      GitHub raw README (no presigned URL needed).
- *   2. Manifest README via presigned URL.
- *   3. GitHub raw README (without summary signal).
- *   4. BIDS dataset_description fallback.
+ *   0.  If landing says unpublished → render "not yet published" placeholder.
+ *   0.5 summary.json schema 1.1+ inline `readme.content` (nemar-cli#616).
+ *      Zero outbound fetches — this is the cold-paint fast path.
+ *   1.  Fast path (summary.json schema 1.0 fallback, README path resolved):
+ *      GitHub raw README (one outbound fetch).
+ *   2.  Manifest README via presigned URL.
+ *   3.  GitHub raw README (without summary signal).
+ *   4.  BIDS dataset_description fallback.
  *
  * Each step only runs if the previous step yielded nothing, so a dataset
  * without a linked GitHub repo (or with a GitHub fetch failure) still
@@ -94,8 +97,24 @@ export const GET: APIRoute = async ({ params, request }) => {
   let source: string | null = null;
   let kind: ReadmeSourceKind = null;
 
+  // Step 0.5: schema 1.1 inline content. When the generator embedded the
+  // README directly in summary.json (and didn't mark it truncated), use it
+  // and skip every outbound fetch below. The content is the dataset's own
+  // README markdown, just delivered via the manifest pipeline instead of
+  // GitHub — `kind = "manifest"` gives the renderer the right (no-banner)
+  // behavior without introducing a parallel ReadmeSourceKind value.
+  // Back-compat: on schema 1.0 docs `findReadmeContentInSummary` returns
+  // null and this branch is a no-op; Steps 1-4 run as before.
+  if (summary) {
+    const inlineContent = findReadmeContentInSummary(summary);
+    if (inlineContent) {
+      source = inlineContent;
+      kind = "manifest";
+    }
+  }
+
   // Step 1: fast path — summary confirms a README exists, try GitHub raw.
-  if (summary && readmePath !== null && githubUrl) {
+  if (!source && summary && readmePath !== null && githubUrl) {
     source = await fetchGithubReadme(githubUrl, { timeoutMs: 1_500 });
     if (source) kind = "github";
   }

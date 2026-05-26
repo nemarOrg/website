@@ -10,6 +10,14 @@ export interface SummaryTotals {
 
 export interface SummaryReadme {
   path?: string;
+  // Schema 1.1+ fields (nemar-cli#616). Older summary.json docs have only
+  // `path`; consumers must tolerate the absence of every field below. The
+  // generator sets `truncated: true` and leaves `content` null when the
+  // README exceeded the inline cap (currently 256 KB on the generator side).
+  content?: string;
+  content_bytes?: number;
+  sha256?: string;
+  truncated?: boolean;
 }
 
 export interface Summary {
@@ -378,6 +386,21 @@ export function findReadmePathInSummary(summary: Summary): string | null {
     if (candidates.includes(p.toLowerCase())) return p;
   }
   return null;
+}
+
+/**
+ * Returns inline README markdown when summary.json (schema 1.1+) carries it
+ * and the generator didn't mark it `truncated: true`. Schema 1.0 docs and
+ * over-cap READMEs return null so the caller falls through to the GitHub /
+ * manifest path. The string is the raw markdown source; callers must run it
+ * through the same markdown renderer used for other README paths.
+ */
+export function findReadmeContentInSummary(summary: Summary): string | null {
+  const r = summary.readme;
+  if (!r) return null;
+  if (r.truncated === true) return null;
+  if (typeof r.content !== "string" || r.content.length === 0) return null;
+  return r.content;
 }
 
 /** Find the README entry in a manifest by case-insensitive name match. */
