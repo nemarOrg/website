@@ -59,7 +59,10 @@ export const GET: APIRoute = async ({ params, request }) => {
   const version = url.searchParams.get("v");
 
   if (!id || !version) {
-    return new Response("Missing id or v= query parameter", { status: 400 });
+    return new Response("Missing id or v= query parameter", {
+      status: 400,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
   const [landingOut, summary, metadata] = await Promise.all([
