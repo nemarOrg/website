@@ -66,7 +66,15 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     runtime?.caches ?? (typeof caches !== "undefined" ? caches : undefined);
   if (!cacheStorage) return next();
 
-  const cache = await cacheStorage.open("nemar-edge-v1").catch((err) => {
+  // Cache namespace is versioned so bumps orphan the previous generation on
+  // next deploy. v1 -> v2: pre-PR-#54 entries persisted SWR-poisoned fallback
+  // HTML from /api/dataset/<id>/readme and /api/dataset/<id>/tree with
+  // s-maxage=600 stale-while-revalidate=86400, and stayed served as HIT from
+  // each PoP for up to 24 h after PR #54 (fixes #53) tagged future fallbacks
+  // with Cache-Control: no-store. Bumping here unreferences that entire
+  // fleet. Bump again on any future change to cache-policy semantics or
+  // partial-rendering logic. Issue #65.
+  const cache = await cacheStorage.open("nemar-edge-v2").catch((err) => {
     // The cache layer is broken (quota error, runtime error), not just
     // unavailable. Log so we notice systemic failures, but keep serving
     // (cache is best-effort).

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  findReadmeContentInSummary,
   findReadmePathInSummary,
   isUnpublished,
   outcomeValue,
@@ -71,6 +72,52 @@ describe("findReadmePathInSummary", () => {
   it("ignores README inside a subdirectory (BIDS treats only the root README as canonical)", () => {
     const s = makeSummary({ paths: ["sub-01/README.md", "code/README.md"] });
     expect(findReadmePathInSummary(s)).toBeNull();
+  });
+});
+
+describe("findReadmeContentInSummary", () => {
+  it("returns null on schema 1.0 (no content field)", () => {
+    const s = makeSummary({ readme: { path: "README.md" } });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("returns content on schema 1.1 when not truncated", () => {
+    const s = makeSummary({
+      readme: { path: "README.md", content: "# Hello\n\nbody", truncated: false },
+    });
+    expect(findReadmeContentInSummary(s)).toBe("# Hello\n\nbody");
+  });
+
+  it("treats truncated:true as schema 1.0 (returns null even if content present)", () => {
+    const s = makeSummary({
+      readme: { path: "README.md", content: "partial markdown ...", truncated: true },
+    });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("returns null for empty-string content (generator wrote a placeholder)", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: "" } });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("returns null when readme object is absent entirely", () => {
+    const s = makeSummary({ paths: ["dataset_description.json"] });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("returns null for whitespace-only content (would render to empty HTML)", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: "   \n\n\t  " } });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("returns null when content is explicitly null (generator's truncation signal)", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: null, truncated: true } });
+    expect(findReadmeContentInSummary(s)).toBeNull();
+  });
+
+  it("preserves leading whitespace inside otherwise-valid markdown", () => {
+    const s = makeSummary({ readme: { path: "README.md", content: "  # Title\n\nbody" } });
+    expect(findReadmeContentInSummary(s)).toBe("  # Title\n\nbody");
   });
 });
 
