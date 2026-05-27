@@ -217,12 +217,16 @@ Astro.response.headers.set(
 <script>
   import { renderMarkdown } from "../../lib/markdown";
   import type { DirListing } from "../../lib/dir-listing";
-  import { fetchDirListing } from "../../lib/dir-listing";
+  import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
+  import { formatBytes } from "../../lib/format";
   import {
     renderDirChunkRows,
     renderSubdir,
     renderTopLevel,
   } from "../../lib/render-dir-listing";
+  // The preview renderers are dynamic-imported on first click (one bundle
+  // per format, code-split by Vite) so a user who never opens a TSV
+  // doesn't pay for parsing the TSV renderer's bundle.
 
   // The fetched listing held per tree section. The "Show next" click handler
   // re-emits rows from this without re-fetching. WeakMap keys by element so
@@ -380,6 +384,117 @@ Astro.response.headers.set(
       console.warn("[tree] show-more button first child isn't a text node; label not updated");
     }
     if (counter) counter.textContent = `(${newRendered} of ${total} shown)`;
+  });
+
+  // Inline file-preview delegate. Mirrors the show-more click delegate
+  // above. Fires when the user clicks a `.tree__preview-btn` (the name of
+  // a previewable file). First click fetches + renders the inline panel
+  // under the row; subsequent clicks toggle visibility without re-fetching.
+  // The download icon (`.tree__dl`) is a separate `<a download>` and not
+  // intercepted here — the browser's default click handling triggers the
+  // byte download as before.
+  const MAX_PREVIEW_BYTES = 512 * 1024;
+  // Cache of fetched-and-parsed TSV text per slot. Used by the "Show all"
+  // re-reveal so we re-render from memory instead of re-fetching.
+  const tsvCacheBySlot = new WeakMap<HTMLElement, string>();
+
+  document.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    // "Show all N rows" inside an open TSV preview. Handled first so it
+    // doesn't fall into the preview-toggle branch below.
+    if (target.closest("[data-tsv-show-all]")) {
+      const btn = target.closest<HTMLButtonElement>("[data-tsv-show-all]");
+      const slot = btn?.closest<HTMLElement>("[data-preview-slot]");
+      if (!btn || !slot) return;
+      const cached = tsvCacheBySlot.get(slot);
+      if (!cached) {
+        console.warn("[preview] tsv-show-all clicked but cache missing");
+        return;
+      }
+      const { renderTsvPreview } = await import("../../lib/render-file-preview-tsv");
+      slot.innerHTML = renderTsvPreview(cached, Number.POSITIVE_INFINITY);
+      return;
+    }
+
+    const btn = target.closest<HTMLButtonElement>("[data-preview-path]");
+    if (!btn) return;
+
+    const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
+    const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
+    if (!wrap || !slot) return;
+
+    const isExpanded = btn.getAttribute("aria-expanded") === "true";
+    if (isExpanded) {
+      slot.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      return;
+    }
+
+    btn.setAttribute("aria-expanded", "true");
+    slot.hidden = false;
+
+    // Already loaded once: don't re-fetch. The toggle above just controls
+    // visibility from here on.
+    if (slot.dataset.loaded === "true") return;
+
+    const previewType = btn.dataset.previewType ?? "";
+    const fileSizeBytes = Number(btn.dataset.fileSize ?? "0");
+    const fileName = btn.dataset.fileName ?? "";
+    const filePath = btn.dataset.previewPath ?? "";
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    const treeId = section?.dataset.id;
+    const treeVersion = section?.dataset.version;
+    if (!treeId || !treeVersion) return;
+    const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
+
+    // EEG: future-compatible stub, no fetch needed.
+    if (previewType === "eeg") {
+      slot.innerHTML = `<p class="preview__soon">EEG visualizer coming soon. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download ${escapeHtml(fileName)}</a> in the meantime.</p>`;
+      slot.dataset.loaded = "true";
+      return;
+    }
+
+    // Oversized: skip the fetch and surface a download fallback. Threshold
+    // picked so a 30 KB participants.tsv previews fine but a multi-MB
+    // sourcedata file doesn't lock up the browser.
+    if (fileSizeBytes > MAX_PREVIEW_BYTES) {
+      slot.innerHTML = `<p class="preview__too-large">File too large to preview (${escapeHtml(formatBytes(fileSizeBytes))}). <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      slot.dataset.loaded = "true";
+      return;
+    }
+
+    slot.setAttribute("aria-busy", "true");
+    slot.innerHTML = `<p class="preview__loading">Loading…</p>`;
+    try {
+      const res = await fetch(fileUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      slot.removeAttribute("aria-busy");
+
+      if (previewType === "md") {
+        const { renderMarkdownPreview } = await import("../../lib/render-file-preview-md");
+        slot.innerHTML = renderMarkdownPreview(text);
+      } else if (previewType === "json") {
+        const { renderJsonPreview } = await import("../../lib/render-file-preview-json");
+        slot.innerHTML = renderJsonPreview(text);
+      } else if (previewType === "tsv") {
+        const { renderTsvPreview } = await import("../../lib/render-file-preview-tsv");
+        tsvCacheBySlot.set(slot, text);
+        slot.innerHTML = renderTsvPreview(text);
+      } else {
+        // Defensive: unknown previewType (the renderer guards against
+        // emitting one). Show a generic error so the user can still
+        // download.
+        slot.innerHTML = `<p class="preview__error" role="alert">No preview available for this format. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      }
+      slot.dataset.loaded = "true";
+    } catch (err) {
+      console.warn(`[preview/${treeId}] fetch failed for ${filePath}:`, err);
+      slot.removeAttribute("aria-busy");
+      slot.innerHTML = `<p class="preview__error" role="alert">Preview failed. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+    }
   });
 
   function escapeHtml(s: string): string {

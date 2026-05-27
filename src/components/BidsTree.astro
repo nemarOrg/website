@@ -232,6 +232,188 @@ const { datasetId, version } = Astro.props;
     padding: 1px 6px;
     border-radius: var(--radius-sm);
   }
+  /* File wrap: structural <li> that contains the row + the lazy preview
+     slot. The row inside is a <div class="tree__row">, so the existing
+     row-style rules above still apply unchanged. */
+  .tree__file-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+  /* The first row of the root file list still loses its top border, but
+     now the rule has to walk through the new <li> wrapper. */
+  .tree__list--root > .tree__file-wrap:first-child > .tree__row {
+    border-block-start: none;
+  }
+  /* Preview-name button. `display: contents` removes the button's own box
+     so the inner <span class="tree__name"> participates in the row's flex
+     layout as if it were the direct child — preserves the existing
+     spacing without duplicating row CSS inside the button rules. */
+  .tree__preview-btn {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: start;
+    display: contents;
+  }
+  .tree__preview-btn:hover .tree__name {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .tree__preview-btn:focus-visible .tree__name {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  /* Download icon link. Hidden by default; revealed on row hover or when
+     the row is keyboard-focused (per the user's preference for the
+     quieter visual). Reserves layout width so the row width doesn't jump
+     on hover. */
+  .tree__dl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 28px;
+    block-size: 28px;
+    margin-inline-start: var(--space-2);
+    color: var(--color-fg-subtle);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  }
+  .tree__file-wrap:hover .tree__dl,
+  .tree__file-wrap:focus-within .tree__dl,
+  .tree__dl:focus {
+    opacity: 1;
+  }
+  .tree__dl:hover {
+    color: var(--color-fg);
+    background: var(--color-bg-elevated);
+  }
+  .tree__dl:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+  /* Lazy preview panel. Sits as a sibling <div> under the row inside the
+     same <li>. Hidden via the `hidden` attribute until the user clicks. */
+  .tree__preview {
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    padding: var(--space-4) var(--space-5);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    max-block-size: 480px;
+    overflow: auto;
+  }
+  .tree__preview[hidden] { display: none; }
+  /* Markdown preview prose. Distinct from .readme__ so the dataset-header
+     README component's styles don't bleed in. */
+  .preview__md {
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+  }
+  .preview__md > :first-child { margin-block-start: 0; }
+  .preview__md p { margin-block: var(--space-2); color: var(--color-fg-muted); }
+  .preview__md h1,
+  .preview__md h2,
+  .preview__md h3 {
+    color: var(--color-fg);
+    margin-block: var(--space-3) var(--space-1);
+  }
+  .preview__md code {
+    background: var(--color-bg-subtle);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    font-size: 0.92em;
+  }
+  .preview__md pre {
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    overflow-x: auto;
+  }
+  .preview__md a { color: var(--color-link); }
+  .preview__md ul,
+  .preview__md ol { padding-inline-start: var(--space-5); }
+  /* JSON preview. Pre-formatted; line-by-line color tokens. */
+  .preview__json {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    white-space: pre;
+    color: var(--color-fg-muted);
+  }
+  .preview__json .json-key { color: var(--color-fg); font-weight: var(--fw-medium); }
+  .preview__json .json-str { color: var(--brand-teal); }
+  .preview__json .json-num { color: var(--brand-purple); }
+  .preview__json .json-kw  { color: var(--color-fg-subtle); font-style: italic; }
+  /* TSV preview. Sticky-header table that horizontally scrolls when wide. */
+  .preview__tsv { overflow-x: auto; }
+  .preview__tsv-table {
+    border-collapse: collapse;
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    inline-size: max-content;
+    min-inline-size: 100%;
+  }
+  .preview__tsv-table th {
+    position: sticky;
+    inset-block-start: 0;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    padding: 4px var(--space-3);
+    text-align: start;
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+    white-space: nowrap;
+  }
+  .preview__tsv-table td {
+    border: 1px solid var(--color-border);
+    padding: 4px var(--space-3);
+    color: var(--color-fg-muted);
+    white-space: nowrap;
+  }
+  .preview__tsv-table tr:nth-child(even) td { background: var(--color-bg-subtle); }
+  .preview__tsv-more {
+    margin-block-start: var(--space-3);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+    text-align: center;
+  }
+  .preview__tsv-more-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .preview__tsv-more-btn:hover {
+    background: var(--color-bg);
+  }
+  /* Shared preview state messages. */
+  .preview__empty,
+  .preview__loading,
+  .preview__soon,
+  .preview__too-large {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .preview__error {
+    margin: 0;
+    color: var(--color-warning);
+    font-size: var(--fs-sm);
+  }
   /* Lazy subject-subtree failure state. Distinguishes a transient fetch
      error from regular tree content so the user reads it as a retry
      prompt, not as a file row. Sits inside [data-subject-target]. */
