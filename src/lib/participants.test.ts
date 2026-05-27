@@ -45,7 +45,10 @@ describe("parseParticipantsTsv", () => {
     expect(out.sexCounts).toEqual({ M: 5, F: 3, O: 2 });
   });
 
-  it("treats blank, n/a, NA as sex=null (excluded from sexCounts)", () => {
+  it("treats blank, n/a, NA as sex=null but tallies them as Other in sexCounts", () => {
+    // #83 fix: bucketAgesBySex lumps `null ?? "O"` into Other for the chart;
+    // sexCounts must do the same so the donut legend matches the grey portion
+    // of the histogram bars.
     const tsv = [
       "participant_id\tsex\tage",
       "sub-001\t\t10",
@@ -55,7 +58,23 @@ describe("parseParticipantsTsv", () => {
     ].join("\n");
     const out = parseParticipantsTsv(tsv);
     expect(out.sexes).toEqual([null, null, null, "M"]);
-    expect(out.sexCounts).toEqual({ M: 1, F: 0, O: 0 });
+    expect(out.sexCounts).toEqual({ M: 1, F: 0, O: 3 });
+  });
+
+  it("falls back to gender per-row when the sex cell is empty for that row", () => {
+    // #83: when both columns are present, sex wins where it's filled; gender
+    // fills in per-row where sex is null. Common in datasets that ship both
+    // columns but only consistently populate one of them.
+    const tsv = [
+      "participant_id\tsex\tgender\tage",
+      "sub-001\tM\t\t10",
+      "sub-002\t\tF\t12",
+      "sub-003\tF\tM\t14",
+      "sub-004\tn/a\tMale\t20",
+    ].join("\n");
+    const out = parseParticipantsTsv(tsv);
+    expect(out.sexes).toEqual(["M", "F", "F", "M"]);
+    expect(out.sexCounts).toEqual({ M: 2, F: 2, O: 0 });
   });
 
   it("skips rows whose age is n/a / empty / non-numeric (sex still tallied)", () => {
@@ -120,7 +139,8 @@ describe("parseParticipantsTsv", () => {
     expect(out.total).toBe(2);
     expect(out.sexes).toEqual(["M", null]);
     expect(out.ages).toEqual([10]);
-    expect(out.sexCounts).toEqual({ M: 1, F: 0, O: 0 });
+    // Post-#83: null sex tallies into O.
+    expect(out.sexCounts).toEqual({ M: 1, F: 0, O: 1 });
   });
 
   it("handles age-only files (no sex / gender column) — sexes are all null", () => {
@@ -132,7 +152,9 @@ describe("parseParticipantsTsv", () => {
     // Locking this in prevents a future refactor from skipping the push
     // when sexIdx === -1 and breaking the histogram's index alignment.
     expect(out.sexes).toEqual([null, null]);
-    expect(out.sexCounts).toEqual({ M: 0, F: 0, O: 0 });
+    // Post-#83: every null-sex row counts toward O, so the donut shows
+    // "Other / unknown" = total when no sex column exists at all.
+    expect(out.sexCounts).toEqual({ M: 0, F: 0, O: 2 });
   });
 });
 
