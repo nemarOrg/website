@@ -118,12 +118,44 @@ function renderDirRow(
   ].join("");
 }
 
+/** Default cap on the number of top-level directory rows rendered on first
+ *  paint. HBN-class datasets (on005509 = 330 subjects) flood the layout
+ *  otherwise; most users only expand a handful. The remainder is revealed
+ *  in same-size chunks via the "Show next N" button rendered by
+ *  `renderShowMoreFooter`. */
+export const DEFAULT_DIR_CHUNK_SIZE = 50;
+
+export interface RenderTopLevelOptions {
+  /** Override the default `DEFAULT_DIR_CHUNK_SIZE` cap. Used by tests and
+   *  could be wired to a user preference later. */
+  dirChunkSize?: number;
+}
+
+/** Footer rendered when the directory count exceeds the initial chunk.
+ *  Carries the state the client-side click handler reads + updates: how
+ *  many rows are visible now (`data-rendered`), the total available
+ *  (`data-total`), and how many to reveal per click (`data-chunk`). */
+function renderShowMoreFooter(rendered: number, total: number, chunkSize: number): string {
+  const nextCount = Math.min(chunkSize, total - rendered);
+  return [
+    `<div class="tree__more" data-tree-more data-rendered="${rendered}" data-total="${total}" data-chunk="${chunkSize}">`,
+    `<button class="tree__more-btn" type="button">`,
+    `Show next ${nextCount} <span class="tree__more-counter">(${rendered} of ${total} shown)</span>`,
+    "</button>",
+    "</div>",
+  ].join("");
+}
+
 /**
  * Render the entire `<section class="tree">` for a top-level directory
  * listing (path === ""). Files appear at the top in the flat `--root` list;
- * directories follow as collapsed lazy rows.
+ * directories follow as collapsed lazy rows, capped at `dirChunkSize`. When
+ * the cap trips, a "Show next N" footer is appended after the dir list and
+ * the client script reveals subsequent chunks in place via
+ * `renderDirChunkRows`.
  */
-export function renderTopLevel(listing: DirListing): string {
+export function renderTopLevel(listing: DirListing, opts: RenderTopLevelOptions = {}): string {
+  const chunkSize = opts.dirChunkSize ?? DEFAULT_DIR_CHUNK_SIZE;
   const sorted = sortChildren(listing.children);
   const files = sorted.filter((c): c is DirListingEntry & { kind: "file" } => c.kind === "file");
   const dirs = sorted.filter((c): c is DirListingEntry & { kind: "dir" } => c.kind === "dir");
@@ -143,12 +175,38 @@ export function renderTopLevel(listing: DirListing): string {
     out.push("</ul>");
   }
   if (dirs.length > 0) {
-    out.push(`<ul class="tree__list" role="list">`);
-    for (const d of dirs) out.push(renderDirRow(d, "", 0));
+    out.push(`<ul class="tree__list" role="list" data-dir-list>`);
+    const initialCount = Math.min(dirs.length, chunkSize);
+    for (let i = 0; i < initialCount; i++) out.push(renderDirRow(dirs[i], "", 0));
     out.push("</ul>");
+    if (dirs.length > chunkSize) {
+      out.push(renderShowMoreFooter(initialCount, dirs.length, chunkSize));
+    }
   }
   out.push("</section>");
   return out.join("");
+}
+
+/**
+ * Emit dir rows for a slice of the already-fetched listing. The client
+ * "Show next" handler calls this on each click; the function sorts
+ * internally so the order matches what `renderTopLevel` emitted (numeric-
+ * aware compare, dirs only). Returns the rendered count + total so the
+ * caller can update the footer's running counter and decide when to
+ * remove the footer entirely.
+ */
+export function renderDirChunkRows(
+  listing: DirListing,
+  fromIndex: number,
+  count: number,
+): { html: string; rendered: number; total: number } {
+  const dirs = sortChildren(listing.children).filter(
+    (c): c is DirListingEntry & { kind: "dir" } => c.kind === "dir",
+  );
+  const end = Math.min(fromIndex + count, dirs.length);
+  const rows: string[] = [];
+  for (let i = fromIndex; i < end; i++) rows.push(renderDirRow(dirs[i], "", 0));
+  return { html: rows.join(""), rendered: end - fromIndex, total: dirs.length };
 }
 
 /**

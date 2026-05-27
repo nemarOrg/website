@@ -183,6 +183,35 @@ const { datasetId, version } = Astro.props;
     color: var(--color-fg-muted);
     font-family: var(--font-mono);
   }
+  /* "Show next N" footer. Rendered by render-dir-listing when the dir count
+     exceeds DEFAULT_DIR_CHUNK_SIZE (50). Removed by the click handler after
+     the final chunk is revealed. */
+  .tree__more {
+    padding: var(--space-3) var(--space-5);
+    border-block-start: 1px solid var(--color-border);
+    display: flex;
+    justify-content: center;
+    background: var(--color-bg-elevated);
+  }
+  .tree__more-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .tree__more-btn:hover {
+    background: var(--color-bg);
+    border-color: color-mix(in srgb, var(--color-fg-subtle) 40%, transparent);
+  }
+  .tree__more-counter {
+    color: var(--color-fg-subtle);
+    margin-inline-start: var(--space-2);
+    font-variant-numeric: tabular-nums;
+  }
   /* Empty-state banner shown when the tree endpoint returns no manifest. */
   .detail__no-manifest {
     padding: var(--space-6);
