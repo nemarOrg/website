@@ -336,12 +336,32 @@ Astro.response.headers.set(
     if (!footer || !section) return;
     const listing = listingBySection.get(section);
     const list = section.querySelector<HTMLElement>("[data-dir-list]");
-    if (!listing || !list) return;
+    // No cached listing means the tree never finished hydrating (or was
+    // rewritten with an error). The footer shouldn't exist in that case;
+    // surface loudly + remove it so the user isn't left with a dead button.
+    if (!listing || !list) {
+      console.error(
+        `[tree] show-more clicked but cached listing missing (section=${section.dataset.id ?? "?"})`,
+      );
+      footer.remove();
+      return;
+    }
 
     const rendered = Number(footer.dataset.rendered ?? "0");
     const total = Number(footer.dataset.total ?? "0");
     const chunk = Number(footer.dataset.chunk ?? "50");
     const result = renderDirChunkRows(listing, rendered, chunk);
+    // Defensive: if the slice returns zero rows the data-rendered counter
+    // is out of sync with the cached listing (shouldn't be reachable via
+    // the happy path, but a stale counter would leave the button looping
+    // with no visible effect). Remove the footer to avoid a stuck button.
+    if (result.rendered === 0) {
+      console.warn(
+        `[tree] show-more produced 0 rows (rendered=${rendered} total=${total} listingDirs=${result.total})`,
+      );
+      footer.remove();
+      return;
+    }
     list.insertAdjacentHTML("beforeend", result.html);
 
     const newRendered = rendered + result.rendered;
@@ -357,6 +377,11 @@ Astro.response.headers.set(
     const label = button.firstChild;
     if (label && label.nodeType === Node.TEXT_NODE) {
       label.nodeValue = `Show next ${nextCount} `;
+    } else {
+      // Extension or DOM mutation displaced the text node. Counter still
+      // updates below; warn so a developer reading devtools can correlate
+      // the visual mismatch ("button label stuck at 50 but counter ticks").
+      console.warn("[tree] show-more button first child isn't a text node; label not updated");
     }
     if (counter) counter.textContent = `(${newRendered} of ${total} shown)`;
   });

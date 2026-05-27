@@ -175,7 +175,11 @@ export function renderTopLevel(listing: DirListing, opts: RenderTopLevelOptions 
     out.push("</ul>");
   }
   if (dirs.length > 0) {
-    out.push(`<ul class="tree__list" role="list" data-dir-list>`);
+    // aria-live="polite" so screen readers announce the chunk appended by
+    // the "Show next N" click without preempting other speech. role="list"
+    // stays explicit because the dir rows use <details>/<summary> markup
+    // that some screen readers don't recognize as list items by default.
+    out.push(`<ul class="tree__list" role="list" aria-live="polite" data-dir-list>`);
     const initialCount = Math.min(dirs.length, chunkSize);
     for (let i = 0; i < initialCount; i++) out.push(renderDirRow(dirs[i], "", 0));
     out.push("</ul>");

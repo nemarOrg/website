@@ -47,7 +47,7 @@ describe("renderTopLevel", () => {
     expect(html).toContain(
       `<a class="tree__name" href="https://data.nemar.org/on005514/v1.0.0/README.md"`,
     );
-    expect(html).toContain(`<ul class="tree__list" role="list" data-dir-list>`);
+    expect(html).toContain(`<ul class="tree__list" role="list" aria-live="polite" data-dir-list>`);
     expect(html).toContain(`<details class="tree__dir" data-dir-path="sub-01" data-depth="0">`);
   });
 
@@ -145,6 +145,27 @@ describe("renderDirChunkRows", () => {
     const result = renderDirChunkRows(listing({ children: dirEntries(30) }), 0, 50);
     expect(result.rendered).toBe(30);
     expect(result.total).toBe(30);
+  });
+
+  it("clamps the tail chunk when fromIndex is mid-list", () => {
+    // The final reveal on a 333-subject dataset: chunk size 50, already at
+    // 300 rendered — only the last 33 should come back. Mirrors the live
+    // puppeteer run that exercised the on005509 footer-removal path.
+    const result = renderDirChunkRows(listing({ children: dirEntries(60) }), 55, 50);
+    expect(result.rendered).toBe(5);
+    expect(result.total).toBe(60);
+    const rows = result.html.match(/<details class="tree__dir"/g) ?? [];
+    expect(rows.length).toBe(5);
+    expect(result.html).toContain(`data-dir-path="sub-056"`);
+    expect(result.html).toContain(`data-dir-path="sub-060"`);
+    expect(result.html).not.toContain(`data-dir-path="sub-055"`);
+  });
+
+  it("returns rendered: 0 when fromIndex >= total (caller should remove the footer)", () => {
+    const result = renderDirChunkRows(listing({ children: dirEntries(30) }), 30, 50);
+    expect(result.rendered).toBe(0);
+    expect(result.total).toBe(30);
+    expect(result.html).toBe("");
   });
 
   it("sorts numerically (sub-2 before sub-10) before slicing", () => {
