@@ -15,7 +15,7 @@
  * blew the 6-unit tick labels up to ~90 px text.
  */
 
-import { bucketAgesBySex } from "./qa";
+import { bucketAgesBySex, pickAgeBuckets } from "./qa";
 
 // Pixel-coordinate geometry. CELL_W scales with bucket count; PLOT_H + LABEL_H
 // give the chart a fixed 160-pixel height regardless of how many buckets the
@@ -42,7 +42,12 @@ export function renderAgeGenderStackedSvg(
   ages: number[],
   sexes: Array<"M" | "F" | "O" | null>,
 ): string {
-  const buckets = bucketAgesBySex(ages, sexes, 10);
+  // Bin width + start fit to the dataset's actual age span: HBN child
+  // cohorts (ages 5-21) get ~2-year bins; adult cohorts (ages 20-69) get
+  // 5-year bins. Beats the fixed 10-year width which collapsed HBN into
+  // only 3 buckets where two dominated.
+  const { width, start } = pickAgeBuckets(ages);
+  const buckets = bucketAgesBySex(ages, sexes, width, start);
   if (buckets.length === 0) {
     const w = CELL_W * 3 + SIDE_PAD * 2;
     return [
