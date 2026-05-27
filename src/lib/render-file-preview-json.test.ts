@@ -60,4 +60,39 @@ describe("renderJsonPreview", () => {
     expect(html).toContain(`<span class="json-num">500</span>`);
     expect(html).toContain(`<span class="json-num">60</span>`);
   });
+
+  it('colorizes string elements inside arrays (Channels = ["Fp1", "Fp2"])', () => {
+    const html = renderJsonPreview('{"Channels": ["Fp1", "Fp2"]}');
+    expect(html).toContain(`<span class="json-key">&quot;Channels&quot;</span>`);
+    expect(html).toContain(`<span class="json-str">&quot;Fp1&quot;</span>`);
+    expect(html).toContain(`<span class="json-str">&quot;Fp2&quot;</span>`);
+  });
+
+  it("colorizes numeric elements inside arrays (Counts = [1, 2, 3])", () => {
+    const html = renderJsonPreview('{"Counts": [1, 2, 3]}');
+    expect(html).toContain(`<span class="json-num">1</span>`);
+    expect(html).toContain(`<span class="json-num">2</span>`);
+    expect(html).toContain(`<span class="json-num">3</span>`);
+  });
+
+  it("handles a top-level array (no enclosing object)", () => {
+    const html = renderJsonPreview('["a", "b", 42, true, null]');
+    expect(html).toContain(`<span class="json-str">&quot;a&quot;</span>`);
+    expect(html).toContain(`<span class="json-num">42</span>`);
+    expect(html).toContain(`<span class="json-kw">true</span>`);
+    expect(html).toContain(`<span class="json-kw">null</span>`);
+  });
+
+  it("handles deeply nested mixed structures", () => {
+    const html = renderJsonPreview('{"a": {"b": {"c": [1, "two", true]}}}');
+    expect(html).toContain(`<span class="json-key">&quot;c&quot;</span>`);
+    expect(html).toContain(`<span class="json-num">1</span>`);
+    expect(html).toContain(`<span class="json-str">&quot;two&quot;</span>`);
+    expect(html).toContain(`<span class="json-kw">true</span>`);
+  });
+
+  // Note: scientific-notation input is unreachable in the rendered output
+  // because `JSON.parse + JSON.stringify(_, null, 2)` normalizes
+  // `1.5e-3` → `"0.0015"` before the tokenizer ever sees it. No test
+  // pinning the tokenizer behavior on `1.5e-3` would be meaningful.
 });

@@ -410,7 +410,12 @@ Astro.response.headers.set(
       if (!btn || !slot) return;
       const cached = tsvCacheBySlot.get(slot);
       if (!cached) {
+        // The slot is still in the DOM so the WeakMap entry can't have
+        // been GC'd — this means a code path rendered a TSV preview
+        // without going through the fetch branch. Surface so the user
+        // isn't left with an inert button.
         console.warn("[preview] tsv-show-all clicked but cache missing");
+        slot.innerHTML = `<p class="preview__error" role="alert">Couldn't expand the table — its source isn't cached. Collapse and reopen the preview to retry.</p>`;
         return;
       }
       const { renderTsvPreview } = await import("../../lib/render-file-preview-tsv");
@@ -435,9 +440,13 @@ Astro.response.headers.set(
     btn.setAttribute("aria-expanded", "true");
     slot.hidden = false;
 
-    // Already loaded once: don't re-fetch. The toggle above just controls
-    // visibility from here on.
-    if (slot.dataset.loaded === "true") return;
+    // Already rendered or already in flight — bail. `loaded` carries one of
+    // three states: undefined (never touched), "loading" (fetch in flight),
+    // or "true" (rendered). Without the "loading" sentinel, a rapid
+    // collapse + re-expand during the network round-trip would fire a
+    // second concurrent fetch; the late-arriving response would overwrite
+    // the slot content non-deterministically.
+    if (slot.dataset.loaded === "true" || slot.dataset.loaded === "loading") return;
 
     const previewType = btn.dataset.previewType ?? "";
     const fileSizeBytes = Number(btn.dataset.fileSize ?? "0");
@@ -446,7 +455,15 @@ Astro.response.headers.set(
     const section = btn.closest<HTMLElement>("[data-tree-defer]");
     const treeId = section?.dataset.id;
     const treeVersion = section?.dataset.version;
-    if (!treeId || !treeVersion) return;
+    if (!treeId || !treeVersion) {
+      // The button is somehow outside a `[data-tree-defer]` section. The
+      // slot is already visible from the flip above — surface an error so
+      // the user isn't staring at an empty panel.
+      console.warn("[preview] missing tree id/version on btn", btn);
+      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't load preview: missing dataset context. Try refreshing the page.</p>`;
+      slot.dataset.loaded = "true";
+      return;
+    }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
 
     // EEG: future-compatible stub, no fetch needed.
@@ -465,6 +482,10 @@ Astro.response.headers.set(
       return;
     }
 
+    // Claim the slot before the await: rapid double-clicks will short-
+    // circuit on the "loading" check above instead of firing parallel
+    // fetches. The success/failure paths below transition this to "true".
+    slot.dataset.loaded = "loading";
     slot.setAttribute("aria-busy", "true");
     slot.innerHTML = `<p class="preview__loading">Loading…</p>`;
     try {
@@ -491,9 +512,13 @@ Astro.response.headers.set(
       }
       slot.dataset.loaded = "true";
     } catch (err) {
-      console.warn(`[preview/${treeId}] fetch failed for ${filePath}:`, err);
+      console.error(`[preview/${treeId}] failed for ${filePath}:`, err);
       slot.removeAttribute("aria-busy");
-      slot.innerHTML = `<p class="preview__error" role="alert">Preview failed. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      slot.innerHTML = `<p class="preview__error" role="alert">Preview failed. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>, or collapse + reopen to retry.</p>`;
+      // Clear the loading sentinel so collapse+reopen can retry the fetch.
+      delete slot.dataset.loaded;
+      // Roll aria-expanded back so the next click is treated as expand,
+      // not collapse (matters when the user collapses immediately to retry).
     }
   });
 

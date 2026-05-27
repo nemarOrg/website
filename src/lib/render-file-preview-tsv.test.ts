@@ -79,6 +79,17 @@ describe("renderTsvPreview", () => {
     expect(html).not.toContain("data-tsv-show-all");
   });
 
+  it("pads ragged rows to the header column count (no silent misalignment)", () => {
+    // Header has 3 columns; second row only carries 2 cells. Each <tr>
+    // must still have 3 <td> so the table visually aligns.
+    const tsv = ["a\tb\tc", "1\t2\t3", "4\t5"].join("\n");
+    const html = renderTsvPreview(tsv);
+    const tds = html.match(/<td>/g) ?? [];
+    expect(tds.length).toBe(6);
+    // The padded cell is empty.
+    expect(html).toContain("<td>4</td><td>5</td><td></td>");
+  });
+
   it("renders all rows when cap is Infinity", () => {
     const rows = Array.from({ length: 150 }, (_, i) => `sub-${i + 1}\t${i + 1}`).join("\n");
     const tsv = `participant_id\tage\n${rows}`;

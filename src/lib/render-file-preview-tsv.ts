@@ -40,10 +40,17 @@ function renderTableHead(headers: string[]): string {
   return `<thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead>`;
 }
 
-function renderTableRows(rows: string[][]): string {
+function renderTableRows(rows: string[][], columnCount: number): string {
+  // Pad rows shorter than the header to `columnCount` cells so every
+  // `<tr>` has the same number of `<td>` as the `<thead>` has `<th>`.
+  // Without this, ragged rows (common in BIDS `events.tsv` when optional
+  // trailing columns are blank) silently misalign visually.
   return [
     "<tbody>",
-    ...rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell ?? "")}</td>`).join("")}</tr>`),
+    ...rows.map((row) => {
+      const padded = Array.from({ length: columnCount }, (_, i) => row[i] ?? "");
+      return `<tr>${padded.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`;
+    }),
     "</tbody>",
   ].join("");
 }
@@ -73,7 +80,7 @@ export function renderTsvPreview(rawText: string, cap = PREVIEW_ROW_CAP): string
     `<div class="preview__tsv">`,
     `<table class="preview__tsv-table">`,
     renderTableHead(headers),
-    renderTableRows(shown),
+    renderTableRows(shown, headers.length),
     "</table>",
     "</div>",
     moreFooter,

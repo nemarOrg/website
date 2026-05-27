@@ -116,9 +116,11 @@ const { datasetId, version } = Astro.props;
     font-size: var(--fs-sm);
     border-block-start: 1px solid var(--color-border);
   }
-  .tree__list--root .tree__row:first-child {
-    border-block-start: none;
-  }
+  /* The old `.tree__list--root .tree__row:first-child` no-top-border rule
+     was retired in #85: root file rows are now wrapped in a
+     `<li class="tree__file-wrap">`, so the `:first-child` selector doesn't
+     match the row anymore. The replacement selector below targets the new
+     shape (`.tree__list--root > .tree__file-wrap:first-child > .tree__row`). */
   .tree__row--dir {
     cursor: pointer;
     background: var(--color-bg);
@@ -244,10 +246,12 @@ const { datasetId, version } = Astro.props;
   .tree__list--root > .tree__file-wrap:first-child > .tree__row {
     border-block-start: none;
   }
-  /* Preview-name button. `display: contents` removes the button's own box
-     so the inner <span class="tree__name"> participates in the row's flex
-     layout as if it were the direct child — preserves the existing
-     spacing without duplicating row CSS inside the button rules. */
+  /* Preview-name button. Sized as a flex item that fills the same column
+     the old `<a class="tree__name">` did. Earlier drafts used
+     `display: contents`, but that breaks the accessibility tree on Safari
+     < 17.4 (WebKit bug 230700 — the button becomes invisible to
+     VoiceOver). Using `display: inline-flex` + `flex: 1` keeps the button
+     in the AX tree everywhere and still preserves the row's flex layout. */
   .tree__preview-btn {
     appearance: none;
     background: transparent;
@@ -258,7 +262,10 @@ const { datasetId, version } = Astro.props;
     font: inherit;
     cursor: pointer;
     text-align: start;
-    display: contents;
+    display: inline-flex;
+    align-items: center;
+    flex: 1;
+    min-inline-size: 0;
   }
   .tree__preview-btn:hover .tree__name {
     color: var(--color-link);
