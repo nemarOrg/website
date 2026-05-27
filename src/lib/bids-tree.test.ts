@@ -88,6 +88,23 @@ describe("buildTreeFromPaths", () => {
     expect(tree.children.map((c) => c.name)).toEqual(["sub-01"]);
     expect(tree.children[0]!.children.map((c) => c.name)).toEqual(["eeg"]);
   });
+
+  it("overlays rootTotalSize when provided (used for summary.totals.bytes)", () => {
+    // summary.json carries authoritative totals even though per-entry sizes
+    // are absent. Caller passes summary.totals.bytes to make the rendered
+    // panel header report a real number rather than 0 B. Issue #74. The
+    // 168_778_508_210 literal is on005512's actual byte count (~157 GB).
+    const tree = buildTreeFromPaths(["sub-01/x.set", "sub-02/x.set"], 168_778_508_210);
+    expect(tree.totalSize).toBe(168_778_508_210);
+    // Children stay at zero — only the root override applies. Per-file
+    // sizes wait on schema 1.2 (nemar-cli#635 / nemarOrg/website#73).
+    expect(tree.children[0]!.totalSize).toBe(0);
+  });
+
+  it("leaves root.totalSize at the synthesized 0 when no override is given (back-compat)", () => {
+    const tree = buildTreeFromPaths(["sub-01/x.set"]);
+    expect(tree.totalSize).toBe(0);
+  });
 });
 
 describe("classifyFile", () => {
