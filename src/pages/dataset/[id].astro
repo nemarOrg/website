@@ -13,13 +13,17 @@ import { getDataset, resolveCanonical } from "../../lib/api";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
   archiveZipUrl,
+  bundleFieldToOutcome,
+  getDatasetPageBundleOutcome,
   getLandingOutcome,
   getMetadataOutcome,
   isUnpublished,
   outcomeValue,
   resolveDatasetPageStatus,
 } from "../../lib/data-api";
+import type { BundleCatalogRow, FetchOutcome } from "../../lib/data-api";
 import { splitModalities } from "../../lib/format";
+import type { LandingPayload, NeuroschemaDataset } from "../../lib/neuroschema";
 import { detectProvenance } from "../../lib/provenance";
 import { getQaAggregates } from "../../lib/qa";
 
@@ -41,25 +45,68 @@ if (/^ds\d{6}$/.test(id)) {
 
 const versionParam = url.searchParams.get("v");
 
-// Fan out the landing, metadata, and catalog-row fetches in parallel.
-// The catalog row (api.nemar.org/datasets/<id>) is the fallback for
-// fields that the neuroschema metadata.json doesn't populate yet on
-// OpenNeuro-imported datasets (license, modalities, tasks, etc.).
-// QA aggregates fetch tolerates 404s by returning null; QualityPanel renders
-// nothing when no data is available, so this is safe for datasets without
-// pipeline output yet.
-const [landingOut, metadataOut, catalogRow, qaAggregates] = await Promise.all([
-  getLandingOutcome(id),
-  getMetadataOutcome(id),
-  getDataset(id).catch((err) => {
-    console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
-    return null;
-  }),
+// Prefer the unified page-bundle endpoint (nemar-cli#617): one upstream
+// fetch returns landing + metadata + summary + catalog_row in a single
+// 1-RTT response. Falls back to the pre-#71 fan-out path for older
+// datasets whose bundle endpoint isn't warm yet, transient upstream
+// errors, or anything the bundle worker couldn't deliver.
+// QA aggregates stay separate (intentionally out of the bundle per #617)
+// and run in parallel with the bundle fetch — overall fan-out count is
+// unchanged from pre-#71 (three SSR fetches + QA), just restructured so
+// the three are served by one upstream when the bundle is available.
+const [bundleOut, qaAggregates] = await Promise.all([
+  getDatasetPageBundleOutcome(id, versionParam),
   getQaAggregates(id).catch((err) => {
     console.warn(`[dataset/${id}] qa aggregates unavailable: ${(err as Error).message ?? err}`);
     return null;
   }),
 ]);
+
+let landingOut: FetchOutcome<LandingPayload>;
+let metadataOut: FetchOutcome<NeuroschemaDataset>;
+let catalogRow: BundleCatalogRow | null;
+
+if (bundleOut.kind === "ok") {
+  landingOut = bundleFieldToOutcome(bundleOut.value.landing);
+  metadataOut = bundleFieldToOutcome(bundleOut.value.metadata);
+  catalogRow = bundleOut.value.catalog_row.ok ? bundleOut.value.catalog_row.data : null;
+  // `complete=false` means at least one constituent fetch inside the bundle
+  // worker failed — this is a real upstream problem worth warning on.
+  // `enrichment_degraded=true` on its own is routine for OpenNeuro datasets
+  // (the D1 catalog row is sparse before sync); logging it would create
+  // chronic noise that dilutes the signal from genuine failures.
+  if (!bundleOut.value.complete) {
+    console.warn(
+      `[dataset/${id}] bundle partial: complete=false degraded=${bundleOut.value.enrichment_degraded}`,
+    );
+  }
+} else {
+  // Bundle unavailable. `parse_error` is the one failure mode that signals
+  // CLI contract drift (200 with a body that didn't parse) — log at error
+  // so monitoring picks it up; everything else (404, 503, timeout, network)
+  // is a transient infrastructure issue where the fan-out fallback below
+  // is the right move and a warn-level note is sufficient.
+  if (bundleOut.kind === "parse_error") {
+    console.error(
+      `[dataset/${id}] bundle parse_error (likely CLI contract drift): ${bundleOut.message}`,
+    );
+  } else {
+    console.warn(`[dataset/${id}] bundle unavailable (${bundleOut.kind}); using fan-out fallback`);
+  }
+  // Fall back to the pre-#71 fan-out path. The catalog row tolerates throws
+  // via .catch(); QA is already fetched in the outer Promise.all above.
+  const [l, m, c] = await Promise.all([
+    getLandingOutcome(id),
+    getMetadataOutcome(id),
+    getDataset(id).catch((err) => {
+      console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
+      return null;
+    }),
+  ]);
+  landingOut = l;
+  metadataOut = m;
+  catalogRow = c;
+}
 
 // 404 only when BOTH signals independently report missing — a single not_found
 // could be a partial publish or a transient data-layer hiccup. Anything else
@@ -94,7 +141,14 @@ if (!landing || !metadata) {
 // split them into the array shape DetailRail expects.
 const enrichedMetadata = {
   ...metadata,
-  license: metadata.license || catalogRow?.doi ? metadata.license : null,
+  // Pre-#71 this branch checked `catalogRow?.doi` (a typo for `?.license`,
+  // and `?:` instead of `||`) so the catalog's license never reached the
+  // rendered output. The bundle's `catalog_row` carries `license` directly,
+  // and the `BundleCatalogRow` type now forces the correct fallback path.
+  // Fan-out `Dataset` doesn't have `license` (it's not in the D1 row that
+  // `api.nemar.org/datasets/<id>` returns) so `catalogRow?.license` is
+  // `undefined` there and the expression collapses to today's behavior.
+  license: metadata.license || catalogRow?.license || null,
   recording_modality:
     (metadata.recording_modality?.length ?? 0) > 0
       ? metadata.recording_modality

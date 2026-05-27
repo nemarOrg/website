@@ -299,12 +299,107 @@ export async function getManifestOutcome(
   return jsonFetch<Manifest>(manifestUrl(datasetId, version, init), init);
 }
 
+/**
+ * Per-field envelope used inside `DatasetPageBundle`. The CLI worker wraps
+ * each constituent payload with an `ok` flag so partial failures in its
+ * internal fan-in are explicit at parse time. We don't lose this signal —
+ * `bundleFieldToOutcome` lifts it into the existing `FetchOutcome` union so
+ * the same `resolveDatasetPageStatus` resolver works for both code paths
+ * (as long as the resolver continues to inspect only landing and metadata
+ * outcomes; if it ever consults `summary` or `catalog_row` directly, the
+ * adapter mapping here will need to be revisited).
+ */
+export interface BundleField<T> {
+  ok: boolean;
+  data: T | null;
+}
+
+/**
+ * Catalog row as embedded in `DatasetPageBundle`. Intentionally a sparse
+ * subset of `Dataset` — the bundle only carries the fields the dataset
+ * detail page actually needs (license, modalities/tasks/authors CSV
+ * fallbacks, name/description/concept_doi/github_repo). Everything else
+ * on `Dataset` (D1 internals: id, status, visibility, file_size, etc.)
+ * stays available via the fan-out path's `getDataset` call. Every field
+ * except `dataset_id` is optional so a single typed variable can hold
+ * either shape without coercion.
+ */
+export interface BundleCatalogRow {
+  dataset_id: string;
+  name?: string;
+  description?: string | null;
+  concept_doi?: string | null;
+  github_repo?: string | null;
+  modalities?: string;
+  tasks?: string;
+  authors?: string;
+  license?: string | null;
+}
+
+/**
+ * Shape of `GET https://data.nemar.org/<id>/page-bundle.json?v=<v>`
+ * (nemar-cli#617). The endpoint accepts either an explicit `v=` or no
+ * version (resolves to `landing.latest` internally) and returns landing +
+ * metadata + summary + catalog row in a single 1-RTT response.
+ *
+ * `complete` is true when all four child fetches succeeded inside the
+ * worker; `enrichment_degraded` flags a partial-but-renderable response.
+ */
+export interface DatasetPageBundle {
+  dataset_id: string;
+  version: string;
+  served_at: string;
+  complete: boolean;
+  enrichment_degraded: boolean;
+  landing: BundleField<LandingPayload>;
+  metadata: BundleField<NeuroschemaDataset>;
+  summary: BundleField<Summary>;
+  catalog_row: BundleField<BundleCatalogRow>;
+}
+
+/**
+ * Fetch the unified dataset page bundle. `v` may be null to let the upstream
+ * resolve to `landing.latest`. 4 s timeout (tighter than the 5 s default on
+ * the fan-out helpers) so a slow bundle falls back fast rather than
+ * bottlenecking the page when the upstream is degraded.
+ */
+export async function getDatasetPageBundleOutcome(
+  datasetId: string,
+  v: string | null,
+  init: DataApiInit = {},
+): Promise<FetchOutcome<DatasetPageBundle>> {
+  return jsonFetch<DatasetPageBundle>(bundleUrl(datasetId, v, init), {
+    ...init,
+    timeoutMs: init.timeoutMs ?? 4_000,
+  });
+}
+
+/**
+ * Lift a bundle field into the `FetchOutcome` shape so the same
+ * `resolveDatasetPageStatus` resolver works for both the bundle-served and
+ * fan-out paths. The bundle's per-field failure modes are lossy (no HTTP
+ * status, no upstream message) so we map to `upstream_error` with a
+ * sentinel status; the `statusText` distinguishes the two distinct cases
+ * (`ok: false` vs `ok: true` with null data) so a Workers log entry can
+ * triage which side of the worker's contract broke.
+ */
+export function bundleFieldToOutcome<T>(field: BundleField<T>): FetchOutcome<T> {
+  if (field.ok && field.data !== null) return { kind: "ok", value: field.data };
+  const statusText = field.ok ? "bundle field ok=true but data=null" : "bundle field ok=false";
+  return { kind: "upstream_error", status: 0, statusText };
+}
+
 // ============================================================================
 // URL helpers (shared between the legacy + outcome variants)
 // ============================================================================
 
 function landingUrl(datasetId: string, init: DataApiInit): string {
   return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/`;
+}
+
+function bundleUrl(datasetId: string, v: string | null, init: DataApiInit): string {
+  const base = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/page-bundle.json`;
+  return v ? `${base}?v=${encodeURIComponent(v)}` : base;
 }
 
 function metadataUrl(datasetId: string, init: DataApiInit): string {
