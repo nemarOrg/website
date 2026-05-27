@@ -13,17 +13,13 @@ import { getDataset, resolveCanonical } from "../../lib/api";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
   archiveZipUrl,
-  bundleFieldToOutcome,
-  getDatasetPageBundleOutcome,
   getLandingOutcome,
   getMetadataOutcome,
   isUnpublished,
   outcomeValue,
   resolveDatasetPageStatus,
 } from "../../lib/data-api";
-import type { BundleCatalogRow, FetchOutcome } from "../../lib/data-api";
 import { splitModalities } from "../../lib/format";
-import type { LandingPayload, NeuroschemaDataset } from "../../lib/neuroschema";
 import { detectProvenance } from "../../lib/provenance";
 import { getQaAggregates } from "../../lib/qa";
 
@@ -45,68 +41,24 @@ if (/^ds\d{6}$/.test(id)) {
 
 const versionParam = url.searchParams.get("v");
 
-// Prefer the unified page-bundle endpoint (nemar-cli#617): one upstream
-// fetch returns landing + metadata + summary + catalog_row in a single
-// 1-RTT response. Falls back to the pre-#71 fan-out path for older
-// datasets whose bundle endpoint isn't warm yet, transient upstream
-// errors, or anything the bundle worker couldn't deliver.
-// QA aggregates stay separate (intentionally out of the bundle per #617)
-// and run in parallel with the bundle fetch — overall fan-out count is
-// unchanged from pre-#71 (three SSR fetches + QA), just restructured so
-// the three are served by one upstream when the bundle is available.
-const [bundleOut, qaAggregates] = await Promise.all([
-  getDatasetPageBundleOutcome(id, versionParam),
+// SSR fan-out: landing + metadata + catalog row + QA. All small, all parallel.
+// Removed in #76: the page-bundle, the summary fetch, and the deferred partial
+// endpoints (/api/dataset/<id>/{readme,tree}). README + tree now hydrate
+// client-side directly from raw.githubusercontent.com and data.nemar.org's
+// JSON directory listings (nemar-cli#636) — those are the canonical sources
+// and are dramatically faster + smaller than the pipeline we built on top.
+const [landingOut, metadataOut, catalogRow, qaAggregates] = await Promise.all([
+  getLandingOutcome(id),
+  getMetadataOutcome(id),
+  getDataset(id).catch((err) => {
+    console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
+    return null;
+  }),
   getQaAggregates(id).catch((err) => {
     console.warn(`[dataset/${id}] qa aggregates unavailable: ${(err as Error).message ?? err}`);
     return null;
   }),
 ]);
-
-let landingOut: FetchOutcome<LandingPayload>;
-let metadataOut: FetchOutcome<NeuroschemaDataset>;
-let catalogRow: BundleCatalogRow | null;
-
-if (bundleOut.kind === "ok") {
-  landingOut = bundleFieldToOutcome(bundleOut.value.landing);
-  metadataOut = bundleFieldToOutcome(bundleOut.value.metadata);
-  catalogRow = bundleOut.value.catalog_row.ok ? bundleOut.value.catalog_row.data : null;
-  // `complete=false` means at least one constituent fetch inside the bundle
-  // worker failed — this is a real upstream problem worth warning on.
-  // `enrichment_degraded=true` on its own is routine for OpenNeuro datasets
-  // (the D1 catalog row is sparse before sync); logging it would create
-  // chronic noise that dilutes the signal from genuine failures.
-  if (!bundleOut.value.complete) {
-    console.warn(
-      `[dataset/${id}] bundle partial: complete=false degraded=${bundleOut.value.enrichment_degraded}`,
-    );
-  }
-} else {
-  // Bundle unavailable. `parse_error` is the one failure mode that signals
-  // CLI contract drift (200 with a body that didn't parse) — log at error
-  // so monitoring picks it up; everything else (404, 503, timeout, network)
-  // is a transient infrastructure issue where the fan-out fallback below
-  // is the right move and a warn-level note is sufficient.
-  if (bundleOut.kind === "parse_error") {
-    console.error(
-      `[dataset/${id}] bundle parse_error (likely CLI contract drift): ${bundleOut.message}`,
-    );
-  } else {
-    console.warn(`[dataset/${id}] bundle unavailable (${bundleOut.kind}); using fan-out fallback`);
-  }
-  // Fall back to the pre-#71 fan-out path. The catalog row tolerates throws
-  // via .catch(); QA is already fetched in the outer Promise.all above.
-  const [l, m, c] = await Promise.all([
-    getLandingOutcome(id),
-    getMetadataOutcome(id),
-    getDataset(id).catch((err) => {
-      console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
-      return null;
-    }),
-  ]);
-  landingOut = l;
-  metadataOut = m;
-  catalogRow = c;
-}
 
 // 404 only when BOTH signals independently report missing — a single not_found
 // could be a partial publish or a transient data-layer hiccup. Anything else
@@ -137,18 +89,14 @@ if (!landing || !metadata) {
 }
 
 // Merge sparse metadata with catalog row when neuroschema fields are empty.
-// The catalog has license, modalities, tasks, authors as CSV strings — we
-// split them into the array shape DetailRail expects.
+// The catalog (api.nemar.org/datasets/<id>) has modalities, tasks, authors
+// as CSV strings — we split them into the array shape DetailRail expects.
+// No license fallback from the catalog row: `Dataset` doesn't carry
+// `license` (it's not in the D1 row), and the previous pipe through the
+// bundle's `catalog_row.license` was retired in #76 along with the bundle.
 const enrichedMetadata = {
   ...metadata,
-  // Pre-#71 this branch checked `catalogRow?.doi` (a typo for `?.license`,
-  // and `?:` instead of `||`) so the catalog's license never reached the
-  // rendered output. The bundle's `catalog_row` carries `license` directly,
-  // and the `BundleCatalogRow` type now forces the correct fallback path.
-  // Fan-out `Dataset` doesn't have `license` (it's not in the D1 row that
-  // `api.nemar.org/datasets/<id>` returns) so `catalogRow?.license` is
-  // `undefined` there and the expression collapses to today's behavior.
-  license: metadata.license || catalogRow?.license || null,
+  license: metadata.license || null,
   recording_modality:
     (metadata.recording_modality?.length ?? 0) > 0
       ? metadata.recording_modality
@@ -190,10 +138,10 @@ const selectedVersion =
     ? versionParam
     : (landing.latest ?? landing.versions[0]?.version ?? null);
 
-// README and BIDS tree fetches are deferred to the client (see
-// /api/dataset/[id]/readme.ts and tree.ts). SSR critical path now only awaits
-// landing + metadata + catalog row, so the header renders in ~300 ms instead
-// of waiting on the manifest/GitHub waterfall.
+// README and BIDS tree hydrate client-side (see the <script> block at the
+// bottom of this file): README from raw.githubusercontent.com directly,
+// tree from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636). SSR
+// critical path only awaits landing + metadata + catalog row + QA.
 
 const provenance = detectProvenance(metadata, landing);
 const modalities = enrichedMetadata.recording_modality.length
@@ -201,6 +149,18 @@ const modalities = enrichedMetadata.recording_modality.length
   : splitModalities("");
 
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
+// Owner/repo slug for the client-side GitHub raw fetch. Strips the
+// `https://github.com/` prefix + any trailing slash + any `.git` suffix
+// so raw.githubusercontent.com/<slug>/<version>/README.md resolves.
+// Falls back to `${ORG_DATASETS}/${id}` (the same default used for
+// githubUrl) when metadata doesn't specify a repo.
+// Trailing-slash strip MUST run before the `.git` strip — a URL ending in
+// `.git/` would otherwise leave `.git` in the slug because the `$` anchor
+// requires the literal to be the final char.
+const githubRepoSlug = githubUrl
+  .replace(/^https?:\/\/github\.com\//, "")
+  .replace(/\/$/, "")
+  .replace(/\.git$/, "");
 const issuesUrl = `${githubUrl}/issues`;
 const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
@@ -273,7 +233,17 @@ Astro.response.headers.set(
           </div>
         ) : (
           <>
-            <Readme defer datasetId={id} version={selectedVersion} />
+            <Readme
+              defer
+              datasetId={id}
+              version={selectedVersion}
+              githubRepo={githubRepoSlug}
+              fallbackDescription={
+                metadata.description && metadata.description !== metadata.name
+                  ? metadata.description
+                  : null
+              }
+            />
             <QualityPanel aggregates={qaAggregates} hedSummary={null} />
             {selectedVersion && (
               <BidsTree datasetId={id} version={selectedVersion} />
@@ -287,89 +257,152 @@ Astro.response.headers.set(
 </Base>
 
 <script>
-  /**
-   * Replace defer placeholders with rendered HTML fetched from
-   * `/api/dataset/<id>/{readme,tree}?v=<v>` in parallel. Each endpoint is
-   * edge-cached so the first visit's work amortizes across subsequent ones.
-   */
-  async function hydrateDeferred(): Promise<void> {
-    const targets = [
-      ...document.querySelectorAll<HTMLElement>("[data-readme-defer], [data-tree-defer]"),
-    ];
-    await Promise.all(
-      targets.map(async (el) => {
-        const id = el.dataset.id;
-        const version = el.dataset.version;
-        if (!id || !version) return;
-        const endpoint = el.hasAttribute("data-readme-defer") ? "readme" : "tree";
-        const path = `/api/dataset/${encodeURIComponent(id)}/${endpoint}?v=${encodeURIComponent(version)}`;
-        try {
-          const res = await fetch(path, { headers: { Accept: "text/html" } });
-          if (!res.ok) throw new Error(`${path}: ${res.status}`);
-          el.innerHTML = await res.text();
-          el.removeAttribute("aria-busy");
-          if (endpoint === "readme") {
-            const wrap = el.querySelector<HTMLElement>("[data-readme-wrap]");
-            const sync = (window as typeof window & {
-              __nemarSyncReadme?: (wrap: HTMLElement) => void;
-            }).__nemarSyncReadme;
-            if (wrap && sync) sync(wrap);
-          }
-        } catch (err) {
-          el.removeAttribute("aria-busy");
-          console.warn(`[hydrateDeferred] ${path}`, err);
-          el.innerHTML = `<p class="readme__empty">Couldn't load this section. <a href="${path}">View raw HTML</a>.</p>`;
-        }
-      }),
-    );
-  }
-  hydrateDeferred();
+  import { renderMarkdown } from "../../lib/markdown";
+  import { fetchDirListing } from "../../lib/dir-listing";
+  import { renderSubdir, renderTopLevel } from "../../lib/render-dir-listing";
 
   /**
-   * Lazy-load per-subject subtrees as the user expands them. The skeleton
-   * tree response emits each `sub-XYZ` as a closed <details> with a
-   * `[data-subject-target]` placeholder; on first toggle we fetch the
-   * subtree HTML and drop it into the placeholder. Capture phase because
-   * the `toggle` event on <details> does NOT bubble (per HTML spec).
-   * Delegating on document so dynamically-injected rows participate
-   * without re-binding — matches the readme-toggle pattern elsewhere.
+   * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
+   * were SSR'd by /api/dataset/<id>/{readme,tree} partial endpoints which
+   * fetched summary.json + manifest.json on every request, hit cold-isolate
+   * timeouts on HBN-sized datasets, and required several refresh cycles to
+   * warm. The pipeline was the actual failure surface for the user-visible
+   * "No description available" / "Manifest unavailable" placeholders.
+   *
+   * Now: README comes from raw.githubusercontent.com via GitHub's CDN;
+   * tree comes from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636 /
+   * v0.8.37 — typically a small top-level JSON with real per-file sizes
+   * and native lazy-per-directory). No website worker in the chain.
    */
+
+  async function hydrateReadme(article: HTMLElement): Promise<void> {
+    const datasetId = article.dataset.id;
+    const version = article.dataset.version;
+    const repo = article.dataset.githubRepo;
+    const fallbackDesc = article.dataset.fallbackDesc ?? "";
+    if (!datasetId || !version) return;
+
+    let markdown: string | null = null;
+    if (repo) {
+      // Tagged version first. README content is per-version; the dataset
+      // repo's tag matches the published version label.
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(version)}/README.md`;
+      try {
+        const res = await fetch(rawUrl);
+        if (res.ok) {
+          const text = await res.text();
+          if (text.trim().length > 0) markdown = text;
+        }
+      } catch (err) {
+        console.warn(`[readme/${datasetId}] GitHub raw fetch failed:`, err);
+      }
+    }
+
+    article.removeAttribute("aria-busy");
+    if (markdown) {
+      article.innerHTML = renderReadmeWrap(renderMarkdown(markdown));
+      const wrap = article.querySelector<HTMLElement>("[data-readme-wrap]");
+      const sync = (
+        window as typeof window & { __nemarSyncReadme?: (w: HTMLElement) => void }
+      ).__nemarSyncReadme;
+      if (wrap && sync) sync(wrap);
+      return;
+    }
+
+    // No README at this version. Use metadata.description if present and
+    // meaningful (the SSR-passed fallback), else show the empty state.
+    if (fallbackDesc.length > 0) {
+      article.innerHTML = `<div class="readme__fallback-note" role="note"><strong>Description (from dataset metadata)</strong><span>This dataset doesn't ship a README. Showing the BIDS description instead.</span></div>${renderReadmeWrap(renderMarkdown(fallbackDesc))}`;
+      const wrap = article.querySelector<HTMLElement>("[data-readme-wrap]");
+      const sync = (
+        window as typeof window & { __nemarSyncReadme?: (w: HTMLElement) => void }
+      ).__nemarSyncReadme;
+      if (wrap && sync) sync(wrap);
+      return;
+    }
+
+    article.innerHTML = `<div class="readme__empty"><h2>No description available</h2><p>This dataset doesn't ship a README and the BIDS metadata has no description either. The file tree below and the metadata panel on the right are the authoritative description for now. The dataset's GitHub repository may have curation notes added later.</p></div>`;
+  }
+
+  /** The expand/collapse shell the Readme.astro non-defer branch uses,
+   *  emitted in JS so injected README HTML matches the SSR path's markup
+   *  and the existing .readme__toggle delegated click handler works. */
+  function renderReadmeWrap(innerHtml: string): string {
+    return `<div class="readme__wrap" data-readme-wrap><div class="readme__body">${innerHtml}</div><div class="readme__fade" aria-hidden="true"></div><div class="readme__toolbar"><button class="readme__toggle" type="button" data-readme-toggle aria-expanded="false" aria-controls="readme-body"><span class="readme__toggle-label">Expand README</span></button></div></div>`;
+  }
+
+  async function hydrateTree(section: HTMLElement): Promise<void> {
+    const datasetId = section.dataset.id;
+    const version = section.dataset.version;
+    if (!datasetId || !version) return;
+    const listing = await fetchDirListing(datasetId, version, "");
+    section.removeAttribute("aria-busy");
+    if (!listing) {
+      // Parity with the subdir-toggle handler: both null paths log so a
+      // developer with devtools open can distinguish "this specific dataset
+      // is broken" from "the whole endpoint is down."
+      console.warn(`[tree/${datasetId}] top-level dir listing returned null (v=${version})`);
+      section.innerHTML = `<section class="detail__no-manifest" role="alert"><h2>File index unavailable</h2><p>The file index for <code>${escapeHtml(version)}</code> couldn't be loaded right now. Try refreshing in a few seconds, or use the <a href="/discover">Discover page</a> to pick another dataset or version.</p></section>`;
+      return;
+    }
+    section.innerHTML = renderTopLevel(listing);
+  }
+
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // Capture-phase toggle listener for lazy per-directory expansion. The
+  // toggle event on <details> does NOT bubble (HTML spec), so capture is
+  // the only way to delegate. Matches the pre-#76 Phase 3 pattern but for
+  // arbitrary directories rather than just subject-level dirs.
   document.addEventListener(
     "toggle",
     (event) => {
       const details = event.target;
       if (!(details instanceof HTMLDetailsElement)) return;
       if (!details.open) return;
-      const subject = details.dataset.subject;
-      if (!subject) return;
-      const slot = details.querySelector<HTMLElement>("[data-subject-target]");
+      const dirPath = details.dataset.dirPath;
+      if (!dirPath) return;
+      const slot = details.querySelector<HTMLElement>("[data-dir-target]");
       if (!slot || slot.dataset.loaded === "true") return;
       const section = details.closest<HTMLElement>("[data-tree-defer]");
       const treeId = section?.dataset.id;
       const treeVersion = section?.dataset.version;
       if (!treeId || !treeVersion) return;
+      const depthAttr = Number(details.dataset.depth ?? "0");
+      const childDepth = Number.isFinite(depthAttr) ? depthAttr + 1 : 1;
       slot.setAttribute("aria-busy", "true");
-      const subPath = `/api/dataset/${encodeURIComponent(treeId)}/tree?v=${encodeURIComponent(
-        treeVersion,
-      )}&subject=${encodeURIComponent(subject)}`;
-      fetch(subPath, { headers: { Accept: "text/html" } })
-        .then((res) => {
-          if (!res.ok) throw new Error(`${subPath}: ${res.status}`);
-          return res.text();
-        })
-        .then((html) => {
-          slot.innerHTML = html;
-          slot.dataset.loaded = "true";
+      fetchDirListing(treeId, treeVersion, dirPath)
+        .then((listing) => {
           slot.removeAttribute("aria-busy");
+          if (!listing) {
+            slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
+            return;
+          }
+          slot.innerHTML = renderSubdir(listing, childDepth);
+          slot.dataset.loaded = "true";
         })
         .catch((err) => {
-          console.warn("[tree] subject expand failed", err);
-          slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files for this subject. Collapse and re-open to retry.</p>`;
+          console.warn(`[tree/${treeId}] dir expand failed:`, err);
           slot.removeAttribute("aria-busy");
+          slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
         });
     },
     true,
   );
+
+  // Kick off hydration on every defer slot present at first paint.
+  document
+    .querySelectorAll<HTMLElement>("[data-readme-defer]")
+    .forEach((el) => void hydrateReadme(el));
+  document
+    .querySelectorAll<HTMLElement>("[data-tree-defer]")
+    .forEach((el) => void hydrateTree(el));
 </script>
 
 <style>
