@@ -1,0 +1,335 @@
+---
+/**
+ * Tabbed summary on the dataset detail page. Demographics is the primary
+ * tab (eager client hydration from participants.tsv); Data quality is a
+ * "coming soon" placeholder until nemar-cli#511 ships the static QA
+ * aggregate.
+ *
+ * Both tabs render server-side as static markup; only the demographics
+ * panel hydrates client-side. The tabs themselves switch via a tiny
+ * delegated click + keydown handler implementing the WAI-ARIA tabs
+ * pattern (left/right cycle with wrap, Home/End to jump to ends).
+ */
+interface Props {
+  datasetId: string;
+  version: string | null;
+}
+
+const { datasetId, version } = Astro.props;
+// Per-dataset id prefix so multiple instances of this component on the
+// same page wouldn't collide on hardcoded tab/panel ids. Today only one
+// is rendered, but the tablist click + keydown handlers are document-
+// global; this prefix keeps activateTab's getElementById lookups scoped
+// to the correct tablist.
+const idp = `dt-${datasetId}`;
+---
+
+<section class="dtabs">
+  <div class="dtabs__list" role="tablist" aria-label="Dataset summary">
+    <button class="dtabs__tab" role="tab" id={`${idp}-tab-demo`} aria-controls={`${idp}-panel-demo`} aria-selected="true" tabindex="0" type="button">
+      Demographics
+    </button>
+    <button class="dtabs__tab" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
+      Data quality
+    </button>
+  </div>
+
+  <div
+    class="dtabs__panel"
+    role="tabpanel"
+    id={`${idp}-panel-demo`}
+    aria-labelledby={`${idp}-tab-demo`}
+    data-demo-defer
+    data-id={datasetId}
+    data-version={version ?? ""}
+    aria-busy="true"
+  >
+    <p class="dtabs__skeleton">Loading demographics…</p>
+  </div>
+
+  <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-qa`} aria-labelledby={`${idp}-tab-qa`} hidden>
+    <p class="dtabs__soon">
+      <strong>Coming soon.</strong> Per-file data-quality summaries are precomputed by the
+      NEMAR processing pipeline. The static aggregate is on the way — tracked at
+      <a href="https://github.com/nemarOrg/nemar-cli/issues/511" rel="external">nemar-cli#511</a>.
+    </p>
+  </div>
+</section>
+
+<script>
+  import { fetchParticipants, type ParticipantsData } from "../lib/participants";
+  import { renderSexDonutSvg } from "../lib/render-sex-donut";
+  import { renderAgeGenderStackedSvg } from "../lib/render-age-gender";
+
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  /** Compose the rendered HTML for a successful demographics fetch.
+   *  Pure string concatenation so the panel can be filled with a single
+   *  innerHTML assignment without intermediate DOM bookkeeping. */
+  function renderDemographics(data: ParticipantsData): string {
+    const { sexCounts, ages, sexes, total } = data;
+    const hasAgeData = ages.length > 0;
+    const hasSexData = sexCounts.M + sexCounts.F + sexCounts.O > 0;
+    if (!hasAgeData && !hasSexData) {
+      // Covers both shapes that reach this branch: the file has neither
+      // sex nor age columns at all, OR every row's sex/age cell is blank
+      // / "n/a". Either way the user-visible answer is "we have nothing
+      // to chart here".
+      return `<p class="dtabs__empty">participants.tsv has no <code>sex</code> or <code>age</code> values to chart.</p>`;
+    }
+    const donut = hasSexData ? renderSexDonutSvg(sexCounts) : "";
+    const hist = hasAgeData ? renderAgeGenderStackedSvg(ages, sexes) : "";
+    const legend = hasSexData
+      ? `<ul class="dtabs__legend" role="list">
+           <li><span class="dtabs__swatch" style="background: var(--modality-eeg)"></span> Male <b>${sexCounts.M}</b></li>
+           <li><span class="dtabs__swatch" style="background: var(--modality-ieeg)"></span> Female <b>${sexCounts.F}</b></li>
+           <li><span class="dtabs__swatch" style="background: var(--color-fg-subtle)"></span> Other / unknown <b>${sexCounts.O}</b></li>
+         </ul>`
+      : "";
+    return `
+      <div class="dtabs__demo">
+        <div class="dtabs__demo-summary">
+          <p class="dtabs__count"><b>${total}</b> participants</p>
+          ${donut}
+          ${legend}
+        </div>
+        <figure class="dtabs__demo-hist">
+          <figcaption>Age distribution by sex</figcaption>
+          ${hist}
+        </figure>
+      </div>
+    `;
+  }
+
+  async function hydrateDemographics(panel: HTMLElement): Promise<void> {
+    const datasetId = panel.dataset.id;
+    const version = panel.dataset.version;
+    if (!datasetId || !version) {
+      panel.removeAttribute("aria-busy");
+      panel.innerHTML = `<p class="dtabs__empty">No published version selected.</p>`;
+      return;
+    }
+    const data = await fetchParticipants(datasetId, version);
+    panel.removeAttribute("aria-busy");
+    if (!data) {
+      panel.innerHTML = `<p class="dtabs__empty">This dataset doesn't ship a <code>participants.tsv</code> at version <code>${escapeHtml(version)}</code>.</p>`;
+      return;
+    }
+    if (data.total === 0) {
+      panel.innerHTML = `<p class="dtabs__empty">participants.tsv is present but empty.</p>`;
+      return;
+    }
+    panel.innerHTML = renderDemographics(data);
+  }
+
+  /** Activate the tab at `index` within `tabs`, deactivating the others.
+   *  Pure DOM bookkeeping — keyboard nav calls this with `focus=true` to
+   *  move focus alongside the selection (per the ARIA tabs spec for
+   *  automatic activation). */
+  function activateTab(tabs: HTMLButtonElement[], index: number, focus: boolean): void {
+    tabs.forEach((tab, i) => {
+      const active = i === index;
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+      tab.tabIndex = active ? 0 : -1;
+      const panelId = tab.getAttribute("aria-controls");
+      const panel = panelId ? document.getElementById(panelId) : null;
+      if (panel) {
+        if (active) panel.removeAttribute("hidden");
+        else panel.setAttribute("hidden", "");
+      }
+    });
+    if (focus) tabs[index]?.focus();
+  }
+
+  function bindTablist(list: HTMLElement): void {
+    const tabs = Array.from(list.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+    if (tabs.length === 0) return;
+
+    list.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const tab = target.closest<HTMLButtonElement>('[role="tab"]');
+      if (!tab) return;
+      const idx = tabs.indexOf(tab);
+      if (idx >= 0) activateTab(tabs, idx, false);
+    });
+
+    list.addEventListener("keydown", (event) => {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+      const current = tabs.indexOf(active as HTMLButtonElement);
+      if (current < 0) return;
+      let next = current;
+      switch (event.key) {
+        case "ArrowRight":
+          next = (current + 1) % tabs.length;
+          break;
+        case "ArrowLeft":
+          next = (current - 1 + tabs.length) % tabs.length;
+          break;
+        case "Home":
+          next = 0;
+          break;
+        case "End":
+          next = tabs.length - 1;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      activateTab(tabs, next, true);
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>('[role="tablist"]').forEach(bindTablist);
+  document.querySelectorAll<HTMLElement>("[data-demo-defer]").forEach((el) => void hydrateDemographics(el));
+</script>
+
+<style is:global>
+  /* is:global because the demographics body is injected as innerHTML by
+     the client script — Astro's scoped class hashes wouldn't be applied
+     to the injected nodes. .dtabs__ prefix keeps the namespace narrow. */
+  .dtabs {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    overflow: hidden;
+  }
+  .dtabs__list {
+    display: flex;
+    border-block-end: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    padding-inline: var(--space-3);
+  }
+  .dtabs__tab {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: var(--space-3) var(--space-4);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    border-block-end: 2px solid transparent;
+    margin-block-end: -1px;
+  }
+  .dtabs__tab[aria-selected="true"] {
+    color: var(--color-fg);
+    border-block-end-color: var(--color-fg);
+  }
+  .dtabs__tab:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: -2px;
+    border-radius: var(--radius-sm);
+  }
+  .dtabs__panel {
+    padding: var(--space-5);
+  }
+  .dtabs__skeleton {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    margin: 0;
+  }
+  .dtabs__empty {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    margin: 0;
+  }
+  .dtabs__empty code {
+    background: var(--color-bg-subtle);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-xs);
+  }
+  .dtabs__soon {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    margin: 0;
+  }
+  .dtabs__soon strong {
+    color: var(--color-fg);
+  }
+  .dtabs__demo {
+    display: grid;
+    grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: center;
+  }
+  @media (max-width: 640px) {
+    .dtabs__demo {
+      grid-template-columns: 1fr;
+    }
+  }
+  .dtabs__demo-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: center;
+    text-align: center;
+  }
+  .dtabs__count {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .dtabs__count b {
+    color: var(--color-fg);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+  }
+  .sdonut__svg {
+    inline-size: 96px;
+    block-size: 96px;
+  }
+  .dtabs__legend {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    align-items: flex-start;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .dtabs__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dtabs__legend b {
+    color: var(--color-fg);
+    margin-inline-start: 2px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .dtabs__swatch {
+    display: inline-block;
+    inline-size: 10px;
+    block-size: 10px;
+    border-radius: 2px;
+  }
+  .dtabs__demo-hist {
+    margin: 0;
+    min-inline-size: 0;
+  }
+  .dtabs__demo-hist figcaption {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    margin-block-end: var(--space-2);
+  }
+  .agbar__svg {
+    inline-size: 100%;
+    block-size: auto;
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+  }
+</style>

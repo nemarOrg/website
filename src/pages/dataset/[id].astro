@@ -1,11 +1,11 @@
 ---
 import ActionBar from "../../components/ActionBar.astro";
 import BidsTree from "../../components/BidsTree.astro";
+import DatasetTabs from "../../components/DatasetTabs.astro";
 import DetailRail from "../../components/DetailRail.astro";
 import DoiBadge from "../../components/DoiBadge.astro";
 import ModalityBadge from "../../components/ModalityBadge.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
-import QualityPanel from "../../components/QualityPanel.astro";
 import Readme from "../../components/Readme.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
@@ -21,7 +21,6 @@ import {
 } from "../../lib/data-api";
 import { splitModalities } from "../../lib/format";
 import { detectProvenance } from "../../lib/provenance";
-import { getQaAggregates } from "../../lib/qa";
 
 const { id } = Astro.params;
 if (!id) {
@@ -41,17 +40,14 @@ if (/^ds\d{6}$/.test(id)) {
 
 const versionParam = url.searchParams.get("v");
 
-// SSR fan-out: landing + metadata + QA. The api.nemar.org catalog-row fetch
-// retired in #78 — with all 130 datasets backfilled to neuroschema 1.1, the
-// CSV-split fallbacks (modalities/tasks/authors) it provided never fire.
-// Dropping it removes one api.nemar.org call per detail render.
-const [landingOut, metadataOut, qaAggregates] = await Promise.all([
+// SSR fan-out: landing + metadata only. The qa/ tree walk used to run here
+// but burned 5–28 s on HBN-sized datasets (see #81). Demographics now
+// hydrates client-side from participants.tsv, and the Data quality tab is
+// a "coming soon" placeholder until nemar-cli#511 ships a precomputed
+// static aggregate JSON we can fetch cheaply on tab click.
+const [landingOut, metadataOut] = await Promise.all([
   getLandingOutcome(id),
   getMetadataOutcome(id),
-  getQaAggregates(id).catch((err) => {
-    console.warn(`[dataset/${id}] qa aggregates unavailable: ${(err as Error).message ?? err}`);
-    return null;
-  }),
 ]);
 
 // 404 only when BOTH signals independently report missing — a single not_found
@@ -206,7 +202,7 @@ Astro.response.headers.set(
                   : null
               }
             />
-            <QualityPanel aggregates={qaAggregates} hedSummary={null} />
+            <DatasetTabs datasetId={id} version={selectedVersion} />
             {selectedVersion && (
               <BidsTree datasetId={id} version={selectedVersion} />
             )}
