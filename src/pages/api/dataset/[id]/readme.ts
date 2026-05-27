@@ -65,9 +65,16 @@ export const GET: APIRoute = async ({ params, request }) => {
     });
   }
 
+  // Summary timeout raised from 1.5s to 4s (matches tree.ts; #74). The
+  // Step 0.5 fast path depends on summary.readme.content reaching us
+  // before the deadline; on a cold isolate a 1.5s ceiling on a 400-750
+  // KB fetch was triggering the full GitHub-raw → manifest → BIDS
+  // description fallback chain (empty README placeholder) on first
+  // visit. 4s gives the cold case enough headroom without changing
+  // landing's tight ceiling (a slow landing = dataset doesn't exist).
   const [landingOut, summary, metadata] = await Promise.all([
     getLandingOutcome(id, { timeoutMs: 1_500 }),
-    getSummary(id, version, { timeoutMs: 1_500 }),
+    getSummary(id, version, { timeoutMs: 4_000 }),
     getMetadata(id, { timeoutMs: 4_000 }),
   ]);
 

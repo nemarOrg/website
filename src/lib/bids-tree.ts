@@ -72,8 +72,15 @@ export function buildTree(manifest: Manifest): TreeNode {
  * `basePath + entry.path` and does not read `entry.url`, so the empty
  * url filler is harmless. `totalSize` propagates as 0 throughout — the
  * tree UI displays no size hints when the source is summary-backed.
+ *
+ * `rootTotalSize` lets the caller overlay an authoritative bytes count
+ * (typically from `summary.totals.bytes`, which IS populated even though
+ * per-entry sizes aren't) so the rendered panel header reads e.g.
+ * "157 GB total" instead of "0 B total" for HBN-sized datasets. Only
+ * the root node is overridden — per-file rows still display "0 B" until
+ * schema 1.2 ships `path_sizes` (nemar-cli#635 / nemarOrg/website#73).
  */
-export function buildTreeFromPaths(paths: string[]): TreeNode {
+export function buildTreeFromPaths(paths: string[], rootTotalSize?: number): TreeNode {
   const entries = paths.map((p) => ({
     path: p,
     size: 0,
@@ -81,7 +88,9 @@ export function buildTreeFromPaths(paths: string[]): TreeNode {
     checksum: "",
     url: "",
   }));
-  return buildTree(entries);
+  const tree = buildTree(entries);
+  if (typeof rootTotalSize === "number") tree.totalSize = rootTotalSize;
+  return tree;
 }
 
 function sortAndSum(node: TreeNode): number {

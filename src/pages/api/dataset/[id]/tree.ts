@@ -85,9 +85,16 @@ export const GET: APIRoute = async ({ params, request }) => {
     });
   }
 
+  // Summary timeout raised from 1.5s to 4s: HBN-sized datasets ship a
+  // 400-750 KB summary.json, and on a cold CF isolate the 1.5s ceiling
+  // was triggering the manifest/no-manifest fallback chain on first
+  // visit (user-visible "Manifest unavailable" + 2-3 refresh cycles).
+  // Landing stays at 1.5s — it's a tiny payload and timing out usually
+  // means the dataset doesn't exist, where a fast 404 is the right move.
+  // Issue #74.
   const [landingOut, summary] = await Promise.all([
     getLandingOutcome(id, { timeoutMs: 1_500 }),
-    getSummary(id, version, { timeoutMs: 1_500 }),
+    getSummary(id, version, { timeoutMs: 4_000 }),
   ]);
 
   // Real 404 when the dataset itself doesn't exist — short-circuits the
@@ -122,7 +129,11 @@ export const GET: APIRoute = async ({ params, request }) => {
   let root: TreeNode | null = null;
   let fellBackToEmpty = false;
   if (summaryUsable && summary) {
-    root = buildTreeFromPaths(summary.paths);
+    // Overlay summary.totals.bytes so the rendered panel header reads
+    // a real number ("X GB total") instead of the 0 B that the
+    // zero-size synthetic entries would otherwise propagate. Per-file
+    // sizes still need schema 1.2 (nemar-cli#635). Issue #74.
+    root = buildTreeFromPaths(summary.paths, summary.totals?.bytes);
   } else {
     if (summary === null) {
       console.warn(`[tree/${id}] summary null; falling back to manifest path`);
