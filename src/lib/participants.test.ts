@@ -110,6 +110,30 @@ describe("parseParticipantsTsv", () => {
     expect(out.total).toBe(2);
     expect(out.sexes).toEqual(["M", "F"]);
   });
+
+  it("treats a short row (missing trailing tab) as null sex / null age", () => {
+    // OpenNeuro files in the wild occasionally drop trailing delimiters
+    // when a participant has nothing to record. The parser should fall
+    // through to undefined ⇒ null without throwing.
+    const tsv = ["participant_id\tsex\tage", "sub-001\tM\t10", "sub-002"].join("\n");
+    const out = parseParticipantsTsv(tsv);
+    expect(out.total).toBe(2);
+    expect(out.sexes).toEqual(["M", null]);
+    expect(out.ages).toEqual([10]);
+    expect(out.sexCounts).toEqual({ M: 1, F: 0, O: 0 });
+  });
+
+  it("handles age-only files (no sex / gender column) — sexes are all null", () => {
+    const tsv = ["participant_id\tage", "sub-001\t10", "sub-002\t12"].join("\n");
+    const out = parseParticipantsTsv(tsv);
+    expect(out.total).toBe(2);
+    expect(out.ages).toEqual([10, 12]);
+    // sexes still gets a per-row null pushed so its length tracks total.
+    // Locking this in prevents a future refactor from skipping the push
+    // when sexIdx === -1 and breaking the histogram's index alignment.
+    expect(out.sexes).toEqual([null, null]);
+    expect(out.sexCounts).toEqual({ M: 0, F: 0, O: 0 });
+  });
 });
 
 describe("participantsUrl", () => {

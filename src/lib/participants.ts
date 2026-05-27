@@ -99,20 +99,28 @@ export function participantsUrl(datasetId: string, version: string, dataBase?: s
   return `${root}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/participants.tsv`;
 }
 
-/** Fetch + parse in one shot. Returns null on 404 / network error so the
- *  caller can render an empty state without distinguishing causes. */
+/** Fetch + parse in one shot. Returns null on 404 (dataset simply doesn't
+ *  ship a participants.tsv) so the caller can render its "no demographics"
+ *  empty state. Returns null on other failures too, but logs them as
+ *  errors so a 5xx regression or CORS misconfig at data.nemar.org is
+ *  distinguishable from a genuine missing file in devtools. */
 export async function fetchParticipants(
   datasetId: string,
   version: string,
   dataBase?: string,
 ): Promise<ParticipantsData | null> {
+  const url = participantsUrl(datasetId, version, dataBase);
   try {
-    const res = await fetch(participantsUrl(datasetId, version, dataBase), { redirect: "follow" });
-    if (!res.ok) return null;
+    const res = await fetch(url, { redirect: "follow" });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      console.error(`[participants/${datasetId}] ${res.status} ${res.statusText} for ${url}`);
+      return null;
+    }
     const text = await res.text();
     return parseParticipantsTsv(text);
   } catch (err) {
-    console.warn(`[participants/${datasetId}] fetch failed:`, err);
+    console.error(`[participants/${datasetId}] network error for ${url}:`, err);
     return null;
   }
 }

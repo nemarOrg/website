@@ -16,14 +16,20 @@ interface Props {
 }
 
 const { datasetId, version } = Astro.props;
+// Per-dataset id prefix so multiple instances of this component on the
+// same page wouldn't collide on hardcoded tab/panel ids. Today only one
+// is rendered, but the tablist click + keydown handlers are document-
+// global; this prefix keeps activateTab's getElementById lookups scoped
+// to the correct tablist.
+const idp = `dt-${datasetId}`;
 ---
 
-<section class="dtabs" aria-label="Dataset summary">
+<section class="dtabs">
   <div class="dtabs__list" role="tablist" aria-label="Dataset summary">
-    <button class="dtabs__tab" role="tab" id="dtab-demo" aria-controls="dpanel-demo" aria-selected="true" tabindex="0" type="button">
+    <button class="dtabs__tab" role="tab" id={`${idp}-tab-demo`} aria-controls={`${idp}-panel-demo`} aria-selected="true" tabindex="0" type="button">
       Demographics
     </button>
-    <button class="dtabs__tab" role="tab" id="dtab-qa" aria-controls="dpanel-qa" aria-selected="false" tabindex="-1" type="button">
+    <button class="dtabs__tab" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
       Data quality
     </button>
   </div>
@@ -31,8 +37,8 @@ const { datasetId, version } = Astro.props;
   <div
     class="dtabs__panel"
     role="tabpanel"
-    id="dpanel-demo"
-    aria-labelledby="dtab-demo"
+    id={`${idp}-panel-demo`}
+    aria-labelledby={`${idp}-tab-demo`}
     data-demo-defer
     data-id={datasetId}
     data-version={version ?? ""}
@@ -41,7 +47,7 @@ const { datasetId, version } = Astro.props;
     <p class="dtabs__skeleton">Loading demographics…</p>
   </div>
 
-  <div class="dtabs__panel" role="tabpanel" id="dpanel-qa" aria-labelledby="dtab-qa" hidden>
+  <div class="dtabs__panel" role="tabpanel" id={`${idp}-panel-qa`} aria-labelledby={`${idp}-tab-qa`} hidden>
     <p class="dtabs__soon">
       <strong>Coming soon.</strong> Per-file data-quality summaries are precomputed by the
       NEMAR processing pipeline. The static aggregate is on the way — tracked at
@@ -71,7 +77,11 @@ const { datasetId, version } = Astro.props;
     const hasAgeData = ages.length > 0;
     const hasSexData = sexCounts.M + sexCounts.F + sexCounts.O > 0;
     if (!hasAgeData && !hasSexData) {
-      return `<p class="dtabs__empty">participants.tsv has no usable <code>sex</code> or <code>age</code> columns.</p>`;
+      // Covers both shapes that reach this branch: the file has neither
+      // sex nor age columns at all, OR every row's sex/age cell is blank
+      // / "n/a". Either way the user-visible answer is "we have nothing
+      // to chart here".
+      return `<p class="dtabs__empty">participants.tsv has no <code>sex</code> or <code>age</code> values to chart.</p>`;
     }
     const donut = hasSexData ? renderSexDonutSvg(sexCounts) : "";
     const hist = hasAgeData ? renderAgeGenderStackedSvg(ages, sexes) : "";
