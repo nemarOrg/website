@@ -29,8 +29,8 @@ const idp = `dt-${datasetId}`;
     <button class="dtabs__tab" role="tab" id={`${idp}-tab-demo`} aria-controls={`${idp}-panel-demo`} aria-selected="true" tabindex="0" type="button">
       Demographics
     </button>
-    <button class="dtabs__tab" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
-      Data quality
+    <button class="dtabs__tab dtabs__tab--soon" role="tab" id={`${idp}-tab-qa`} aria-controls={`${idp}-panel-qa`} aria-selected="false" tabindex="-1" type="button">
+      Data quality <span class="dtabs__tab-suffix">(coming soon)</span>
     </button>
   </div>
 
@@ -228,6 +228,14 @@ const idp = `dt-${datasetId}`;
     outline-offset: -2px;
     border-radius: var(--radius-sm);
   }
+  .dtabs__tab--soon {
+    color: var(--color-fg-subtle);
+  }
+  .dtabs__tab-suffix {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    margin-inline-start: 4px;
+  }
   .dtabs__panel {
     padding: var(--space-5);
   }
@@ -319,17 +327,24 @@ const idp = `dt-${datasetId}`;
   .dtabs__demo-hist {
     margin: 0;
     min-inline-size: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
   }
   .dtabs__demo-hist figcaption {
     color: var(--color-fg-subtle);
     font-size: var(--fs-xs);
     margin-block-end: var(--space-2);
   }
+  /* Fixed pixel height; width comes from the viewBox (one user unit ≈ one
+     device pixel by design — see comment in render-age-gender.ts). max-
+     inline-size clamps to the container so a 7-bucket chart on a narrow
+     viewport stays inside its column rather than overflowing. */
   .agbar__svg {
-    inline-size: 100%;
-    block-size: auto;
+    block-size: 160px;
+    max-inline-size: 100%;
     background: var(--color-bg-subtle);
     border-radius: var(--radius-sm);
-    padding: var(--space-2);
+    padding: var(--space-2) 0;
   }
 </style>
