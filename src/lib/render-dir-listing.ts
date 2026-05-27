@@ -40,6 +40,29 @@ function sortChildren(children: DirListingEntry[]): DirListingEntry[] {
   });
 }
 
+/** Map a `FileClassification` to the `data-preview-type` token consumed
+ *  by the inline-preview click delegate in `src/pages/dataset/[id].astro`.
+ *  Returns null for files we don't know how to preview today (e.g.,
+ *  CHANGES, .gitattributes, LICENSE) — those rows fall back to a plain
+ *  name span + download icon. The `eeg` token wires the same click flow
+ *  to the future visualizer; today it shows a "coming soon" stub. */
+function previewTypeFor(
+  filename: string,
+  cls: FileClassification,
+): "md" | "json" | "tsv" | "eeg" | null {
+  const ext = filename.toLowerCase().split(".").pop() ?? "";
+  if (cls.isReadme || ext === "md") return "md";
+  if (cls.isJSON) return "json";
+  if (cls.isTSV) return "tsv";
+  if (cls.isEEG) return "eeg";
+  return null;
+}
+
+const DOWNLOAD_ICON_SVG =
+  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/>' +
+  "</svg>";
+
 function renderFileRow(
   entry: DirListingEntry & { kind: "file" },
   datasetId: string,
@@ -51,6 +74,7 @@ function renderFileRow(
   const fullPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
   const href = fileDownloadUrl(datasetId, version, fullPath);
   const cls = classifyFile(entry.name);
+  const previewType = previewTypeFor(entry.name, cls);
   // Type narrowing on the discriminated union (`entry: DirListingEntry &
   // { kind: "file" }`) guarantees `entry.size` is a number — no runtime
   // guard needed. If the upstream ever ships a file entry without size we
@@ -61,18 +85,45 @@ function renderFileRow(
   const indentStyle = isRoot
     ? ""
     : ` style="padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5) + 16px)"`;
-  const out: string[] = [];
-  out.push(`<li class="tree__row${isRoot ? "" : " tree__row--file"}"${indentStyle}>`);
+  // The displayed name: root rows show the full path (single-level dataset
+  // root); nested rows show just the basename.
+  const displayName = esc(isRoot ? fullPath : entry.name);
+
+  const row: string[] = [];
+  row.push(`<div class="tree__row${isRoot ? "" : " tree__row--file"}"${indentStyle}>`);
   if (isRoot) {
-    out.push(`<span class="tree__icon" aria-hidden="true">▪</span>`);
+    row.push(`<span class="tree__icon" aria-hidden="true">▪</span>`);
   }
-  out.push(
-    `<a class="tree__name" href="${esc(href)}" rel="external" download="${esc(entry.name)}" title="Download ${esc(fullPath)}">${esc(isRoot ? fullPath : entry.name)}</a>`,
+  if (previewType) {
+    // Clicking the name opens the inline preview; the document-level
+    // click delegate fetches lazily on the first open. data-file-size
+    // gates the 512 KB cap before the fetch runs.
+    row.push(
+      `<button class="tree__preview-btn" type="button" data-preview-path="${esc(fullPath)}" data-preview-type="${previewType}" data-file-size="${entry.size}" data-file-name="${esc(entry.name)}" aria-expanded="false" title="Preview ${esc(entry.name)}"><span class="tree__name">${displayName}</span></button>`,
+    );
+  } else {
+    // No preview affordance for unknown formats — the name is a plain
+    // label; only the download icon is interactive.
+    row.push(`<span class="tree__name">${displayName}</span>`);
+  }
+  row.push(`<span class="tree__size">${esc(size)}</span>`);
+  appendTags(row, cls, isRoot);
+  row.push(
+    `<a class="tree__dl" href="${esc(href)}" rel="external" download="${esc(entry.name)}" title="Download ${esc(entry.name)}" aria-label="Download ${esc(entry.name)}">${DOWNLOAD_ICON_SVG}</a>`,
   );
-  out.push(`<span class="tree__size">${esc(size)}</span>`);
-  appendTags(out, cls, isRoot);
-  out.push("</li>");
-  return out.join("");
+  row.push("</div>");
+
+  // Wrap the row in an <li> that also carries the lazy preview slot for
+  // the on-click expansion. The slot stays hidden until the user opens
+  // the preview; once filled, data-loaded prevents re-fetches.
+  return [
+    `<li class="tree__file-wrap" data-preview-wrap>`,
+    row.join(""),
+    previewType
+      ? `<div class="tree__preview" data-preview-slot hidden aria-live="polite"></div>`
+      : "",
+    "</li>",
+  ].join("");
 }
 
 function appendTags(out: string[], cls: FileClassification, isRoot: boolean): void {

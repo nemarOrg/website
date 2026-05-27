@@ -207,40 +207,58 @@ const idp = `dt-${datasetId}`;
     background: var(--color-bg);
     overflow: hidden;
   }
+  /* Pill group. See `.rules/design-language.md` — pills are used for
+     category selection within a panel (Demographics vs Data quality). The
+     active state matches ActionBar's primary fill so the visual vocabulary
+     stays coherent across the page. */
   .dtabs__list {
     display: flex;
-    border-block-end: 1px solid var(--color-border);
+    gap: var(--space-2);
+    flex-wrap: wrap;
     background: var(--color-bg-elevated);
-    padding-inline: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-block-end: 1px solid var(--color-border);
   }
   .dtabs__tab {
     appearance: none;
-    background: transparent;
-    border: 0;
-    padding: var(--space-3) var(--space-4);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    padding: 0 var(--space-4);
+    min-block-size: 36px;
     color: var(--color-fg-muted);
     font: inherit;
     font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
     cursor: pointer;
-    border-block-end: 2px solid transparent;
-    margin-block-end: -1px;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .dtabs__tab:hover:not([aria-selected="true"]) {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-fg-muted);
+    color: var(--color-fg);
   }
   .dtabs__tab[aria-selected="true"] {
-    color: var(--color-fg);
-    border-block-end-color: var(--color-fg);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
   }
   .dtabs__tab:focus-visible {
     outline: 2px solid var(--color-link);
-    outline-offset: -2px;
-    border-radius: var(--radius-sm);
+    outline-offset: 2px;
+    border-radius: var(--radius-pill);
   }
   .dtabs__tab--soon {
-    color: var(--color-fg-subtle);
+    opacity: 0.75;
   }
   .dtabs__tab-suffix {
-    color: var(--color-fg-subtle);
+    color: inherit;
+    opacity: 0.7;
     font-size: var(--fs-xs);
-    margin-inline-start: 4px;
+    margin-inline-start: 2px;
   }
   .dtabs__panel {
     padding: var(--space-5);

@@ -44,11 +44,51 @@ describe("renderTopLevel", () => {
       }),
     );
     expect(html).toContain(`<ul class="tree__list tree__list--root"`);
+    // Post-#85: file rows wrap in <li class="tree__file-wrap"> with a
+    // preview button + download icon. README.md → previewType "md".
+    expect(html).toContain(`<li class="tree__file-wrap" data-preview-wrap>`);
+    expect(html).toContain(`data-preview-type="md"`);
     expect(html).toContain(
-      `<a class="tree__name" href="https://data.nemar.org/on005514/v1.0.0/README.md"`,
+      `<a class="tree__dl" href="https://data.nemar.org/on005514/v1.0.0/README.md"`,
     );
     expect(html).toContain(`<ul class="tree__list" role="list" aria-live="polite" data-dir-list>`);
     expect(html).toContain(`<details class="tree__dir" data-dir-path="sub-01" data-depth="0">`);
+  });
+
+  it("emits a preview slot for previewable files (md/json/tsv/eeg)", () => {
+    const html = renderTopLevel(
+      listing({
+        children: [
+          { kind: "file", name: "participants.tsv", size: 1000 },
+          { kind: "file", name: "dataset_description.json", size: 500 },
+          { kind: "file", name: "data.set", size: 100000 },
+          { kind: "file", name: "README.md", size: 800 },
+        ],
+      }),
+    );
+    expect(html).toContain(`data-preview-type="tsv"`);
+    expect(html).toContain(`data-preview-type="json"`);
+    expect(html).toContain(`data-preview-type="eeg"`);
+    expect(html).toContain(`data-preview-type="md"`);
+    // Each previewable file gets exactly one preview slot.
+    const slots = html.match(/data-preview-slot/g) ?? [];
+    expect(slots.length).toBe(4);
+  });
+
+  it("omits the preview button + slot for unknown formats (CHANGES, .gitattributes)", () => {
+    const html = renderTopLevel(
+      listing({
+        children: [
+          { kind: "file", name: "CHANGES", size: 200 },
+          { kind: "file", name: ".gitattributes", size: 100 },
+        ],
+      }),
+    );
+    // No preview affordance for unknown formats — name is a plain span.
+    expect(html).not.toContain("tree__preview-btn");
+    expect(html).not.toContain("data-preview-slot");
+    // Download icon is still present for these rows.
+    expect(html).toContain("tree__dl");
   });
 
   it("renders files in the root list (before the directory list), numeric-aware within each kind", () => {
