@@ -55,15 +55,15 @@ export function parseParticipantsTsv(text: string): ParticipantsData {
   if (lines.length < 2) return empty;
 
   const header = lines[0].split("\t").map((h) => h.trim().toLowerCase());
-  // Prefer canonical "sex"; fall back to "gender" (older OpenNeuro datasets).
-  const sexIdx = (() => {
-    const s = header.indexOf("sex");
-    if (s !== -1) return s;
-    return header.indexOf("gender");
-  })();
+  // Look up BOTH columns. Per-row, prefer "sex"; fall back to "gender" only
+  // when sex is missing for that row. Handles datasets that ship both
+  // columns but only consistently fill one of them, plus the common case
+  // where the file carries only one of the two.
+  const sexIdx = header.indexOf("sex");
+  const genderIdx = header.indexOf("gender");
   const ageIdx = header.indexOf("age");
-  if (sexIdx === -1 && ageIdx === -1) {
-    // The file exists but carries neither column. Caller renders empty state.
+  if (sexIdx === -1 && genderIdx === -1 && ageIdx === -1) {
+    // The file carries none of the columns. Caller renders empty state.
     return { ...empty, total: lines.length - 1 };
   }
 
@@ -75,13 +75,18 @@ export function parseParticipantsTsv(text: string): ParticipantsData {
 
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split("\t");
-    const sex = sexIdx === -1 ? null : normalizeSex(cols[sexIdx]);
+    let sex: "M" | "F" | "O" | null = null;
+    if (sexIdx !== -1) sex = normalizeSex(cols[sexIdx]);
+    if (sex == null && genderIdx !== -1) sex = normalizeSex(cols[genderIdx]);
     const age = ageIdx === -1 ? null : parseAge(cols[ageIdx]);
     sexes.push(sex);
     if (age != null) ages.push(age);
+    // Count null rows toward "Other / unknown" so sexCounts stays consistent
+    // with bucketAgesBySex (which lumps `null ?? "O"`). Without this the
+    // donut's legend understates the grey portion of the histogram bars.
     if (sex === "M") mCount++;
     else if (sex === "F") fCount++;
-    else if (sex === "O") oCount++;
+    else oCount++;
   }
 
   return {
