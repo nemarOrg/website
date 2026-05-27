@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
+import bundleFixture from "../../test/fixtures/dataset-page-bundle-on005505.min.json";
 import {
+  bundleFieldToOutcome,
   findReadmeContentInSummary,
   findReadmePathInSummary,
   isUnpublished,
   outcomeValue,
   resolveDatasetPageStatus,
 } from "./data-api";
-import type { FetchOutcome, Summary } from "./data-api";
+import type { BundleField, DatasetPageBundle, FetchOutcome, Summary } from "./data-api";
 import type { LandingPayload, NeuroschemaDataset } from "./neuroschema";
 
 function makeSummary(overrides: Partial<Summary> = {}): Summary {
@@ -247,5 +249,91 @@ describe("resolveDatasetPageStatus", () => {
       expect(status.signal).toBe("landing");
       expect(status.outcome).toBe("timeout");
     }
+  });
+});
+
+describe("bundleFieldToOutcome", () => {
+  it("returns kind=ok with the value when ok=true and data is non-null", () => {
+    const field: BundleField<string> = { ok: true, data: "hello" };
+    const out = bundleFieldToOutcome(field);
+    expect(out.kind).toBe("ok");
+    if (out.kind === "ok") expect(out.value).toBe("hello");
+  });
+
+  it("returns upstream_error when ok=false (data is ignored)", () => {
+    const field: BundleField<string> = { ok: false, data: "stale" };
+    const out = bundleFieldToOutcome(field);
+    expect(out.kind).toBe("upstream_error");
+    if (out.kind === "upstream_error") {
+      expect(out.status).toBe(0);
+      expect(out.statusText).toMatch(/bundle field ok=false/);
+    }
+  });
+
+  it("returns upstream_error when ok=false and data is null", () => {
+    const field: BundleField<string> = { ok: false, data: null };
+    expect(bundleFieldToOutcome(field).kind).toBe("upstream_error");
+  });
+
+  it("returns upstream_error when ok=true but data is null (envelope contract violation)", () => {
+    const field: BundleField<string> = { ok: true, data: null };
+    expect(bundleFieldToOutcome(field).kind).toBe("upstream_error");
+  });
+});
+
+describe("DatasetPageBundle shape (captured fixture)", () => {
+  // Real-shape coverage. Catches a future CLI change that drops or renames a
+  // top-level field, restructures the per-field envelope, or breaks the
+  // schema 1.1 readme.content contract Phase 2 depends on. Re-capture from
+  // `curl https://data.nemar.org/on005505/page-bundle.json?v=v1.0.0` and
+  // slim per the comment at the top of the fixture if the live shape
+  // legitimately evolves.
+  const bundle = bundleFixture as unknown as DatasetPageBundle;
+
+  it("carries the expected top-level keys", () => {
+    expect(Object.keys(bundle).sort()).toEqual(
+      [
+        "catalog_row",
+        "complete",
+        "dataset_id",
+        "enrichment_degraded",
+        "landing",
+        "metadata",
+        "served_at",
+        "summary",
+        "version",
+      ].sort(),
+    );
+    expect(typeof bundle.complete).toBe("boolean");
+    expect(typeof bundle.enrichment_degraded).toBe("boolean");
+  });
+
+  it("wraps each data payload in a { ok, data } envelope", () => {
+    for (const field of [bundle.landing, bundle.metadata, bundle.summary, bundle.catalog_row]) {
+      expect(field).toHaveProperty("ok");
+      expect(field).toHaveProperty("data");
+      expect(typeof field.ok).toBe("boolean");
+    }
+  });
+
+  it("lifts each envelope into the existing FetchOutcome union via the adapter", () => {
+    expect(bundleFieldToOutcome(bundle.landing).kind).toBe("ok");
+    expect(bundleFieldToOutcome(bundle.metadata).kind).toBe("ok");
+    expect(bundleFieldToOutcome(bundle.summary).kind).toBe("ok");
+    expect(bundleFieldToOutcome(bundle.catalog_row).kind).toBe("ok");
+    // outcomeValue then unwraps to the raw payload — same flow the consumer uses.
+    const landing = outcomeValue(bundleFieldToOutcome(bundle.landing));
+    expect(landing).not.toBeNull();
+    if (landing) expect(landing.dataset_id).toBe(bundle.dataset_id);
+  });
+
+  it("preserves schema 1.1 readme.content (Phase 2 fast-path dependency)", () => {
+    const summary = bundle.summary.data;
+    expect(summary).not.toBeNull();
+    if (!summary) return;
+    expect(summary.schema_version).toBe("1.1");
+    expect(summary.readme?.content).toBeTypeOf("string");
+    expect((summary.readme?.content ?? "").length).toBeGreaterThan(0);
+    expect(summary.readme?.truncated).toBe(false);
   });
 });
