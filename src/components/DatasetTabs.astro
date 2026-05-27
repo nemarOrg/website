@@ -75,7 +75,13 @@ const idp = `dt-${datasetId}`;
   function renderDemographics(data: ParticipantsData): string {
     const { sexCounts, ages, sexes, total } = data;
     const hasAgeData = ages.length > 0;
-    const hasSexData = sexCounts.M + sexCounts.F + sexCounts.O > 0;
+    // Require at least one M or F observation before showing the donut.
+    // After #83, null sex tallies into sexCounts.O so the histogram greys
+    // those rows correctly — but rendering a "100% Other / unknown" donut
+    // for a file where every row is n/a would be actively misleading. The
+    // histogram alone (with grey bars) communicates "we don't have sex
+    // data" more honestly than a fully colored donut.
+    const hasSexData = sexCounts.M > 0 || sexCounts.F > 0;
     if (!hasAgeData && !hasSexData) {
       // Covers both shapes that reach this branch: the file has neither
       // sex nor age columns at all, OR every row's sex/age cell is blank
