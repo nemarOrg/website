@@ -23,7 +23,7 @@ const { datasetId, version } = Astro.props;
       <div class="tree__skeleton-row"></div>
     </div>
     <noscript>
-      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`/api/dataset/${datasetId}/tree?v=${encodeURIComponent(version)}`}>View raw HTML</a>.</p>
+      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`https://data.nemar.org/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/`} rel="external">View on data.nemar.org</a>.</p>
     </noscript>
   </section>
 ) : (
@@ -36,10 +36,10 @@ const { datasetId, version } = Astro.props;
 )}
 
 <style is:global>
-  /* is:global because the tree HTML can be rendered server-side by the
-     /api/dataset/<id>/tree endpoint and injected client-side, in which case
-     it doesn't carry Astro's component-scope data attribute. .tree__ prefix
-     keeps collision risk low. Keep in sync with BidsDirChildren styles. */
+  /* is:global because the tree HTML is rendered client-side from the JSON
+     dir listing endpoint (data.nemar.org/<id>/<v>/?format=json) and injected
+     into the section, so it doesn't carry Astro's component-scope data
+     attribute. .tree__ prefix keeps collision risk low. */
   .tree {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -93,13 +93,20 @@ const { datasetId, version } = Astro.props;
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }
   }
-  .tree__list {
+  .tree__list,
+  .tree__children {
     list-style: none;
     padding: 0;
     margin: 0;
   }
   .tree__list--root {
     border-block-end: 1px solid var(--color-border);
+  }
+  /* Empty placeholder where a subdirectory's children get injected on
+     first <details> toggle. No special styling; once filled it contains
+     a normal .tree__children ul that picks up the rules above. */
+  .tree__lazy {
+    /* nothing — content slot */
   }
   .tree__row {
     display: flex;

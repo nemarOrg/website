@@ -1,118 +1,25 @@
-import type { Manifest, ManifestEntry } from "./neuroschema";
-
-export interface TreeNode {
-  name: string;
-  /** Full path from manifest root (no trailing slash). Empty string at root. */
-  path: string;
-  /** Aggregate size of all files at or below this node. */
-  totalSize: number;
-  /** Files immediately under this node. */
-  files: ManifestEntry[];
-  /** Subdirectories, sorted by name. */
-  children: TreeNode[];
-}
-
 /**
- * Fold a flat manifest into a hierarchical BIDS-shaped tree.
- *
- * The tree is fully materialized but rendered lazily by the caller —
- * for the 5,686-entry nm000104 manifest this still finishes in <50ms
- * because we never recurse beyond the actual path depth.
- *
- * Convention: per-subject sessions are siblings of their parent subject
- * node; modality dirs (`eeg`, `meg`, etc.) live one level deeper.
+ * After #76's pivot to canonical sources, this file only houses the
+ * filename-classification helper used by the dir-listing renderer to attach
+ * `JSON` / `EEG` / `TSV` / `README` tags. Tree-building from manifest /
+ * summary.paths went away with the partial-endpoint pipeline; the JSON
+ * directory listings now carry per-file sizes natively so we never
+ * reconstruct trees client-side either.
  */
-export function buildTree(manifest: Manifest): TreeNode {
-  const root: TreeNode = {
-    name: "",
-    path: "",
-    totalSize: 0,
-    files: [],
-    children: [],
-  };
 
-  // Map for fast O(1) directory lookup as we walk.
-  const dirIndex = new Map<string, TreeNode>();
-  dirIndex.set("", root);
-
-  for (const entry of manifest) {
-    const parts = entry.path.split("/").filter(Boolean);
-    if (parts.length === 0) continue;
-
-    // The last segment is the filename.
-    let parent = root;
-    for (let i = 0; i < parts.length - 1; i++) {
-      const segment = parts[i];
-      const fullPath = parts.slice(0, i + 1).join("/");
-      let node = dirIndex.get(fullPath);
-      if (!node) {
-        node = { name: segment, path: fullPath, totalSize: 0, files: [], children: [] };
-        dirIndex.set(fullPath, node);
-        parent.children.push(node);
-      }
-      parent = node;
-    }
-    parent.files.push(entry);
-  }
-
-  // Propagate totalSize up + sort children alphabetically (BIDS-friendly).
-  sortAndSum(root);
-  return root;
-}
-
-/**
- * Build a tree from a flat path list (as provided by summary.json).
- *
- * summary.json deliberately omits per-entry sizes, checksums, and
- * presigned URLs (that's the whole point — it's ~50-200 KB vs the full
- * manifest's 5-10+ MB). Synthetic zero-size + empty-string fillers are
- * the only viable bridge to buildTree, which expects ManifestEntry shape.
- *
- * The renderer (render-tree.ts) constructs download anchors from
- * `basePath + entry.path` and does not read `entry.url`, so the empty
- * url filler is harmless. `totalSize` propagates as 0 throughout — the
- * tree UI displays no size hints when the source is summary-backed.
- *
- * `rootTotalSize` lets the caller overlay an authoritative bytes count
- * (typically from `summary.totals.bytes`, which IS populated even though
- * per-entry sizes aren't) so the rendered panel header reads e.g.
- * "157 GB total" instead of "0 B total" for HBN-sized datasets. Only
- * the root node is overridden — per-file rows still display "0 B" until
- * schema 1.2 ships `path_sizes` (nemar-cli#635 / nemarOrg/website#73).
- */
-export function buildTreeFromPaths(paths: string[], rootTotalSize?: number): TreeNode {
-  const entries = paths.map((p) => ({
-    path: p,
-    size: 0,
-    checksum_algorithm: "",
-    checksum: "",
-    url: "",
-  }));
-  const tree = buildTree(entries);
-  if (typeof rootTotalSize === "number") tree.totalSize = rootTotalSize;
-  return tree;
-}
-
-function sortAndSum(node: TreeNode): number {
-  let total = 0;
-  for (const f of node.files) total += f.size;
-  for (const child of node.children) total += sortAndSum(child);
-  node.totalSize = total;
-  node.children.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  node.files.sort((a, b) => a.path.localeCompare(b.path, undefined, { numeric: true }));
-  return total;
-}
-
-/**
- * BIDS-aware classification used to decide which UI affordances to attach.
- */
-export function classifyFile(filename: string): {
+export interface FileClassification {
   isEEG: boolean;
   isTSV: boolean;
   isJSON: boolean;
   isReadme: boolean;
   ext: string;
-} {
+}
+
+/**
+ * BIDS-aware classification used to decide which UI affordances to attach
+ * (the per-row badges in the file tree).
+ */
+export function classifyFile(filename: string): FileClassification {
   const lower = filename.toLowerCase();
   const dot = lower.lastIndexOf(".");
   const ext = dot === -1 ? "" : lower.slice(dot + 1);

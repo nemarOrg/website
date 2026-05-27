@@ -101,14 +101,3 @@ export interface LandingPayload {
   metadata_url: string;
   versions: LandingVersion[];
 }
-
-export interface ManifestEntry {
-  path: string;
-  size: number;
-  checksum_algorithm: string;
-  checksum: string;
-  url: string;
-  error?: string;
-}
-
-export type Manifest = ManifestEntry[];
