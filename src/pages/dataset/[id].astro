@@ -9,7 +9,7 @@ import QualityPanel from "../../components/QualityPanel.astro";
 import Readme from "../../components/Readme.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
-import { getDataset, resolveCanonical } from "../../lib/api";
+import { resolveCanonical } from "../../lib/api";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
   archiveZipUrl,
@@ -41,19 +41,13 @@ if (/^ds\d{6}$/.test(id)) {
 
 const versionParam = url.searchParams.get("v");
 
-// SSR fan-out: landing + metadata + catalog row + QA. All small, all parallel.
-// Removed in #76: the page-bundle, the summary fetch, and the deferred partial
-// endpoints (/api/dataset/<id>/{readme,tree}). README + tree now hydrate
-// client-side directly from raw.githubusercontent.com and data.nemar.org's
-// JSON directory listings (nemar-cli#636) — those are the canonical sources
-// and are dramatically faster + smaller than the pipeline we built on top.
-const [landingOut, metadataOut, catalogRow, qaAggregates] = await Promise.all([
+// SSR fan-out: landing + metadata + QA. The api.nemar.org catalog-row fetch
+// retired in #78 — with all 130 datasets backfilled to neuroschema 1.1, the
+// CSV-split fallbacks (modalities/tasks/authors) it provided never fire.
+// Dropping it removes one api.nemar.org call per detail render.
+const [landingOut, metadataOut, qaAggregates] = await Promise.all([
   getLandingOutcome(id),
   getMetadataOutcome(id),
-  getDataset(id).catch((err) => {
-    console.warn(`[dataset/${id}] catalog row unavailable: ${(err as Error).message ?? err}`);
-    return null;
-  }),
   getQaAggregates(id).catch((err) => {
     console.warn(`[dataset/${id}] qa aggregates unavailable: ${(err as Error).message ?? err}`);
     return null;
@@ -88,47 +82,15 @@ if (!landing || !metadata) {
   return new Response(null, { status: 500, headers: { "Cache-Control": "no-store" } });
 }
 
-// Merge sparse metadata with catalog row when neuroschema fields are empty.
-// The catalog (api.nemar.org/datasets/<id>) has modalities, tasks, authors
-// as CSV strings — we split them into the array shape DetailRail expects.
-// No license fallback from the catalog row: `Dataset` doesn't carry
-// `license` (it's not in the D1 row), and the previous pipe through the
-// bundle's `catalog_row.license` was retired in #76 along with the bundle.
+// `metadata.json` is the single source of truth for license, modalities,
+// tasks, and authors post-#78. Null-coalesce so DetailRail can render its
+// existing empty states without each consumer re-checking for undefined.
 const enrichedMetadata = {
   ...metadata,
   license: metadata.license || null,
-  recording_modality:
-    (metadata.recording_modality?.length ?? 0) > 0
-      ? metadata.recording_modality
-      : catalogRow?.modalities
-        ? catalogRow.modalities
-            .split(",")
-            .map((m) => m.trim())
-            .filter(Boolean)
-        : [],
-  tasks:
-    (metadata.tasks?.length ?? 0) > 0
-      ? metadata.tasks
-      : catalogRow?.tasks
-        ? catalogRow.tasks
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : [],
-  authors:
-    (metadata.authors?.length ?? 0) > 0
-      ? metadata.authors
-      : catalogRow?.authors
-        ? catalogRow.authors
-            .split(",")
-            .map((name) => ({
-              name: name.trim(),
-              name_type: "Personal" as const,
-              orcid: null,
-              affiliations: [],
-            }))
-            .filter((a) => a.name)
-        : [],
+  recording_modality: metadata.recording_modality ?? [],
+  tasks: metadata.tasks ?? [],
+  authors: metadata.authors ?? [],
 };
 
 const unpublished = isUnpublished(landing);
@@ -258,8 +220,19 @@ Astro.response.headers.set(
 
 <script>
   import { renderMarkdown } from "../../lib/markdown";
+  import type { DirListing } from "../../lib/dir-listing";
   import { fetchDirListing } from "../../lib/dir-listing";
-  import { renderSubdir, renderTopLevel } from "../../lib/render-dir-listing";
+  import {
+    renderDirChunkRows,
+    renderSubdir,
+    renderTopLevel,
+  } from "../../lib/render-dir-listing";
+
+  // The fetched listing held per tree section. The "Show next" click handler
+  // re-emits rows from this without re-fetching. WeakMap keys by element so
+  // the entry is garbage-collected when the section detaches (SPA-style
+  // navigation isn't used here today, but it's the cheap-correct default).
+  const listingBySection = new WeakMap<HTMLElement, DirListing>();
 
   /**
    * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
@@ -345,8 +318,73 @@ Astro.response.headers.set(
       section.innerHTML = `<section class="detail__no-manifest" role="alert"><h2>File index unavailable</h2><p>The file index for <code>${escapeHtml(version)}</code> couldn't be loaded right now. Try refreshing in a few seconds, or use the <a href="/discover">Discover page</a> to pick another dataset or version.</p></section>`;
       return;
     }
+    listingBySection.set(section, listing);
     section.innerHTML = renderTopLevel(listing);
   }
+
+  // Delegated click for the "Show next N" footer. Single document-level
+  // listener (cheap, fires only when a tree__more-btn ancestor is hit) so
+  // we don't have to re-bind after each chunk reveal. Mirrors the toggle
+  // capture-phase delegate above.
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>(".tree__more-btn");
+    if (!button) return;
+    const footer = button.closest<HTMLElement>("[data-tree-more]");
+    const section = button.closest<HTMLElement>("[data-tree-defer]");
+    if (!footer || !section) return;
+    const listing = listingBySection.get(section);
+    const list = section.querySelector<HTMLElement>("[data-dir-list]");
+    // No cached listing means the tree never finished hydrating (or was
+    // rewritten with an error). The footer shouldn't exist in that case;
+    // surface loudly + remove it so the user isn't left with a dead button.
+    if (!listing || !list) {
+      console.error(
+        `[tree] show-more clicked but cached listing missing (section=${section.dataset.id ?? "?"})`,
+      );
+      footer.remove();
+      return;
+    }
+
+    const rendered = Number(footer.dataset.rendered ?? "0");
+    const total = Number(footer.dataset.total ?? "0");
+    const chunk = Number(footer.dataset.chunk ?? "50");
+    const result = renderDirChunkRows(listing, rendered, chunk);
+    // Defensive: if the slice returns zero rows the data-rendered counter
+    // is out of sync with the cached listing (shouldn't be reachable via
+    // the happy path, but a stale counter would leave the button looping
+    // with no visible effect). Remove the footer to avoid a stuck button.
+    if (result.rendered === 0) {
+      console.warn(
+        `[tree] show-more produced 0 rows (rendered=${rendered} total=${total} listingDirs=${result.total})`,
+      );
+      footer.remove();
+      return;
+    }
+    list.insertAdjacentHTML("beforeend", result.html);
+
+    const newRendered = rendered + result.rendered;
+    if (newRendered >= total) {
+      footer.remove();
+      return;
+    }
+    footer.dataset.rendered = String(newRendered);
+    const nextCount = Math.min(chunk, total - newRendered);
+    const counter = footer.querySelector(".tree__more-counter");
+    // The button's text node sits before the counter <span>; updating
+    // nodeValue avoids clobbering the nested element + its event paths.
+    const label = button.firstChild;
+    if (label && label.nodeType === Node.TEXT_NODE) {
+      label.nodeValue = `Show next ${nextCount} `;
+    } else {
+      // Extension or DOM mutation displaced the text node. Counter still
+      // updates below; warn so a developer reading devtools can correlate
+      // the visual mismatch ("button label stuck at 50 but counter ticks").
+      console.warn("[tree] show-more button first child isn't a text node; label not updated");
+    }
+    if (counter) counter.textContent = `(${newRendered} of ${total} shown)`;
+  });
 
   function escapeHtml(s: string): string {
     return s

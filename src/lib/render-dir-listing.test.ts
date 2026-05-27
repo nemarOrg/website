@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { DirListing } from "./dir-listing";
-import { renderSubdir, renderTopLevel } from "./render-dir-listing";
+import type { DirListing, DirListingEntry } from "./dir-listing";
+import {
+  DEFAULT_DIR_CHUNK_SIZE,
+  renderDirChunkRows,
+  renderSubdir,
+  renderTopLevel,
+} from "./render-dir-listing";
+
+function dirEntries(count: number, prefix = "sub-"): DirListingEntry[] {
+  return Array.from({ length: count }, (_, i) => ({
+    kind: "dir" as const,
+    name: `${prefix}${String(i + 1).padStart(3, "0")}`,
+  }));
+}
 
 function listing(overrides: Partial<DirListing> = {}): DirListing {
   return {
@@ -35,7 +47,7 @@ describe("renderTopLevel", () => {
     expect(html).toContain(
       `<a class="tree__name" href="https://data.nemar.org/on005514/v1.0.0/README.md"`,
     );
-    expect(html).toContain(`<ul class="tree__list" role="list">`);
+    expect(html).toContain(`<ul class="tree__list" role="list" aria-live="polite" data-dir-list>`);
     expect(html).toContain(`<details class="tree__dir" data-dir-path="sub-01" data-depth="0">`);
   });
 
@@ -84,6 +96,107 @@ describe("renderTopLevel", () => {
       }),
     );
     expect(html).toContain("2.93 KB root total");
+  });
+
+  it("caps initial dir rows at DEFAULT_DIR_CHUNK_SIZE and appends a footer when more remain", () => {
+    const html = renderTopLevel(listing({ children: dirEntries(60) }));
+    // Exactly 50 <details data-dir-path=...> rows on first paint.
+    const dirRows = html.match(/<details class="tree__dir"/g) ?? [];
+    expect(dirRows.length).toBe(DEFAULT_DIR_CHUNK_SIZE);
+    // Footer carries the state the click handler reads.
+    expect(html).toContain(`data-tree-more data-rendered="50" data-total="60" data-chunk="50"`);
+    expect(html).toContain("Show next 10");
+    expect(html).toContain("(50 of 60 shown)");
+  });
+
+  it("omits the footer when total dirs <= chunk size", () => {
+    const html = renderTopLevel(listing({ children: dirEntries(30) }));
+    expect(html).not.toContain("data-tree-more");
+    expect(html).not.toContain("tree__more-btn");
+  });
+
+  it("respects a custom dirChunkSize override", () => {
+    const html = renderTopLevel(listing({ children: dirEntries(12) }), { dirChunkSize: 5 });
+    const dirRows = html.match(/<details class="tree__dir"/g) ?? [];
+    expect(dirRows.length).toBe(5);
+    expect(html).toContain(`data-tree-more data-rendered="5" data-total="12" data-chunk="5"`);
+    expect(html).toContain("Show next 5");
+  });
+});
+
+describe("renderDirChunkRows", () => {
+  it("returns just the requested slice of dir rows (no <section>, no <ul>)", () => {
+    const result = renderDirChunkRows(listing({ children: dirEntries(60) }), 50, 50);
+    expect(result.rendered).toBe(10);
+    expect(result.total).toBe(60);
+    expect(result.html).not.toContain("<section");
+    expect(result.html).not.toContain("<ul");
+    const rows = result.html.match(/<details class="tree__dir"/g) ?? [];
+    expect(rows.length).toBe(10);
+    // First row of the slice is sub-051 (the 51st of the zero-padded names).
+    expect(result.html).toContain(`data-dir-path="sub-051"`);
+    // Final row is sub-060.
+    expect(result.html).toContain(`data-dir-path="sub-060"`);
+    // Rows that were already rendered must not be in this chunk.
+    expect(result.html).not.toContain(`data-dir-path="sub-050"`);
+  });
+
+  it("clamps when fromIndex + count exceeds total", () => {
+    const result = renderDirChunkRows(listing({ children: dirEntries(30) }), 0, 50);
+    expect(result.rendered).toBe(30);
+    expect(result.total).toBe(30);
+  });
+
+  it("clamps the tail chunk when fromIndex is mid-list", () => {
+    // The final reveal on a 333-subject dataset: chunk size 50, already at
+    // 300 rendered — only the last 33 should come back. Mirrors the live
+    // puppeteer run that exercised the on005509 footer-removal path.
+    const result = renderDirChunkRows(listing({ children: dirEntries(60) }), 55, 50);
+    expect(result.rendered).toBe(5);
+    expect(result.total).toBe(60);
+    const rows = result.html.match(/<details class="tree__dir"/g) ?? [];
+    expect(rows.length).toBe(5);
+    expect(result.html).toContain(`data-dir-path="sub-056"`);
+    expect(result.html).toContain(`data-dir-path="sub-060"`);
+    expect(result.html).not.toContain(`data-dir-path="sub-055"`);
+  });
+
+  it("returns rendered: 0 when fromIndex >= total (caller should remove the footer)", () => {
+    const result = renderDirChunkRows(listing({ children: dirEntries(30) }), 30, 50);
+    expect(result.rendered).toBe(0);
+    expect(result.total).toBe(30);
+    expect(result.html).toBe("");
+  });
+
+  it("sorts numerically (sub-2 before sub-10) before slicing", () => {
+    const result = renderDirChunkRows(
+      listing({
+        children: [
+          { kind: "dir", name: "sub-10" },
+          { kind: "dir", name: "sub-2" },
+          { kind: "dir", name: "sub-1" },
+        ],
+      }),
+      0,
+      2,
+    );
+    expect(result.rendered).toBe(2);
+    expect(result.html.indexOf("sub-1")).toBeGreaterThanOrEqual(0);
+    expect(result.html.indexOf("sub-2")).toBeGreaterThan(result.html.indexOf("sub-1"));
+    expect(result.html).not.toContain("sub-10");
+  });
+
+  it("ignores file children when slicing dirs", () => {
+    const result = renderDirChunkRows(
+      listing({
+        children: [{ kind: "file", name: "README.md", size: 100 }, ...dirEntries(3)],
+      }),
+      0,
+      10,
+    );
+    expect(result.total).toBe(3);
+    expect(result.rendered).toBe(3);
+    expect(result.html).not.toContain("README.md");
   });
 });
 
