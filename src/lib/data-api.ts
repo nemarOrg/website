@@ -1,5 +1,4 @@
 import type { LandingPayload, Manifest, NeuroschemaDataset } from "./neuroschema";
-import type { Dataset } from "./types";
 
 const DEFAULT_DATA_BASE = "https://data.nemar.org";
 
@@ -305,11 +304,36 @@ export async function getManifestOutcome(
  * each constituent payload with an `ok` flag so partial failures in its
  * internal fan-in are explicit at parse time. We don't lose this signal —
  * `bundleFieldToOutcome` lifts it into the existing `FetchOutcome` union so
- * the same `resolveDatasetPageStatus` resolver works for both code paths.
+ * the same `resolveDatasetPageStatus` resolver works for both code paths
+ * (as long as the resolver continues to inspect only landing and metadata
+ * outcomes; if it ever consults `summary` or `catalog_row` directly, the
+ * adapter mapping here will need to be revisited).
  */
 export interface BundleField<T> {
   ok: boolean;
   data: T | null;
+}
+
+/**
+ * Catalog row as embedded in `DatasetPageBundle`. Intentionally a sparse
+ * subset of `Dataset` — the bundle only carries the fields the dataset
+ * detail page actually needs (license, modalities/tasks/authors CSV
+ * fallbacks, name/description/concept_doi/github_repo). Everything else
+ * on `Dataset` (D1 internals: id, status, visibility, file_size, etc.)
+ * stays available via the fan-out path's `getDataset` call. Every field
+ * except `dataset_id` is optional so a single typed variable can hold
+ * either shape without coercion.
+ */
+export interface BundleCatalogRow {
+  dataset_id: string;
+  name?: string;
+  description?: string | null;
+  concept_doi?: string | null;
+  github_repo?: string | null;
+  modalities?: string;
+  tasks?: string;
+  authors?: string;
+  license?: string | null;
 }
 
 /**
@@ -330,7 +354,7 @@ export interface DatasetPageBundle {
   landing: BundleField<LandingPayload>;
   metadata: BundleField<NeuroschemaDataset>;
   summary: BundleField<Summary>;
-  catalog_row: BundleField<Dataset>;
+  catalog_row: BundleField<BundleCatalogRow>;
 }
 
 /**
@@ -353,14 +377,16 @@ export async function getDatasetPageBundleOutcome(
 /**
  * Lift a bundle field into the `FetchOutcome` shape so the same
  * `resolveDatasetPageStatus` resolver works for both the bundle-served and
- * fan-out paths. The bundle's `ok: false` is lossy (no HTTP status) so we
- * map to `upstream_error` with a sentinel status; `ok: true` with `data:
- * null` is treated the same (the field exists in the envelope but the
- * payload didn't make it).
+ * fan-out paths. The bundle's per-field failure modes are lossy (no HTTP
+ * status, no upstream message) so we map to `upstream_error` with a
+ * sentinel status; the `statusText` distinguishes the two distinct cases
+ * (`ok: false` vs `ok: true` with null data) so a Workers log entry can
+ * triage which side of the worker's contract broke.
  */
 export function bundleFieldToOutcome<T>(field: BundleField<T>): FetchOutcome<T> {
   if (field.ok && field.data !== null) return { kind: "ok", value: field.data };
-  return { kind: "upstream_error", status: 0, statusText: "bundle field ok=false" };
+  const statusText = field.ok ? "bundle field ok=true but data=null" : "bundle field ok=false";
+  return { kind: "upstream_error", status: 0, statusText };
 }
 
 // ============================================================================

@@ -266,7 +266,7 @@ describe("bundleFieldToOutcome", () => {
     expect(out.kind).toBe("upstream_error");
     if (out.kind === "upstream_error") {
       expect(out.status).toBe(0);
-      expect(out.statusText).toMatch(/bundle field ok=false/);
+      expect(out.statusText).toBe("bundle field ok=false");
     }
   });
 
@@ -275,9 +275,13 @@ describe("bundleFieldToOutcome", () => {
     expect(bundleFieldToOutcome(field).kind).toBe("upstream_error");
   });
 
-  it("returns upstream_error when ok=true but data is null (envelope contract violation)", () => {
+  it("distinguishes ok=true+data=null in the statusText for log triage", () => {
     const field: BundleField<string> = { ok: true, data: null };
-    expect(bundleFieldToOutcome(field).kind).toBe("upstream_error");
+    const out = bundleFieldToOutcome(field);
+    expect(out.kind).toBe("upstream_error");
+    if (out.kind === "upstream_error") {
+      expect(out.statusText).toBe("bundle field ok=true but data=null");
+    }
   });
 });
 
