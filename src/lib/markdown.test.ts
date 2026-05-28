@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderMarkdown } from "./markdown";
+import { renderMarkdown, stripStandaloneImages } from "./markdown";
 
 describe("renderMarkdown", () => {
   it("renders headings", () => {
@@ -66,5 +66,53 @@ describe("renderMarkdown", () => {
   it("autolinks bare URLs", () => {
     const out = renderMarkdown("see https://nemar.org/x for more");
     expect(out).toContain('<a href="https://nemar.org/x"');
+  });
+
+  it("strips standalone DOI / badge image lines before rendering", () => {
+    // The OpenNeuro / Zenodo DOI badge pattern: a link wrapping an image.
+    // Our CommonMark subset doesn't render <img>; this line otherwise paints
+    // as ugly literal text and forces horizontal overflow on mobile (#87).
+    const md = [
+      "[![DOI](https://img.shields.io/badge/DOI-10.18112%2Fopenneuro.ds002718.v1.0.0-blue)](https://doi.org/10.18112/openneuro.ds002718.v1.0.0)",
+      "",
+      "# ERP CORE",
+      "",
+      "Body text.",
+    ].join("\n");
+    const out = renderMarkdown(md);
+    expect(out).not.toContain("![DOI");
+    expect(out).not.toContain("img.shields.io");
+    expect(out).toContain("<h1>ERP CORE</h1>");
+    expect(out).toContain("Body text");
+  });
+});
+
+describe("stripStandaloneImages", () => {
+  it("removes bare standalone image lines (collapsing the line out)", () => {
+    const md = "![alt](https://x.png)\n\n# Heading\n";
+    // Image line removed; the trailing blank + heading + trailing newline
+    // collapse together via filter+join. The blank line is still present
+    // so the heading stays preceded by whitespace.
+    expect(stripStandaloneImages(md)).toBe("\n# Heading\n");
+  });
+
+  it("removes link-wrapping-image badge lines (the DOI pattern)", () => {
+    const md = "[![DOI](https://img.shields.io/badge/X)](https://doi.org/Y)\n\n# Title";
+    expect(stripStandaloneImages(md)).toBe("\n# Title");
+  });
+
+  it("leaves inline image references alone (image inside a paragraph)", () => {
+    const md = "This is text with an ![inline](https://x.png) image inside.";
+    expect(stripStandaloneImages(md)).toBe(md);
+  });
+
+  it("tolerates leading / trailing whitespace on the matched line", () => {
+    const md = "  ![alt](url)  \n# Heading";
+    expect(stripStandaloneImages(md)).toBe("# Heading");
+  });
+
+  it("leaves regular link lines alone (not images)", () => {
+    const md = "[Click me](https://x)\n# Heading";
+    expect(stripStandaloneImages(md)).toBe(md);
   });
 });
