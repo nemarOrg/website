@@ -154,7 +154,21 @@ Astro.response.headers.set(
       </div>
       <h1 class="detail__title">{metadata.name}</h1>
       {metadata.description && metadata.description !== metadata.name && (
-        <p class="detail__lede" data-detail-lede>{metadata.description}</p>
+        <p class="detail__lede" data-detail-lede>
+          {metadata.description}
+          <span
+            class="detail__lede-ai"
+            role="img"
+            aria-label="AI-generated description, may include mistakes"
+            title="AI-generated description, may include mistakes"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </span>
+        </p>
       )}
       <div class="detail__chips">
         {modalities.map((m) => <ModalityBadge modality={m} size="md" />)}
@@ -279,12 +293,6 @@ Astro.response.headers.set(
         window as typeof window & { __nemarSyncReadme?: (w: HTMLElement) => void }
       ).__nemarSyncReadme;
       if (wrap && sync) sync(wrap);
-      // Hide the SSR'd description paragraph — the README typically opens
-      // with the same content (longer + more detailed), so showing both
-      // reads as duplicated. The lede stays visible on README fetch
-      // failure / empty content (the fallback branches below leave it
-      // alone) so users still get the BIDS description in those cases.
-      document.querySelector<HTMLElement>("[data-detail-lede]")?.setAttribute("hidden", "");
       return;
     }
 
@@ -619,10 +627,30 @@ Astro.response.headers.set(
     max-inline-size: 28ch;
   }
   .detail__lede {
+    /* Typography matches the README body prose (`.readme__body p`) so the
+       description reads as the same content stream when the README loads
+       below — not a separate "different cake" widget. The AI marker hangs
+       at the end of the description as an inline icon. */
     color: var(--color-fg-muted);
-    font-size: var(--fs-lg);
+    font-size: var(--fs-base);
     line-height: var(--lh-relaxed);
     max-inline-size: 60ch;
+  }
+  /* Inline AI-generated marker. Sits at the end of the description with a
+     hover/long-press tooltip explaining provenance + that it may include
+     mistakes. The icon is wrapped in a focusable span so keyboard users
+     get the tooltip on focus. */
+  .detail__lede-ai {
+    display: inline-flex;
+    align-items: center;
+    margin-inline-start: 4px;
+    color: var(--color-fg-subtle);
+    cursor: help;
+    vertical-align: middle;
+  }
+  .detail__lede-ai:hover,
+  .detail__lede-ai:focus-visible {
+    color: var(--color-fg);
   }
   .detail__chips {
     display: flex;
