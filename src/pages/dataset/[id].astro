@@ -687,7 +687,15 @@ Astro.response.headers.set(
   }
   @media (max-width: 980px) {
     .detail__body {
-      grid-template-columns: 1fr;
+      /* `minmax(0, 1fr)` is critical here, not plain `1fr`. With `1fr` the
+         grid track's implicit `min-width: auto` resolves to the largest
+         min-content among the items (the tree's longest unbreakable file
+         row at ~430 px), so the column grew to ~800 px on a 393 px mobile
+         viewport — making the entire main column overflow the body while
+         the header sat at the correct width. `minmax(0, 1fr)` pins the
+         column min to 0 so the items shrink + their `overflow: hidden`
+         clipping (file-name ellipsis) actually takes effect. */
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   .detail__main {
