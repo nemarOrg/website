@@ -154,8 +154,8 @@ Astro.response.headers.set(
       </div>
       <h1 class="detail__title">{metadata.name}</h1>
       {metadata.description && metadata.description !== metadata.name && (
-        <p class="detail__lede" data-detail-lede>
-          {metadata.description}
+        <section class="detail__lede-card" data-detail-lede>
+          <p class="detail__lede">{metadata.description}</p>
           <span
             class="detail__lede-ai"
             role="img"
@@ -167,8 +167,9 @@ Astro.response.headers.set(
               <line x1="12" y1="16" x2="12" y2="12" />
               <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
+            <span class="visually-hidden">AI-generated description, may include mistakes</span>
           </span>
-        </p>
+        </section>
       )}
       <div class="detail__chips">
         {modalities.map((m) => <ModalityBadge modality={m} size="md" />)}
@@ -626,27 +627,40 @@ Astro.response.headers.set(
     text-wrap: balance;
     max-inline-size: 28ch;
   }
+  /* Description card. Matches the README's container treatment (border,
+     bg, padding, radius) so the two read as parallel content blocks at
+     the same visual scale rather than "different cakes". Width fills
+     the container — no `max-inline-size` constraint so the description
+     wraps at the same line length as the README body below. */
+  .detail__lede-card {
+    position: relative;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-6);
+  }
+  @media (max-width: 540px) {
+    .detail__lede-card {
+      padding: var(--space-4) var(--space-5);
+    }
+  }
   .detail__lede {
-    /* Typography matches the README body prose (`.readme__body p`) so the
-       description reads as the same content stream when the README loads
-       below — not a separate "different cake" widget. The AI marker hangs
-       at the end of the description as an inline icon. */
+    margin: 0;
     color: var(--color-fg-muted);
     font-size: var(--fs-base);
     line-height: var(--lh-relaxed);
-    max-inline-size: 60ch;
   }
-  /* Inline AI-generated marker. Sits at the end of the description with a
-     hover/long-press tooltip explaining provenance + that it may include
-     mistakes. The icon is wrapped in a focusable span so keyboard users
-     get the tooltip on focus. */
+  /* Floating AI-generated marker in the top-right corner of the card. The
+     icon is small and muted; hover / focus / long-press shows the
+     tooltip explaining provenance + that it may include mistakes. */
   .detail__lede-ai {
+    position: absolute;
+    inset-block-start: var(--space-3);
+    inset-inline-end: var(--space-3);
     display: inline-flex;
     align-items: center;
-    margin-inline-start: 4px;
     color: var(--color-fg-subtle);
     cursor: help;
-    vertical-align: middle;
   }
   .detail__lede-ai:hover,
   .detail__lede-ai:focus-visible {
