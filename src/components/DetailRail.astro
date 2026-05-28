@@ -158,11 +158,27 @@ const authorsList = metadata.authors ?? [];
     top: calc(var(--header-height) + var(--space-4));
     font-size: var(--fs-sm);
   }
+  /* Below the layout-collapse breakpoint the rail stacks under the main
+     content. Sticky positioning there would pin it after the user scrolls
+     past — confusing. Static is the right behavior on mobile. */
+  @media (max-width: 980px) {
+    .rail {
+      position: static;
+    }
+  }
   .rail__row {
     display: grid;
     grid-template-columns: 7rem 1fr;
     gap: var(--space-3);
     align-items: baseline;
+  }
+  /* Mobile: stack label above value so the chip lists (modalities, tasks,
+     keywords) get the full column width to wrap into. */
+  @media (max-width: 640px) {
+    .rail__row {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
   }
   .rail__row dt {
     font-size: var(--fs-xs);
