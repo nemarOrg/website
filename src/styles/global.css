@@ -32,6 +32,17 @@ body {
   font-size: var(--fs-base);
   line-height: var(--lh-normal);
   font-weight: var(--fw-regular);
+  /* Defensive clamp so any future overflow doesn't paint horizontal
+     scroll across the whole page. `overflow-x: clip` (vs. `hidden`)
+     keeps `position: sticky` working in descendants on Safari. */
+  overflow-x: clip;
+}
+
+/* Globally tolerate long unbreakable strings (URLs, file paths, DOIs).
+   Without this, a single 40-char URL in a README or in an inline JSON
+   preview drags every parent grid item wider than the viewport. */
+:root {
+  overflow-wrap: anywhere;
 }
 
 h1,
