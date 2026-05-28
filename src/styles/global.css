@@ -25,6 +25,15 @@ html {
   color-scheme: light dark;
 }
 
+/* Defensive horizontal clamp on the scroll root (`html`) rather than `body`.
+   `body { overflow-x: clip }` would create a clipping context for any
+   `position: sticky` descendant on Safari ≥16, breaking the rail's sticky
+   behavior on desktop. `html { overflow-x: clip }` clips the viewport-level
+   scroll without making `body` a clipping container for sticky children. */
+html {
+  overflow-x: clip;
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-fg);
@@ -32,10 +41,6 @@ body {
   font-size: var(--fs-base);
   line-height: var(--lh-normal);
   font-weight: var(--fw-regular);
-  /* Defensive clamp so any future overflow doesn't paint horizontal
-     scroll across the whole page. `overflow-x: clip` (vs. `hidden`)
-     keeps `position: sticky` working in descendants on Safari. */
-  overflow-x: clip;
 }
 
 /* Globally tolerate long unbreakable strings (URLs, file paths, DOIs).
