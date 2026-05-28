@@ -154,7 +154,7 @@ Astro.response.headers.set(
       </div>
       <h1 class="detail__title">{metadata.name}</h1>
       {metadata.description && metadata.description !== metadata.name && (
-        <p class="detail__lede">{metadata.description}</p>
+        <p class="detail__lede" data-detail-lede>{metadata.description}</p>
       )}
       <div class="detail__chips">
         {modalities.map((m) => <ModalityBadge modality={m} size="md" />)}
@@ -279,6 +279,12 @@ Astro.response.headers.set(
         window as typeof window & { __nemarSyncReadme?: (w: HTMLElement) => void }
       ).__nemarSyncReadme;
       if (wrap && sync) sync(wrap);
+      // Hide the SSR'd description paragraph — the README typically opens
+      // with the same content (longer + more detailed), so showing both
+      // reads as duplicated. The lede stays visible on README fetch
+      // failure / empty content (the fallback branches below leave it
+      // alone) so users still get the BIDS description in those cases.
+      document.querySelector<HTMLElement>("[data-detail-lede]")?.setAttribute("hidden", "");
       return;
     }
 
