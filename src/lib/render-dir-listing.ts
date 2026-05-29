@@ -129,16 +129,16 @@ function renderFileRow(
 function appendTags(out: string[], cls: FileClassification, isRoot: boolean): void {
   if (cls.isReadme) out.push(`<span class="tree__tag">README</span>`);
   if (cls.isJSON) out.push(`<span class="tree__tag">JSON</span>`);
-  // EEG / TSV viewer hints are nested-rows-only — the root rarely contains
-  // raw data files; suppressing the badges there keeps the top-level view
-  // calm. Same UX the pre-#76 renderer had.
+  // TSV gets a plain format badge (mirrors JSON): the inline table preview
+  // shipped, so the row's click-to-preview button already works — the old
+  // "View · soon" hint was stale. Nested-rows-only, like the EEG hint below,
+  // so the root view stays calm (root rarely holds raw data files).
+  if (!isRoot && cls.isTSV) out.push(`<span class="tree__tag">TSV</span>`);
+  // EEG visualizer is genuinely still pending (nemar-cli#511), so its
+  // "Vis · soon" hint stays until that backend route lands.
   if (!isRoot && cls.isEEG)
     out.push(
       `<span class="tree__tag tree__tag--soon" title="Visualizer coming soon">Vis · soon</span>`,
-    );
-  if (!isRoot && cls.isTSV)
-    out.push(
-      `<span class="tree__tag tree__tag--soon" title="TSV viewer coming soon">View · soon</span>`,
     );
 }
 
