@@ -1,7 +1,7 @@
 ---
 import { formatAuthorByline, formatBytes, formatDate, splitModalities } from "../lib/format";
 import type { Dataset } from "../lib/types";
-import ModalityBadge from "./ModalityBadge.astro";
+import Tag from "./Tag.astro";
 
 interface Props {
   dataset: Dataset;
@@ -43,7 +43,10 @@ if (updated) {
       </div>
       {modalities.length > 0 ? (
         <div class="ds-card__mods">
-          {modalities.map((m) => <ModalityBadge modality={m} />)}
+          {/* Non-clickable here: the whole card is already one <a>, so a
+              nested filter link would be invalid HTML. Modality filtering
+              lives on the detail page + the sidebar. */}
+          {modalities.map((m) => <Tag kind="modality" value={m} />)}
         </div>
       ) : (
         <span class="ds-card__mods-empty">Modalities pending</span>

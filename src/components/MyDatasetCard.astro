@@ -7,8 +7,8 @@ import {
 } from "../lib/dashboard-api";
 import { formatBytes, formatRelativeTime, splitModalities } from "../lib/format";
 import type { Dataset } from "../lib/types";
-import ModalityBadge from "./ModalityBadge.astro";
 import PublishStateBadge from "./PublishStateBadge.astro";
+import Tag from "./Tag.astro";
 
 interface Props {
   dataset: Dataset;
@@ -34,7 +34,7 @@ const githubUrl = dataset.github_repo ? `https://github.com/${dataset.github_rep
     </div>
     <div class="my-dataset-card__badges">
       <PublishStateBadge state={state} />
-      {modalities.map((m) => <ModalityBadge modality={m} />)}
+      {modalities.map((m) => <Tag kind="modality" value={m} />)}
     </div>
   </header>
 

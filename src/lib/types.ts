@@ -27,6 +27,13 @@ export interface Dataset {
   file_size: number;
   file_size_formatted: string;
   latest_version: string | null;
+  /**
+   * License string for the dataset. NOT yet returned by api.nemar.org/datasets
+   * (it lives only in per-dataset metadata.json today) — optional here so the
+   * license filter lights up automatically once nemar-cli backfills it into
+   * the catalog row. See the backend dependency note in AGENTS.md.
+   */
+  license?: string | null;
 }
 
 export interface DatasetListResponse {
@@ -52,6 +59,29 @@ export type ModalityCode = "EEG" | "MEG" | "iEEG" | "EMG";
 export const MODALITY_CODES: ReadonlyArray<ModalityCode> = ["EEG", "MEG", "iEEG", "EMG"];
 
 export type ModalityOp = "AND" | "OR";
+
+/**
+ * License permissiveness tiers, most open first. The classification logic
+ * (mapping a free-text license string to a tier) lives in src/lib/tags.ts;
+ * the type + ordered list live here so both the filter layer (filters.ts)
+ * and the tag layer can share one definition.
+ */
+export type LicenseTier =
+  | "public"
+  | "attribution"
+  | "sharealike"
+  | "noncommercial"
+  | "noderiv"
+  | "unknown";
+
+export const LICENSE_TIERS: ReadonlyArray<LicenseTier> = [
+  "public",
+  "attribution",
+  "sharealike",
+  "noncommercial",
+  "noderiv",
+  "unknown",
+];
 
 /**
  * Server-side query params the api.nemar.org /datasets endpoint understands.
