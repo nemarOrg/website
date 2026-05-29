@@ -46,7 +46,7 @@
      the color signals how much reuse freedom it grants. Hues sit clear of
      the modality set so the two families never read as one. */
   --license-public: #15803d; /* green  — CC0, PDDL, Unlicense, public domain */
-  --license-attribution: #0d9488; /* teal   — CC-BY, ODC-BY                       */
+  --license-attribution: #0f766e; /* teal   — CC-BY, ODC-BY (AA on white: 5.5:1)  */
   --license-sharealike: #b45309; /* amber  — CC-BY-SA, ODbL                      */
   --license-noncommercial: #c2410c; /* orange — CC-BY-NC, CC-BY-NC-SA               */
   --license-noderiv: #be123c; /* red    — CC-BY-ND, CC-BY-NC-ND               */
