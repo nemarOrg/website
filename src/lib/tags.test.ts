@@ -7,6 +7,7 @@ import {
   modalityHref,
   modalityVariant,
 } from "./tags";
+import { LICENSE_TIERS } from "./types";
 
 describe("modalityVariant", () => {
   it("maps the four known codes case-insensitively", () => {
@@ -40,6 +41,13 @@ describe("modalityFilterCode / modalityHref", () => {
     expect(modalityHref("EEG")).toBe("/discover?modality=EEG");
     expect(modalityHref("iEEG")).toBe("/discover?modality=iEEG");
   });
+
+  it("covers MEG and EMG (the non-iEEG-special-cased codes)", () => {
+    expect(modalityFilterCode("meg")).toBe("MEG");
+    expect(modalityFilterCode("EMG")).toBe("EMG");
+    expect(modalityHref("MEG")).toBe("/discover?modality=MEG");
+    expect(modalityHref("emg")).toBe("/discover?modality=EMG");
+  });
 });
 
 describe("keywordHref", () => {
@@ -47,6 +55,11 @@ describe("keywordHref", () => {
     expect(keywordHref("resting-state")).toBe("/discover?q=resting-state");
     expect(keywordHref("eyes closed")).toBe("/discover?q=eyes%20closed");
     expect(keywordHref("  trimmed ")).toBe("/discover?q=trimmed");
+  });
+
+  it("produces a bare q param for an empty term (caller is expected to guard)", () => {
+    expect(keywordHref("")).toBe("/discover?q=");
+    expect(keywordHref("   ")).toBe("/discover?q=");
   });
 });
 
@@ -58,11 +71,31 @@ describe("licenseTier", () => {
     expect(licenseTier("   ")).toBe("unknown");
   });
 
-  it("classifies public-domain licenses", () => {
+  it("classifies public-domain licenses, including multi-word/spaced forms", () => {
     expect(licenseTier("CC0")).toBe("public");
     expect(licenseTier("CC0-1.0")).toBe("public");
+    expect(licenseTier("CC0 1.0 Universal")).toBe("public");
     expect(licenseTier("PDDL")).toBe("public");
     expect(licenseTier("Public Domain")).toBe("public");
+    expect(licenseTier("Unlicense")).toBe("public");
+    expect(licenseTier("The Unlicense")).toBe("public");
+  });
+
+  it("does NOT read all-rights-reserved 'UNLICENSED' as public domain", () => {
+    // Misclassifying toward more-permissive is the dangerous direction.
+    expect(licenseTier("UNLICENSED")).toBe("unknown");
+    expect(licenseTier("Unlicensed")).toBe("unknown");
+  });
+
+  it("does not classify a free-text license containing the preposition 'by'", () => {
+    expect(licenseTier("Data provided by OpenNeuro under restricted terms")).toBe("unknown");
+  });
+
+  it("passes an already-classified tier name straight through", () => {
+    for (const tier of LICENSE_TIERS) {
+      expect(licenseTier(tier)).toBe(tier);
+    }
+    expect(licenseTier("PUBLIC")).toBe("public");
   });
 
   it("classifies plain attribution", () => {
@@ -100,5 +133,20 @@ describe("licenseHref", () => {
     expect(licenseHref("CC0")).toBe("/discover?license=public");
     expect(licenseHref("CC-BY-NC-4.0")).toBe("/discover?license=noncommercial");
     expect(licenseHref(null)).toBe("/discover?license=unknown");
+  });
+});
+
+describe("LICENSE_TIERS ordering (permissiveness thermometer)", () => {
+  it("runs most-open to most-restrictive, with unknown as the sentinel last", () => {
+    // The sidebar color ramp + "green is most permissive, red most restrictive"
+    // tooltip depend on this order. Lock it so a reorder can't pass silently.
+    expect(LICENSE_TIERS).toEqual([
+      "public",
+      "attribution",
+      "sharealike",
+      "noncommercial",
+      "noderiv",
+      "unknown",
+    ]);
   });
 });

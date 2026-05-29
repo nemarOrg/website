@@ -7,7 +7,7 @@
  * this module; nothing here renders markup.
  */
 
-import { type LicenseTier, MODALITY_CODES, type ModalityCode } from "./types";
+import { LICENSE_TIERS, type LicenseTier, MODALITY_CODES, type ModalityCode } from "./types";
 
 // --- Modality ---------------------------------------------------------------
 
@@ -85,12 +85,24 @@ export const LICENSE_TIER_BLURB: Record<LicenseTier, string> = {
  */
 export function licenseTier(license: string | null | undefined): LicenseTier {
   if (!license || !license.trim()) return "unknown";
+  // Pass an already-classified tier name straight through, so a caller that
+  // hands us a tier (not a raw license string) isn't silently re-bucketed to
+  // "unknown".
+  const lower = license.trim().toLowerCase();
+  if ((LICENSE_TIERS as readonly string[]).includes(lower)) return lower as LicenseTier;
   const s = license.toUpperCase().replace(/[\s_]+/g, "-");
-  if (/(^|-)ND(-|$)|NODERIV|NO-DERIV/.test(s)) return "noderiv";
-  if (/(^|-)NC(-|$)|NONCOMMERCIAL|NON-COMMERCIAL/.test(s)) return "noncommercial";
+  // Most restrictive marker first, so combined clauses land in the stricter
+  // tier (CC-BY-NC-ND -> noderiv, CC-BY-NC-SA -> noncommercial).
+  if (/(^|-)ND(-|$)|NO-?DERIV/.test(s)) return "noderiv";
+  if (/(^|-)NC(-|$)|NON-?COMMERCIAL/.test(s)) return "noncommercial";
   if (/(^|-)SA(-|$)|SHARE-?ALIKE|ODBL/.test(s)) return "sharealike";
-  if (/CC-?0|PDDL|UNLICENSE|PUBLIC-?DOMAIN|(^|-)PD(-|$)/.test(s)) return "public";
-  if (/(^|-)BY(-|$)|ODC-BY|ATTRIBUTION/.test(s)) return "attribution";
+  // `UNLICENSE(?!D)` so "UNLICENSED" (all-rights-reserved) is NOT read as
+  // public domain — misclassifying toward *more* permissive is the dangerous
+  // direction for a usage-rights signal.
+  if (/CC-?0|PDDL|UNLICENSE(?!D)|PUBLIC-?DOMAIN|(^|-)PD(-|$)/.test(s)) return "public";
+  // Attribution only via the CC-BY / ODC-BY tokens, never a stray "by" that a
+  // free-text custom license sentence might contain.
+  if (/CC-BY|ODC-BY|ATTRIBUTION/.test(s)) return "attribution";
   return "unknown";
 }
 
