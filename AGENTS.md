@@ -44,7 +44,8 @@ src/
     api.ts                            api.nemar.org client (unwraps {dataset:...})
     data-api.ts                       data.nemar.org client (landing/metadata/manifest/README fetch)
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
-    filters.ts                        FilterState ↔ URL params; modality AND/OR
+    filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
+    tags.ts                           modality/license/keyword classification + /discover hrefs
     provenance.ts                     detectProvenance for on*; listMirrorVersions
     format.ts                         null-safe bytes/date/relative-time/modality split
     bids-tree.ts                      manifest paths → nested TreeNode
@@ -142,8 +143,9 @@ Open dependencies blocking work in this repo:
 | `nemar-cli#511` | Phase 3 — `/qa/*` endpoint for QualityPanel + Vis modal data | not started |
 | `nemar-cli#512` | `on*` detail page right rail (sparse metadata.json + catalog row) | not started |
 | `nemar-cli#513` | BIDS-shaped download filenames (currently SHA-named) | not started |
+| `nemar-cli#653` | `license` on catalog rows → Discover license tier filter (color works today; filtering is a guarded no-op until this lands) | not started |
 
-The frontend has fallbacks for all three so Phase 1+2 ships standalone. When any upstream lands, no frontend change is needed (those are already wired through correct paths).
+The frontend has fallbacks for all of these so the site ships standalone. When any upstream lands, no frontend change is needed (those are already wired through correct paths — `Dataset.license` is already an optional field).
 
 ## Quick Commands
 

@@ -1,0 +1,178 @@
+---
+/**
+ * The one tag element. Replaces the old ModalityBadge + Chip. Four semantic
+ * kinds share a single pill shape; color carries meaning (see
+ * `.rules/design-language.md` "Tag color bible" and `src/lib/tags.ts`).
+ *
+ *   modality  — recording technique, colored per --modality-*; UPPERCASE
+ *   license   — permissiveness tier, colored per --license-*; leading dot
+ *   keyword   — free-text, deliberately quiet
+ *   neutral   — generic taxonomy (tasks, BIDS datatypes)
+ *
+ * Pass an `href` to make it a clickable filter link; omit it for a plain,
+ * read-only tag (e.g. inside a card that is already one big link).
+ */
+import { type ModalityVariant, licenseTier, modalityVariant } from "../lib/tags";
+import type { LicenseTier } from "../lib/types";
+
+interface Props {
+  kind: "modality" | "license" | "keyword" | "neutral";
+  value: string;
+  href?: string | null;
+  size?: "sm" | "md";
+  title?: string;
+}
+
+const { kind, value, href = null, size = "sm", title } = Astro.props;
+
+const modVariant: ModalityVariant | null = kind === "modality" ? modalityVariant(value) : null;
+const licTier: LicenseTier | null = kind === "license" ? licenseTier(value) : null;
+
+const Tag = href ? "a" : "span";
+const variantClass =
+  kind === "modality"
+    ? `tag--mod-${modVariant}`
+    : kind === "license"
+      ? `tag--lic-${licTier}`
+      : `tag--${kind}`;
+// The funnel "this filters" cue only appears on a clickable modality tag,
+// matching the approved design (license relies on its dot, keyword stays
+// quiet).
+const showCue = kind === "modality" && Boolean(href);
+---
+
+<Tag
+  class:list={["tag", `tag--${kind}`, variantClass, `tag--${size}`]}
+  href={href ?? undefined}
+  title={title}
+  rel={href?.startsWith("http") ? "external" : undefined}
+>
+  {kind === "license" && <span class="tag__dot" aria-hidden="true"></span>}
+  <span class="tag__label">{value}</span>
+  {showCue && (
+    <span class="tag__cue" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 4h18l-7 8v6l-4 2v-8z" />
+      </svg>
+    </span>
+  )}
+</Tag>
+
+<style>
+  .tag {
+    --tag-color: var(--color-fg-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    min-block-size: 22px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, var(--tag-color) 28%, transparent);
+    background: color-mix(in srgb, var(--tag-color) 9%, transparent);
+    color: var(--tag-color);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    line-height: 1.4;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  }
+  .tag--md {
+    padding: 4px 11px;
+    font-size: var(--fs-sm);
+    min-block-size: 26px;
+  }
+
+  /* Clickable affordance. */
+  a.tag {
+    cursor: pointer;
+  }
+  a.tag:hover {
+    background: color-mix(in srgb, var(--tag-color) 18%, transparent);
+    border-color: color-mix(in srgb, var(--tag-color) 55%, transparent);
+    color: color-mix(in srgb, var(--tag-color) 88%, var(--color-fg));
+  }
+  a.tag:focus-visible {
+    outline: 2px solid var(--tag-color);
+    outline-offset: 2px;
+  }
+
+  /* Funnel cue: hidden until hover/focus, width reserved so the row never
+     reflows. */
+  .tag__cue {
+    display: inline-flex;
+    inline-size: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: inline-size 0.14s ease, opacity 0.14s ease;
+  }
+  .tag__cue svg {
+    inline-size: 11px;
+    block-size: 11px;
+  }
+  a.tag:hover .tag__cue,
+  a.tag:focus-visible .tag__cue {
+    inline-size: 11px;
+    opacity: 0.9;
+  }
+
+  /* Modality: uppercase technical codes. */
+  .tag--modality {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .tag--mod-eeg { --tag-color: var(--modality-eeg); }
+  .tag--mod-meg { --tag-color: var(--modality-meg); }
+  .tag--mod-ieeg { --tag-color: var(--modality-ieeg); }
+  .tag--mod-emg { --tag-color: var(--modality-emg); }
+  .tag--mod-other { --tag-color: var(--modality-other); }
+
+  /* License: leading tier dot so permissiveness reads without relying on hue
+     alone (color-blind safety — the dot + the license text both differ). */
+  .tag__dot {
+    inline-size: 7px;
+    block-size: 7px;
+    border-radius: 50%;
+    background: var(--tag-color);
+    flex-shrink: 0;
+  }
+  .tag--lic-public { --tag-color: var(--license-public); }
+  .tag--lic-attribution { --tag-color: var(--license-attribution); }
+  .tag--lic-sharealike { --tag-color: var(--license-sharealike); }
+  .tag--lic-noncommercial { --tag-color: var(--license-noncommercial); }
+  .tag--lic-noderiv { --tag-color: var(--license-noderiv); }
+  .tag--lic-unknown { --tag-color: var(--license-unknown); }
+
+  /* Keyword: sentence-case, sans, the quietest tag. */
+  .tag--keyword {
+    --tag-color: var(--keyword);
+    font-family: var(--font-sans);
+    font-weight: var(--fw-regular);
+    letter-spacing: 0;
+    text-transform: none;
+    border-color: var(--color-border-strong);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg-muted);
+  }
+  a.tag--keyword:hover {
+    background: color-mix(in srgb, var(--keyword) 12%, var(--color-bg-elevated));
+    border-color: var(--keyword);
+    color: var(--color-fg);
+  }
+
+  /* Neutral: generic taxonomy (tasks, datatypes). Same quiet base as keyword
+     but mono, since these are short codes. */
+  .tag--neutral {
+    --tag-color: var(--color-fg-muted);
+    border-color: var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+  }
+  a.tag--neutral:hover {
+    border-color: var(--color-border-strong);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+  }
+</style>

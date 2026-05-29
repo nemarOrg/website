@@ -4,9 +4,9 @@ import BidsTree from "../../components/BidsTree.astro";
 import DatasetTabs from "../../components/DatasetTabs.astro";
 import DetailRail from "../../components/DetailRail.astro";
 import DoiBadge from "../../components/DoiBadge.astro";
-import ModalityBadge from "../../components/ModalityBadge.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import Readme from "../../components/Readme.astro";
+import Tag from "../../components/Tag.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
 import { resolveCanonical } from "../../lib/api";
@@ -21,6 +21,7 @@ import {
 } from "../../lib/data-api";
 import { splitModalities } from "../../lib/format";
 import { detectProvenance } from "../../lib/provenance";
+import { modalityHref } from "../../lib/tags";
 
 const { id } = Astro.params;
 if (!id) {
@@ -172,7 +173,7 @@ Astro.response.headers.set(
         </section>
       )}
       <div class="detail__chips">
-        {modalities.map((m) => <ModalityBadge modality={m} size="md" />)}
+        {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
       </div>
       <div class="detail__actions">
         <ActionBar

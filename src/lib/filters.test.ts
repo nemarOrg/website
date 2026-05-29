@@ -6,6 +6,7 @@ import {
   filterStateFromURL,
   filterStateToAPIQuery,
   filterStateToURL,
+  isLicenseFilterPending,
 } from "./filters";
 import type { Dataset } from "./types";
 
@@ -56,6 +57,14 @@ describe("filterStateFromURL", () => {
     const s = filterStateFromURL(new URLSearchParams("modality=EEG,FOO"));
     expect(s.modalities).toEqual(["EEG"]);
   });
+  it("parses license tiers, dropping unknown tokens", () => {
+    const s = filterStateFromURL(new URLSearchParams("license=public,noncommercial,bogus"));
+    expect(s.licenseTiers).toEqual(["public", "noncommercial"]);
+  });
+  it("normalizes license tier casing and dedupes", () => {
+    const s = filterStateFromURL(new URLSearchParams("license=PUBLIC,Attribution,public"));
+    expect(s.licenseTiers).toEqual(["public", "attribution"]);
+  });
   it("parses range filters", () => {
     const s = filterStateFromURL(new URLSearchParams("p_min=10&p_max=100"));
     expect(s.participants).toEqual({ min: 10, max: 100 });
@@ -100,10 +109,16 @@ describe("filterStateToURL", () => {
     expect(sp.get("sort")).toBe("participants");
     expect(sp.get("page")).toBe("2");
   });
+  it("serializes license tiers", () => {
+    const s = defaultFilterState();
+    s.licenseTiers = ["public", "attribution"];
+    expect(filterStateToURL(s).get("license")).toBe("public,attribution");
+  });
   it("roundtrips through URL", () => {
     const s = defaultFilterState();
     s.q = "motor";
     s.modalities = ["iEEG"];
+    s.licenseTiers = ["sharealike", "noderiv"];
     s.participants = { min: 20, max: null };
     s.has10_20 = true;
     s.sort = "size";
@@ -168,6 +183,74 @@ describe("applyClientFilters", () => {
     s.participants = { min: 20, max: null };
     const out = applyClientFilters(datasets, s).map((d) => d.dataset_id);
     expect(out).toEqual(["b", "c"]);
+  });
+
+  it("skips the license filter when no row carries a license (pending nemar-cli#653)", () => {
+    // Catalog rows don't ship `license` yet; selecting a tier must not
+    // zero-out every result.
+    const s = defaultFilterState();
+    s.licenseTiers = ["public"];
+    const out = applyClientFilters(datasets, s).map((d) => d.dataset_id);
+    expect(out).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("stays inactive on a partially-synced batch (some rows lack license)", () => {
+    // During a partial nemar-cli#653 backfill the filter must not drop the
+    // not-yet-synced rows — it stays uniformly off until EVERY row has the field.
+    const partial = [
+      mkDataset({ dataset_id: "p", license: "CC0" }),
+      mkDataset({ dataset_id: "x" }), // license undefined
+    ];
+    const s = defaultFilterState();
+    s.licenseTiers = ["public"];
+    const out = applyClientFilters(partial, s).map((d) => d.dataset_id);
+    expect(out).toEqual(["p", "x"]);
+  });
+
+  it("applies the license tier filter once every row carries a license", () => {
+    const licensed = [
+      mkDataset({ dataset_id: "p", license: "CC0" }),
+      mkDataset({ dataset_id: "q", license: "CC-BY-NC-4.0" }),
+      mkDataset({ dataset_id: "r", license: "CC-BY-4.0" }),
+    ];
+    const s = defaultFilterState();
+    s.licenseTiers = ["public", "attribution"];
+    const out = applyClientFilters(licensed, s).map((d) => d.dataset_id);
+    expect(out).toEqual(["p", "r"]);
+  });
+
+  it("combines license and modality filters when both are active", () => {
+    const licensed = [
+      mkDataset({ dataset_id: "a", license: "CC0", modalities: "eeg,meg" }),
+      mkDataset({ dataset_id: "b", license: "CC-BY-4.0", modalities: "eeg" }),
+      mkDataset({ dataset_id: "c", license: "CC0", modalities: "meg" }),
+      mkDataset({ dataset_id: "d", license: "CC-BY-NC", modalities: "eeg,meg" }),
+    ];
+    const s = defaultFilterState();
+    s.licenseTiers = ["public"]; // a, c
+    s.modalities = ["EEG", "MEG"]; // 2+ => client-side OR
+    const out = applyClientFilters(licensed, s).map((d) => d.dataset_id);
+    expect(out).toEqual(["a", "c"]); // b fails license; d fails license
+  });
+});
+
+describe("isLicenseFilterPending", () => {
+  it("is true when a tier is selected but rows aren't synced", () => {
+    const datasets = [mkDataset({ dataset_id: "a" })]; // license undefined
+    const s = defaultFilterState();
+    s.licenseTiers = ["public"];
+    expect(isLicenseFilterPending(datasets, s)).toBe(true);
+  });
+  it("is false when no tier is selected", () => {
+    expect(isLicenseFilterPending([mkDataset({ dataset_id: "a" })], defaultFilterState())).toBe(
+      false,
+    );
+  });
+  it("is false once every row carries a license", () => {
+    const datasets = [mkDataset({ dataset_id: "a", license: "CC0" })];
+    const s = defaultFilterState();
+    s.licenseTiers = ["public"];
+    expect(isLicenseFilterPending(datasets, s)).toBe(false);
   });
 });
 

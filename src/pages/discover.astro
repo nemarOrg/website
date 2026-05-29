@@ -10,6 +10,7 @@ import {
   filterStateFromURL,
   filterStateToAPIQuery,
   filterStateToURL,
+  isLicenseFilterPending,
 } from "../lib/filters";
 
 const url = new URL(Astro.request.url);
@@ -30,9 +31,14 @@ const query = {
 let visible = [] as Awaited<ReturnType<typeof listDatasets>>["datasets"];
 let totalReturned = 0;
 let fetchError: string | null = null;
+// True when a license tier is selected but the catalog isn't synced yet, so
+// the filter is a no-op. Drives a contextual notice so the empty narrowing
+// isn't silent (the field arrives via nemar-cli#653).
+let licensePending = false;
 
 try {
   const page = await listDatasets(query);
+  licensePending = isLicenseFilterPending(page.datasets, state);
   // Client-side filters narrow this page. Note: multi-modality AND/OR and
   // range filters reduce the visible count for the *current page* only —
   // pagination still spans the server-side total. Acceptable for now;
@@ -79,6 +85,12 @@ Astro.response.headers.set(
           <div class="discover__error" role="alert">
             <strong>Could not load datasets.</strong>
             <span>{fetchError}</span>
+          </div>
+        )}
+        {licensePending && (
+          <div class="discover__notice" role="status">
+            License filtering is still rolling out — results aren't narrowed by license yet
+            (<a href="https://github.com/nemarOrg/nemar-cli/issues/653" rel="external">nemar-cli#653</a>).
           </div>
         )}
         {!fetchError && visible.length === 0 && (
@@ -173,5 +185,17 @@ Astro.response.headers.set(
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+  }
+  .discover__notice {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-info) 8%, transparent);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    margin-block-end: var(--space-6);
+  }
+  .discover__notice a {
+    color: var(--color-link);
   }
 </style>

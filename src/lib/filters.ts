@@ -1,6 +1,9 @@
+import { licenseTier } from "./tags";
 import {
   type Dataset,
   type DatasetQuery,
+  LICENSE_TIERS,
+  type LicenseTier,
   MODALITY_CODES,
   type ModalityCode,
   type ModalityOp,
@@ -25,6 +28,9 @@ export interface FilterState {
   modalities: ModalityCode[];
   /** AND across modalities, or OR (default OR matches legacy default). */
   modalityOp: ModalityOp;
+  /** License permissiveness tiers to keep. OR semantics (a dataset has one
+   *  license -> one tier). Empty means no license filter. */
+  licenseTiers: LicenseTier[];
   /** Comma-separated file format filter (legacy "all" -> ""). */
   fileFormat: string;
   /** Inclusive participant count range. */
@@ -48,6 +54,7 @@ export function defaultFilterState(): FilterState {
     q: "",
     modalities: [],
     modalityOp: "OR",
+    licenseTiers: [],
     fileFormat: "",
     participants: { min: null, max: null },
     channels: { min: null, max: null },
@@ -79,6 +86,16 @@ function parseSort(value: string | null): SortOption {
   }
 }
 
+function parseLicenseTiers(value: string | null): LicenseTier[] {
+  if (!value) return [];
+  const result: LicenseTier[] = [];
+  for (const raw of value.split(",")) {
+    const tier = raw.trim().toLowerCase() as LicenseTier;
+    if (LICENSE_TIERS.includes(tier) && !result.includes(tier)) result.push(tier);
+  }
+  return result;
+}
+
 function parseModalities(value: string | null): ModalityCode[] {
   if (!value) return [];
   const candidates = value.split(",").map((s) => s.trim());
@@ -102,6 +119,7 @@ export function filterStateFromURL(params: URLSearchParams): FilterState {
   s.q = (params.get("q") ?? "").trim();
   s.modalities = parseModalities(params.get("modality"));
   s.modalityOp = params.get("modality_op") === "AND" ? "AND" : "OR";
+  s.licenseTiers = parseLicenseTiers(params.get("license"));
   s.fileFormat = (params.get("format") ?? "").trim();
 
   s.participants = {
@@ -142,6 +160,7 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.q) sp.set("q", state.q);
   if (state.modalities.length > 0) sp.set("modality", state.modalities.join(","));
   if (state.modalityOp !== "OR") sp.set("modality_op", state.modalityOp);
+  if (state.licenseTiers.length > 0) sp.set("license", state.licenseTiers.join(","));
   if (state.fileFormat) sp.set("format", state.fileFormat);
   if (state.participants.min != null) sp.set("p_min", String(state.participants.min));
   if (state.participants.max != null) sp.set("p_max", String(state.participants.max));
@@ -175,10 +194,38 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
 }
 
 /**
+ * Whether the catalog batch carries license data yet. The field arrives via
+ * nemar-cli#653; until EVERY row has it, license filtering stays inactive (see
+ * `applyClientFilters`). One definition shared by the filter and the Discover
+ * notice so they can't drift apart.
+ */
+function licenseDataReady(datasets: Dataset[]): boolean {
+  return datasets.every((d) => d.license !== undefined);
+}
+
+/**
+ * True when the user selected a license tier but the batch isn't synced yet,
+ * so `applyClientFilters` left the license filter inactive. Discover shows a
+ * "rolling out" notice for this case instead of silently returning unfiltered
+ * results.
+ */
+export function isLicenseFilterPending(datasets: Dataset[], state: FilterState): boolean {
+  return state.licenseTiers.length > 0 && !licenseDataReady(datasets);
+}
+
+/**
  * Apply the parts of the filter state that the server can't enforce.
  */
 export function applyClientFilters(datasets: Dataset[], state: FilterState): Dataset[] {
+  // License filtering activates only once EVERY row in the batch carries the
+  // `license` field (present — a null/empty value classifies as the "unknown"
+  // tier, which is still filterable). Gating on `every` (not `some`) keeps the
+  // filter uniformly inactive across all pages during a partial nemar-cli#653
+  // backfill, rather than silently dropping not-yet-synced rows on the pages
+  // that happen to contain a few licensed ones.
+  const licenseActive = state.licenseTiers.length > 0 && licenseDataReady(datasets);
   return datasets.filter((d) => {
+    if (licenseActive && !state.licenseTiers.includes(licenseTier(d.license))) return false;
     // Modality OR/AND when 2+ selected (single modality is already on server).
     if (state.modalities.length > 1) {
       const dsMods = (d.modalities || "")
