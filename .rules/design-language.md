@@ -77,38 +77,94 @@ Don't:
 
 ### Chips / tags
 
-Shape: same `--radius-pill` as pills, but smaller padding (~1px 6px),
-smaller font (`--fs-xs`), filled subtle background, no border. **Non-
-interactive**: chips are labels, not buttons.
+Shape: same `--radius-pill` as pills, but smaller padding (~2px 9px),
+smaller font (`--fs-xs`), filled subtle background, thin tinted border,
+~24 px tall.
 
-Semantic: taxonomy. A chip communicates metadata about something
-(file type, modality, license tier). It is read, not clicked.
+Semantic: taxonomy. A tag communicates metadata about something (modality,
+license tier, keyword, task, BIDS datatype). It comes in two flavors:
 
-Use for:
+- **Static tag** — a label you read, not click. Rendered as a `<span>`.
+  File-type hints on tree rows ("JSON", "README", "Vis · soon",
+  `.tree__tag` in `BidsTree.astro`), version-mirror marker, and modality
+  tags inside a card that is already one big `<a>` (a nested link would be
+  invalid HTML).
+- **Filter-tag** — a tag that *also* navigates to a filtered Discover view.
+  Rendered as an `<a>` with the same compact chip geometry plus a clear
+  hover/focus affordance (deepened tint, focus ring, and a funnel glyph for
+  modality). This is the one sanctioned exception to "chips aren't clicked":
+  the click does not trigger an action or change app state, it *navigates to
+  a query of the same taxonomy value*, so the chip shape (not a pill) is
+  correct. Modality → `/discover?modality=`, license → `/discover?license=`,
+  keyword → `/discover?q=`.
 
-- Modality badges (`ModalityBadge.astro`).
-- File-type hints on tree rows ("JSON", "README", "Vis · soon") —
-  `.tree__tag` in `BidsTree.astro`.
-- Version-mirror marker (`vsw__mirror` in `VersionSwitcher.astro`).
-- Keyword chips on dataset detail pages.
+All tags — static or filter — render through one component, `Tag.astro`,
+driven by `src/lib/tags.ts`. Do not hand-roll a tag; pass `kind` + `value`
+(+ `href` to make it a filter-tag). The retired `ModalityBadge.astro` and
+`Chip.astro` are folded into it.
 
-Size distinction from pills: if it's something a user taps, it's a pill
-and needs a touch target ≥ 36 px. If it's a label they read, it's a chip
-and the geometry is whatever reads compactly (~24 px tall is common).
+When a filter-tag is *not* a pill: a pill selects a mode or fires an action
+within a panel and needs a ≥ 36 px touch target. A filter-tag is a taxonomy
+value that links elsewhere; it keeps the compact chip geometry. If clicking
+would mutate state in place (toggle, submit, open a dialog), it's a pill,
+not a filter-tag.
 
 Do:
 
 ```html
-<span class="tree__tag">JSON</span>
+<span class="tree__tag">JSON</span>            <!-- static label -->
+<a class="tag tag--modality tag--mod-eeg" href="/discover?modality=EEG">EEG</a>
 ```
 
 Don't:
 
 ```html
-<!-- Wrong: chip on an interactive element. If clicking it does something,
-     use a pill and a 36 px+ touch target. -->
-<button class="tree__tag">Filter by JSON</button>
+<!-- Wrong: a tag that mutates state in place. Use a pill. -->
+<a class="tag" href="#" onclick="toggleFilter()">EEG</a>
 ```
+
+#### Tag color bible
+
+Color carries the tag's meaning. Values are tokens in `src/styles/tokens.css`
+(light + dark-lifted so colored text clears contrast on the navy ground);
+classification lives in `src/lib/tags.ts`. **Never** add a new tag color
+outside this table.
+
+**Modality** (`--modality-*`) — recording technique. Also used as chart fills.
+
+| Modality | Token | Light |
+|---|---|---|
+| EEG | `--modality-eeg` | blue |
+| MEG | `--modality-meg` | purple |
+| iEEG | `--modality-ieeg` | pink |
+| EMG | `--modality-emg` | orange |
+| other | `--modality-other` | slate |
+
+**License** (`--license-*`) — a permissiveness thermometer, most open →
+most restrictive. Every tier is still hostable for open non-profit
+research; the color signals how much reuse freedom it grants. The tier is
+derived from the license string by `licenseTier()` (most-restrictive marker
+wins: `CC-BY-NC-ND` → no-derivatives, `CC-BY-NC-SA` → non-commercial).
+
+| Tier | Token | Light | Examples |
+|---|---|---|---|
+| public domain | `--license-public` | green | CC0, PDDL, Unlicense |
+| attribution | `--license-attribution` | teal | CC-BY, ODC-BY |
+| share-alike | `--license-sharealike` | amber | CC-BY-SA, ODbL |
+| non-commercial | `--license-noncommercial` | orange | CC-BY-NC, CC-BY-NC-SA |
+| no-derivatives | `--license-noderiv` | red | CC-BY-ND, CC-BY-NC-ND |
+| unknown | `--license-unknown` | slate | none / custom |
+
+License tags carry a leading tier dot so permissiveness reads without
+relying on hue alone (color-blind safety; the license text differs too).
+
+**Keyword** (`--keyword`) — free-text taxonomy, deliberately the quietest
+tag (sans, muted, subtle border).
+
+Two deliberate near-overlaps, documented so they don't read as bugs: EMG
+(orange) and the non-commercial tier sit in the same warm region, and
+"other" modality and "unknown" license both use slate. They never co-occur
+(modality vs license live in different rows / contexts).
 
 ### Underline tabs
 
@@ -152,12 +208,15 @@ Don't:
 
 ```
 Is the element interactive (clickable / focusable)?
-├── No  → Chip (span, not button/link)
-└── Yes → Does clicking move along a sequence / timeline of like-kind items?
-    ├── Yes → Underline tab
-    └── No  → Pill
-        ├── Primary action / category currently selected → filled
-        └── Secondary action / unselected → ghost outlined
+├── No  → Static tag (span, not button/link)
+└── Yes → Does clicking navigate to a filtered view of this taxonomy value
+    │     (e.g. all EEG datasets), without mutating state in place?
+    ├── Yes → Filter-tag (<a> with chip geometry; Tag.astro + href)
+    └── No  → Does clicking move along a sequence / timeline of like-kind items?
+        ├── Yes → Underline tab
+        └── No  → Pill
+            ├── Primary action / category currently selected → filled
+            └── Secondary action / unselected → ghost outlined
 ```
 
 Heuristic when the answer isn't obvious: if you'd describe the items as
