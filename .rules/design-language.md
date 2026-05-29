@@ -85,7 +85,7 @@ Semantic: taxonomy. A tag communicates metadata about something (modality,
 license tier, keyword, task, BIDS datatype). It comes in two flavors:
 
 - **Static tag** — a label you read, not click. Rendered as a `<span>`.
-  File-type hints on tree rows ("JSON", "README", "Vis · soon",
+  File-type hints on tree rows ("JSON", "README", "TSV", "Vis · soon",
   `.tree__tag` in `BidsTree.astro`), version-mirror marker, and modality
   tags inside a card that is already one big `<a>` (a nested link would be
   invalid HTML).
@@ -113,7 +113,8 @@ Do:
 
 ```html
 <span class="tree__tag">JSON</span>            <!-- static label -->
-<a class="tag tag--modality tag--mod-eeg" href="/discover?modality=EEG">EEG</a>
+<!-- Tag.astro always emits a size class too (tag--sm by default). -->
+<a class="tag tag--modality tag--mod-eeg tag--sm" href="/discover?modality=EEG">EEG</a>
 ```
 
 Don't:

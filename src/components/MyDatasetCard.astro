@@ -34,6 +34,9 @@ const githubUrl = dataset.github_repo ? `https://github.com/${dataset.github_rep
     </div>
     <div class="my-dataset-card__badges">
       <PublishStateBadge state={state} />
+      {/* Non-clickable: this is a dashboard management card, not a discovery
+          surface — modality filter links belong on Discover + the public
+          detail page, not here. */}
       {modalities.map((m) => <Tag kind="modality" value={m} />)}
     </div>
   </header>

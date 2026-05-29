@@ -44,7 +44,8 @@ src/
     api.ts                            api.nemar.org client (unwraps {dataset:...})
     data-api.ts                       data.nemar.org client (landing/metadata/manifest/README fetch)
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
-    filters.ts                        FilterState ↔ URL params; modality AND/OR
+    filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
+    tags.ts                           modality/license/keyword classification + /discover hrefs
     provenance.ts                     detectProvenance for on*; listMirrorVersions
     format.ts                         null-safe bytes/date/relative-time/modality split
     bids-tree.ts                      manifest paths → nested TreeNode
