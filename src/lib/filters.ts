@@ -194,14 +194,36 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
 }
 
 /**
+ * Whether the catalog batch carries license data yet. The field arrives via
+ * nemar-cli#653; until EVERY row has it, license filtering stays inactive (see
+ * `applyClientFilters`). One definition shared by the filter and the Discover
+ * notice so they can't drift apart.
+ */
+function licenseDataReady(datasets: Dataset[]): boolean {
+  return datasets.every((d) => d.license !== undefined);
+}
+
+/**
+ * True when the user selected a license tier but the batch isn't synced yet,
+ * so `applyClientFilters` left the license filter inactive. Discover shows a
+ * "rolling out" notice for this case instead of silently returning unfiltered
+ * results.
+ */
+export function isLicenseFilterPending(datasets: Dataset[], state: FilterState): boolean {
+  return state.licenseTiers.length > 0 && !licenseDataReady(datasets);
+}
+
+/**
  * Apply the parts of the filter state that the server can't enforce.
  */
 export function applyClientFilters(datasets: Dataset[], state: FilterState): Dataset[] {
-  // License filtering can only run once the catalog row carries a `license`
-  // (pending nemar-cli#653 — today it lives only in per-dataset metadata.json).
-  // Until the field is populated it's absent across the whole batch, so we
-  // skip the filter rather than zero-out every result.
-  const licenseActive = state.licenseTiers.length > 0 && datasets.some((d) => Boolean(d.license));
+  // License filtering activates only once EVERY row in the batch carries the
+  // `license` field (present — a null/empty value classifies as the "unknown"
+  // tier, which is still filterable). Gating on `every` (not `some`) keeps the
+  // filter uniformly inactive across all pages during a partial nemar-cli#653
+  // backfill, rather than silently dropping not-yet-synced rows on the pages
+  // that happen to contain a few licensed ones.
+  const licenseActive = state.licenseTiers.length > 0 && licenseDataReady(datasets);
   return datasets.filter((d) => {
     if (licenseActive && !state.licenseTiers.includes(licenseTier(d.license))) return false;
     // Modality OR/AND when 2+ selected (single modality is already on server).
