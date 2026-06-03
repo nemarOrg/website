@@ -13,7 +13,7 @@
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
-import { type Modality, channelColor, defaultScaling, removeDcInPlace } from "./dsp";
+import { type Modality, channelColor, defaultScaling, removeBandDc, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import {
   DEFAULT_RENDER,
@@ -76,8 +76,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let renderSeq = 0;
   let firstPaint = true;
 
+  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup?.();
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes);
+  const cleanups: Array<() => void> = [];
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -151,27 +153,32 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     try {
       win = await readWindow(g, start, end, plotWidth, chanStart, chanCount);
     } catch (err) {
-      if (seq === renderSeq) ui.status.textContent = `signal unavailable: ${(err as Error).message}`;
+      if (seq === renderSeq) {
+        firstPaint = false;
+        const msg = err instanceof Error ? err.message : String(err);
+        renderMessage(ctx, w, h, themeColors(ui.root), `Signal unavailable: ${msg}`);
+        ui.status.textContent = `signal unavailable: ${msg}`;
+      }
       return;
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
     firstPaint = false;
 
     const visible = g.channelsByRow.slice(chanStart, visEnd);
-    const channels: FrameChannel[] = visible.map((ch, i) => {
+    const n = Math.min(visible.length, win.channels.length);
+    const channels: FrameChannel[] = visible.slice(0, n).map((ch, i) => {
       const color =
         ch.channelType && ch.channelType !== "OTHER"
           ? channelColor(ch.channelType)
           : channelColor(ch.modality);
       const cw = win.channels[i];
-      if (cw?.line) {
+      if (cw.kind === "line") {
         const line = dcRemove ? removeDcInPlace(cw.line.slice()) : cw.line;
-        return { label: ch.label, color, line };
+        return { label: ch.label, color, kind: "line" as const, line };
       }
-      let min = cw?.min;
-      let max = cw?.max;
-      if (dcRemove && min && max) ({ min, max } = removeBandDc(min, max));
-      return { label: ch.label, color, min, max };
+      let { min, max } = cw;
+      if (dcRemove) ({ min, max } = removeBandDc(min, max));
+      return { label: ch.label, color, kind: "band" as const, min, max };
     });
 
     const modality = (g.modality as Modality) ?? "MISC";
@@ -295,6 +302,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       raf = requestAnimationFrame(() => render());
     });
     ro.observe(ui.root);
+    cleanups.push(() => ro.disconnect());
   }
   // Repaint when the site theme flips (the canvas reads CSS vars, so a light/dark
   // toggle on <html> must trigger a re-render to stay homogeneous).
@@ -304,7 +312,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       attributes: true,
       attributeFilter: ["class", "data-theme", "style"],
     });
+    cleanups.push(() => mo.disconnect());
   }
+  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = () => {
+    for (const c of cleanups) c();
+  };
 
   await render();
 }
@@ -322,22 +334,6 @@ function themeColors(root: HTMLElement): { background: string; foreground: strin
     foreground: v("--color-fg", "#1a1a1a"),
     grid: v("--color-border", "#e6e6e6"),
   };
-}
-
-function removeBandDc(
-  min: Float32Array,
-  max: Float32Array,
-): { min: Float32Array; max: Float32Array } {
-  let sum = 0;
-  for (let i = 0; i < min.length; i++) sum += (min[i] + max[i]) / 2;
-  const mean = sum / Math.max(1, min.length);
-  const outMin = new Float32Array(min.length);
-  const outMax = new Float32Array(max.length);
-  for (let i = 0; i < min.length; i++) {
-    outMin[i] = min[i] - mean;
-    outMax[i] = max[i] - mean;
-  }
-  return { min: outMin, max: outMax };
 }
 
 // --- DOM scaffold ----------------------------------------------------------
@@ -529,5 +525,10 @@ function labeledCheck(
 }
 
 function escapeAttr(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/'/g, "&#x27;")
+    .replace(/>/g, "&gt;");
 }

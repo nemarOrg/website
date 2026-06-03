@@ -13,15 +13,9 @@
 
 import { formatSi } from "./dsp";
 
-export interface FrameChannel {
-  label: string;
-  color: string;
-  /** Min/max envelope (view level): both set, equal length = `nCols`. */
-  min?: Float32Array;
-  max?: Float32Array;
-  /** Single trace (level-0): set when there is no envelope. */
-  line?: Float32Array;
-}
+export type FrameChannel =
+  | { label: string; color: string; kind: "line"; line: Float32Array }
+  | { label: string; color: string; kind: "band"; min: Float32Array; max: Float32Array };
 
 export interface FrameEvent {
   onsetS: number;
@@ -141,7 +135,8 @@ export function renderFrame(
   frame: ViewerFrame,
   opts: RenderOptions,
 ): void {
-  const { width, height, gutter, axisHeight, gain, clip } = opts;
+  const { width, height, gutter, axisHeight, clip } = opts;
+  const g = opts.gain > 0 ? opts.gain : 1;
   const plotLeft = gutter;
   const plotTop = 4;
   const plotWidth = Math.max(1, width - gutter - 8);
@@ -152,8 +147,7 @@ export function renderFrame(
   ctx.fillRect(0, 0, width, height);
 
   const slots = traceLayout(frame.channels.length, plotTop, plotHeight);
-  const pxPerPhys = slots.length > 0 ? slots[0].halfHeight / (frame.physPerDiv / gain) : 0;
-  const clipPx = (slots[0]?.halfHeight ?? 0) * clip;
+  const pxPerPhys = slots.length > 0 ? slots[0].halfHeight / (frame.physPerDiv / g) : 0;
 
   // Slot dividers + flush-left labels.
   ctx.textBaseline = "middle";
@@ -209,6 +203,7 @@ export function renderFrame(
   for (let i = 0; i < frame.channels.length; i++) {
     const ch = frame.channels[i];
     const slot = slots[i];
+    const clipPx = slot.halfHeight * clip;
     const yOf = (v: number) => {
       const y = slot.baseline - v * pxPerPhys;
       const lo = slot.baseline - clipPx;
@@ -219,7 +214,7 @@ export function renderFrame(
     ctx.strokeStyle = ch.color;
     ctx.lineWidth = 1;
 
-    if (ch.min && ch.max) {
+    if (ch.kind === "band") {
       // Min/max decimation waveform: for each pixel-column draw the full
       // [min,max] vertical extent, connected across columns. This preserves the
       // inherent EEG texture that a centerline smooths away -- a calm channel
@@ -233,7 +228,7 @@ export function renderFrame(
         ctx.lineTo(x, yOf(ch.min[c]));
       }
       ctx.stroke();
-    } else if (ch.line) {
+    } else {
       ctx.beginPath();
       const n = ch.line.length;
       for (let c = 0; c < n; c++) {
@@ -287,8 +282,9 @@ function drawScaleBar(
   plotHeight: number,
   pxPerPhys: number,
 ): void {
-  // A vertical bar one "div" tall (physPerDiv/gain) anchored lower-right.
-  const physDiv = frame.physPerDiv / opts.gain;
+  // A vertical bar one "div" tall (physPerDiv/g) anchored lower-right.
+  const g = opts.gain > 0 ? opts.gain : 1;
+  const physDiv = frame.physPerDiv / g;
   const barPx = physDiv * pxPerPhys;
   if (!(barPx > 0) || !Number.isFinite(barPx)) return;
   const x = plotLeft + 12;
