@@ -63,6 +63,10 @@ export interface EventTable {
 export interface RecordingStore {
   url: string;
   format: string;
+  /** BIDS PowerLineFrequency (Hz) resolved from the recording's _eeg.json sidecar
+   * by the converter and embedded in the store attrs; null when the dataset does
+   * not declare one. The viewer defaults the notch filter to this. */
+  powerLineFrequency: number | null;
   groups: GroupHandle[];
   events: EventTable | null;
 }
@@ -160,13 +164,15 @@ export async function openRecording(url: string): Promise<RecordingStore> {
   const root = await zarr.open(store, { kind: "group" });
   const attrs = root.attrs as Record<string, unknown>;
   const format = typeof attrs.format === "string" ? attrs.format : "";
+  const plf = attrs.power_line_frequency;
+  const powerLineFrequency = typeof plf === "number" && Number.isFinite(plf) && plf > 0 ? plf : null;
   const groupNames = Array.isArray(attrs.channel_groups) ? (attrs.channel_groups as string[]) : [];
 
   const [groups, events] = await Promise.all([
     Promise.all(groupNames.map((name) => openGroup(root, name))),
     readEvents(root),
   ]);
-  return { url, format, groups, events };
+  return { url, format, powerLineFrequency, groups, events };
 }
 
 async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
