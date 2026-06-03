@@ -107,9 +107,42 @@ function parseChannels(raw: unknown): ChannelMeta[] {
   });
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * A fetch handler that retries transient gateway failures (a cold zarr.nemar.org
+ * Worker / CDN edge hiccup returns 5xx briefly, as seen during a fresh backfill),
+ * with exponential backoff. GETs carry no body, so reissuing the request is safe.
+ */
+function retryingFetch(retries = 3, baseMs = 200) {
+  return async (request: Request): Promise<Response> => {
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(request);
+        if (res.status >= 500 && res.status < 600 && attempt < retries) {
+          await sleep(baseMs * 2 ** attempt);
+          continue;
+        }
+        return res;
+      } catch (err) {
+        lastErr = err;
+        if (attempt >= retries) throw err;
+        await sleep(baseMs * 2 ** attempt);
+      }
+    }
+    throw lastErr;
+  };
+}
+
+/** A FetchStore that retries transient 5xx for resilient streaming. */
+export function makeStore(url: string): zarr.FetchStore {
+  return new zarr.FetchStore(url, { fetch: retryingFetch() });
+}
+
 /** Open a recording store and read all group + event metadata (no signal yet). */
 export async function openRecording(url: string): Promise<RecordingStore> {
-  const store = new zarr.FetchStore(url);
+  const store = makeStore(url);
   const root = await zarr.open(store, { kind: "group" });
   const attrs = root.attrs as Record<string, unknown>;
   const format = typeof attrs.format === "string" ? attrs.format : "";
@@ -197,37 +230,48 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
 
 /**
  * Read the signal for `[startS, endS)` of a group, choosing the pyramid level
- * closest to `pixelWidth` columns and dequantizing into physical units.
+ * closest to `pixelWidth` columns and dequantizing into physical units. Only the
+ * channel rows `[rowStart, rowStart+rowCount)` are fetched (vertical scrolling
+ * through a large montage transfers just the visible rows). The returned
+ * `channels` align 1:1 with `group.channelsByRow.slice(rowStart, ...)`.
  */
 export async function readWindow(
   group: GroupHandle,
   startS: number,
   endS: number,
   pixelWidth: number,
+  rowStart = 0,
+  rowCount = group.nChannels,
 ): Promise<WindowData> {
   const dur = group.durationS;
   const start = Math.max(0, Math.min(startS, dur));
   const end = Math.max(start, Math.min(endS, dur));
   const visibleFraction = dur > 0 ? (end - start) / dur : 1;
+  const r0 = Math.max(0, Math.min(rowStart, group.nChannels));
+  const r1 = Math.max(r0 + 1, Math.min(rowStart + rowCount, group.nChannels));
 
   const levelSamples = [group.nSamples, ...group.viewLevels.map((v) => v.nTime)];
   const chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
 
-  if (chosen === 0) {
-    return readLevel0(group, start, end);
-  }
-  return readViewLevel(group, group.viewLevels[chosen - 1], start, end);
+  if (chosen === 0) return readLevel0(group, start, end, r0, r1);
+  return readViewLevel(group, group.viewLevels[chosen - 1], start, end, r0, r1);
 }
 
-async function readLevel0(group: GroupHandle, startS: number, endS: number): Promise<WindowData> {
+async function readLevel0(
+  group: GroupHandle,
+  startS: number,
+  endS: number,
+  r0: number,
+  r1: number,
+): Promise<WindowData> {
   const c0 = Math.floor(startS * group.rate);
   const c1 = Math.min(group.nSamples, Math.max(c0 + 1, Math.ceil(endS * group.rate)));
-  const region = await zarr.get(group.level0, [null, zarr.slice(c0, c1)]);
+  const region = await zarr.get(group.level0, [zarr.slice(r0, r1), zarr.slice(c0, c1)]);
   const cols = region.shape[1];
   const data = region.data as Int16Array;
-  const channels: ChannelWindow[] = group.channelsByRow.map((ch, row) => {
+  const channels: ChannelWindow[] = group.channelsByRow.slice(r0, r1).map((ch, i) => {
     const line = new Float32Array(cols);
-    const base = row * cols;
+    const base = i * cols;
     for (let c = 0; c < cols; c++) line[c] = (data[base + c] * ch.scale + ch.offset) * ch.siFactor;
     return { line };
   });
@@ -239,20 +283,22 @@ async function readViewLevel(
   view: ViewLevel,
   startS: number,
   endS: number,
+  r0: number,
+  r1: number,
 ): Promise<WindowData> {
   const dur = group.durationS || 1;
   const c0 = Math.floor((startS / dur) * view.nTime);
   const c1 = Math.min(view.nTime, Math.max(c0 + 1, Math.ceil((endS / dur) * view.nTime)));
-  const region = await zarr.get(view.array, [null, null, zarr.slice(c0, c1)]);
+  const region = await zarr.get(view.array, [null, zarr.slice(r0, r1), zarr.slice(c0, c1)]);
   const cols = region.shape[2];
   const data = region.data as Int16Array;
-  const nCh = region.shape[1];
+  const nCh = region.shape[1]; // = r1 - r0
   // region is [2, nCh, cols] row-major: index = ((m*nCh)+row)*cols + c.
-  const channels: ChannelWindow[] = group.channelsByRow.map((ch, row) => {
+  const channels: ChannelWindow[] = group.channelsByRow.slice(r0, r1).map((ch, i) => {
     const min = new Float32Array(cols);
     const max = new Float32Array(cols);
-    const a0 = (0 * nCh + row) * cols;
-    const a1 = (1 * nCh + row) * cols;
+    const a0 = (0 * nCh + i) * cols;
+    const a1 = (1 * nCh + i) * cols;
     for (let c = 0; c < cols; c++) {
       const v0 = (data[a0 + c] * ch.scale + ch.offset) * ch.siFactor;
       const v1 = (data[a1 + c] * ch.scale + ch.offset) * ch.siFactor;

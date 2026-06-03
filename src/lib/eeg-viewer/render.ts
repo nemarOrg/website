@@ -152,10 +152,20 @@ export function renderFrame(
     ctx.fillText(ch.label.slice(0, 10), 6, slot.baseline);
   }
 
-  // Event duration shading + lines (under the traces' baseline grid, over bg).
+  // Event lines: a vertical line at each onset, colored by type, label at top.
+  // A genuine annotation span (duration > 0) gets a thin top rule between
+  // onset and end rather than a full-height wash (which read as noise); point
+  // stimulus events (duration 0) are just the line.
+  ctx.textAlign = "center";
   for (const ev of frame.events) {
     const x = timeToX(ev.onsetS, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth);
     if (x < plotLeft - 1 || x > plotLeft + plotWidth + 1) continue;
+    ctx.strokeStyle = ev.color;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(x) + 0.5, plotTop + 12);
+    ctx.lineTo(Math.round(x) + 0.5, plotTop + plotHeight);
+    ctx.stroke();
     if (ev.durationS > 0) {
       const x2 = timeToX(
         ev.onsetS + ev.durationS,
@@ -164,18 +174,14 @@ export function renderFrame(
         plotLeft,
         plotWidth,
       );
-      ctx.fillStyle = `${ev.color}22`;
-      ctx.fillRect(x, plotTop, Math.max(1, x2 - x), plotHeight);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.round(x) + 0.5, plotTop + 1);
+      ctx.lineTo(Math.round(x2) + 0.5, plotTop + 1);
+      ctx.stroke();
     }
-    ctx.strokeStyle = ev.color;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(Math.round(x) + 0.5, plotTop);
-    ctx.lineTo(Math.round(x) + 0.5, plotTop + plotHeight);
-    ctx.stroke();
     ctx.fillStyle = ev.color;
-    ctx.textAlign = "center";
-    ctx.fillText(ev.label.slice(0, 12), x, plotTop + 6);
+    ctx.fillText(ev.label.slice(0, 12), x, plotTop + 2);
   }
 
   // Traces.

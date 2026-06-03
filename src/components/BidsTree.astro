@@ -435,14 +435,25 @@ const { datasetId, version } = Astro.props;
     font-size: var(--fs-sm);
   }
 
-  /* --- Zarr signal viewer (mounted client-side into the preview slot) --- */
+  /* --- Zarr signal viewer: a clinical "scope" panel, mounted client-side into
+     the preview slot. All colors come from design tokens so it tracks light/dark
+     and stays homogeneous with the rest of the dataset page. --- */
   .eegv {
+    --eegv-accent: var(--color-link);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    padding: var(--space-2);
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 8px);
   }
   .eegv:focus {
     outline: none;
+  }
+  .eegv:focus-visible {
+    outline: 2px solid var(--eegv-accent);
+    outline-offset: 1px;
   }
   .eegv__msg {
     margin: 0;
@@ -452,50 +463,105 @@ const { datasetId, version } = Astro.props;
   .eegv__toolbar {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
+    align-items: flex-end;
+    gap: var(--space-3);
     font-size: var(--fs-sm);
   }
+  .eegv__group {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .eegv__group + .eegv__group {
+    padding-inline-start: var(--space-3);
+    border-inline-start: 1px solid var(--color-border);
+  }
+  .eegv__group-label {
+    font-size: 9px;
+    font-weight: var(--fw-semibold, 600);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle);
+  }
+  .eegv__group-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
   .eegv__btn {
-    min-inline-size: 28px;
-    padding: 2px 7px;
+    min-inline-size: 26px;
+    padding: 3px 7px;
     cursor: pointer;
     background: var(--color-bg);
     color: var(--color-fg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
     font: inherit;
-    line-height: 1.4;
+    line-height: 1.2;
   }
   .eegv__btn:hover {
-    background: var(--color-bg-subtle);
+    background: var(--color-bg-elevated, var(--color-bg));
+    border-color: var(--eegv-accent);
+  }
+  .eegv__btn:active {
+    transform: translateY(0.5px);
   }
   .eegv__field {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     color: var(--color-fg-muted);
+    cursor: pointer;
   }
   .eegv__sel {
     font: inherit;
-    padding: 1px 4px;
+    padding: 2px 4px;
     background: var(--color-bg);
     color: var(--color-fg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
   }
-  .eegv__time {
-    min-inline-size: 14ch;
+  .eegv__readout {
+    min-inline-size: 10ch;
+    padding-inline: 4px;
     text-align: center;
     color: var(--color-fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-variant-numeric: tabular-nums;
   }
+  .eegv__plot {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
   .eegv__canvas {
-    inline-size: 100%;
+    flex: 1 1 auto;
+    min-inline-size: 0;
     display: block;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
+  }
+  .eegv__vscroll {
+    flex: 0 0 auto;
+    inline-size: 12px;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    accent-color: var(--eegv-accent);
+    cursor: pointer;
+    display: none;
+  }
+  /* The vertical channel scrollbar only exists once you zoom past the full
+     montage into a portion -- "see all" needs no scroll, "inspect a slice" does. */
+  .eegv__plot--scroll .eegv__vscroll {
+    display: block;
+  }
+  .eegv__hscroll {
+    inline-size: 100%;
+    block-size: 14px;
+    margin-block-start: 2px;
+    accent-color: var(--eegv-accent);
+    cursor: pointer;
   }
   .eegv__legend {
     display: flex;

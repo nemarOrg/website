@@ -36,7 +36,7 @@ describe("removeDcInPlace", () => {
 
 describe("defaultScaling", () => {
   it("returns MNE-like per-modality defaults", () => {
-    expect(defaultScaling("EEG")).toBeCloseTo(20e-6, 12);
+    expect(defaultScaling("EEG")).toBeCloseTo(75e-6, 12);
     expect(defaultScaling("EMG")).toBeCloseTo(1e-3, 9);
     expect(defaultScaling("MEG")).toBeCloseTo(1e-12, 15);
   });

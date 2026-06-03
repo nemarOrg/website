@@ -36,11 +36,12 @@ export function removeDcInPlace(row: Float32Array): Float32Array {
 
 /**
  * Per-modality default full-scale amplitude (the "div" the µV scale bar shows),
- * in the channel's physical unit. These mirror MNE-Python's `raw.plot()`
- * defaults so EEG researchers see familiar gain out of the box.
+ * in SI base units. EEG defaults to 75 µV (the amplitude researchers expect for
+ * a scalp montage out of the box); the others follow clinical/EEGLAB norms. The
+ * scale stays dynamic: gain +/- and the scale bar adjust the live µV/div.
  */
 export const DEFAULT_SCALINGS: Record<Modality, number> = {
-  EEG: 20e-6, // 20 µV
+  EEG: 75e-6, // 75 µV
   IEEG: 100e-6, // 100 µV (sEEG/ECoG)
   EMG: 1e-3, // 1 mV
   MEG: 1e-12, // 1 pT (magnetometer)

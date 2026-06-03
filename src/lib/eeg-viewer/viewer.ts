@@ -1,13 +1,17 @@
-import { zarrStoreUrl } from "../zarr-base";
 /**
- * Signal-viewer orchestration (website#99). `mountEegViewer` builds the toolbar +
- * canvas into a slot, opens the recording's Zarr store, and drives the render
- * loop: pick the pyramid level for the window, dequantize, optional DC removal,
- * overlay events, draw. P0 controls: window length, scroll/step/page, gain, DC,
- * events toggle, channel-group switch, and the MNE-style nav keys.
+ * Signal-viewer orchestration (website#99). `mountEegViewer` builds a compact
+ * "clinical oscilloscope" panel into a slot, opens the recording's Zarr store,
+ * and drives the render loop: pick the pyramid level for the window, dequantize
+ * only the visible channel rows, optional DC removal, overlay events, draw.
  *
- * Events are a first-class, recording-level layer (one `events/` group shared by
- * all channel groups): read once, shown as a type legend + vertical lines.
+ * Design intent (embeds inline under one recording in the BIDS tree):
+ * - The scope has a FIXED height. Channels share it, so "show all" squeezes the
+ *   montage rather than growing the box (stable embed boundary).
+ * - Two zoom axes mirror MNE/EEGLAB: a time window (horizontal) with a time
+ *   scrubber, and a channel zoom (vertical magnifier). The vertical scrollbar
+ *   only appears once you zoom past the full montage into a portion — so the
+ *   128-channel "see all" and "inspect a slice" use cases both work.
+ * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
 import { type Modality, channelColor, defaultScaling, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
@@ -19,6 +23,7 @@ import {
   openRecording,
   readWindow,
 } from "./store";
+import { zarrStoreUrl } from "../zarr-base";
 
 export interface ViewerOptions {
   datasetId: string;
@@ -30,6 +35,9 @@ export interface ViewerOptions {
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
 const ELECTRIC = new Set<Modality>(["EEG", "EMG", "IEEG", "MISC"]);
+/** Fixed scope height (CSS px); never varies with channel count. */
+const PLOT_HEIGHT = 520;
+const MIN_VISIBLE_CHANNELS = 4;
 
 export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Promise<void> {
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">Loading viewer…</p></div>`;
@@ -56,6 +64,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let gain = 1;
   let dcRemove = true;
   let showEvents = true;
+  let chanStart = 0;
+  let chanCount = store.groups[0].nChannels; // default: whole montage (overview)
   let renderSeq = 0;
 
   slot.innerHTML = "";
@@ -71,56 +81,76 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     return store.groups[groupIndex];
   }
 
-  function clampStart(): void {
-    const max = Math.max(0, group().durationS - windowLengthS);
-    windowStartS = Math.min(Math.max(0, windowStartS), max);
+  function clamp(): void {
+    const g = group();
+    chanCount = Math.min(Math.max(MIN_VISIBLE_CHANNELS, chanCount), g.nChannels);
+    chanStart = Math.max(0, Math.min(chanStart, g.nChannels - chanCount));
+    windowStartS = Math.min(Math.max(0, windowStartS), Math.max(0, g.durationS - windowLengthS));
   }
 
   function sizeCanvas(): { w: number; h: number } {
-    const cssW = Math.max(320, ui.canvas.clientWidth || ui.root.clientWidth || 800);
-    const cssH = Math.max(240, Math.min(640, group().nChannels * 22 + 48));
+    const rectW = ui.canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
+    const cssW = Math.max(320, Math.round(rectW) || 800);
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    ui.canvas.style.height = `${cssH}px`;
+    ui.canvas.style.height = `${PLOT_HEIGHT}px`;
     ui.canvas.width = Math.round(cssW * dpr);
-    ui.canvas.height = Math.round(cssH * dpr);
+    ui.canvas.height = Math.round(PLOT_HEIGHT * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { w: cssW, h: cssH };
+    return { w: cssW, h: PLOT_HEIGHT };
+  }
+
+  function syncControls(): void {
+    const g = group();
+    ui.hscroll.min = "0";
+    ui.hscroll.max = String(Math.max(0.001, g.durationS - windowLengthS));
+    ui.hscroll.step = String(Math.max(0.01, windowLengthS / 50));
+    ui.hscroll.value = String(windowStartS);
+    const zoomed = g.nChannels > chanCount;
+    ui.vscroll.min = "0";
+    ui.vscroll.max = String(Math.max(0, g.nChannels - chanCount));
+    ui.vscroll.step = "1";
+    ui.vscroll.value = String(chanStart);
+    ui.plot.classList.toggle("eegv__plot--scroll", zoomed);
   }
 
   async function render(): Promise<void> {
     const seq = ++renderSeq;
-    clampStart();
+    clamp();
     const g = group();
     const { w, h } = sizeCanvas();
+    syncControls();
     const plotWidth = Math.max(64, w - DEFAULT_RENDER.gutter - 8);
     const start = windowStartS;
     const end = Math.min(g.durationS, start + windowLengthS);
+    const visEnd = Math.min(g.nChannels, chanStart + chanCount);
 
-    ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s of ${g.durationS.toFixed(0)} s`;
+    ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s`;
+    ui.chanInfo.textContent =
+      visEnd - chanStart >= g.nChannels ? `all ${g.nChannels}` : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
 
     let win: WindowData;
     try {
-      win = await readWindow(g, start, end, plotWidth);
+      win = await readWindow(g, start, end, plotWidth, chanStart, chanCount);
     } catch (err) {
       if (seq === renderSeq) ui.status.textContent = `read error: ${(err as Error).message}`;
       return;
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
 
-    const channels: FrameChannel[] = g.channelsByRow.map((ch, row) => {
+    const visible = g.channelsByRow.slice(chanStart, visEnd);
+    const channels: FrameChannel[] = visible.map((ch, i) => {
       const color =
         ch.channelType && ch.channelType !== "OTHER"
           ? channelColor(ch.channelType)
           : channelColor(ch.modality);
-      const cw = win.channels[row];
-      if (cw.line) {
+      const cw = win.channels[i];
+      if (cw?.line) {
         const line = dcRemove ? removeDcInPlace(cw.line.slice()) : cw.line;
         return { label: ch.label, color, line };
       }
-      let { min, max } = cw;
-      if (dcRemove && min && max) {
-        ({ min, max } = removeBandDc(min, max));
-      }
+      let min = cw?.min;
+      let max = cw?.max;
+      if (dcRemove && min && max) ({ min, max } = removeBandDc(min, max));
       return { label: ch.label, color, min, max };
     });
 
@@ -130,37 +160,39 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       nCols: win.nCols,
       windowStartS: start,
       windowEndS: end,
-      events:
-        showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
+      events: showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
       physPerDiv: defaultScaling(modality),
       unitBase: ELECTRIC.has(modality) ? "V" : "T",
     };
-    renderFrame(ctx, frame, { ...DEFAULT_RENDER, width: w, height: h, gain });
+    renderFrame(ctx, frame, { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain });
 
     ui.status.textContent =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
-      `level ${win.level === 0 ? "0 (full)" : `view/${win.level}`} · ` +
+      `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`} · ` +
       `${eventTypes.length} event type(s)`;
   }
 
   // --- controls ------------------------------------------------------------
-  const step = () => windowLengthS * 0.2;
-  ui.on("page-back", () => {
-    windowStartS -= windowLengthS;
+  const timeStep = () => windowLengthS * 0.2;
+  const scroll = (dt: number) => {
+    windowStartS += dt;
     render();
-  });
-  ui.on("step-back", () => {
-    windowStartS -= step();
+  };
+  const scrollChan = (dc: number) => {
+    chanStart += dc;
     render();
-  });
-  ui.on("step-fwd", () => {
-    windowStartS += step();
+  };
+  const zoomChan = (factor: number) => {
+    const g = group();
+    const center = chanStart + chanCount / 2;
+    chanCount = Math.max(MIN_VISIBLE_CHANNELS, Math.min(g.nChannels, Math.round(chanCount * factor)));
+    chanStart = Math.round(center - chanCount / 2);
     render();
-  });
-  ui.on("page-fwd", () => {
-    windowStartS += windowLengthS;
-    render();
-  });
+  };
+  ui.on("page-back", () => scroll(-windowLengthS));
+  ui.on("step-back", () => scroll(-timeStep()));
+  ui.on("step-fwd", () => scroll(timeStep()));
+  ui.on("page-fwd", () => scroll(windowLengthS));
   ui.on("gain-up", () => {
     gain *= 1.5;
     render();
@@ -169,6 +201,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     gain /= 1.5;
     render();
   });
+  ui.on("chan-zoom-in", () => zoomChan(0.5));
+  ui.on("chan-zoom-out", () => zoomChan(2));
   ui.win.addEventListener("change", () => {
     windowLengthS = Number(ui.win.value) || 10;
     render();
@@ -181,26 +215,57 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     showEvents = ui.events.checked;
     render();
   });
+  ui.hscroll.addEventListener("input", () => {
+    windowStartS = Number(ui.hscroll.value);
+    render();
+  });
+  ui.vscroll.addEventListener("input", () => {
+    chanStart = Math.round(Number(ui.vscroll.value));
+    render();
+  });
   if (ui.groupSel) {
     ui.groupSel.addEventListener("change", () => {
       groupIndex = Number(ui.groupSel?.value) || 0;
       windowStartS = 0;
+      chanStart = 0;
+      chanCount = group().nChannels;
       render();
     });
   }
 
+  ui.canvas.addEventListener(
+    "wheel",
+    (e) => {
+      // Vertical wheel scrolls the montage when zoomed; Shift+wheel scrolls time.
+      if (e.shiftKey) scroll(Math.sign(e.deltaY) * timeStep());
+      else if (group().nChannels > chanCount) {
+        scrollChan(Math.sign(e.deltaY) * Math.max(1, Math.round(chanCount / 4)));
+      } else return;
+      e.preventDefault();
+    },
+    { passive: false },
+  );
+
   ui.root.addEventListener("keydown", (e) => {
     const k = e.key;
-    if (k === "ArrowRight") windowStartS += e.shiftKey ? windowLengthS : windowLengthS / 4;
-    else if (k === "ArrowLeft") windowStartS -= e.shiftKey ? windowLengthS : windowLengthS / 4;
-    else if (k === "+" || k === "=") gain *= 1.5;
-    else if (k === "-") gain /= 1.5;
-    else if (k === "d") {
+    if (k === "ArrowRight") scroll(e.shiftKey ? windowLengthS : windowLengthS / 4);
+    else if (k === "ArrowLeft") scroll(e.shiftKey ? -windowLengthS : -windowLengthS / 4);
+    else if (k === "ArrowDown") scrollChan(1);
+    else if (k === "ArrowUp") scrollChan(-1);
+    else if (k === "PageDown") scrollChan(chanCount);
+    else if (k === "PageUp") scrollChan(-chanCount);
+    else if (k === "+" || k === "=") {
+      gain *= 1.5;
+      render();
+    } else if (k === "-") {
+      gain /= 1.5;
+      render();
+    } else if (k === "d") {
       dcRemove = !dcRemove;
       ui.dc.checked = dcRemove;
+      render();
     } else return;
     e.preventDefault();
-    render();
   });
 
   if (typeof ResizeObserver !== "undefined") {
@@ -211,8 +276,32 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     });
     ro.observe(ui.root);
   }
+  // Repaint when the site theme flips (the canvas reads CSS vars, so a light/dark
+  // toggle on <html> must trigger a re-render to stay homogeneous).
+  if (typeof MutationObserver !== "undefined") {
+    const mo = new MutationObserver(() => render());
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-theme", "style"],
+    });
+  }
 
   await render();
+}
+
+/**
+ * Canvas paint colors pulled from the page's design tokens so the plot matches
+ * light/dark and the surrounding UI exactly. Falls back to the renderer defaults
+ * if a token is absent.
+ */
+function themeColors(root: HTMLElement): { background: string; foreground: string; grid: string } {
+  const cs = getComputedStyle(root);
+  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+  return {
+    background: v("--color-bg", "#ffffff"),
+    foreground: v("--color-fg", "#1a1a1a"),
+    grid: v("--color-border", "#e6e6e6"),
+  };
 }
 
 function removeBandDc(
@@ -235,14 +324,28 @@ function removeBandDc(
 
 interface ViewerUi {
   root: HTMLElement;
+  plot: HTMLElement;
   canvas: HTMLCanvasElement;
   time: HTMLElement;
+  chanInfo: HTMLElement;
   status: HTMLElement;
   win: HTMLSelectElement;
   dc: HTMLInputElement;
   events: HTMLInputElement;
+  hscroll: HTMLInputElement;
+  vscroll: HTMLInputElement;
   groupSel: HTMLSelectElement | null;
   on(action: string, fn: () => void): void;
+}
+
+function navBtn(action: string, label: string, title: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "eegv__btn";
+  b.dataset.act = action;
+  b.textContent = label;
+  b.title = title;
+  return b;
 }
 
 function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventType[]): ViewerUi {
@@ -250,6 +353,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   root.tabIndex = 0;
 
   const bar = el("div", "eegv__toolbar");
+
   let groupSel: HTMLSelectElement | null = null;
   if (store.groups.length > 1) {
     groupSel = document.createElement("select");
@@ -260,41 +364,62 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
       o.textContent = g.name;
       groupSel?.append(o);
     });
-    bar.append(groupSel);
+    bar.append(grouped("Group", groupSel));
   }
 
-  const navBtn = (action: string, label: string, title: string) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "eegv__btn";
-    b.dataset.act = action;
-    b.textContent = label;
-    b.title = title;
-    return b;
-  };
-  bar.append(navBtn("page-back", "«", "Page back"), navBtn("step-back", "‹", "Step back"));
-  const time = el("span", "eegv__time");
-  bar.append(
-    time,
-    navBtn("step-fwd", "›", "Step forward"),
-    navBtn("page-fwd", "»", "Page forward"),
-  );
-
-  const win = labeledSelect(
-    "Window",
+  // Time group.
+  const time = el("span", "eegv__readout");
+  const win = compactSelect(
     WINDOW_CHOICES.map((s) => [String(s), `${s} s`]),
     "10",
   );
-  bar.append(win.wrap);
+  bar.append(
+    grouped(
+      "Time",
+      navBtn("page-back", "«", "Page back"),
+      navBtn("step-back", "‹", "Step back"),
+      time,
+      navBtn("step-fwd", "›", "Step forward"),
+      navBtn("page-fwd", "»", "Page forward"),
+      win,
+    ),
+  );
 
-  bar.append(navBtn("gain-down", "−", "Scale down"), navBtn("gain-up", "+", "Scale up"));
+  // Amplitude group.
+  bar.append(
+    grouped("Scale", navBtn("gain-down", "−", "Scale down (less µV/div)"), navBtn("gain-up", "+", "Scale up")),
+  );
 
+  // Channel-zoom group (magnifier).
+  const chanInfo = el("span", "eegv__readout");
+  bar.append(
+    grouped(
+      "Channels",
+      navBtn("chan-zoom-out", magnifierGlyph("-"), "Show more channels"),
+      chanInfo,
+      navBtn("chan-zoom-in", magnifierGlyph("+"), "Zoom into fewer channels"),
+    ),
+  );
+
+  // Display toggles.
   const dc = labeledCheck("DC", true);
   const events = labeledCheck("Events", true);
-  bar.append(dc.wrap, events.wrap);
+  bar.append(grouped("Display", dc.wrap, events.wrap));
 
+  // Scope: canvas + (conditional) vertical channel scrollbar.
+  const plot = el("div", "eegv__plot");
   const canvas = document.createElement("canvas");
   canvas.className = "eegv__canvas";
+  const vscroll = document.createElement("input");
+  vscroll.type = "range";
+  vscroll.className = "eegv__vscroll";
+  vscroll.title = "Scroll channels";
+  plot.append(canvas, vscroll);
+
+  const hscroll = document.createElement("input");
+  hscroll.type = "range";
+  hscroll.className = "eegv__hscroll";
+  hscroll.title = "Scrub time";
 
   const legend = el("div", "eegv__legend");
   for (const t of eventTypes.slice(0, 16)) {
@@ -306,22 +431,24 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   }
 
   const status = el("div", "eegv__status");
-  root.append(bar, canvas, legend, status);
+  root.append(bar, plot, hscroll, legend, status);
   slot.append(root);
 
   return {
     root,
+    plot,
     canvas,
     time,
+    chanInfo,
     status,
-    win: win.select,
+    win,
     dc: dc.input,
     events: events.input,
+    hscroll,
+    vscroll,
     groupSel,
     on(action, fn) {
-      root
-        .querySelector<HTMLButtonElement>(`[data-act="${action}"]`)
-        ?.addEventListener("click", fn);
+      root.querySelector<HTMLButtonElement>(`[data-act="${action}"]`)?.addEventListener("click", fn);
     },
   };
 }
@@ -340,13 +467,23 @@ function el(tag: string, className: string): HTMLElement {
   return e;
 }
 
-function labeledSelect(
-  label: string,
-  options: Array<[string, string]>,
-  value: string,
-): { wrap: HTMLElement; select: HTMLSelectElement } {
-  const wrap = el("label", "eegv__field");
-  wrap.append(document.createTextNode(`${label} `));
+/** A labeled control group: a small-caps label above a row of controls. */
+function grouped(label: string, ...controls: Array<Node>): HTMLElement {
+  const g = el("div", "eegv__group");
+  const lab = el("span", "eegv__group-label");
+  lab.textContent = label;
+  const row = el("div", "eegv__group-row");
+  row.append(...controls);
+  g.append(lab, row);
+  return g;
+}
+
+/** A small inline magnifier glyph with a +/- center, as button content. */
+function magnifierGlyph(sign: "+" | "-"): string {
+  return sign === "+" ? "⊕" : "⊖";
+}
+
+function compactSelect(options: Array<[string, string]>, value: string): HTMLSelectElement {
   const select = document.createElement("select");
   select.className = "eegv__sel";
   for (const [v, t] of options) {
@@ -356,8 +493,7 @@ function labeledSelect(
     if (v === value) o.selected = true;
     select.append(o);
   }
-  wrap.append(select);
-  return { wrap, select };
+  return select;
 }
 
 function labeledCheck(
