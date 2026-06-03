@@ -618,6 +618,35 @@ const { datasetId, version } = Astro.props;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
   }
+  /* Topomap split-panel: appears to the right of the scope when toggled; the scope
+     canvas (flex:1) shrinks to make room. JS sizes the square topo canvas inside. */
+  .eegv__topo {
+    flex: 0 0 36%;
+    min-inline-size: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+  }
+  .eegv__topo-canvas {
+    display: block;
+    max-inline-size: 100%;
+  }
+  .eegv__topo-bar {
+    inline-size: 72%;
+    block-size: 7px;
+    border-radius: 3px;
+  }
+  .eegv__topo-info {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
   .eegv__vscroll {
     flex: 0 0 auto;
     inline-size: 12px;

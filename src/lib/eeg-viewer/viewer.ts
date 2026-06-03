@@ -16,6 +16,7 @@
 import { type Modality, channelColor, defaultScaling, formatClock, formatSi, removeBandDc, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
+import { VIRIDIS_CSS, type TopoChannel, projectPositions, renderTopomap } from "./topo";
 import {
   DEFAULT_RENDER,
   type FrameChannel,
@@ -103,6 +104,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+  // Topomap state. The projection is computed once (positions are fixed per
+  // recording); topoTime tracks the cursor (null -> window center).
+  let showTopo = false;
+  let topoTime: number | null = null;
+  const topoLayout =
+    Object.keys(store.electrodePositions).length >= 3
+      ? projectPositions(store.electrodePositions, store.electrodeCoordinateSystem)
+      : null;
 
   // Cursor readout state: the last rendered frame and layout geometry.
   let lastFrame: ViewerFrame | null = null;
@@ -344,6 +353,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     } else {
       drawOverview();
     }
+
+    if (showTopo) drawTopo();
   }
 
   // --- Overview minimap ----------------------------------------------------
@@ -435,6 +446,56 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     mctx.strokeRect(x1, 0, x2 - x1, cssH);
   }
 
+  // --- Topomap -------------------------------------------------------------
+  // Scalp field at the cursor time (window centre until the pointer moves). Bad
+  // (rejected) channels drop out of the interpolation, so hiding a channel removes
+  // its contribution. Reads from the already-loaded frame (no extra fetch).
+  function drawTopo(): void {
+    if (!showTopo || !topoLayout) return;
+    const canvas = ui.topoCanvas;
+    const availW = Math.max(80, ui.topo.clientWidth - 8);
+    const availH = Math.max(80, lastPlotTop + lastPlotHeight);
+    const cssSize = Math.min(availW, availH, 360);
+    const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
+    canvas.style.width = `${cssSize}px`;
+    canvas.style.height = `${cssSize}px`;
+    const pxW = Math.round(cssSize * dpr);
+    if (canvas.width !== pxW) {
+      canvas.width = pxW;
+      canvas.height = pxW;
+    }
+    const tctx = canvas.getContext("2d");
+    if (!tctx) return;
+    tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const frame = lastFrame;
+    if (!frame) {
+      tctx.clearRect(0, 0, cssSize, cssSize);
+      return;
+    }
+    const span = frame.windowEndS - frame.windowStartS;
+    const t = Math.max(
+      frame.windowStartS,
+      Math.min(frame.windowEndS, topoTime ?? frame.windowStartS + span / 2),
+    );
+    const col = Math.max(
+      0,
+      Math.min(frame.nCols - 1, Math.round(((t - frame.windowStartS) / Math.max(1e-6, span)) * (frame.nCols - 1))),
+    );
+    const channels: TopoChannel[] = [];
+    for (const ch of frame.channels) {
+      if (ch.dim) continue; // rejected -> no contribution
+      const pos = topoLayout.get(ch.label);
+      if (!pos) continue;
+      const value = ch.kind === "line" ? (ch.line[col] ?? 0) : ((ch.min[col] ?? 0) + (ch.max[col] ?? 0)) / 2;
+      channels.push({ label: ch.label, pos, value });
+    }
+    const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root));
+    ui.topoInfo.textContent =
+      channels.length >= 3
+        ? `${timeClock ? formatClock(t) : `${t.toFixed(2)} s`} · ±${formatSi(vmax, frame.unitBase)}`
+        : `${channels.length} located ch`;
+  }
+
   // --- controls ------------------------------------------------------------
   const timeStep = () => windowLengthS * 0.2;
   const scroll = (dt: number) => {
@@ -489,6 +550,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   ui.hideBadCheck.addEventListener("change", () => {
     hideBad = ui.hideBadCheck.checked;
     render();
+  });
+  ui.topoCheck.addEventListener("change", () => {
+    showTopo = ui.topoCheck.checked && !!topoLayout;
+    ui.topo.style.display = showTopo ? "flex" : "none";
+    render(); // re-sizes the scope (the topo panel takes width); drawTopo runs in render
   });
 
   // --- Settings (gear) popover --------------------------------------------
@@ -654,6 +720,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const timeStr = timeClock ? formatClock(tAtX) : `${tAtX.toFixed(2)} s`;
     const base = chanLabel ? `${chanLabel} · ${timeStr} · ${valueStr}` : timeStr;
     ui.cursor.textContent = eventStr ? `${base} · ◆ ${eventStr}` : base;
+    if (showTopo) {
+      topoTime = tAtX;
+      drawTopo();
+    }
   });
 
   ui.canvas.addEventListener("mouseleave", () => {
@@ -786,6 +856,10 @@ interface ViewerUi {
   butterflyCheck: HTMLInputElement;
   clockCheck: HTMLInputElement;
   hideBadCheck: HTMLInputElement;
+  topoCheck: HTMLInputElement;
+  topo: HTMLElement;
+  topoCanvas: HTMLCanvasElement;
+  topoInfo: HTMLElement;
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
@@ -872,6 +946,11 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   const butterflyLc = labeledCheck("Butterfly", false);
   const clockLc = labeledCheck("Clock", false);
   const hideBadLc = labeledCheck("Hide bad", false);
+  const topoLc = labeledCheck("Topo", false);
+  if (Object.keys(store.electrodePositions).length < 3) {
+    topoLc.input.disabled = true;
+    topoLc.wrap.title = "no electrode positions in this recording";
+  }
 
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
@@ -885,7 +964,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   menu.style.display = "none";
   menu.append(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
-    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
+    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap, topoLc.wrap),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -926,7 +1005,17 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   vscroll.type = "range";
   vscroll.className = "eegv__vscroll";
   vscroll.title = "Scroll channels";
-  plot.append(canvas, vscroll, cursor);
+  // Topomap split-panel (right of the scope; hidden until toggled).
+  const topo = el("div", "eegv__topo");
+  topo.style.display = "none";
+  const topoCanvas = document.createElement("canvas");
+  topoCanvas.className = "eegv__topo-canvas";
+  topoCanvas.title = "Scalp topography at the cursor time";
+  const topoBar = el("div", "eegv__topo-bar"); // viridis colorbar
+  topoBar.style.background = `linear-gradient(to right, ${VIRIDIS_CSS})`;
+  const topoInfo = el("div", "eegv__topo-info");
+  topo.append(topoCanvas, topoBar, topoInfo);
+  plot.append(canvas, vscroll, topo, cursor);
 
   const hscroll = document.createElement("input");
   hscroll.type = "range";
@@ -971,6 +1060,10 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     butterflyCheck: butterflyLc.input,
     clockCheck: clockLc.input,
     hideBadCheck: hideBadLc.input,
+    topoCheck: topoLc.input,
+    topo,
+    topoCanvas,
+    topoInfo,
     hp,
     lp,
     notch,
