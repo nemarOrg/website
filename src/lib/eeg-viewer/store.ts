@@ -110,37 +110,47 @@ function parseChannels(raw: unknown): ChannelMeta[] {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * A fetch handler that retries transient gateway failures (a cold zarr.nemar.org
- * Worker / CDN edge hiccup returns 5xx briefly, as seen during a fresh backfill),
- * with exponential backoff. GETs carry no body, so reissuing the request is safe.
+ * A fetch handler that retries transient gateway failures, with capped
+ * exponential backoff + jitter. zarr.nemar.org (a Cloudflare Worker in front of
+ * S3) returns the odd 429/5xx under a burst of concurrent chunk reads or a cold
+ * edge; each request retries independently so the bursts spread out and the
+ * signal still loads. GETs carry no body, so reissuing the request is safe.
  */
-function retryingFetch(retries = 3, baseMs = 200) {
+function retryingFetch(retries = 6, baseMs = 250) {
+  const delay = (attempt: number) =>
+    sleep(Math.min(baseMs * 2 ** attempt, 3000) + Math.floor(Math.random() * 200));
   return async (request: Request): Promise<Response> => {
     let lastErr: unknown;
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const res = await fetch(request);
-        if (res.status >= 500 && res.status < 600 && attempt < retries) {
-          await sleep(baseMs * 2 ** attempt);
+        const transient = res.status === 429 || (res.status >= 500 && res.status < 600);
+        if (transient && attempt < retries) {
+          await delay(attempt);
           continue;
         }
         return res;
       } catch (err) {
         lastErr = err;
         if (attempt >= retries) throw err;
-        await sleep(baseMs * 2 ** attempt);
+        await delay(attempt);
       }
     }
     throw lastErr;
   };
 }
 
-/** A FetchStore that retries transient 5xx for resilient streaming. */
+/** A FetchStore that retries transient 5xx/429 for resilient streaming. */
 export function makeStore(url: string): zarr.FetchStore {
   return new zarr.FetchStore(url, { fetch: retryingFetch() });
 }
 
-/** Open a recording store and read all group + event metadata (no signal yet). */
+/**
+ * Open a recording store and read all group + event metadata (no signal yet).
+ * The per-group reads (attrs, level-0, view-level probes) and the events read run
+ * in parallel so first paint of the toolbar is not gated on a chain of sequential
+ * round trips.
+ */
 export async function openRecording(url: string): Promise<RecordingStore> {
   const store = makeStore(url);
   const root = await zarr.open(store, { kind: "group" });
@@ -148,54 +158,57 @@ export async function openRecording(url: string): Promise<RecordingStore> {
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const groupNames = Array.isArray(attrs.channel_groups) ? (attrs.channel_groups as string[]) : [];
 
-  const groups: GroupHandle[] = [];
-  for (const name of groupNames) {
-    const grp = await zarr.open(root.resolve(name), { kind: "group" });
-    const ga = grp.attrs as Record<string, unknown>;
-    const channels = parseChannels(ga.channels);
-    const level0 = (await zarr.open(root.resolve(`${name}/0`), {
-      kind: "array",
-    })) as zarr.Array<"int16", zarr.FetchStore>;
-    const nSamples = num(ga.n_samples, level0.shape[level0.shape.length - 1]);
-    const rate = num(ga.rate, 250);
-
-    const viewLevels = await discoverViewLevels(root, name);
-    const channelsByRow = [...channels].sort((a, b) => a.rowIndex - b.rowIndex);
-
-    groups.push({
-      name,
-      modality: typeof ga.modality === "string" ? ga.modality : channels[0]?.modality || "MISC",
-      rate,
-      originalRate: num(ga.original_rate, rate),
-      nChannels: num(ga.n_channels, channels.length),
-      nSamples,
-      durationS: nSamples / rate,
-      channels,
-      channelsByRow,
-      level0,
-      viewLevels,
-    });
-  }
-
-  const events = await readEvents(root);
+  const [groups, events] = await Promise.all([
+    Promise.all(groupNames.map((name) => openGroup(root, name))),
+    readEvents(root),
+  ]);
   return { url, format, groups, events };
 }
 
-/** Probe view/1, view/2, ... until one is missing. */
+async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
+  const [grp, level0, viewLevels] = await Promise.all([
+    zarr.open(root.resolve(name), { kind: "group" }),
+    zarr.open(root.resolve(`${name}/0`), { kind: "array" }) as Promise<
+      zarr.Array<"int16", zarr.FetchStore>
+    >,
+    discoverViewLevels(root, name),
+  ]);
+  const ga = grp.attrs as Record<string, unknown>;
+  const channels = parseChannels(ga.channels);
+  const nSamples = num(ga.n_samples, level0.shape[level0.shape.length - 1]);
+  const rate = num(ga.rate, 250);
+  return {
+    name,
+    modality: typeof ga.modality === "string" ? ga.modality : channels[0]?.modality || "MISC",
+    rate,
+    originalRate: num(ga.original_rate, rate),
+    nChannels: num(ga.n_channels, channels.length),
+    nSamples,
+    durationS: nSamples / rate,
+    channels,
+    channelsByRow: [...channels].sort((a, b) => a.rowIndex - b.rowIndex),
+    level0,
+    viewLevels,
+  };
+}
+
+/** Probe view/1..N in parallel and keep the contiguous run from view/1. */
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
 ): Promise<ViewLevel[]> {
-  const levels: ViewLevel[] = [];
-  for (let level = 1; level <= 16; level++) {
-    try {
+  const probes = await Promise.allSettled(
+    Array.from({ length: 12 }, (_, i) => i + 1).map(async (level) => {
       const array = (await zarr.open(root.resolve(`${group}/view/${level}`), {
         kind: "array",
       })) as zarr.Array<"int16", zarr.FetchStore>;
-      levels.push({ level, nTime: array.shape[array.shape.length - 1], array });
-    } catch {
-      break;
-    }
+      return { level, nTime: array.shape[array.shape.length - 1], array };
+    }),
+  );
+  const levels: ViewLevel[] = [];
+  for (const p of probes) {
+    if (p.status !== "fulfilled") break; // contiguous from view/1
+    levels.push(p.value);
   }
   return levels;
 }

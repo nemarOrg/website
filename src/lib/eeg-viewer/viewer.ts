@@ -15,7 +15,13 @@
  */
 import { type Modality, channelColor, defaultScaling, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
-import { DEFAULT_RENDER, type FrameChannel, type ViewerFrame, renderFrame } from "./render";
+import {
+  DEFAULT_RENDER,
+  type FrameChannel,
+  type ViewerFrame,
+  renderFrame,
+  renderMessage,
+} from "./render";
 import {
   type GroupHandle,
   type RecordingStore,
@@ -35,8 +41,9 @@ export interface ViewerOptions {
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
 const ELECTRIC = new Set<Modality>(["EEG", "EMG", "IEEG", "MISC"]);
-/** Fixed scope height (CSS px); never varies with channel count. */
-const PLOT_HEIGHT = 520;
+/** Scope height cap (CSS px). The height fits the embed (tracks width, capped by
+ * this and the viewport) but never varies with channel count. */
+const MAX_PLOT_HEIGHT = 540;
 const MIN_VISIBLE_CHANNELS = 4;
 
 export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Promise<void> {
@@ -67,6 +74,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let chanStart = 0;
   let chanCount = store.groups[0].nChannels; // default: whole montage (overview)
   let renderSeq = 0;
+  let firstPaint = true;
 
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes);
@@ -91,12 +99,17 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   function sizeCanvas(): { w: number; h: number } {
     const rectW = ui.canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
     const cssW = Math.max(320, Math.round(rectW) || 800);
+    // Fit the area the preview opens into: height tracks width (a ~2:1 scope) and
+    // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
+    // It does NOT vary with channel count (stable embed boundary).
+    const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
+    const cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    ui.canvas.style.height = `${PLOT_HEIGHT}px`;
+    ui.canvas.style.height = `${cssH}px`;
     ui.canvas.width = Math.round(cssW * dpr);
-    ui.canvas.height = Math.round(PLOT_HEIGHT * dpr);
+    ui.canvas.height = Math.round(cssH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { w: cssW, h: PLOT_HEIGHT };
+    return { w: cssW, h: cssH };
   }
 
   function syncControls(): void {
@@ -128,14 +141,21 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     ui.chanInfo.textContent =
       visEnd - chanStart >= g.nChannels ? `all ${g.nChannels}` : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
 
+    // Paint a "loading" state immediately so the scope never sits blank while a
+    // read (or its retries) is in flight; the first paint also covers the gap
+    // before any frame exists. Subsequent scrolls keep the prior frame.
+    if (firstPaint) renderMessage(ctx, w, h, themeColors(ui.root), "Signal loading…");
+    ui.status.textContent = "Signal loading…";
+
     let win: WindowData;
     try {
       win = await readWindow(g, start, end, plotWidth, chanStart, chanCount);
     } catch (err) {
-      if (seq === renderSeq) ui.status.textContent = `read error: ${(err as Error).message}`;
+      if (seq === renderSeq) ui.status.textContent = `signal unavailable: ${(err as Error).message}`;
       return;
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
+    firstPaint = false;
 
     const visible = g.channelsByRow.slice(chanStart, visEnd);
     const channels: FrameChannel[] = visible.map((ch, i) => {

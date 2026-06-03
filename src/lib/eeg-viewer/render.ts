@@ -75,6 +75,27 @@ export interface TraceSlot {
   halfHeight: number;
 }
 
+/** Paint a centered status message (e.g. "Signal loading…") on the scope. */
+export function renderMessage(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  colors: { background: string; foreground: string },
+  text: string,
+): void {
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = colors.background;
+  ctx.fillRect(0, 0, width, height);
+  ctx.save();
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = colors.foreground;
+  ctx.font = "13px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, width / 2, height / 2);
+  ctx.restore();
+}
+
 /** Per-channel vertical slot geometry (exported for unit tests). */
 export function traceLayout(
   channelCount: number,
