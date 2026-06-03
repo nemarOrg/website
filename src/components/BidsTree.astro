@@ -511,6 +511,22 @@ const { datasetId, version } = Astro.props;
   .eegv__btn:active {
     transform: translateY(0.5px);
   }
+  .eegv__btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Active state for toggle buttons (e.g. the topomap toggle). */
+  .eegv__btn--active {
+    color: var(--eegv-accent);
+    border-color: var(--eegv-accent);
+    background: color-mix(in srgb, var(--eegv-accent) 10%, var(--color-bg));
+  }
+  .eegv__topo-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-block: 2px;
+  }
   .eegv__field {
     display: inline-flex;
     align-items: center;
@@ -621,7 +637,7 @@ const { datasetId, version } = Astro.props;
   /* Topomap split-panel: appears to the right of the scope when toggled; the scope
      canvas (flex:1) shrinks to make room. JS sizes the square topo canvas inside. */
   .eegv__topo {
-    flex: 0 0 36%;
+    flex: 0 0 33.333%;
     min-inline-size: 0;
     display: none;
     flex-direction: column;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Vec3, alsToRas, evalTPS, fitSphere, projectPositions, projectUnit, solveTPS, viridisColor } from "./topo";
+import { ELECTRODE_RAD, type Vec3, alsToRas, evalTPS, fitSphere, projectPositions, projectUnit, solveTPS, viridisColor } from "./topo";
 
 describe("alsToRas", () => {
   it("rotates EEGLAB ALS into RAS+ ((x,y,z) -> (-y,x,z))", () => {
@@ -69,12 +69,12 @@ describe("projectPositions (EEGLAB cardinal electrodes)", () => {
     expect(p?.[0]).toBeCloseTo(ex, 2);
     expect(p?.[1]).toBeCloseTo(ey, 2);
   };
-  it("maps vertex/nose/inion/ears to the expected disc positions", () => {
+  it("maps vertex/nose/inion/ears to the disc, outer electrodes scaled to ELECTRODE_RAD", () => {
     near("Cz", 0, 0);
-    near("Fpz", 0, -1); // anterior -> top
-    near("Oz", 0, 1); // posterior -> bottom
-    near("T7", -1, 0); // left -> left
-    near("T8", 1, 0); // right -> right
+    near("Fpz", 0, -ELECTRODE_RAD); // anterior -> top, just inside the rim
+    near("Oz", 0, ELECTRODE_RAD); // posterior -> bottom
+    near("T7", -ELECTRODE_RAD, 0); // left -> left
+    near("T8", ELECTRODE_RAD, 0); // right -> right
   });
 });
 

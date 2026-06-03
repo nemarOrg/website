@@ -70,29 +70,40 @@ export function fitSphere(pts: Vec3[]): { center: Vec3; radius: number } {
   return { center: [a, b, c], radius: Math.sqrt(Math.max(1e-9, d + a * a + b * b + c * c)) };
 }
 
-/** Azimuthal-equidistant projection of a unit-sphere point (RAS+) to the [-1,1]
- *  disc; nose (+uy) at the top, +x to the right. Below-equator points clamp to r=1. */
+/** Outermost electrode is scaled to this radius, leaving a margin to the head edge
+ *  (r=1) for the zero-boundary fade. So every electrode sits inside the scalp and
+ *  is covered by the interpolated field, rather than clamped onto the rim. */
+export const ELECTRODE_RAD = 0.9;
+
+/** Azimuthal-equidistant projection of a unit-sphere point (RAS+) to the disc; nose
+ *  (+uy) at the top, +x to the right. NOT clamped here -- below-equator points get
+ *  r>1 and the whole cap is rescaled in projectPositions so they stay inside. */
 export function projectUnit(ux: number, uy: number, uz: number): Pt2 {
   const uzC = Math.max(-1, Math.min(1, uz));
   const theta = Math.acos(uzC);
   const az = Math.atan2(ux, uy);
-  const r = Math.min(1, theta / (Math.PI / 2));
+  const r = theta / (Math.PI / 2);
   return [r * Math.sin(az), -r * Math.cos(az)];
 }
 
-/** Project raw electrode positions to 2D disc coords keyed by label. */
+/** Project raw electrode positions to 2D disc coords keyed by label, scaled so the
+ *  outermost electrode lands at ELECTRODE_RAD (inside the head circle). */
 export function projectPositions(positions: Record<string, Vec3>, system: string): Map<string, Pt2> {
   const labels = Object.keys(positions);
   const ras = labels.map((l) => alsToRas(system, positions[l]));
   const { center } = fitSphere(ras);
-  const out = new Map<string, Pt2>();
-  labels.forEach((l, i) => {
+  const raw: Pt2[] = labels.map((_, i) => {
     const dx = ras[i][0] - center[0];
     const dy = ras[i][1] - center[1];
     const dz = ras[i][2] - center[2];
     const dist = Math.hypot(dx, dy, dz) || 1;
-    out.set(l, projectUnit(dx / dist, dy / dist, dz / dist));
+    return projectUnit(dx / dist, dy / dist, dz / dist);
   });
+  let maxR = 0;
+  for (const [x, y] of raw) maxR = Math.max(maxR, Math.hypot(x, y));
+  const scale = maxR > 0 ? ELECTRODE_RAD / maxR : 1;
+  const out = new Map<string, Pt2>();
+  labels.forEach((l, i) => out.set(l, [raw[i][0] * scale, raw[i][1] * scale]));
   return out;
 }
 
@@ -224,12 +235,23 @@ export function renderTopomap(
     return { vmax: 0 };
   }
 
+  let vmax = 0;
+  for (const c of channels) vmax = Math.max(vmax, Math.abs(c.value));
+  if (vmax <= 0) vmax = 1;
+
+  // Anchor a ring of zero-value nodes at the head edge so the spline interpolates
+  // the interior and fades to neutral at the rim, rather than extrapolating wildly
+  // past the outer electrodes (which produced edge blobs). Standard topoplot trick.
   const px = channels.map((c) => c.pos[0]);
   const py = channels.map((c) => c.pos[1]);
   const vals = channels.map((c) => c.value);
-  let vmax = 0;
-  for (const v of vals) vmax = Math.max(vmax, Math.abs(v));
-  if (vmax <= 0) vmax = 1;
+  const BOUNDARY_N = 24;
+  for (let k = 0; k < BOUNDARY_N; k++) {
+    const a = (2 * Math.PI * k) / BOUNDARY_N;
+    px.push(Math.cos(a));
+    py.push(Math.sin(a));
+    vals.push(0);
+  }
 
   const model = solveTPS(px, py, vals);
   if (model) {

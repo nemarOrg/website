@@ -108,8 +108,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   // recording); topoTime tracks the cursor (null -> window center).
   let showTopo = false;
   let topoTime: number | null = null;
+  // Only build the scalp layout for EEG/MEG with positions; non-scalp modalities
+  // (iEEG/EMG/fNIRS/unknown) get no topomap so we don't render a wrong head map.
   const topoLayout =
-    Object.keys(store.electrodePositions).length >= 3
+    isScalpModality(store.groups[0]?.modality) && Object.keys(store.electrodePositions).length >= 3
       ? projectPositions(store.electrodePositions, store.electrodeCoordinateSystem)
       : null;
 
@@ -551,9 +553,12 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     hideBad = ui.hideBadCheck.checked;
     render();
   });
-  ui.topoCheck.addEventListener("change", () => {
-    showTopo = ui.topoCheck.checked && !!topoLayout;
+  ui.topoBtn.addEventListener("click", () => {
+    if (ui.topoBtn.disabled) return;
+    showTopo = !showTopo && !!topoLayout;
     ui.topo.style.display = showTopo ? "flex" : "none";
+    ui.topoBtn.setAttribute("aria-pressed", String(showTopo));
+    ui.topoBtn.classList.toggle("eegv__btn--active", showTopo);
     render(); // re-sizes the scope (the topo panel takes width); drawTopo runs in render
   });
 
@@ -856,7 +861,7 @@ interface ViewerUi {
   butterflyCheck: HTMLInputElement;
   clockCheck: HTMLInputElement;
   hideBadCheck: HTMLInputElement;
-  topoCheck: HTMLInputElement;
+  topoBtn: HTMLButtonElement;
   topo: HTMLElement;
   topoCanvas: HTMLCanvasElement;
   topoInfo: HTMLElement;
@@ -935,6 +940,24 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     ),
   );
 
+  // Topomap toggle -- a primary view control (right of Channels), not a set-once
+  // gear setting. Disabled when the recording has no embedded electrode positions.
+  const topoBtn = document.createElement("button");
+  topoBtn.type = "button";
+  topoBtn.className = "eegv__btn eegv__topo-btn";
+  topoBtn.title = "Scalp topomap (split panel)";
+  topoBtn.setAttribute("aria-pressed", "false");
+  topoBtn.innerHTML = topoGlyph();
+  // Scalp topomap is only meaningful for EEG/MEG. iEEG (intracranial), EMG, fNIRS,
+  // or unrecognized modalities get the toggle disabled, so we never draw a
+  // misleading scalp map for non-scalp electrodes.
+  const nPos = Object.keys(store.electrodePositions).length;
+  if (!(isScalpModality(store.groups[0]?.modality) && nPos >= 3)) {
+    topoBtn.disabled = true;
+    topoBtn.title = nPos < 3 ? "no electrode positions in this recording" : "scalp topomap is EEG/MEG only";
+  }
+  bar.append(grouped("Topo", topoBtn));
+
   // Set-once controls (zero-phase filters + display toggles) live behind a gear
   // popover so the primary bar stays uncluttered -- these are typically configured
   // once per dataset and forgotten.
@@ -946,11 +969,6 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   const butterflyLc = labeledCheck("Butterfly", false);
   const clockLc = labeledCheck("Clock", false);
   const hideBadLc = labeledCheck("Hide bad", false);
-  const topoLc = labeledCheck("Topo", false);
-  if (Object.keys(store.electrodePositions).length < 3) {
-    topoLc.input.disabled = true;
-    topoLc.wrap.title = "no electrode positions in this recording";
-  }
 
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
@@ -964,7 +982,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   menu.style.display = "none";
   menu.append(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
-    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap, topoLc.wrap),
+    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -1060,7 +1078,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     butterflyCheck: butterflyLc.input,
     clockCheck: clockLc.input,
     hideBadCheck: hideBadLc.input,
-    topoCheck: topoLc.input,
+    topoBtn,
     topo,
     topoCanvas,
     topoInfo,
@@ -1112,6 +1130,18 @@ function magnifierGlyph(sign: "+" | "-"): string {
 /** Inline gear (settings) icon for the popover toggle. */
 function gearGlyph(): string {
   return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+}
+
+/** Scalp modalities a head topomap is valid for. iEEG (intracranial), EMG, fNIRS,
+ *  and unrecognized modalities are excluded so we never draw a misleading head map. */
+const SCALP_MODALITIES = new Set(["EEG", "MEG"]);
+function isScalpModality(modality: string | undefined): boolean {
+  return SCALP_MODALITIES.has((modality || "").toUpperCase());
+}
+
+/** Inline topomap icon: a head circle with a nose notch at the top. */
+function topoGlyph(): string {
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="8"/><path d="M9.2 6 L12 2.8 L14.8 6"/></svg>';
 }
 
 /** Default Notch select value: the recording's PowerLineFrequency when it is a
