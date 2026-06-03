@@ -652,10 +652,23 @@ const { datasetId, version } = Astro.props;
     display: block;
     max-inline-size: 100%;
   }
+  .eegv__topo-scale {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    inline-size: 86%;
+  }
   .eegv__topo-bar {
-    inline-size: 72%;
+    flex: 1 1 auto;
     block-size: 7px;
     border-radius: 3px;
+  }
+  .eegv__topo-end {
+    flex: 0 0 auto;
+    font-size: 9px;
+    color: var(--color-fg-muted);
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .eegv__topo-info {
     font-size: var(--fs-xs);

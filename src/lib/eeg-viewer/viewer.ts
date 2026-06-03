@@ -492,10 +492,16 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       channels.push({ label: ch.label, pos, value });
     }
     const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root));
-    ui.topoInfo.textContent =
-      channels.length >= 3
-        ? `${timeClock ? formatClock(t) : `${t.toFixed(2)} s`} · ±${formatSi(vmax, frame.unitBase)}`
-        : `${channels.length} located ch`;
+    if (channels.length >= 3) {
+      const rng = formatSi(vmax, frame.unitBase);
+      ui.topoMin.textContent = `−${rng}`;
+      ui.topoMax.textContent = `+${rng}`;
+      ui.topoInfo.textContent = timeClock ? formatClock(t) : `${t.toFixed(2)} s`;
+    } else {
+      ui.topoMin.textContent = "";
+      ui.topoMax.textContent = "";
+      ui.topoInfo.textContent = `${channels.length} located ch`;
+    }
   }
 
   // --- controls ------------------------------------------------------------
@@ -865,6 +871,8 @@ interface ViewerUi {
   topo: HTMLElement;
   topoCanvas: HTMLCanvasElement;
   topoInfo: HTMLElement;
+  topoMin: HTMLElement;
+  topoMax: HTMLElement;
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
@@ -1031,8 +1039,12 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   topoCanvas.title = "Scalp topography at the cursor time";
   const topoBar = el("div", "eegv__topo-bar"); // viridis colorbar
   topoBar.style.background = `linear-gradient(to right, ${VIRIDIS_CSS})`;
+  const topoMin = el("span", "eegv__topo-end");
+  const topoMax = el("span", "eegv__topo-end");
+  const topoScale = el("div", "eegv__topo-scale");
+  topoScale.append(topoMin, topoBar, topoMax);
   const topoInfo = el("div", "eegv__topo-info");
-  topo.append(topoCanvas, topoBar, topoInfo);
+  topo.append(topoCanvas, topoScale, topoInfo);
   plot.append(canvas, vscroll, topo, cursor);
 
   const hscroll = document.createElement("input");
@@ -1082,6 +1094,8 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     topo,
     topoCanvas,
     topoInfo,
+    topoMin,
+    topoMax,
     hp,
     lp,
     notch,

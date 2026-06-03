@@ -70,14 +70,14 @@ export function fitSphere(pts: Vec3[]): { center: Vec3; radius: number } {
   return { center: [a, b, c], radius: Math.sqrt(Math.max(1e-9, d + a * a + b * b + c * c)) };
 }
 
-/** Outermost electrode is scaled to this radius, leaving a margin to the head edge
- *  (r=1) for the zero-boundary fade. So every electrode sits inside the scalp and
- *  is covered by the interpolated field, rather than clamped onto the rim. */
-export const ELECTRODE_RAD = 0.9;
+/** Head-circle radius in disc units. EEGLAB draws the head at rmax=0.5 with
+ *  arc_length 0.5 at the equator; we normalize the equator to 1.0, so the head sits
+ *  at 1.0 and projected r = 2 * EEGLAB arc_length. */
+export const HEAD_RAD = 1.0;
 
 /** Azimuthal-equidistant projection of a unit-sphere point (RAS+) to the disc; nose
- *  (+uy) at the top, +x to the right. NOT clamped here -- below-equator points get
- *  r>1 and the whole cap is rescaled in projectPositions so they stay inside. */
+ *  (+uy) at the top, +x to the right. NOT clamped -- below-equator points get r>1
+ *  (EEGLAB's "skirt") and the whole cap is squeezed in projectPositions. */
 export function projectUnit(ux: number, uy: number, uz: number): Pt2 {
   const uzC = Math.max(-1, Math.min(1, uz));
   const theta = Math.acos(uzC);
@@ -86,8 +86,8 @@ export function projectUnit(ux: number, uy: number, uz: number): Pt2 {
   return [r * Math.sin(az), -r * Math.cos(az)];
 }
 
-/** Project raw electrode positions to 2D disc coords keyed by label, scaled so the
- *  outermost electrode lands at ELECTRODE_RAD (inside the head circle). */
+/** Project raw electrode positions to 2D disc coords keyed by label, applying
+ *  EEGLAB's squeeze so the outermost electrode lands just inside the head rim. */
 export function projectPositions(positions: Record<string, Vec3>, system: string): Map<string, Pt2> {
   const labels = Object.keys(positions);
   const ras = labels.map((l) => alsToRas(system, positions[l]));
@@ -99,11 +99,15 @@ export function projectPositions(positions: Record<string, Vec3>, system: string
     const dist = Math.hypot(dx, dy, dz) || 1;
     return projectUnit(dx / dist, dy / dist, dz / dist);
   });
+  // EEGLAB squeeze (topoplot.m): squeezefac = rmax / max(max(Rd)*1.02, rmax). If all
+  // electrodes sit within the equator there is no squeeze; below-equator ("skirt")
+  // electrodes pull the whole cap in so the outermost lands at ~rmax (the rim).
   let maxR = 0;
   for (const [x, y] of raw) maxR = Math.max(maxR, Math.hypot(x, y));
-  const scale = maxR > 0 ? ELECTRODE_RAD / maxR : 1;
+  const plotrad = Math.max(maxR * 1.02, HEAD_RAD);
+  const squeeze = plotrad > 0 ? HEAD_RAD / plotrad : 1;
   const out = new Map<string, Pt2>();
-  labels.forEach((l, i) => out.set(l, [raw[i][0] * scale, raw[i][1] * scale]));
+  labels.forEach((l, i) => out.set(l, [raw[i][0] * squeeze, raw[i][1] * squeeze]));
   return out;
 }
 
@@ -239,19 +243,13 @@ export function renderTopomap(
   for (const c of channels) vmax = Math.max(vmax, Math.abs(c.value));
   if (vmax <= 0) vmax = 1;
 
-  // Anchor a ring of zero-value nodes at the head edge so the spline interpolates
-  // the interior and fades to neutral at the rim, rather than extrapolating wildly
-  // past the outer electrodes (which produced edge blobs). Standard topoplot trick.
+  // EEGLAB-style: interpolate the electrode values over the whole head disk with the
+  // biharmonic spline (== griddata 'v4'); the field fills to the rim and is masked to
+  // the head circle below. No zero-boundary -- the cap was squeezed so the outermost
+  // electrode sits at the rim, leaving only a hair of margin to extrapolate.
   const px = channels.map((c) => c.pos[0]);
   const py = channels.map((c) => c.pos[1]);
   const vals = channels.map((c) => c.value);
-  const BOUNDARY_N = 24;
-  for (let k = 0; k < BOUNDARY_N; k++) {
-    const a = (2 * Math.PI * k) / BOUNDARY_N;
-    px.push(Math.cos(a));
-    py.push(Math.sin(a));
-    vals.push(0);
-  }
 
   const model = solveTPS(px, py, vals);
   if (model) {
@@ -309,12 +307,17 @@ export function renderTopomap(
     ctx.stroke();
   }
 
-  // Electrode dots.
-  ctx.fillStyle = colors.foreground;
+  // Electrode dots with a thin background-colored outline so they read against any
+  // field color (including bright yellow).
+  const dotR = Math.max(1.4, rPx * 0.016);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = colors.background;
   for (const ch of channels) {
     ctx.beginPath();
-    ctx.arc(X(ch.pos[0]), Y(ch.pos[1]), Math.max(1.2, rPx * 0.018), 0, Math.PI * 2);
+    ctx.arc(X(ch.pos[0]), Y(ch.pos[1]), dotR, 0, Math.PI * 2);
+    ctx.fillStyle = colors.foreground;
     ctx.fill();
+    ctx.stroke();
   }
   return { vmax };
 }
