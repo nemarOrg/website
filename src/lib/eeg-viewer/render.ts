@@ -6,8 +6,9 @@
  *
  * The renderer is intentionally dumb: no fetching, no DSP. It maps physical
  * values to pixels with the caller's gain (`physPerDiv`) and draws. A view-level
- * channel carries a min/max envelope (drawn as a filled band); a level-0 channel
- * carries a single line. Pure drawing keeps it cheap to re-render on pan/zoom and
+ * channel carries a min/max envelope (drawn as a stroked min/max waveform, not a
+ * filled band); a level-0 channel carries a single line. Pure drawing keeps it
+ * cheap to re-render on pan/zoom and
  * testable layout math (see `traceLayout`).
  */
 
@@ -282,7 +283,7 @@ function drawScaleBar(
   plotHeight: number,
   pxPerPhys: number,
 ): void {
-  // A vertical bar one "div" tall (physPerDiv/g) anchored lower-right.
+  // A vertical bar one "div" tall (physPerDiv/g) anchored lower-left (just inside the gutter).
   const g = opts.gain > 0 ? opts.gain : 1;
   const physDiv = frame.physPerDiv / g;
   const barPx = physDiv * pxPerPhys;

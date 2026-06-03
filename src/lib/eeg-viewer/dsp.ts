@@ -110,7 +110,8 @@ export function channelColor(channelType: string | undefined): string {
 }
 
 /**
- * Pick the view-pyramid level whose envelope is closest to 1 sample/pixel for
+ * Pick the coarsest view-pyramid level whose visible sample count still covers
+ * the viewport (>= 1 sample/pixel) for
  * the visible window, so we transfer ~viewport-sized chunks regardless of how
  * long the recording is. `levelSamples[L]` is the number of time samples a level
  * holds for the FULL recording; we scale by the visible fraction.
@@ -175,7 +176,7 @@ const SI_PREFIXES: Array<[number, string]> = [
 
 /**
  * Format an SI amplitude with the natural metric prefix for its magnitude, e.g.
- * `formatSi(20e-6, "V") -> "20 µV"`, `formatSi(1e-12, "T") -> "1 pT"`. `base` is
+ * `formatSi(20e-6, "V") -> "20 µV"`, `formatSi(1e-12, "T") -> "1.0 pT"`. `base` is
  * the dimension symbol (V for electric, T for magnetic / MEG).
  */
 export function formatSi(value: number, base: "V" | "T"): string {

@@ -10,7 +10,8 @@ const DEFAULT_ZARR_BASE = "https://zarr.nemar.org";
 
 /**
  * Resolve the zarr serving host at call time. `PUBLIC_ZARR_BASE_URL` overrides
- * the default (set in `wrangler.toml` per env; .env for local dev). The viewer
+ * the default (set via `.env` for local dev or the Cloudflare env for prod
+ * overrides; not yet added to `wrangler.toml`). The viewer
  * is base-URL agnostic, so this can repoint to a different CDN or to direct S3
  * without touching reader code.
  */

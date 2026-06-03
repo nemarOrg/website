@@ -8,7 +8,7 @@
  *                             scale, offset, row_index, usable_for_inference}
  *   <group>/0                 [n_ch, n_time] int16, SHARDED + zstd (level-0)
  *   <group>/view/L            [2, n_ch, n_time_L] int16 min/max envelope (NOT sharded)
- *   events/{onset,duration,code}  + group attrs.label_map {code: description}
+ *   events/{onset,duration,code}  + the events group's attrs.label_map {code: description}
  *
  * Dequantize: physical = digital * scale + offset (per channel). The viewer reads
  * a window at the pyramid level closest to 1 sample/px, so transfer is bounded by
