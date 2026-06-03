@@ -11,6 +11,8 @@
  * testable layout math (see `traceLayout`).
  */
 
+import { formatSi } from "./dsp";
+
 export interface FrameChannel {
   label: string;
   color: string;
@@ -35,12 +37,10 @@ export interface ViewerFrame {
   windowStartS: number;
   windowEndS: number;
   events: FrameEvent[];
-  /** Physical value that spans half a channel slot at gain 1 (the scale-bar div). */
+  /** SI value (V or T) that spans half a channel slot at gain 1 (scale-bar div). */
   physPerDiv: number;
-  /** Display unit label, e.g. "µV". */
-  unit: string;
-  /** Multiply a physical value by this to get the display-unit number (V->µV = 1e6). */
-  unitScale: number;
+  /** Dimension of the data: "V" (EEG/EMG/iEEG) or "T" (MEG). */
+  unitBase: "V" | "T";
 }
 
 export interface RenderOptions {
@@ -76,7 +76,11 @@ export interface TraceSlot {
 }
 
 /** Per-channel vertical slot geometry (exported for unit tests). */
-export function traceLayout(channelCount: number, plotTop: number, plotHeight: number): TraceSlot[] {
+export function traceLayout(
+  channelCount: number,
+  plotTop: number,
+  plotHeight: number,
+): TraceSlot[] {
   const slots: TraceSlot[] = [];
   if (channelCount <= 0) return slots;
   const slotHeight = plotHeight / channelCount;
@@ -283,8 +287,7 @@ function drawScaleBar(
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
-  const label = `${formatAmplitude(physDiv * frame.unitScale)} ${frame.unit}`;
-  ctx.fillText(label, x + 8, (yTop + yBottom) / 2);
+  ctx.fillText(formatSi(physDiv, frame.unitBase), x + 8, (yTop + yBottom) / 2);
 }
 
 /** A "nice" axis tick step (s) for a given visible span. Exported for tests. */
@@ -302,11 +305,4 @@ function formatAxisTime(t: number): string {
   if (Math.abs(t) >= 100) return t.toFixed(0);
   if (Math.abs(t) >= 10) return t.toFixed(1);
   return t.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-}
-
-function formatAmplitude(v: number): string {
-  const a = Math.abs(v);
-  if (a >= 100) return v.toFixed(0);
-  if (a >= 1) return v.toFixed(a >= 10 ? 0 : 1);
-  return v.toPrecision(2);
 }

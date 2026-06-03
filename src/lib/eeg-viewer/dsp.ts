@@ -117,6 +117,60 @@ export function pickViewLevel(
   return 0;
 }
 
+/**
+ * Factor converting a stored physical unit to SI base (Volts or Tesla), so the
+ * whole viewer works in SI and per-modality scalings/scale-bar are unit-correct
+ * regardless of whether a store quantized in µV, mV, fT, ... Unknown units pass
+ * through as 1 (already SI / dimensionless).
+ */
+const UNIT_TO_SI: Record<string, number> = {
+  v: 1,
+  mv: 1e-3,
+  uv: 1e-6,
+  µv: 1e-6,
+  nv: 1e-9,
+  t: 1,
+  mt: 1e-3,
+  ut: 1e-6,
+  µt: 1e-6,
+  nt: 1e-9,
+  pt: 1e-12,
+  ft: 1e-15,
+};
+
+export function unitToSI(unit: string | undefined): number {
+  if (!unit) return 1;
+  return UNIT_TO_SI[unit.trim().toLowerCase()] ?? 1;
+}
+
+const SI_PREFIXES: Array<[number, string]> = [
+  [1, ""],
+  [1e-3, "m"],
+  [1e-6, "µ"],
+  [1e-9, "n"],
+  [1e-12, "p"],
+  [1e-15, "f"],
+];
+
+/**
+ * Format an SI amplitude with the natural metric prefix for its magnitude, e.g.
+ * `formatSi(20e-6, "V") -> "20 µV"`, `formatSi(1e-12, "T") -> "1 pT"`. `base` is
+ * the dimension symbol (V for electric, T for magnetic / MEG).
+ */
+export function formatSi(value: number, base: "V" | "T"): string {
+  const a = Math.abs(value);
+  if (a === 0) return `0 ${base}`;
+  for (const [factor, prefix] of SI_PREFIXES) {
+    if (a >= factor) {
+      const n = value / factor;
+      const digits = Math.abs(n) >= 10 ? 0 : 1;
+      return `${n.toFixed(digits)} ${prefix}${base}`;
+    }
+  }
+  const [factor, prefix] = SI_PREFIXES[SI_PREFIXES.length - 1];
+  return `${(value / factor).toPrecision(2)} ${prefix}${base}`;
+}
+
 /** Format seconds as `HH:MM:SS` (clock axis toggle). */
 export function formatClock(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));

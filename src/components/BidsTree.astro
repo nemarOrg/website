@@ -434,4 +434,89 @@ const { datasetId, version } = Astro.props;
     border-radius: var(--radius-sm);
     font-size: var(--fs-sm);
   }
+
+  /* --- Zarr signal viewer (mounted client-side into the preview slot) --- */
+  .eegv {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .eegv:focus {
+    outline: none;
+  }
+  .eegv__msg {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .eegv__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+  }
+  .eegv__btn {
+    min-inline-size: 28px;
+    padding: 2px 7px;
+    cursor: pointer;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font: inherit;
+    line-height: 1.4;
+  }
+  .eegv__btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .eegv__field {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-fg-muted);
+  }
+  .eegv__sel {
+    font: inherit;
+    padding: 1px 4px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+  .eegv__time {
+    min-inline-size: 14ch;
+    text-align: center;
+    color: var(--color-fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .eegv__canvas {
+    inline-size: 100%;
+    display: block;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+  .eegv__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  .eegv__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .eegv__dot {
+    inline-size: 9px;
+    block-size: 9px;
+    border-radius: 2px;
+  }
+  .eegv__status {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
 </style>

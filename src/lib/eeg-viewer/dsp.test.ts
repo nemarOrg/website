@@ -4,9 +4,11 @@ import {
   defaultScaling,
   dequantize,
   formatClock,
+  formatSi,
   niceScale,
   pickViewLevel,
   removeDcInPlace,
+  unitToSI,
 } from "./dsp";
 
 describe("dequantize", () => {
@@ -74,6 +76,29 @@ describe("formatClock", () => {
     expect(formatClock(0)).toBe("00:00:00");
     expect(formatClock(3661)).toBe("01:01:01");
     expect(formatClock(59.9)).toBe("00:00:59");
+  });
+});
+
+describe("unitToSI", () => {
+  it("maps stored units to SI factors", () => {
+    expect(unitToSI("uV")).toBe(1e-6);
+    expect(unitToSI("µV")).toBe(1e-6);
+    expect(unitToSI("mV")).toBe(1e-3);
+    expect(unitToSI("fT")).toBe(1e-15);
+    expect(unitToSI("V")).toBe(1);
+  });
+  it("passes unknown/empty units through as 1", () => {
+    expect(unitToSI("n/a")).toBe(1);
+    expect(unitToSI(undefined)).toBe(1);
+  });
+});
+
+describe("formatSi", () => {
+  it("renders the natural metric prefix for the magnitude", () => {
+    expect(formatSi(20e-6, "V")).toBe("20 µV");
+    expect(formatSi(1e-3, "V")).toBe("1.0 mV");
+    expect(formatSi(1e-12, "T")).toBe("1.0 pT");
+    expect(formatSi(0, "V")).toBe("0 V");
   });
 });
 

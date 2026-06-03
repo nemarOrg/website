@@ -25,21 +25,25 @@ function log(label: string, value: unknown) {
 const indexUrl = `${base}/${id}/zarr/index.json`;
 const idxRes = await fetch(indexUrl);
 log("index.json", `${indexUrl} -> HTTP ${idxRes.status}`);
-if (!idxRes.ok) {
-  console.error("index.json not reachable; is the dataset public + rebuilt? aborting.");
-  process.exit(1);
-}
-const index = (await idxRes.json()) as {
+let index: {
   format?: string;
   source_commit?: string;
   stores?: Array<{ path: string; zarr: string; modalities?: string[]; groups?: unknown[] }>;
-};
-log("index summary", {
-  format: index.format,
-  source_commit: index.source_commit?.slice(0, 8),
-  store_count: index.stores?.length,
-  first: index.stores?.[0],
-});
+} = {};
+if (idxRes.ok) {
+  index = await idxRes.json();
+  log("index summary", {
+    format: index.format,
+    source_commit: index.source_commit?.slice(0, 8),
+    store_count: index.stores?.length,
+    first: index.stores?.[0],
+  });
+} else if (!storeRel) {
+  console.error("index.json not reachable and no explicit storeRelPath given; aborting.");
+  process.exit(1);
+} else {
+  console.log("(index.json not yet written; using the explicit store path)");
+}
 
 const rel = storeRel || index.stores?.[0]?.zarr;
 if (!rel) {
@@ -79,7 +83,10 @@ try {
   const view1 = await zarr.open(rootGroup.resolve(`${groupName}/view/1`), { kind: "array" });
   log("view/1 array", { shape: view1.shape, dtype: view1.dtype, chunks: view1.chunks });
   const region = await zarr.get(view1, [null, null, zarr.slice(0, 64)]);
-  log("view/1 read [.,.,0:64]", { shape: region.shape, sample: Array.from(region.data.slice(0, 6)) });
+  log("view/1 read [.,.,0:64]", {
+    shape: region.shape,
+    sample: Array.from(region.data as ArrayLike<number>).slice(0, 6),
+  });
 } catch (err) {
   console.error("view/1 read FAILED:", err);
 }
@@ -87,9 +94,16 @@ try {
 // Sharded + zstd level-0 (the gating spike).
 try {
   const level0 = await zarr.open(rootGroup.resolve(`${groupName}/0`), { kind: "array" });
-  log("level-0 array (sharded+zstd)", { shape: level0.shape, dtype: level0.dtype, chunks: level0.chunks });
+  log("level-0 array (sharded+zstd)", {
+    shape: level0.shape,
+    dtype: level0.dtype,
+    chunks: level0.chunks,
+  });
   const region = await zarr.get(level0, [zarr.slice(0, 4), zarr.slice(0, 250)]);
-  log("level-0 read [0:4,0:250]", { shape: region.shape, sample: Array.from(region.data.slice(0, 6)) });
+  log("level-0 read [0:4,0:250]", {
+    shape: region.shape,
+    sample: Array.from(region.data as ArrayLike<number>).slice(0, 6),
+  });
   console.log("\n*** SHARDING + ZSTD: zarrita reads level-0 OK ***");
 } catch (err) {
   console.error("level-0 read FAILED (sharding/zstd gap?):", err);
@@ -99,7 +113,10 @@ try {
 try {
   const onset = await zarr.open(rootGroup.resolve("events/onset"), { kind: "array" });
   const ev = await zarr.get(onset, null);
-  log("events/onset", { shape: ev.shape, first: Array.from(ev.data.slice(0, 5)) });
+  log("events/onset", {
+    shape: ev.shape,
+    first: Array.from(ev.data as ArrayLike<number>).slice(0, 5),
+  });
 } catch {
   console.log("\n=== events ===\n(no events group on this store)");
 }
