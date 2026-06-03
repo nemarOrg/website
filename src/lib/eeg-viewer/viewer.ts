@@ -13,7 +13,7 @@
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
-import { type Modality, channelColor, defaultScaling, removeBandDc, removeDcInPlace } from "./dsp";
+import { type Modality, channelColor, defaultScaling, formatClock, formatSi, removeBandDc, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
 import {
@@ -22,6 +22,7 @@ import {
   type ViewerFrame,
   renderFrame,
   renderMessage,
+  traceLayout,
 } from "./render";
 import {
   type ChannelWindow,
@@ -29,6 +30,7 @@ import {
   type RecordingStore,
   type WindowData,
   openRecording,
+  readOverview,
   readWindow,
 } from "./store";
 import { zarrStoreUrl } from "../zarr-base";
@@ -97,6 +99,20 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   const filters: FilterSpec = { hp: null, lp: null, notch: null };
   let renderSeq = 0;
   let firstPaint = true;
+  let timeClock = false;
+  let butterfly = false;
+  const badChannels = new Set<string>();
+
+  // Cursor readout state: the last rendered frame and layout geometry.
+  let lastFrame: ViewerFrame | null = null;
+  let lastPlotLeft = DEFAULT_RENDER.gutter;
+  let lastPlotTop = 4;
+  let lastPlotWidth = 0;
+  let lastPlotHeight = 0;
+
+  // Overview minimap state (one coarse read, cached).
+  let overviewData: Float32Array | null = null;
+  let overviewLoaded = false;
 
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup?.();
   slot.innerHTML = "";
@@ -191,7 +207,17 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const end = Math.min(g.durationS, start + windowLengthS);
     const visEnd = Math.min(g.nChannels, chanStart + chanCount);
 
-    ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s`;
+    // Store geometry for cursor readout.
+    lastPlotLeft = DEFAULT_RENDER.gutter;
+    lastPlotTop = 4;
+    lastPlotWidth = plotWidth;
+    lastPlotHeight = Math.max(1, h - DEFAULT_RENDER.axisHeight - lastPlotTop);
+
+    if (timeClock) {
+      ui.time.textContent = `${formatClock(start)}–${formatClock(end)}`;
+    } else {
+      ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s`;
+    }
     ui.chanInfo.textContent =
       visEnd - chanStart >= g.nChannels ? `all ${g.nChannels}` : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
 
@@ -225,13 +251,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
           ? channelColor(ch.channelType)
           : channelColor(ch.modality);
       const cw = win.channels[i];
+      const dim = badChannels.has(ch.label);
       if (cw.kind === "line") {
         const line = dcRemove ? removeDcInPlace(cw.line.slice()) : cw.line;
-        return { label: ch.label, color, kind: "line" as const, line };
+        return { label: ch.label, color, kind: "line" as const, line, dim };
       }
       let { min, max } = cw;
       if (dcRemove) ({ min, max } = removeBandDc(min, max));
-      return { label: ch.label, color, kind: "band" as const, min, max };
+      return { label: ch.label, color, kind: "band" as const, min, max, dim };
     });
 
     const modality = (g.modality as Modality) ?? "MISC";
@@ -243,14 +270,101 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       events: showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
       physPerDiv: defaultScaling(modality),
       unitBase: ELECTRIC.has(modality) ? "V" : "T",
+      timeClock,
     };
-    renderFrame(ctx, frame, { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain });
+    lastFrame = frame;
+    renderFrame(ctx, frame, { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain, butterfly });
 
     const filterNote = hasFilters(filters) ? (filtered ? " · filtered" : " · filters need zoom-in") : "";
     ui.status.textContent =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
       `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
       `${eventTypes.length} event type(s)`;
+
+    // Load and draw the overview minimap once.
+    if (!overviewLoaded) {
+      overviewLoaded = true;
+      loadOverview(g);
+    } else {
+      drawOverview();
+    }
+  }
+
+  // --- Overview minimap ----------------------------------------------------
+
+  async function loadOverview(g: GroupHandle): Promise<void> {
+    overviewData = await readOverview(g);
+    if (overviewData && overviewData.length > 0) {
+      ui.minimap.style.display = "block";
+    } else {
+      ui.minimap.style.display = "none";
+    }
+    drawOverview();
+  }
+
+  function drawOverview(): void {
+    const canvas = ui.minimap;
+    if (!overviewData || overviewData.length === 0) return;
+    const g = group();
+    const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
+    const cssW = canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width || 600;
+    const cssH = 40;
+    canvas.style.height = `${cssH}px`;
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    const mctx = canvas.getContext("2d");
+    if (!mctx) return;
+    mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const colors = themeColors(ui.root);
+    mctx.fillStyle = colors.background;
+    mctx.fillRect(0, 0, cssW, cssH);
+
+    // Normalize the activity envelope.
+    const data = overviewData;
+    let maxVal = 0;
+    for (let i = 0; i < data.length; i++) {
+      if (data[i] > maxVal) maxVal = data[i];
+    }
+    if (maxVal <= 0) maxVal = 1;
+
+    // Draw the activity bar chart.
+    const colW = cssW / data.length;
+    for (let i = 0; i < data.length; i++) {
+      const frac = data[i] / maxVal;
+      const barH = Math.max(1, Math.round(frac * (cssH - 12)));
+      mctx.fillStyle = colors.grid;
+      mctx.fillRect(i * colW, cssH - barH - 6, Math.max(1, colW - 0.5), barH);
+    }
+
+    // Event tick marks colored by type.
+    if (store.events && eventTypes.length > 0) {
+      const dur = g.durationS;
+      for (let i = 0; i < store.events.onsetS.length; i++) {
+        const t = store.events.onsetS[i];
+        const x = (t / dur) * cssW;
+        const code = store.events.code[i];
+        const evType = eventTypes.find((et) => et.code === code);
+        mctx.strokeStyle = evType?.color ?? "#888888";
+        mctx.lineWidth = 1;
+        mctx.beginPath();
+        mctx.moveTo(Math.round(x) + 0.5, 0);
+        mctx.lineTo(Math.round(x) + 0.5, 6);
+        mctx.stroke();
+      }
+    }
+
+    // Current window box.
+    const dur = g.durationS || 1;
+    const wStart = windowStartS;
+    const wEnd = Math.min(dur, windowStartS + windowLengthS);
+    const x1 = (wStart / dur) * cssW;
+    const x2 = (wEnd / dur) * cssW;
+    mctx.fillStyle = "rgba(0,114,178,0.18)";
+    mctx.fillRect(x1, 0, x2 - x1, cssH);
+    mctx.strokeStyle = "#0072B2";
+    mctx.lineWidth = 1.5;
+    mctx.strokeRect(x1, 0, x2 - x1, cssH);
   }
 
   // --- controls ------------------------------------------------------------
@@ -296,6 +410,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     showEvents = ui.events.checked;
     render();
   });
+  ui.butterflyCheck.addEventListener("change", () => {
+    butterfly = ui.butterflyCheck.checked;
+    render();
+  });
+  ui.clockCheck.addEventListener("change", () => {
+    timeClock = ui.clockCheck.checked;
+    render();
+  });
   ui.hp.addEventListener("change", () => {
     filters.hp = Number(ui.hp.value) || null;
     render();
@@ -322,9 +444,21 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       windowStartS = 0;
       chanStart = 0;
       chanCount = group().nChannels;
+      overviewLoaded = false;
+      overviewData = null;
       render();
     });
   }
+
+  // Minimap click: set window start to clicked time (centered).
+  ui.minimap.addEventListener("click", (e) => {
+    const rect = ui.minimap.getBoundingClientRect();
+    const frac = (e.clientX - rect.left) / rect.width;
+    const g = group();
+    const targetCenter = frac * g.durationS;
+    windowStartS = Math.max(0, targetCenter - windowLengthS / 2);
+    render();
+  });
 
   ui.canvas.addEventListener(
     "wheel",
@@ -339,6 +473,88 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     { passive: false },
   );
 
+  // --- Bad-channel click in stacked mode (gutter label hit-test) -----------
+  ui.canvas.addEventListener("click", (e) => {
+    if (butterfly) return; // butterfly has no per-slot geometry
+    if (!lastFrame || lastFrame.channels.length === 0) return;
+    const rect = ui.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x >= lastPlotLeft) return; // only gutter (x < gutter)
+    const slots = traceLayout(lastFrame.channels.length, lastPlotTop, lastPlotHeight);
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      const top = slot.baseline - slot.halfHeight;
+      const bot = slot.baseline + slot.halfHeight;
+      if (y >= top && y < bot) {
+        const label = lastFrame.channels[i].label;
+        if (badChannels.has(label)) badChannels.delete(label);
+        else badChannels.add(label);
+        render();
+        break;
+      }
+    }
+  });
+
+  // --- Cursor readout (mousemove) -----------------------------------------
+  ui.canvas.addEventListener("mousemove", (e) => {
+    if (!lastFrame) return;
+    const rect = ui.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x < lastPlotLeft || x > lastPlotLeft + lastPlotWidth) {
+      ui.cursor.textContent = "";
+      return;
+    }
+    const frame = lastFrame;
+    const span = frame.windowEndS - frame.windowStartS;
+    const tAtX = frame.windowStartS + ((x - lastPlotLeft) / lastPlotWidth) * span;
+
+    let chanLabel = "";
+    let valueStr = "";
+    if (!butterfly && frame.channels.length > 0) {
+      const slots = traceLayout(frame.channels.length, lastPlotTop, lastPlotHeight);
+      let hitIdx = -1;
+      for (let i = 0; i < slots.length; i++) {
+        const s = slots[i];
+        if (y >= s.baseline - s.halfHeight && y < s.baseline + s.halfHeight) {
+          hitIdx = i;
+          break;
+        }
+      }
+      if (hitIdx >= 0) {
+        const ch = frame.channels[hitIdx];
+        chanLabel = ch.label;
+        const col = Math.round(((x - lastPlotLeft) / lastPlotWidth) * (frame.nCols - 1));
+        const clamped = Math.max(0, Math.min(frame.nCols - 1, col));
+        if (ch.kind === "line" && ch.line.length > 0) {
+          valueStr = formatSi(ch.line[clamped] ?? 0, frame.unitBase);
+        } else if (ch.kind === "band") {
+          const mid = ((ch.min[clamped] ?? 0) + (ch.max[clamped] ?? 0)) / 2;
+          valueStr = formatSi(mid, frame.unitBase);
+        }
+      }
+    }
+
+    const timeStr = timeClock ? formatClock(tAtX) : `${tAtX.toFixed(2)} s`;
+    if (chanLabel) {
+      ui.cursor.textContent = `${chanLabel} · ${timeStr} · ${valueStr}`;
+    } else {
+      ui.cursor.textContent = timeStr;
+    }
+  });
+
+  ui.canvas.addEventListener("mouseleave", () => {
+    ui.cursor.textContent = "";
+  });
+
+  // --- Help overlay toggle -------------------------------------------------
+  let helpVisible = false;
+  function toggleHelp(): void {
+    helpVisible = !helpVisible;
+    ui.helpOverlay.style.display = helpVisible ? "block" : "none";
+  }
+
   ui.root.addEventListener("keydown", (e) => {
     const k = e.key;
     if (k === "ArrowRight") scroll(e.shiftKey ? windowLengthS : windowLengthS / 4);
@@ -347,7 +563,23 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     else if (k === "ArrowUp") scrollChan(-1);
     else if (k === "PageDown") scrollChan(chanCount);
     else if (k === "PageUp") scrollChan(-chanCount);
-    else if (k === "+" || k === "=") {
+    else if (k === "Home") {
+      // Step window length down (shorter window).
+      const idx = WINDOW_CHOICES.indexOf(windowLengthS);
+      if (idx > 0) {
+        windowLengthS = WINDOW_CHOICES[idx - 1];
+        ui.win.value = String(windowLengthS);
+        render();
+      }
+    } else if (k === "End") {
+      // Step window length up (longer window).
+      const idx = WINDOW_CHOICES.indexOf(windowLengthS);
+      if (idx >= 0 && idx < WINDOW_CHOICES.length - 1) {
+        windowLengthS = WINDOW_CHOICES[idx + 1];
+        ui.win.value = String(windowLengthS);
+        render();
+      }
+    } else if (k === "+" || k === "=") {
       gain *= 1.5;
       render();
     } else if (k === "-") {
@@ -357,6 +589,16 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       dcRemove = !dcRemove;
       ui.dc.checked = dcRemove;
       render();
+    } else if (k === "b") {
+      butterfly = !butterfly;
+      ui.butterflyCheck.checked = butterfly;
+      render();
+    } else if (k === "t") {
+      timeClock = !timeClock;
+      ui.clockCheck.checked = timeClock;
+      render();
+    } else if (k === "?") {
+      toggleHelp();
     } else return;
     e.preventDefault();
   });
@@ -408,18 +650,23 @@ interface ViewerUi {
   root: HTMLElement;
   plot: HTMLElement;
   canvas: HTMLCanvasElement;
+  minimap: HTMLCanvasElement;
   time: HTMLElement;
   chanInfo: HTMLElement;
+  cursor: HTMLElement;
   status: HTMLElement;
   win: HTMLSelectElement;
   dc: HTMLInputElement;
   events: HTMLInputElement;
+  butterflyCheck: HTMLInputElement;
+  clockCheck: HTMLInputElement;
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
   hscroll: HTMLInputElement;
   vscroll: HTMLInputElement;
   groupSel: HTMLSelectElement | null;
+  helpOverlay: HTMLElement;
   on(action: string, fn: () => void): void;
 }
 
@@ -497,7 +744,34 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   // Display toggles.
   const dc = labeledCheck("DC", true);
   const events = labeledCheck("Events", true);
-  bar.append(grouped("Display", dc.wrap, events.wrap));
+  const butterflyLc = labeledCheck("Butterfly", false);
+  const clockLc = labeledCheck("Clock", false);
+  bar.append(grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap));
+
+  // Cursor readout (below toolbar, above scope).
+  const cursor = el("div", "eegv__cursor");
+  cursor.setAttribute("aria-live", "polite");
+
+  // Help overlay (absolutely positioned inside the eegv root).
+  const helpOverlay = el("div", "eegv__help");
+  helpOverlay.style.display = "none";
+  helpOverlay.innerHTML = `
+    <div class="eegv__help-inner">
+      <strong>Keyboard shortcuts</strong>
+      <ul>
+        <li><kbd>←</kbd> / <kbd>→</kbd> &mdash; scroll time (small step)</li>
+        <li><kbd>Shift+←</kbd> / <kbd>Shift+→</kbd> &mdash; scroll time (page)</li>
+        <li><kbd>↑</kbd> / <kbd>↓</kbd> &mdash; scroll channels</li>
+        <li><kbd>+</kbd> / <kbd>-</kbd> &mdash; scale up / down</li>
+        <li><kbd>Home</kbd> / <kbd>End</kbd> &mdash; window shorter / longer</li>
+        <li><kbd>d</kbd> &mdash; toggle DC removal</li>
+        <li><kbd>b</kbd> &mdash; toggle butterfly mode</li>
+        <li><kbd>t</kbd> &mdash; toggle clock time format</li>
+        <li><kbd>?</kbd> &mdash; toggle this help</li>
+      </ul>
+      <p style="margin:0;font-size:10px;color:var(--color-fg-subtle)">Click a channel label to mark it bad (dimmed)</p>
+    </div>
+  `.trim();
 
   // Scope: canvas + (conditional) vertical channel scrollbar.
   const plot = el("div", "eegv__plot");
@@ -514,6 +788,12 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   hscroll.className = "eegv__hscroll";
   hscroll.title = "Scrub time";
 
+  // Overview minimap canvas (hidden until data loads).
+  const minimap = document.createElement("canvas");
+  minimap.className = "eegv__minimap";
+  minimap.style.display = "none";
+  minimap.title = "Overview — click to jump";
+
   const legend = el("div", "eegv__legend");
   for (const t of eventTypes.slice(0, 16)) {
     const chip = el("span", "eegv__chip");
@@ -524,25 +804,30 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   }
 
   const status = el("div", "eegv__status");
-  root.append(bar, plot, hscroll, legend, status);
+  root.append(bar, cursor, plot, hscroll, minimap, legend, status, helpOverlay);
   slot.append(root);
 
   return {
     root,
     plot,
     canvas,
+    minimap,
     time,
     chanInfo,
+    cursor,
     status,
     win,
     dc: dc.input,
     events: events.input,
+    butterflyCheck: butterflyLc.input,
+    clockCheck: clockLc.input,
     hp,
     lp,
     notch,
     hscroll,
     vscroll,
     groupSel,
+    helpOverlay,
     on(action, fn) {
       root.querySelector<HTMLButtonElement>(`[data-act="${action}"]`)?.addEventListener("click", fn);
     },
