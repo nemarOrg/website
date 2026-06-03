@@ -6,7 +6,6 @@ import {
   filterStateFromURL,
   filterStateToAPIQuery,
   filterStateToURL,
-  isLicenseFilterPending,
 } from "./filters";
 import type { Dataset } from "./types";
 
@@ -144,6 +143,15 @@ describe("filterStateToAPIQuery", () => {
     const q = filterStateToAPIQuery(s);
     expect(q.modality).toBeUndefined();
   });
+  it("passes license tiers server-side (OR, comma-joined)", () => {
+    const s = defaultFilterState();
+    s.licenseTiers = ["noncommercial", "noderiv"];
+    expect(filterStateToAPIQuery(s).license).toBe("noncommercial,noderiv");
+  });
+  it("omits license when no tier is selected", () => {
+    const q = filterStateToAPIQuery(defaultFilterState());
+    expect(q.license).toBeUndefined();
+  });
 });
 
 describe("applyClientFilters", () => {
@@ -211,72 +219,13 @@ describe("applyClientFilters", () => {
     expect(out).toEqual(["c"]);
   });
 
-  it("skips the license filter when no row carries a license (pending nemar-cli#653)", () => {
-    // Catalog rows don't ship `license` yet; selecting a tier must not
-    // zero-out every result.
+  it("ignores license tiers (license is filtered server-side, not here)", () => {
+    // License moved server-side via filterStateToAPIQuery; applyClientFilters
+    // must not re-filter it (it no longer reads the license field at all).
     const s = defaultFilterState();
     s.licenseTiers = ["public"];
     const out = applyClientFilters(datasets, s).map((d) => d.dataset_id);
     expect(out).toEqual(["a", "b", "c", "d"]);
-  });
-
-  it("stays inactive on a partially-synced batch (some rows lack license)", () => {
-    // During a partial nemar-cli#653 backfill the filter must not drop the
-    // not-yet-synced rows — it stays uniformly off until EVERY row has the field.
-    const partial = [
-      mkDataset({ dataset_id: "p", license: "CC0" }),
-      mkDataset({ dataset_id: "x" }), // license undefined
-    ];
-    const s = defaultFilterState();
-    s.licenseTiers = ["public"];
-    const out = applyClientFilters(partial, s).map((d) => d.dataset_id);
-    expect(out).toEqual(["p", "x"]);
-  });
-
-  it("applies the license tier filter once every row carries a license", () => {
-    const licensed = [
-      mkDataset({ dataset_id: "p", license: "CC0" }),
-      mkDataset({ dataset_id: "q", license: "CC-BY-NC-4.0" }),
-      mkDataset({ dataset_id: "r", license: "CC-BY-4.0" }),
-    ];
-    const s = defaultFilterState();
-    s.licenseTiers = ["public", "attribution"];
-    const out = applyClientFilters(licensed, s).map((d) => d.dataset_id);
-    expect(out).toEqual(["p", "r"]);
-  });
-
-  it("combines license and modality filters when both are active", () => {
-    const licensed = [
-      mkDataset({ dataset_id: "a", license: "CC0", modalities: "eeg,meg" }),
-      mkDataset({ dataset_id: "b", license: "CC-BY-4.0", modalities: "eeg" }),
-      mkDataset({ dataset_id: "c", license: "CC0", modalities: "meg" }),
-      mkDataset({ dataset_id: "d", license: "CC-BY-NC", modalities: "eeg,meg" }),
-    ];
-    const s = defaultFilterState();
-    s.licenseTiers = ["public"]; // a, c
-    s.modalities = ["EEG", "MEG"]; // 2+ => client-side OR
-    const out = applyClientFilters(licensed, s).map((d) => d.dataset_id);
-    expect(out).toEqual(["a", "c"]); // b fails license; d fails license
-  });
-});
-
-describe("isLicenseFilterPending", () => {
-  it("is true when a tier is selected but rows aren't synced", () => {
-    const datasets = [mkDataset({ dataset_id: "a" })]; // license undefined
-    const s = defaultFilterState();
-    s.licenseTiers = ["public"];
-    expect(isLicenseFilterPending(datasets, s)).toBe(true);
-  });
-  it("is false when no tier is selected", () => {
-    expect(isLicenseFilterPending([mkDataset({ dataset_id: "a" })], defaultFilterState())).toBe(
-      false,
-    );
-  });
-  it("is false once every row carries a license", () => {
-    const datasets = [mkDataset({ dataset_id: "a", license: "CC0" })];
-    const s = defaultFilterState();
-    s.licenseTiers = ["public"];
-    expect(isLicenseFilterPending(datasets, s)).toBe(false);
   });
 });
 

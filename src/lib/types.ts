@@ -128,6 +128,9 @@ export interface DatasetQuery {
   offset?: number;
   search?: string;
   modality?: string; // comma-separated, LIKE substring on D1
+  /** Comma-separated license tiers; OR semantics, resolved server-side
+   *  against the backend's license_tier column (nemar-cli migration 0034). */
+  license?: string;
   author?: string;
   task?: string;
   has_doi?: boolean;

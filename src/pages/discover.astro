@@ -16,7 +16,6 @@ import {
   filterStateFromURL,
   filterStateToAPIQuery,
   filterStateToURL,
-  isLicenseFilterPending,
 } from "../lib/filters";
 import type { Dataset } from "../lib/types";
 
@@ -35,10 +34,6 @@ const SEARCH_FETCH_LIMIT = 240;
 let cards: Array<{ dataset: Dataset; snippet?: string }> = [];
 let totalReturned = 0;
 let fetchError: string | null = null;
-// True when a license tier is selected but the catalog isn't synced yet, so
-// the filter is a no-op. Drives a contextual notice so the empty narrowing
-// isn't silent (the field arrives via nemar-cli#653).
-let licensePending = false;
 // Which path served a search ("semantic" | "exact_id" | "text_fallback"),
 // surfaced subtly so the relevance-ranked (not date-sorted) order reads as
 // intentional. Null in browse mode.
@@ -52,7 +47,6 @@ try {
   if (isSearch) {
     const res = await searchDatasets(state.q, { limit: SEARCH_FETCH_LIMIT, signal });
     searchMethod = res.method;
-    licensePending = isLicenseFilterPending(res.results, state);
     // The hybrid endpoint doesn't filter by modality/range, so every
     // selection is enforced client-side over the full ranked list (relevance
     // order preserved; the `sort` control is a no-op while searching).
@@ -100,9 +94,10 @@ try {
       },
       { signal },
     );
-    licensePending = isLicenseFilterPending(page.datasets, state);
     // Note: multi-modality AND/OR and range filters reduce the visible count
     // for the *current page* only — pagination still spans the server total.
+    // License IS server-side now (via filterStateToAPIQuery), so the count
+    // and pagination stay accurate for license filtering.
     cards = applyClientFilters(page.datasets, state).map((d) => ({ dataset: d }));
     totalReturned = page.total_count ?? page.count ?? page.datasets.length;
   }
@@ -166,12 +161,6 @@ Astro.response.headers.set(
           <div class="discover__error" role="alert">
             <strong>Could not load datasets.</strong>
             <span>{fetchError}</span>
-          </div>
-        )}
-        {licensePending && (
-          <div class="discover__notice" role="status">
-            License filtering is still rolling out — results aren't narrowed by license yet
-            (<a href="https://github.com/nemarOrg/nemar-cli/issues/653" rel="external">nemar-cli#653</a>).
           </div>
         )}
         {!fetchError && cards.length === 0 && (
@@ -280,17 +269,5 @@ Astro.response.headers.set(
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-  }
-  .discover__notice {
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
-    border-radius: var(--radius-md);
-    background: color-mix(in srgb, var(--color-info) 8%, transparent);
-    color: var(--color-fg-muted);
-    font-size: var(--fs-sm);
-    margin-block-end: var(--space-6);
-  }
-  .discover__notice a {
-    color: var(--color-link);
   }
 </style>

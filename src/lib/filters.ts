@@ -1,4 +1,3 @@
-import { licenseTier } from "./tags";
 import {
   type DatasetQuery,
   LICENSE_TIERS,
@@ -14,14 +13,12 @@ import {
  * {@link import("./types").Dataset} and the reduced
  * {@link import("./types").SearchResult} satisfy it, so the freetext-search
  * (hybrid endpoint) and browse (list endpoint) paths share one filter pass.
- * `license` is optional: rows that omit it (hybrid hits) classify as the
- * "unknown" tier and keep license filtering inactive (gated on every row
- * carrying the field — see `licenseDataReady`).
+ * License is NOT here: it's filtered server-side via `?license=` (browse) and
+ * unsupported by the hybrid search endpoint (search).
  */
 export interface FilterableRow {
   modalities: string;
   participants: number;
-  license?: string | null;
 }
 
 /**
@@ -204,48 +201,28 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
     // fetch wide and post-filter (cheaper than N round-trips).
     q.modality = state.modalities[0];
   }
+  if (state.licenseTiers.length > 0) {
+    // License filters server-side (OR semantics) against the backend's
+    // license_tier column (nemar-cli migration 0034). Doing it here keeps the
+    // count + pagination accurate, which per-page client filtering could not.
+    q.license = state.licenseTiers.join(",");
+  }
   return q;
-}
-
-/**
- * Whether the catalog batch carries license data yet. The field arrives via
- * nemar-cli#653; until EVERY row has it, license filtering stays inactive (see
- * `applyClientFilters`). One definition shared by the filter and the Discover
- * notice so they can't drift apart.
- */
-function licenseDataReady(datasets: FilterableRow[]): boolean {
-  return datasets.every((d) => d.license !== undefined);
-}
-
-/**
- * True when the user selected a license tier but the batch isn't synced yet,
- * so `applyClientFilters` left the license filter inactive. Discover shows a
- * "rolling out" notice for this case instead of silently returning unfiltered
- * results.
- */
-export function isLicenseFilterPending(datasets: FilterableRow[], state: FilterState): boolean {
-  return state.licenseTiers.length > 0 && !licenseDataReady(datasets);
 }
 
 /**
  * Apply the parts of the filter state that the server can't enforce. Generic
  * over the row shape so it serves both browse (full Dataset) and freetext
- * search (reduced SearchResult) rows — see {@link FilterableRow}.
+ * search (reduced SearchResult) rows — see {@link FilterableRow}. License is
+ * intentionally NOT here: browse filters it server-side via `?license=`, and
+ * the hybrid search endpoint doesn't support it at all.
  */
 export function applyClientFilters<T extends FilterableRow>(
   datasets: T[],
   state: FilterState,
   opts: { allModalitiesClientSide?: boolean } = {},
 ): T[] {
-  // License filtering activates only once EVERY row in the batch carries the
-  // `license` field (present — a null/empty value classifies as the "unknown"
-  // tier, which is still filterable). Gating on `every` (not `some`) keeps the
-  // filter uniformly inactive across all pages during a partial nemar-cli#653
-  // backfill, rather than silently dropping not-yet-synced rows on the pages
-  // that happen to contain a few licensed ones.
-  const licenseActive = state.licenseTiers.length > 0 && licenseDataReady(datasets);
   return datasets.filter((d) => {
-    if (licenseActive && !state.licenseTiers.includes(licenseTier(d.license))) return false;
     // Modality OR/AND. In browse mode a single modality is already enforced
     // server-side, so we only post-filter when 2+ are selected. In search
     // mode the hybrid endpoint doesn't filter by modality, so the caller sets
