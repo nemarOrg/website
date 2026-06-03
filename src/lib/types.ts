@@ -28,10 +28,11 @@ export interface Dataset {
   file_size_formatted: string;
   latest_version: string | null;
   /**
-   * License string for the dataset. NOT yet returned by api.nemar.org/datasets
-   * (it lives only in per-dataset metadata.json today) — optional here so the
-   * license filter lights up automatically once nemar-cli backfills it into
-   * the catalog row. See the backend dependency note in AGENTS.md.
+   * Raw license string as returned by api.nemar.org/datasets (e.g. "CC0",
+   * "CC-BY-NC-ND-4.0"); backfilled on every catalog row by nemar-cli
+   * migration 0034. The website derives the display tier from this via
+   * `licenseTier()`; filtering by tier happens server-side through the
+   * `?license=` query param. Kept optional for safety against older snapshots.
    */
   license?: string | null;
 }

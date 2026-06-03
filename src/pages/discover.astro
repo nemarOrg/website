@@ -117,6 +117,13 @@ const pageCount = Math.max(1, Math.ceil(totalReturned / PAGE_SIZE));
 // Re-serialize the canonical filter state to drop unknown params.
 const canonicalParams = filterStateToURL(state);
 canonicalParams.delete("page");
+// While searching, license + sort don't apply (the hybrid endpoint ignores
+// them), so keep them out of pagination links rather than implying they're
+// active. Re-enable once nemar-cli#683 lands server-side support.
+if (isSearch) {
+  canonicalParams.delete("license");
+  canonicalParams.delete("sort");
+}
 
 // Cache keyed on the full URL (query params) so each filter+page+query combo
 // gets its own edge entry. On error, never cache — a brief upstream hiccup
