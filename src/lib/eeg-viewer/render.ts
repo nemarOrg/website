@@ -286,7 +286,9 @@ function renderButterfly(
   for (let i = 0; i < shown; i++) {
     const ch = frame.channels[i];
     const ly = plotTop + (i + 0.5) * (plotHeight / Math.max(shown, 1));
-    ctx.fillStyle = ch.dim ? hexWithAlpha(ch.color, 0.3) : ch.color;
+    // globalAlpha (next line) already carries the dim factor; use the plain color
+    // so a dimmed legend entry is not double-dimmed (0.3 fill x 0.3 alpha = 0.09).
+    ctx.fillStyle = ch.color;
     ctx.globalAlpha = ch.dim ? 0.3 : 0.9;
     ctx.fillText(ch.label.slice(0, 8), 2, ly);
   }

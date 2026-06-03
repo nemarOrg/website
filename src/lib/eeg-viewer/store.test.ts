@@ -104,6 +104,22 @@ describe("aggregateOverview", () => {
     expect(out[0]).toBeCloseTo(50e-6, 9);
   });
 
+  it("applies a non-unity siFactor (uV stored -> SI volts out)", () => {
+    // 100 uV stored raw (scale=1) must come out as 100e-6 V via siFactor=1e-6.
+    const data = new Int16Array([0, 100]);
+    const ch = { scale: 1, offset: 0, siFactor: 1e-6 };
+    const out = aggregateOverview(data, 1, 1, [ch]);
+    expect(out[0]).toBeCloseTo(100e-6, 9);
+  });
+
+  it("cancels a non-zero offset in the min/max range", () => {
+    // offset must apply to both rows so it cancels: (100+1000)-(0+1000) = 100.
+    const data = new Int16Array([0, 100]);
+    const ch = { scale: 1, offset: 1000, siFactor: 1 };
+    const out = aggregateOverview(data, 1, 1, [ch]);
+    expect(out[0]).toBeCloseTo(100, 6);
+  });
+
   it("returns zeros when min equals max (flat signal)", () => {
     const data = new Int16Array([5, 5]); // min=max
     const out = aggregateOverview(data, 1, 1, [identity]);

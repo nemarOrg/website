@@ -293,8 +293,9 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
   }
 }
 
-/** Largest window (samples) we will read from level-0; past it use the pyramid
- * (a sharded level-0 read scales with the window, so this caps transfer). */
+/** Largest window (samples) we will read from level-0; past it prefer the pyramid
+ * when one exists (a sharded level-0 read scales with the window, so this caps
+ * transfer). Falls back to level-0 regardless if the store has no view levels. */
 const LEVEL0_MAX_SAMPLES = 20000;
 
 /**
@@ -339,7 +340,12 @@ export async function readOverview(group: GroupHandle): Promise<Float32Array | n
   const view = group.viewLevels[group.viewLevels.length - 1];
   try {
     const region = await zarr.get(view.array, null);
-    // region shape: [2, nCh, nTime]
+    // Expected shape [2, nCh, nTime] (min/max rows). Guard so a mis-shaped store
+    // hides the minimap instead of indexing undefined dims into garbage data.
+    if (region.shape.length < 3 || region.shape[0] !== 2) {
+      console.error("[eeg-viewer] readOverview: unexpected shape", region.shape, "(want [2, nCh, nTime])");
+      return null;
+    }
     const nCh = region.shape[1];
     const nTime = region.shape[2];
     return aggregateOverview(
@@ -390,8 +396,10 @@ export async function readWindow(
   const useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
   if (useLevel0) return readLevel0(group, start, end, r0, r1);
 
-  // A view level: if pickViewLevel chose level-0 but we won't read it (too wide,
-  // or filters off at this zoom), fall back to the finest available pyramid level.
+  // A view level: either pickViewLevel chose level-0 but it is too wide for the
+  // sample cap, or it chose a view level and no filter is forcing level-0. Either
+  // way fall back to the finest pyramid level (or level-0 itself if no pyramid
+  // exists, which only happens for short recordings).
   const view = group.viewLevels[Math.max(1, chosen) - 1];
   if (!view) return readLevel0(group, start, end, r0, r1); // no pyramid -> level-0 anyway
   return readViewLevel(group, view, start, end, r0, r1);

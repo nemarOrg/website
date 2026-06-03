@@ -62,6 +62,19 @@ describe("filtfilt notch", () => {
   });
 });
 
+describe("filtfilt band-pass (HP+LP cascade)", () => {
+  it("attenuates both sub-HP and supra-LP tones, keeps the passband", () => {
+    const bp = designFilters({ hp: 1, lp: 20 }, FS);
+    expect(bp).toHaveLength(2); // both biquads must be present
+    const subHp = filtfilt(sine(0.3, 2000), bp); // below the 1 Hz HP cutoff
+    const supraLp = filtfilt(sine(60, 2000), bp); // above the 20 Hz LP cutoff
+    const inBand = filtfilt(sine(10, 2000), bp);
+    expect(rms(subHp)).toBeLessThan(0.3);
+    expect(rms(supraLp)).toBeLessThan(0.2);
+    expect(rms(inBand) / rms(sine(10, 2000))).toBeGreaterThan(0.8);
+  });
+});
+
 describe("filtfilt", () => {
   it("is zero-phase: a symmetric input stays symmetric", () => {
     const n = 401;

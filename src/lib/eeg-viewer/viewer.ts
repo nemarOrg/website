@@ -109,10 +109,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let lastPlotTop = 4;
   let lastPlotWidth = 0;
   let lastPlotHeight = 0;
+  // Trace slot geometry for the last frame, cached so the per-pointer click/move
+  // hit-tests reuse it instead of recomputing the (pure) layout on every event.
+  let lastSlots: ReturnType<typeof traceLayout> = [];
 
   // Overview minimap state (one coarse read, cached).
   let overviewData: Float32Array | null = null;
   let overviewLoaded = false;
+  let overviewSeq = 0; // guards a fire-and-forget overview load against group switches
 
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup?.();
   slot.innerHTML = "";
@@ -184,19 +188,45 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const pStart = Math.max(0, start - padS);
     const pEnd = Math.min(g.durationS, end + padS);
     const w = await readWindow(g, pStart, pEnd, plotWidth, chanStart, chanCount, true);
-    if (w.channels.length === 0 || w.channels[0].kind !== "line") return { win: w, filtered: false };
+    if (w.channels.length === 0 || w.channels[0].kind !== "line") {
+      // Window too wide for level-0: the read fell back to the pyramid band, which
+      // filtfilt cannot touch. Re-read the *visible* (unpadded) window so its nCols
+      // and time span line up with the axis -- returning the padded band would shift
+      // every trace left by padS.
+      const band =
+        w.channels.length === 0
+          ? w
+          : await readWindow(g, start, end, plotWidth, chanStart, chanCount, false);
+      return { win: band, filtered: false };
+    }
     const biquads = designFilters(filters, g.rate);
+    const apply = biquads.length > 0; // empty when every requested cutoff is >= Nyquist
     const padCols = Math.round((start - pStart) * g.rate);
     const visCols = Math.max(1, Math.round((end - start) * g.rate));
     const channels: ChannelWindow[] = w.channels.map((cw) =>
       cw.kind === "line"
-        ? { kind: "line", line: filtfilt(cw.line, biquads).subarray(padCols, padCols + visCols) }
+        ? {
+            kind: "line",
+            line: (apply ? filtfilt(cw.line, biquads) : cw.line).subarray(padCols, padCols + visCols),
+          }
         : cw,
     );
-    return { win: { level: w.level, nCols: visCols, channels }, filtered: true };
+    // `filtered` reflects whether a cascade was actually applied so the status note
+    // does not claim "filtered" when the cutoffs were all suppressed at Nyquist.
+    return { win: { level: w.level, nCols: visCols, channels }, filtered: apply };
   }
 
   async function render(): Promise<void> {
+    // Wrapper so every fire-and-forget caller (event handlers, observers) is safe
+    // from an unhandled rejection if a synchronous paint step throws.
+    try {
+      await renderImpl();
+    } catch (err) {
+      console.error("[eeg-viewer] render failed:", err);
+    }
+  }
+
+  async function renderImpl(): Promise<void> {
     const seq = ++renderSeq;
     clamp();
     const g = group();
@@ -273,6 +303,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       timeClock,
     };
     lastFrame = frame;
+    lastSlots = traceLayout(frame.channels.length, lastPlotTop, lastPlotHeight);
     renderFrame(ctx, frame, { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain, butterfly });
 
     const filterNote = hasFilters(filters) ? (filtered ? " · filtered" : " · filters need zoom-in") : "";
@@ -293,12 +324,16 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   // --- Overview minimap ----------------------------------------------------
 
   async function loadOverview(g: GroupHandle): Promise<void> {
-    overviewData = await readOverview(g);
-    if (overviewData && overviewData.length > 0) {
-      ui.minimap.style.display = "block";
-    } else {
-      ui.minimap.style.display = "none";
+    const seq = ++overviewSeq;
+    let data: Float32Array | null = null;
+    try {
+      data = await readOverview(g);
+    } catch (err) {
+      console.error("[eeg-viewer] loadOverview failed:", err);
     }
+    if (seq !== overviewSeq) return; // a group switch superseded this load
+    overviewData = data;
+    ui.minimap.style.display = data && data.length > 0 ? "block" : "none";
     drawOverview();
   }
 
@@ -337,9 +372,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       mctx.fillRect(i * colW, cssH - barH - 6, Math.max(1, colW - 0.5), barH);
     }
 
+    // The whole-recording time axis, shared by the event ticks and the window box.
+    const dur = g.durationS || 1;
+
     // Event tick marks colored by type.
     if (store.events && eventTypes.length > 0) {
-      const dur = g.durationS;
       for (let i = 0; i < store.events.onsetS.length; i++) {
         const t = store.events.onsetS[i];
         const x = (t / dur) * cssW;
@@ -355,7 +392,6 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     }
 
     // Current window box.
-    const dur = g.durationS || 1;
     const wStart = windowStartS;
     const wEnd = Math.min(dur, windowStartS + windowLengthS);
     const x1 = (wStart / dur) * cssW;
@@ -446,6 +482,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       chanCount = group().nChannels;
       overviewLoaded = false;
       overviewData = null;
+      overviewSeq++; // invalidate any in-flight overview load from the prior group
       render();
     });
   }
@@ -481,7 +518,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     if (x >= lastPlotLeft) return; // only gutter (x < gutter)
-    const slots = traceLayout(lastFrame.channels.length, lastPlotTop, lastPlotHeight);
+    const slots = lastSlots;
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
       const top = slot.baseline - slot.halfHeight;
@@ -513,7 +550,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     let chanLabel = "";
     let valueStr = "";
     if (!butterfly && frame.channels.length > 0) {
-      const slots = traceLayout(frame.channels.length, lastPlotTop, lastPlotHeight);
+      const slots = lastSlots;
       let hitIdx = -1;
       for (let i = 0; i < slots.length; i++) {
         const s = slots[i];
@@ -839,7 +876,7 @@ function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown)
     ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
     : "";
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">No interactive viewer for this recording yet (the Zarr serving copy may still be generating).${dl}</p></div>`;
-  console.debug("[eeg-viewer] unavailable:", err);
+  console.warn("[eeg-viewer] unavailable:", err);
 }
 
 function el(tag: string, className: string): HTMLElement {
