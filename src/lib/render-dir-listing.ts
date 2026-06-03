@@ -138,7 +138,7 @@ function appendTags(out: string[], cls: FileClassification, isRoot: boolean): vo
   // JSON/TSV; the row is click-to-open in the Zarr signal viewer (epic
   // nemar-cli#684). The badge is the file's format, uppercased.
   if (!isRoot && cls.isEEG && cls.ext)
-    out.push(`<span class="tree__tag">${esc(cls.ext.toUpperCase())}</span>`);
+    out.push(`<span class="tree__tag tree__tag--signal">${esc(cls.ext.toUpperCase())}</span>`);
 }
 
 function renderDirRow(
