@@ -122,6 +122,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes);
   const cleanups: Array<() => void> = [];
+  // Default the notch filter from the recording's PowerLineFrequency (the converter
+  // embeds it in the store attrs; the Notch select already reflects it). Datasets
+  // without the sidecar field stay unfiltered.
+  filters.notch = Number(ui.notch.value) || null;
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -150,8 +154,16 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
     ui.canvas.style.height = `${cssH}px`;
-    ui.canvas.width = Math.round(cssW * dpr);
-    ui.canvas.height = Math.round(cssH * dpr);
+    const pxW = Math.round(cssW * dpr);
+    const pxH = Math.round(cssH * dpr);
+    // Assigning canvas.width/height clears the bitmap. Only do it on an actual size
+    // change so a re-render triggered by something other than a resize (e.g. the
+    // cursor readout toggling the layout height) repaints over the prior frame
+    // instead of flashing white.
+    if (ui.canvas.width !== pxW || ui.canvas.height !== pxH) {
+      ui.canvas.width = pxW;
+      ui.canvas.height = pxH;
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return { w: cssW, h: cssH };
   }
@@ -454,16 +466,45 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     timeClock = ui.clockCheck.checked;
     render();
   });
+
+  // --- Settings (gear) popover --------------------------------------------
+  let menuOpen = false;
+  function setMenu(open: boolean): void {
+    menuOpen = open;
+    ui.menu.style.display = open ? "flex" : "none";
+    ui.gearBtn.setAttribute("aria-expanded", String(open));
+    ui.gearBtn.classList.toggle("eegv__gear--open", open);
+  }
+  function syncGear(): void {
+    // A dot on the gear marks an active filter so it is clear the trace is filtered
+    // even while the menu is closed.
+    ui.gearBtn.classList.toggle("eegv__gear--active", hasFilters(filters));
+  }
+  ui.gearBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setMenu(!menuOpen);
+  });
+  ui.menu.addEventListener("click", (e) => e.stopPropagation());
+  const onDocClick = (): void => {
+    if (menuOpen) setMenu(false);
+  };
+  document.addEventListener("click", onDocClick);
+  cleanups.push(() => document.removeEventListener("click", onDocClick));
+  syncGear(); // reflect the PowerLineFrequency notch default
+
   ui.hp.addEventListener("change", () => {
     filters.hp = Number(ui.hp.value) || null;
+    syncGear();
     render();
   });
   ui.lp.addEventListener("change", () => {
     filters.lp = Number(ui.lp.value) || null;
+    syncGear();
     render();
   });
   ui.notch.addEventListener("change", () => {
     filters.notch = Number(ui.notch.value) || null;
+    syncGear();
     render();
   });
   ui.hscroll.addEventListener("input", () => {
@@ -636,13 +677,22 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       render();
     } else if (k === "?") {
       toggleHelp();
+    } else if (k === "Escape" && menuOpen) {
+      setMenu(false);
     } else return;
     e.preventDefault();
   });
 
   if (typeof ResizeObserver !== "undefined") {
     let raf = 0;
-    const ro = new ResizeObserver(() => {
+    let lastObservedW = -1; // -1 (not 0) so even a zero-width first observation renders once
+    const ro = new ResizeObserver((entries) => {
+      // The scope height tracks width, so only a width change needs a repaint.
+      // Ignore height-only changes (e.g. the cursor readout row growing/shrinking)
+      // that would otherwise re-render on every pointer enter/leave.
+      const w = Math.round(entries[0]?.contentRect.width ?? ui.root.getBoundingClientRect().width);
+      if (w === lastObservedW) return;
+      lastObservedW = w;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => render());
     });
@@ -703,6 +753,8 @@ interface ViewerUi {
   hscroll: HTMLInputElement;
   vscroll: HTMLInputElement;
   groupSel: HTMLSelectElement | null;
+  gearBtn: HTMLButtonElement;
+  menu: HTMLElement;
   helpOverlay: HTMLElement;
   on(action: string, fn: () => void): void;
 }
@@ -770,20 +822,34 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     ),
   );
 
-  // Filter group (client-side zero-phase display filters).
+  // Set-once controls (zero-phase filters + display toggles) live behind a gear
+  // popover so the primary bar stays uncluttered -- these are typically configured
+  // once per dataset and forgotten.
   const hp = compactSelect(HP_CHOICES, "0");
   const lp = compactSelect(LP_CHOICES, "0");
-  const notch = compactSelect(NOTCH_CHOICES, "0");
-  bar.append(
-    grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
-  );
-
-  // Display toggles.
+  const notch = compactSelect(NOTCH_CHOICES, notchDefault(store.powerLineFrequency));
   const dc = labeledCheck("DC", true);
   const events = labeledCheck("Events", true);
   const butterflyLc = labeledCheck("Butterfly", false);
   const clockLc = labeledCheck("Clock", false);
-  bar.append(grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap));
+
+  const gearBtn = document.createElement("button");
+  gearBtn.type = "button";
+  gearBtn.className = "eegv__gear";
+  gearBtn.title = "Settings — filters & display";
+  gearBtn.setAttribute("aria-label", "Settings");
+  gearBtn.setAttribute("aria-expanded", "false");
+  gearBtn.innerHTML = gearGlyph();
+
+  const menu = el("div", "eegv__menu");
+  menu.style.display = "none";
+  menu.append(
+    grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
+    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap),
+  );
+  const settings = el("div", "eegv__settings");
+  settings.append(gearBtn, menu);
+  bar.append(settings);
 
   // Cursor readout (below toolbar, above scope).
   const cursor = el("div", "eegv__cursor");
@@ -864,6 +930,8 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     hscroll,
     vscroll,
     groupSel,
+    gearBtn,
+    menu,
     helpOverlay,
     on(action, fn) {
       root.querySelector<HTMLButtonElement>(`[data-act="${action}"]`)?.addEventListener("click", fn);
@@ -899,6 +967,18 @@ function grouped(label: string, ...controls: Array<Node>): HTMLElement {
 /** A small inline magnifier glyph with a +/- center, as button content. */
 function magnifierGlyph(sign: "+" | "-"): string {
   return sign === "+" ? "⊕" : "⊖";
+}
+
+/** Inline gear (settings) icon for the popover toggle. */
+function gearGlyph(): string {
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+}
+
+/** Default Notch select value: the recording's PowerLineFrequency when it is a
+ *  supported option (50/60 Hz), else "0" (off). Datasets that do not declare one
+ *  open unfiltered. */
+function notchDefault(powerLineFrequency: number | null): string {
+  return powerLineFrequency === 50 || powerLineFrequency === 60 ? String(powerLineFrequency) : "0";
 }
 
 function compactSelect(options: Array<[string, string]>, value: string): HTMLSelectElement {
