@@ -114,13 +114,13 @@ const licenseTitle = license
   )}
 
   {keywordsList.length > 0 && (
-    <div class="rail__row">
-      <dt>Keywords</dt>
-      <dd class="rail__chips">
-        {/* Clicking a keyword searches Discover for the same term, rather
-            than opening the (rarely useful) ontology value_uri. */}
+    <div class="rail__section">
+      <h3>Keywords</h3>
+      {/* Clicking a keyword searches Discover for the same term, rather
+          than opening the (rarely useful) ontology value_uri. */}
+      <div class="rail__chips">
         {keywordsList.map((k) => <Tag kind="keyword" value={k} href={keywordHref(k)} />)}
-      </dd>
+      </div>
     </div>
   )}
 
