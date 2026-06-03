@@ -482,9 +482,28 @@ Astro.response.headers.set(
     }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
 
-    // EEG: future-compatible stub, no fetch needed.
+    // EEG/MEG/iEEG/EMG: open the interactive Zarr signal viewer. It streams the
+    // recording's serving-copy chunks from zarr.nemar.org (ranged GETs, no full
+    // download), so the MAX_PREVIEW_BYTES gate below intentionally does not apply.
+    // Code-split: the viewer + zarrita bundle only loads when a signal file is
+    // first opened.
     if (previewType === "eeg") {
-      slot.innerHTML = `<p class="preview__soon">EEG visualizer coming soon. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download ${escapeHtml(fileName)}</a> in the meantime.</p>`;
+      slot.dataset.loaded = "loading";
+      slot.setAttribute("aria-busy", "true");
+      slot.innerHTML = `<p class="preview__loading">Loading viewer…</p>`;
+      try {
+        const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
+        await mountEegViewer(slot, {
+          datasetId: treeId,
+          version: treeVersion,
+          filePath,
+          downloadUrl: fileUrl,
+        });
+      } catch (err) {
+        console.error("[eeg-viewer] mount failed:", err);
+        slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      }
+      slot.removeAttribute("aria-busy");
       slot.dataset.loaded = "true";
       return;
     }

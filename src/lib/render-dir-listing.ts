@@ -134,12 +134,11 @@ function appendTags(out: string[], cls: FileClassification, isRoot: boolean): vo
   // "View · soon" hint was stale. Nested-rows-only, like the EEG hint below,
   // so the root view stays calm (root rarely holds raw data files).
   if (!isRoot && cls.isTSV) out.push(`<span class="tree__tag">TSV</span>`);
-  // EEG visualizer is genuinely still pending (nemar-cli#511), so its
-  // "Vis · soon" hint stays until that backend route lands.
-  if (!isRoot && cls.isEEG)
-    out.push(
-      `<span class="tree__tag tree__tag--soon" title="Visualizer coming soon">Vis · soon</span>`,
-    );
+  // Signal recordings (.set/.edf/.bdf/.vhdr/.fif) get a plain format badge like
+  // JSON/TSV; the row is click-to-open in the Zarr signal viewer (epic
+  // nemar-cli#684). The badge is the file's format, uppercased.
+  if (!isRoot && cls.isEEG && cls.ext)
+    out.push(`<span class="tree__tag tree__tag--signal">${esc(cls.ext.toUpperCase())}</span>`);
 }
 
 function renderDirRow(
