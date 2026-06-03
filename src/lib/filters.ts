@@ -1,6 +1,5 @@
 import { licenseTier } from "./tags";
 import {
-  type Dataset,
   type DatasetQuery,
   LICENSE_TIERS,
   type LicenseTier,
@@ -9,6 +8,21 @@ import {
   type ModalityOp,
   type SortOption,
 } from "./types";
+
+/**
+ * The structural subset a row needs for client-side filtering. Both the full
+ * {@link import("./types").Dataset} and the reduced
+ * {@link import("./types").SearchResult} satisfy it, so the freetext-search
+ * (hybrid endpoint) and browse (list endpoint) paths share one filter pass.
+ * `license` is optional: rows that omit it (hybrid hits) classify as the
+ * "unknown" tier and keep license filtering inactive (gated on every row
+ * carrying the field — see `licenseDataReady`).
+ */
+export interface FilterableRow {
+  modalities: string;
+  participants: number;
+  license?: string | null;
+}
 
 /**
  * Reserved keywords in the search box that auto-toggle a sidebar control.
@@ -199,7 +213,7 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
  * `applyClientFilters`). One definition shared by the filter and the Discover
  * notice so they can't drift apart.
  */
-function licenseDataReady(datasets: Dataset[]): boolean {
+function licenseDataReady(datasets: FilterableRow[]): boolean {
   return datasets.every((d) => d.license !== undefined);
 }
 
@@ -209,14 +223,20 @@ function licenseDataReady(datasets: Dataset[]): boolean {
  * "rolling out" notice for this case instead of silently returning unfiltered
  * results.
  */
-export function isLicenseFilterPending(datasets: Dataset[], state: FilterState): boolean {
+export function isLicenseFilterPending(datasets: FilterableRow[], state: FilterState): boolean {
   return state.licenseTiers.length > 0 && !licenseDataReady(datasets);
 }
 
 /**
- * Apply the parts of the filter state that the server can't enforce.
+ * Apply the parts of the filter state that the server can't enforce. Generic
+ * over the row shape so it serves both browse (full Dataset) and freetext
+ * search (reduced SearchResult) rows — see {@link FilterableRow}.
  */
-export function applyClientFilters(datasets: Dataset[], state: FilterState): Dataset[] {
+export function applyClientFilters<T extends FilterableRow>(
+  datasets: T[],
+  state: FilterState,
+  opts: { allModalitiesClientSide?: boolean } = {},
+): T[] {
   // License filtering activates only once EVERY row in the batch carries the
   // `license` field (present — a null/empty value classifies as the "unknown"
   // tier, which is still filterable). Gating on `every` (not `some`) keeps the
@@ -226,8 +246,12 @@ export function applyClientFilters(datasets: Dataset[], state: FilterState): Dat
   const licenseActive = state.licenseTiers.length > 0 && licenseDataReady(datasets);
   return datasets.filter((d) => {
     if (licenseActive && !state.licenseTiers.includes(licenseTier(d.license))) return false;
-    // Modality OR/AND when 2+ selected (single modality is already on server).
-    if (state.modalities.length > 1) {
+    // Modality OR/AND. In browse mode a single modality is already enforced
+    // server-side, so we only post-filter when 2+ are selected. In search
+    // mode the hybrid endpoint doesn't filter by modality, so the caller sets
+    // `allModalitiesClientSide` to enforce even a single selection here.
+    const modalityThreshold = opts.allModalitiesClientSide ? 1 : 2;
+    if (state.modalities.length >= modalityThreshold && state.modalities.length > 0) {
       const dsMods = (d.modalities || "")
         .split(",")
         .map((m) => m.trim().toUpperCase())
