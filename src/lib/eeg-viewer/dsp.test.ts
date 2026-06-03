@@ -7,6 +7,7 @@ import {
   formatSi,
   niceScale,
   pickViewLevel,
+  removeBandDc,
   removeDcInPlace,
   unitToSI,
 } from "./dsp";
@@ -108,5 +109,48 @@ describe("niceScale", () => {
     expect(niceScale(23e-6)).toBeCloseTo(20e-6, 12);
     expect(niceScale(70e-6)).toBeCloseTo(50e-6, 12);
     expect(niceScale(130e-6)).toBeCloseTo(100e-6, 12);
+  });
+  it("returns 1 for zero", () => {
+    expect(niceScale(0)).toBe(1);
+  });
+  it("returns 1 for negative values", () => {
+    expect(niceScale(-50e-6)).toBe(1);
+  });
+  it("returns 1 for NaN", () => {
+    expect(niceScale(Number.NaN)).toBe(1);
+  });
+});
+
+describe("removeBandDc", () => {
+  it("zero-means by midpoint: mean of all (outMin[i]+outMax[i])/2 is ~0", () => {
+    const min = new Float32Array([10, 20, 30]);
+    const max = new Float32Array([20, 30, 40]);
+    const { min: outMin, max: outMax } = removeBandDc(min, max);
+    // The midpoint mean across all output samples should be ~0
+    let midpointSum = 0;
+    for (let i = 0; i < outMin.length; i++) midpointSum += (outMin[i] + outMax[i]) / 2;
+    expect(midpointSum / outMin.length).toBeCloseTo(0, 5);
+  });
+  it("handles empty arrays without throwing", () => {
+    const { min, max } = removeBandDc(new Float32Array([]), new Float32Array([]));
+    expect(min.length).toBe(0);
+    expect(max.length).toBe(0);
+  });
+  it("does not mutate the input arrays", () => {
+    const min = new Float32Array([5, 10]);
+    const max = new Float32Array([15, 20]);
+    const origMin = min.slice();
+    const origMax = max.slice();
+    removeBandDc(min, max);
+    expect(Array.from(min)).toEqual(Array.from(origMin));
+    expect(Array.from(max)).toEqual(Array.from(origMax));
+  });
+});
+
+describe("formatSi sub-femto", () => {
+  it("formats a sub-femto value (5e-16 V) as a finite string with 'f' prefix", () => {
+    const result = formatSi(5e-16, "V");
+    expect(result).toMatch(/f/);
+    expect(result).not.toMatch(/Infinity|NaN/);
   });
 });
