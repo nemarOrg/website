@@ -4,7 +4,7 @@ import FilterSidebar from "../components/FilterSidebar.astro";
 import Pagination from "../components/Pagination.astro";
 import SearchBar from "../components/SearchBar.astro";
 import Base from "../layouts/Base.astro";
-import { listDatasets } from "../lib/api";
+import { getDataset, listDatasets, searchDatasets, searchResultToDataset } from "../lib/api";
 import {
   applyClientFilters,
   filterStateFromURL,
@@ -12,39 +12,70 @@ import {
   filterStateToURL,
   isLicenseFilterPending,
 } from "../lib/filters";
+import type { Dataset } from "../lib/types";
 
 const url = new URL(Astro.request.url);
 const state = filterStateFromURL(url.searchParams);
-const baseQuery = filterStateToAPIQuery(state);
-
-// Server-side offset pagination. We pass limit + offset directly to the API
-// so a user can page through all 645 datasets, not just the first 200 the
-// client-side window was capped at. Client-side filtering (multi-modality
-// AND/OR, range sliders, etc.) still runs over each page after fetch.
 const PAGE_SIZE = state.pageSize;
-const query = {
-  ...baseQuery,
-  limit: PAGE_SIZE,
-  offset: (state.page - 1) * PAGE_SIZE,
-};
+// A freetext query routes through the hybrid lexical+semantic endpoint
+// (nemar-cli#646, closes website#12); an empty box keeps the browse flow.
+const isSearch = state.q.trim().length > 0;
 
-let visible = [] as Awaited<ReturnType<typeof listDatasets>>["datasets"];
+// Max ranked hits to pull from the hybrid endpoint in one shot. It has no
+// `offset`, so we fetch the full ranked list once and paginate client-side.
+const SEARCH_FETCH_LIMIT = 240;
+
+// Each rendered card pairs a full Dataset with an optional FTS5 snippet.
+let cards: Array<{ dataset: Dataset; snippet?: string }> = [];
 let totalReturned = 0;
 let fetchError: string | null = null;
 // True when a license tier is selected but the catalog isn't synced yet, so
 // the filter is a no-op. Drives a contextual notice so the empty narrowing
 // isn't silent (the field arrives via nemar-cli#653).
 let licensePending = false;
+// Which path served a search ("semantic" | "exact_id" | "text_fallback"),
+// surfaced subtly so the relevance-ranked (not date-sorted) order reads as
+// intentional. Null in browse mode.
+let searchMethod: string | null = null;
 
 try {
-  const page = await listDatasets(query);
-  licensePending = isLicenseFilterPending(page.datasets, state);
-  // Client-side filters narrow this page. Note: multi-modality AND/OR and
-  // range filters reduce the visible count for the *current page* only —
-  // pagination still spans the server-side total. Acceptable for now;
-  // can be improved when range filters move server-side.
-  visible = applyClientFilters(page.datasets, state);
-  totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+  if (isSearch) {
+    const res = await searchDatasets(state.q, { limit: SEARCH_FETCH_LIMIT });
+    searchMethod = res.method;
+    licensePending = isLicenseFilterPending(res.results, state);
+    // The hybrid endpoint doesn't filter by modality/range, so every
+    // selection is enforced client-side over the full ranked list (relevance
+    // order preserved; the `sort` control is a no-op while searching).
+    const ranked = applyClientFilters(res.results, state, { allModalitiesClientSide: true });
+    totalReturned = ranked.length;
+    const slice = ranked.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
+    // Hydrate the visible page to full rows (parallel). If a detail fetch
+    // blips, fall back to the reduced search projection so the card (and its
+    // snippet) still render rather than dropping out.
+    cards = await Promise.all(
+      slice.map(async (r) => {
+        try {
+          return { dataset: await getDataset(r.id), snippet: r.snippet };
+        } catch {
+          return { dataset: searchResultToDataset(r), snippet: r.snippet };
+        }
+      }),
+    );
+  } else {
+    // Server-side offset pagination across the full catalog. Client-side
+    // filtering (multi-modality AND/OR, range sliders) still runs per page.
+    const baseQuery = filterStateToAPIQuery(state);
+    const page = await listDatasets({
+      ...baseQuery,
+      limit: PAGE_SIZE,
+      offset: (state.page - 1) * PAGE_SIZE,
+    });
+    licensePending = isLicenseFilterPending(page.datasets, state);
+    // Note: multi-modality AND/OR and range filters reduce the visible count
+    // for the *current page* only — pagination still spans the server total.
+    cards = applyClientFilters(page.datasets, state).map((d) => ({ dataset: d }));
+    totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+  }
 } catch (err) {
   fetchError = err instanceof Error ? err.message : "Failed to load datasets.";
 }
@@ -70,8 +101,13 @@ Astro.response.headers.set(
       <div class="discover__head-row">
         <h1>Discover datasets</h1>
         <p class="discover__count">
-          Showing {visible.length} of {totalReturned.toLocaleString()} datasets
+          {isSearch
+            ? `${totalReturned.toLocaleString()} ${totalReturned === 1 ? "result" : "results"} for "${state.q}"`
+            : `Showing ${cards.length} of ${totalReturned.toLocaleString()} datasets`}
           {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
+          {isSearch && searchMethod && totalReturned > 0 && (
+            <span class="discover__rank-note"> · ranked by relevance</span>
+          )}
         </p>
       </div>
       <SearchBar value={state.q} size="md" placeholder="Search by dataset name, ID, or description..." />
@@ -93,18 +129,29 @@ Astro.response.headers.set(
             (<a href="https://github.com/nemarOrg/nemar-cli/issues/653" rel="external">nemar-cli#653</a>).
           </div>
         )}
-        {!fetchError && visible.length === 0 && (
+        {!fetchError && cards.length === 0 && (
           <div class="discover__empty">
-            <h2>No datasets match these filters.</h2>
-            <p>Try removing a filter or
-              <a href="/discover">resetting all filters</a>.
-            </p>
+            {isSearch ? (
+              <>
+                <h2>No datasets match "{state.q}".</h2>
+                <p>Try a different term, fewer filters, or
+                  <a href="/discover">browse all datasets</a>.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2>No datasets match these filters.</h2>
+                <p>Try removing a filter or
+                  <a href="/discover">resetting all filters</a>.
+                </p>
+              </>
+            )}
           </div>
         )}
         <ul class="discover__list" role="list">
-          {visible.map((d) => (
+          {cards.map((c) => (
             <li>
-              <DatasetCard dataset={d} />
+              <DatasetCard dataset={c.dataset} snippet={c.snippet} />
             </li>
           ))}
         </ul>
@@ -142,6 +189,9 @@ Astro.response.headers.set(
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
     font-family: var(--font-mono);
+  }
+  .discover__rank-note {
+    color: var(--color-fg-subtle);
   }
   .discover__layout {
     display: grid;
