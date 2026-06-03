@@ -73,6 +73,10 @@ describe("filterStateFromURL", () => {
     const s = filterStateFromURL(new URLSearchParams("modality=EEG&modality=MEG,EEG"));
     expect(s.modalities).toEqual(["EEG", "MEG"]);
   });
+  it("ignores empty license values mixed with a valid one", () => {
+    const s = filterStateFromURL(new URLSearchParams("license=&license=public"));
+    expect(s.licenseTiers).toEqual(["public"]);
+  });
   it("parses range filters", () => {
     const s = filterStateFromURL(new URLSearchParams("p_min=10&p_max=100"));
     expect(s.participants).toEqual({ min: 10, max: 100 });

@@ -107,6 +107,7 @@ function parseLicenseTiers(values: string[]): LicenseTier[] {
   for (const raw of values) {
     for (const part of raw.split(",")) {
       const tier = part.trim().toLowerCase() as LicenseTier;
+      if (!tier) continue;
       if (LICENSE_TIERS.includes(tier) && !result.includes(tier)) result.push(tier);
     }
   }
