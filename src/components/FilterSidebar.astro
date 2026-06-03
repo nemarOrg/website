@@ -5,9 +5,15 @@ import { LICENSE_TIERS, MODALITY_CODES, SORT_OPTIONS } from "../lib/types";
 
 interface Props {
   state: FilterState;
+  /**
+   * When a freetext query is active, results are relevance-ranked by the
+   * hybrid search endpoint and the sort control has no effect, so we disable
+   * it with a hint rather than letting it silently no-op.
+   */
+  searchActive?: boolean;
 }
 
-const { state } = Astro.props;
+const { state, searchActive = false } = Astro.props;
 ---
 
 <form
@@ -147,13 +153,16 @@ const { state } = Astro.props;
 
   <div class="filters__group">
     <h3>Sort</h3>
-    <select name="sort">
+    <select name="sort" disabled={searchActive}>
       {SORT_OPTIONS.map((opt) => (
         <option value={opt.value} selected={state.sort === opt.value}>
           {opt.label}
         </option>
       ))}
     </select>
+    {searchActive && (
+      <p class="filters__hint">Results are ranked by relevance while searching.</p>
+    )}
   </div>
 
   <div class="filters__actions">
@@ -327,6 +336,16 @@ const { state } = Astro.props;
     background: var(--color-bg);
     color: var(--color-fg);
     font-size: var(--fs-sm);
+  }
+  .filters select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .filters__hint {
+    margin-block-start: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    line-height: var(--lh-snug);
   }
   .filters__actions {
     display: flex;

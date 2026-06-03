@@ -185,6 +185,32 @@ describe("applyClientFilters", () => {
     expect(out).toEqual(["b", "c"]);
   });
 
+  it("enforces a single modality client-side in search mode", () => {
+    // The hybrid search endpoint doesn't filter by modality, so the search
+    // path opts into client-side enforcement for even one selection.
+    const s = defaultFilterState();
+    s.modalities = ["EEG"];
+    const out = applyClientFilters(datasets, s, { allModalitiesClientSide: true }).map(
+      (d) => d.dataset_id,
+    );
+    expect(out).toEqual(["a", "c"]);
+  });
+
+  it("filters reduced search-result rows by modality + participants", () => {
+    // applyClientFilters is generic over FilterableRow; the hybrid endpoint's
+    // reduced projection (no license field) satisfies it.
+    const results = [
+      { id: "a", modalities: "eeg", participants: 10 },
+      { id: "b", modalities: "meg", participants: 50 },
+      { id: "c", modalities: "eeg,meg", participants: 100 },
+    ];
+    const s = defaultFilterState();
+    s.modalities = ["EEG"];
+    s.participants = { min: 50, max: null };
+    const out = applyClientFilters(results, s, { allModalitiesClientSide: true }).map((r) => r.id);
+    expect(out).toEqual(["c"]);
+  });
+
   it("skips the license filter when no row carries a license (pending nemar-cli#653)", () => {
     // Catalog rows don't ship `license` yet; selecting a tier must not
     // zero-out every result.

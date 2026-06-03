@@ -44,6 +44,41 @@ export interface DatasetListResponse {
   offset: number;
 }
 
+/**
+ * A single hit from GET /datasets/search (the hybrid lexical+semantic
+ * endpoint added in nemar-cli#646 Phase 3). This is a deliberately reduced
+ * projection of {@link Dataset}: only ranking-relevant fields are returned,
+ * so cards are hydrated to a full Dataset by id before display.
+ *
+ * `snippet` is the FTS5 `snippet()` highlight (README/body match) wrapped in
+ * `<mark>…</mark>`; absent on semantic-only hits with no lexical match.
+ */
+export interface SearchResult {
+  id: string;
+  name: string;
+  modalities: string;
+  participants: number;
+  doi: string | null;
+  tasks: string;
+  authors: string;
+  score: number;
+  snippet?: string;
+}
+
+/**
+ * Envelope from GET /datasets/search. `count` is the number of ranked hits,
+ * `method` reports which path served the query (`exact_id` | `semantic` |
+ * `text_fallback`), and `min_score` is the relevance cutoff applied.
+ * The endpoint does NOT support `offset` — pagination is client-side over
+ * the ranked list.
+ */
+export interface DatasetSearchResponse {
+  results: SearchResult[];
+  count: number;
+  method: string;
+  min_score: number;
+}
+
 export type SortOption = "newest" | "oldest" | "name" | "participants" | "size";
 
 export const SORT_OPTIONS: ReadonlyArray<{ value: SortOption; label: string }> = [
