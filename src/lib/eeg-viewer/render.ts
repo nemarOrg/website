@@ -12,11 +12,11 @@
  * testable layout math (see `traceLayout`).
  */
 
-import { formatSi } from "./dsp";
+import { formatClock, formatSi } from "./dsp";
 
 export type FrameChannel =
-  | { label: string; color: string; kind: "line"; line: Float32Array }
-  | { label: string; color: string; kind: "band"; min: Float32Array; max: Float32Array };
+  | { label: string; color: string; kind: "line"; line: Float32Array; dim?: boolean }
+  | { label: string; color: string; kind: "band"; min: Float32Array; max: Float32Array; dim?: boolean };
 
 export interface FrameEvent {
   onsetS: number;
@@ -36,6 +36,8 @@ export interface ViewerFrame {
   physPerDiv: number;
   /** Dimension of the data: "V" (EEG/EMG/iEEG) or "T" (MEG). */
   unitBase: "V" | "T";
+  /** When true, render axis ticks as HH:MM:SS clock rather than bare seconds. */
+  timeClock?: boolean;
 }
 
 export interface RenderOptions {
@@ -53,6 +55,11 @@ export interface RenderOptions {
   background: string;
   foreground: string;
   grid: string;
+  /**
+   * When true, overlay ALL visible channels in one full-height slot (butterfly
+   * mode, for spotting outlier channels). When false, the default stacked layout.
+   */
+  butterfly?: boolean;
 }
 
 export const DEFAULT_RENDER: Omit<RenderOptions, "width" | "height"> = {
@@ -63,6 +70,7 @@ export const DEFAULT_RENDER: Omit<RenderOptions, "width" | "height"> = {
   background: "#ffffff",
   foreground: "#1a1a1a",
   grid: "#e6e6e6",
+  butterfly: false,
 };
 
 export interface TraceSlot {
@@ -147,6 +155,41 @@ export function renderFrame(
   ctx.fillStyle = opts.background;
   ctx.fillRect(0, 0, width, height);
 
+  if (opts.butterfly) {
+    renderButterfly(ctx, frame, opts, plotLeft, plotTop, plotWidth, plotHeight, g, clip);
+  } else {
+    renderStacked(ctx, frame, opts, plotLeft, plotTop, plotWidth, plotHeight, g, clip);
+  }
+
+  drawTimeAxis(ctx, frame, opts, plotLeft, plotWidth, plotTop + plotHeight);
+  drawScaleBar(ctx, frame, opts, plotLeft, plotTop, plotHeight,
+    opts.butterfly ? computeButterflyPxPerPhys(frame, plotHeight, g) : computeStackedPxPerPhys(frame, plotHeight, g));
+}
+
+function computeStackedPxPerPhys(frame: ViewerFrame, plotHeight: number, g: number): number {
+  const n = frame.channels.length;
+  if (n <= 0) return 0;
+  const slotHeight = plotHeight / n;
+  const halfHeight = slotHeight / 2;
+  return halfHeight / (frame.physPerDiv / g);
+}
+
+function computeButterflyPxPerPhys(frame: ViewerFrame, plotHeight: number, g: number): number {
+  const halfHeight = plotHeight / 2;
+  return halfHeight / (frame.physPerDiv / g);
+}
+
+function renderStacked(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  opts: RenderOptions,
+  plotLeft: number,
+  plotTop: number,
+  plotWidth: number,
+  plotHeight: number,
+  g: number,
+  clip: number,
+): void {
   const slots = traceLayout(frame.channels.length, plotTop, plotHeight);
   const pxPerPhys = slots.length > 0 ? slots[0].halfHeight / (frame.physPerDiv / g) : 0;
 
@@ -163,15 +206,131 @@ export function renderFrame(
     ctx.stroke();
 
     const ch = frame.channels[i];
-    ctx.fillStyle = ch.color;
+    ctx.fillStyle = ch.dim ? hexWithAlpha(ch.color, 0.3) : ch.color;
     ctx.textAlign = "left";
     ctx.fillText(ch.label.slice(0, 10), 6, slot.baseline);
   }
 
-  // Event lines: a vertical line at each onset, colored by type, label at top.
-  // A genuine annotation span (duration > 0) gets a thin top rule between
-  // onset and end rather than a full-height wash (which read as noise); point
-  // stimulus events (duration 0) are just the line.
+  // Event lines.
+  drawEventLines(ctx, frame, plotLeft, plotTop, plotWidth, plotHeight);
+
+  // Traces.
+  for (let i = 0; i < frame.channels.length; i++) {
+    const ch = frame.channels[i];
+    const slot = slots[i];
+    const clipPx = slot.halfHeight * clip;
+    const yOf = (v: number) => {
+      const y = slot.baseline - v * pxPerPhys;
+      const lo = slot.baseline - clipPx;
+      const hi = slot.baseline + clipPx;
+      return y < lo ? lo : y > hi ? hi : y;
+    };
+
+    ctx.globalAlpha = ch.dim ? 0.3 : 1;
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1;
+    drawTrace(ctx, ch, frame.nCols, plotLeft, plotWidth, yOf);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function renderButterfly(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  opts: RenderOptions,
+  plotLeft: number,
+  plotTop: number,
+  plotWidth: number,
+  plotHeight: number,
+  g: number,
+  clip: number,
+): void {
+  const baseline = plotTop + plotHeight / 2;
+  const halfHeight = plotHeight / 2;
+  const pxPerPhys = halfHeight / (frame.physPerDiv / g);
+  const clipPx = halfHeight * clip;
+
+  // Center divider line.
+  ctx.strokeStyle = opts.grid;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(plotLeft, Math.round(baseline) + 0.5);
+  ctx.lineTo(plotLeft + plotWidth, Math.round(baseline) + 0.5);
+  ctx.stroke();
+
+  // Event lines.
+  drawEventLines(ctx, frame, plotLeft, plotTop, plotWidth, plotHeight);
+
+  // All channels overlaid in the single full-height slot.
+  for (let i = 0; i < frame.channels.length; i++) {
+    const ch = frame.channels[i];
+    const yOf = (v: number) => {
+      const y = baseline - v * pxPerPhys;
+      const lo = baseline - clipPx;
+      const hi = baseline + clipPx;
+      return y < lo ? lo : y > hi ? hi : y;
+    };
+
+    ctx.globalAlpha = ch.dim ? 0.15 : 0.75;
+    ctx.strokeStyle = ch.color;
+    ctx.lineWidth = 1;
+    drawTrace(ctx, ch, frame.nCols, plotLeft, plotWidth, yOf);
+  }
+  ctx.globalAlpha = 1;
+
+  // Compact color legend in gutter (up to 8 channels).
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  const shown = Math.min(frame.channels.length, 8);
+  for (let i = 0; i < shown; i++) {
+    const ch = frame.channels[i];
+    const ly = plotTop + (i + 0.5) * (plotHeight / Math.max(shown, 1));
+    ctx.fillStyle = ch.dim ? hexWithAlpha(ch.color, 0.3) : ch.color;
+    ctx.globalAlpha = ch.dim ? 0.3 : 0.9;
+    ctx.fillText(ch.label.slice(0, 8), 2, ly);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawTrace(
+  ctx: CanvasRenderingContext2D,
+  ch: FrameChannel,
+  nCols: number,
+  plotLeft: number,
+  plotWidth: number,
+  yOf: (v: number) => number,
+): void {
+  if (ch.kind === "band") {
+    ctx.beginPath();
+    for (let c = 0; c < nCols; c++) {
+      const x = colToX(c, nCols, plotLeft, plotWidth);
+      if (c === 0) ctx.moveTo(x, yOf(ch.max[c]));
+      else ctx.lineTo(x, yOf(ch.max[c]));
+      ctx.lineTo(x, yOf(ch.min[c]));
+    }
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    const n = ch.line.length;
+    for (let c = 0; c < n; c++) {
+      const x = colToX(c, n, plotLeft, plotWidth);
+      const y = yOf(ch.line[c]);
+      if (c === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+}
+
+function drawEventLines(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  plotLeft: number,
+  plotTop: number,
+  plotWidth: number,
+  plotHeight: number,
+): void {
   ctx.textAlign = "center";
   for (const ev of frame.events) {
     const x = timeToX(ev.onsetS, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth);
@@ -199,51 +358,6 @@ export function renderFrame(
     ctx.fillStyle = ev.color;
     ctx.fillText(ev.label.slice(0, 12), x, plotTop + 2);
   }
-
-  // Traces.
-  for (let i = 0; i < frame.channels.length; i++) {
-    const ch = frame.channels[i];
-    const slot = slots[i];
-    const clipPx = slot.halfHeight * clip;
-    const yOf = (v: number) => {
-      const y = slot.baseline - v * pxPerPhys;
-      const lo = slot.baseline - clipPx;
-      const hi = slot.baseline + clipPx;
-      return y < lo ? lo : y > hi ? hi : y;
-    };
-
-    ctx.strokeStyle = ch.color;
-    ctx.lineWidth = 1;
-
-    if (ch.kind === "band") {
-      // Min/max decimation waveform: for each pixel-column draw the full
-      // [min,max] vertical extent, connected across columns. This preserves the
-      // inherent EEG texture that a centerline smooths away -- a calm channel
-      // stays a thin squiggle, activity reads as dense texture -- without the
-      // heavy look of a filled band.
-      ctx.beginPath();
-      for (let c = 0; c < frame.nCols; c++) {
-        const x = colToX(c, frame.nCols, plotLeft, plotWidth);
-        if (c === 0) ctx.moveTo(x, yOf(ch.max[c]));
-        else ctx.lineTo(x, yOf(ch.max[c]));
-        ctx.lineTo(x, yOf(ch.min[c]));
-      }
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      const n = ch.line.length;
-      for (let c = 0; c < n; c++) {
-        const x = colToX(c, n, plotLeft, plotWidth);
-        const y = yOf(ch.line[c]);
-        if (c === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-  }
-
-  drawTimeAxis(ctx, frame, opts, plotLeft, plotWidth, plotTop + plotHeight);
-  drawScaleBar(ctx, frame, opts, plotLeft, plotTop, plotHeight, pxPerPhys);
 }
 
 function drawTimeAxis(
@@ -270,7 +384,8 @@ function drawTimeAxis(
     ctx.moveTo(Math.round(x) + 0.5, axisY);
     ctx.lineTo(Math.round(x) + 0.5, axisY + 4);
     ctx.stroke();
-    ctx.fillText(`${formatAxisTime(t)}s`, x, axisY + 6);
+    const label = frame.timeClock ? formatClock(t) : `${formatAxisTime(t)}s`;
+    ctx.fillText(label, x, axisY + 6);
   }
 }
 
@@ -326,4 +441,12 @@ function formatAxisTime(t: number): string {
   if (Math.abs(t) >= 100) return t.toFixed(0);
   if (Math.abs(t) >= 10) return t.toFixed(1);
   return t.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/** Blend a hex color with a given alpha (0-1), returning a CSS rgba() string. */
+function hexWithAlpha(hex: string, alpha: number): string {
+  const r = Number.parseInt(hex.slice(1, 3), 16);
+  const g = Number.parseInt(hex.slice(3, 5), 16);
+  const b = Number.parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
