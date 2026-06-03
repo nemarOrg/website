@@ -101,6 +101,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let firstPaint = true;
   let timeClock = false;
   let butterfly = false;
+  let hideBad = false;
   const badChannels = new Set<string>();
 
   // Cursor readout state: the last rendered frame and layout geometry.
@@ -287,7 +288,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
 
     const visible = g.channelsByRow.slice(chanStart, visEnd);
     const n = Math.min(visible.length, win.channels.length);
-    const channels: FrameChannel[] = visible.slice(0, n).map((ch, i) => {
+    let channels: FrameChannel[] = visible.slice(0, n).map((ch, i) => {
       const color =
         ch.channelType && ch.channelType !== "OTHER"
           ? channelColor(ch.channelType)
@@ -302,6 +303,18 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       if (dcRemove) ({ min, max } = removeBandDc(min, max));
       return { label: ch.label, color, kind: "band" as const, min, max, dim };
     });
+
+    // Reject mode: drop bad channels from the montage entirely (the survivors take
+    // the full height) rather than only dimming them in place. Never blank the scope
+    // if every visible channel is marked bad.
+    if (hideBad && badChannels.size > 0) {
+      const kept = channels.filter((c) => !badChannels.has(c.label));
+      const hidden = channels.length - kept.length;
+      if (kept.length > 0) {
+        channels = kept;
+        if (hidden > 0) ui.chanInfo.textContent += ` · ${hidden} hidden`;
+      }
+    }
 
     const modality = (g.modality as Modality) ?? "MISC";
     const frame: ViewerFrame = {
@@ -471,6 +484,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   });
   ui.clockCheck.addEventListener("change", () => {
     timeClock = ui.clockCheck.checked;
+    render();
+  });
+  ui.hideBadCheck.addEventListener("change", () => {
+    hideBad = ui.hideBadCheck.checked;
     render();
   });
 
@@ -692,6 +709,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       timeClock = !timeClock;
       ui.clockCheck.checked = timeClock;
       render();
+    } else if (k === "h") {
+      hideBad = !hideBad;
+      ui.hideBadCheck.checked = hideBad;
+      render();
     } else if (k === "?") {
       toggleHelp();
     } else if (k === "Escape" && menuOpen) {
@@ -764,6 +785,7 @@ interface ViewerUi {
   events: HTMLInputElement;
   butterflyCheck: HTMLInputElement;
   clockCheck: HTMLInputElement;
+  hideBadCheck: HTMLInputElement;
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
@@ -849,6 +871,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   const events = labeledCheck("Events", true);
   const butterflyLc = labeledCheck("Butterfly", false);
   const clockLc = labeledCheck("Clock", false);
+  const hideBadLc = labeledCheck("Hide bad", false);
 
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
@@ -862,7 +885,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   menu.style.display = "none";
   menu.append(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
-    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap),
+    grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -888,9 +911,10 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
         <li><kbd>d</kbd> &mdash; toggle DC removal</li>
         <li><kbd>b</kbd> &mdash; toggle butterfly mode</li>
         <li><kbd>t</kbd> &mdash; toggle clock time format</li>
+        <li><kbd>h</kbd> &mdash; hide channels marked bad</li>
         <li><kbd>?</kbd> &mdash; toggle this help</li>
       </ul>
-      <p style="margin:0;font-size:10px;color:var(--color-fg-subtle)">Click a channel label to mark it bad (dimmed)</p>
+      <p style="margin:0;font-size:10px;color:var(--color-fg-subtle)">Click a channel label to mark it bad (dim; <kbd>h</kbd> hides them)</p>
     </div>
   `.trim();
 
@@ -946,6 +970,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     events: events.input,
     butterflyCheck: butterflyLc.input,
     clockCheck: clockLc.input,
+    hideBadCheck: hideBadLc.input,
     hp,
     lp,
     notch,
