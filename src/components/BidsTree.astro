@@ -186,12 +186,6 @@ const { datasetId, version } = Astro.props;
     color: var(--color-fg-muted);
     font-family: var(--font-mono);
   }
-  /* "Vis" badge: an interactive affordance (opens the signal viewer), so it
-     carries the link accent rather than the muted format-badge tone. */
-  .tree__tag--vis {
-    background: color-mix(in srgb, var(--color-link) 14%, var(--color-bg-subtle));
-    color: var(--color-link);
-  }
   /* "Show next N" footer. Rendered by render-dir-listing when the dir count
      exceeds DEFAULT_DIR_CHUNK_SIZE (50). Removed by the click handler after
      the final chunk is revealed. */
