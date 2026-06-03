@@ -17,10 +17,12 @@ import { type Modality, channelColor, defaultScaling, formatClock, formatSi, rem
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
 import { VIRIDIS_CSS, type TopoChannel, projectPositions, renderTopomap } from "./topo";
+import { type GlTraceRenderer, createGlTraceRenderer } from "./gl-trace";
 import {
   DEFAULT_RENDER,
   type FrameChannel,
   type ViewerFrame,
+  renderChrome,
   renderFrame,
   renderMessage,
   traceLayout,
@@ -152,6 +154,13 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   }
   const ctx = maybeCtx; // non-null for the closures below
 
+  // WebGL trace layer: the signal polylines (the per-frame hot path) are
+  // GPU-rasterized on a canvas behind the 2D one, which then carries only the
+  // transparent chrome (labels/axis/events). null => WebGL unavailable, so the 2D
+  // `renderFrame` path draws everything on the single canvas (glCanvas hidden).
+  const glRenderer: GlTraceRenderer | null = createGlTraceRenderer(ui.glCanvas);
+  if (!glRenderer) ui.glCanvas.style.display = "none";
+
   function group(): GroupHandle {
     return store.groups[groupIndex];
   }
@@ -164,7 +173,9 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   }
 
   function sizeCanvas(): { w: number; h: number } {
-    const rectW = ui.canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
+    // The scope is the positioned frame; both canvases fill it (CSS inset:0). Its
+    // width comes from flex (shrinks when the topo panel opens); we set its height.
+    const rectW = ui.scope.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
     const cssW = Math.max(320, Math.round(rectW) || 800);
     // Fit the area the preview opens into: height tracks width (a ~2:1 scope) and
     // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
@@ -172,7 +183,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
     const cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    ui.canvas.style.height = `${cssH}px`;
+    ui.scope.style.height = `${cssH}px`;
     const pxW = Math.round(cssW * dpr);
     const pxH = Math.round(cssH * dpr);
     // Assigning canvas.width/height clears the bitmap. Only do it on an actual size
@@ -184,6 +195,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       ui.canvas.height = pxH;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    glRenderer?.resize(pxW, pxH);
     return { w: cssW, h: cssH };
   }
 
@@ -347,7 +359,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     };
     lastFrame = frame;
     lastSlots = traceLayout(frame.channels.length, lastPlotTop, lastPlotHeight);
-    renderFrame(ctx, frame, { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain, butterfly });
+    const renderOpts = { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain, butterfly };
+    if (glRenderer) {
+      // GPU draws background + traces; the 2D canvas adds transparent chrome on top.
+      glRenderer.draw(frame, renderOpts, w, h);
+      renderChrome(ctx, frame, renderOpts);
+    } else {
+      renderFrame(ctx, frame, renderOpts);
+    }
 
     const filterNote = hasFilters(filters) ? (filtered ? " · filtered" : " · filters need zoom-in") : "";
     ui.status.textContent =
@@ -847,6 +866,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     });
     cleanups.push(() => mo.disconnect());
   }
+  cleanups.push(() => glRenderer?.dispose());
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = () => {
     for (const c of cleanups) c();
   };
@@ -874,7 +894,9 @@ function themeColors(root: HTMLElement): { background: string; foreground: strin
 interface ViewerUi {
   root: HTMLElement;
   plot: HTMLElement;
+  scope: HTMLElement;
   canvas: HTMLCanvasElement;
+  glCanvas: HTMLCanvasElement;
   minimap: HTMLCanvasElement;
   time: HTMLElement;
   chanInfo: HTMLElement;
@@ -1042,10 +1064,17 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     </div>
   `.trim();
 
-  // Scope: canvas + (conditional) vertical channel scrollbar.
+  // Scope: a positioned wrapper holding the WebGL trace layer (background +
+  // signal, behind) and the 2D chrome layer (labels/axis/events, in front). Both
+  // canvases fill the scope via CSS inset:0; JS sizes them together. Falls back to
+  // the 2D canvas alone (opaque) when WebGL is unavailable.
   const plot = el("div", "eegv__plot");
+  const scope = el("div", "eegv__scope");
+  const glCanvas = document.createElement("canvas");
+  glCanvas.className = "eegv__glcanvas";
   const canvas = document.createElement("canvas");
   canvas.className = "eegv__canvas";
+  scope.append(glCanvas, canvas);
   const vscroll = document.createElement("input");
   vscroll.type = "range";
   vscroll.className = "eegv__vscroll";
@@ -1064,7 +1093,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   topoScale.append(topoMin, topoBar, topoMax);
   const topoInfo = el("div", "eegv__topo-info");
   topo.append(topoCanvas, topoScale, topoInfo);
-  plot.append(canvas, vscroll, topo, cursor);
+  plot.append(scope, vscroll, topo, cursor);
 
   const hscroll = document.createElement("input");
   hscroll.type = "range";
@@ -1097,7 +1126,9 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   return {
     root,
     plot,
+    scope,
     canvas,
+    glCanvas,
     minimap,
     time,
     chanInfo,
