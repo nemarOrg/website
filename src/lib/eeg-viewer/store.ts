@@ -298,6 +298,63 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
 const LEVEL0_MAX_SAMPLES = 20000;
 
 /**
+ * Aggregate a [2, nCh, nTime] int16 min/max region into a per-column activity
+ * envelope: max over channels of |max - min|, dequantized to SI units. Pure
+ * function (no zarr I/O) — exported for unit tests and used by readOverview.
+ */
+export function aggregateOverview(
+  data: Int16Array,
+  nCh: number,
+  nTime: number,
+  channels: Array<{ scale: number; offset: number; siFactor: number }>,
+): Float32Array {
+  const out = new Float32Array(nTime);
+  for (let c = 0; c < nTime; c++) {
+    let maxRange = 0;
+    for (let i = 0; i < nCh; i++) {
+      const ch = channels[i];
+      if (!ch) continue;
+      const a0 = (0 * nCh + i) * nTime + c;
+      const a1 = (1 * nCh + i) * nTime + c;
+      const v0 = (data[a0] * ch.scale + ch.offset) * ch.siFactor;
+      const v1 = (data[a1] * ch.scale + ch.offset) * ch.siFactor;
+      const range = Math.abs(v1 - v0);
+      if (range > maxRange) maxRange = range;
+    }
+    out[c] = maxRange;
+  }
+  return out;
+}
+
+/**
+ * Read the coarsest view-pyramid level for a group and aggregate channel
+ * activity into a per-column envelope (max over channels of (max-min),
+ * dequantized to SI units). Returns null when no view levels exist.
+ *
+ * This is used by the overview minimap: a single cheap read of the coarsest
+ * (smallest) level, cached by the caller.
+ */
+export async function readOverview(group: GroupHandle): Promise<Float32Array | null> {
+  if (group.viewLevels.length === 0) return null;
+  const view = group.viewLevels[group.viewLevels.length - 1];
+  try {
+    const region = await zarr.get(view.array, null);
+    // region shape: [2, nCh, nTime]
+    const nCh = region.shape[1];
+    const nTime = region.shape[2];
+    return aggregateOverview(
+      region.data as Int16Array,
+      nCh,
+      nTime,
+      group.channelsByRow,
+    );
+  } catch (err) {
+    console.warn("[eeg-viewer] readOverview failed:", err);
+    return null;
+  }
+}
+
+/**
  * Read the signal for `[startS, endS)` of a group, choosing the pyramid level
  * closest to `pixelWidth` columns and dequantizing into physical units. Only the
  * channel rows `[rowStart, rowStart+rowCount)` are fetched (vertical scrolling
@@ -321,7 +378,7 @@ export async function readWindow(
   const r1 = Math.max(r0 + 1, Math.min(rowStart + rowCount, group.nChannels));
 
   const levelSamples = [group.nSamples, ...group.viewLevels.map((v) => v.nTime)];
-  let chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+  const chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
   // With useSuffixRequest a windowed level-0 read only fetches the window's inner
   // chunks, so level-0 (crisp full-rate lines) is used for narrow windows and the
   // view pyramid (min/max band) for wide overviews -- pickViewLevel already

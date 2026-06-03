@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseChannels } from "./store";
+import { aggregateOverview, parseChannels } from "./store";
 
 describe("parseChannels", () => {
   it("falls back scale to 1 when scale is null", () => {
@@ -67,5 +67,51 @@ describe("parseChannels", () => {
     expect(parseChannels(null)).toHaveLength(0);
     expect(parseChannels("bad")).toHaveLength(0);
     expect(parseChannels({})).toHaveLength(0);
+  });
+});
+
+describe("aggregateOverview", () => {
+  const identity = { scale: 1, offset: 0, siFactor: 1 };
+
+  it("returns max |max-min| across channels for each column", () => {
+    // 2 channels, 2 time columns: layout [2, nCh=2, nTime=2]
+    // data[row=0,ch=0,t=0]=10, [row=0,ch=0,t=1]=20 (min row)
+    // data[row=1,ch=0,t=0]=30, [row=1,ch=0,t=1]=40 (max row)
+    // data[row=0,ch=1,t=0]=0,  [row=0,ch=1,t=1]=5
+    // data[row=1,ch=1,t=0]=5,  [row=1,ch=1,t=1]=5
+    // ch0 range t=0: |30-10|=20, t=1: |40-20|=20
+    // ch1 range t=0: |5-0|=5,   t=1: |5-5|=0
+    // max per col: [20, 20]
+    const nCh = 2;
+    const nTime = 2;
+    // flat index: (row * nCh + ch) * nTime + t
+    const data = new Int16Array([
+      10, 20, // row=0, ch=0
+      0,  5,  // row=0, ch=1
+      30, 40, // row=1, ch=0
+      5,  5,  // row=1, ch=1
+    ]);
+    const out = aggregateOverview(data, nCh, nTime, [identity, identity]);
+    expect(out[0]).toBeCloseTo(20, 6);
+    expect(out[1]).toBeCloseTo(20, 6);
+  });
+
+  it("applies scale and siFactor correctly", () => {
+    // 1 channel, 1 time col: min=0, max=100, scale=0.5e-6, offset=0, siFactor=1
+    const data = new Int16Array([0, 100]); // [min-row, max-row]
+    const ch = { scale: 0.5e-6, offset: 0, siFactor: 1 };
+    const out = aggregateOverview(data, 1, 1, [ch]);
+    expect(out[0]).toBeCloseTo(50e-6, 9);
+  });
+
+  it("returns zeros when min equals max (flat signal)", () => {
+    const data = new Int16Array([5, 5]); // min=max
+    const out = aggregateOverview(data, 1, 1, [identity]);
+    expect(out[0]).toBe(0);
+  });
+
+  it("returns empty array when nTime=0", () => {
+    const out = aggregateOverview(new Int16Array([]), 0, 0, []);
+    expect(out).toHaveLength(0);
   });
 });
