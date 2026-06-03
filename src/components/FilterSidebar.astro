@@ -70,10 +70,22 @@ const { state, searchActive = false } = Astro.props;
         const selected = state.licenseTiers.includes(tier);
         return (
           <label
-            class:list={["chip", "chip--lic", `chip--lic-${tier}`, selected && "chip--on"]}
+            class:list={[
+              "chip",
+              "chip--lic",
+              `chip--lic-${tier}`,
+              selected && "chip--on",
+              searchActive && "chip--disabled",
+            ]}
             title={LICENSE_TIER_BLURB[tier]}
           >
-            <input type="checkbox" name="license" value={tier} checked={selected} />
+            <input
+              type="checkbox"
+              name="license"
+              value={tier}
+              checked={selected}
+              disabled={searchActive}
+            />
             <span class="chip__dot" aria-hidden="true"></span>
             <span>{LICENSE_TIER_LABELS[tier]}</span>
           </label>
@@ -81,9 +93,9 @@ const { state, searchActive = false } = Astro.props;
       })}
     </div>
     <p class="filters__note">
-      Green is most permissive, red most restrictive. Filtering activates as
-      license metadata finishes syncing
-      (<a href="https://github.com/nemarOrg/nemar-cli/issues/653" rel="external">nemar-cli#653</a>).
+      {searchActive
+        ? "License filtering isn't available while searching — clear the search box to filter by license."
+        : "Green is most permissive, red most restrictive."}
     </p>
   </div>
 
@@ -244,6 +256,20 @@ const { state, searchActive = false } = Astro.props;
     opacity: 0;
     width: 1px;
     height: 1px;
+  }
+  /* Disabled while a search query is active (license can't filter the hybrid
+     search endpoint). Mirrors the sort control's disabled treatment. */
+  .chip--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* A previously-selected chip must read as suspended, not active, while
+     disabled — strip the tier tint so it doesn't look like a live filter. */
+  .chip--disabled.chip--on,
+  .chip--disabled:has(input:checked) {
+    background: var(--color-bg);
+    border-color: var(--color-border-strong);
+    color: var(--color-fg-muted);
   }
   /* Selected chips tint with their own tag color (modality / license tier),
      falling back to brand-teal for any chip without one. Keeps the sidebar
