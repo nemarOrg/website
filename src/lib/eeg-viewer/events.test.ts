@@ -50,4 +50,12 @@ describe("eventsInWindow", () => {
   it("excludes events fully outside the window", () => {
     expect(eventsInWindow(ev, types, 100, 200)).toEqual([]);
   });
+
+  it("excludes an event whose onset equals endS (right-edge exclusive)", () => {
+    // onset === endS means the event is exactly at the right boundary; it should
+    // be excluded because the window is [startS, endS).
+    const boundary = table([10], [0], [10], { "10": "a" });
+    const btypes = buildEventTypes(boundary);
+    expect(eventsInWindow(boundary, btypes, 0, 10)).toEqual([]);
+  });
 });
