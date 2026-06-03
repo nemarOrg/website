@@ -192,23 +192,37 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
   };
 }
 
-/** Probe view/1..N in parallel and keep the contiguous run from view/1. */
+const VIEW_PROBE_BATCH = 6;
+const VIEW_PROBE_MAX = 12;
+
+/**
+ * Discover the view-pyramid levels (view/1, view/2, ...). The store has no level
+ * count attribute, so we probe — but in batches with early stop, so a typical
+ * pyramid resolves in one round-trip with only a couple of 404s rather than
+ * blindly firing a dozen misses (each doubled by zarrita's v2 `.zattrs`
+ * fallback). Levels are contiguous from view/1.
+ */
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
 ): Promise<ViewLevel[]> {
-  const probes = await Promise.allSettled(
-    Array.from({ length: 12 }, (_, i) => i + 1).map(async (level) => {
-      const array = (await zarr.open(root.resolve(`${group}/view/${level}`), {
-        kind: "array",
-      })) as zarr.Array<"int16", zarr.FetchStore>;
-      return { level, nTime: array.shape[array.shape.length - 1], array };
-    }),
-  );
   const levels: ViewLevel[] = [];
-  for (const p of probes) {
-    if (p.status !== "fulfilled") break; // contiguous from view/1
-    levels.push(p.value);
+  for (let base = 1; base <= VIEW_PROBE_MAX; base += VIEW_PROBE_BATCH) {
+    const probes = await Promise.allSettled(
+      Array.from({ length: VIEW_PROBE_BATCH }, (_, i) => base + i).map(async (level) => {
+        const array = (await zarr.open(root.resolve(`${group}/view/${level}`), {
+          kind: "array",
+        })) as zarr.Array<"int16", zarr.FetchStore>;
+        return { level, nTime: array.shape[array.shape.length - 1], array };
+      }),
+    );
+    let added = 0;
+    for (const p of probes) {
+      if (p.status !== "fulfilled") break; // contiguous from view/1
+      levels.push(p.value);
+      added++;
+    }
+    if (added < VIEW_PROBE_BATCH) break; // hit the end within this batch
   }
   return levels;
 }
@@ -264,7 +278,13 @@ export async function readWindow(
   const r1 = Math.max(r0 + 1, Math.min(rowStart + rowCount, group.nChannels));
 
   const levelSamples = [group.nSamples, ...group.viewLevels.map((v) => v.nTime)];
-  const chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+  let chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+  // Level-0 is a single whole-array shard: zarrita fetches the ENTIRE shard
+  // (multiple MB) for any access, which is far too heavy for interactive reads
+  // and is what trips zarr.nemar.org's 502s. The non-sharded view pyramid is the
+  // hot path, so prefer the finest view level whenever one exists. (Sample-level
+  // zoom from level-0 needs per-segment sharding in the producer; deferred.)
+  if (chosen === 0 && group.viewLevels.length > 0) chosen = 1;
 
   if (chosen === 0) return readLevel0(group, start, end, r0, r1);
   return readViewLevel(group, group.viewLevels[chosen - 1], start, end, r0, r1);
