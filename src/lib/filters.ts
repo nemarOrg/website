@@ -251,7 +251,7 @@ export function applyClientFilters<T extends FilterableRow>(
     // mode the hybrid endpoint doesn't filter by modality, so the caller sets
     // `allModalitiesClientSide` to enforce even a single selection here.
     const modalityThreshold = opts.allModalitiesClientSide ? 1 : 2;
-    if (state.modalities.length >= modalityThreshold && state.modalities.length > 0) {
+    if (state.modalities.length >= modalityThreshold) {
       const dsMods = (d.modalities || "")
         .split(",")
         .map((m) => m.trim().toUpperCase())
