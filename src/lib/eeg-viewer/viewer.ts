@@ -685,7 +685,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
 
   if (typeof ResizeObserver !== "undefined") {
     let raf = 0;
-    let lastObservedW = 0;
+    let lastObservedW = -1; // -1 (not 0) so even a zero-width first observation renders once
     const ro = new ResizeObserver((entries) => {
       // The scope height tracks width, so only a width change needs a repaint.
       // Ignore height-only changes (e.g. the cursor readout row growing/shrinking)

@@ -565,6 +565,10 @@ const { datasetId, version } = Astro.props;
     background: var(--eegv-accent);
   }
   .eegv__menu {
+    /* Hidden by default from the stylesheet (not only the inline style), so the
+       closed state survives if the inline style is ever stripped; setMenu() toggles
+       the inline display between flex and none. */
+    display: none;
     position: absolute;
     inset-inline-end: 0;
     inset-block-start: calc(100% + 6px);
