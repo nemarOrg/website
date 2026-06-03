@@ -15,6 +15,7 @@
  */
 import { type Modality, channelColor, defaultScaling, removeBandDc, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
+import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
 import {
   DEFAULT_RENDER,
   type FrameChannel,
@@ -23,6 +24,7 @@ import {
   renderMessage,
 } from "./render";
 import {
+  type ChannelWindow,
   type GroupHandle,
   type RecordingStore,
   type WindowData,
@@ -40,6 +42,25 @@ export interface ViewerOptions {
 }
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
+const HP_CHOICES: Array<[string, string]> = [
+  ["0", "off"],
+  ["0.1", "0.1"],
+  ["0.5", "0.5"],
+  ["1", "1"],
+  ["2", "2"],
+];
+const LP_CHOICES: Array<[string, string]> = [
+  ["0", "off"],
+  ["15", "15"],
+  ["30", "30"],
+  ["45", "45"],
+  ["70", "70"],
+];
+const NOTCH_CHOICES: Array<[string, string]> = [
+  ["0", "off"],
+  ["50", "50"],
+  ["60", "60"],
+];
 const ELECTRIC = new Set<Modality>(["EEG", "EMG", "IEEG", "MISC"]);
 /** Scope height cap (CSS px). The height fits the embed (tracks width, capped by
  * this and the viewport) but never varies with channel count. */
@@ -73,6 +94,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let showEvents = true;
   let chanStart = 0;
   let chanCount = store.groups[0].nChannels; // default: whole montage (overview)
+  const filters: FilterSpec = { hp: null, lp: null, notch: null };
   let renderSeq = 0;
   let firstPaint = true;
 
@@ -128,6 +150,36 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     ui.plot.classList.toggle("eegv__plot--scroll", zoomed);
   }
 
+  // Read the window for rendering. With filters on we read level-0 (the actual
+  // samples; filtering the min/max envelope would be wrong) for a slightly padded
+  // span, apply the zero-phase filtfilt cascade, then crop the filter-transient
+  // pad back off. If the window is too wide for level-0 the read falls back to the
+  // pyramid band and filtering is skipped (the caller greys the indicator).
+  async function readFrame(
+    g: GroupHandle,
+    start: number,
+    end: number,
+    plotWidth: number,
+  ): Promise<{ win: WindowData; filtered: boolean }> {
+    if (!hasFilters(filters)) {
+      return { win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false), filtered: false };
+    }
+    const padS = Math.min(2, (end - start) * 0.5);
+    const pStart = Math.max(0, start - padS);
+    const pEnd = Math.min(g.durationS, end + padS);
+    const w = await readWindow(g, pStart, pEnd, plotWidth, chanStart, chanCount, true);
+    if (w.channels.length === 0 || w.channels[0].kind !== "line") return { win: w, filtered: false };
+    const biquads = designFilters(filters, g.rate);
+    const padCols = Math.round((start - pStart) * g.rate);
+    const visCols = Math.max(1, Math.round((end - start) * g.rate));
+    const channels: ChannelWindow[] = w.channels.map((cw) =>
+      cw.kind === "line"
+        ? { kind: "line", line: filtfilt(cw.line, biquads).subarray(padCols, padCols + visCols) }
+        : cw,
+    );
+    return { win: { level: w.level, nCols: visCols, channels }, filtered: true };
+  }
+
   async function render(): Promise<void> {
     const seq = ++renderSeq;
     clamp();
@@ -150,8 +202,9 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     ui.status.textContent = "Signal loading…";
 
     let win: WindowData;
+    let filtered = false;
     try {
-      win = await readWindow(g, start, end, plotWidth, chanStart, chanCount);
+      ({ win, filtered } = await readFrame(g, start, end, plotWidth));
     } catch (err) {
       if (seq === renderSeq) {
         firstPaint = false;
@@ -193,9 +246,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     };
     renderFrame(ctx, frame, { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain });
 
+    const filterNote = hasFilters(filters) ? (filtered ? " · filtered" : " · filters need zoom-in") : "";
     ui.status.textContent =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
-      `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`} · ` +
+      `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
       `${eventTypes.length} event type(s)`;
   }
 
@@ -240,6 +294,18 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   });
   ui.events.addEventListener("change", () => {
     showEvents = ui.events.checked;
+    render();
+  });
+  ui.hp.addEventListener("change", () => {
+    filters.hp = Number(ui.hp.value) || null;
+    render();
+  });
+  ui.lp.addEventListener("change", () => {
+    filters.lp = Number(ui.lp.value) || null;
+    render();
+  });
+  ui.notch.addEventListener("change", () => {
+    filters.notch = Number(ui.notch.value) || null;
     render();
   });
   ui.hscroll.addEventListener("input", () => {
@@ -348,6 +414,9 @@ interface ViewerUi {
   win: HTMLSelectElement;
   dc: HTMLInputElement;
   events: HTMLInputElement;
+  hp: HTMLSelectElement;
+  lp: HTMLSelectElement;
+  notch: HTMLSelectElement;
   hscroll: HTMLInputElement;
   vscroll: HTMLInputElement;
   groupSel: HTMLSelectElement | null;
@@ -417,6 +486,14 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     ),
   );
 
+  // Filter group (client-side zero-phase display filters).
+  const hp = compactSelect(HP_CHOICES, "0");
+  const lp = compactSelect(LP_CHOICES, "0");
+  const notch = compactSelect(NOTCH_CHOICES, "0");
+  bar.append(
+    grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
+  );
+
   // Display toggles.
   const dc = labeledCheck("DC", true);
   const events = labeledCheck("Events", true);
@@ -460,6 +537,9 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     win,
     dc: dc.input,
     events: events.input,
+    hp,
+    lp,
+    notch,
     hscroll,
     vscroll,
     groupSel,
@@ -522,6 +602,13 @@ function labeledCheck(
   input.checked = checked;
   wrap.append(input, document.createTextNode(` ${label}`));
   return { wrap, input };
+}
+
+/** A small inline "Label <control>" field (for the filter selects). */
+function fieldLabel(label: string, control: HTMLElement): HTMLElement {
+  const wrap = el("label", "eegv__field");
+  wrap.append(document.createTextNode(`${label} `), control);
+  return wrap;
 }
 
 function escapeAttr(s: string): string {

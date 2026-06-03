@@ -141,7 +141,12 @@ function retryingFetch(retries = 6, baseMs = 250) {
 
 /** A FetchStore that retries transient 5xx/429 for resilient streaming. */
 export function makeStore(url: string): zarr.FetchStore {
-  return new zarr.FetchStore(url, { fetch: retryingFetch() });
+  // useSuffixRequest: read the sharded level-0 index with a native `Range:
+  // bytes=-N` instead of a full-object GET to learn its size first. Without it
+  // zarrita fetches the entire ~3 MB shard for any level-0 access; with it a
+  // windowed level-0 read is just the index + the window's inner chunks (~127 KB
+  // for a 10 s window), which makes full-rate lines + client filters affordable.
+  return new zarr.FetchStore(url, { fetch: retryingFetch(), useSuffixRequest: true });
 }
 
 /**
@@ -288,6 +293,10 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
   }
 }
 
+/** Largest window (samples) we will read from level-0; past it use the pyramid
+ * (a sharded level-0 read scales with the window, so this caps transfer). */
+const LEVEL0_MAX_SAMPLES = 20000;
+
 /**
  * Read the signal for `[startS, endS)` of a group, choosing the pyramid level
  * closest to `pixelWidth` columns and dequantizing into physical units. Only the
@@ -302,6 +311,7 @@ export async function readWindow(
   pixelWidth: number,
   rowStart = 0,
   rowCount = group.nChannels,
+  forceLevel0 = false,
 ): Promise<WindowData> {
   const dur = group.durationS;
   const start = Math.max(0, Math.min(startS, dur));
@@ -312,15 +322,22 @@ export async function readWindow(
 
   const levelSamples = [group.nSamples, ...group.viewLevels.map((v) => v.nTime)];
   let chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
-  // Level-0 is a single whole-array shard: zarrita fetches the ENTIRE shard
-  // (multiple MB) for any access, which is far too heavy for interactive reads
-  // and is what trips zarr.nemar.org's 502s. The non-sharded view pyramid is the
-  // hot path, so prefer the finest view level whenever one exists. (Sample-level
-  // zoom from level-0 needs per-segment sharding in the producer; deferred.)
-  if (chosen === 0 && group.viewLevels.length > 0) chosen = 1;
+  // With useSuffixRequest a windowed level-0 read only fetches the window's inner
+  // chunks, so level-0 (crisp full-rate lines) is used for narrow windows and the
+  // view pyramid (min/max band) for wide overviews -- pickViewLevel already
+  // returns 0 only when the window is narrow enough that level-0 is the right
+  // resolution. `forceLevel0` (client filters) also needs samples. A hard sample
+  // cap keeps an unexpectedly wide level-0 selection from over-fetching; past it
+  // we fall back to the finest view level.
+  const windowSamples = Math.ceil((end - start) * group.rate);
+  const useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
+  if (useLevel0) return readLevel0(group, start, end, r0, r1);
 
-  if (chosen === 0) return readLevel0(group, start, end, r0, r1);
-  return readViewLevel(group, group.viewLevels[chosen - 1], start, end, r0, r1);
+  // A view level: if pickViewLevel chose level-0 but we won't read it (too wide,
+  // or filters off at this zoom), fall back to the finest available pyramid level.
+  const view = group.viewLevels[Math.max(1, chosen) - 1];
+  if (!view) return readLevel0(group, start, end, r0, r1); // no pyramid -> level-0 anyway
+  return readViewLevel(group, view, start, end, r0, r1);
 }
 
 async function readLevel0(
