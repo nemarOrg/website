@@ -626,14 +626,28 @@ const { datasetId, version } = Astro.props;
     align-items: stretch;
     gap: 4px;
   }
-  .eegv__canvas {
+  /* Scope frame: the positioned box holding the WebGL trace layer + the 2D chrome
+     layer stacked on top. The border/background live here; the canvases fill it. */
+  .eegv__scope {
+    position: relative;
     flex: 1 1 auto;
     min-inline-size: 0;
-    display: block;
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
+    overflow: hidden; /* clip the square-cornered canvases to the rounded frame */
   }
+  .eegv__glcanvas,
+  .eegv__canvas {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    display: block;
+  }
+  /* GL (background + traces) underneath; 2D chrome (transparent) on top. */
+  .eegv__glcanvas { z-index: 0; }
+  .eegv__canvas { z-index: 1; }
   /* Topomap split-panel: appears to the right of the scope when toggled; the scope
      canvas (flex:1) shrinks to make room. JS sizes the square topo canvas inside. */
   .eegv__topo {

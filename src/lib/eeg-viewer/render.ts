@@ -169,6 +169,89 @@ export function renderFrame(
     opts.butterfly ? computeButterflyPxPerPhys(frame, plotHeight, g) : computeStackedPxPerPhys(frame, plotHeight, g));
 }
 
+/**
+ * Render only the chrome (slot dividers, flush-left labels, event lines + codes,
+ * time axis, scale bar) onto a TRANSPARENT overlay canvas, omitting the traces
+ * and the background fill. Used with the WebGL trace renderer (`gl-trace.ts`),
+ * which draws the background + signal on a canvas underneath; this 2D layer adds
+ * the annotation on top. The math is identical to `renderFrame` so the two paths
+ * line up pixel-for-pixel. Falls back to `renderFrame` (all-2D) when WebGL is off.
+ */
+export function renderChrome(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  opts: RenderOptions,
+): void {
+  const { width, height, gutter, axisHeight } = opts;
+  const g = opts.gain > 0 ? opts.gain : 1;
+  const plotLeft = gutter;
+  const plotTop = 4;
+  const plotWidth = Math.max(1, width - gutter - 8);
+  const plotHeight = Math.max(1, height - axisHeight - plotTop);
+
+  ctx.clearRect(0, 0, width, height); // transparent: the GL canvas shows through
+
+  if (opts.butterfly) {
+    // Center divider.
+    const baseline = plotTop + plotHeight / 2;
+    ctx.strokeStyle = opts.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, Math.round(baseline) + 0.5);
+    ctx.lineTo(plotLeft + plotWidth, Math.round(baseline) + 0.5);
+    ctx.stroke();
+    drawEventLines(ctx, frame, plotLeft, plotTop, plotWidth, plotHeight);
+    drawButterflyLegend(ctx, frame, plotTop, plotHeight);
+  } else {
+    const slots = traceLayout(frame.channels.length, plotTop, plotHeight);
+    ctx.textBaseline = "middle";
+    const slotPx = slots.length > 0 ? slots[0].halfHeight * 2 : plotHeight;
+    const labelPx = Math.max(8, Math.min(11, Math.round(slotPx * 0.5)));
+    ctx.font = `${labelPx}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      ctx.strokeStyle = opts.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(plotLeft, Math.round(slot.baseline + slot.halfHeight) + 0.5);
+      ctx.lineTo(plotLeft + plotWidth, Math.round(slot.baseline + slot.halfHeight) + 0.5);
+      ctx.stroke();
+      const ch = frame.channels[i];
+      ctx.fillStyle = ch.dim ? hexWithAlpha(ch.color, 0.3) : ch.color;
+      ctx.textAlign = "left";
+      ctx.fillText(ch.label.slice(0, 10), 6, slot.baseline);
+    }
+    drawEventLines(ctx, frame, plotLeft, plotTop, plotWidth, plotHeight);
+  }
+
+  drawTimeAxis(ctx, frame, opts, plotLeft, plotWidth, plotTop + plotHeight);
+  drawScaleBar(ctx, frame, opts, plotLeft, plotTop, plotHeight,
+    opts.butterfly ? computeButterflyPxPerPhys(frame, plotHeight, g) : computeStackedPxPerPhys(frame, plotHeight, g));
+}
+
+/** Compact color legend in the gutter (up to 8 channels), shared by butterfly paths. */
+function drawButterflyLegend(
+  ctx: CanvasRenderingContext2D,
+  frame: ViewerFrame,
+  plotTop: number,
+  plotHeight: number,
+): void {
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "left";
+  const shown = Math.min(frame.channels.length, 8);
+  for (let i = 0; i < shown; i++) {
+    const ch = frame.channels[i];
+    const ly = plotTop + (i + 0.5) * (plotHeight / Math.max(shown, 1));
+    // globalAlpha (next line) carries the dim factor; use the plain color so a
+    // dimmed entry is not double-dimmed (0.3 fill x 0.3 alpha = 0.09).
+    ctx.fillStyle = ch.color;
+    ctx.globalAlpha = ch.dim ? 0.3 : 0.9;
+    ctx.fillText(ch.label.slice(0, 8), 2, ly);
+  }
+  ctx.globalAlpha = 1;
+}
+
 function computeStackedPxPerPhys(frame: ViewerFrame, plotHeight: number, g: number): number {
   const n = frame.channels.length;
   if (n <= 0) return 0;
@@ -285,21 +368,7 @@ function renderButterfly(
   }
   ctx.globalAlpha = 1;
 
-  // Compact color legend in gutter (up to 8 channels).
-  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "left";
-  const shown = Math.min(frame.channels.length, 8);
-  for (let i = 0; i < shown; i++) {
-    const ch = frame.channels[i];
-    const ly = plotTop + (i + 0.5) * (plotHeight / Math.max(shown, 1));
-    // globalAlpha (next line) already carries the dim factor; use the plain color
-    // so a dimmed legend entry is not double-dimmed (0.3 fill x 0.3 alpha = 0.09).
-    ctx.fillStyle = ch.color;
-    ctx.globalAlpha = ch.dim ? 0.3 : 0.9;
-    ctx.fillText(ch.label.slice(0, 8), 2, ly);
-  }
-  ctx.globalAlpha = 1;
+  drawButterflyLegend(ctx, frame, plotTop, plotHeight);
 }
 
 function drawTrace(
