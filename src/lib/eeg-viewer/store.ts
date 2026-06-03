@@ -141,7 +141,12 @@ function retryingFetch(retries = 6, baseMs = 250) {
 
 /** A FetchStore that retries transient 5xx/429 for resilient streaming. */
 export function makeStore(url: string): zarr.FetchStore {
-  return new zarr.FetchStore(url, { fetch: retryingFetch() });
+  // useSuffixRequest: read the sharded level-0 index with a native `Range:
+  // bytes=-N` instead of a full-object GET to learn its size first. Without it
+  // zarrita fetches the entire ~3 MB shard for any level-0 access; with it a
+  // windowed level-0 read is just the index + the window's inner chunks (~127 KB
+  // for a 10 s window), which makes full-rate lines + client filters affordable.
+  return new zarr.FetchStore(url, { fetch: retryingFetch(), useSuffixRequest: true });
 }
 
 /**
@@ -288,6 +293,73 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
   }
 }
 
+/** Largest window (samples) we will read from level-0; past it prefer the pyramid
+ * when one exists (a sharded level-0 read scales with the window, so this caps
+ * transfer). Falls back to level-0 regardless if the store has no view levels. */
+const LEVEL0_MAX_SAMPLES = 20000;
+
+/**
+ * Aggregate a [2, nCh, nTime] int16 min/max region into a per-column activity
+ * envelope: max over channels of |max - min|, dequantized to SI units. Pure
+ * function (no zarr I/O) — exported for unit tests and used by readOverview.
+ */
+export function aggregateOverview(
+  data: Int16Array,
+  nCh: number,
+  nTime: number,
+  channels: Array<{ scale: number; offset: number; siFactor: number }>,
+): Float32Array {
+  const out = new Float32Array(nTime);
+  for (let c = 0; c < nTime; c++) {
+    let maxRange = 0;
+    for (let i = 0; i < nCh; i++) {
+      const ch = channels[i];
+      if (!ch) continue;
+      const a0 = (0 * nCh + i) * nTime + c;
+      const a1 = (1 * nCh + i) * nTime + c;
+      const v0 = (data[a0] * ch.scale + ch.offset) * ch.siFactor;
+      const v1 = (data[a1] * ch.scale + ch.offset) * ch.siFactor;
+      const range = Math.abs(v1 - v0);
+      if (range > maxRange) maxRange = range;
+    }
+    out[c] = maxRange;
+  }
+  return out;
+}
+
+/**
+ * Read the coarsest view-pyramid level for a group and aggregate channel
+ * activity into a per-column envelope (max over channels of (max-min),
+ * dequantized to SI units). Returns null when no view levels exist.
+ *
+ * This is used by the overview minimap: a single cheap read of the coarsest
+ * (smallest) level, cached by the caller.
+ */
+export async function readOverview(group: GroupHandle): Promise<Float32Array | null> {
+  if (group.viewLevels.length === 0) return null;
+  const view = group.viewLevels[group.viewLevels.length - 1];
+  try {
+    const region = await zarr.get(view.array, null);
+    // Expected shape [2, nCh, nTime] (min/max rows). Guard so a mis-shaped store
+    // hides the minimap instead of indexing undefined dims into garbage data.
+    if (region.shape.length < 3 || region.shape[0] !== 2) {
+      console.error("[eeg-viewer] readOverview: unexpected shape", region.shape, "(want [2, nCh, nTime])");
+      return null;
+    }
+    const nCh = region.shape[1];
+    const nTime = region.shape[2];
+    return aggregateOverview(
+      region.data as Int16Array,
+      nCh,
+      nTime,
+      group.channelsByRow,
+    );
+  } catch (err) {
+    console.warn("[eeg-viewer] readOverview failed:", err);
+    return null;
+  }
+}
+
 /**
  * Read the signal for `[startS, endS)` of a group, choosing the pyramid level
  * closest to `pixelWidth` columns and dequantizing into physical units. Only the
@@ -302,6 +374,7 @@ export async function readWindow(
   pixelWidth: number,
   rowStart = 0,
   rowCount = group.nChannels,
+  forceLevel0 = false,
 ): Promise<WindowData> {
   const dur = group.durationS;
   const start = Math.max(0, Math.min(startS, dur));
@@ -311,16 +384,25 @@ export async function readWindow(
   const r1 = Math.max(r0 + 1, Math.min(rowStart + rowCount, group.nChannels));
 
   const levelSamples = [group.nSamples, ...group.viewLevels.map((v) => v.nTime)];
-  let chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
-  // Level-0 is a single whole-array shard: zarrita fetches the ENTIRE shard
-  // (multiple MB) for any access, which is far too heavy for interactive reads
-  // and is what trips zarr.nemar.org's 502s. The non-sharded view pyramid is the
-  // hot path, so prefer the finest view level whenever one exists. (Sample-level
-  // zoom from level-0 needs per-segment sharding in the producer; deferred.)
-  if (chosen === 0 && group.viewLevels.length > 0) chosen = 1;
+  const chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+  // With useSuffixRequest a windowed level-0 read only fetches the window's inner
+  // chunks, so level-0 (crisp full-rate lines) is used for narrow windows and the
+  // view pyramid (min/max band) for wide overviews -- pickViewLevel already
+  // returns 0 only when the window is narrow enough that level-0 is the right
+  // resolution. `forceLevel0` (client filters) also needs samples. A hard sample
+  // cap keeps an unexpectedly wide level-0 selection from over-fetching; past it
+  // we fall back to the finest view level.
+  const windowSamples = Math.ceil((end - start) * group.rate);
+  const useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
+  if (useLevel0) return readLevel0(group, start, end, r0, r1);
 
-  if (chosen === 0) return readLevel0(group, start, end, r0, r1);
-  return readViewLevel(group, group.viewLevels[chosen - 1], start, end, r0, r1);
+  // A view level: either pickViewLevel chose level-0 but it is too wide for the
+  // sample cap, or it chose a view level and no filter is forcing level-0. Either
+  // way fall back to the finest pyramid level (or level-0 itself if no pyramid
+  // exists, which only happens for short recordings).
+  const view = group.viewLevels[Math.max(1, chosen) - 1];
+  if (!view) return readLevel0(group, start, end, r0, r1); // no pyramid -> level-0 anyway
+  return readViewLevel(group, view, start, end, r0, r1);
 }
 
 async function readLevel0(

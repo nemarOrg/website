@@ -444,6 +444,7 @@ const { datasetId, version } = Astro.props;
      and stays homogeneous with the rest of the dataset page. --- */
   .eegv {
     --eegv-accent: var(--color-link);
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -588,5 +589,49 @@ const { datasetId, version } = Astro.props;
     color: var(--color-fg-subtle);
     font-size: var(--fs-xs);
     font-variant-numeric: tabular-nums;
+  }
+  .eegv__cursor {
+    min-block-size: 1.2em;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    padding-inline: 2px;
+  }
+  .eegv__minimap {
+    inline-size: 100%;
+    block-size: 40px;
+    display: block;
+    cursor: pointer;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    margin-block-start: 2px;
+  }
+  .eegv__help {
+    position: absolute;
+    inset-inline-end: var(--space-3);
+    inset-block-start: 40px;
+    z-index: 10;
+    background: var(--color-bg-elevated, var(--color-bg));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    padding: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+  .eegv__help-inner ul {
+    margin: var(--space-2) 0 0;
+    padding-inline-start: 1.2em;
+  }
+  .eegv__help-inner li {
+    margin-block-end: 4px;
+  }
+  .eegv__help-inner kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    padding: 1px 4px;
   }
 </style>
