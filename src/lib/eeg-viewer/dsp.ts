@@ -35,6 +35,26 @@ export function removeDcInPlace(row: Float32Array): Float32Array {
 }
 
 /**
+ * DC-remove a min/max band channel by subtracting the midpoint mean from both
+ * arrays. Display-only: mirrors removeDcInPlace for view-level (band) data.
+ */
+export function removeBandDc(
+  min: Float32Array,
+  max: Float32Array,
+): { min: Float32Array; max: Float32Array } {
+  let sum = 0;
+  for (let i = 0; i < min.length; i++) sum += (min[i] + max[i]) / 2;
+  const mean = sum / Math.max(1, min.length);
+  const outMin = new Float32Array(min.length);
+  const outMax = new Float32Array(max.length);
+  for (let i = 0; i < min.length; i++) {
+    outMin[i] = min[i] - mean;
+    outMax[i] = max[i] - mean;
+  }
+  return { min: outMin, max: outMax };
+}
+
+/**
  * Per-modality default full-scale amplitude (the "div" the µV scale bar shows),
  * in SI base units. EEG defaults to 75 µV (the amplitude researchers expect for
  * a scalp montage out of the box); the others follow clinical/EEGLAB norms. The
