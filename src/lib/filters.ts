@@ -97,25 +97,33 @@ function parseSort(value: string | null): SortOption {
   }
 }
 
-function parseLicenseTiers(value: string | null): LicenseTier[] {
-  if (!value) return [];
+// The sidebar's checkbox groups submit as REPEATED params on a native GET
+// form (?license=a&license=b), while our own links comma-join (?license=a,b).
+// Both arrive here via getAll(): each array element is split on comma so the
+// two encodings parse identically. Reading only params.get() would silently
+// drop every selection after the first.
+function parseLicenseTiers(values: string[]): LicenseTier[] {
   const result: LicenseTier[] = [];
-  for (const raw of value.split(",")) {
-    const tier = raw.trim().toLowerCase() as LicenseTier;
-    if (LICENSE_TIERS.includes(tier) && !result.includes(tier)) result.push(tier);
+  for (const raw of values) {
+    for (const part of raw.split(",")) {
+      const tier = part.trim().toLowerCase() as LicenseTier;
+      if (LICENSE_TIERS.includes(tier) && !result.includes(tier)) result.push(tier);
+    }
   }
   return result;
 }
 
-function parseModalities(value: string | null): ModalityCode[] {
-  if (!value) return [];
-  const candidates = value.split(",").map((s) => s.trim());
+function parseModalities(values: string[]): ModalityCode[] {
   const result: ModalityCode[] = [];
-  for (const c of candidates) {
-    const norm =
-      c.toUpperCase() === "IEEG" ? ("iEEG" as ModalityCode) : (c.toUpperCase() as ModalityCode);
-    if (MODALITY_CODES.includes(norm) && !result.includes(norm)) {
-      result.push(norm);
+  for (const raw of values) {
+    for (const part of raw.split(",")) {
+      const c = part.trim();
+      if (!c) continue;
+      const norm =
+        c.toUpperCase() === "IEEG" ? ("iEEG" as ModalityCode) : (c.toUpperCase() as ModalityCode);
+      if (MODALITY_CODES.includes(norm) && !result.includes(norm)) {
+        result.push(norm);
+      }
     }
   }
   return result;
@@ -128,9 +136,9 @@ function parseModalities(value: string | null): ModalityCode[] {
 export function filterStateFromURL(params: URLSearchParams): FilterState {
   const s = defaultFilterState();
   s.q = (params.get("q") ?? "").trim();
-  s.modalities = parseModalities(params.get("modality"));
+  s.modalities = parseModalities(params.getAll("modality"));
   s.modalityOp = params.get("modality_op") === "AND" ? "AND" : "OR";
-  s.licenseTiers = parseLicenseTiers(params.get("license"));
+  s.licenseTiers = parseLicenseTiers(params.getAll("license"));
   s.fileFormat = (params.get("format") ?? "").trim();
 
   s.participants = {

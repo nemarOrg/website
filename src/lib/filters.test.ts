@@ -64,6 +64,15 @@ describe("filterStateFromURL", () => {
     const s = filterStateFromURL(new URLSearchParams("license=PUBLIC,Attribution,public"));
     expect(s.licenseTiers).toEqual(["public", "attribution"]);
   });
+  it("parses REPEATED license params (native checkbox-group form submit)", () => {
+    // The sidebar GET form submits each checked box separately, not comma-joined.
+    const s = filterStateFromURL(new URLSearchParams("license=sharealike&license=noncommercial"));
+    expect(s.licenseTiers).toEqual(["sharealike", "noncommercial"]);
+  });
+  it("parses REPEATED modality params and dedupes across both encodings", () => {
+    const s = filterStateFromURL(new URLSearchParams("modality=EEG&modality=MEG,EEG"));
+    expect(s.modalities).toEqual(["EEG", "MEG"]);
+  });
   it("parses range filters", () => {
     const s = filterStateFromURL(new URLSearchParams("p_min=10&p_max=100"));
     expect(s.participants).toEqual({ min: 10, max: 100 });
