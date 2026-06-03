@@ -57,7 +57,11 @@ export interface EventTable {
   onsetS: Float64Array;
   durationS: Float64Array;
   code: Int32Array;
+  /** Internal code -> raw BIDS value string (e.g. "21", "boundary"). */
   labelMap: Record<string, string>;
+  /** Raw value string -> human description from the events.json Levels (embedded
+   * by the converter); empty when the dataset declares none. */
+  valueDescriptions: Record<string, string>;
 }
 
 export interface RecordingStore {
@@ -283,15 +287,15 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
       zarr.get(duration, null),
       zarr.get(code, null),
     ]);
-    const labelMap = ((grp.attrs as Record<string, unknown>).label_map ?? {}) as Record<
-      string,
-      string
-    >;
+    const attrs = grp.attrs as Record<string, unknown>;
+    const labelMap = (attrs.label_map ?? {}) as Record<string, string>;
+    const valueDescriptions = (attrs.value_descriptions ?? {}) as Record<string, string>;
     return {
       onsetS: Float64Array.from(on.data as ArrayLike<number>),
       durationS: Float64Array.from(du.data as ArrayLike<number>),
       code: Int32Array.from(co.data as ArrayLike<number>),
       labelMap,
+      valueDescriptions,
     };
   } catch (err) {
     console.warn("[eeg-viewer] readEvents failed; events hidden:", err);

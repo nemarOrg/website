@@ -605,6 +605,7 @@ const { datasetId, version } = Astro.props;
     font-variant-numeric: tabular-nums;
   }
   .eegv__plot {
+    position: relative; /* positioning context for the cursor overlay */
     display: flex;
     align-items: stretch;
     gap: 4px;
@@ -642,6 +643,10 @@ const { datasetId, version } = Astro.props;
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
+    /* Compact scrollable table of event types: descriptions can be many, so scroll
+       rather than grow the viewer. */
+    max-block-size: 58px;
+    overflow-y: auto;
     color: var(--color-fg-muted);
     font-size: var(--fs-xs);
   }
@@ -660,22 +665,33 @@ const { datasetId, version } = Astro.props;
     font-size: var(--fs-xs);
     font-variant-numeric: tabular-nums;
   }
+  /* Floating readout tucked into the scope's bottom-right corner: the JS sets its
+     text on hover and clears it on leave, so :empty hides it. Out of flow (absolute)
+     so it never resizes the scope; pointer-events:none so it can't block canvas hover. */
   .eegv__cursor {
-    min-block-size: 1.2em;
-    /* One fixed line: the readout text changes on every pointer move, and a wrap to
-       two lines would resize the scope and flash the canvas. */
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--color-fg-muted);
+    position: absolute;
+    inset-block-end: 8px;
+    inset-inline-end: 20px;
+    z-index: 5;
+    max-inline-size: min(60%, 340px);
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+    border: 1px solid var(--color-border);
+    backdrop-filter: blur(2px);
+    color: var(--color-fg);
     font-size: var(--fs-xs);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-variant-numeric: tabular-nums;
-    padding-inline: 2px;
+    line-height: 1.35;
+    pointer-events: none;
+  }
+  .eegv__cursor:empty {
+    display: none;
   }
   .eegv__minimap {
     inline-size: 100%;
-    block-size: 40px;
+    block-size: 44px;
     display: block;
     cursor: pointer;
     border: 1px solid var(--color-border);

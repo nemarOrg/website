@@ -13,7 +13,10 @@ import type { EventTable } from "./store";
 
 export interface EventType {
   code: number;
+  /** Raw BIDS value string (e.g. "21"). */
   label: string;
+  /** Human description from events.json Levels, "" when none. */
+  description: string;
   color: string;
   count: number;
 }
@@ -30,12 +33,16 @@ export function buildEventTypes(events: EventTable): EventType[] {
     if (!counts.has(code)) order.push(code);
     counts.set(code, (counts.get(code) ?? 0) + 1);
   }
-  return order.map((code, i) => ({
-    code,
-    label: events.labelMap[String(code)] ?? String(code),
-    color: OKABE_ITO[i % OKABE_ITO.length],
-    count: counts.get(code) ?? 0,
-  }));
+  return order.map((code, i) => {
+    const value = events.labelMap[String(code)] ?? String(code);
+    return {
+      code,
+      label: value,
+      description: events.valueDescriptions[value] ?? "",
+      color: OKABE_ITO[i % OKABE_ITO.length],
+      count: counts.get(code) ?? 0,
+    };
+  });
 }
 
 /**
@@ -51,6 +58,7 @@ export function eventsInWindow(
 ): FrameEvent[] {
   const colorByCode = new Map(types.map((t) => [t.code, t.color]));
   const labelByCode = new Map(types.map((t) => [t.code, t.label]));
+  const descByCode = new Map(types.map((t) => [t.code, t.description]));
   const out: FrameEvent[] = [];
   for (let i = 0; i < events.onsetS.length; i++) {
     const onset = events.onsetS[i];
@@ -61,6 +69,7 @@ export function eventsInWindow(
       onsetS: onset,
       durationS: duration,
       label: labelByCode.get(code) ?? String(code),
+      description: descByCode.get(code) ?? "",
       color: colorByCode.get(code) ?? "#888888",
     });
   }
