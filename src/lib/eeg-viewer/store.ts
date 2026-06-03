@@ -71,6 +71,12 @@ export interface RecordingStore {
    * by the converter and embedded in the store attrs; null when the dataset does
    * not declare one. The viewer defaults the notch filter to this. */
   powerLineFrequency: number | null;
+  /** BIDS electrode positions {label:[x,y,z]} from electrodes.tsv, embedded by the
+   * converter, with the coordinate system + units; empty when the dataset declares
+   * none. The viewer projects these for the scalp topomap. */
+  electrodePositions: Record<string, [number, number, number]>;
+  electrodeCoordinateSystem: string;
+  electrodeCoordinateUnits: string;
   groups: GroupHandle[];
   events: EventTable | null;
 }
@@ -170,13 +176,49 @@ export async function openRecording(url: string): Promise<RecordingStore> {
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const plf = attrs.power_line_frequency;
   const powerLineFrequency = typeof plf === "number" && Number.isFinite(plf) && plf > 0 ? plf : null;
+  // Validate each entry: a label maps to [x,y,z] of finite numbers. BIDS uses the
+  // string "n/a" for missing coords (and a buggy converter could emit short tuples),
+  // so skip anything that is not three finite numbers rather than feeding NaN into the
+  // projection.
+  const electrodePositions: Record<string, [number, number, number]> = {};
+  const ep = attrs.electrode_positions;
+  if (ep && typeof ep === "object" && !Array.isArray(ep)) {
+    let skipped = 0;
+    for (const [label, raw] of Object.entries(ep as Record<string, unknown>)) {
+      if (
+        Array.isArray(raw) &&
+        raw.length === 3 &&
+        raw.every((n) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        electrodePositions[label] = raw as [number, number, number];
+      } else {
+        skipped++;
+      }
+    }
+    if (skipped > 0) {
+      console.warn(`[eeg-viewer] electrode_positions: skipped ${skipped} entries with invalid coords`);
+    }
+  }
+  const electrodeCoordinateSystem =
+    typeof attrs.electrode_coordinate_system === "string" ? attrs.electrode_coordinate_system : "";
+  const electrodeCoordinateUnits =
+    typeof attrs.electrode_coordinate_units === "string" ? attrs.electrode_coordinate_units : "";
   const groupNames = Array.isArray(attrs.channel_groups) ? (attrs.channel_groups as string[]) : [];
 
   const [groups, events] = await Promise.all([
     Promise.all(groupNames.map((name) => openGroup(root, name))),
     readEvents(root),
   ]);
-  return { url, format, powerLineFrequency, groups, events };
+  return {
+    url,
+    format,
+    powerLineFrequency,
+    electrodePositions,
+    electrodeCoordinateSystem,
+    electrodeCoordinateUnits,
+    groups,
+    events,
+  };
 }
 
 async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {

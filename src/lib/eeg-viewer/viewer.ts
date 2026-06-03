@@ -16,6 +16,7 @@
 import { type Modality, channelColor, defaultScaling, formatClock, formatSi, removeBandDc, removeDcInPlace } from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
+import { VIRIDIS_CSS, type TopoChannel, projectPositions, renderTopomap } from "./topo";
 import {
   DEFAULT_RENDER,
   type FrameChannel,
@@ -103,6 +104,23 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+  // Topomap state. The projection is computed once (positions are fixed per
+  // recording); topoTime tracks the cursor (null -> window center).
+  let showTopo = false;
+  let topoTime: number | null = null;
+  // Only build the scalp layout for EEG/MEG with positions; non-scalp modalities
+  // (iEEG/EMG/fNIRS/unknown) get no topomap so we don't render a wrong head map. A
+  // bad-geometry projection is caught here so it just disables the topo, not the viewer.
+  // topoScratch is this viewer's private offscreen grid buffer (never shared).
+  const topoScratch = typeof document !== "undefined" ? document.createElement("canvas") : undefined;
+  let topoLayout: ReturnType<typeof projectPositions> | null = null;
+  try {
+    if (isScalpModality(store.groups[0]?.modality) && Object.keys(store.electrodePositions).length >= 3) {
+      topoLayout = projectPositions(store.electrodePositions, store.electrodeCoordinateSystem);
+    }
+  } catch (err) {
+    console.warn("[eeg-viewer] electrode projection failed; topomap disabled:", err);
+  }
 
   // Cursor readout state: the last rendered frame and layout geometry.
   let lastFrame: ViewerFrame | null = null;
@@ -344,6 +362,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     } else {
       drawOverview();
     }
+
+    if (showTopo) drawTopo();
   }
 
   // --- Overview minimap ----------------------------------------------------
@@ -435,6 +455,62 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     mctx.strokeRect(x1, 0, x2 - x1, cssH);
   }
 
+  // --- Topomap -------------------------------------------------------------
+  // Scalp field at the cursor time (window centre until the pointer moves). Bad
+  // (rejected) channels drop out of the interpolation, so hiding a channel removes
+  // its contribution. Reads from the already-loaded frame (no extra fetch).
+  function drawTopo(): void {
+    if (!showTopo || !topoLayout) return;
+    const canvas = ui.topoCanvas;
+    const availW = Math.max(80, ui.topo.clientWidth - 8);
+    const availH = Math.max(80, lastPlotTop + lastPlotHeight);
+    const cssSize = Math.min(availW, availH, 360);
+    const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
+    canvas.style.width = `${cssSize}px`;
+    canvas.style.height = `${cssSize}px`;
+    const pxW = Math.round(cssSize * dpr);
+    if (canvas.width !== pxW) {
+      canvas.width = pxW;
+      canvas.height = pxW;
+    }
+    const tctx = canvas.getContext("2d");
+    if (!tctx) return;
+    tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const frame = lastFrame;
+    if (!frame || frame.nCols <= 0) {
+      tctx.clearRect(0, 0, cssSize, cssSize);
+      return;
+    }
+    const span = frame.windowEndS - frame.windowStartS;
+    const t = Math.max(
+      frame.windowStartS,
+      Math.min(frame.windowEndS, topoTime ?? frame.windowStartS + span / 2),
+    );
+    const col = Math.max(
+      0,
+      Math.min(frame.nCols - 1, Math.round(((t - frame.windowStartS) / Math.max(1e-6, span)) * (frame.nCols - 1))),
+    );
+    const channels: TopoChannel[] = [];
+    for (const ch of frame.channels) {
+      if (ch.dim) continue; // rejected -> no contribution
+      const pos = topoLayout.get(ch.label);
+      if (!pos) continue;
+      const value = ch.kind === "line" ? (ch.line[col] ?? 0) : ((ch.min[col] ?? 0) + (ch.max[col] ?? 0)) / 2;
+      channels.push({ label: ch.label, pos, value });
+    }
+    const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root), topoScratch);
+    if (channels.length >= 3) {
+      const rng = formatSi(vmax, frame.unitBase);
+      ui.topoMin.textContent = `−${rng}`;
+      ui.topoMax.textContent = `+${rng}`;
+      ui.topoInfo.textContent = timeClock ? formatClock(t) : `${t.toFixed(2)} s`;
+    } else {
+      ui.topoMin.textContent = "";
+      ui.topoMax.textContent = "";
+      ui.topoInfo.textContent = `${channels.length} located ch`;
+    }
+  }
+
   // --- controls ------------------------------------------------------------
   const timeStep = () => windowLengthS * 0.2;
   const scroll = (dt: number) => {
@@ -489,6 +565,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   ui.hideBadCheck.addEventListener("change", () => {
     hideBad = ui.hideBadCheck.checked;
     render();
+  });
+  ui.topoBtn.addEventListener("click", () => {
+    if (ui.topoBtn.disabled) return;
+    showTopo = !showTopo && !!topoLayout;
+    ui.topo.style.display = showTopo ? "flex" : "none";
+    ui.topoBtn.setAttribute("aria-pressed", String(showTopo));
+    ui.topoBtn.classList.toggle("eegv__btn--active", showTopo);
+    render(); // re-sizes the scope (the topo panel takes width); drawTopo runs in render
   });
 
   // --- Settings (gear) popover --------------------------------------------
@@ -548,6 +632,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       overviewLoaded = false;
       overviewData = null;
       overviewSeq++; // invalidate any in-flight overview load from the prior group
+      // Topomap is scalp-only; disable + hide it when the active group is not scalp.
+      const scalpNow = !!topoLayout && isScalpModality(group().modality);
+      ui.topoBtn.disabled = !scalpNow;
+      if (!scalpNow && showTopo) {
+        showTopo = false;
+        ui.topo.style.display = "none";
+        ui.topoBtn.classList.remove("eegv__btn--active");
+      }
       render();
     });
   }
@@ -654,6 +746,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const timeStr = timeClock ? formatClock(tAtX) : `${tAtX.toFixed(2)} s`;
     const base = chanLabel ? `${chanLabel} · ${timeStr} · ${valueStr}` : timeStr;
     ui.cursor.textContent = eventStr ? `${base} · ◆ ${eventStr}` : base;
+    if (showTopo) {
+      topoTime = tAtX;
+      try {
+        drawTopo();
+      } catch (err) {
+        console.error("[eeg-viewer] drawTopo failed:", err);
+      }
+    }
   });
 
   ui.canvas.addEventListener("mouseleave", () => {
@@ -786,6 +886,12 @@ interface ViewerUi {
   butterflyCheck: HTMLInputElement;
   clockCheck: HTMLInputElement;
   hideBadCheck: HTMLInputElement;
+  topoBtn: HTMLButtonElement;
+  topo: HTMLElement;
+  topoCanvas: HTMLCanvasElement;
+  topoInfo: HTMLElement;
+  topoMin: HTMLElement;
+  topoMax: HTMLElement;
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
@@ -861,6 +967,24 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     ),
   );
 
+  // Topomap toggle -- a primary view control (right of Channels), not a set-once
+  // gear setting. Disabled when the recording has no embedded electrode positions.
+  const topoBtn = document.createElement("button");
+  topoBtn.type = "button";
+  topoBtn.className = "eegv__btn eegv__topo-btn";
+  topoBtn.title = "Scalp topomap (split panel)";
+  topoBtn.setAttribute("aria-pressed", "false");
+  topoBtn.innerHTML = topoGlyph();
+  // Scalp topomap is only meaningful for EEG/MEG. iEEG (intracranial), EMG, fNIRS,
+  // or unrecognized modalities get the toggle disabled, so we never draw a
+  // misleading scalp map for non-scalp electrodes.
+  const nPos = Object.keys(store.electrodePositions).length;
+  if (!(isScalpModality(store.groups[0]?.modality) && nPos >= 3)) {
+    topoBtn.disabled = true;
+    topoBtn.title = nPos < 3 ? "no electrode positions in this recording" : "scalp topomap is EEG/MEG only";
+  }
+  bar.append(grouped("Topo", topoBtn));
+
   // Set-once controls (zero-phase filters + display toggles) live behind a gear
   // popover so the primary bar stays uncluttered -- these are typically configured
   // once per dataset and forgotten.
@@ -926,7 +1050,21 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   vscroll.type = "range";
   vscroll.className = "eegv__vscroll";
   vscroll.title = "Scroll channels";
-  plot.append(canvas, vscroll, cursor);
+  // Topomap split-panel (right of the scope; hidden until toggled).
+  const topo = el("div", "eegv__topo");
+  topo.style.display = "none";
+  const topoCanvas = document.createElement("canvas");
+  topoCanvas.className = "eegv__topo-canvas";
+  topoCanvas.title = "Scalp topography at the cursor time";
+  const topoBar = el("div", "eegv__topo-bar"); // viridis colorbar
+  topoBar.style.background = `linear-gradient(to right, ${VIRIDIS_CSS})`;
+  const topoMin = el("span", "eegv__topo-end");
+  const topoMax = el("span", "eegv__topo-end");
+  const topoScale = el("div", "eegv__topo-scale");
+  topoScale.append(topoMin, topoBar, topoMax);
+  const topoInfo = el("div", "eegv__topo-info");
+  topo.append(topoCanvas, topoScale, topoInfo);
+  plot.append(canvas, vscroll, topo, cursor);
 
   const hscroll = document.createElement("input");
   hscroll.type = "range";
@@ -971,6 +1109,12 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     butterflyCheck: butterflyLc.input,
     clockCheck: clockLc.input,
     hideBadCheck: hideBadLc.input,
+    topoBtn,
+    topo,
+    topoCanvas,
+    topoInfo,
+    topoMin,
+    topoMax,
     hp,
     lp,
     notch,
@@ -1019,6 +1163,18 @@ function magnifierGlyph(sign: "+" | "-"): string {
 /** Inline gear (settings) icon for the popover toggle. */
 function gearGlyph(): string {
   return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+}
+
+/** Scalp modalities a head topomap is valid for. iEEG (intracranial), EMG, fNIRS,
+ *  and unrecognized modalities are excluded so we never draw a misleading head map. */
+const SCALP_MODALITIES = new Set(["EEG", "MEG"]);
+function isScalpModality(modality: string | undefined): boolean {
+  return SCALP_MODALITIES.has((modality || "").toUpperCase());
+}
+
+/** Inline topomap icon: a head circle with a nose notch at the top. */
+function topoGlyph(): string {
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="8"/><path d="M9.2 6 L12 2.8 L14.8 6"/></svg>';
 }
 
 /** Default Notch select value: the recording's PowerLineFrequency when it is a
