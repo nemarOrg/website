@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveCanonical, searchDatasets, searchResultToDataset } from "./api";
+import { isManagedDatasetId, resolveCanonical, searchDatasets, searchResultToDataset } from "./api";
 import type { SearchResult } from "./types";
 
 const originalFetch = globalThis.fetch;
@@ -112,6 +112,31 @@ describe("searchDatasets", () => {
       async () => new Response("boom", { status: 500 }),
     ) as unknown as typeof fetch;
     await expect(searchDatasets("x")).rejects.toThrow(/search failed/);
+  });
+
+  it("throws a clear error when a 2xx body is not valid JSON", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("<html>gateway timeout</html>", {
+          status: 200,
+          headers: { "Content-Type": "text/html" },
+        }),
+    ) as unknown as typeof fetch;
+    await expect(searchDatasets("x")).rejects.toThrow(/invalid response/);
+  });
+});
+
+describe("isManagedDatasetId", () => {
+  it("accepts managed nm*/on* ids the detail endpoint serves", () => {
+    expect(isManagedDatasetId("nm000156")).toBe(true);
+    expect(isManagedDatasetId("on002578")).toBe(true);
+  });
+
+  it("rejects legacy ds* ids (400 at /datasets/:id) and malformed ids", () => {
+    expect(isManagedDatasetId("ds005189")).toBe(false);
+    expect(isManagedDatasetId("nm123")).toBe(false);
+    expect(isManagedDatasetId("")).toBe(false);
+    expect(isManagedDatasetId("xx000001")).toBe(false);
   });
 });
 

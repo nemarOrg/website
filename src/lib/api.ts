@@ -96,10 +96,30 @@ export async function searchDatasets(
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
+    // Log before throwing so a backend outage is visible in Worker logs even
+    // if the caller's catch only surfaces a sanitized message.
+    console.error(`[api] searchDatasets q="${q}": ${res.status} ${res.statusText}`);
     throw new Error(`api.nemar.org search failed: ${res.status} ${res.statusText}`);
   }
-  const json = (await res.json()) as DatasetSearchResponse;
-  return json;
+  try {
+    return (await res.json()) as DatasetSearchResponse;
+  } catch {
+    // A 2xx with a non-JSON body (e.g. an edge timeout HTML page) lands here.
+    console.error(`[api] searchDatasets q="${q}": response body was not valid JSON`);
+    throw new Error("api.nemar.org search returned an invalid response");
+  }
+}
+
+/**
+ * Whether `GET /datasets/:id` will accept this id. The catalog detail
+ * endpoint only serves managed datasets (`nm*` backend-created, `on*`
+ * OpenNeuro mirrors); legacy `ds*` catalog rows return 400 ("Invalid dataset
+ * ID format") there and are reached via data.nemar.org / canonical redirect
+ * instead. Search hydration uses this to skip doomed per-id fetches for `ds*`
+ * hits and render them from the reduced projection.
+ */
+export function isManagedDatasetId(id: string): boolean {
+  return /^(nm|on)\d{6}$/.test(id);
 }
 
 export async function getDataset(
