@@ -67,19 +67,13 @@ export interface RecordingStore {
   events: EventTable | null;
 }
 
-export interface ChannelWindow {
-  /** Dequantized envelope bottom (view levels). */
-  min?: Float32Array;
-  /** Dequantized envelope top (view levels). */
-  max?: Float32Array;
-  /** Dequantized single trace (level-0). */
-  line?: Float32Array;
-}
+export type ChannelWindow =
+  | { kind: "line"; line: Float32Array }
+  | { kind: "band"; min: Float32Array; max: Float32Array };
 
 export interface WindowData {
   /** 0 = level-0 (lines); >=1 = view level (min/max band). */
   level: number;
-  isBand: boolean;
   nCols: number;
   channels: ChannelWindow[];
 }
@@ -88,7 +82,7 @@ function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
-function parseChannels(raw: unknown): ChannelMeta[] {
+export function parseChannels(raw: unknown): ChannelMeta[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((c, i) => {
     const o = (c ?? {}) as Record<string, unknown>;
@@ -125,9 +119,14 @@ function retryingFetch(retries = 6, baseMs = 250) {
       try {
         const res = await fetch(request);
         const transient = res.status === 429 || (res.status >= 500 && res.status < 600);
-        if (transient && attempt < retries) {
-          await delay(attempt);
-          continue;
+        if (transient) {
+          if (attempt < retries) {
+            await delay(attempt);
+            continue;
+          }
+          throw new Error(
+            `zarr.nemar.org returned ${res.status} after ${retries + 1} attempts`,
+          );
         }
         return res;
       } catch (err) {
@@ -166,30 +165,47 @@ export async function openRecording(url: string): Promise<RecordingStore> {
 }
 
 async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
-  const [grp, level0, viewLevels] = await Promise.all([
-    zarr.open(root.resolve(name), { kind: "group" }),
-    zarr.open(root.resolve(`${name}/0`), { kind: "array" }) as Promise<
-      zarr.Array<"int16", zarr.FetchStore>
-    >,
-    discoverViewLevels(root, name),
-  ]);
-  const ga = grp.attrs as Record<string, unknown>;
-  const channels = parseChannels(ga.channels);
-  const nSamples = num(ga.n_samples, level0.shape[level0.shape.length - 1]);
-  const rate = num(ga.rate, 250);
-  return {
-    name,
-    modality: typeof ga.modality === "string" ? ga.modality : channels[0]?.modality || "MISC",
-    rate,
-    originalRate: num(ga.original_rate, rate),
-    nChannels: num(ga.n_channels, channels.length),
-    nSamples,
-    durationS: nSamples / rate,
-    channels,
-    channelsByRow: [...channels].sort((a, b) => a.rowIndex - b.rowIndex),
-    level0,
-    viewLevels,
-  };
+  try {
+    const [grp, rawLevel0, viewLevels] = await Promise.all([
+      zarr.open(root.resolve(name), { kind: "group" }),
+      zarr.open(root.resolve(`${name}/0`), { kind: "array" }),
+      discoverViewLevels(root, name),
+    ]);
+    if (rawLevel0.dtype !== "int16") {
+      throw new Error(
+        `unexpected dtype ${rawLevel0.dtype} at ${name}/0; expected int16`,
+      );
+    }
+    const level0 = rawLevel0 as zarr.Array<"int16", zarr.FetchStore>;
+    const ga = grp.attrs as Record<string, unknown>;
+    const channels = parseChannels(ga.channels);
+    const nChannels = channels.length;
+    if (typeof ga.n_channels === "number" && Number.isFinite(ga.n_channels) && ga.n_channels !== nChannels) {
+      console.warn(
+        `[eeg-viewer] group "${name}": attrs.n_channels=${ga.n_channels} but parsed ${nChannels} channels; using ${nChannels}`,
+      );
+    }
+    const nSamples = num(ga.n_samples, level0.shape[level0.shape.length - 1]);
+    const rate = num(ga.rate, 250);
+    return {
+      name,
+      modality: typeof ga.modality === "string" ? ga.modality : channels[0]?.modality || "MISC",
+      rate,
+      originalRate: num(ga.original_rate, rate),
+      nChannels,
+      nSamples,
+      durationS: nSamples / rate,
+      channels,
+      channelsByRow: [...channels].sort((a, b) => a.rowIndex - b.rowIndex),
+      level0,
+      viewLevels,
+    };
+  } catch (err) {
+    throw new Error(
+      `failed to open group "${name}": ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
+  }
 }
 
 const VIEW_PROBE_BATCH = 6;
@@ -202,6 +218,11 @@ const VIEW_PROBE_MAX = 12;
  * blindly firing a dozen misses (each doubled by zarrita's v2 `.zattrs`
  * fallback). Levels are contiguous from view/1.
  */
+function isNotFound(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /404|not[ _]?found/i.test(msg);
+}
+
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
@@ -210,15 +231,26 @@ async function discoverViewLevels(
   for (let base = 1; base <= VIEW_PROBE_MAX; base += VIEW_PROBE_BATCH) {
     const probes = await Promise.allSettled(
       Array.from({ length: VIEW_PROBE_BATCH }, (_, i) => base + i).map(async (level) => {
-        const array = (await zarr.open(root.resolve(`${group}/view/${level}`), {
+        const rawArray = await zarr.open(root.resolve(`${group}/view/${level}`), {
           kind: "array",
-        })) as zarr.Array<"int16", zarr.FetchStore>;
+        });
+        if (rawArray.dtype !== "int16") {
+          throw new Error(
+            `unexpected dtype ${rawArray.dtype} at ${group}/view/${level}; expected int16`,
+          );
+        }
+        const array = rawArray as zarr.Array<"int16", zarr.FetchStore>;
         return { level, nTime: array.shape[array.shape.length - 1], array };
       }),
     );
     let added = 0;
     for (const p of probes) {
-      if (p.status !== "fulfilled") break; // contiguous from view/1
+      if (p.status !== "fulfilled") {
+        if (!isNotFound(p.reason)) {
+          console.warn("[eeg-viewer] view-level probe failed (non-404):", p.reason);
+        }
+        break; // contiguous from view/1
+      }
       levels.push(p.value);
       added++;
     }
@@ -250,7 +282,8 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
       code: Int32Array.from(co.data as ArrayLike<number>),
       labelMap,
     };
-  } catch {
+  } catch (err) {
+    console.warn("[eeg-viewer] readEvents failed; events hidden:", err);
     return null;
   }
 }
@@ -306,9 +339,9 @@ async function readLevel0(
     const line = new Float32Array(cols);
     const base = i * cols;
     for (let c = 0; c < cols; c++) line[c] = (data[base + c] * ch.scale + ch.offset) * ch.siFactor;
-    return { line };
+    return { kind: "line" as const, line };
   });
-  return { level: 0, isBand: false, nCols: cols, channels };
+  return { level: 0, nCols: cols, channels };
 }
 
 async function readViewLevel(
@@ -338,7 +371,7 @@ async function readViewLevel(
       min[c] = v0 < v1 ? v0 : v1;
       max[c] = v0 < v1 ? v1 : v0;
     }
-    return { min, max };
+    return { kind: "band" as const, min, max };
   });
-  return { level: view.level, isBand: true, nCols: cols, channels };
+  return { level: view.level, nCols: cols, channels };
 }
