@@ -21,7 +21,10 @@ export type FrameChannel =
 export interface FrameEvent {
   onsetS: number;
   durationS: number;
+  /** Short code shown at the trace top (e.g. "21"). */
   label: string;
+  /** Human description from the BIDS events.json Levels, "" when none. */
+  description: string;
   color: string;
 }
 
@@ -193,9 +196,13 @@ function renderStacked(
   const slots = traceLayout(frame.channels.length, plotTop, plotHeight);
   const pxPerPhys = slots.length > 0 ? slots[0].halfHeight / (frame.physPerDiv / g) : 0;
 
-  // Slot dividers + flush-left labels.
+  // Slot dividers + flush-left labels. The label size tracks the slot height so it
+  // stays proportionate to the data density -- small when 32+ channels share the
+  // fixed-height scope, larger when zoomed into a few -- clamped to a readable range.
   ctx.textBaseline = "middle";
-  ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+  const slotPx = slots.length > 0 ? slots[0].halfHeight * 2 : plotHeight;
+  const labelPx = Math.max(8, Math.min(11, Math.round(slotPx * 0.5)));
+  ctx.font = `${labelPx}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
     ctx.strokeStyle = opts.grid;
@@ -334,6 +341,8 @@ function drawEventLines(
   plotHeight: number,
 ): void {
   ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.font = "8px ui-monospace, SFMono-Regular, Menlo, monospace";
   for (const ev of frame.events) {
     const x = timeToX(ev.onsetS, frame.windowStartS, frame.windowEndS, plotLeft, plotWidth);
     if (x < plotLeft - 1 || x > plotLeft + plotWidth + 1) continue;
@@ -358,7 +367,15 @@ function drawEventLines(
       ctx.stroke();
     }
     ctx.fillStyle = ev.color;
-    ctx.fillText(ev.label.slice(0, 12), x, plotTop + 2);
+    // Tuck the code against the line at 45 deg (reading up-right) so neighbouring
+    // events stack diagonally instead of colliding horizontally.
+    ctx.save();
+    ctx.translate(Math.round(x) + 0.5, plotTop + 11);
+    ctx.rotate(-Math.PI / 4);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(ev.label.slice(0, 10), 3, 0);
+    ctx.restore();
   }
 }
 
@@ -375,7 +392,7 @@ function drawTimeAxis(
   ctx.lineWidth = 1;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
 
   const span = frame.windowEndS - frame.windowStartS;
   const step = niceTimeStep(span);
@@ -424,7 +441,7 @@ function drawScaleBar(
   ctx.fillStyle = opts.foreground;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.fillText(formatSi(physDiv, frame.unitBase), x + 8, (yTop + yBottom) / 2);
 }
 

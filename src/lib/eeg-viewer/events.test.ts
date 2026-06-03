@@ -7,12 +7,14 @@ function table(
   durations: number[],
   codes: number[],
   labelMap: Record<string, string>,
+  valueDescriptions: Record<string, string> = {},
 ): EventTable {
   return {
     onsetS: Float64Array.from(onsets),
     durationS: Float64Array.from(durations),
     code: Int32Array.from(codes),
     labelMap,
+    valueDescriptions,
   };
 }
 
@@ -29,6 +31,13 @@ describe("buildEventTypes", () => {
   it("falls back to the code string when label_map lacks it", () => {
     const t = buildEventTypes(table([1], [0], [99], {}));
     expect(t[0].label).toBe("99");
+  });
+  it("resolves the human description from value_descriptions by the raw value", () => {
+    const t = buildEventTypes(
+      table([1, 2], [0, 0], [10, 20], { "10": "21", "20": "boundary" }, { "21": "stimulus - face" }),
+    );
+    expect(t[0]).toMatchObject({ label: "21", description: "stimulus - face" });
+    expect(t[1].description).toBe(""); // no description declared for "boundary"
   });
 });
 
@@ -49,6 +58,12 @@ describe("eventsInWindow", () => {
 
   it("excludes events fully outside the window", () => {
     expect(eventsInWindow(ev, types, 100, 200)).toEqual([]);
+  });
+
+  it("carries the human description onto the frame events", () => {
+    const e2 = table([5], [0], [10], { "10": "21" }, { "21": "face" });
+    const got = eventsInWindow(e2, buildEventTypes(e2), 0, 10);
+    expect(got[0]).toMatchObject({ label: "21", description: "face" });
   });
 
   it("excludes an event whose onset equals endS (right-edge exclusive)", () => {

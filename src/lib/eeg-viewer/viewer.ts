@@ -355,7 +355,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     const g = group();
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
     const cssW = canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width || 600;
-    const cssH = 40;
+    const cssH = 44;
     canvas.style.height = `${cssH}px`;
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
@@ -367,40 +367,47 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     mctx.fillStyle = colors.background;
     mctx.fillRect(0, 0, cssW, cssH);
 
-    // Normalize the activity envelope.
+    // Layout: events own the prominent upper band; the activity envelope is a faint
+    // strip along the bottom. The envelope alone says little, so events are the focus
+    // (the minimap is mainly an event-distribution indicator).
+    const actBand = 11; // bottom px for the (subtle) activity envelope
+    const evTop = 3;
+    const evBottom = cssH - actBand - 2;
+
+    // Subtle activity envelope along the bottom.
     const data = overviewData;
     let maxVal = 0;
     for (let i = 0; i < data.length; i++) {
       if (data[i] > maxVal) maxVal = data[i];
     }
     if (maxVal <= 0) maxVal = 1;
-
-    // Draw the activity bar chart.
     const colW = cssW / data.length;
+    mctx.globalAlpha = 0.45;
+    mctx.fillStyle = colors.grid;
     for (let i = 0; i < data.length; i++) {
-      const frac = data[i] / maxVal;
-      const barH = Math.max(1, Math.round(frac * (cssH - 12)));
-      mctx.fillStyle = colors.grid;
-      mctx.fillRect(i * colW, cssH - barH - 6, Math.max(1, colW - 0.5), barH);
+      const barH = Math.max(1, Math.round((data[i] / maxVal) * actBand));
+      mctx.fillRect(i * colW, cssH - barH - 1, Math.max(1, colW - 0.5), barH);
     }
+    mctx.globalAlpha = 1;
 
     // The whole-recording time axis, shared by the event ticks and the window box.
     const dur = g.durationS || 1;
 
-    // Event tick marks colored by type.
+    // Prominent event ticks spanning the upper band; some alpha so dense clusters
+    // read as density rather than a solid wall.
     if (store.events && eventTypes.length > 0) {
+      const colorByCode = new Map(eventTypes.map((t) => [t.code, t.color]));
+      mctx.lineWidth = 1.25;
+      mctx.globalAlpha = 0.8;
       for (let i = 0; i < store.events.onsetS.length; i++) {
-        const t = store.events.onsetS[i];
-        const x = (t / dur) * cssW;
-        const code = store.events.code[i];
-        const evType = eventTypes.find((et) => et.code === code);
-        mctx.strokeStyle = evType?.color ?? "#888888";
-        mctx.lineWidth = 1;
+        const x = (store.events.onsetS[i] / dur) * cssW;
+        mctx.strokeStyle = colorByCode.get(store.events.code[i]) ?? "#888888";
         mctx.beginPath();
-        mctx.moveTo(Math.round(x) + 0.5, 0);
-        mctx.lineTo(Math.round(x) + 0.5, 6);
+        mctx.moveTo(Math.round(x) + 0.5, evTop);
+        mctx.lineTo(Math.round(x) + 0.5, evBottom);
         mctx.stroke();
       }
+      mctx.globalAlpha = 1;
     }
 
     // Current window box.
@@ -614,12 +621,22 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       }
     }
 
-    const timeStr = timeClock ? formatClock(tAtX) : `${tAtX.toFixed(2)} s`;
-    if (chanLabel) {
-      ui.cursor.textContent = `${chanLabel} · ${timeStr} · ${valueStr}`;
-    } else {
-      ui.cursor.textContent = timeStr;
+    // Nearest event under the cursor (within a few px of its line) -> its
+    // description, so hovering an event line explains the otherwise-cryptic code.
+    let eventStr = "";
+    const pxPerS = lastPlotWidth / Math.max(1e-6, span);
+    let bestDx = 5;
+    for (const ev of frame.events) {
+      const dx = Math.abs(lastPlotLeft + (ev.onsetS - frame.windowStartS) * pxPerS - x);
+      if (dx <= bestDx) {
+        bestDx = dx;
+        eventStr = ev.description ? `${ev.label}: ${ev.description}` : ev.label;
+      }
     }
+
+    const timeStr = timeClock ? formatClock(tAtX) : `${tAtX.toFixed(2)} s`;
+    const base = chanLabel ? `${chanLabel} · ${timeStr} · ${valueStr}` : timeStr;
+    ui.cursor.textContent = eventStr ? `${base} · ◆ ${eventStr}` : base;
   });
 
   ui.canvas.addEventListener("mouseleave", () => {
@@ -851,7 +868,8 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   settings.append(gearBtn, menu);
   bar.append(settings);
 
-  // Cursor readout (below toolbar, above scope).
+  // Cursor readout: a compact overlay tucked into the bottom-right of the scope
+  // (appears on hover, hidden otherwise) rather than a full-width line.
   const cursor = el("div", "eegv__cursor");
   cursor.setAttribute("aria-live", "polite");
 
@@ -884,7 +902,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   vscroll.type = "range";
   vscroll.className = "eegv__vscroll";
   vscroll.title = "Scroll channels";
-  plot.append(canvas, vscroll);
+  plot.append(canvas, vscroll, cursor);
 
   const hscroll = document.createElement("input");
   hscroll.type = "range";
@@ -897,17 +915,21 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   minimap.style.display = "none";
   minimap.title = "Overview — click to jump";
 
+  // Event legend: a compact scrollable table. Show the human description from the
+  // events.json Levels when present (the raw code is meaningless on its own); the
+  // chip's title carries the code for reference. All types listed (scroll, not grow).
   const legend = el("div", "eegv__legend");
-  for (const t of eventTypes.slice(0, 16)) {
+  for (const t of eventTypes) {
     const chip = el("span", "eegv__chip");
+    chip.title = t.description ? `${t.label} — ${t.description}` : t.label;
     const dot = el("span", "eegv__dot");
     dot.style.background = t.color;
-    chip.append(dot, document.createTextNode(`${t.label} (${t.count})`));
+    chip.append(dot, document.createTextNode(`${t.description || t.label} (${t.count})`));
     legend.append(chip);
   }
 
   const status = el("div", "eegv__status");
-  root.append(bar, cursor, plot, hscroll, minimap, legend, status, helpOverlay);
+  root.append(bar, plot, hscroll, minimap, legend, status, helpOverlay);
   slot.append(root);
 
   return {
