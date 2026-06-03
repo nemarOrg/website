@@ -75,6 +75,11 @@ export function fitSphere(pts: Vec3[]): { center: Vec3; radius: number } {
  *  at 1.0 and projected r = 2 * EEGLAB arc_length. */
 export const HEAD_RAD = 1.0;
 
+/** Cap on the radius that drives the squeeze. Electrodes farther below the equator
+ *  than this (e.g. on the face) are shown beyond the rim rather than shrinking the
+ *  scalp map to fit them. */
+const SQUEEZE_MAX = 1.1;
+
 /** Azimuthal-equidistant projection of a unit-sphere point (RAS+) to the disc; nose
  *  (+uy) at the top, +x to the right. NOT clamped -- below-equator points get r>1
  *  (EEGLAB's "skirt") and the whole cap is squeezed in projectPositions. */
@@ -99,12 +104,14 @@ export function projectPositions(positions: Record<string, Vec3>, system: string
     const dist = Math.hypot(dx, dy, dz) || 1;
     return projectUnit(dx / dist, dy / dist, dz / dist);
   });
-  // EEGLAB squeeze (topoplot.m): squeezefac = rmax / max(max(Rd)*1.02, rmax). If all
-  // electrodes sit within the equator there is no squeeze; below-equator ("skirt")
-  // electrodes pull the whole cap in so the outermost lands at ~rmax (the rim).
+  // EEGLAB squeeze (topoplot.m): squeezefac = rmax / max(maxRd*1.02, rmax), so the
+  // outermost scalp electrode lands at the rim. We CAP the radius driving the squeeze
+  // (SQUEEZE_MAX) so a few electrodes far below the equator (e.g. on the face) don't
+  // pull the whole montage inward -- those stay beyond the rim (drawn outside the
+  // head, still feeding the interpolation), rather than shrinking the scalp map.
   let maxR = 0;
   for (const [x, y] of raw) maxR = Math.max(maxR, Math.hypot(x, y));
-  const plotrad = Math.max(maxR * 1.02, HEAD_RAD);
+  const plotrad = Math.max(Math.min(maxR, SQUEEZE_MAX) * 1.02, HEAD_RAD);
   const squeeze = plotrad > 0 ? HEAD_RAD / plotrad : 1;
   const out = new Map<string, Pt2>();
   labels.forEach((l, i) => out.set(l, [raw[i][0] * squeeze, raw[i][1] * squeeze]));
@@ -203,7 +210,7 @@ export interface TopoChannel {
   value: number;
 }
 
-const VB = 1.18; // viewbox half-extent (room for nose/ears past the r=1 head)
+const VB_MIN = 1.18; // viewbox half-extent: room for nose/ears past the r=1 head
 
 // Reused offscreen buffer for the interpolated grid (avoids per-frame allocation
 // during live cursor updates). Created lazily on the client.
@@ -229,7 +236,12 @@ export function renderTopomap(
   ctx.clearRect(0, 0, sizePx, sizePx);
   const cx = sizePx / 2;
   const cy = sizePx / 2;
-  const rPx = sizePx / (2 * VB); // head radius in px
+  // Viewbox: room for the nose/ears (VB_MIN) plus any electrodes drawn beyond the rim
+  // (face/below-equator), so those dots are not clipped.
+  let maxDraw = 1.0;
+  for (const c of channels) maxDraw = Math.max(maxDraw, Math.hypot(c.pos[0], c.pos[1]));
+  const vb = Math.max(VB_MIN, maxDraw + 0.08);
+  const rPx = sizePx / (2 * vb); // head radius in px
 
   if (channels.length < 3) {
     ctx.fillStyle = colors.grid;
@@ -256,10 +268,12 @@ export function renderTopomap(
     // Interpolated field on a grid the size of the head box, masked to the circle.
     const g = Math.max(48, Math.min(120, Math.round(rPx)));
     const img = ctx.createImageData(g, g);
+    // The grid spans exactly the head circle ([-1,1]), so the masked disc fills the
+    // drawn head edge (no margin). The blit below maps this grid onto the rPx disc.
     for (let row = 0; row < g; row++) {
       for (let col = 0; col < g; col++) {
-        const qx = (-1 + (2 * (col + 0.5)) / g) * VB;
-        const qy = (-1 + (2 * (row + 0.5)) / g) * VB;
+        const qx = -1 + (2 * (col + 0.5)) / g;
+        const qy = -1 + (2 * (row + 0.5)) / g;
         const idx = (row * g + col) * 4;
         if (qx * qx + qy * qy > 1) {
           img.data[idx + 3] = 0; // outside the head -> transparent
