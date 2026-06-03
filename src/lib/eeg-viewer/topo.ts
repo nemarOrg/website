@@ -67,6 +67,20 @@ export function fitSphere(pts: Vec3[]): { center: Vec3; radius: number } {
     }
   }
   const [a, b, c, d] = gaussSolve(AtA, Atf);
+  if (![a, b, c, d].every(Number.isFinite)) {
+    // Degenerate input (e.g. coplanar electrodes) -> centroid + mean-radius fallback
+    // instead of a NaN sphere.
+    const n = pts.length || 1;
+    const cen: Vec3 = [0, 0, 0];
+    for (const p of pts) {
+      cen[0] += p[0] / n;
+      cen[1] += p[1] / n;
+      cen[2] += p[2] / n;
+    }
+    let r = 0;
+    for (const p of pts) r += Math.hypot(p[0] - cen[0], p[1] - cen[1], p[2] - cen[2]) / n;
+    return { center: cen, radius: r || 1 };
+  }
   return { center: [a, b, c], radius: Math.sqrt(Math.max(1e-9, d + a * a + b * b + c * c)) };
 }
 
@@ -75,9 +89,10 @@ export function fitSphere(pts: Vec3[]): { center: Vec3; radius: number } {
  *  at 1.0 and projected r = 2 * EEGLAB arc_length. */
 export const HEAD_RAD = 1.0;
 
-/** Cap on the radius that drives the squeeze. Electrodes farther below the equator
- *  than this (e.g. on the face) are shown beyond the rim rather than shrinking the
- *  scalp map to fit them. */
+/** Cap on the radius used to COMPUTE the squeeze factor (not the inside/outside
+ *  threshold -- that is the equator, HEAD_RAD). Electrodes beyond this (well below the
+ *  equator, e.g. on the face) are excluded from driving the squeeze, so they render
+ *  outside the rim instead of compressing the whole scalp montage inward to fit them. */
 const SQUEEZE_MAX = 1.1;
 
 /** Azimuthal-equidistant projection of a unit-sphere point (RAS+) to the disc; nose
@@ -104,11 +119,11 @@ export function projectPositions(positions: Record<string, Vec3>, system: string
     const dist = Math.hypot(dx, dy, dz) || 1;
     return projectUnit(dx / dist, dy / dist, dz / dist);
   });
-  // EEGLAB squeeze (topoplot.m): squeezefac = rmax / max(maxRd*1.02, rmax), so the
-  // outermost scalp electrode lands at the rim. We CAP the radius driving the squeeze
-  // (SQUEEZE_MAX) so a few electrodes far below the equator (e.g. on the face) don't
-  // pull the whole montage inward -- those stay beyond the rim (drawn outside the
-  // head, still feeding the interpolation), rather than shrinking the scalp map.
+  // EEGLAB squeeze (topoplot.m): squeezefac = rmax / max(min(1, maxRd*1.02), rmax), so
+  // the outermost scalp electrode lands just inside the rim. We cap the squeeze-driving
+  // radius at SQUEEZE_MAX (instead of EEGLAB's hard 1.0) so a few electrodes far below
+  // the equator (e.g. on the face) don't pull the whole montage inward -- those stay
+  // beyond the rim (drawn outside the head, still feeding the interpolation).
   let maxR = 0;
   for (const [x, y] of raw) maxR = Math.max(maxR, Math.hypot(x, y));
   const plotrad = Math.max(Math.min(maxR, SQUEEZE_MAX) * 1.02, HEAD_RAD);
@@ -153,6 +168,10 @@ export function solveTPS(px: number[], py: number[], vals: number[]): TpsModel |
     b[i] = vals[i];
   }
   const x = gaussSolve(A, b);
+  // A near-singular system (coincident sites, all-coplanar) yields non-finite or
+  // astronomically large weights; bail so the caller draws head + dots only rather
+  // than a garbage uniform field.
+  if (!x.every((v) => Number.isFinite(v) && Math.abs(v) < 1e12)) return null;
   return { px, py, w: x.slice(0, N), c: [x[N], x[N + 1], x[N + 2]] };
 }
 
@@ -212,26 +231,17 @@ export interface TopoChannel {
 
 const VB_MIN = 1.18; // viewbox half-extent: room for nose/ears past the r=1 head
 
-// Reused offscreen buffer for the interpolated grid (avoids per-frame allocation
-// during live cursor updates). Created lazily on the client.
-let _grid: HTMLCanvasElement | null = null;
-function gridCanvas(g: number): HTMLCanvasElement {
-  if (!_grid) _grid = document.createElement("canvas");
-  if (_grid.width !== g) {
-    _grid.width = g;
-    _grid.height = g;
-  }
-  return _grid;
-}
-
 /** Render a topomap: TPS field clipped to the head circle, head outline, nose,
- *  ears, and electrode dots. `sizePx` is the CSS square size. Returns the value
- *  range used (symmetric +/-vmax) for an optional caller-drawn colorbar. */
+ *  ears, and electrode dots. `sizePx` is the CSS square size. Pass a per-viewer
+ *  `scratch` canvas (the offscreen grid buffer) to avoid per-frame allocation during
+ *  live cursor updates; it must not be shared between concurrent viewers. Returns the
+ *  value range used (symmetric +/-vmax) for an optional caller-drawn colorbar. */
 export function renderTopomap(
   ctx: CanvasRenderingContext2D,
   sizePx: number,
   channels: TopoChannel[],
   colors: { foreground: string; grid: string; background: string },
+  scratch?: HTMLCanvasElement,
 ): { vmax: number } {
   ctx.clearRect(0, 0, sizePx, sizePx);
   const cx = sizePx / 2;
@@ -255,10 +265,11 @@ export function renderTopomap(
   for (const c of channels) vmax = Math.max(vmax, Math.abs(c.value));
   if (vmax <= 0) vmax = 1;
 
-  // EEGLAB-style: interpolate the electrode values over the whole head disk with the
-  // biharmonic spline (== griddata 'v4'); the field fills to the rim and is masked to
-  // the head circle below. No zero-boundary -- the cap was squeezed so the outermost
-  // electrode sits at the rim, leaving only a hair of margin to extrapolate.
+  // Interpolate the electrode values over the whole head disk with a thin-plate spline
+  // (kernel r^2 ln r + affine trend + ridge; closely related to, but not identical to,
+  // EEGLAB's griddata 'v4' biharmonic spline). The field fills to the rim and is masked
+  // to the head circle below. No zero-boundary -- the cap is squeezed so the outermost
+  // electrode sits just inside the rim (~0.98), leaving only a hair to extrapolate.
   const px = channels.map((c) => c.pos[0]);
   const py = channels.map((c) => c.pos[1]);
   const vals = channels.map((c) => c.value);
@@ -287,7 +298,11 @@ export function renderTopomap(
       }
     }
     // Blit the small grid scaled up over the head disc (clipped to the circle).
-    const tmp = gridCanvas(g);
+    const tmp = scratch ?? document.createElement("canvas");
+    if (tmp.width !== g) {
+      tmp.width = g;
+      tmp.height = g;
+    }
     const tctx = tmp.getContext("2d");
     if (tctx) {
       tctx.putImageData(img, 0, 0);
@@ -298,6 +313,8 @@ export function renderTopomap(
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(tmp, cx - rPx, cy - rPx, rPx * 2, rPx * 2);
       ctx.restore();
+    } else {
+      console.warn("[eeg-viewer] topo: no 2D context for the grid blit; field omitted");
     }
   }
 

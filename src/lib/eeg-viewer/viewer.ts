@@ -109,11 +109,18 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let showTopo = false;
   let topoTime: number | null = null;
   // Only build the scalp layout for EEG/MEG with positions; non-scalp modalities
-  // (iEEG/EMG/fNIRS/unknown) get no topomap so we don't render a wrong head map.
-  const topoLayout =
-    isScalpModality(store.groups[0]?.modality) && Object.keys(store.electrodePositions).length >= 3
-      ? projectPositions(store.electrodePositions, store.electrodeCoordinateSystem)
-      : null;
+  // (iEEG/EMG/fNIRS/unknown) get no topomap so we don't render a wrong head map. A
+  // bad-geometry projection is caught here so it just disables the topo, not the viewer.
+  // topoScratch is this viewer's private offscreen grid buffer (never shared).
+  const topoScratch = typeof document !== "undefined" ? document.createElement("canvas") : undefined;
+  let topoLayout: ReturnType<typeof projectPositions> | null = null;
+  try {
+    if (isScalpModality(store.groups[0]?.modality) && Object.keys(store.electrodePositions).length >= 3) {
+      topoLayout = projectPositions(store.electrodePositions, store.electrodeCoordinateSystem);
+    }
+  } catch (err) {
+    console.warn("[eeg-viewer] electrode projection failed; topomap disabled:", err);
+  }
 
   // Cursor readout state: the last rendered frame and layout geometry.
   let lastFrame: ViewerFrame | null = null;
@@ -470,7 +477,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     if (!tctx) return;
     tctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const frame = lastFrame;
-    if (!frame) {
+    if (!frame || frame.nCols <= 0) {
       tctx.clearRect(0, 0, cssSize, cssSize);
       return;
     }
@@ -491,7 +498,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       const value = ch.kind === "line" ? (ch.line[col] ?? 0) : ((ch.min[col] ?? 0) + (ch.max[col] ?? 0)) / 2;
       channels.push({ label: ch.label, pos, value });
     }
-    const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root));
+    const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root), topoScratch);
     if (channels.length >= 3) {
       const rng = formatSi(vmax, frame.unitBase);
       ui.topoMin.textContent = `−${rng}`;
@@ -625,6 +632,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       overviewLoaded = false;
       overviewData = null;
       overviewSeq++; // invalidate any in-flight overview load from the prior group
+      // Topomap is scalp-only; disable + hide it when the active group is not scalp.
+      const scalpNow = !!topoLayout && isScalpModality(group().modality);
+      ui.topoBtn.disabled = !scalpNow;
+      if (!scalpNow && showTopo) {
+        showTopo = false;
+        ui.topo.style.display = "none";
+        ui.topoBtn.classList.remove("eegv__btn--active");
+      }
       render();
     });
   }
@@ -733,7 +748,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     ui.cursor.textContent = eventStr ? `${base} · ◆ ${eventStr}` : base;
     if (showTopo) {
       topoTime = tAtX;
-      drawTopo();
+      try {
+        drawTopo();
+      } catch (err) {
+        console.error("[eeg-viewer] drawTopo failed:", err);
+      }
     }
   });
 

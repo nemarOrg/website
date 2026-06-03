@@ -176,11 +176,29 @@ export async function openRecording(url: string): Promise<RecordingStore> {
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const plf = attrs.power_line_frequency;
   const powerLineFrequency = typeof plf === "number" && Number.isFinite(plf) && plf > 0 ? plf : null;
+  // Validate each entry: a label maps to [x,y,z] of finite numbers. BIDS uses the
+  // string "n/a" for missing coords (and a buggy converter could emit short tuples),
+  // so skip anything that is not three finite numbers rather than feeding NaN into the
+  // projection.
+  const electrodePositions: Record<string, [number, number, number]> = {};
   const ep = attrs.electrode_positions;
-  const electrodePositions =
-    ep && typeof ep === "object" && !Array.isArray(ep)
-      ? (ep as Record<string, [number, number, number]>)
-      : {};
+  if (ep && typeof ep === "object" && !Array.isArray(ep)) {
+    let skipped = 0;
+    for (const [label, raw] of Object.entries(ep as Record<string, unknown>)) {
+      if (
+        Array.isArray(raw) &&
+        raw.length === 3 &&
+        raw.every((n) => typeof n === "number" && Number.isFinite(n))
+      ) {
+        electrodePositions[label] = raw as [number, number, number];
+      } else {
+        skipped++;
+      }
+    }
+    if (skipped > 0) {
+      console.warn(`[eeg-viewer] electrode_positions: skipped ${skipped} entries with invalid coords`);
+    }
+  }
   const electrodeCoordinateSystem =
     typeof attrs.electrode_coordinate_system === "string" ? attrs.electrode_coordinate_system : "";
   const electrodeCoordinateUnits =
