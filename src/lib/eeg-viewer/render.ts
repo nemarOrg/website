@@ -220,29 +220,17 @@ export function renderFrame(
     ctx.lineWidth = 1;
 
     if (ch.min && ch.max) {
-      // View-pyramid envelope: a SOFT min/max halo (the per-pixel signal range)
-      // with a crisp centerline on top, so it reads as a trace with a range band
-      // rather than a fuzzy double-line ribbon.
-      ctx.fillStyle = `${ch.color}2b`;
+      // Min/max decimation waveform: for each pixel-column draw the full
+      // [min,max] vertical extent, connected across columns. This preserves the
+      // inherent EEG texture that a centerline smooths away -- a calm channel
+      // stays a thin squiggle, activity reads as dense texture -- without the
+      // heavy look of a filled band.
       ctx.beginPath();
       for (let c = 0; c < frame.nCols; c++) {
         const x = colToX(c, frame.nCols, plotLeft, plotWidth);
-        const y = yOf(ch.max[c]);
-        if (c === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      for (let c = frame.nCols - 1; c >= 0; c--) {
-        const x = colToX(c, frame.nCols, plotLeft, plotWidth);
+        if (c === 0) ctx.moveTo(x, yOf(ch.max[c]));
+        else ctx.lineTo(x, yOf(ch.max[c]));
         ctx.lineTo(x, yOf(ch.min[c]));
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      for (let c = 0; c < frame.nCols; c++) {
-        const x = colToX(c, frame.nCols, plotLeft, plotWidth);
-        const y = yOf((ch.min[c] + ch.max[c]) / 2);
-        if (c === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
       }
       ctx.stroke();
     } else if (ch.line) {
