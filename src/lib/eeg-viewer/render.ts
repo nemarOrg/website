@@ -217,11 +217,13 @@ export function renderFrame(
     };
 
     ctx.strokeStyle = ch.color;
-    ctx.fillStyle = `${ch.color}55`;
     ctx.lineWidth = 1;
 
     if (ch.min && ch.max) {
-      // Filled min/max band: top edge = max, bottom edge = min.
+      // View-pyramid envelope: a SOFT min/max halo (the per-pixel signal range)
+      // with a crisp centerline on top, so it reads as a trace with a range band
+      // rather than a fuzzy double-line ribbon.
+      ctx.fillStyle = `${ch.color}2b`;
       ctx.beginPath();
       for (let c = 0; c < frame.nCols; c++) {
         const x = colToX(c, frame.nCols, plotLeft, plotWidth);
@@ -235,6 +237,13 @@ export function renderFrame(
       }
       ctx.closePath();
       ctx.fill();
+      ctx.beginPath();
+      for (let c = 0; c < frame.nCols; c++) {
+        const x = colToX(c, frame.nCols, plotLeft, plotWidth);
+        const y = yOf((ch.min[c] + ch.max[c]) / 2);
+        if (c === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
       ctx.stroke();
     } else if (ch.line) {
       ctx.beginPath();
