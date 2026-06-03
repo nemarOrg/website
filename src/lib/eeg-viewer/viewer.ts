@@ -297,7 +297,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     // Paint a "loading" state immediately so the scope never sits blank while a
     // read (or its retries) is in flight; the first paint also covers the gap
     // before any frame exists. Subsequent scrolls keep the prior frame.
-    if (firstPaint) renderMessage(ctx, w, h, themeColors(ui.root), "Signal loading…");
+    if (firstPaint) {
+      const tc = themeColors(ui.root);
+      glRenderer?.clear(tc.background); // wipe any stale GL frame under the overlay
+      renderMessage(ctx, w, h, tc, "Signal loading…");
+    }
     ui.status.textContent = "Signal loading…";
 
     let win: WindowData;
@@ -308,7 +312,9 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       if (seq === renderSeq) {
         firstPaint = false;
         const msg = err instanceof Error ? err.message : String(err);
-        renderMessage(ctx, w, h, themeColors(ui.root), `Signal unavailable: ${msg}`);
+        const tc = themeColors(ui.root);
+        glRenderer?.clear(tc.background); // wipe any stale GL frame under the overlay
+        renderMessage(ctx, w, h, tc, `Signal unavailable: ${msg}`);
         ui.status.textContent = `signal unavailable: ${msg}`;
       }
       return;

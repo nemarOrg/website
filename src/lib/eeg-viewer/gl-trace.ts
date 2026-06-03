@@ -109,7 +109,10 @@ export function buildTraceVertices(frame: ViewerFrame, opts: RenderOptions): Tra
     const offset = v;
     if (ch.kind === "band") {
       // Zigzag max[c] -> min[c] across columns (matches drawTrace's band path).
-      const nc = frame.nCols;
+      // Clamp to the shortest array so a boundary-truncated band never reads
+      // past its data and writes NaN vertices (the buffer is sized for the
+      // nCols*2 upper bound, so a shorter run just leaves the tail unused).
+      const nc = Math.min(frame.nCols, ch.max.length, ch.min.length);
       for (let c = 0; c < nc; c++) {
         const x = colToX(c, nc, plotLeft, plotWidth);
         verts[v * 2] = x;
@@ -156,6 +159,9 @@ void main() { outColor = u_color; }`;
 export interface GlTraceRenderer {
   /** Resize the drawing buffer (device px) + GL viewport. */
   resize(pxW: number, pxH: number): void;
+  /** Clear the canvas to `background` (used behind loading/error overlays so no
+   *  stale frame lingers under the transparent 2D chrome). */
+  clear(background: string): void;
   /**
    * Clear to `background` and draw every channel's trace. `cssW`/`cssH` are the
    * CSS-pixel plot size used for the pixel->clip mapping (the buffer is DPR-scaled
@@ -186,52 +192,115 @@ function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLSh
  * opaque background, so the data area is filled).
  */
 export function createGlTraceRenderer(canvas: HTMLCanvasElement): GlTraceRenderer | null {
-  const gl = canvas.getContext("webgl2", {
+  const ctxGl = canvas.getContext("webgl2", {
     antialias: true,
     alpha: true,
     premultipliedAlpha: false,
     preserveDrawingBuffer: false,
   }) as WebGL2RenderingContext | null;
-  if (!gl) return null;
+  if (!ctxGl) return null;
+  const gl: WebGL2RenderingContext = ctxGl; // non-null for the nested init()/draw() closures
 
-  const vs = compile(gl, gl.VERTEX_SHADER, VERT_SRC);
-  const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG_SRC);
-  if (!vs || !fs) return null;
-  const prog = gl.createProgram();
-  if (!prog) return null;
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    console.warn("[eeg-viewer] GL program link failed:", gl.getProgramInfoLog(prog));
-    return null;
+  // GL objects are rebuilt by init(); they go null on a lost context and are
+  // recreated on restore, so they must be mutable closure state, not consts.
+  let prog: WebGLProgram | null = null;
+  let buf: WebGLBuffer | null = null;
+  let vao: WebGLVertexArrayObject | null = null;
+  let uRes: WebGLUniformLocation | null = null;
+  let uColor: WebGLUniformLocation | null = null;
+  let lost = false;
+
+  // Build (or rebuild, after a context restore) the program + buffer + VAO. Every
+  // failure path frees what it allocated and returns false, so a partial init
+  // never leaks GL objects.
+  function init(): boolean {
+    const vs = compile(gl, gl.VERTEX_SHADER, VERT_SRC);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG_SRC);
+    if (!vs || !fs) {
+      if (vs) gl.deleteShader(vs);
+      if (fs) gl.deleteShader(fs);
+      return false;
+    }
+    const p = gl.createProgram();
+    if (!p) {
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      return false;
+    }
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      console.warn("[eeg-viewer] GL program link failed:", gl.getProgramInfoLog(p));
+      gl.deleteShader(vs);
+      gl.deleteShader(fs);
+      gl.deleteProgram(p);
+      return false;
+    }
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    const aPos = gl.getAttribLocation(p, "a_pos");
+    const b = gl.createBuffer();
+    const va = gl.createVertexArray();
+    if (!b || !va || aPos < 0) {
+      if (b) gl.deleteBuffer(b);
+      if (va) gl.deleteVertexArray(va);
+      gl.deleteProgram(p);
+      return false;
+    }
+    gl.bindVertexArray(va);
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+    prog = p;
+    buf = b;
+    vao = va;
+    uRes = gl.getUniformLocation(p, "u_res");
+    uColor = gl.getUniformLocation(p, "u_color");
+    return true;
   }
-  gl.deleteShader(vs);
-  gl.deleteShader(fs);
 
-  const aPos = gl.getAttribLocation(prog, "a_pos");
-  const uRes = gl.getUniformLocation(prog, "u_res");
-  const uColor = gl.getUniformLocation(prog, "u_color");
-  const buf = gl.createBuffer();
-  const vao = gl.createVertexArray();
-  gl.bindVertexArray(vao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.enableVertexAttribArray(aPos);
-  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-  gl.bindVertexArray(null);
+  if (!init()) return null;
 
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  // A lost context turns every GL call into a no-op; preventDefault() lets the
+  // browser fire `webglcontextrestored`, where we rebuild the (now-invalid) GL
+  // objects. While lost, draw/resize skip work so we don't spin the CPU.
+  const onLost = (e: Event): void => {
+    e.preventDefault();
+    lost = true;
+    console.warn("[eeg-viewer] WebGL context lost");
+  };
+  const onRestored = (): void => {
+    lost = !init();
+    if (!lost) console.warn("[eeg-viewer] WebGL context restored");
+  };
+  canvas.addEventListener("webglcontextlost", onLost);
+  canvas.addEventListener("webglcontextrestored", onRestored);
 
   return {
     resize(pxW: number, pxH: number): void {
+      if (lost) return;
+      // Reassigning width/height clears the buffer; only touch it (and the
+      // viewport, which only depends on buffer size) on an actual size change.
       if (canvas.width !== pxW || canvas.height !== pxH) {
         canvas.width = pxW;
         canvas.height = pxH;
+        gl.viewport(0, 0, pxW, pxH);
       }
-      gl.viewport(0, 0, pxW, pxH);
+    },
+    clear(background: string): void {
+      if (lost) return;
+      const [r, g, b] = hexToRgb(background);
+      gl.clearColor(r, g, b, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
     },
     draw(frame: ViewerFrame, opts: RenderOptions, cssW: number, cssH: number): void {
+      if (lost || !prog || !buf || !vao) return;
       const [br, bg, bb] = hexToRgb(opts.background);
       gl.clearColor(br, bg, bb, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -250,9 +319,12 @@ export function createGlTraceRenderer(canvas: HTMLCanvasElement): GlTraceRendere
       gl.bindVertexArray(null);
     },
     dispose(): void {
-      gl.deleteBuffer(buf);
-      gl.deleteVertexArray(vao);
-      gl.deleteProgram(prog);
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
+      if (buf) gl.deleteBuffer(buf);
+      if (vao) gl.deleteVertexArray(vao);
+      if (prog) gl.deleteProgram(prog);
+      prog = buf = vao = null;
     },
   };
 }
