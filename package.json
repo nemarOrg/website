@@ -3,6 +3,7 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+  "license": "CC-BY-NC-ND-4.0",
   "description": "nemar.org redesign on Astro + Cloudflare Pages",
   "engines": {
     "node": ">=22.12.0"
