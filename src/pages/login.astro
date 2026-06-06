@@ -1,6 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { safeRedirectPath } from "../lib/auth";
+import { WEB_SIGNIN_ENABLED, WEB_SIGNIN_ETA } from "../lib/flags";
 
 const url = new URL(Astro.request.url);
 const next = safeRedirectPath(url.searchParams.get("next"));
@@ -26,12 +27,27 @@ const isDev = import.meta.env.DEV;
           <p class="signin__eyebrow">Researcher access</p>
           <h1 class="signin__title">Sign in to <em>NEMAR</em></h1>
           <p class="signin__lede">
-            We&rsquo;ll email you a one-time 6-digit code. No password required.
+            {WEB_SIGNIN_ENABLED
+              ? "We'll email you a one-time 6-digit code. No password required."
+              : `Web sign-in is coming ${WEB_SIGNIN_ETA}. For now, sign in with the CLI.`}
           </p>
         </header>
 
         {errorMessage && <p class="signin__alert" role="alert">{errorMessage}</p>}
 
+        {!WEB_SIGNIN_ENABLED && (
+          <div class="signin__soon">
+            <span class="signin__soon-badge">Coming soon</span>
+            <p class="signin__soon-lede">
+              Passwordless web sign-in launches <strong>{WEB_SIGNIN_ETA}</strong>. Until then,
+              sign in with the NEMAR CLI &mdash; the web and CLI share the same account.
+            </p>
+            <pre class="signin__soon-code"><code>bun install -g @nemar/cli
+nemar auth login</code></pre>
+          </div>
+        )}
+
+        {WEB_SIGNIN_ENABLED && (
         <form class="signin__form" data-login-form data-next={next}>
           <label class="field">
             <span class="field__label">Email</span>
@@ -76,6 +92,7 @@ const isDev = import.meta.env.DEV;
           </button>
           <p class="signin__inline-error" role="alert" data-login-inline-error hidden></p>
         </form>
+        )}
 
         <footer class="signin__foot">
           <p>
@@ -107,6 +124,37 @@ const isDev = import.meta.env.DEV;
 </Base>
 
 <style>
+  .signin__soon {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4) 0 var(--space-2);
+  }
+  .signin__soon-badge {
+    justify-self: start;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: var(--fw-semibold);
+    color: var(--brand-teal);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 40%, transparent);
+    border-radius: var(--radius-pill);
+    padding: 2px 10px;
+  }
+  .signin__soon-lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .signin__soon-code {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    overflow-x: auto;
+  }
   .signin {
     position: relative;
     isolation: isolate;
