@@ -123,3 +123,31 @@ export function appUrl(pathname: string, currentHostname: string): string {
 export function marketingUrl(pathname: string, currentHostname: string): string {
   return hostMode(currentHostname) === "app" ? `${MARKETING_BASE_URL}${pathname}` : pathname;
 }
+
+/**
+ * Paths retired from this site, now served by dedicated subdomains:
+ *  - the in-site `/docs` moved to the Starlight docs site (docs.nemar.org), and
+ *  - the `/citation-dashboard` placeholder moved to dashboard.nemar.org.
+ * Returns the external destination for a retired path, or null otherwise. Fires
+ * on every host (the pages no longer exist here) and must run before
+ * `getCrossHostRedirect` so a retired path never bounces through the app host.
+ */
+const RETIRED_DOCS: ReadonlyMap<string, string> = new Map([
+  ["/docs", "https://docs.nemar.org/web/"],
+  ["/docs/getting-started", "https://docs.nemar.org/web/getting-started/"],
+  ["/docs/upload", "https://docs.nemar.org/web/uploading/"],
+  ["/docs/managing-datasets", "https://docs.nemar.org/web/managing-datasets/"],
+  ["/docs/publishing", "https://docs.nemar.org/web/publication-review/"],
+  ["/docs/cli-vs-web", "https://docs.nemar.org/ecosystem/cli-vs-web/"],
+]);
+
+export function getRetiredRedirect(url: URL): string | null {
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const mapped = RETIRED_DOCS.get(path);
+  if (mapped) return mapped;
+  if (path === "/docs" || path.startsWith("/docs/")) return "https://docs.nemar.org/";
+  if (path === "/citation-dashboard" || path.startsWith("/citation-dashboard/")) {
+    return "https://dashboard.nemar.org/citations";
+  }
+  return null;
+}

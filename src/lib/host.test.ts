@@ -5,6 +5,7 @@ import {
   MARKETING_HOST,
   appUrl,
   getCrossHostRedirect,
+  getRetiredRedirect,
   hostMode,
   isAppRoute,
   marketingUrl,
@@ -135,6 +136,35 @@ describe("getCrossHostRedirect", () => {
     expect(getCrossHostRedirect(url(APP_HOST, "/discover?modality=eeg&limit=10"))).toBe(
       `${MARKETING_BASE_URL}/discover?modality=eeg&limit=10`,
     );
+  });
+});
+
+describe("getRetiredRedirect", () => {
+  const u = (p: string) => new URL(`https://ww2.nemar.org${p}`);
+
+  it("redirects retired /docs pages to the docs site", () => {
+    expect(getRetiredRedirect(u("/docs"))).toBe("https://docs.nemar.org/web/");
+    expect(getRetiredRedirect(u("/docs/"))).toBe("https://docs.nemar.org/web/");
+    expect(getRetiredRedirect(u("/docs/upload"))).toBe("https://docs.nemar.org/web/uploading/");
+    expect(getRetiredRedirect(u("/docs/cli-vs-web"))).toBe(
+      "https://docs.nemar.org/ecosystem/cli-vs-web/",
+    );
+  });
+
+  it("falls back to the docs home for unmapped /docs paths", () => {
+    expect(getRetiredRedirect(u("/docs/whatever"))).toBe("https://docs.nemar.org/");
+  });
+
+  it("redirects the retired citation dashboard to dashboard.nemar.org", () => {
+    expect(getRetiredRedirect(u("/citation-dashboard"))).toBe(
+      "https://dashboard.nemar.org/citations",
+    );
+  });
+
+  it("returns null for live routes", () => {
+    expect(getRetiredRedirect(u("/discover"))).toBeNull();
+    expect(getRetiredRedirect(u("/dashboard"))).toBeNull();
+    expect(getRetiredRedirect(u("/"))).toBeNull();
   });
 });
 
