@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
-import { getCrossHostRedirect, hostMode } from "./lib/host";
+import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
 
 /**
  * Three responsibilities in one handler:
@@ -35,6 +35,14 @@ import { getCrossHostRedirect, hostMode } from "./lib/host";
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(context.request.url);
+
+  // Retired paths (in-site /docs -> docs.nemar.org, /citation-dashboard ->
+  // dashboard.nemar.org) take priority over cross-host routing so they never
+  // bounce through the app host first.
+  const retired = getRetiredRedirect(url);
+  if (retired) {
+    return new Response(null, { status: 301, headers: { Location: retired } });
+  }
 
   const redirectTarget = getCrossHostRedirect(url);
   if (redirectTarget) {
