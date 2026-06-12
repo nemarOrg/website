@@ -13,6 +13,11 @@
  */
 import * as zarr from "zarrita";
 
+declare const process: {
+  argv: string[];
+  exit(code?: number): never;
+};
+
 const base = (process.argv[2] ?? "https://zarr.nemar.org").replace(/\/$/, "");
 const id = process.argv[3] ?? "nm000132";
 const storeRel = process.argv[4] ?? "";

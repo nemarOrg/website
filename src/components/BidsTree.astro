@@ -276,6 +276,9 @@ const { datasetId, version } = Astro.props;
     color: var(--color-link);
     text-decoration: underline;
   }
+  .tree__preview-btn[data-zarr-available="false"] .tree__name {
+    color: var(--color-fg-subtle);
+  }
   .tree__preview-btn:focus-visible .tree__name {
     outline: 2px solid var(--color-link);
     outline-offset: 2px;

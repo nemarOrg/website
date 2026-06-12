@@ -240,6 +240,13 @@ Astro.response.headers.set(
     renderSubdir,
     renderTopLevel,
   } from "../../lib/render-dir-listing";
+  import {
+    type ZarrIndexStore,
+    fetchZarrIndex,
+    prefetchZarrStoreMetadata,
+    zarrAvailablePaths,
+    zarrStoreByPath,
+  } from "../../lib/zarr-index";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
   // doesn't pay for parsing the TSV renderer's bundle.
@@ -249,6 +256,15 @@ Astro.response.headers.set(
   // the entry is garbage-collected when the section detaches (SPA-style
   // navigation isn't used here today, but it's the cheap-correct default).
   const listingBySection = new WeakMap<HTMLElement, DirListing>();
+  const zarrBySection = new WeakMap<
+    HTMLElement,
+    {
+      paths: Set<string>;
+      stores: Map<string, ZarrIndexStore>;
+      prefetched: Set<string>;
+      firstPrefetched: boolean;
+    }
+  >();
 
   /**
    * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
@@ -324,6 +340,16 @@ Astro.response.headers.set(
     const datasetId = section.dataset.id;
     const version = section.dataset.version;
     if (!datasetId || !version) return;
+    void fetchZarrIndex(datasetId).then((index) => {
+      if (!index) return;
+      zarrBySection.set(section, {
+        paths: zarrAvailablePaths(index),
+        stores: zarrStoreByPath(index),
+        prefetched: new Set<string>(),
+        firstPrefetched: false,
+      });
+      annotateZarrRows(section);
+    });
     const listing = await fetchDirListing(datasetId, version, "");
     section.removeAttribute("aria-busy");
     if (!listing) {
@@ -336,6 +362,56 @@ Astro.response.headers.set(
     }
     listingBySection.set(section, listing);
     section.innerHTML = renderTopLevel(listing);
+    annotateZarrRows(section);
+  }
+
+  function annotateZarrRows(section: HTMLElement): void {
+    const state = zarrBySection.get(section);
+    if (!state) return;
+    for (const btn of section.querySelectorAll<HTMLButtonElement>(
+      '[data-preview-type="eeg"][data-preview-path]',
+    )) {
+      const path = btn.dataset.previewPath ?? "";
+      const available = state.paths.has(path);
+      btn.dataset.zarrAvailable = available ? "true" : "false";
+      if (available) {
+        btn.title = `Open signal viewer for ${btn.dataset.fileName ?? path}`;
+      } else {
+        btn.title = "No interactive Zarr viewer is available for this recording yet";
+      }
+    }
+    prefetchFirstZarrRow(section, state);
+  }
+
+  function prefetchFirstZarrRow(
+    section: HTMLElement,
+    state = zarrBySection.get(section),
+  ): void {
+    if (!state || state.firstPrefetched) return;
+    const btn = section.querySelector<HTMLButtonElement>(
+      '[data-preview-type="eeg"][data-zarr-available="true"][data-preview-path]',
+    );
+    if (!btn) return;
+    state.firstPrefetched = true;
+    prefetchZarrButton(btn, state);
+  }
+
+  function prefetchZarrButton(
+    btn: HTMLButtonElement,
+    state?: {
+      paths: Set<string>;
+      stores: Map<string, ZarrIndexStore>;
+      prefetched: Set<string>;
+      firstPrefetched: boolean;
+    },
+  ): void {
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    state ??= section ? zarrBySection.get(section) : undefined;
+    const datasetId = section?.dataset.id;
+    const path = btn.dataset.previewPath ?? "";
+    if (!state || !datasetId || !path || state.prefetched.has(path)) return;
+    state.prefetched.add(path);
+    prefetchZarrStoreMetadata(datasetId, path, state.stores.get(path));
   }
 
   // Delegated click for the "Show next N" footer. Single document-level
@@ -379,6 +455,7 @@ Astro.response.headers.set(
       return;
     }
     list.insertAdjacentHTML("beforeend", result.html);
+    annotateZarrRows(section);
 
     const newRendered = rendered + result.rendered;
     if (newRendered >= total) {
@@ -413,6 +490,17 @@ Astro.response.headers.set(
   // Cache of fetched-and-parsed TSV text per slot. Used by the "Show all"
   // re-reveal so we re-render from memory instead of re-fetching.
   const tsvCacheBySlot = new WeakMap<HTMLElement, string>();
+
+  function maybePrefetchZarrFromTarget(target: EventTarget | null): void {
+    if (!(target instanceof Element)) return;
+    const btn = target.closest<HTMLButtonElement>(
+      '[data-preview-type="eeg"][data-zarr-available="true"][data-preview-path]',
+    );
+    if (btn) prefetchZarrButton(btn);
+  }
+
+  document.addEventListener("mouseover", (event) => maybePrefetchZarrFromTarget(event.target));
+  document.addEventListener("focusin", (event) => maybePrefetchZarrFromTarget(event.target));
 
   document.addEventListener("click", async (event) => {
     const target = event.target;
@@ -488,6 +576,12 @@ Astro.response.headers.set(
     // Code-split: the viewer + zarrita bundle only loads when a signal file is
     // first opened.
     if (previewType === "eeg") {
+      if (btn.dataset.zarrAvailable === "false") {
+        slot.innerHTML = `<p class="preview__empty">No interactive viewer is available for this recording yet. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+        slot.dataset.loaded = "true";
+        return;
+      }
+      prefetchZarrButton(btn);
       slot.dataset.loaded = "loading";
       slot.setAttribute("aria-busy", "true");
       slot.innerHTML = `<p class="preview__loading">Loading viewer…</p>`;
@@ -595,6 +689,7 @@ Astro.response.headers.set(
           }
           slot.innerHTML = renderSubdir(listing, childDepth);
           slot.dataset.loaded = "true";
+          if (section) annotateZarrRows(section);
         })
         .catch((err) => {
           console.warn(`[tree/${treeId}] dir expand failed:`, err);

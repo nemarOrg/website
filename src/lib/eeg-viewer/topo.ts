@@ -108,7 +108,10 @@ export function projectUnit(ux: number, uy: number, uz: number): Pt2 {
 
 /** Project raw electrode positions to 2D disc coords keyed by label, applying
  *  EEGLAB's squeeze so the outermost electrode lands just inside the head rim. */
-export function projectPositions(positions: Record<string, Vec3>, system: string): Map<string, Pt2> {
+export function projectPositions(
+  positions: Record<string, Vec3>,
+  system: string,
+): Map<string, Pt2> {
   const labels = Object.keys(positions);
   const ras = labels.map((l) => alsToRas(system, positions[l]));
   const { center } = fitSphere(ras);
@@ -178,7 +181,8 @@ export function solveTPS(px: number[], py: number[], vals: number[]): TpsModel |
 /** Evaluate the spline at (qx,qy). */
 export function evalTPS(m: TpsModel, qx: number, qy: number): number {
   let v = m.c[0] + m.c[1] * qx + m.c[2] * qy;
-  for (let i = 0; i < m.px.length; i++) v += m.w[i] * tpsPhi(Math.hypot(qx - m.px[i], qy - m.py[i]));
+  for (let i = 0; i < m.px.length; i++)
+    v += m.w[i] * tpsPhi(Math.hypot(qx - m.px[i], qy - m.py[i]));
   return v;
 }
 
@@ -200,7 +204,8 @@ const VIRIDIS: Array<[number, [number, number, number]]> = [
 ];
 
 /** CSS-gradient stops for a viridis colorbar (left = low). */
-export const VIRIDIS_CSS = "#440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725";
+export const VIRIDIS_CSS =
+  "#440154, #482878, #3e4a89, #31688e, #26828e, #1f9e89, #35b779, #6ece58, #b5de2b, #fde725";
 
 /** Map a normalized signed value t in [-1,1] to a viridis color (t is rescaled to
  *  [0,1], so 0 lands at the perceptual middle). */

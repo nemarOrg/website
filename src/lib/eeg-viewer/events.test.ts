@@ -34,7 +34,13 @@ describe("buildEventTypes", () => {
   });
   it("resolves the human description from value_descriptions by the raw value", () => {
     const t = buildEventTypes(
-      table([1, 2], [0, 0], [10, 20], { "10": "21", "20": "boundary" }, { "21": "stimulus - face" }),
+      table(
+        [1, 2],
+        [0, 0],
+        [10, 20],
+        { "10": "21", "20": "boundary" },
+        { "21": "stimulus - face" },
+      ),
     );
     expect(t[0]).toMatchObject({ label: "21", description: "stimulus - face" });
     expect(t[1].description).toBe(""); // no description declared for "boundary"

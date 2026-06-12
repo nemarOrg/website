@@ -89,14 +89,17 @@ export function buildTraceVertices(frame: ViewerFrame, opts: RenderOptions): Tra
   const slots = butterfly ? null : traceLayout(n, plotTop, plotHeight);
   const halfFull = plotHeight / 2;
   const baseFull = plotTop + halfFull;
-  const pxPerPhysStacked = slots && slots.length > 0 ? slots[0].halfHeight / (frame.physPerDiv / g) : 0;
+  const pxPerPhysStacked =
+    slots && slots.length > 0 ? slots[0].halfHeight / (frame.physPerDiv / g) : 0;
   const pxPerPhysButterfly = halfFull / (frame.physPerDiv / g);
 
   let v = 0; // running vertex index
   for (let i = 0; i < n; i++) {
     const ch = channels[i];
     const baseline = butterfly ? baseFull : (slots as ReturnType<typeof traceLayout>)[i].baseline;
-    const halfHeight = butterfly ? halfFull : (slots as ReturnType<typeof traceLayout>)[i].halfHeight;
+    const halfHeight = butterfly
+      ? halfFull
+      : (slots as ReturnType<typeof traceLayout>)[i].halfHeight;
     const pxPerPhys = butterfly ? pxPerPhysButterfly : pxPerPhysStacked;
     const clipPx = halfHeight * clip;
     const lo = baseline - clipPx;

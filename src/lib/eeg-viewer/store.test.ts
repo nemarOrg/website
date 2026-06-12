@@ -86,10 +86,14 @@ describe("aggregateOverview", () => {
     const nTime = 2;
     // flat index: (row * nCh + ch) * nTime + t
     const data = new Int16Array([
-      10, 20, // row=0, ch=0
-      0,  5,  // row=0, ch=1
-      30, 40, // row=1, ch=0
-      5,  5,  // row=1, ch=1
+      10,
+      20, // row=0, ch=0
+      0,
+      5, // row=0, ch=1
+      30,
+      40, // row=1, ch=0
+      5,
+      5, // row=1, ch=1
     ]);
     const out = aggregateOverview(data, nCh, nTime, [identity, identity]);
     expect(out[0]).toBeCloseTo(20, 6);
