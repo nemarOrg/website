@@ -13,6 +13,10 @@ interface Props {
    * Defaults to the brand-wide `/og-image.png`.
    */
   image?: string;
+  /** MIME type for the social preview image. */
+  imageType?: string;
+  /** Alt text for the social preview image. */
+  imageAlt?: string;
   /** Override the OpenGraph `type`. Default "website"; detail pages use "article". */
   ogType?: "website" | "article";
   /** When true, suppresses the standard Nav (used for fullscreen marketing pages). */
@@ -23,6 +27,8 @@ const {
   title,
   description = "NEMAR (Neuroelectromagnetic Data Archive and Tools Resource): search, visualize, analyze, and download EEG, MEG, iEEG, and EMG datasets.",
   image = "/og-image.png",
+  imageType = "image/png",
+  imageAlt = "NEMAR - open neuroscience data, ready to use.",
   ogType = "website",
   bareLayout = false,
 } = Astro.props;
@@ -67,16 +73,17 @@ const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrig
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content={absoluteImage} />
+    <meta property="og:image:type" content={imageType} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="NEMAR — open neuroscience data, ready to use." />
+    <meta property="og:image:alt" content={imageAlt} />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={absoluteImage} />
-    <meta name="twitter:image:alt" content="NEMAR — open neuroscience data, ready to use." />
+    <meta name="twitter:image:alt" content={imageAlt} />
 
     <script is:inline>
       // Prevent FOUC by applying the stored theme before paint.
