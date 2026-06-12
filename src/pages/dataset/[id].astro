@@ -136,6 +136,9 @@ Astro.response.headers.set(
 <Base
   title={metadata.name}
   description={metadata.description ?? `${id} dataset on NEMAR`}
+  image={`/og/dataset/${encodeURIComponent(id)}.svg`}
+  imageType="image/svg+xml"
+  imageAlt={`${metadata.name} dataset summary card on NEMAR.`}
   ogType="article"
 >
   <article class="detail">
