@@ -37,7 +37,7 @@ export interface DatasetOgInput {
 }
 
 const CARD_W = 1200;
-const CARD_H = 630;
+const CARD_H = 800;
 
 export function buildDatasetOgModel(input: DatasetOgInput): DatasetOgModel {
   const title =
@@ -67,46 +67,45 @@ export function buildDatasetOgModel(input: DatasetOgInput): DatasetOgModel {
 }
 
 export function renderDatasetOgSvg(model: DatasetOgModel, logoSvg: string): string {
-  const titleLines = wrapText(model.title, 34, 3);
-  const descriptionLines = wrapText(model.description, 86, 2);
+  const titleLines = wrapText(model.title, 27, 3);
   const embeddedLogo = logoSvg.replace(
     /^<svg\b/,
-    '<svg x="72" y="64" width="282" height="60" color="#111827" style="--brand-accent:#38a3d8;--brand-electrode:#7c5ce8"',
+    '<svg x="68" y="58" width="460" height="96" color="#f8fafc" style="--brand-accent:#5bbad5;--brand-electrode:#603cba"',
   );
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_W}" height="${CARD_H}" viewBox="0 0 ${CARD_W} ${CARD_H}" role="img" aria-label="${escapeXml(model.title)} dataset card">
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0%" stop-color="#fbfdff"/>
-      <stop offset="62%" stop-color="#f4f8ff"/>
-      <stop offset="100%" stop-color="#eef7fb"/>
+      <stop offset="0%" stop-color="#06112a"/>
+      <stop offset="58%" stop-color="#0b1a3a"/>
+      <stop offset="100%" stop-color="#111d36"/>
     </linearGradient>
     <linearGradient id="accent" x1="0" x2="1">
-      <stop offset="0%" stop-color="#38a3d8"/>
-      <stop offset="100%" stop-color="#7c5ce8"/>
+      <stop offset="0%" stop-color="#5bbad5"/>
+      <stop offset="100%" stop-color="#603cba"/>
     </linearGradient>
     <filter id="shadow" x="-10%" y="-20%" width="120%" height="160%">
-      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0f172a" flood-opacity="0.12"/>
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#020617" flood-opacity="0.24"/>
     </filter>
   </defs>
   <rect width="${CARD_W}" height="${CARD_H}" fill="url(#bg)"/>
-  <path d="M756 80 C900 24 1048 52 1164 144" fill="none" stroke="#cce8f5" stroke-width="2" opacity="0.8"/>
-  <path d="M792 138 C926 96 1040 124 1158 222" fill="none" stroke="#ded9fb" stroke-width="2" opacity="0.75"/>
-  <circle cx="1076" cy="122" r="172" fill="#e8f5fb" opacity="0.68"/>
-  <circle cx="1110" cy="318" r="118" fill="#eeeafe" opacity="0.55"/>
+  <rect x="36" y="34" width="1128" height="732" rx="46" fill="#0a1224" stroke="#1e293b" stroke-width="2"/>
+  <circle cx="1038" cy="132" r="300" fill="#5bbad5" opacity="0.10"/>
+  <circle cx="1120" cy="610" r="240" fill="#603cba" opacity="0.14"/>
+  <path d="M650 104 C842 32 1046 92 1180 230" fill="none" stroke="#5bbad5" stroke-width="4" opacity="0.30"/>
+  <path d="M708 222 C890 150 1040 208 1172 372" fill="none" stroke="#603cba" stroke-width="4" opacity="0.34"/>
   ${embeddedLogo}
-  <rect x="892" y="72" width="236" height="48" rx="24" fill="#ffffff" filter="url(#shadow)" opacity="0.94"/>
-  <text x="1010" y="103" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700" fill="#334155">${escapeXml(model.id)}</text>
-  <text x="72" y="184" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="58" font-weight="760" fill="#111827" letter-spacing="0">${tspans(titleLines, 72, 0, 68)}</text>
-  <text x="74" y="360" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="25" font-weight="500" fill="#475569">${tspans(descriptionLines, 74, 0, 34)}</text>
+  <rect x="842" y="76" width="280" height="66" rx="33" fill="#f8fafc" opacity="0.12"/>
+  <text x="982" y="119" text-anchor="middle" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="25" font-weight="700" fill="#f8fafc">${escapeXml(model.id)}</text>
+  <text x="72" y="254" font-family="Rubik, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="82" font-weight="700" fill="#f8fafc" letter-spacing="0">${tspans(titleLines, 72, 0, 94)}</text>
   ${renderChips(model.modalities)}
-  <g transform="translate(72 472)">
-    ${metricCard(0, 0, 510, "First author", model.firstAuthor)}
-    ${metricCard(538, 0, 230, "Subjects", model.subjects)}
-    ${metricCard(796, 0, 260, "Total size", model.size)}
+  <g transform="translate(72 604)">
+    ${metricCard(0, 0, 478, "First author", model.firstAuthor)}
+    ${metricCard(506, 0, 260, "Subjects", model.subjects)}
+    ${metricCard(794, 0, 262, "Total size", model.size)}
   </g>
-  <rect x="72" y="596" width="1056" height="4" rx="2" fill="url(#accent)"/>
+  <rect x="72" y="744" width="1056" height="6" rx="3" fill="url(#accent)"/>
 </svg>`;
 }
 
@@ -213,8 +212,8 @@ function renderChips(modalities: string[]): string {
   let x = 72;
   return modalities
     .map((m) => {
-      const w = Math.max(76, 38 + m.length * 14);
-      const chip = `<g transform="translate(${x} 414)"><rect width="${w}" height="38" rx="19" fill="#ffffff" stroke="#c7d9ea"/><circle cx="22" cy="19" r="5" fill="url(#accent)"/><text x="38" y="25" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" font-weight="700" fill="#334155">${escapeXml(m)}</text></g>`;
+      const w = Math.max(86, 42 + m.length * 16);
+      const chip = `<g transform="translate(${x} 532)"><rect width="${w}" height="48" rx="24" fill="#f8fafc" opacity="0.12" stroke="#5bbad5" stroke-opacity="0.58"/><circle cx="25" cy="24" r="6" fill="url(#accent)"/><text x="44" y="31" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700" fill="#f8fafc">${escapeXml(m)}</text></g>`;
       x += w + 12;
       return chip;
     })
@@ -223,9 +222,9 @@ function renderChips(modalities: string[]): string {
 
 function metricCard(x: number, y: number, width: number, label: string, value: string): string {
   return `<g transform="translate(${x} ${y})">
-    <rect width="${width}" height="92" rx="18" fill="#ffffff" stroke="#dbe7f2" filter="url(#shadow)"/>
-    <text x="24" y="33" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" font-weight="700" fill="#64748b" letter-spacing="0">${escapeXml(label.toUpperCase())}</text>
-    <text x="24" y="66" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="29" font-weight="760" fill="#111827">${escapeXml(truncate(value, width > 300 ? 28 : 14))}</text>
+    <rect width="${width}" height="116" rx="22" fill="#f8fafc" opacity="0.13" stroke="#cbd5e1" stroke-opacity="0.18" filter="url(#shadow)"/>
+    <text x="28" y="42" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" fill="#5bbad5" letter-spacing="0">${escapeXml(label.toUpperCase())}</text>
+    <text x="28" y="86" font-family="Rubik, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="40" font-weight="700" fill="#f8fafc">${escapeXml(truncate(value, width > 300 ? 22 : 11))}</text>
   </g>`;
 }
 
