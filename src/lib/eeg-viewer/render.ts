@@ -16,7 +16,14 @@ import { formatClock, formatSi } from "./dsp";
 
 export type FrameChannel =
   | { label: string; color: string; kind: "line"; line: Float32Array; dim?: boolean }
-  | { label: string; color: string; kind: "band"; min: Float32Array; max: Float32Array; dim?: boolean };
+  | {
+      label: string;
+      color: string;
+      kind: "band";
+      min: Float32Array;
+      max: Float32Array;
+      dim?: boolean;
+    };
 
 export interface FrameEvent {
   onsetS: number;
@@ -165,8 +172,17 @@ export function renderFrame(
   }
 
   drawTimeAxis(ctx, frame, opts, plotLeft, plotWidth, plotTop + plotHeight);
-  drawScaleBar(ctx, frame, opts, plotLeft, plotTop, plotHeight,
-    opts.butterfly ? computeButterflyPxPerPhys(frame, plotHeight, g) : computeStackedPxPerPhys(frame, plotHeight, g));
+  drawScaleBar(
+    ctx,
+    frame,
+    opts,
+    plotLeft,
+    plotTop,
+    plotHeight,
+    opts.butterfly
+      ? computeButterflyPxPerPhys(frame, plotHeight, g)
+      : computeStackedPxPerPhys(frame, plotHeight, g),
+  );
 }
 
 /**
@@ -225,8 +241,17 @@ export function renderChrome(
   }
 
   drawTimeAxis(ctx, frame, opts, plotLeft, plotWidth, plotTop + plotHeight);
-  drawScaleBar(ctx, frame, opts, plotLeft, plotTop, plotHeight,
-    opts.butterfly ? computeButterflyPxPerPhys(frame, plotHeight, g) : computeStackedPxPerPhys(frame, plotHeight, g));
+  drawScaleBar(
+    ctx,
+    frame,
+    opts,
+    plotLeft,
+    plotTop,
+    plotHeight,
+    opts.butterfly
+      ? computeButterflyPxPerPhys(frame, plotHeight, g)
+      : computeStackedPxPerPhys(frame, plotHeight, g),
+  );
 }
 
 /** Compact color legend in the gutter (up to 8 channels), shared by butterfly paths. */

@@ -51,6 +51,9 @@ export interface GroupHandle {
   channelsByRow: ChannelMeta[];
   level0: zarr.Array<"int16", zarr.FetchStore>;
   viewLevels: ViewLevel[];
+  /** Resolves when lazy view-pyramid discovery has finished. First paint does
+   *  not wait for this; wide-window reads and the overview minimap do. */
+  viewLevelsReady: Promise<ViewLevel[]>;
 }
 
 export interface EventTable {
@@ -79,6 +82,9 @@ export interface RecordingStore {
   electrodeCoordinateUnits: string;
   groups: GroupHandle[];
   events: EventTable | null;
+  /** Events are loaded after the first signal frame so startup is not gated on
+   *  reading all event arrays. Resolves to null when the store has no events. */
+  eventsReady: Promise<EventTable | null>;
 }
 
 export type ChannelWindow =
@@ -138,9 +144,7 @@ function retryingFetch(retries = 6, baseMs = 250) {
             await delay(attempt);
             continue;
           }
-          throw new Error(
-            `zarr.nemar.org returned ${res.status} after ${retries + 1} attempts`,
-          );
+          throw new Error(`zarr.nemar.org returned ${res.status} after ${retries + 1} attempts`);
         }
         return res;
       } catch (err) {
@@ -175,7 +179,8 @@ export async function openRecording(url: string): Promise<RecordingStore> {
   const attrs = root.attrs as Record<string, unknown>;
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const plf = attrs.power_line_frequency;
-  const powerLineFrequency = typeof plf === "number" && Number.isFinite(plf) && plf > 0 ? plf : null;
+  const powerLineFrequency =
+    typeof plf === "number" && Number.isFinite(plf) && plf > 0 ? plf : null;
   // Validate each entry: a label maps to [x,y,z] of finite numbers. BIDS uses the
   // string "n/a" for missing coords (and a buggy converter could emit short tuples),
   // so skip anything that is not three finite numbers rather than feeding NaN into the
@@ -196,7 +201,9 @@ export async function openRecording(url: string): Promise<RecordingStore> {
       }
     }
     if (skipped > 0) {
-      console.warn(`[eeg-viewer] electrode_positions: skipped ${skipped} entries with invalid coords`);
+      console.warn(
+        `[eeg-viewer] electrode_positions: skipped ${skipped} entries with invalid coords`,
+      );
     }
   }
   const electrodeCoordinateSystem =
@@ -205,10 +212,8 @@ export async function openRecording(url: string): Promise<RecordingStore> {
     typeof attrs.electrode_coordinate_units === "string" ? attrs.electrode_coordinate_units : "";
   const groupNames = Array.isArray(attrs.channel_groups) ? (attrs.channel_groups as string[]) : [];
 
-  const [groups, events] = await Promise.all([
-    Promise.all(groupNames.map((name) => openGroup(root, name))),
-    readEvents(root),
-  ]);
+  const groups = await Promise.all(groupNames.map((name) => openGroup(root, name)));
+  const eventsReady = readEvents(root);
   return {
     url,
     format,
@@ -217,34 +222,36 @@ export async function openRecording(url: string): Promise<RecordingStore> {
     electrodeCoordinateSystem,
     electrodeCoordinateUnits,
     groups,
-    events,
+    events: null,
+    eventsReady,
   };
 }
 
 async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
   try {
-    const [grp, rawLevel0, viewLevels] = await Promise.all([
+    const [grp, rawLevel0] = await Promise.all([
       zarr.open(root.resolve(name), { kind: "group" }),
       zarr.open(root.resolve(`${name}/0`), { kind: "array" }),
-      discoverViewLevels(root, name),
     ]);
     if (rawLevel0.dtype !== "int16") {
-      throw new Error(
-        `unexpected dtype ${rawLevel0.dtype} at ${name}/0; expected int16`,
-      );
+      throw new Error(`unexpected dtype ${rawLevel0.dtype} at ${name}/0; expected int16`);
     }
     const level0 = rawLevel0 as zarr.Array<"int16", zarr.FetchStore>;
     const ga = grp.attrs as Record<string, unknown>;
     const channels = parseChannels(ga.channels);
     const nChannels = channels.length;
-    if (typeof ga.n_channels === "number" && Number.isFinite(ga.n_channels) && ga.n_channels !== nChannels) {
+    if (
+      typeof ga.n_channels === "number" &&
+      Number.isFinite(ga.n_channels) &&
+      ga.n_channels !== nChannels
+    ) {
       console.warn(
         `[eeg-viewer] group "${name}": attrs.n_channels=${ga.n_channels} but parsed ${nChannels} channels; using ${nChannels}`,
       );
     }
     const nSamples = num(ga.n_samples, level0.shape[level0.shape.length - 1]);
     const rate = num(ga.rate, 250);
-    return {
+    const handle: GroupHandle = {
       name,
       modality: typeof ga.modality === "string" ? ga.modality : channels[0]?.modality || "MISC",
       rate,
@@ -255,8 +262,19 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
       channels,
       channelsByRow: [...channels].sort((a, b) => a.rowIndex - b.rowIndex),
       level0,
-      viewLevels,
+      viewLevels: [],
+      viewLevelsReady: Promise.resolve([]),
     };
+    handle.viewLevelsReady = discoverViewLevels(root, name, ga)
+      .then((levels) => {
+        handle.viewLevels = levels;
+        return levels;
+      })
+      .catch((err) => {
+        console.warn(`[eeg-viewer] view-level discovery failed for ${name}:`, err);
+        return [];
+      });
+    return handle;
   } catch (err) {
     throw new Error(
       `failed to open group "${name}": ${err instanceof Error ? err.message : String(err)}`,
@@ -283,21 +301,21 @@ function isNotFound(err: unknown): boolean {
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
+  attrs: Record<string, unknown> = {},
 ): Promise<ViewLevel[]> {
+  const declared = declaredViewLevels(attrs);
+  if (declared) {
+    const levels = await Promise.all(declared.map((level) => openViewLevel(root, group, level)));
+    return levels.filter((v): v is ViewLevel => v !== null);
+  }
+
   const levels: ViewLevel[] = [];
   for (let base = 1; base <= VIEW_PROBE_MAX; base += VIEW_PROBE_BATCH) {
     const probes = await Promise.allSettled(
       Array.from({ length: VIEW_PROBE_BATCH }, (_, i) => base + i).map(async (level) => {
-        const rawArray = await zarr.open(root.resolve(`${group}/view/${level}`), {
-          kind: "array",
-        });
-        if (rawArray.dtype !== "int16") {
-          throw new Error(
-            `unexpected dtype ${rawArray.dtype} at ${group}/view/${level}; expected int16`,
-          );
-        }
-        const array = rawArray as zarr.Array<"int16", zarr.FetchStore>;
-        return { level, nTime: array.shape[array.shape.length - 1], array };
+        const view = await openViewLevel(root, group, level);
+        if (!view) throw new Error(`unexpected missing view/${level}`);
+        return view;
       }),
     );
     let added = 0;
@@ -314,6 +332,43 @@ async function discoverViewLevels(
     if (added < VIEW_PROBE_BATCH) break; // hit the end within this batch
   }
   return levels;
+}
+
+function declaredViewLevels(attrs: Record<string, unknown>): number[] | null {
+  const raw = attrs.view_levels ?? attrs.viewLevels;
+  if (Array.isArray(raw)) {
+    const levels = raw
+      .map((v) => {
+        if (typeof v === "number") return v;
+        if (v && typeof v === "object") {
+          const level = (v as Record<string, unknown>).level;
+          return typeof level === "number" ? level : Number.NaN;
+        }
+        return Number.NaN;
+      })
+      .filter((n) => Number.isInteger(n) && n > 0);
+    return levels.length > 0 ? [...new Set(levels)].sort((a, b) => a - b) : null;
+  }
+  const count = attrs.n_view_levels ?? attrs.view_level_count;
+  if (typeof count === "number" && Number.isInteger(count) && count > 0) {
+    return Array.from({ length: Math.min(count, VIEW_PROBE_MAX) }, (_, i) => i + 1);
+  }
+  return null;
+}
+
+async function openViewLevel(
+  root: zarr.Group<zarr.FetchStore>,
+  group: string,
+  level: number,
+): Promise<ViewLevel | null> {
+  const rawArray = await zarr.open(root.resolve(`${group}/view/${level}`), {
+    kind: "array",
+  });
+  if (rawArray.dtype !== "int16") {
+    throw new Error(`unexpected dtype ${rawArray.dtype} at ${group}/view/${level}; expected int16`);
+  }
+  const array = rawArray as zarr.Array<"int16", zarr.FetchStore>;
+  return { level, nTime: array.shape[array.shape.length - 1], array };
 }
 
 async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable | null> {
@@ -388,6 +443,7 @@ export function aggregateOverview(
  * (smallest) level, cached by the caller.
  */
 export async function readOverview(group: GroupHandle): Promise<Float32Array | null> {
+  if (group.viewLevels.length === 0) await group.viewLevelsReady;
   if (group.viewLevels.length === 0) return null;
   const view = group.viewLevels[group.viewLevels.length - 1];
   try {
@@ -395,17 +451,16 @@ export async function readOverview(group: GroupHandle): Promise<Float32Array | n
     // Expected shape [2, nCh, nTime] (min/max rows). Guard so a mis-shaped store
     // hides the minimap instead of indexing undefined dims into garbage data.
     if (region.shape.length < 3 || region.shape[0] !== 2) {
-      console.error("[eeg-viewer] readOverview: unexpected shape", region.shape, "(want [2, nCh, nTime])");
+      console.error(
+        "[eeg-viewer] readOverview: unexpected shape",
+        region.shape,
+        "(want [2, nCh, nTime])",
+      );
       return null;
     }
     const nCh = region.shape[1];
     const nTime = region.shape[2];
-    return aggregateOverview(
-      region.data as Int16Array,
-      nCh,
-      nTime,
-      group.channelsByRow,
-    );
+    return aggregateOverview(region.data as Int16Array, nCh, nTime, group.channelsByRow);
   } catch (err) {
     console.warn("[eeg-viewer] readOverview failed:", err);
     return null;
@@ -435,8 +490,9 @@ export async function readWindow(
   const r0 = Math.max(0, Math.min(rowStart, group.nChannels));
   const r1 = Math.max(r0 + 1, Math.min(rowStart + rowCount, group.nChannels));
 
-  const levelSamples = [group.nSamples, ...group.viewLevels.map((v) => v.nTime)];
-  const chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+  let viewLevels = group.viewLevels;
+  let levelSamples = [group.nSamples, ...viewLevels.map((v) => v.nTime)];
+  let chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
   // With useSuffixRequest a windowed level-0 read only fetches the window's inner
   // chunks, so level-0 (crisp full-rate lines) is used for narrow windows and the
   // view pyramid (min/max band) for wide overviews -- pickViewLevel already
@@ -445,14 +501,22 @@ export async function readWindow(
   // cap keeps an unexpectedly wide level-0 selection from over-fetching; past it
   // we fall back to the finest view level.
   const windowSamples = Math.ceil((end - start) * group.rate);
-  const useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
+  let useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
   if (useLevel0) return readLevel0(group, start, end, r0, r1);
+
+  if (viewLevels.length === 0) {
+    viewLevels = await group.viewLevelsReady;
+    levelSamples = [group.nSamples, ...viewLevels.map((v) => v.nTime)];
+    chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+    useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
+    if (useLevel0) return readLevel0(group, start, end, r0, r1);
+  }
 
   // A view level: either pickViewLevel chose level-0 but it is too wide for the
   // sample cap, or it chose a view level and no filter is forcing level-0. Either
   // way fall back to the finest pyramid level (or level-0 itself if no pyramid
   // exists, which only happens for short recordings).
-  const view = group.viewLevels[Math.max(1, chosen) - 1];
+  const view = viewLevels[Math.max(1, chosen) - 1];
   if (!view) return readLevel0(group, start, end, r0, r1); // no pyramid -> level-0 anyway
   return readViewLevel(group, view, start, end, r0, r1);
 }

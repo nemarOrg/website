@@ -35,9 +35,9 @@ function lowpass(fc: number, fs: number): Biquad {
   const alpha = Math.sin(w) / (2 * Q);
   const a0 = 1 + alpha;
   return {
-    b0: ((1 - cw) / 2) / a0,
+    b0: (1 - cw) / 2 / a0,
     b1: (1 - cw) / a0,
-    b2: ((1 - cw) / 2) / a0,
+    b2: (1 - cw) / 2 / a0,
     a1: (-2 * cw) / a0,
     a2: (1 - alpha) / a0,
   };
@@ -49,9 +49,9 @@ function highpass(fc: number, fs: number): Biquad {
   const alpha = Math.sin(w) / (2 * Q);
   const a0 = 1 + alpha;
   return {
-    b0: ((1 + cw) / 2) / a0,
-    b1: (-(1 + cw)) / a0,
-    b2: ((1 + cw) / 2) / a0,
+    b0: (1 + cw) / 2 / a0,
+    b1: -(1 + cw) / a0,
+    b2: (1 + cw) / 2 / a0,
     a1: (-2 * cw) / a0,
     a2: (1 - alpha) / a0,
   };

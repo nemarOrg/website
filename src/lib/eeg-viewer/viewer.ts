@@ -1,3 +1,4 @@
+import { zarrStoreUrl } from "../zarr-base";
 /**
  * Signal-viewer orchestration (website#99). `mountEegViewer` builds a compact
  * "clinical oscilloscope" panel into a slot, opens the recording's Zarr store,
@@ -13,10 +14,17 @@
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
-import { type Modality, channelColor, defaultScaling, formatClock, formatSi, removeBandDc, removeDcInPlace } from "./dsp";
+import {
+  type Modality,
+  channelColor,
+  defaultScaling,
+  formatClock,
+  formatSi,
+  removeBandDc,
+  removeDcInPlace,
+} from "./dsp";
 import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
-import { VIRIDIS_CSS, type TopoChannel, projectPositions, renderTopomap } from "./topo";
 import { type GlTraceRenderer, createGlTraceRenderer } from "./gl-trace";
 import {
   DEFAULT_RENDER,
@@ -36,7 +44,7 @@ import {
   readOverview,
   readWindow,
 } from "./store";
-import { zarrStoreUrl } from "../zarr-base";
+import { type TopoChannel, VIRIDIS_CSS, projectPositions, renderTopomap } from "./topo";
 
 export interface ViewerOptions {
   datasetId: string;
@@ -88,7 +96,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     return;
   }
 
-  const eventTypes: EventType[] = store.events ? buildEventTypes(store.events) : [];
+  let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
   let groupIndex = 0;
@@ -101,6 +109,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let chanCount = store.groups[0].nChannels; // default: whole montage (overview)
   const filters: FilterSpec = { hp: null, lp: null, notch: null };
   let renderSeq = 0;
+  let renderInFlight = false;
+  let renderQueued = false;
   let firstPaint = true;
   let timeClock = false;
   let butterfly = false;
@@ -114,10 +124,14 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   // (iEEG/EMG/fNIRS/unknown) get no topomap so we don't render a wrong head map. A
   // bad-geometry projection is caught here so it just disables the topo, not the viewer.
   // topoScratch is this viewer's private offscreen grid buffer (never shared).
-  const topoScratch = typeof document !== "undefined" ? document.createElement("canvas") : undefined;
+  const topoScratch =
+    typeof document !== "undefined" ? document.createElement("canvas") : undefined;
   let topoLayout: ReturnType<typeof projectPositions> | null = null;
   try {
-    if (isScalpModality(store.groups[0]?.modality) && Object.keys(store.electrodePositions).length >= 3) {
+    if (
+      isScalpModality(store.groups[0]?.modality) &&
+      Object.keys(store.electrodePositions).length >= 3
+    ) {
       topoLayout = projectPositions(store.electrodePositions, store.electrodeCoordinateSystem);
     }
   } catch (err) {
@@ -225,7 +239,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     plotWidth: number,
   ): Promise<{ win: WindowData; filtered: boolean }> {
     if (!hasFilters(filters)) {
-      return { win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false), filtered: false };
+      return {
+        win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false),
+        filtered: false,
+      };
     }
     const padS = Math.min(2, (end - start) * 0.5);
     const pStart = Math.max(0, start - padS);
@@ -250,7 +267,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       cw.kind === "line"
         ? {
             kind: "line",
-            line: (apply ? filtfilt(cw.line, biquads) : cw.line).subarray(padCols, padCols + visCols),
+            line: (apply ? filtfilt(cw.line, biquads) : cw.line).subarray(
+              padCols,
+              padCols + visCols,
+            ),
           }
         : cw,
     );
@@ -260,17 +280,31 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   }
 
   async function render(): Promise<void> {
-    // Wrapper so every fire-and-forget caller (event handlers, observers) is safe
-    // from an unhandled rejection if a synchronous paint step throws.
+    // Coalesce scroll/slider/key bursts. The stale-frame guard below still
+    // prevents old reads from painting, but without this gate each input event
+    // can start its own Zarr request before the prior one returns.
+    renderSeq++;
+    if (renderInFlight) {
+      renderQueued = true;
+      return;
+    }
+    renderInFlight = true;
     try {
-      await renderImpl();
-    } catch (err) {
-      console.error("[eeg-viewer] render failed:", err);
+      do {
+        renderQueued = false;
+        const seq = renderSeq;
+        try {
+          await renderImpl(seq);
+        } catch (err) {
+          console.error("[eeg-viewer] render failed:", err);
+        }
+      } while (renderQueued);
+    } finally {
+      renderInFlight = false;
     }
   }
 
-  async function renderImpl(): Promise<void> {
-    const seq = ++renderSeq;
+  async function renderImpl(seq: number): Promise<void> {
     clamp();
     const g = group();
     const { w, h } = sizeCanvas();
@@ -292,7 +326,9 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s`;
     }
     ui.chanInfo.textContent =
-      visEnd - chanStart >= g.nChannels ? `all ${g.nChannels}` : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
+      visEnd - chanStart >= g.nChannels
+        ? `all ${g.nChannels}`
+        : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
 
     // Paint a "loading" state immediately so the scope never sits blank while a
     // read (or its retries) is in flight; the first paint also covers the gap
@@ -358,14 +394,22 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       nCols: win.nCols,
       windowStartS: start,
       windowEndS: end,
-      events: showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
+      events:
+        showEvents && store.events ? eventsInWindow(store.events, eventTypes, start, end) : [],
       physPerDiv: defaultScaling(modality),
       unitBase: ELECTRIC.has(modality) ? "V" : "T",
       timeClock,
     };
     lastFrame = frame;
     lastSlots = traceLayout(frame.channels.length, lastPlotTop, lastPlotHeight);
-    const renderOpts = { ...DEFAULT_RENDER, ...themeColors(ui.root), width: w, height: h, gain, butterfly };
+    const renderOpts = {
+      ...DEFAULT_RENDER,
+      ...themeColors(ui.root),
+      width: w,
+      height: h,
+      gain,
+      butterfly,
+    };
     if (glRenderer) {
       // GPU draws background + traces; the 2D canvas adds transparent chrome on top.
       glRenderer.draw(frame, renderOpts, w, h);
@@ -374,7 +418,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       renderFrame(ctx, frame, renderOpts);
     }
 
-    const filterNote = hasFilters(filters) ? (filtered ? " · filtered" : " · filters need zoom-in") : "";
+    const filterNote = hasFilters(filters)
+      ? filtered
+        ? " · filtered"
+        : " · filters need zoom-in"
+      : "";
     ui.status.textContent =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
       `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
@@ -412,7 +460,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     if (!overviewData || overviewData.length === 0) return;
     const g = group();
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-    const cssW = canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width || 600;
+    const cssW =
+      canvas.getBoundingClientRect().width || ui.root.getBoundingClientRect().width || 600;
     const cssH = 44;
     canvas.style.height = `${cssH}px`;
     canvas.width = Math.round(cssW * dpr);
@@ -513,14 +562,18 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     );
     const col = Math.max(
       0,
-      Math.min(frame.nCols - 1, Math.round(((t - frame.windowStartS) / Math.max(1e-6, span)) * (frame.nCols - 1))),
+      Math.min(
+        frame.nCols - 1,
+        Math.round(((t - frame.windowStartS) / Math.max(1e-6, span)) * (frame.nCols - 1)),
+      ),
     );
     const channels: TopoChannel[] = [];
     for (const ch of frame.channels) {
       if (ch.dim) continue; // rejected -> no contribution
       const pos = topoLayout.get(ch.label);
       if (!pos) continue;
-      const value = ch.kind === "line" ? (ch.line[col] ?? 0) : ((ch.min[col] ?? 0) + (ch.max[col] ?? 0)) / 2;
+      const value =
+        ch.kind === "line" ? (ch.line[col] ?? 0) : ((ch.min[col] ?? 0) + (ch.max[col] ?? 0)) / 2;
       channels.push({ label: ch.label, pos, value });
     }
     const { vmax } = renderTopomap(tctx, cssSize, channels, themeColors(ui.root), topoScratch);
@@ -549,7 +602,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   const zoomChan = (factor: number) => {
     const g = group();
     const center = chanStart + chanCount / 2;
-    chanCount = Math.max(MIN_VISIBLE_CHANNELS, Math.min(g.nChannels, Math.round(chanCount * factor)));
+    chanCount = Math.max(
+      MIN_VISIBLE_CHANNELS,
+      Math.min(g.nChannels, Math.round(chanCount * factor)),
+    );
     chanStart = Math.round(center - chanCount / 2);
     render();
   };
@@ -878,6 +934,12 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   };
 
   await render();
+  void store.eventsReady.then((events) => {
+    store.events = events;
+    eventTypes = events ? buildEventTypes(events) : [];
+    fillEventLegend(ui.legend, eventTypes);
+    render();
+  });
 }
 
 /**
@@ -929,6 +991,7 @@ interface ViewerUi {
   gearBtn: HTMLButtonElement;
   menu: HTMLElement;
   helpOverlay: HTMLElement;
+  legend: HTMLElement;
   on(action: string, fn: () => void): void;
 }
 
@@ -981,7 +1044,11 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
 
   // Amplitude group.
   bar.append(
-    grouped("Scale", navBtn("gain-down", "−", "Scale down (less µV/div)"), navBtn("gain-up", "+", "Scale up")),
+    grouped(
+      "Scale",
+      navBtn("gain-down", "−", "Scale down (less µV/div)"),
+      navBtn("gain-up", "+", "Scale up"),
+    ),
   );
 
   // Channel-zoom group (magnifier).
@@ -1009,7 +1076,8 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   const nPos = Object.keys(store.electrodePositions).length;
   if (!(isScalpModality(store.groups[0]?.modality) && nPos >= 3)) {
     topoBtn.disabled = true;
-    topoBtn.title = nPos < 3 ? "no electrode positions in this recording" : "scalp topomap is EEG/MEG only";
+    topoBtn.title =
+      nPos < 3 ? "no electrode positions in this recording" : "scalp topomap is EEG/MEG only";
   }
   bar.append(grouped("Topo", topoBtn));
 
@@ -1116,14 +1184,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   // events.json Levels when present (the raw code is meaningless on its own); the
   // chip's title carries the code for reference. All types listed (scroll, not grow).
   const legend = el("div", "eegv__legend");
-  for (const t of eventTypes) {
-    const chip = el("span", "eegv__chip");
-    chip.title = t.description ? `${t.label} — ${t.description}` : t.label;
-    const dot = el("span", "eegv__dot");
-    dot.style.background = t.color;
-    chip.append(dot, document.createTextNode(`${t.description || t.label} (${t.count})`));
-    legend.append(chip);
-  }
+  fillEventLegend(legend, eventTypes);
 
   const status = el("div", "eegv__status");
   root.append(bar, plot, hscroll, minimap, legend, status, helpOverlay);
@@ -1161,8 +1222,11 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     gearBtn,
     menu,
     helpOverlay,
+    legend,
     on(action, fn) {
-      root.querySelector<HTMLButtonElement>(`[data-act="${action}"]`)?.addEventListener("click", fn);
+      root
+        .querySelector<HTMLButtonElement>(`[data-act="${action}"]`)
+        ?.addEventListener("click", fn);
     },
   };
 }
@@ -1179,6 +1243,18 @@ function el(tag: string, className: string): HTMLElement {
   const e = document.createElement(tag);
   e.className = className;
   return e;
+}
+
+function fillEventLegend(legend: HTMLElement, eventTypes: EventType[]): void {
+  legend.replaceChildren();
+  for (const t of eventTypes) {
+    const chip = el("span", "eegv__chip");
+    chip.title = t.description ? `${t.label} — ${t.description}` : t.label;
+    const dot = el("span", "eegv__dot");
+    dot.style.background = t.color;
+    chip.append(dot, document.createTextNode(`${t.description || t.label} (${t.count})`));
+    legend.append(chip);
+  }
 }
 
 /** A labeled control group: a small-caps label above a row of controls. */

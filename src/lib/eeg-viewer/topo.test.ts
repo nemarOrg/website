@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { type Vec3, alsToRas, evalTPS, fitSphere, projectPositions, projectUnit, solveTPS, viridisColor } from "./topo";
+import {
+  type Vec3,
+  alsToRas,
+  evalTPS,
+  fitSphere,
+  projectPositions,
+  projectUnit,
+  solveTPS,
+  viridisColor,
+} from "./topo";
 
 describe("alsToRas", () => {
   it("rotates EEGLAB ALS into RAS+ ((x,y,z) -> (-y,x,z))", () => {
@@ -29,7 +38,9 @@ describe("fitSphere", () => {
   });
   it("recovers an offset sphere center", () => {
     const o = [10, -5, 20];
-    const { center, radius } = fitSphere(card.map(([x, y, z]) => [x * 50 + o[0], y * 50 + o[1], z * 50 + o[2]]));
+    const { center, radius } = fitSphere(
+      card.map(([x, y, z]) => [x * 50 + o[0], y * 50 + o[1], z * 50 + o[2]]),
+    );
     expect(center[0]).toBeCloseTo(10, 1);
     expect(center[1]).toBeCloseTo(-5, 1);
     expect(center[2]).toBeCloseTo(20, 1);
