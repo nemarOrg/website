@@ -110,6 +110,6 @@ describe("renderDatasetOgSvg", () => {
     expect(svg).toContain("Resting &lt;EEG&gt; &amp; Attention");
     expect(svg).toContain("A. Researcher &amp; Co");
     expect(svg).not.toContain("Resting <EEG>");
-    expect(svg).toContain('width="1200" height="630"');
+    expect(svg).toContain('width="1200" height="800"');
   });
 });

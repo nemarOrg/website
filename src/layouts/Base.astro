@@ -15,6 +15,12 @@ interface Props {
   image?: string;
   /** MIME type for the social preview image. */
   imageType?: string;
+  /** Optional second OG image for clients that reject the primary format. */
+  fallbackImage?: string;
+  fallbackImageType?: string;
+  /** Social preview image dimensions. Defaults match the site-wide fallback. */
+  imageWidth?: number;
+  imageHeight?: number;
   /** Alt text for the social preview image. */
   imageAlt?: string;
   /** Override the OpenGraph `type`. Default "website"; detail pages use "article". */
@@ -28,6 +34,10 @@ const {
   description = "NEMAR (Neuroelectromagnetic Data Archive and Tools Resource): search, visualize, analyze, and download EEG, MEG, iEEG, and EMG datasets.",
   image = "/og-image.png",
   imageType = "image/png",
+  fallbackImage,
+  fallbackImageType = "image/png",
+  imageWidth = 1200,
+  imageHeight = 630,
   imageAlt = "NEMAR - open neuroscience data, ready to use.",
   ogType = "website",
   bareLayout = false,
@@ -45,6 +55,11 @@ const reqHost = Astro.url.hostname;
 const siteOrigin = hostMode(reqHost) === "app" ? `https://${APP_HOST}` : MARKETING_BASE_URL;
 const canonicalUrl = new URL(Astro.url.pathname, siteOrigin).toString();
 const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrigin).toString();
+const absoluteFallbackImage = fallbackImage
+  ? fallbackImage.startsWith("http")
+    ? fallbackImage
+    : new URL(fallbackImage, siteOrigin).toString()
+  : null;
 ---
 
 <!doctype html>
@@ -74,9 +89,18 @@ const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrig
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content={absoluteImage} />
     <meta property="og:image:type" content={imageType} />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content={String(imageWidth)} />
+    <meta property="og:image:height" content={String(imageHeight)} />
     <meta property="og:image:alt" content={imageAlt} />
+    {absoluteFallbackImage && (
+      <>
+        <meta property="og:image" content={absoluteFallbackImage} />
+        <meta property="og:image:type" content={fallbackImageType} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={imageAlt} />
+      </>
+    )}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
