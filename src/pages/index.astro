@@ -1,31 +1,23 @@
 ---
 import StatTile from "../components/StatTile.astro";
 import Base from "../layouts/Base.astro";
-import { listDatasets } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
 import { appUrl } from "../lib/host";
+import { fetchHostedStats } from "../lib/stats";
 
 const uploadHref = appUrl("/upload", new URL(Astro.request.url).hostname);
 
-let totalDatasets = 0;
-let totalParticipants = 0;
-let totalSize = 0;
+// Hero stats advertise the data NEMAR actually hosts (managed nm* + on*),
+// not the full browsable catalog (which includes OpenNeuro ds* pointers).
+let stats = { datasets: 0, participants: 0, size: 0 };
 let statsAvailable = false;
-
 try {
-  // Fetch a single wide page; api caps at 200, total_count surfaces the rest.
-  const page = await listDatasets({ limit: 200 });
-  totalDatasets = page.total_count ?? page.count ?? page.datasets.length;
-  for (const d of page.datasets) {
-    totalParticipants += d.participants ?? 0;
-    totalSize += d.file_size ?? 0;
-  }
-  statsAvailable = totalDatasets > 0;
+  stats = await fetchHostedStats();
+  statsAvailable = stats.datasets > 0;
 } catch {
-  // Fall back to legacy-site figures so the hero never renders empty.
-  totalDatasets = 200;
-  totalParticipants = 29_344;
-  totalSize = 65 * 1024 ** 4;
+  // Last-known hosted snapshot so the hero never renders empty when the
+  // catalog API is unreachable; flagged "approx." in the UI.
+  stats = { datasets: 227, participants: 15_819, size: 7.12 * 1024 ** 4 };
 }
 
 // Stats refresh slowly. Edge-cache for 10 min; serve stale up to a day while
@@ -38,250 +30,377 @@ Astro.response.headers.set(
 
 <Base title="NEMAR">
   <section class="hero">
-    <div class="hero__sparkles" aria-hidden="true"></div>
+    <canvas class="hero__stars" aria-hidden="true"></canvas>
+    <div class="hero__brain" aria-hidden="true"></div>
+    <div class="hero__veil" aria-hidden="true"></div>
 
-    <div class="container hero__grid">
-      <div class="hero__brain" aria-hidden="true"></div>
-      <div class="hero__copy">
-        <p class="hero__eyebrow">Open neuroscience data, ready to use</p>
-        <h1 class="hero__title">
-          Search, visualize, analyze, and download
-          <em>human neuroimaging</em> data.
-        </h1>
-        <p class="hero__lede">
-          NEMAR hosts open EEG, MEG, iEEG, and EMG datasets contributed by
-          NEMAR researchers, mirrored from
-          <a href="https://openneuro.org" rel="external">OpenNeuro</a>, or
-          uploaded by you. BIDS-formatted, with data quality and HED event
-          annotations.
-        </p>
-        <form class="hero__search" action="/discover" method="get" role="search">
-          <label class="visually-hidden" for="hero-search">Search datasets</label>
+    <div class="container hero__inner">
+      <p class="hero__eyebrow">Open neuroscience data, ready to use</p>
+
+      <form class="hero__search bracketed" action="/discover" method="get" role="search">
+        <span class="hero__search-label">Search for data</span>
+        <div class="hero__search-field">
           <svg class="hero__search-icon" viewBox="0 0 24 24" aria-hidden="true">
             <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
             <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
           </svg>
+          <label class="visually-hidden" for="hero-search">Search datasets</label>
           <input
             id="hero-search"
             name="q"
             type="search"
-            placeholder="Search EEG, MEG, iEEG, EMG datasets..."
+            placeholder="Enter keyword or phrase"
             autocomplete="off"
           />
           <button type="submit">Search</button>
-        </form>
-        <div class="hero__ctas">
-          <a class="hero__cta" href="/discover">Browse datasets</a>
-          <a class="hero__cta hero__cta--ghost" href={uploadHref}>
-            Contribute your dataset
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M5 12h14M13 6l6 6-6 6"/>
-            </svg>
-          </a>
         </div>
-        <div class="hero__stats">
-          <StatTile value={formatCount(totalDatasets)} label="Public datasets" />
-          <StatTile
-            value={formatCount(totalParticipants)}
-            label="Participants"
-            hint={statsAvailable ? undefined : "approx."}
-          />
-          <StatTile
-            value={formatBytes(totalSize)}
-            label="Total size"
-            hint={statsAvailable ? undefined : "approx."}
-          />
+      </form>
+
+      <div class="hero__body">
+        <h1 class="hero__verbs bracketed">
+          <span>Search,</span>
+          <span>Visualize,</span>
+          <span>Analyze,</span>
+          <span>Download</span>
+        </h1>
+
+        <div class="hero__intro">
+          <p class="hero__lede">
+            NEMAR is an open-access <em>data, tools, and compute</em> resource for
+            finding, accessing, assessing, and processing human EEG, MEG, iEEG,
+            and EMG data — contributed by researchers, mirrored from
+            <a href="https://openneuro.org" rel="external">OpenNeuro</a>, and
+            BIDS-formatted with data-quality and HED event annotations.
+          </p>
+          <div class="hero__ctas">
+            <a class="hero__cta hero__cta--primary" href="/discover">Browse datasets</a>
+            <a class="hero__cta hero__cta--ghost" href={uploadHref}>
+              Contribute your dataset
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12h14M13 6l6 6-6 6"></path>
+              </svg>
+            </a>
+          </div>
         </div>
+      </div>
+
+      <div class="hero__stats">
+        <StatTile
+          value={formatCount(stats.datasets)}
+          label="Datasets hosted"
+          hint={statsAvailable ? undefined : "approx."}
+        />
+        <StatTile
+          value={formatCount(stats.participants)}
+          label="Participants"
+          hint={statsAvailable ? undefined : "approx."}
+        />
+        <StatTile
+          value={formatBytes(stats.size)}
+          label="Hosted data"
+          hint={statsAvailable ? undefined : "approx."}
+        />
+      </div>
+    </div>
+  </section>
+
+  <!-- Required compliance notice (federal data under administrative review). -->
+  <aside class="notice" role="note">
+    <div class="container notice__inner">
+      <svg class="notice__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M12 8h.01M11 12h1v4h1"></path>
+      </svg>
+      <p>
+        This repository is under review for potential modification in compliance
+        with Administration directives.
+      </p>
+    </div>
+  </aside>
+
+  <section class="features">
+    <div class="container">
+      <div class="features__grid">
+        <article class="feature">
+          <svg class="feature__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 3v18h18"></path>
+            <path d="M7 14l3-4 3 3 4-6"></path>
+          </svg>
+          <h2 class="feature__title">Assess before you analyze</h2>
+          <p class="feature__body">
+            Every dataset ships with data-quality assessments and interactive
+            visualizations, so you can judge suitability for your analysis up
+            front. The computed transforms and measures will soon publish as
+            BIDS derivative datasets of their own.
+          </p>
+        </article>
+        <article class="feature">
+          <svg class="feature__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="12" rx="2"></rect>
+            <path d="M8 20h8M12 16v4"></path>
+          </svg>
+          <h2 class="feature__title">Analyze in place or download</h2>
+          <p class="feature__body">
+            Run analyses, re-analyses, and meta-analyses on the no-cost,
+            high-performance computing of the
+            <a href="https://www.nsgportal.org/" rel="external">Neuroscience Gateway (NSG)</a>
+            — or download any dataset as a BIDS-structured zip.
+          </p>
+        </article>
       </div>
     </div>
   </section>
 </Base>
 
 <style>
-  /* Hero is themed — both light and dark variants share the same composition:
-     atmospheric gradient + wireframe brain + animated sparkles + tagline. */
+  /* Landing hero — leans into the legacy nemar.org look: a deep-space navy
+     ground, a large translucent wireframe brain, corner-bracket framing, and
+     a bold stacked verb headline. It is DARK BY DEFAULT (the authentic look)
+     and only lightens when the visitor explicitly picks the light theme
+     (`[data-theme="light"]`); system preference doesn't lighten it. The rest
+     of the page chrome stays fully theme-aware. */
   .hero {
     position: relative;
     overflow: hidden;
     isolation: isolate;
-    padding-block: var(--space-16) var(--space-20);
-    /* Defaults (light mode) */
-    --hero-bg-1: #e8eef9;
-    --hero-bg-2: #f7f9fd;
-    --hero-glow: rgb(91 186 213 / 22%);
-    --hero-fg: var(--color-fg);
-    --hero-fg-muted: var(--color-fg-muted);
-    --hero-eyebrow: #2563eb;
-    --hero-spark: rgb(15 23 42 / 55%);
-    --hero-brain-blend: multiply;
-    --hero-brain-filter: invert(1) hue-rotate(180deg) saturate(0.7) brightness(0.85);
-    --hero-brain-opacity: 0.45;
-    --hero-stat-bg: rgb(255 255 255 / 70%);
-    --hero-stat-border: rgb(15 23 42 / 8%);
-    --hero-search-bg: var(--color-bg);
-    --hero-search-border: var(--color-border-strong);
+    padding-block: var(--space-12) var(--space-16);
+    /* Full-bleed: fill the viewport below the sticky header on any size or
+       aspect ratio, so the landing is an immersive screen you scroll past
+       (the captivating legacy behaviour). Grows past the viewport if the
+       content is ever taller, so nothing clips. */
+    min-block-size: calc(100dvh - var(--header-height));
+    display: flex;
+    align-items: center;
+
+    /* Dark (default) hero palette */
+    --hero-fg: #f1f5f9;
+    --hero-fg-muted: rgb(226 232 240 / 82%);
+    --hero-eyebrow: #7dd3e8;
+    --hero-bracket: rgb(125 211 232 / 70%);
+    --hero-glow: rgb(91 186 213 / 30%);
+    --hero-bg-1: #060d24;
+    --hero-bg-2: #0a1638;
+    --hero-bg-3: #112a5c;
+    --hero-brain-blend: screen;
+    --hero-brain-filter: hue-rotate(-8deg) saturate(1.15) brightness(1.05);
+    --hero-brain-opacity: 0.6;
+    --hero-veil: radial-gradient(ellipse at 42% 52%, transparent 40%, rgb(6 13 36 / 55%) 100%);
+    --hero-stat-bg: rgb(255 255 255 / 7%);
+    --hero-stat-border: rgb(255 255 255 / 14%);
+    --hero-search-bg: #ffffff;
+    --hero-search-fg: #0f172a;
+    --hero-search-border: transparent;
 
     background:
-      radial-gradient(ellipse at 70% 0%, var(--hero-glow), transparent 60%),
-      linear-gradient(180deg, var(--hero-bg-1), var(--hero-bg-2));
+      radial-gradient(ellipse 80% 60% at 60% -10%, var(--hero-glow), transparent 70%),
+      linear-gradient(165deg, var(--hero-bg-1) 0%, var(--hero-bg-2) 55%, var(--hero-bg-3) 100%);
     color: var(--hero-fg);
   }
 
-  /* Dark mode override (system + explicit) */
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme="light"])) .hero {
-      --hero-bg-1: #060d24;
-      --hero-bg-2: #0a1638;
-      --hero-glow: rgb(91 186 213 / 28%);
-      --hero-fg: #f1f5f9;
-      --hero-fg-muted: rgb(241 245 249 / 78%);
-      --hero-eyebrow: #5bbad5;
-      --hero-spark: rgb(255 255 255 / 75%);
-      --hero-brain-blend: screen;
-      --hero-brain-filter: hue-rotate(-10deg) saturate(1.1) brightness(1);
-      --hero-brain-opacity: 0.55;
-      --hero-stat-bg: rgb(255 255 255 / 6%);
-      --hero-stat-border: rgb(255 255 255 / 12%);
-      --hero-search-bg: rgb(255 255 255 / 96%);
-      --hero-search-border: transparent;
-    }
-  }
-  :global(:root[data-theme="dark"]) .hero {
-    --hero-bg-1: #060d24;
-    --hero-bg-2: #0a1638;
-    --hero-glow: rgb(91 186 213 / 28%);
-    --hero-fg: #f1f5f9;
-    --hero-fg-muted: rgb(241 245 249 / 78%);
-    --hero-eyebrow: #5bbad5;
-    --hero-spark: rgb(255 255 255 / 75%);
-    --hero-brain-blend: screen;
-    --hero-brain-filter: hue-rotate(-10deg) saturate(1.1) brightness(1);
-    --hero-brain-opacity: 0.55;
-    --hero-stat-bg: rgb(255 255 255 / 6%);
-    --hero-stat-border: rgb(255 255 255 / 12%);
-    --hero-search-bg: rgb(255 255 255 / 96%);
-    --hero-search-border: transparent;
+  /* Light variant — only when the visitor explicitly chooses the light theme. */
+  :global(:root[data-theme="light"]) .hero {
+    --hero-fg: #0f172a;
+    --hero-fg-muted: #475569;
+    --hero-eyebrow: #2563eb;
+    --hero-bracket: rgb(37 99 235 / 55%);
+    --hero-glow: rgb(91 186 213 / 22%);
+    --hero-bg-1: #eef3fb;
+    --hero-bg-2: #f5f8fd;
+    --hero-bg-3: #e6edf9;
+    --hero-brain-blend: multiply;
+    --hero-brain-filter: invert(1) hue-rotate(180deg) saturate(0.7) brightness(0.85);
+    --hero-brain-opacity: 0.4;
+    --hero-veil: radial-gradient(ellipse at 42% 52%, transparent 45%, rgb(245 248 253 / 60%) 100%);
+    --hero-stat-bg: rgb(255 255 255 / 72%);
+    --hero-stat-border: rgb(15 23 42 / 8%);
+    --hero-search-bg: #ffffff;
+    --hero-search-fg: #0f172a;
+    --hero-search-border: var(--color-border-strong);
   }
 
-  /* Brain layer: legacy hero-brain.png (teal wireframe on transparent black).
-     Dark mode: screen blend lets the teal glow through, black drops out.
-     Light mode: invert + multiply turns it into a dark blue outline on light.
-     Anchored inside .hero__grid (the .container-bound layer) so on wide
-     viewports the brain tracks the content's right edge instead of drifting
-     off into the empty margin. */
+  /* Large wireframe brain (legacy hero-brain.png: teal lines on transparent
+     black). Centered behind the content; screen-blends on the dark ground so
+     the teal glows and the black drops out. */
   .hero__brain {
     position: absolute;
-    inset-block: -8% -12%;
-    /* Anchor so the brain's center sits roughly at the right third of the
-       content column; on huge viewports it stays paired with the copy. */
-    inset-inline-end: -10%;
-    inline-size: clamp(480px, 60%, 820px);
+    inset-block: 50% auto;
+    inset-inline: 50% auto;
+    translate: -50% -50%;
+    inline-size: min(1000px, 110%);
+    aspect-ratio: 1 / 1;
     background: url("/hero-brain.png") no-repeat center / contain;
     mix-blend-mode: var(--hero-brain-blend);
     filter: var(--hero-brain-filter);
     opacity: var(--hero-brain-opacity);
     pointer-events: none;
-    z-index: 0;
-  }
-  @media (max-width: 880px) {
-    .hero__brain {
-      inset-inline-end: -25%;
-      opacity: calc(var(--hero-brain-opacity) * 0.55);
-    }
+    z-index: -1;
   }
 
-  /* Sparkle layer: pure CSS, ~40 dots via radial gradients tiled at random
-     offsets. Two stacked sublayers drift at different rates for parallax. */
-  .hero__sparkles {
+  /* Vignette to keep the verb stack and copy readable over the brain. */
+  .hero__veil {
     position: absolute;
     inset: 0;
     z-index: -1;
     pointer-events: none;
-    background:
-      radial-gradient(1px 1px at 12% 18%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 28% 72%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1.5px 1.5px at 44% 32%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 67% 14%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(2px 2px at 81% 58%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 92% 28%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 17% 88%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1.5px 1.5px at 36% 12%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 56% 78%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 78% 92%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(2px 2px at 22% 48%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 70% 42%, var(--hero-spark) 50%, transparent 51%);
-    background-size: 100% 100%;
-    animation: hero-twinkle 6s ease-in-out infinite;
-  }
-  .hero__sparkles::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background:
-      radial-gradient(1px 1px at 8% 60%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1.5px 1.5px at 52% 6%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(2px 2px at 33% 64%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 88% 8%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 45% 88%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 73% 36%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1.5px 1.5px at 96% 72%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(1px 1px at 5% 33%, var(--hero-spark) 50%, transparent 51%),
-      radial-gradient(2px 2px at 62% 52%, var(--hero-spark) 50%, transparent 51%);
-    animation: hero-twinkle 9s ease-in-out infinite reverse;
-    animation-delay: -3s;
-  }
-  @keyframes hero-twinkle {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 0.95; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .hero__sparkles,
-    .hero__sparkles::after {
-      animation: none;
-      opacity: 0.7;
-    }
+    background: var(--hero-veil);
   }
 
-  .hero__grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-12);
-    align-items: center;
+  /* Starfield canvas — a JS particle field (see the <script> below) that
+     mirrors the legacy nemar.org particles.js feel: soft-blue dots that drift
+     to random places and twinkle independently, instead of fixed CSS dots.
+     Sizing is driven from CSS; the script reads clientWidth/Height. Falls back
+     to a static field under prefers-reduced-motion. */
+  .hero__stars {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    z-index: -2;
+    pointer-events: none;
+  }
+
+  /* Corner-bracket framing marks (legacy motif): a tick at top-left and
+     bottom-right of the element. */
+  .bracketed {
     position: relative;
   }
-  .hero__copy {
+  .bracketed::before,
+  .bracketed::after {
+    content: "";
+    position: absolute;
+    inline-size: 20px;
+    block-size: 20px;
+    border: 0 solid var(--hero-bracket);
+    pointer-events: none;
+  }
+  .bracketed::before {
+    inset-block-start: -10px;
+    inset-inline-start: -12px;
+    border-block-start-width: 2px;
+    border-inline-start-width: 2px;
+  }
+  .bracketed::after {
+    inset-block-end: -10px;
+    inset-inline-end: -12px;
+    border-block-end-width: 2px;
+    border-inline-end-width: 2px;
+  }
+
+  .hero__inner {
     position: relative;
     z-index: 1;
-    max-inline-size: 56ch;
+    width: 100%;
   }
   .hero__eyebrow {
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.16em;
     font-size: var(--fs-sm);
     color: var(--hero-eyebrow);
-    margin-block-end: var(--space-4);
-    font-weight: var(--fw-medium);
-  }
-  .hero__title {
+    margin-block-end: var(--space-6);
     font-weight: var(--fw-semibold);
-    color: var(--hero-fg);
-    line-height: var(--lh-tight);
-    font-size: clamp(var(--fs-4xl), 6vw, var(--fs-6xl));
-    letter-spacing: -0.025em;
   }
-  .hero__title em {
-    font-style: normal;
-    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+
+  /* Search — promoted near the top, the way the legacy hero led with it. */
+  .hero__search {
+    max-inline-size: 46rem;
+    margin-block-end: var(--space-12);
+  }
+  .hero__search-label {
+    display: block;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    letter-spacing: 0.04em;
+    color: var(--hero-fg);
+    margin-block-end: var(--space-3);
+  }
+  .hero__search-field {
+    position: relative;
+    display: flex;
+    gap: var(--space-2);
+  }
+  .hero__search-icon {
+    position: absolute;
+    inset-block-start: 50%;
+    inset-inline-start: var(--space-5);
+    transform: translateY(-50%);
+    inline-size: 20px;
+    block-size: 20px;
+    color: rgb(71 85 105 / 70%);
+    pointer-events: none;
+  }
+  .hero__search input[type="search"] {
+    flex: 1;
+    min-inline-size: 0;
+    padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 28px);
+    border: 1px solid var(--hero-search-border);
+    border-radius: var(--radius-pill);
+    background: var(--hero-search-bg);
+    color: var(--hero-search-fg);
+    font-size: var(--fs-lg);
+    box-shadow: 0 8px 28px rgb(0 0 0 / 28%);
+  }
+  .hero__search input[type="search"]:focus-visible {
+    outline: 2px solid var(--brand-teal);
+    outline-offset: 2px;
+  }
+  .hero__search input[type="search"]::placeholder {
+    color: rgb(71 85 105 / 65%);
+  }
+  .hero__search button {
+    flex-shrink: 0;
+    padding: var(--space-4) var(--space-8);
+    background: var(--brand-teal);
+    color: #04121f;
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    box-shadow: 0 8px 24px rgb(91 186 213 / 30%);
+    transition: background 0.15s ease;
+  }
+  .hero__search button:hover {
+    background: color-mix(in srgb, var(--brand-teal) 85%, #ffffff);
+  }
+
+  /* Body: bracketed verb stack on the left, intro + CTAs on the right. */
+  .hero__body {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: var(--space-10) var(--space-16);
+    align-items: start;
+    margin-block-end: var(--space-12);
+  }
+  .hero__verbs {
+    display: flex;
+    flex-direction: column;
+    font-family: var(--font-display);
+    font-weight: var(--fw-bold);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    font-size: clamp(var(--fs-4xl), 6.5vw, 5.25rem);
+    color: var(--hero-fg);
+    text-shadow: 0 2px 24px rgb(0 0 0 / 35%);
+  }
+  :global(:root[data-theme="light"]) .hero__verbs {
+    text-shadow: none;
+  }
+  .hero__verbs span:last-child {
+    background: linear-gradient(92deg, var(--brand-teal), var(--brand-purple));
     background-clip: text;
     -webkit-background-clip: text;
     color: transparent;
+  }
+  .hero__intro {
+    max-inline-size: 46ch;
+    padding-block-start: var(--space-2);
   }
   .hero__lede {
     color: var(--hero-fg-muted);
     font-size: var(--fs-lg);
     line-height: var(--lh-relaxed);
-    margin-block: var(--space-6) var(--space-8);
-    max-inline-size: 52ch;
+  }
+  .hero__lede em {
+    font-style: italic;
+    color: var(--hero-fg);
   }
   .hero__lede a {
     color: inherit;
@@ -291,95 +410,50 @@ Astro.response.headers.set(
   .hero__lede a:hover {
     color: var(--brand-teal);
   }
-  .hero__search {
-    position: relative;
-    display: flex;
-    gap: var(--space-2);
-    max-inline-size: 44rem;
-    margin-block-end: var(--space-10);
-  }
-  .hero__search-icon {
-    position: absolute;
-    inset-block-start: 50%;
-    inset-inline-start: var(--space-5);
-    transform: translateY(-50%);
-    inline-size: 20px;
-    block-size: 20px;
-    color: var(--color-fg-subtle);
-    pointer-events: none;
-  }
-  .hero__search input[type="search"] {
-    flex: 1;
-    padding: var(--space-4) var(--space-5) var(--space-4) calc(var(--space-5) + 28px);
-    border: 1px solid var(--hero-search-border);
-    border-radius: var(--radius-pill);
-    background: var(--hero-search-bg);
-    color: #0f172a;
-    font-size: var(--fs-lg);
-    box-shadow: 0 4px 16px rgb(15 23 42 / 12%);
-  }
-  .hero__search input[type="search"]:focus-visible {
-    border-color: var(--color-focus);
-  }
-  .hero__search input[type="search"]::placeholder {
-    color: rgb(71 85 105 / 70%);
-  }
-  .hero__search button {
-    padding: var(--space-4) var(--space-8);
-    background: var(--brand-navy);
-    color: #f8fafc;
-    border-radius: var(--radius-pill);
-    font-weight: var(--fw-semibold);
-    font-size: var(--fs-base);
-    box-shadow: 0 4px 16px rgb(15 23 42 / 22%);
-  }
-  .hero__search button:hover {
-    background: color-mix(in srgb, var(--brand-navy) 82%, var(--brand-teal));
-  }
   .hero__ctas {
     display: flex;
     gap: var(--space-3);
     flex-wrap: wrap;
     align-items: center;
-    margin-block-end: var(--space-10);
+    margin-block-start: var(--space-8);
   }
   .hero__cta {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 0 var(--space-5);
-    min-block-size: 44px;
+    padding: 0 var(--space-6);
+    min-block-size: 46px;
     border-radius: var(--radius-pill);
-    font-weight: var(--fw-medium);
+    font-weight: var(--fw-semibold);
     font-size: var(--fs-sm);
     text-decoration: none;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .hero__cta--primary {
     background: var(--hero-fg);
     color: var(--hero-bg-1);
     border: 1px solid var(--hero-fg);
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
-  .hero__cta:hover {
-    background: color-mix(in srgb, var(--hero-fg) 80%, var(--brand-teal));
+  .hero__cta--primary:hover {
+    background: color-mix(in srgb, var(--hero-fg) 82%, var(--brand-teal));
     color: var(--hero-bg-1);
-    text-decoration: none;
   }
   .hero__cta--ghost {
     background: transparent;
     color: var(--hero-fg);
-    border-color: color-mix(in srgb, var(--hero-fg) 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--hero-fg) 32%, transparent);
   }
   .hero__cta--ghost:hover {
     background: color-mix(in srgb, var(--hero-fg) 8%, transparent);
-    color: var(--hero-fg);
-    border-color: color-mix(in srgb, var(--hero-fg) 50%, transparent);
+    border-color: color-mix(in srgb, var(--hero-fg) 55%, transparent);
   }
+
   .hero__stats {
     display: flex;
     gap: var(--space-4);
     flex-wrap: wrap;
   }
-  /* Theme the stat tiles to match the hero surface — global override scoped
-     to .hero so the rest of the site keeps the default StatTile look. */
+  /* Theme the stat tiles onto the hero surface (glassy on the navy ground). */
   .hero__stats :global(.stat-tile) {
     background: var(--hero-stat-bg);
     border-color: var(--hero-stat-border);
@@ -392,4 +466,205 @@ Astro.response.headers.set(
   .hero__stats :global(.stat-tile__hint) {
     color: var(--hero-fg-muted);
   }
+
+  @media (max-width: 880px) {
+    .hero {
+      min-block-size: 0;
+      padding-block: var(--space-10) var(--space-12);
+    }
+    .hero__brain {
+      inline-size: min(680px, 150%);
+      opacity: calc(var(--hero-brain-opacity) * 0.7);
+    }
+    .hero__body {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-6);
+    }
+    .hero__verbs {
+      font-size: clamp(var(--fs-3xl), 13vw, var(--fs-5xl));
+    }
+    .hero__search button {
+      padding-inline: var(--space-5);
+    }
+  }
+
+  /* Below the full-bleed hero: required notice + feature blurbs. These use the
+     normal page tokens (fully theme-aware), not the hero's dark-by-default
+     palette. */
+  .notice {
+    background: color-mix(in srgb, var(--brand-teal) 9%, var(--color-bg));
+    border-block-end: 1px solid var(--color-border);
+  }
+  .notice__inner {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    padding-block: var(--space-4);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .notice__icon {
+    flex-shrink: 0;
+    inline-size: 20px;
+    block-size: 20px;
+    color: var(--brand-teal);
+  }
+
+  .features {
+    padding-block: var(--space-20);
+  }
+  .features__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-8);
+  }
+  @media (max-width: 760px) {
+    .features__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .feature {
+    padding: var(--space-8);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .feature__icon {
+    inline-size: 32px;
+    block-size: 32px;
+    color: var(--brand-teal);
+    margin-block-end: var(--space-4);
+  }
+  .feature__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    letter-spacing: -0.01em;
+    margin-block-end: var(--space-3);
+  }
+  .feature__body {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-base);
+    line-height: var(--lh-relaxed);
+  }
+  .feature__body a {
+    color: var(--color-link);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .feature__body a:hover {
+    color: var(--color-link-hover);
+  }
 </style>
+
+<script>
+  // Drifting star canvas — a small dependency-free particle field that mirrors
+  // the legacy nemar.org particles.js feel: ~80+ soft-blue dots that move to
+  // random places and twinkle independently. Honors prefers-reduced-motion
+  // (renders a static field), pauses when the tab is hidden, and recolors on
+  // theme change.
+  interface Star {
+    x: number;
+    y: number;
+    r: number;
+    vx: number;
+    vy: number;
+    phase: number;
+    tw: number;
+    amp: number;
+  }
+
+  const canvas = document.querySelector<HTMLCanvasElement>("canvas.hero__stars");
+  const ctx = canvas?.getContext("2d");
+  if (canvas && ctx) {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rand = (a: number, b: number) => a + Math.random() * (b - a);
+    let w = 0;
+    let h = 0;
+    let stars: Star[] = [];
+    let raf = 0;
+
+    // Soft blue (legacy #6894ce) on the dark hero; deep indigo on the light one.
+    const starColor = () =>
+      document.documentElement.getAttribute("data-theme") === "light"
+        ? "30, 41, 99"
+        : "104, 148, 206";
+
+    function resize() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      w = canvas!.clientWidth;
+      h = canvas!.clientHeight;
+      canvas!.width = Math.round(w * dpr);
+      canvas!.height = Math.round(h * dpr);
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
+    function seed() {
+      // Density-based count (legacy particles.js used ~w*h/10000), capped.
+      const count = Math.min(190, Math.max(40, Math.round((w * h) / 10000)));
+      stars = Array.from({ length: count }, () => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: rand(0.4, 2.4),
+        vx: rand(-0.32, 0.32),
+        vy: rand(-0.32, 0.32),
+        phase: Math.random() * Math.PI * 2,
+        tw: rand(0.6, 2.2),
+        amp: rand(0.18, 0.82),
+      }));
+    }
+
+    function paint(animate: boolean, t: number) {
+      const rgb = starColor();
+      ctx!.clearRect(0, 0, w, h);
+      for (const p of stars) {
+        if (animate) {
+          p.x += p.vx;
+          p.y += p.vy;
+          const m = p.r + 1;
+          if (p.x < -m) p.x = w + m;
+          else if (p.x > w + m) p.x = -m;
+          if (p.y < -m) p.y = h + m;
+          else if (p.y > h + m) p.y = -m;
+        }
+        const o = animate
+          ? 0.05 + p.amp * (0.5 + 0.5 * Math.sin(p.phase + t * 0.001 * p.tw))
+          : 0.06 + p.amp * 0.7;
+        ctx!.beginPath();
+        ctx!.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx!.fillStyle = `rgba(${rgb}, ${o})`;
+        ctx!.fill();
+      }
+    }
+
+    function loop(t: number) {
+      paint(true, t);
+      raf = requestAnimationFrame(loop);
+    }
+
+    function start() {
+      resize();
+      seed();
+      cancelAnimationFrame(raf);
+      if (reduce) paint(false, 0);
+      else raf = requestAnimationFrame(loop);
+    }
+
+    let rt = 0;
+    window.addEventListener("resize", () => {
+      window.clearTimeout(rt);
+      rt = window.setTimeout(start, 200);
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) cancelAnimationFrame(raf);
+      else if (!reduce) raf = requestAnimationFrame(loop);
+    });
+    // Recolor immediately when the static field is showing and the theme flips.
+    new MutationObserver(() => {
+      if (reduce) paint(false, 0);
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+    start();
+  }
+</script>
