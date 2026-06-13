@@ -251,6 +251,7 @@ Astro.response.headers.set(
     fetchZarrIndex,
     prefetchZarrStoreMetadata,
     zarrAvailablePaths,
+    zarrFailureReasonByPath,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
   // The preview renderers are dynamic-imported on first click (one bundle
@@ -267,6 +268,8 @@ Astro.response.headers.set(
     {
       paths: Set<string>;
       stores: Map<string, ZarrIndexStore>;
+      /** BIDS path (or store-rel path) -> reason it has no viewer, when known. */
+      failureReasons: Map<string, string>;
       prefetched: Set<string>;
       firstPrefetched: boolean;
     }
@@ -351,6 +354,7 @@ Astro.response.headers.set(
       zarrBySection.set(section, {
         paths: zarrAvailablePaths(index),
         stores: zarrStoreByPath(index),
+        failureReasons: zarrFailureReasonByPath(index),
         prefetched: new Set<string>(),
         firstPrefetched: false,
       });
@@ -380,10 +384,19 @@ Astro.response.headers.set(
       const path = btn.dataset.previewPath ?? "";
       const available = state.paths.has(path);
       btn.dataset.zarrAvailable = available ? "true" : "false";
+      // A recorded data failure (derivative, corrupt, unsupported) carries a
+      // specific reason; attach it so the click handler explains *why* instead of
+      // a generic "not available". Absent => still generating / will retry.
+      const reason = state.failureReasons.get(path);
+      if (reason) {
+        btn.dataset.zarrFailureReason = reason;
+      } else {
+        delete btn.dataset.zarrFailureReason;
+      }
       if (available) {
         btn.title = `Open signal viewer for ${btn.dataset.fileName ?? path}`;
       } else {
-        btn.title = "No interactive Zarr viewer is available for this recording yet";
+        btn.title = reason ?? "No interactive Zarr viewer is available for this recording yet";
       }
     }
     prefetchFirstZarrRow(section, state);
@@ -583,7 +596,13 @@ Astro.response.headers.set(
     // first opened.
     if (previewType === "eeg") {
       if (btn.dataset.zarrAvailable === "false") {
-        slot.innerHTML = `<p class="preview__empty">No interactive viewer is available for this recording yet. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+        // A recorded data failure has a specific, permanent reason; show it.
+        // Otherwise the store is just missing (still generating / will retry).
+        const reason = btn.dataset.zarrFailureReason;
+        const lead = reason
+          ? escapeHtml(reason)
+          : "No interactive viewer is available for this recording yet.";
+        slot.innerHTML = `<p class="preview__empty">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
         slot.dataset.loaded = "true";
         return;
       }

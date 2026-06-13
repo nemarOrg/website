@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseZarrIndex, zarrAvailablePaths, zarrStoreByPath } from "./zarr-index";
+import {
+  parseZarrIndex,
+  zarrAvailablePaths,
+  zarrFailureReasonByPath,
+  zarrStoreByPath,
+} from "./zarr-index";
 
 describe("parseZarrIndex", () => {
   it("keeps valid stores and drops malformed entries", () => {
@@ -27,6 +32,48 @@ describe("parseZarrIndex", () => {
     expect(
       parseZarrIndex({ dataset_id: "nm000132", format: "nemar-zarr-index", stores: "x" }),
     ).toBeNull();
+  });
+
+  it("parses data failures and tolerates an absent failures array", () => {
+    const index = parseZarrIndex({
+      dataset_id: "on005261",
+      format: "nemar-zarr-index",
+      stores: [],
+      failures: [
+        {
+          path: "derivatives/sub-01_task-x_ave.fif",
+          zarr: "derivatives/sub-01_task-x_ave.zarr",
+          code: "not_continuous",
+          reason: "trial-averaged derivative",
+        },
+        { path: "bad-missing-path-field-only-zarr", zarr: "x.zarr" }, // kept (path is a string)
+        { zarr: "no-path.zarr" }, // dropped (no path)
+        null,
+      ],
+    });
+    expect(index?.failures.map((f) => f.code)).toEqual(["not_continuous", undefined]);
+    // Older index without `failures` -> empty array, not null.
+    const legacy = parseZarrIndex({ dataset_id: "x", format: "nemar-zarr-index", stores: [] });
+    expect(legacy?.failures).toEqual([]);
+  });
+});
+
+describe("zarrFailureReasonByPath", () => {
+  it("maps both the BIDS path and the .zarr path to the reason, skipping reasonless entries", () => {
+    const index = parseZarrIndex({
+      dataset_id: "on005261",
+      format: "nemar-zarr-index",
+      stores: [],
+      failures: [
+        { path: "a-ave.fif", zarr: "a-ave.zarr", code: "not_continuous", reason: "derivative" },
+        { path: "b.edf", zarr: "b.zarr", code: "corrupt_or_truncated" }, // no reason -> skipped
+      ],
+    });
+    expect(index).not.toBeNull();
+    const m = zarrFailureReasonByPath(index!);
+    expect(m.get("a-ave.fif")).toBe("derivative");
+    expect(m.get("a-ave.zarr")).toBe("derivative"); // fallback key
+    expect(m.has("b.edf")).toBe(false);
   });
 });
 
