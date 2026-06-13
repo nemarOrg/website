@@ -67,6 +67,7 @@ export async function listDatasets(
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
+    console.error(`[api] listDatasets: ${res.status} ${res.statusText}`);
     throw new Error(`api.nemar.org list datasets failed: ${res.status} ${res.statusText}`);
   }
   const json = (await res.json()) as DatasetListResponse;

@@ -12,7 +12,8 @@ const year = new Date().getFullYear();
       </p>
       <p class="site-footer__caveat">
         Opinions, findings, and conclusions are those of the authors and do not
-        necessarily reflect the views of the National Institutes of Health.
+        necessarily reflect the views of the National Institutes of Health or
+        any other sponsor.
       </p>
     </div>
     <nav class="site-footer__nav" aria-label="Footer">
@@ -42,6 +43,76 @@ const year = new Date().getFullYear();
       </div>
     </nav>
   </div>
+
+  <div class="container site-footer__credits">
+    <div class="site-footer__maker">
+      <span class="site-footer__credits-label">A project of</span>
+      <div class="site-footer__chips">
+        <a
+          class="logo-chip logo-chip--maker"
+          href="https://sccn.ucsd.edu"
+          rel="external"
+          aria-label="Swartz Center for Computational Neuroscience"
+        >
+          <img src="/logos/sccn.svg" alt="SCCN" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--maker"
+          href="https://www.sdsc.edu"
+          rel="external"
+          aria-label="San Diego Supercomputer Center"
+        >
+          <img src="/logos/sdsc.svg" alt="SDSC" loading="lazy" />
+        </a>
+      </div>
+      <p class="site-footer__maker-text">
+        The Swartz Center for Computational Neuroscience and the San Diego
+        Supercomputer Center at UC San Diego.
+      </p>
+    </div>
+
+    <div class="site-footer__partners">
+      <span class="site-footer__credits-label">Partners &amp; sponsors</span>
+      <div class="site-footer__chips">
+        <a
+          class="logo-chip logo-chip--asis"
+          href="https://www.nih.gov"
+          rel="external"
+          aria-label="National Institutes of Health"
+        >
+          <img src="/logos/nih.svg" alt="National Institutes of Health" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip"
+          href="https://aws.amazon.com/opendata/"
+          rel="external"
+          aria-label="Powered by AWS — AWS Open Data Sponsorship Program"
+        >
+          <img src="/logos/powered-by-aws.png" alt="Powered by AWS" loading="lazy" />
+        </a>
+        <a class="logo-chip" href="https://openneuro.org" rel="external" aria-label="OpenNeuro">
+          <img src="/logos/openneuro.png" alt="OpenNeuro" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip"
+          href="https://bids.neuroimaging.io"
+          rel="external"
+          aria-label="Brain Imaging Data Structure (BIDS)"
+        >
+          <img src="/logos/bids.svg" alt="BIDS" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip"
+          href="https://www.hedtags.org"
+          rel="external"
+          aria-label="Hierarchical Event Descriptors (HED)"
+        >
+          <img src="/logos/HED.svg" alt="HED" loading="lazy" />
+        </a>
+      </div>
+    </div>
+  </div>
+
   <div class="container site-footer__bottom">
     <p>&copy; {year} The Regents of the University of California</p>
     <p>
@@ -105,6 +176,98 @@ const year = new Date().getFullYear();
   .site-footer__nav a:hover {
     color: var(--color-fg);
   }
+  /* Credits band: SCCN + SDSC as the makers, then partners & sponsors. Logos
+     are boxless and normalized to a single tone per theme (see `.logo-chip`
+     below); the NIH mark is exempted and kept in full color. */
+  .site-footer__credits {
+    margin-block-start: var(--space-12);
+    padding-block-start: var(--space-10);
+    border-block-start: 1px solid var(--color-border);
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-8) var(--space-16);
+    align-items: start;
+  }
+  @media (max-width: 720px) {
+    .site-footer__credits {
+      grid-template-columns: 1fr;
+      gap: var(--space-8);
+    }
+  }
+  .site-footer__credits-label {
+    display: block;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-subtle);
+    margin-block-end: var(--space-4);
+  }
+  .site-footer__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    align-items: center;
+  }
+  /* Boxless logos: the marks sit directly on the footer and link out. They're
+     normalized to a single tone per theme (dark ink on the light footer, white
+     on the dark footer) so wildly different source files — some light, some
+     colored — all stay legible at a common size without a backing chip. */
+  .logo-chip {
+    display: inline-flex;
+    align-items: center;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .logo-chip:hover {
+    transform: translateY(-1px);
+  }
+  .logo-chip img {
+    block-size: 34px;
+    inline-size: auto;
+    max-inline-size: 160px;
+    object-fit: contain;
+    display: block;
+    filter: brightness(0);
+    opacity: 0.72;
+  }
+  .logo-chip:hover img {
+    opacity: 1;
+  }
+  .logo-chip--maker img {
+    block-size: 42px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .logo-chip img {
+      filter: brightness(0) invert(1);
+      opacity: 0.82;
+    }
+  }
+  :global(:root[data-theme="dark"]) .logo-chip img {
+    filter: brightness(0) invert(1);
+    opacity: 0.82;
+  }
+  /* NIH is the federal funder: its official mark carries its own contrast and
+     brand guidelines discourage recoloring, so it's exempt from the monochrome
+     normalization above and shown in full color on both themes. */
+  .logo-chip--asis img,
+  :global(:root[data-theme="dark"]) .logo-chip--asis img {
+    filter: none;
+    opacity: 1;
+    block-size: 40px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .logo-chip--asis img {
+      filter: none;
+      opacity: 1;
+    }
+  }
+  .site-footer__maker-text {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    margin-block-start: var(--space-3);
+    max-inline-size: 42ch;
+  }
+
   .site-footer__bottom {
     margin-block-start: var(--space-12);
     display: flex;
