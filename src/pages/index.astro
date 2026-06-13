@@ -592,6 +592,7 @@ Astro.response.headers.set(
     let h = 0;
     let stars: Star[] = [];
     let raf = 0;
+    let lastT = 0;
 
     // Soft blue (legacy #6894ce) on the dark hero; deep indigo on the light one.
     const starColor = () =>
@@ -610,13 +611,15 @@ Astro.response.headers.set(
 
     function seed() {
       // Density-based count (legacy particles.js used ~w*h/10000), capped.
-      const count = Math.min(190, Math.max(40, Math.round((w * h) / 10000)));
+      // Denser field (higher "resolution"): smaller divisor + higher cap.
+      const count = Math.min(280, Math.max(60, Math.round((w * h) / 7000)));
       stars = Array.from({ length: count }, () => ({
         x: Math.random() * w,
         y: Math.random() * h,
-        r: rand(0.4, 2.4),
-        vx: rand(-0.32, 0.32),
-        vy: rand(-0.32, 0.32),
+        r: rand(0.35, 2.1),
+        // Slow drift (~legacy particles.js move speed 0.5); scaled by dt below.
+        vx: rand(-0.13, 0.13),
+        vy: rand(-0.13, 0.13),
         phase: Math.random() * Math.PI * 2,
         tw: rand(0.6, 2.2),
         amp: rand(0.18, 0.82),
@@ -625,11 +628,15 @@ Astro.response.headers.set(
 
     function paint(animate: boolean, t: number) {
       const rgb = starColor();
+      // Normalize drift to a 60fps step so speed is identical on 60 Hz and
+      // 120 Hz (ProMotion) displays; clamp so a long pause can't fling stars.
+      const step = animate && lastT ? Math.min((t - lastT) / 16.667, 3) : 1;
+      if (animate) lastT = t;
       ctx!.clearRect(0, 0, w, h);
       for (const p of stars) {
         if (animate) {
-          p.x += p.vx;
-          p.y += p.vy;
+          p.x += p.vx * step;
+          p.y += p.vy * step;
           const m = p.r + 1;
           if (p.x < -m) p.x = w + m;
           else if (p.x > w + m) p.x = -m;
@@ -656,6 +663,7 @@ Astro.response.headers.set(
       seed();
       cancelAnimationFrame(raf);
       raf = 0;
+      lastT = 0;
       // Don't schedule a frame on a hidden tab — the visibilitychange handler
       // resumes it; scheduling here too would orphan a second concurrent loop.
       if (reduce) paint(false, 0);
@@ -668,8 +676,12 @@ Astro.response.headers.set(
       rt = window.setTimeout(start, 200);
     });
     document.addEventListener("visibilitychange", () => {
-      if (document.hidden) cancelAnimationFrame(raf);
-      else if (!reduce) raf = requestAnimationFrame(loop);
+      if (document.hidden) {
+        cancelAnimationFrame(raf);
+      } else if (!reduce) {
+        lastT = 0;
+        raf = requestAnimationFrame(loop);
+      }
     });
     // Recolor immediately when the static field is showing and the theme flips.
     new MutationObserver(() => {
