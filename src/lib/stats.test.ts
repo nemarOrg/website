@@ -51,6 +51,12 @@ describe("isHostedDataset", () => {
     expect(isHostedDataset(row({ id: "nm000104", source_type: null }))).toBe(true);
     expect(isHostedDataset(row({ id: "ds002718", source_type: null }))).toBe(false);
   });
+  it("defers any non-managed, non-catalog source_type to the id prefix", () => {
+    // Locks current behavior: an unknown source_type classifies by id, so a
+    // managed-looking id still counts and a ds* id still doesn't.
+    expect(isHostedDataset(row({ id: "nm000999", source_type: "external" }))).toBe(true);
+    expect(isHostedDataset(row({ id: "ds009999", source_type: "external" }))).toBe(false);
+  });
 });
 
 describe("aggregateHostedStats", () => {
@@ -70,6 +76,8 @@ describe("aggregateHostedStats", () => {
   it("tolerates null participants / file_size on sparse hosted rows", () => {
     const rows = [
       row({ id: "on005262", source_type: "managed", participants: 0, file_size: 0 }),
+      // Backend can deliver null/undefined for these typed-as-number columns
+      // before a migration backfills them; the `?? 0` guard is what we exercise.
       row({
         id: "nm000105",
         source_type: "managed",
@@ -81,6 +89,14 @@ describe("aggregateHostedStats", () => {
     expect(stats.datasets).toBe(2);
     expect(stats.participants).toBe(0);
     expect(stats.size).toBe(0);
+  });
+
+  it("returns zeros when every row is catalog-only", () => {
+    const rows = [
+      row({ id: "ds002718", source_type: "catalog", participants: 5, file_size: GB }),
+      row({ id: "ds007955", source_type: "catalog", participants: 9, file_size: GB }),
+    ];
+    expect(aggregateHostedStats(rows)).toEqual({ datasets: 0, participants: 0, size: 0 });
   });
 
   it("returns zeros for an empty catalog page", () => {

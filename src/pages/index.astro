@@ -13,10 +13,15 @@ let stats = { datasets: 0, participants: 0, size: 0 };
 let statsAvailable = false;
 try {
   stats = await fetchHostedStats();
-  statsAvailable = stats.datasets > 0;
-} catch {
+  // Live figures — even a genuine 0 is accurate, so no "approx." hint.
+  statsAvailable = true;
+} catch (err) {
   // Last-known hosted snapshot so the hero never renders empty when the
-  // catalog API is unreachable; flagged "approx." in the UI.
+  // catalog API is unreachable; flagged "approx." in the UI. Log at the Worker
+  // edge so an outage is visible (matches discover.astro / api.ts).
+  console.error(
+    `[index] fetchHostedStats failed, using snapshot: ${err instanceof Error ? err.message : String(err)}`,
+  );
   stats = { datasets: 227, participants: 15_819, size: 7.12 * 1024 ** 4 };
 }
 
@@ -220,7 +225,9 @@ Astro.response.headers.set(
 
   /* Large wireframe brain (legacy hero-brain.png: teal lines on transparent
      black). Centered behind the content; screen-blends on the dark ground so
-     the teal glows and the black drops out. */
+     the teal glows and the black drops out. In the light theme the blend
+     switches to multiply (inverted + hue-rotated) so the lines read as dark
+     blue-grey on the pale ground. */
   .hero__brain {
     position: absolute;
     inset-block: 50% auto;
@@ -560,19 +567,20 @@ Astro.response.headers.set(
 
 <script>
   // Drifting star canvas — a small dependency-free particle field that mirrors
-  // the legacy nemar.org particles.js feel: ~80+ soft-blue dots that move to
-  // random places and twinkle independently. Honors prefers-reduced-motion
+  // the legacy nemar.org particles.js feel: ~40–190 soft-blue dots (density-
+  // based, ~w×h/10000, capped) that drift to random places and twinkle
+  // independently. Honors prefers-reduced-motion
   // (renders a static field), pauses when the tab is hidden, and recolors on
   // theme change.
   interface Star {
-    x: number;
+    x: number; // position, CSS px
     y: number;
-    r: number;
-    vx: number;
+    r: number; // radius, CSS px
+    vx: number; // velocity, px/frame
     vy: number;
-    phase: number;
-    tw: number;
-    amp: number;
+    phase: number; // initial twinkle phase, radians
+    tw: number; // twinkle speed multiplier
+    amp: number; // opacity swing amplitude, 0–1
   }
 
   const canvas = document.querySelector<HTMLCanvasElement>("canvas.hero__stars");
@@ -647,8 +655,11 @@ Astro.response.headers.set(
       resize();
       seed();
       cancelAnimationFrame(raf);
+      raf = 0;
+      // Don't schedule a frame on a hidden tab — the visibilitychange handler
+      // resumes it; scheduling here too would orphan a second concurrent loop.
       if (reduce) paint(false, 0);
-      else raf = requestAnimationFrame(loop);
+      else if (!document.hidden) raf = requestAnimationFrame(loop);
     }
 
     let rt = 0;

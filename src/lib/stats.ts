@@ -12,8 +12,8 @@
  * full catalog (managed + catalog) is what the Discover page browses, which
  * is deliberately a larger number.
  *
- * The `/datasets` endpoint has no aggregate route and ignores a `source_type`
- * filter, so we page through the whole catalog (~4 calls of 200) and reduce
+ * The `/datasets` endpoint has no aggregate route and accepts no `source_type`
+ * filter parameter, so we page the whole catalog (~4 calls of 200) and reduce
  * client-side. The landing page is edge-cached, so this fan-out only runs on
  * a cache miss. A server-side aggregate endpoint (filtered by `source_type`)
  * would collapse this to one call — worth filing upstream in nemar-cli.
@@ -39,7 +39,10 @@ export interface HostedStats {
 export function isHostedDataset(d: Pick<Dataset, "source_type" | "id">): boolean {
   if (d.source_type === "managed") return true;
   if (d.source_type === "catalog") return false;
-  return /^(nm|on)\d/.test(d.id ?? "");
+  // Any other (or null) source_type defers to the id prefix. Looser than
+  // api.ts `isManagedDatasetId` (which requires exactly 6 digits) so snapshots
+  // predating the source_type column still classify. `id` is non-nullable.
+  return /^(nm|on)\d/.test(d.id);
 }
 
 /** Sum the hosted (`managed`) subset of a catalog page set. Pure + testable. */
@@ -72,6 +75,15 @@ export async function fetchHostedStats(init: { signal?: AbortSignal } = {}): Pro
       offsets.map((offset) => listDatasets({ limit: PAGE_SIZE, offset }, init)),
     );
     for (const page of pages) rows.push(...page.datasets);
+  }
+
+  // If the collected rows fall well short of total_count, some pages came back
+  // empty (e.g. a drifted/stale count) and the hosted figures would be silently
+  // understated — surface it in the Worker log rather than show a wrong number.
+  if (total > PAGE_SIZE && rows.length < total * 0.9) {
+    console.warn(
+      `[stats] fetchHostedStats: expected ~${total} catalog rows, received ${rows.length}; hosted totals may be understated`,
+    );
   }
 
   return aggregateHostedStats(rows);
