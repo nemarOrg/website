@@ -6,10 +6,26 @@ export interface ZarrIndexStore {
   groups?: Array<{ name?: string; view_levels?: unknown; viewLevels?: unknown }>;
 }
 
+/**
+ * A recording the producer could not convert, for a reason that is a property of
+ * the DATA (a trial-averaged/epoched derivative, a corrupt/truncated file, an
+ * unsupported format). The producer (`scripts/zarr/generate_zarr.py`) records
+ * these so the viewer can explain *why* there is no viewer instead of a blank
+ * "not available". Transient/infra failures are NOT listed (they retry), so a
+ * recording absent from both `stores` and `failures` is simply still generating.
+ */
+export interface ZarrIndexFailure {
+  path: string;
+  zarr?: string;
+  code?: string;
+  reason?: string;
+}
+
 export interface ZarrIndex {
   dataset_id: string;
   format: string;
   stores: ZarrIndexStore[];
+  failures: ZarrIndexFailure[];
 }
 
 export function parseZarrIndex(raw: unknown): ZarrIndex | null {
@@ -30,7 +46,22 @@ export function parseZarrIndex(raw: unknown): ZarrIndex | null {
         : undefined,
     });
   }
-  return { dataset_id: o.dataset_id, format: o.format, stores };
+  // `failures` is optional (older indexes predate it).
+  const failures: ZarrIndexFailure[] = [];
+  if (Array.isArray(o.failures)) {
+    for (const entry of o.failures) {
+      if (!entry || typeof entry !== "object") continue;
+      const f = entry as Record<string, unknown>;
+      if (typeof f.path !== "string") continue;
+      failures.push({
+        path: f.path,
+        zarr: typeof f.zarr === "string" ? f.zarr : undefined,
+        code: typeof f.code === "string" ? f.code : undefined,
+        reason: typeof f.reason === "string" ? f.reason : undefined,
+      });
+    }
+  }
+  return { dataset_id: o.dataset_id, format: o.format, stores, failures };
 }
 
 export function zarrAvailablePaths(index: ZarrIndex): Set<string> {
@@ -39,6 +70,21 @@ export function zarrAvailablePaths(index: ZarrIndex): Set<string> {
 
 export function zarrStoreByPath(index: ZarrIndex): Map<string, ZarrIndexStore> {
   return new Map(index.stores.map((s) => [s.path, s]));
+}
+
+/**
+ * Map BIDS recording path -> producer-supplied reason it has no viewer. Keyed by
+ * both the recording `path` and (as a fallback) the store-relative `zarr` path,
+ * so a lookup by either resolves the reason.
+ */
+export function zarrFailureReasonByPath(index: ZarrIndex): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const f of index.failures) {
+    if (!f.reason) continue;
+    m.set(f.path, f.reason);
+    if (f.zarr) m.set(f.zarr, f.reason);
+  }
+  return m;
 }
 
 export async function fetchZarrIndex(datasetId: string): Promise<ZarrIndex | null> {

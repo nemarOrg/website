@@ -52,6 +52,13 @@ export interface ViewerOptions {
   filePath: string;
   /** Data-plane URL for the "download instead" fallback when no store exists. */
   downloadUrl?: string;
+  /**
+   * Producer-supplied reason this recording has no viewer (from the Zarr index
+   * `failures`): a trial-averaged/epoched derivative, a corrupt file, etc. When
+   * set, it replaces the generic "still generating" message. Absent for a
+   * recording that is simply still being converted.
+   */
+  failureReason?: string;
 }
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
@@ -1235,7 +1242,13 @@ function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown)
   const dl = opts.downloadUrl
     ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
     : "";
-  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">No interactive viewer for this recording yet (the Zarr serving copy may still be generating).${dl}</p></div>`;
+  // A recorded data failure (derivative, corrupt, unsupported) has a specific,
+  // permanent reason -> show it. Otherwise the store is just missing: still
+  // generating, or a transient failure that will retry.
+  const msg = opts.failureReason
+    ? escapeAttr(opts.failureReason)
+    : "No interactive viewer for this recording yet (the Zarr serving copy may still be generating).";
+  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${msg}${dl}</p></div>`;
   console.warn("[eeg-viewer] unavailable:", err);
 }
 
