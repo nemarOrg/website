@@ -24,6 +24,7 @@ const expected = new Set();
 const counts = { local: 0, remote: 0, rendered: 0 };
 let resvgReady = null;
 let logoSvg = "";
+let loadedFontBuffers = null;
 
 for (const dataset of datasets) {
   const id = dataset.dataset_id || dataset.id;
@@ -48,9 +49,9 @@ for (const dataset of datasets) {
   const renderer = new Resvg(svg, {
     fitTo: { mode: "original" },
     font: {
-      loadSystemFonts: true,
-      defaultFontFamily: "Arial",
-      sansSerifFamily: "Arial",
+      fontBuffers: await fontBuffers(),
+      defaultFontFamily: "Inter",
+      sansSerifFamily: "Inter",
       monospaceFamily: "monospace",
     },
     shapeRendering: 2,
@@ -84,6 +85,16 @@ async function ensureResvg() {
     logoSvg = await Bun.file("src/assets/nemar-logo.svg").text();
   }
   await resvgReady;
+}
+
+async function fontBuffers() {
+  if (!loadedFontBuffers) {
+    loadedFontBuffers = await Promise.all([
+      Bun.file("src/assets/fonts/Inter.ttf").bytes(),
+      Bun.file("src/assets/fonts/JetBrainsMono.ttf").bytes(),
+    ]);
+  }
+  return loadedFontBuffers;
 }
 
 async function fetchAllDatasets() {
