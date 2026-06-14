@@ -123,6 +123,7 @@ const githubRepoSlug = githubUrl
 const issuesUrl = `${githubUrl}/issues`;
 const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
+const ogImageVersion = String(import.meta.env.CF_PAGES_COMMIT_SHA ?? "static-v1").slice(0, 12);
 
 // Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
 // honors s-maxage at the edge; max-age stays short so browsers re-validate on nav.
@@ -136,7 +137,7 @@ Astro.response.headers.set(
 <Base
   title={metadata.name}
   description={metadata.description ?? `${id} dataset on NEMAR`}
-  image={`/og/dataset-card/${encodeURIComponent(id)}.png`}
+  image={`/og/dataset-card/${encodeURIComponent(id)}.png?v=${encodeURIComponent(ogImageVersion)}`}
   imageType="image/png"
   imageWidth={1200}
   imageHeight={800}
