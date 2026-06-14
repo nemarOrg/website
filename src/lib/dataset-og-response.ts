@@ -1,11 +1,27 @@
 import logoSvg from "../assets/nemar-logo.svg?raw";
 import { getDataset, isManagedDatasetId } from "./api";
 import { getLandingOutcome, getMetadataOutcome, outcomeValue } from "./data-api";
+import type { DatasetOgModel } from "./og-image";
 import { buildDatasetOgModel, renderDatasetOgSvg } from "./og-image";
 import { fetchParticipants } from "./participants";
 import type { Dataset } from "./types";
 
-export async function datasetOgResponse(id: string | undefined): Promise<Response> {
+export async function datasetOgSvgResponse(id: string | undefined): Promise<Response> {
+  const model = await getDatasetOgModel(id);
+  if (model instanceof Response) return model;
+
+  return new Response(renderDatasetOgSvg(model, logoSvg), {
+    status: 200,
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      "Cache-Control": ogCacheControl(),
+    },
+  });
+}
+
+export async function getDatasetOgModel(
+  id: string | undefined,
+): Promise<DatasetOgModel | Response> {
   const datasetId = id?.trim();
   if (!datasetId) {
     return new Response(null, { status: 400, headers: noStoreHeaders() });
@@ -30,13 +46,7 @@ export async function datasetOgResponse(id: string | undefined): Promise<Respons
     }
   }
 
-  return new Response(renderDatasetOgSvg(model, logoSvg), {
-    status: 200,
-    headers: {
-      "Content-Type": "image/svg+xml; charset=utf-8",
-      "Cache-Control": "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800",
-    },
-  });
+  return model;
 }
 
 async function getCatalog(id: string): Promise<Dataset | null> {
@@ -61,4 +71,8 @@ async function getParticipantCount(id: string): Promise<number | null> {
 
 function noStoreHeaders(): Headers {
   return new Headers({ "Cache-Control": "no-store" });
+}
+
+export function ogCacheControl(): string {
+  return "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800";
 }
