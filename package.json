@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "deploy:og-cron": "bun wrangler deploy -c wrangler.og-cron.toml",
     "lint": "biome check src",
     "format": "biome format --write src",
     "typecheck": "astro check"

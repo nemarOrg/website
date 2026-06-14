@@ -29,6 +29,32 @@ bun run build
 bunx wrangler pages deploy dist
 ```
 
+## Scheduled OG rebuilds
+
+Dataset OG PNGs are generated during `bun run build` from the live
+`api.nemar.org/datasets` catalog. New datasets that appear between website
+commits need a scheduled Pages rebuild so their missing
+`public/og/dataset-card/{id}.png` files are rendered into the next deployment.
+
+Cloudflare setup:
+
+1. In the `nemar-website` Pages project, create a Deploy Hook named
+   `dataset-og-rebuild` for the `main` branch.
+2. Store that hook URL as the scheduled Worker secret:
+
+   ```bash
+   bun wrangler secret put NEMAR_PAGES_DEPLOY_HOOK_URL -c wrangler.og-cron.toml
+   ```
+
+3. Deploy the Worker cron trigger:
+
+   ```bash
+   bun run deploy:og-cron
+   ```
+
+The cron lives in `wrangler.og-cron.toml` and runs every four hours. Cloudflare
+cron expressions use UTC.
+
 ## Architecture
 
 ```

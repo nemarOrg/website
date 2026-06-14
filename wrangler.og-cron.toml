@@ -1,0 +1,9 @@
+name = "nemar-og-rebuild-cron"
+main = "workers/og-rebuild-cron/index.ts"
+compatibility_date = "2026-06-14"
+workers_dev = false
+
+# Rebuilds the Pages site every four hours so newly cataloged datasets get
+# static OG PNGs without waiting for a website code deploy.
+[triggers]
+crons = ["17 */4 * * *"]
