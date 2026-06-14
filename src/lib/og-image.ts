@@ -68,10 +68,13 @@ export function buildDatasetOgModel(input: DatasetOgInput): DatasetOgModel {
 
 export function renderDatasetOgSvg(model: DatasetOgModel, logoSvg: string): string {
   const titleLines = wrapText(model.title, 27, 3);
-  const embeddedLogo = logoSvg.replace(
-    /^<svg\b/,
-    '<svg x="68" y="58" width="460" height="96" color="#f8fafc" style="--brand-accent:#5bbad5;--brand-electrode:#603cba"',
-  );
+  const embeddedLogo = logoSvg
+    .replace(
+      /^<svg\b/,
+      '<svg x="68" y="58" width="460" height="96" color="#f8fafc" style="color:#f8fafc"',
+    )
+    .replaceAll("var(--brand-accent, currentColor)", "#5bbad5")
+    .replaceAll("var(--brand-electrode, currentColor)", "#8b7cf6");
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_W}" height="${CARD_H}" viewBox="0 0 ${CARD_W} ${CARD_H}" role="img" aria-label="${escapeXml(model.title)} dataset card">
@@ -97,8 +100,8 @@ export function renderDatasetOgSvg(model: DatasetOgModel, logoSvg: string): stri
   <path d="M708 222 C890 150 1040 208 1172 372" fill="none" stroke="#603cba" stroke-width="4" opacity="0.34"/>
   ${embeddedLogo}
   <rect x="842" y="76" width="280" height="66" rx="33" fill="#f8fafc" opacity="0.12"/>
-  <text x="982" y="119" text-anchor="middle" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="25" font-weight="700" fill="#f8fafc">${escapeXml(model.id)}</text>
-  <text x="72" y="254" font-family="Rubik, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="82" font-weight="700" fill="#f8fafc" letter-spacing="0">${tspans(titleLines, 72, 0, 94)}</text>
+  <text x="982" y="119" text-anchor="middle" font-family="JetBrains Mono" font-size="25" font-weight="700" fill="#f8fafc">${escapeXml(model.id)}</text>
+  <text x="72" y="254" font-family="Inter" font-size="82" font-weight="700" fill="#f8fafc" letter-spacing="0">${tspans(titleLines, 72, 0, 94)}</text>
   ${renderChips(model.modalities)}
   <g transform="translate(72 604)">
     ${metricCard(0, 0, 478, "First author", model.firstAuthor)}
@@ -213,7 +216,7 @@ function renderChips(modalities: string[]): string {
   return modalities
     .map((m) => {
       const w = Math.max(86, 42 + m.length * 16);
-      const chip = `<g transform="translate(${x} 532)"><rect width="${w}" height="48" rx="24" fill="#f8fafc" opacity="0.12" stroke="#5bbad5" stroke-opacity="0.58"/><circle cx="25" cy="24" r="6" fill="url(#accent)"/><text x="44" y="31" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700" fill="#f8fafc">${escapeXml(m)}</text></g>`;
+      const chip = `<g transform="translate(${x} 532)"><rect width="${w}" height="48" rx="24" fill="#f8fafc" opacity="0.12" stroke="#5bbad5" stroke-opacity="0.58"/><circle cx="25" cy="24" r="6" fill="url(#accent)"/><text x="44" y="31" font-family="JetBrains Mono" font-size="20" font-weight="700" fill="#f8fafc">${escapeXml(m)}</text></g>`;
       x += w + 12;
       return chip;
     })
@@ -223,8 +226,8 @@ function renderChips(modalities: string[]): string {
 function metricCard(x: number, y: number, width: number, label: string, value: string): string {
   return `<g transform="translate(${x} ${y})">
     <rect width="${width}" height="116" rx="22" fill="#f8fafc" opacity="0.13" stroke="#cbd5e1" stroke-opacity="0.18" filter="url(#shadow)"/>
-    <text x="28" y="42" font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="700" fill="#5bbad5" letter-spacing="0">${escapeXml(label.toUpperCase())}</text>
-    <text x="28" y="86" font-family="Rubik, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="40" font-weight="700" fill="#f8fafc">${escapeXml(truncate(value, width > 300 ? 22 : 11))}</text>
+    <text x="28" y="42" font-family="JetBrains Mono" font-size="18" font-weight="700" fill="#5bbad5" letter-spacing="0">${escapeXml(label.toUpperCase())}</text>
+    <text x="28" y="86" font-family="Inter" font-size="40" font-weight="700" fill="#f8fafc">${escapeXml(truncate(value, width > 300 ? 22 : 11))}</text>
   </g>`;
 }
 

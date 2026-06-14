@@ -112,4 +112,25 @@ describe("renderDatasetOgSvg", () => {
     expect(svg).not.toContain("Resting <EEG>");
     expect(svg).toContain('width="1200" height="800"');
   });
+
+  it("bakes light logo colors into the embedded card logo", () => {
+    const svg = renderDatasetOgSvg(
+      {
+        id: "on000001",
+        title: "Resting EEG",
+        description: "",
+        firstAuthor: "A. Researcher",
+        subjects: "12",
+        size: "1.5 GB",
+        modalities: ["EEG"],
+      },
+      '<svg viewBox="0 0 10 10"><g fill="var(--brand-accent, currentColor)"></g><g fill="var(--brand-electrode, currentColor)"></g></svg>',
+    );
+
+    expect(svg).toContain('style="color:#f8fafc"');
+    expect(svg).toContain('fill="#5bbad5"');
+    expect(svg).toContain('fill="#8b7cf6"');
+    expect(svg).not.toContain("var(--brand-accent");
+    expect(svg).not.toContain("var(--brand-electrode");
+  });
 });
