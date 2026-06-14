@@ -35,6 +35,7 @@ import {
   renderMessage,
   traceLayout,
 } from "./render";
+import { standardMontageFor } from "./standard-montage";
 import {
   type ChannelWindow,
   type GroupHandle,
@@ -44,7 +45,7 @@ import {
   readOverview,
   readWindow,
 } from "./store";
-import { type TopoChannel, VIRIDIS_CSS, projectPositions, renderTopomap } from "./topo";
+import { type TopoChannel, VIRIDIS_CSS, type Vec3, projectPositions, renderTopomap } from "./topo";
 
 export interface ViewerOptions {
   datasetId: string;
@@ -127,19 +128,19 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   // recording); topoTime tracks the cursor (null -> window center).
   let showTopo = false;
   let topoTime: number | null = null;
-  // Only build the scalp layout for EEG/MEG with positions; non-scalp modalities
-  // (iEEG/EMG/fNIRS/unknown) get no topomap so we don't render a wrong head map. A
-  // bad-geometry projection is caught here so it just disables the topo, not the viewer.
+  // Only build the scalp layout for EEG/MEG; non-scalp modalities (iEEG/EMG/fNIRS/
+  // unknown) get no topomap so we don't render a wrong head map. Real electrodes.tsv
+  // positions win; datasets that ship none but name standard 10-20 labels fall back to
+  // a standard montage (resolveScalpPositions). A bad-geometry projection is caught here
+  // so it just disables the topo, not the viewer.
   // topoScratch is this viewer's private offscreen grid buffer (never shared).
   const topoScratch =
     typeof document !== "undefined" ? document.createElement("canvas") : undefined;
   let topoLayout: ReturnType<typeof projectPositions> | null = null;
+  const scalpPositions = resolveScalpPositions(store);
   try {
-    if (
-      isScalpModality(store.groups[0]?.modality) &&
-      Object.keys(store.electrodePositions).length >= 3
-    ) {
-      topoLayout = projectPositions(store.electrodePositions, store.electrodeCoordinateSystem);
+    if (scalpPositions) {
+      topoLayout = projectPositions(scalpPositions.positions, scalpPositions.system);
     }
   } catch (err) {
     console.warn("[eeg-viewer] electrode projection failed; topomap disabled:", err);
@@ -1079,12 +1080,16 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   topoBtn.innerHTML = topoGlyph();
   // Scalp topomap is only meaningful for EEG/MEG. iEEG (intracranial), EMG, fNIRS,
   // or unrecognized modalities get the toggle disabled, so we never draw a
-  // misleading scalp map for non-scalp electrodes.
-  const nPos = Object.keys(store.electrodePositions).length;
-  if (!(isScalpModality(store.groups[0]?.modality) && nPos >= 3)) {
+  // misleading scalp map for non-scalp electrodes. An estimated (standard-montage)
+  // layout still enables the toggle, but its tooltip flags that it is not measured.
+  const scalp = resolveScalpPositions(store);
+  if (!scalp) {
     topoBtn.disabled = true;
-    topoBtn.title =
-      nPos < 3 ? "no electrode positions in this recording" : "scalp topomap is EEG/MEG only";
+    topoBtn.title = isScalpModality(store.groups[0]?.modality)
+      ? "no locatable channels for a scalp topomap"
+      : "scalp topomap is EEG/MEG only";
+  } else if (scalp.estimated) {
+    topoBtn.title = "Scalp topomap - standard 10-20 layout (dataset ships no electrodes.tsv)";
   }
   bar.append(grouped("Topo", topoBtn));
 
@@ -1296,6 +1301,33 @@ function gearGlyph(): string {
 const SCALP_MODALITIES = new Set(["EEG", "MEG"]);
 function isScalpModality(modality: string | undefined): boolean {
   return SCALP_MODALITIES.has((modality || "").toUpperCase());
+}
+
+/**
+ * Effective electrode positions for the scalp topomap. Returns null (no topomap) unless
+ * the recording is a scalp modality. Real `electrodes.tsv` coordinates embedded in the
+ * store win; when the store carries none, fall back to a standard 10-20/10-10 montage
+ * matched to the EEG channel labels (the EEGLAB/MNE "apply a named montage" behaviour),
+ * keyed by each channel's own label spelling so the render lookup matches. `estimated`
+ * is true for the montage fallback so the UI can flag that the layout is not measured.
+ * Requires >=3 locatable channels either way, so non-standard label sets (EGI "E1",
+ * BioSemi "A1..", numeric) resolve nothing and get no topomap rather than a wrong one.
+ */
+function resolveScalpPositions(
+  store: RecordingStore,
+): { positions: Record<string, Vec3>; system: string; estimated: boolean } | null {
+  if (!isScalpModality(store.groups[0]?.modality)) return null;
+  const measured = store.electrodePositions;
+  if (Object.keys(measured).length >= 3) {
+    return { positions: measured, system: store.electrodeCoordinateSystem, estimated: false };
+  }
+  const labels: string[] = [];
+  for (const g of store.groups) {
+    if (isScalpModality(g.modality)) for (const c of g.channels) labels.push(c.label);
+  }
+  const positions = standardMontageFor(labels);
+  // System "" is non-ALS, so the RAS standard-montage coords pass through alsToRas.
+  return Object.keys(positions).length >= 3 ? { positions, system: "", estimated: true } : null;
 }
 
 /** Inline topomap icon: a head circle with a nose notch at the top. */
