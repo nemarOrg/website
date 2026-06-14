@@ -1,22 +1,21 @@
 import type { APIRoute } from "astro";
-import logoSvg from "../../../assets/nemar-logo.svg?raw";
-import { getDatasetOgModel, ogCacheControl } from "../../../lib/dataset-og-response";
-import { renderDatasetOgSvg } from "../../../lib/og-image";
-import { svgToPng } from "../../../lib/svg-to-png";
 
 export const GET: APIRoute = async ({ params, request }) => {
-  const model = await getDatasetOgModel(params.id);
-  if (model instanceof Response) return model;
+  const datasetId = params.id?.trim();
+  if (!datasetId) {
+    return new Response(null, { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
 
-  const svg = renderDatasetOgSvg(model, logoSvg);
-  const png = await svgToPng(svg, request.url);
-  const body = png.buffer.slice(png.byteOffset, png.byteOffset + png.byteLength) as ArrayBuffer;
+  const target = new URL(
+    `/og/dataset-card/${encodeURIComponent(datasetId)}.png`,
+    request.url,
+  ).toString();
 
-  return new Response(body, {
-    status: 200,
+  return new Response(null, {
+    status: 302,
     headers: {
-      "Content-Type": "image/png",
-      "Cache-Control": ogCacheControl(),
+      Location: target,
+      "Cache-Control": "public, max-age=300",
     },
   });
 };
