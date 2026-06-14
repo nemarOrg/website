@@ -10,7 +10,8 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "bun run generate:og && astro build",
+    "generate:og": "bun scripts/generate-og-images.mjs",
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run",
