@@ -1,26 +1,44 @@
 ---
+import type { LandingArchive } from "../lib/neuroschema";
+
 interface Props {
   datasetId: string;
   version: string | null;
   archiveUrl: string | null;
+  archive?: LandingArchive | null;
   issuesUrl: string;
   githubUrl: string | null;
   openneuroId: string | null;
 }
 
-const { datasetId, version, archiveUrl, issuesUrl, githubUrl, openneuroId } = Astro.props;
+const { datasetId, version, archiveUrl, archive, issuesUrl, githubUrl, openneuroId } = Astro.props;
 const ds = datasetId;
 const versionSuffix = version ?? "latest";
+
+// >100GB datasets skip the zip (#752): the archive was intentionally not built.
+// Show the range-resumable per-file direct-download recipe instead of a zip
+// button. Only `skip_reason` changes behavior; every other state keeps the zip.
+const archiveSkipReason = archive?.skip_reason ?? null;
+const downloadRecipe = `curl -s https://data.nemar.org/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt && wget -xc -i urls.txt`;
 ---
 
 <div class="actions">
-  {archiveUrl && (
+  {!archiveSkipReason && archiveUrl && (
     <a class="action action--primary" href={archiveUrl} download={`${ds}-${versionSuffix}.zip`} rel="external">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
       </svg>
       Download zip
     </a>
+  )}
+  {archiveSkipReason && (
+    <button class="action action--primary" type="button" data-copy-text={downloadRecipe} title={archiveSkipReason}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      </svg>
+      Copy download command
+    </button>
   )}
   <button class="action action--ghost" type="button" data-compute-stub>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -50,6 +68,23 @@ const versionSuffix = version ?? "latest";
     </a>
   )}
 </div>
+
+{archiveSkipReason && (
+  <div class="dl-recipe" role="note">
+    <p class="dl-recipe__why">
+      <strong>Large dataset — no zip archive.</strong>
+      {archiveSkipReason}. Download the files directly (resumable, parallelizable):
+    </p>
+    <div class="dl-recipe__code">
+      <pre><code>{downloadRecipe}</code></pre>
+      <button class="dl-recipe__copy" type="button" data-copy-text={downloadRecipe} aria-label="Copy download command">Copy</button>
+    </div>
+    <p class="dl-recipe__hint">
+      Needs <code>curl</code>, <code>jq</code>, and <code>wget</code>. <code>wget -c</code> resumes
+      partial files; re-run any time. Or browse at <a href={`https://data.nemar.org/${ds}/`} rel="external">data.nemar.org/{ds}/</a>.
+    </p>
+  </div>
+)}
 
 <dialog class="compute-dialog" data-compute-dialog>
   <h2>Compute on this dataset</h2>
@@ -142,6 +177,68 @@ cd {datasetId} && nemar dataset get</code></pre>
   .action--primary:hover {
     background: color-mix(in srgb, var(--color-fg) 88%, var(--brand-teal));
     color: var(--color-bg);
+    border-color: transparent;
+  }
+  .dl-recipe {
+    margin-block-start: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid color-mix(in srgb, var(--brand-purple) 30%, transparent);
+    background: color-mix(in srgb, var(--brand-purple) 6%, transparent);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+  }
+  .dl-recipe__why {
+    margin: 0 0 var(--space-2);
+    color: var(--color-fg-muted);
+  }
+  .dl-recipe__why strong {
+    color: var(--color-fg);
+  }
+  .dl-recipe__code {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .dl-recipe__code pre {
+    flex: 1;
+    margin: 0;
+    background: var(--color-bg-subtle);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+  }
+  .dl-recipe__code code {
+    background: transparent;
+    padding: 0;
+    white-space: pre;
+  }
+  .dl-recipe__copy {
+    flex: none;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+  .dl-recipe__copy.is-copied {
+    background: var(--brand-teal);
+    color: var(--brand-navy);
+    border-color: transparent;
+  }
+  .dl-recipe__hint {
+    margin: var(--space-2) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  .action--primary.is-copied {
+    background: var(--brand-teal);
+    color: var(--brand-navy);
     border-color: transparent;
   }
   .compute-dialog {
@@ -265,5 +362,31 @@ cd {datasetId} && nemar dataset get</code></pre>
     btn.addEventListener("click", () => {
       document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
     });
+  });
+
+  // Copy the direct-download recipe (#752). Delegated so it covers both the
+  // primary "Copy download command" pill and the inline recipe Copy button.
+  // Same pattern as DoiBadge: writeText + brief is-copied feedback; degrades
+  // gracefully (the command is visible in the code block regardless).
+  document.addEventListener("click", (e) => {
+    const target = e.target as Element | null;
+    const btn = target?.closest<HTMLButtonElement>("[data-copy-text]");
+    if (!btn) return;
+    const value = btn.dataset.copyText ?? "";
+    if (!value) return;
+    navigator.clipboard?.writeText(value).then(
+      () => {
+        const label = btn.textContent;
+        btn.classList.add("is-copied");
+        if (btn.classList.contains("dl-recipe__copy")) btn.textContent = "Copied";
+        setTimeout(() => {
+          btn.classList.remove("is-copied");
+          if (label !== null && btn.classList.contains("dl-recipe__copy")) btn.textContent = label;
+        }, 1200);
+      },
+      () => {
+        /* Clipboard API unavailable; the command is still visible to copy manually. */
+      },
+    );
   });
 </script>
