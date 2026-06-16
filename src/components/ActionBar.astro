@@ -15,31 +15,33 @@ const { datasetId, version, archiveUrl, archive, issuesUrl, githubUrl, openneuro
 const ds = datasetId;
 const versionSuffix = version ?? "latest";
 
-// >100GB datasets skip the zip (#752): the archive was intentionally not built.
-// Show the range-resumable per-file direct-download recipe instead of a zip
-// button. Only `skip_reason` changes behavior; every other state keeps the zip.
+// Download methods (#752): one "Download" modal, like the compute modal, listing
+// every route. The zip is offered ONLY when the archive is confirmed ready —
+// large (>100 GB) datasets skip the zip (archive.skip_reason set) and datasets
+// whose zip isn't built yet (status null/pending) don't show a broken button.
+const DOCS = "https://docs.nemar.org";
+const installUrl = `${DOCS}/cli/getting-started/installation/`;
+const downloadGuideUrl = `${DOCS}/cli/guides/downloading/`;
+const archiveReady = archive?.status === "ready";
 const archiveSkipReason = archive?.skip_reason ?? null;
-const downloadRecipe = `curl -s https://data.nemar.org/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt && wget -xc -i urls.txt`;
+const archiveSizeGb =
+  typeof archive?.size === "number" ? (archive.size / 1_000_000_000).toFixed(1) : null;
+const ghCloneUrl = githubUrl ?? `https://github.com/nemarDatasets/${ds}`;
+
+// Per-method commands, each separately copyable in the modal.
+const cliCmd = `nemar dataset download ${ds}`;
+const dataladCmd = `datalad clone ${ghCloneUrl} ${ds}\ncd ${ds} && datalad get .`;
+const annexCmd = `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .`;
+const directCmd = `curl -s https://data.nemar.org/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt\nwget -xc -i urls.txt`;
 ---
 
 <div class="actions">
-  {!archiveSkipReason && archiveUrl && (
-    <a class="action action--primary" href={archiveUrl} download={`${ds}-${versionSuffix}.zip`} rel="external">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-      </svg>
-      Download zip
-    </a>
-  )}
-  {archiveSkipReason && (
-    <button class="action action--primary" type="button" data-copy-text={downloadRecipe} title={archiveSkipReason}>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-      </svg>
-      Copy download command
-    </button>
-  )}
+  <button class="action action--primary" type="button" data-download-stub>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+    </svg>
+    Download
+  </button>
   <button class="action action--ghost" type="button" data-compute-stub>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 4h16v16H4zM9 9h6v6H9z"/>
@@ -69,22 +71,82 @@ const downloadRecipe = `curl -s https://data.nemar.org/${ds}/${versionSuffix}/ma
   )}
 </div>
 
-{archiveSkipReason && (
-  <div class="dl-recipe" role="note">
-    <p class="dl-recipe__why">
-      <strong>Large dataset — no zip archive.</strong>
-      {archiveSkipReason}. Download the files directly (resumable, parallelizable):
-    </p>
-    <div class="dl-recipe__code">
-      <pre><code>{downloadRecipe}</code></pre>
-      <button class="dl-recipe__copy" type="button" data-copy-text={downloadRecipe} aria-label="Copy download command">Copy</button>
-    </div>
-    <p class="dl-recipe__hint">
-      Needs <code>curl</code>, <code>jq</code>, and <code>wget</code>. <code>wget -c</code> resumes
-      partial files; re-run any time. Or browse at <a href={`https://data.nemar.org/${ds}/`} rel="external">data.nemar.org/{ds}/</a>.
-    </p>
-  </div>
-)}
+<dialog class="compute-dialog" data-download-dialog>
+  <h2>Download this dataset</h2>
+  <p class="compute-dialog__intro">
+    {archiveSkipReason
+      ? `${archiveSkipReason}. Use one of the streaming methods below — all resumable.`
+      : "Pick a method. Large datasets skip the zip and use the streaming methods below — all resumable."}
+    {" "}<a href={downloadGuideUrl} rel="external">Full download guide →</a>
+  </p>
+
+  <ol class="compute-dialog__steps">
+    {archiveReady && archiveUrl && (
+      <li>
+        <strong>Download archive (.zip){archiveSizeGb ? ` — ${archiveSizeGb} GB` : ""}</strong>
+        <p>A single zip of the published version. Best for small/medium datasets.</p>
+        <p>
+          <a class="action action--primary action--sm" href={archiveUrl} download={`${ds}-${versionSuffix}.zip`} rel="external">
+            Download zip
+          </a>
+        </p>
+      </li>
+    )}
+
+    <li>
+      <strong>NEMAR CLI <span class="rec-badge">recommended</span></strong>
+      <p>
+        Pulls the pinned version + annexed data and resumes cleanly.
+        <a href={installUrl} rel="external">Install nemar-cli →</a>
+      </p>
+      <div class="dl-cmd">
+        <pre><code>{cliCmd}</code></pre>
+        <button class="dl-cmd__copy" type="button" data-copy-text={cliCmd} aria-label="Copy nemar-cli command">Copy</button>
+      </div>
+    </li>
+
+    <li>
+      <strong>DataLad</strong>
+      <p>
+        Clone the dataset repo and fetch file content on demand.
+        <a href={`${downloadGuideUrl}#datalad`} rel="external">Docs →</a>
+      </p>
+      <div class="dl-cmd">
+        <pre><code>{dataladCmd}</code></pre>
+        <button class="dl-cmd__copy" type="button" data-copy-text={dataladCmd} aria-label="Copy DataLad commands">Copy</button>
+      </div>
+    </li>
+
+    <li>
+      <strong>git-annex</strong>
+      <p>
+        Plain git + git-annex against the dataset repo.
+        <a href={`${downloadGuideUrl}#git-annex`} rel="external">Docs →</a>
+      </p>
+      <div class="dl-cmd">
+        <pre><code>{annexCmd}</code></pre>
+        <button class="dl-cmd__copy" type="button" data-copy-text={annexCmd} aria-label="Copy git-annex commands">Copy</button>
+      </div>
+    </li>
+
+    <li>
+      <strong>Direct files (wget / curl / rclone)</strong>
+      <p>
+        Every file with a stable, range-resumable URL from the manifest. Needs
+        <code>curl</code>, <code>jq</code>, <code>wget</code> (or rclone/aria2c).
+        <a href={`${downloadGuideUrl}#direct-download`} rel="external">Docs →</a>
+      </p>
+      <div class="dl-cmd">
+        <pre><code>{directCmd}</code></pre>
+        <button class="dl-cmd__copy" type="button" data-copy-text={directCmd} aria-label="Copy direct-download commands">Copy</button>
+      </div>
+    </li>
+  </ol>
+
+  <form method="dialog">
+    <button type="submit" class="dialog-close">Close</button>
+  </form>
+</dialog>
 
 <dialog class="compute-dialog" data-compute-dialog>
   <h2>Compute on this dataset</h2>
@@ -179,28 +241,14 @@ cd {datasetId} && nemar dataset get</code></pre>
     color: var(--color-bg);
     border-color: transparent;
   }
-  .dl-recipe {
-    margin-block-start: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid color-mix(in srgb, var(--brand-purple) 30%, transparent);
-    background: color-mix(in srgb, var(--brand-purple) 6%, transparent);
-    border-radius: var(--radius-md);
-    font-size: var(--fs-sm);
-  }
-  .dl-recipe__why {
-    margin: 0 0 var(--space-2);
-    color: var(--color-fg-muted);
-  }
-  .dl-recipe__why strong {
-    color: var(--color-fg);
-  }
-  .dl-recipe__code {
-    position: relative;
+  /* Copyable command row inside the download modal (one per method). */
+  .dl-cmd {
     display: flex;
     align-items: stretch;
     gap: var(--space-2);
+    margin-block-start: var(--space-2);
   }
-  .dl-recipe__code pre {
+  .dl-cmd pre {
     flex: 1;
     margin: 0;
     background: var(--color-bg-subtle);
@@ -210,12 +258,12 @@ cd {datasetId} && nemar dataset get</code></pre>
     font-size: var(--fs-xs);
     line-height: 1.5;
   }
-  .dl-recipe__code code {
+  .dl-cmd code {
     background: transparent;
     padding: 0;
     white-space: pre;
   }
-  .dl-recipe__copy {
+  .dl-cmd__copy {
     flex: none;
     padding: 0 var(--space-3);
     border-radius: var(--radius-md);
@@ -226,20 +274,25 @@ cd {datasetId} && nemar dataset get</code></pre>
     font-size: var(--fs-xs);
     cursor: pointer;
   }
-  .dl-recipe__copy.is-copied {
+  .dl-cmd__copy.is-copied {
     background: var(--brand-teal);
     color: var(--brand-navy);
     border-color: transparent;
   }
-  .dl-recipe__hint {
-    margin: var(--space-2) 0 0;
-    color: var(--color-fg-muted);
+  .rec-badge {
+    margin-inline-start: 6px;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--brand-teal);
+    color: var(--brand-navy);
     font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    vertical-align: middle;
   }
-  .action--primary.is-copied {
-    background: var(--brand-teal);
-    color: var(--brand-navy);
-    border-color: transparent;
+  .action--sm {
+    min-block-size: 36px;
+    padding: 0 var(--space-3);
+    font-size: var(--fs-xs);
   }
   .compute-dialog {
     /* Native <dialog> uses position: fixed + inset: 0 + margin: auto for
@@ -363,11 +416,15 @@ cd {datasetId} && nemar dataset get</code></pre>
       document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
     });
   });
+  document.querySelectorAll<HTMLButtonElement>("[data-download-stub]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelector<HTMLDialogElement>("[data-download-dialog]")?.showModal();
+    });
+  });
 
-  // Copy the direct-download recipe (#752). Delegated so it covers both the
-  // primary "Copy download command" pill and the inline recipe Copy button.
-  // Same pattern as DoiBadge: writeText + brief is-copied feedback; degrades
-  // gracefully (the command is visible in the code block regardless).
+  // Copy a per-method command from the download modal (#752). Delegated over
+  // [data-copy-text]. Same pattern as DoiBadge: writeText + brief is-copied
+  // feedback; degrades gracefully (the command stays visible to copy manually).
   document.addEventListener("click", (e) => {
     const target = e.target as Element | null;
     const btn = target?.closest<HTMLButtonElement>("[data-copy-text]");
@@ -378,10 +435,10 @@ cd {datasetId} && nemar dataset get</code></pre>
       () => {
         const label = btn.textContent;
         btn.classList.add("is-copied");
-        if (btn.classList.contains("dl-recipe__copy")) btn.textContent = "Copied";
+        btn.textContent = "Copied";
         setTimeout(() => {
           btn.classList.remove("is-copied");
-          if (label !== null && btn.classList.contains("dl-recipe__copy")) btn.textContent = label;
+          if (label !== null) btn.textContent = label;
         }, 1200);
       },
       () => {
