@@ -95,9 +95,20 @@ export interface LandingVersion {
   browse_url: string;
 }
 
+/** Latest-only downloadable-archive state (#752). A non-null `skip_reason`
+ *  means the zip was intentionally skipped by the size policy (status stays
+ *  null) and the UI should show the direct per-file download recipe. Optional
+ *  for forward-compat with older API responses that predate the field. */
+export interface LandingArchive {
+  status: string | null;
+  size: number | null;
+  skip_reason: string | null;
+}
+
 export interface LandingPayload {
   dataset_id: string;
   latest: string | null;
   metadata_url: string;
   versions: LandingVersion[];
+  archive?: LandingArchive;
 }
