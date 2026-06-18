@@ -12,7 +12,7 @@ import { LICENSE_TIERS, type LicenseTier, MODALITY_CODES, type ModalityCode } fr
 // --- Modality ---------------------------------------------------------------
 
 /** Color variant for a modality tag. Mirrors the `--modality-*` tokens. */
-export type ModalityVariant = "eeg" | "meg" | "ieeg" | "emg" | "other";
+export type ModalityVariant = "eeg" | "meg" | "ieeg" | "emg" | "nirs" | "motion" | "other";
 
 export function modalityVariant(modality: string): ModalityVariant {
   switch (modality.trim().toUpperCase()) {
@@ -24,6 +24,10 @@ export function modalityVariant(modality: string): ModalityVariant {
       return "ieeg";
     case "EMG":
       return "emg";
+    case "NIRS":
+      return "nirs";
+    case "MOTION":
+      return "motion";
     default:
       return "other";
   }

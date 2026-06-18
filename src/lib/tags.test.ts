@@ -10,13 +10,17 @@ import {
 import { LICENSE_TIERS } from "./types";
 
 describe("modalityVariant", () => {
-  it("maps the four known codes case-insensitively", () => {
+  it("maps the known codes case-insensitively", () => {
     expect(modalityVariant("EEG")).toBe("eeg");
     expect(modalityVariant("eeg")).toBe("eeg");
     expect(modalityVariant("MEG")).toBe("meg");
     expect(modalityVariant("iEEG")).toBe("ieeg");
     expect(modalityVariant("IEEG")).toBe("ieeg");
     expect(modalityVariant("EMG")).toBe("emg");
+    expect(modalityVariant("nirs")).toBe("nirs");
+    expect(modalityVariant("NIRS")).toBe("nirs");
+    expect(modalityVariant("motion")).toBe("motion");
+    expect(modalityVariant("MOTION")).toBe("motion");
   });
 
   it("falls back to other for anything else", () => {
@@ -47,6 +51,13 @@ describe("modalityFilterCode / modalityHref", () => {
     expect(modalityFilterCode("EMG")).toBe("EMG");
     expect(modalityHref("MEG")).toBe("/discover?modality=MEG");
     expect(modalityHref("emg")).toBe("/discover?modality=EMG");
+  });
+
+  it("targets the expanded NIRS and motion modalities", () => {
+    expect(modalityFilterCode("nirs")).toBe("NIRS");
+    expect(modalityFilterCode("motion")).toBe("MOTION");
+    expect(modalityHref("nirs")).toBe("/discover?modality=NIRS");
+    expect(modalityHref("MOTION")).toBe("/discover?modality=MOTION");
   });
 });
 
