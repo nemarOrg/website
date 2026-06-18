@@ -52,6 +52,10 @@ describe("filterStateFromURL", () => {
     const s = filterStateFromURL(new URLSearchParams("modality=ieeg"));
     expect(s.modalities).toEqual(["iEEG"]);
   });
+  it("parses the expanded NIRS and motion modalities", () => {
+    const s = filterStateFromURL(new URLSearchParams("modality=nirs,motion"));
+    expect(s.modalities).toEqual(["NIRS", "MOTION"]);
+  });
   it("filters out unknown modalities", () => {
     const s = filterStateFromURL(new URLSearchParams("modality=EEG,FOO"));
     expect(s.modalities).toEqual(["EEG"]);
@@ -254,6 +258,14 @@ describe("applyReservedKeyword", () => {
     const { state, consumed } = applyReservedKeyword(s, "HED");
     expect(consumed).toBe(true);
     expect(state.hasHed).toBe(true);
+  });
+  it("flips the expanded NIRS and motion modalities", () => {
+    const nirs = applyReservedKeyword(defaultFilterState(), "nirs");
+    expect(nirs.consumed).toBe(true);
+    expect(nirs.state.modalities).toEqual(["NIRS"]);
+    const motion = applyReservedKeyword(defaultFilterState(), "motion");
+    expect(motion.consumed).toBe(true);
+    expect(motion.state.modalities).toEqual(["MOTION"]);
   });
   it("does not consume non-reserved tokens", () => {
     const s = defaultFilterState();

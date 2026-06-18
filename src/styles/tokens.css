@@ -39,6 +39,8 @@
   --modality-meg: #7c3aed; /* purple */
   --modality-ieeg: #db2777; /* pink   */
   --modality-emg: #ea580c; /* orange */
+  --modality-nirs: #0891b2; /* cyan   — fNIRS */
+  --modality-motion: #16a34a; /* green  — Motion (MoBI) */
   --modality-other: #64748b; /* slate — any other modality */
 
   /* License — permissiveness thermometer, green (most open) to red (most
@@ -135,6 +137,8 @@
     --modality-meg: #a78bfa;
     --modality-ieeg: #f472b6;
     --modality-emg: #fb923c;
+    --modality-nirs: #22d3ee;
+    --modality-motion: #34d399;
     --modality-other: #94a3b8;
     --license-public: #4ade80;
     --license-attribution: #2dd4bf;
@@ -166,6 +170,8 @@
   --modality-meg: #a78bfa;
   --modality-ieeg: #f472b6;
   --modality-emg: #fb923c;
+  --modality-nirs: #22d3ee;
+  --modality-motion: #34d399;
   --modality-other: #94a3b8;
   --license-public: #4ade80;
   --license-attribution: #2dd4bf;

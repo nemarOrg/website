@@ -139,6 +139,8 @@ outside this table.
 | MEG | `--modality-meg` | purple |
 | iEEG | `--modality-ieeg` | pink |
 | EMG | `--modality-emg` | orange |
+| fNIRS | `--modality-nirs` | cyan |
+| Motion | `--modality-motion` | green |
 | other | `--modality-other` | slate |
 
 **License** (`--license-*`) — a permissiveness thermometer, most open →

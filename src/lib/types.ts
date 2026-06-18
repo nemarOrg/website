@@ -90,9 +90,31 @@ export const SORT_OPTIONS: ReadonlyArray<{ value: SortOption; label: string }> =
   { value: "size", label: "Largest size" },
 ];
 
-export type ModalityCode = "EEG" | "MEG" | "iEEG" | "EMG";
+export type ModalityCode = "EEG" | "MEG" | "iEEG" | "EMG" | "NIRS" | "MOTION";
 
-export const MODALITY_CODES: ReadonlyArray<ModalityCode> = ["EEG", "MEG", "iEEG", "EMG"];
+export const MODALITY_CODES: ReadonlyArray<ModalityCode> = [
+  "EEG",
+  "MEG",
+  "iEEG",
+  "EMG",
+  "NIRS",
+  "MOTION",
+];
+
+/**
+ * Human-readable label for a modality filter code. Most codes are already the
+ * display label (EEG, MEG, ...), but a few carry a friendlier name: NIRS shows
+ * as "fNIRS" and MOTION as "Motion". Used by the filter chips so the canonical,
+ * match-friendly code stays uppercase while the UI reads naturally.
+ */
+export const MODALITY_LABELS: Record<ModalityCode, string> = {
+  EEG: "EEG",
+  MEG: "MEG",
+  iEEG: "iEEG",
+  EMG: "EMG",
+  NIRS: "fNIRS",
+  MOTION: "Motion",
+};
 
 export type ModalityOp = "AND" | "OR";
 

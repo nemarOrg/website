@@ -30,6 +30,8 @@ const RESERVED_KEYWORDS: Record<string, { kind: "modality" | "flag"; value: stri
   MEG: { kind: "modality", value: "MEG" },
   IEEG: { kind: "modality", value: "iEEG" },
   EMG: { kind: "modality", value: "EMG" },
+  NIRS: { kind: "modality", value: "NIRS" },
+  MOTION: { kind: "modality", value: "MOTION" },
   HED: { kind: "flag", value: "hed" },
 };
 
