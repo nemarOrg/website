@@ -1,14 +1,17 @@
 ---
-import type { NeuroschemaDataset } from "../lib/neuroschema";
 import { formatDate, formatRelativeTime } from "../lib/format";
+import type { NeuroschemaDataset } from "../lib/neuroschema";
 import AuthorList from "./AuthorList.astro";
 import Chip from "./Chip.astro";
+import CiteExport from "./CiteExport.astro";
 
 interface Props {
   metadata: NeuroschemaDataset;
+  /** DOI + APA/BibTeX strings for the cite-export block at the top of the rail. */
+  cite?: { doi: string | null; apa: string; bibtex: string } | null;
 }
 
-const { metadata } = Astro.props;
+const { metadata, cite = null } = Astro.props;
 const rights = metadata.rights ?? [];
 const license = metadata.license || rights[0]?.rights || null;
 const rids = metadata.related_identifiers ?? [];
@@ -35,6 +38,8 @@ const authorsList = metadata.authors ?? [];
 ---
 
 <aside class="rail" aria-label="Dataset metadata">
+  {cite && <CiteExport doi={cite.doi} apa={cite.apa} bibtex={cite.bibtex} />}
+
   {license && (
     <div class="rail__row">
       <dt>License</dt>

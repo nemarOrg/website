@@ -1,20 +1,20 @@
 ---
-import Base from "../../layouts/Base.astro";
 import ActionBar from "../../components/ActionBar.astro";
-import DoiBadge from "../../components/DoiBadge.astro";
-import ModalityBadge from "../../components/ModalityBadge.astro";
-import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
-import VersionSwitcher from "../../components/VersionSwitcher.astro";
-import Readme from "../../components/Readme.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DetailRail from "../../components/DetailRail.astro";
+import ModalityBadge from "../../components/ModalityBadge.astro";
+import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import QualityPanel from "../../components/QualityPanel.astro";
-import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
+import Readme from "../../components/Readme.astro";
+import VersionSwitcher from "../../components/VersionSwitcher.astro";
+import Base from "../../layouts/Base.astro";
 import { getDataset, resolveCanonical } from "../../lib/api";
-import { detectProvenance } from "../../lib/provenance";
-import { splitModalities } from "../../lib/format";
-import { getQaAggregates } from "../../lib/qa";
+import { datasetCitation } from "../../lib/cite";
 import { ORG_DATASETS } from "../../lib/constants";
+import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
+import { splitModalities } from "../../lib/format";
+import { detectProvenance } from "../../lib/provenance";
+import { getQaAggregates } from "../../lib/qa";
 
 const { id } = Astro.params;
 if (!id) {
@@ -64,13 +64,19 @@ const enrichedMetadata = {
     (metadata.recording_modality?.length ?? 0) > 0
       ? metadata.recording_modality
       : catalogRow?.modalities
-        ? catalogRow.modalities.split(",").map((m) => m.trim()).filter(Boolean)
+        ? catalogRow.modalities
+            .split(",")
+            .map((m) => m.trim())
+            .filter(Boolean)
         : [],
   tasks:
     (metadata.tasks?.length ?? 0) > 0
       ? metadata.tasks
       : catalogRow?.tasks
-        ? catalogRow.tasks.split(",").map((t) => t.trim()).filter(Boolean)
+        ? catalogRow.tasks
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean)
         : [],
   authors:
     (metadata.authors?.length ?? 0) > 0
@@ -91,7 +97,24 @@ const enrichedMetadata = {
 const selectedVersion =
   versionParam && landing.versions.some((v) => v.version === versionParam)
     ? versionParam
-    : landing.latest ?? landing.versions[0]?.version ?? null;
+    : (landing.latest ?? landing.versions[0]?.version ?? null);
+
+// Dataset DOI + citation (APA/BibTeX) for the rail. The DOI moved off the
+// action row into the rail so the buttons stay on one line (#126).
+const datasetDoi = metadata.external_links.dataset_doi;
+const cite = datasetDoi
+  ? {
+      doi: datasetDoi,
+      ...datasetCitation({
+        authors: enrichedMetadata.authors.map((a) => a.name).filter(Boolean),
+        name: metadata.name,
+        version: selectedVersion,
+        date: metadata.provenance.publish_date,
+        doi: datasetDoi,
+        id,
+      }),
+    }
+  : null;
 
 // README and BIDS tree fetches are deferred to the client (see
 // /api/dataset/[id]/readme.ts and tree.ts). SSR critical path now only awaits
@@ -105,8 +128,7 @@ const modalities = enrichedMetadata.recording_modality.length
 
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
 const issuesUrl = `${githubUrl}/issues`;
-const openneuroId =
-  provenance.kind === "derived" ? provenance.originalDatasetId ?? null : null;
+const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
 
 // Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
@@ -154,9 +176,6 @@ Astro.response.headers.set(
           githubUrl={githubUrl}
           openneuroId={openneuroId}
         />
-        {metadata.external_links.dataset_doi && (
-          <DoiBadge doi={metadata.external_links.dataset_doi} />
-        )}
       </div>
     </header>
 
@@ -176,7 +195,7 @@ Astro.response.headers.set(
           <BidsTree datasetId={id} version={selectedVersion} />
         )}
       </div>
-      <DetailRail metadata={enrichedMetadata} />
+      <DetailRail metadata={enrichedMetadata} cite={cite} />
     </div>
   </article>
 </Base>
