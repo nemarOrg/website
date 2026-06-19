@@ -74,6 +74,9 @@ describe("filterStateFromURL", () => {
   it("falls back to newest for an unknown sort", () => {
     expect(filterStateFromURL(new URLSearchParams("sort=bogus")).sort).toBe("newest");
   });
+  it("accepts the citations sort (#126)", () => {
+    expect(filterStateFromURL(new URLSearchParams("sort=citations")).sort).toBe("citations");
+  });
 });
 
 describe("filterStateToURL", () => {

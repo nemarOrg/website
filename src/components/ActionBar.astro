@@ -28,6 +28,13 @@ const versionSuffix = version ?? "latest";
     </svg>
     Compute instructions
   </button>
+  {/* Revealed by the script once the citations API confirms count > 0. */}
+  <button class="action action--ghost" type="button" data-citations-open hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+    </svg>
+    <span data-citations-label>Citations</span>
+  </button>
   <a class="action action--ghost" href={issuesUrl} rel="external">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="12" r="10"/>
@@ -99,6 +106,22 @@ cd {datasetId} && nemar dataset get</code></pre>
     </span>
   </div>
 
+  <form method="dialog">
+    <button type="submit" class="dialog-close">Close</button>
+  </form>
+</dialog>
+
+<dialog class="cite-dialog" data-citations-dialog data-dataset-id={ds}>
+  <header class="cite-dialog__head">
+    <h2 data-citations-heading>Citations</h2>
+    <div class="cite-filter" role="group" aria-label="Filter citations by what they reference">
+      <button type="button" class="cite-filter__btn is-active" data-cite-filter="all" aria-pressed="true">All</button>
+      <button type="button" class="cite-filter__btn" data-cite-filter="dataset" aria-pressed="false">Cites dataset</button>
+      <button type="button" class="cite-filter__btn" data-cite-filter="paper" aria-pressed="false">Cites a paper</button>
+    </div>
+  </header>
+  <ol class="cite-list" data-citations-list></ol>
+  <p class="cite-empty" data-citations-empty hidden>No citations of that kind.</p>
   <form method="dialog">
     <button type="submit" class="dialog-close">Close</button>
   </form>
@@ -258,6 +281,111 @@ cd {datasetId} && nemar dataset get</code></pre>
     color: var(--color-bg);
     font-weight: var(--fw-medium);
   }
+
+  /* Citations modal */
+  .cite-dialog {
+    inset: 0;
+    margin: auto;
+    max-inline-size: 46rem;
+    inline-size: calc(100vw - 4rem);
+    max-block-size: 90vh;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    padding: var(--space-6);
+    overflow-y: auto;
+  }
+  .cite-dialog::backdrop {
+    background: rgb(15 23 42 / 55%);
+  }
+  .cite-dialog__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-block-end: var(--space-4);
+  }
+  .cite-dialog__head h2 {
+    font-size: var(--fs-2xl);
+  }
+  .cite-filter {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .cite-filter__btn {
+    font-size: var(--fs-sm);
+    padding: 4px var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    cursor: pointer;
+  }
+  .cite-filter__btn:hover {
+    color: var(--color-fg);
+  }
+  .cite-filter__btn.is-active {
+    color: var(--color-fg);
+    border-color: var(--brand-teal);
+    background: color-mix(in srgb, var(--brand-teal) 12%, transparent);
+  }
+  .cite-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    border-block-start: 1px solid var(--color-border);
+  }
+  .cite-item {
+    padding-block: var(--space-3);
+    border-block-end: 1px solid var(--color-border);
+  }
+  .cite-item__title {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  a.cite-item__title:hover {
+    color: var(--brand-teal);
+  }
+  .cite-item__meta {
+    margin-block-start: 2px;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .cite-item__tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    margin-block-start: var(--space-2);
+  }
+  .cite-flag {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+  }
+  .cite-flag--paper {
+    color: var(--color-fg-muted);
+    background: var(--color-bg-subtle);
+    border-color: var(--color-border);
+  }
+  .cite-flag--dataset {
+    color: var(--brand-teal);
+    background: color-mix(in srgb, var(--brand-teal) 12%, transparent);
+    border-color: color-mix(in srgb, var(--brand-teal) 35%, transparent);
+  }
+  .cite-item__by {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .cite-empty {
+    padding-block: var(--space-5);
+    color: var(--color-fg-muted);
+  }
 </style>
 
 <script>
@@ -266,4 +394,117 @@ cd {datasetId} && nemar dataset get</code></pre>
       document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
     });
   });
+
+  // Citations pill + modal. The detail page has no citation count server-side,
+  // so fetch it from the citations dashboard API (CORS *), reveal the pill with
+  // the count, and render the per-paper list (filterable by bucket) lazily.
+  interface Citation {
+    title?: string;
+    authors?: string;
+    year?: number | null;
+    venue?: string;
+    url?: string | null;
+    doi?: string | null;
+    cited_by?: number;
+    kind?: string;
+  }
+
+  (async () => {
+    const dialog = document.querySelector<HTMLDialogElement>("[data-citations-dialog]");
+    const openBtn = document.querySelector<HTMLButtonElement>("[data-citations-open]");
+    if (!dialog || !openBtn) return;
+    const id = dialog.dataset.datasetId;
+    if (!id) return;
+
+    let payload: { num_citations?: number; citations?: Citation[] };
+    try {
+      const res = await fetch(
+        `https://dashboard.nemar.org/citations/api/dataset/${encodeURIComponent(id)}.json`,
+      );
+      if (!res.ok) return;
+      payload = await res.json();
+    } catch {
+      return;
+    }
+
+    const citations = Array.isArray(payload.citations) ? payload.citations : [];
+    const count =
+      typeof payload.num_citations === "number" ? payload.num_citations : citations.length;
+    if (count <= 0) return;
+
+    const fmt = (n: number) => n.toLocaleString("en-US");
+    const label = openBtn.querySelector<HTMLElement>("[data-citations-label]");
+    if (label) label.textContent = `Citations: ${fmt(count)}`;
+    openBtn.hidden = false;
+
+    const list = dialog.querySelector<HTMLOListElement>("[data-citations-list]");
+    const empty = dialog.querySelector<HTMLElement>("[data-citations-empty]");
+    const heading = dialog.querySelector<HTMLElement>("[data-citations-heading]");
+    if (heading) heading.textContent = `Citations (${fmt(count)})`;
+
+    const render = (filter: string): void => {
+      if (!list) return;
+      list.replaceChildren();
+      let shown = 0;
+      for (const c of citations) {
+        const kind = c.kind === "dataset" ? "dataset" : "paper";
+        if (filter !== "all" && kind !== filter) continue;
+        shown += 1;
+        const li = document.createElement("li");
+        li.className = "cite-item";
+
+        const href = c.url || (c.doi ? `https://doi.org/${c.doi}` : null);
+        const title = document.createElement(href ? "a" : "span");
+        title.className = "cite-item__title";
+        title.textContent = c.title || "Untitled";
+        if (href && title instanceof HTMLAnchorElement) {
+          title.href = href;
+          title.target = "_blank";
+          title.rel = "noopener noreferrer";
+        }
+        li.appendChild(title);
+
+        const meta = [c.authors, c.year ? String(c.year) : "", c.venue]
+          .filter(Boolean)
+          .join(" · ");
+        if (meta) {
+          const p = document.createElement("p");
+          p.className = "cite-item__meta";
+          p.textContent = meta;
+          li.appendChild(p);
+        }
+
+        const tags = document.createElement("p");
+        tags.className = "cite-item__tags";
+        const flag = document.createElement("span");
+        flag.className = `cite-flag cite-flag--${kind}`;
+        flag.textContent = kind === "dataset" ? "Cites dataset" : "Cites a paper";
+        tags.appendChild(flag);
+        if (typeof c.cited_by === "number" && c.cited_by > 0) {
+          const by = document.createElement("span");
+          by.className = "cite-item__by";
+          by.textContent = `${fmt(c.cited_by)} citations`;
+          tags.appendChild(by);
+        }
+        li.appendChild(tags);
+        list.appendChild(li);
+      }
+      if (empty) empty.hidden = shown !== 0;
+    };
+
+    render("all");
+
+    const filterBtns = dialog.querySelectorAll<HTMLButtonElement>("[data-cite-filter]");
+    filterBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        for (const b of filterBtns) {
+          b.classList.toggle("is-active", b === btn);
+          b.setAttribute("aria-pressed", String(b === btn));
+        }
+        render(btn.dataset.citeFilter || "all");
+      });
+    });
+
+    openBtn.addEventListener("click", () => dialog.showModal());
+  })();
 </script>

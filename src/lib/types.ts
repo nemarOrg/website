@@ -27,6 +27,12 @@ export interface Dataset {
   file_size: number;
   file_size_formatted: string;
   latest_version: string | null;
+  // Citation counts from /datasets (nemar-cli #804). Optional until that ships;
+  // absent rows render no pill. The per-paper detail is a separate fetch from
+  // the citations dashboard API.
+  num_citations?: number;
+  num_dataset_citations?: number;
+  num_datapaper_citations?: number;
 }
 
 export interface DatasetListResponse {
@@ -37,7 +43,7 @@ export interface DatasetListResponse {
   offset: number;
 }
 
-export type SortOption = "newest" | "oldest" | "name" | "participants" | "size";
+export type SortOption = "newest" | "oldest" | "name" | "participants" | "size" | "citations";
 
 export const SORT_OPTIONS: ReadonlyArray<{ value: SortOption; label: string }> = [
   { value: "newest", label: "Newest" },
@@ -45,6 +51,7 @@ export const SORT_OPTIONS: ReadonlyArray<{ value: SortOption; label: string }> =
   { value: "name", label: "Name (A-Z)" },
   { value: "participants", label: "Most participants" },
   { value: "size", label: "Largest size" },
+  { value: "citations", label: "Most citations" },
 ];
 
 export type ModalityCode = "EEG" | "MEG" | "iEEG" | "EMG";
