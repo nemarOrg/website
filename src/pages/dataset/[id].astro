@@ -3,13 +3,13 @@ import ActionBar from "../../components/ActionBar.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DatasetTabs from "../../components/DatasetTabs.astro";
 import DetailRail from "../../components/DetailRail.astro";
-import DoiBadge from "../../components/DoiBadge.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import Readme from "../../components/Readme.astro";
 import Tag from "../../components/Tag.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
 import { resolveCanonical } from "../../lib/api";
+import { datasetCitation } from "../../lib/cite";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
   archiveZipUrl,
@@ -96,6 +96,23 @@ const selectedVersion =
   versionParam && landing.versions.some((v) => v.version === versionParam)
     ? versionParam
     : (landing.latest ?? landing.versions[0]?.version ?? null);
+
+// Dataset DOI + citation (APA/BibTeX) for the rail. The DOI moved off the
+// action row into the rail so the buttons stay on one line (#126).
+const datasetDoi = metadata.external_links.dataset_doi;
+const cite = datasetDoi
+  ? {
+      doi: datasetDoi,
+      ...datasetCitation({
+        authors: enrichedMetadata.authors.map((a) => a.name).filter(Boolean),
+        name: metadata.name,
+        version: selectedVersion,
+        date: metadata.provenance.publish_date,
+        doi: datasetDoi,
+        id,
+      }),
+    }
+  : null;
 
 // README and BIDS tree hydrate client-side (see the <script> block at the
 // bottom of this file): README from raw.githubusercontent.com directly,
@@ -191,9 +208,6 @@ Astro.response.headers.set(
           githubUrl={githubUrl}
           openneuroId={openneuroId}
         />
-        {metadata.external_links.dataset_doi && (
-          <DoiBadge doi={metadata.external_links.dataset_doi} />
-        )}
       </div>
     </header>
 
@@ -232,7 +246,7 @@ Astro.response.headers.set(
           </>
         )}
       </div>
-      <DetailRail metadata={enrichedMetadata} />
+      <DetailRail metadata={enrichedMetadata} cite={cite} />
     </div>
   </article>
 </Base>

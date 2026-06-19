@@ -93,6 +93,7 @@ function parseSort(value: string | null): SortOption {
     case "name":
     case "participants":
     case "size":
+    case "citations":
       return value;
     default:
       return "newest";

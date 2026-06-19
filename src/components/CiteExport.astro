@@ -1,0 +1,208 @@
+---
+/**
+ * DOI + dataset-citation export (APA / BibTeX) for the dataset rail (#126).
+ * Sits above the License row. The DOI moved here from the action bar so the
+ * action row stays on one line.
+ */
+interface Props {
+  doi: string | null;
+  apa: string;
+  bibtex: string;
+}
+const { doi, apa, bibtex } = Astro.props;
+const bare = doi
+  ? doi
+      .trim()
+      .replace(/^https?:\/\/doi\.org\//i, "")
+      .replace(/^doi:/i, "")
+  : null;
+const doiUrl = bare ? `https://doi.org/${bare}` : null;
+---
+
+<div class="cite-block" data-cite-block>
+  <h3 class="cite-heading">Cite this dataset</h3>
+
+  {bare && (
+    <div class="cite-doi">
+      <span class="cite-doi__label">DOI</span>
+      <a class="cite-doi__value" href={doiUrl} rel="external">{bare}</a>
+      <button type="button" class="cite-icon-btn" data-copy={bare} aria-label="Copy DOI" title="Copy DOI">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
+    </div>
+  )}
+
+  <div class="cite-export" data-cite-export data-apa={apa} data-bibtex={bibtex}>
+    <div class="cite-tabs" role="tablist" aria-label="Citation format">
+      <button type="button" class="cite-tab is-active" data-cite-tab="apa" aria-selected="true">APA</button>
+      <button type="button" class="cite-tab" data-cite-tab="bibtex" aria-selected="false">BibTeX</button>
+    </div>
+    <div class="cite-field">
+      <pre class="cite-text" data-cite-text>{apa}</pre>
+      <button type="button" class="cite-icon-btn cite-field__copy" data-cite-copy aria-label="Copy citation" title="Copy citation">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .cite-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .cite-heading {
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+  }
+  .cite-doi {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .cite-doi__label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+  }
+  .cite-doi__value {
+    color: var(--color-link);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-inline-size: 0;
+  }
+  .cite-icon-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 24px;
+    block-size: 24px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg-muted);
+    cursor: pointer;
+  }
+  .cite-icon-btn:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .cite-icon-btn.is-copied {
+    color: var(--brand-teal);
+    border-color: var(--brand-teal);
+  }
+  .cite-tabs {
+    display: flex;
+    gap: var(--space-1);
+  }
+  .cite-tab {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    padding: 1px var(--space-1);
+    border: none;
+    border-block-end: 2px solid transparent;
+    background: none;
+    color: var(--color-fg-subtle);
+    cursor: pointer;
+  }
+  .cite-tab:hover {
+    color: var(--color-fg);
+  }
+  .cite-tab.is-active {
+    color: var(--color-fg);
+    border-block-end-color: var(--brand-teal);
+  }
+  /* Copy button sits inside the citation box, GitHub-style top-right overlay. */
+  .cite-field {
+    position: relative;
+    margin-block-start: var(--space-1);
+  }
+  .cite-text {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    max-block-size: 8rem;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  /* Overlay on top of the text; revealed on hover/focus so the text runs
+     edge-to-edge. focus-within keeps it reachable for keyboard users. */
+  .cite-field__copy {
+    position: absolute;
+    inset-block-start: 5px;
+    inset-inline-end: 5px;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .cite-field:hover .cite-field__copy,
+  .cite-field:focus-within .cite-field__copy,
+  .cite-field__copy.is-copied {
+    opacity: 1;
+  }
+</style>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-cite-block]")) {
+    const flash = (btn: HTMLElement): void => {
+      btn.classList.add("is-copied");
+      window.setTimeout(() => btn.classList.remove("is-copied"), 1200);
+    };
+    const copy = async (text: string, btn: HTMLElement): Promise<void> => {
+      try {
+        await navigator.clipboard.writeText(text);
+        flash(btn);
+      } catch (err) {
+        // Clipboard API unavailable (insecure context / denied); the text is
+        // still selectable. Log so it's diagnosable rather than silent.
+        console.warn("[cite] copy failed", err);
+      }
+    };
+
+    const doiBtn = root.querySelector<HTMLButtonElement>("[data-copy]");
+    doiBtn?.addEventListener("click", () => copy(doiBtn.dataset.copy ?? "", doiBtn));
+
+    const exportEl = root.querySelector<HTMLElement>("[data-cite-export]");
+    if (!exportEl) continue;
+    const apa = exportEl.dataset.apa ?? "";
+    const bibtex = exportEl.dataset.bibtex ?? "";
+    const text = exportEl.querySelector<HTMLElement>("[data-cite-text]");
+    const tabs = exportEl.querySelectorAll<HTMLButtonElement>("[data-cite-tab]");
+    let active = "apa";
+    const setFormat = (fmt: string): void => {
+      active = fmt;
+      if (text) text.textContent = fmt === "bibtex" ? bibtex : apa;
+      for (const t of tabs) {
+        const on = t.dataset.citeTab === fmt;
+        t.classList.toggle("is-active", on);
+        t.setAttribute("aria-selected", String(on));
+      }
+    };
+    for (const t of tabs) {
+      t.addEventListener("click", () => setFormat(t.dataset.citeTab ?? "apa"));
+    }
+    const copyBtn = exportEl.querySelector<HTMLButtonElement>("[data-cite-copy]");
+    copyBtn?.addEventListener("click", () => copy(active === "bibtex" ? bibtex : apa, copyBtn));
+  }
+</script>

@@ -36,6 +36,10 @@ const facts: Fact[] = [];
 if (dataset.participants > 0) {
   facts.push({ label: "Participants", value: String(dataset.participants) });
 }
+// Citation count from /datasets (nemar-cli #804). Absent until that ships.
+if (typeof dataset.num_citations === "number" && dataset.num_citations > 0) {
+  facts.push({ label: "Citations", value: String(dataset.num_citations) });
+}
 if (dataset.file_size > 0) {
   facts.push({ label: "Size", value: formatBytes(dataset.file_size) });
 }

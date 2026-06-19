@@ -10,13 +10,16 @@ import {
   modalityHref,
 } from "../lib/tags";
 import AuthorList from "./AuthorList.astro";
+import CiteExport from "./CiteExport.astro";
 import Tag from "./Tag.astro";
 
 interface Props {
   metadata: NeuroschemaDataset;
+  /** DOI + APA/BibTeX strings for the cite-export block at the top of the rail. */
+  cite?: { doi: string | null; apa: string; bibtex: string } | null;
 }
 
-const { metadata } = Astro.props;
+const { metadata, cite = null } = Astro.props;
 const rights = metadata.rights ?? [];
 const license = metadata.license || rights[0]?.rights || null;
 const rids = metadata.related_identifiers ?? [];
@@ -39,6 +42,8 @@ const licenseTitle = license
 ---
 
 <aside class="rail" aria-label="Dataset metadata">
+  {cite && <CiteExport doi={cite.doi} apa={cite.apa} bibtex={cite.bibtex} />}
+
   {license && (
     <div class="rail__row">
       <dt>License</dt>
