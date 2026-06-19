@@ -33,6 +33,18 @@ describe("datasetCitation", () => {
     expect(c.bibtex).toContain("author = {Jane A Smith and Bo Li}");
   });
 
+  it("keeps family-first 'Family, Initials' order (does not reverse it)", () => {
+    const c = datasetCitation({ ...base, authors: ["Wakeman, DG", "Henson, RN"] });
+    expect(c.apa).toContain("Wakeman, D. G., & Henson, R. N. (2026).");
+    expect(c.bibtex).toContain("author = {Wakeman, D. G. and Henson, R. N.}");
+  });
+
+  it("handles family-first initials with no comma ('Wakeman DG')", () => {
+    const c = datasetCitation({ ...base, authors: ["Wakeman DG"] });
+    expect(c.apa).toContain("Wakeman, D. G. (2026).");
+    expect(c.bibtex).toContain("author = {Wakeman, D. G.}");
+  });
+
   it("handles a single-token author, no version, no doi, no date", () => {
     const { apa, bibtex } = datasetCitation({
       authors: ["OpenNeuro"],
