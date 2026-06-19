@@ -14,6 +14,13 @@
 
 **Deploy target:** Cloudflare Pages, project `nemar-website` on the SCCN Cloudflare account. Production branch is currently `feature/issue-1-epic-nemar-redesign` until Phase 5 cutover, then swaps to `main`.
 
+**Two custom domains on Pages, one build:**
+- `ww2.nemar.org` — beta marketing surface (anonymous, cacheable). Skips `/auth/me` entirely. The redesigned Astro build lives here today.
+- `app.nemar.org` — authenticated surface (cookie-scoped to this host, no edge cache).
+- `nemar.org` (apex) — **still on the legacy F5 origin**, NOT this Pages project. Classified as "marketing" in code so the eventual DNS cutover is a one-line constant flip (`MARKETING_BASE_URL` in `src/lib/host.ts`) plus a redeploy; nothing else changes.
+
+`src/middleware.ts` reads `Astro.url.hostname` and 301-redirects mismatches across known production hosts (e.g. `/dashboard` on `ww2.nemar.org` → `https://app.nemar.org/dashboard`). Anything else (localhost, `*.pages.dev` previews) runs in single-host mode with no redirects so QA stays cheap. Route classification lives in `src/lib/host.ts`. The session cookie is scoped to `app.nemar.org` so it never leaks to `data.nemar.org`, `api.nemar.org`, or `docs.nemar.org`. **Cloudflare Pages dashboard:** custom domains attached to the `nemar-website` Pages project are `ww2.nemar.org` and `app.nemar.org`; the apex `nemar.org` is not attached yet.
+
 **Architecture:** Server-rendered Astro pages at the Worker edge. Three backend services are reused, never reimplemented:
 - `api.nemar.org/datasets` — D1-backed catalog list + per-id catalog row
 - `data.nemar.org/<id>/metadata.json` — neuroschema v0.3.0 doc
@@ -37,7 +44,8 @@ src/
     api.ts                            api.nemar.org client (unwraps {dataset:...})
     data-api.ts                       data.nemar.org client (landing/metadata/manifest/README fetch)
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
-    filters.ts                        FilterState ↔ URL params; modality AND/OR
+    filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
+    tags.ts                           modality/license/keyword classification + /discover hrefs
     provenance.ts                     detectProvenance for on*; listMirrorVersions
     format.ts                         null-safe bytes/date/relative-time/modality split
     bids-tree.ts                      manifest paths → nested TreeNode
@@ -68,12 +76,14 @@ bun run lint       # biome
 # Build
 rm -rf dist && bun run build
 
-# Deploy — CLOUDFLARE_ACCOUNT_ID is required because the SCCN token lacks
-# the memberships scope wrangler tries to call when enumerating accounts.
-CLOUDFLARE_ACCOUNT_ID=da8d7a2a8680dab01592bbbc6f67f12c \
+# Deploy — CLOUDFLARE_ACCOUNT_ID must be set in your shell because the SCCN
+# token lacks the memberships scope wrangler tries to call when enumerating
+# accounts. The account id is org-internal; export it from your shell rc or
+# read it from a password manager rather than committing it here.
+CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:?set SCCN account id in env}" \
   bunx cfman wrangler --account sccn pages deploy dist \
   --project-name nemar-website \
-  --branch feature/issue-1-epic-nemar-redesign \
+  --branch main \
   --commit-dirty=true
 ```
 
@@ -133,8 +143,9 @@ Open dependencies blocking work in this repo:
 | `nemar-cli#511` | Phase 3 — `/qa/*` endpoint for QualityPanel + Vis modal data | not started |
 | `nemar-cli#512` | `on*` detail page right rail (sparse metadata.json + catalog row) | not started |
 | `nemar-cli#513` | BIDS-shaped download filenames (currently SHA-named) | not started |
+| `nemar-cli#653` | `license` on catalog rows → Discover license tier filter (color works today; filtering is a guarded no-op until this lands) | not started |
 
-The frontend has fallbacks for all three so Phase 1+2 ships standalone. When any upstream lands, no frontend change is needed (those are already wired through correct paths).
+The frontend has fallbacks for all of these so the site ships standalone. When any upstream lands, no frontend change is needed (those are already wired through correct paths — `Dataset.license` is already an optional field).
 
 ## Quick Commands
 

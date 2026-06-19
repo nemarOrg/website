@@ -1,12 +1,19 @@
 ---
 import type { FilterState } from "../lib/filters";
-import { MODALITY_CODES, SORT_OPTIONS } from "../lib/types";
+import { LICENSE_TIER_BLURB, LICENSE_TIER_LABELS, modalityVariant } from "../lib/tags";
+import { LICENSE_TIERS, MODALITY_CODES, MODALITY_LABELS, SORT_OPTIONS } from "../lib/types";
 
 interface Props {
   state: FilterState;
+  /**
+   * When a freetext query is active, results are relevance-ranked by the
+   * hybrid search endpoint and the sort control has no effect, so we disable
+   * it with a hint rather than letting it silently no-op.
+   */
+  searchActive?: boolean;
 }
 
-const { state } = Astro.props;
+const { state, searchActive = false } = Astro.props;
 ---
 
 <form
@@ -42,18 +49,54 @@ const { state } = Astro.props;
       {MODALITY_CODES.map((mod) => {
         const selected = state.modalities.includes(mod);
         return (
-          <label class:list={["chip", selected && "chip--on"]}>
+          <label class:list={["chip", `chip--mod-${modalityVariant(mod)}`, selected && "chip--on"]}>
             <input
               type="checkbox"
               name="modality"
               value={mod}
               checked={selected}
             />
-            <span>{mod}</span>
+            <span>{MODALITY_LABELS[mod]}</span>
           </label>
         );
       })}
     </div>
+  </div>
+
+  <div class="filters__group">
+    <h3>License</h3>
+    <div class="filters__chips">
+      {LICENSE_TIERS.map((tier) => {
+        const selected = state.licenseTiers.includes(tier);
+        return (
+          <label
+            class:list={[
+              "chip",
+              "chip--lic",
+              `chip--lic-${tier}`,
+              selected && "chip--on",
+              searchActive && "chip--disabled",
+            ]}
+            title={LICENSE_TIER_BLURB[tier]}
+          >
+            <input
+              type="checkbox"
+              name="license"
+              value={tier}
+              checked={selected}
+              disabled={searchActive}
+            />
+            <span class="chip__dot" aria-hidden="true"></span>
+            <span>{LICENSE_TIER_LABELS[tier]}</span>
+          </label>
+        );
+      })}
+    </div>
+    <p class="filters__note">
+      {searchActive
+        ? "License filtering isn't available while searching — clear the search box to filter by license."
+        : "Green is most permissive, red most restrictive."}
+    </p>
   </div>
 
   <div class="filters__group">
@@ -122,13 +165,16 @@ const { state } = Astro.props;
 
   <div class="filters__group">
     <h3>Sort</h3>
-    <select name="sort">
+    <select name="sort" disabled={searchActive}>
       {SORT_OPTIONS.map((opt) => (
         <option value={opt.value} selected={state.sort === opt.value}>
           {opt.label}
         </option>
       ))}
     </select>
+    {searchActive && (
+      <p class="filters__hint">Results are ranked by relevance while searching.</p>
+    )}
   </div>
 
   <div class="filters__actions">
@@ -211,11 +257,61 @@ const { state } = Astro.props;
     width: 1px;
     height: 1px;
   }
+  /* Disabled while a search query is active (license can't filter the hybrid
+     search endpoint). Mirrors the sort control's disabled treatment. */
+  .chip--disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  /* A previously-selected chip must read as suspended, not active, while
+     disabled — strip the tier tint so it doesn't look like a live filter. */
+  .chip--disabled.chip--on,
+  .chip--disabled:has(input:checked) {
+    background: var(--color-bg);
+    border-color: var(--color-border-strong);
+    color: var(--color-fg-muted);
+  }
+  /* Selected chips tint with their own tag color (modality / license tier),
+     falling back to brand-teal for any chip without one. Keeps the sidebar
+     color language in lockstep with the tags it filters — see the tag color
+     bible in .rules/design-language.md. */
   .chip--on,
   .chip:has(input:checked) {
-    background: color-mix(in srgb, var(--brand-teal) 15%, transparent);
-    border-color: var(--brand-teal);
+    background: color-mix(in srgb, var(--chip-color, var(--brand-teal)) 15%, transparent);
+    border-color: var(--chip-color, var(--brand-teal));
     color: var(--color-fg);
+  }
+  .chip--mod-eeg { --chip-color: var(--modality-eeg); }
+  .chip--mod-meg { --chip-color: var(--modality-meg); }
+  .chip--mod-ieeg { --chip-color: var(--modality-ieeg); }
+  .chip--mod-emg { --chip-color: var(--modality-emg); }
+  .chip--mod-nirs { --chip-color: var(--modality-nirs); }
+  .chip--mod-motion { --chip-color: var(--modality-motion); }
+  .chip--mod-other { --chip-color: var(--modality-other); }
+  .chip--lic-public { --chip-color: var(--license-public); }
+  .chip--lic-attribution { --chip-color: var(--license-attribution); }
+  .chip--lic-sharealike { --chip-color: var(--license-sharealike); }
+  .chip--lic-noncommercial { --chip-color: var(--license-noncommercial); }
+  .chip--lic-noderiv { --chip-color: var(--license-noderiv); }
+  .chip--lic-unknown { --chip-color: var(--license-unknown); }
+  /* License tier dot — always shows its tier color so the gradient reads
+     even before a chip is selected. */
+  .chip__dot {
+    inline-size: 7px;
+    block-size: 7px;
+    border-radius: 50%;
+    background: var(--chip-color, var(--color-fg-subtle));
+    flex-shrink: 0;
+    margin-inline-end: 2px;
+  }
+  .filters__note {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    line-height: var(--lh-normal);
+  }
+  .filters__note a {
+    color: var(--color-link);
   }
   .filters__range {
     display: flex;
@@ -268,6 +364,16 @@ const { state } = Astro.props;
     background: var(--color-bg);
     color: var(--color-fg);
     font-size: var(--fs-sm);
+  }
+  .filters select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .filters__hint {
+    margin-block-start: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    line-height: var(--lh-snug);
   }
   .filters__actions {
     display: flex;

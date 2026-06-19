@@ -1,0 +1,130 @@
+---
+// Renders hidden by default. A tiny inline script flips the `hidden` attribute
+// off only when no prior choice is stored, mirroring how Base.astro avoids a
+// theme flash. Two buttons set localStorage["nemar:cookie-consent"] to
+// "accepted" (strict + analytics) or "strict" (auth cookie only) and dismiss.
+//
+// Analytics scripts are NOT wired here yet. When they are added, gate the
+// script load on `localStorage.getItem("nemar:cookie-consent") === "accepted"`.
+---
+
+<aside class="cookie-notice" role="region" aria-label="Cookie notice" hidden data-cookie-notice>
+  <div class="cookie-notice__inner">
+    <p class="cookie-notice__copy">
+      We use a strictly-necessary cookie to keep you signed in. Optional analytics cookies help
+      us understand which datasets researchers find. Your choice is remembered on this device.
+    </p>
+    <div class="cookie-notice__actions">
+      <button class="cookie-notice__btn cookie-notice__btn--ghost" type="button" data-cookie-strict>
+        Strictly necessary
+      </button>
+      <button class="cookie-notice__btn" type="button" data-cookie-accept>Accept all</button>
+    </div>
+  </div>
+</aside>
+
+<style>
+  .cookie-notice {
+    position: fixed;
+    inset-inline: 0;
+    inset-block-end: 0;
+    z-index: 60;
+    padding: var(--space-4);
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  /* `.cookie-notice` is a class selector with higher specificity than the
+     default `[hidden] { display: none }` user-agent rule, so without this
+     override the JS-set `hidden` attribute would have no visual effect. */
+  .cookie-notice[hidden] {
+    display: none;
+  }
+  .cookie-notice__inner {
+    pointer-events: auto;
+    inline-size: min(48rem, 100%);
+    background: var(--color-bg-elevated);
+    color: var(--color-fg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-5);
+    align-items: center;
+  }
+  .cookie-notice__copy {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+  .cookie-notice__actions {
+    display: inline-flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .cookie-notice__btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    border: 1px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  }
+  .cookie-notice__btn:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .cookie-notice__btn--ghost {
+    background: transparent;
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .cookie-notice__btn--ghost:hover {
+    background: var(--color-bg-subtle);
+    border-color: var(--color-fg-muted);
+  }
+  @media (max-width: 640px) {
+    .cookie-notice__inner {
+      grid-template-columns: 1fr;
+    }
+    .cookie-notice__actions {
+      justify-content: stretch;
+    }
+    .cookie-notice__btn {
+      flex: 1;
+    }
+  }
+</style>
+
+<script>
+  const STORAGE_KEY = "nemar:cookie-consent";
+  const banner = document.querySelector<HTMLElement>("[data-cookie-notice]");
+  if (banner) {
+    let prior: string | null = null;
+    try {
+      prior = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      // Privacy mode or storage disabled — show the banner conservatively;
+      // the user can still dismiss it for the session.
+    }
+    if (prior !== "accepted" && prior !== "strict") {
+      banner.hidden = false;
+    }
+    const set = (value: "accepted" | "strict") => {
+      try {
+        localStorage.setItem(STORAGE_KEY, value);
+      } catch {
+        /* ignore */
+      }
+      banner.hidden = true;
+    };
+    banner.querySelector<HTMLButtonElement>("[data-cookie-accept]")?.addEventListener("click", () => set("accepted"));
+    banner.querySelector<HTMLButtonElement>("[data-cookie-strict]")?.addEventListener("click", () => set("strict"));
+  }
+</script>

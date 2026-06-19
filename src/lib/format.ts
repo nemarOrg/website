@@ -61,6 +61,20 @@ export function formatAuthorByline(raw: string | null | undefined): string {
   return `${names[0]} et al.`;
 }
 
+/**
+ * Sanitize a search `snippet()` for safe rendering with `set:html`. The
+ * backend wraps lexical matches in `<mark>…</mark>`, but the surrounding text
+ * is raw README/metadata content that may contain HTML-special characters.
+ * We escape everything, then restore ONLY the `<mark>` highlight tags, so no
+ * other markup (including any `<mark>` attributes) can ride through. Returns
+ * "" for nullish input.
+ */
+export function safeSnippet(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const escaped = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped.replace(/&lt;mark&gt;/g, "<mark>").replace(/&lt;\/mark&gt;/g, "</mark>");
+}
+
 const RELATIVE_RANGES: Array<[number, Intl.RelativeTimeFormatUnit]> = [
   [60, "second"],
   [60 * 60, "minute"],

@@ -1,0 +1,590 @@
+---
+import Base from "../../layouts/Base.astro";
+import { isValidEmail, maskEmail, safeRedirectPath } from "../../lib/auth";
+
+const url = new URL(Astro.request.url);
+const emailRaw = (url.searchParams.get("email") ?? "").trim().toLowerCase();
+const remember = url.searchParams.get("remember") === "1";
+const next = safeRedirectPath(url.searchParams.get("next"));
+const isDev = import.meta.env.DEV;
+
+// If someone hits /login/verify with no (or invalid) email, bounce back to
+// /login. Avoids users typing the URL directly and getting a stuck form.
+if (!isValidEmail(emailRaw)) {
+  return Astro.redirect("/login");
+}
+
+const masked = maskEmail(emailRaw);
+---
+
+<Base title="Enter your code" description="Enter the 6-digit code from your email.">
+  <section class="verify">
+    <div class="verify__atmosphere" aria-hidden="true"></div>
+
+    <article class="verify__panel">
+      <div class="verify__rail" aria-hidden="true"></div>
+
+      <header class="verify__head">
+        <div class="verify__pulse" aria-hidden="true">
+          <svg viewBox="0 0 240 32" preserveAspectRatio="none">
+            <path
+              d="M0 16 L60 16 L72 4 L84 28 L96 8 L108 24 L120 16 L240 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </div>
+        <p class="verify__eyebrow">Step 2 of 2</p>
+        <h1 class="verify__title">Enter your code</h1>
+        <p class="verify__lede">
+          If your email is registered, a 6-digit code is on the way to
+          <strong>{masked}</strong>. It expires in 10 minutes.
+        </p>
+      </header>
+
+      <form
+        class="verify__form"
+        data-verify-form
+        data-email={emailRaw}
+        data-remember={remember ? "1" : "0"}
+        data-next={next}
+      >
+        <div class="otp" data-otp>
+          <input
+            class="otp__input"
+            type="text"
+            name="code"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="one-time-code"
+            aria-label="6-digit verification code"
+            required
+            data-verify-code
+          />
+          <div class="otp__cells" aria-hidden="true">
+            <span class="otp__cell"></span>
+            <span class="otp__cell"></span>
+            <span class="otp__cell"></span>
+            <span class="otp__cell"></span>
+            <span class="otp__cell"></span>
+            <span class="otp__cell"></span>
+          </div>
+        </div>
+
+        <p class="verify__inline-error" role="alert" data-verify-error hidden></p>
+
+        {isDev && (
+          <p class="verify__devchip" role="note">
+            <span class="verify__devchip-tag">Dev</span>
+            Use code <code>123456</code> to verify locally.
+          </p>
+        )}
+
+        <button class="verify__submit" type="submit" data-verify-submit>
+          Verify and sign in
+        </button>
+      </form>
+
+      <footer class="verify__foot">
+        <p>
+          Didn&rsquo;t get the email? Check spam, or
+          <a href={`/login${next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`}>start over</a>.
+        </p>
+      </footer>
+    </article>
+  </section>
+</Base>
+
+<style>
+  .verify {
+    position: relative;
+    isolation: isolate;
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+
+    --verify-bg-1: #eef3fb;
+    --verify-bg-2: #f8fafc;
+    --verify-glow: rgb(91 186 213 / 16%);
+    --verify-panel-bg: var(--color-bg);
+    --verify-panel-border: var(--color-border);
+    --verify-pulse: color-mix(in srgb, var(--brand-teal) 80%, transparent);
+    --otp-cell-bg: var(--color-bg);
+    --otp-cell-border: var(--color-border-strong);
+    --otp-active-glow: color-mix(in srgb, var(--brand-teal) 25%, transparent);
+    --otp-filled-bg: color-mix(in srgb, var(--brand-teal) 6%, var(--color-bg));
+
+    background:
+      radial-gradient(ellipse at 50% 0%, var(--verify-glow), transparent 65%),
+      linear-gradient(180deg, var(--verify-bg-1), var(--verify-bg-2));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .verify {
+      --verify-bg-1: #060d24;
+      --verify-bg-2: #0a1638;
+      --verify-glow: rgb(91 186 213 / 20%);
+      --verify-panel-bg: rgb(255 255 255 / 4%);
+      --verify-panel-border: rgb(255 255 255 / 10%);
+      --verify-pulse: color-mix(in srgb, var(--brand-teal) 95%, transparent);
+      --otp-cell-bg: rgb(255 255 255 / 4%);
+      --otp-cell-border: rgb(255 255 255 / 14%);
+      --otp-active-glow: color-mix(in srgb, var(--brand-teal) 35%, transparent);
+      --otp-filled-bg: color-mix(in srgb, var(--brand-teal) 12%, rgb(255 255 255 / 4%));
+    }
+  }
+  :global(:root[data-theme="dark"]) .verify {
+    --verify-bg-1: #060d24;
+    --verify-bg-2: #0a1638;
+    --verify-glow: rgb(91 186 213 / 20%);
+    --verify-panel-bg: rgb(255 255 255 / 4%);
+    --verify-panel-border: rgb(255 255 255 / 10%);
+    --verify-pulse: color-mix(in srgb, var(--brand-teal) 95%, transparent);
+    --otp-cell-bg: rgb(255 255 255 / 4%);
+    --otp-cell-border: rgb(255 255 255 / 14%);
+    --otp-active-glow: color-mix(in srgb, var(--brand-teal) 35%, transparent);
+    --otp-filled-bg: color-mix(in srgb, var(--brand-teal) 12%, rgb(255 255 255 / 4%));
+  }
+
+  .verify__atmosphere {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 18% 22%, rgb(91 186 213 / 30%) 50%, transparent 51%),
+      radial-gradient(1px 1px at 82% 14%, rgb(96 60 186 / 25%) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 88% 80%, rgb(91 186 213 / 28%) 50%, transparent 51%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .verify__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 30rem;
+    background: var(--verify-panel-bg);
+    border: 1px solid var(--verify-panel-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 6%) inset,
+      0 24px 64px -32px rgb(15 23 42 / 25%),
+      0 2px 4px rgb(15 23 42 / 4%);
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+    animation: verify-rise 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .verify__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    opacity: 0.85;
+  }
+
+  .verify__head {
+    margin-block-end: var(--space-6);
+    text-align: center;
+  }
+  .verify__pulse {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-block-end: var(--space-4);
+    color: var(--verify-pulse);
+  }
+  .verify__pulse svg {
+    inline-size: 120px;
+    block-size: 18px;
+  }
+  .verify__pulse path {
+    stroke-dasharray: 260;
+    stroke-dashoffset: 260;
+    animation: verify-pulse 1.8s ease-out infinite;
+  }
+  .verify__eyebrow {
+    margin: 0 0 var(--space-2);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+  }
+  .verify__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.015em;
+    line-height: var(--lh-tight);
+  }
+  .verify__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    font-size: var(--fs-base);
+  }
+  .verify__lede strong {
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-weight: var(--fw-medium);
+    font-size: 0.94em;
+  }
+
+  .verify__form {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  /* ---------- Segmented OTP field ----------
+     A real <input> sits invisibly over a row of six cells. The input is
+     the source of truth (carries autofill, focus, paste, IME); the cells
+     mirror its value via JS for the visual. The input keeps its caret
+     hidden; the active cell renders its own blinking caret pseudo. */
+  .otp {
+    position: relative;
+    inline-size: 100%;
+  }
+  .otp__cells {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--space-2);
+  }
+  .otp__cell {
+    position: relative;
+    aspect-ratio: 1 / 1.15;
+    display: grid;
+    place-items: center;
+    background: var(--otp-cell-bg);
+    border: 1px solid var(--otp-cell-border);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease,
+      transform 0.15s ease;
+  }
+  .otp__cell--filled {
+    background: var(--otp-filled-bg);
+    border-color: color-mix(in srgb, var(--brand-teal) 55%, transparent);
+  }
+  .otp__cell--active {
+    border-color: var(--brand-teal);
+    box-shadow: 0 0 0 4px var(--otp-active-glow);
+    transform: translateY(-1px);
+  }
+  .otp__cell--active::after {
+    content: "";
+    position: absolute;
+    inline-size: 1.5px;
+    block-size: 1.4em;
+    background: var(--brand-teal);
+    animation: verify-caret 1s steps(1) infinite;
+  }
+  .otp__cell--active.otp__cell--filled::after {
+    display: none;
+  }
+  /* Real input — visually invisible, semantically the field.
+     font-size ≥16px prevents iOS from zooming on focus. */
+  .otp__input {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: transparent;
+    caret-color: transparent;
+    font-size: 16px;
+    letter-spacing: 0;
+    text-align: center;
+    cursor: text;
+    /* Prevent iOS Safari autofill yellow background bleed-through */
+    -webkit-text-fill-color: transparent;
+  }
+  .otp__input::selection {
+    background: transparent;
+  }
+  /* Hide native autofill yellow on Chrome */
+  .otp__input:-webkit-autofill {
+    -webkit-text-fill-color: transparent;
+    -webkit-box-shadow: 0 0 0 1000px transparent inset;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+
+  @keyframes verify-caret { 50% { opacity: 0; } }
+  @keyframes verify-pulse {
+    0% { stroke-dashoffset: 260; }
+    60%, 100% { stroke-dashoffset: 0; opacity: 0.3; }
+  }
+  @keyframes verify-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .verify__pulse path { animation: none; stroke-dashoffset: 0; }
+    .otp__cell--active::after { animation: none; }
+    .verify__panel { animation: none; }
+  }
+
+  .verify__devchip {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--brand-teal) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 22%, transparent);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
+  }
+  .verify__devchip-tag {
+    background: color-mix(in srgb, var(--brand-teal) 22%, transparent);
+    color: var(--brand-teal);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 0.65rem;
+    flex-shrink: 0;
+  }
+  .verify__devchip code {
+    font-family: var(--font-mono);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg);
+    font-size: 0.78rem;
+  }
+
+  .verify__submit {
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: none;
+    background: var(--brand-navy);
+    color: #f8fafc;
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    cursor: pointer;
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 0 color-mix(in srgb, var(--brand-teal) 40%, transparent);
+    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+  }
+  .verify__submit:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--brand-navy) 84%, var(--brand-teal));
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 6px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .verify__submit:active:not([disabled]) {
+    transform: translateY(1px);
+  }
+  .verify__submit[disabled] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+
+  .verify__inline-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--fs-sm);
+    text-align: center;
+  }
+  .verify__error-link {
+    color: var(--color-danger);
+    text-decoration: underline;
+    font-weight: var(--fw-medium);
+  }
+  .verify__error-link:hover {
+    text-decoration: none;
+  }
+  .verify__error-hint {
+    display: inline-block;
+    margin-block-start: var(--space-2);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .verify__error-hint .verify__error-link {
+    color: var(--color-link);
+    font-weight: var(--fw-regular);
+  }
+
+  .verify__foot {
+    margin-block-start: var(--space-6);
+    padding-block-start: var(--space-5);
+    border-block-start: 1px solid var(--color-border);
+    text-align: center;
+  }
+  .verify__foot p {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .verify__foot a {
+    color: var(--color-link);
+  }
+
+  @media (max-width: 480px) {
+    .verify__panel {
+      padding: var(--space-8) var(--space-5) var(--space-6);
+    }
+    .otp__cell {
+      font-size: var(--fs-xl);
+    }
+    .verify__title {
+      font-size: var(--fs-2xl);
+    }
+  }
+</style>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>("[data-verify-form]");
+  const codeEl = document.querySelector<HTMLInputElement>("[data-verify-code]");
+  const submitEl = document.querySelector<HTMLButtonElement>("[data-verify-submit]");
+  const errorEl = document.querySelector<HTMLElement>("[data-verify-error]");
+  const cells = Array.from(
+    document.querySelectorAll<HTMLSpanElement>(".otp__cell"),
+  );
+
+  if (form && codeEl && submitEl && errorEl && cells.length === 6) {
+    const email = form.dataset.email ?? "";
+    const remember = form.dataset.remember === "1";
+    const nextPath = form.dataset.next ?? "/";
+
+    // Mirror the input's value into the visible cells. Marks filled cells and
+    // highlights the next-empty one as active. Called on input, focus, blur.
+    function syncCells(focused: boolean): void {
+      if (!codeEl) return;
+      const value = codeEl.value;
+      const len = value.length;
+      cells.forEach((cell, i) => {
+        const ch = value[i] ?? "";
+        cell.textContent = ch;
+        cell.classList.toggle("otp__cell--filled", ch !== "");
+        const isActive = focused && i === Math.min(len, 5);
+        cell.classList.toggle("otp__cell--active", isActive);
+      });
+    }
+
+    // Strip non-digits live so paste / autofill / accidental whitespace can't
+    // poison the value. Iterates the cell mirror after every mutation.
+    codeEl.addEventListener("input", () => {
+      const cleaned = codeEl.value.replace(/\D/g, "").slice(0, 6);
+      if (cleaned !== codeEl.value) codeEl.value = cleaned;
+      syncCells(document.activeElement === codeEl);
+    });
+    codeEl.addEventListener("focus", () => syncCells(true));
+    codeEl.addEventListener("blur", () => syncCells(false));
+
+    // Initial paint + auto-focus.
+    codeEl.focus();
+    syncCells(true);
+
+    // Build the "back to login" href once. Honors the `next` query param so
+    // a deep-linked sign-in flow still returns to the right page after retry.
+    const loginHref =
+      nextPath && nextPath !== "/" ? `/login?next=${encodeURIComponent(nextPath)}` : "/login";
+
+    // Hoist non-null references so the closure doesn't lose TS narrowing.
+    // The outer `if (form && codeEl && submitEl && errorEl && cells.length === 6)`
+    // already guarantees these are non-null here.
+    const errorElLocal = errorEl;
+    const submitElLocal = submitEl;
+
+    function showError(message: string, withSignupHint = false): void {
+      // `message` and the hint URL are hardcoded literals. `loginHref` is
+      // derived from `nextPath` (form dataset) but is safely URL-encoded via
+      // encodeURIComponent above, which percent-encodes any HTML-special
+      // characters including `"` and `<`. So innerHTML is XSS-safe here.
+      const tryAgainLink = ` <a class="verify__error-link" href="${loginHref}">Try again</a>.`;
+      const signupHint = withSignupHint
+        ? `<br /><span class="verify__error-hint">Not registered? <a class="verify__error-link" href="https://docs.nemar.org" rel="noopener" target="_blank">Sign up via the NEMAR CLI</a>.</span>`
+        : "";
+      errorElLocal.innerHTML = message + tryAgainLink + signupHint;
+      errorElLocal.hidden = false;
+      submitElLocal.disabled = false;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const code = codeEl.value.replace(/\D/g, "");
+      if (!/^\d{6}$/.test(code)) {
+        showError("Enter the 6-digit code from your email.");
+        return;
+      }
+      submitEl.disabled = true;
+      errorEl.hidden = true;
+      try {
+        // Same-origin route: in production this proxies to the backend;
+        // in `astro dev` it short-circuits with demo code 123456.
+        const res = await fetch("/api/auth/code/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email, code, remember }),
+        });
+        if (!res.ok) {
+          // Map by HTTP status; the backend collapses wrong-code, expired,
+          // and consumed into 401 with a single string. Treat all 401 the
+          // same way (request a new code) and offer the signup hint for
+          // typo'd-email cases that get this far.
+          if (res.status === 401) {
+            showError(
+              "That code didn't match, or it expired. Request a new one.",
+              true,
+            );
+          } else if (res.status === 403) {
+            showError(
+              "Your account isn't active. Contact support if this is unexpected.",
+            );
+          } else if (res.status === 429) {
+            showError("Too many attempts. Wait a few minutes before trying again.");
+          } else if (res.status === 400) {
+            // 400 covers both invalid email and invalid code format. The
+            // pre-submit `/^\d{6}$/` check rules out most code-format slips,
+            // so the realistic cause is an email problem upstream. Keep the
+            // message generic and route the user back to step 1.
+            showError("Something was wrong with the request. Start over.");
+          } else {
+            showError("Couldn't verify right now. Try again in a moment.");
+          }
+          return;
+        }
+        const data = (await res.json()) as { user?: { status?: string } };
+        if (data?.user?.status === "pending") {
+          location.href = "/login/pending";
+          return;
+        }
+        // First-verify redirect: show the welcome page unless the user has
+        // already dismissed it. The welcome page sets the localStorage key.
+        let firstVisit = true;
+        try {
+          firstVisit = localStorage.getItem("nemar:welcomed") !== "yes";
+        } catch {
+          /* localStorage may be unavailable; default to showing welcome. */
+        }
+        location.href = firstVisit ? "/welcome" : nextPath || "/";
+      } catch (err) {
+        // `fetch()` rejects on network failures, but `res.json()` parse
+        // failures and any JS thrown inside the `if (!res.ok)` block also
+        // land here. Log so non-network errors don't masquerade as a
+        // missing-connection message in the user's debugging session.
+        console.error("[verify] unexpected error", err);
+        showError("Network error. Check your connection.");
+      }
+    });
+  }
+</script>

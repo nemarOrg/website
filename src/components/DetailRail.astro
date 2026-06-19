@@ -1,9 +1,17 @@
 ---
 import { formatDate, formatRelativeTime } from "../lib/format";
 import type { NeuroschemaDataset } from "../lib/neuroschema";
+import {
+  LICENSE_TIER_BLURB,
+  LICENSE_TIER_LABELS,
+  keywordHref,
+  licenseHref,
+  licenseTier,
+  modalityHref,
+} from "../lib/tags";
 import AuthorList from "./AuthorList.astro";
-import Chip from "./Chip.astro";
 import CiteExport from "./CiteExport.astro";
+import Tag from "./Tag.astro";
 
 interface Props {
   metadata: NeuroschemaDataset;
@@ -21,20 +29,16 @@ const modalitiesList = metadata.recording_modality ?? [];
 const tasksList = metadata.tasks ?? [];
 const datatypesList = metadata.datatypes ?? [];
 const fundingList = metadata.funding ?? [];
-// Keywords are object-shaped in neuroschema 0.3.0 ({term, subject_scheme?, value_uri?})
-// but older docs may serialize them as strings. Normalize both.
-interface KeywordItem {
-  term: string;
-  value_uri: string | null;
-}
-const keywordsList: KeywordItem[] = (metadata.keywords ?? [])
-  .map((k): KeywordItem => {
-    if (typeof k === "string") return { term: k, value_uri: null };
-    const obj = k as { term?: string; value_uri?: string | null };
-    return { term: obj.term ?? "", value_uri: obj.value_uri ?? null };
-  })
-  .filter((k) => k.term);
+// Keywords are object-shaped in neuroschema 0.3.0 ({term, subject_scheme?,
+// value_uri?}) but older docs may serialize them as plain strings. We only
+// need the term — the tag links to a Discover search, not the value_uri.
+const keywordsList: string[] = (metadata.keywords ?? [])
+  .map((k) => (typeof k === "string" ? k : ((k as { term?: string }).term ?? "")))
+  .filter((term) => term.length > 0);
 const authorsList = metadata.authors ?? [];
+const licenseTitle = license
+  ? `${LICENSE_TIER_LABELS[licenseTier(license)]} — ${LICENSE_TIER_BLURB[licenseTier(license)]} Click to find similarly licensed datasets.`
+  : undefined;
 ---
 
 <aside class="rail" aria-label="Dataset metadata">
@@ -43,7 +47,7 @@ const authorsList = metadata.authors ?? [];
   {license && (
     <div class="rail__row">
       <dt>License</dt>
-      <dd><Chip label={license} tone="accent" size="sm" /></dd>
+      <dd><Tag kind="license" value={license} href={licenseHref(license)} title={licenseTitle} /></dd>
     </div>
   )}
 
@@ -58,7 +62,7 @@ const authorsList = metadata.authors ?? [];
     <div class="rail__row">
       <dt>Modalities</dt>
       <dd class="rail__chips">
-        {modalitiesList.map((m) => <Chip label={m} tone="accent" size="sm" />)}
+        {modalitiesList.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} />)}
       </dd>
     </div>
   )}
@@ -67,7 +71,7 @@ const authorsList = metadata.authors ?? [];
     <div class="rail__row">
       <dt>Tasks</dt>
       <dd class="rail__chips">
-        {tasksList.map((t) => <Chip label={t} size="sm" />)}
+        {tasksList.map((t) => <Tag kind="neutral" value={t} />)}
       </dd>
     </div>
   )}
@@ -76,7 +80,7 @@ const authorsList = metadata.authors ?? [];
     <div class="rail__row">
       <dt>BIDS datatypes</dt>
       <dd class="rail__chips">
-        {datatypesList.map((t) => <Chip label={t} size="sm" />)}
+        {datatypesList.map((t) => <Tag kind="neutral" value={t} />)}
       </dd>
     </div>
   )}
@@ -115,15 +119,13 @@ const authorsList = metadata.authors ?? [];
   )}
 
   {keywordsList.length > 0 && (
-    <div class="rail__row">
-      <dt>Keywords</dt>
-      <dd class="rail__chips">
-        {keywordsList.map((k) => (
-          k.value_uri
-            ? <Chip label={k.term} size="sm" href={k.value_uri} />
-            : <Chip label={k.term} size="sm" />
-        ))}
-      </dd>
+    <div class="rail__section">
+      <h3>Keywords</h3>
+      {/* Clicking a keyword searches Discover for the same term, rather
+          than opening the (rarely useful) ontology value_uri. */}
+      <div class="rail__chips">
+        {keywordsList.map((k) => <Tag kind="keyword" value={k} href={keywordHref(k)} />)}
+      </div>
     </div>
   )}
 
@@ -163,11 +165,27 @@ const authorsList = metadata.authors ?? [];
     top: calc(var(--header-height) + var(--space-4));
     font-size: var(--fs-sm);
   }
+  /* Below the layout-collapse breakpoint the rail stacks under the main
+     content. Sticky positioning there would pin it after the user scrolls
+     past — confusing. Static is the right behavior on mobile. */
+  @media (max-width: 980px) {
+    .rail {
+      position: static;
+    }
+  }
   .rail__row {
     display: grid;
     grid-template-columns: 7rem 1fr;
     gap: var(--space-3);
     align-items: baseline;
+  }
+  /* Mobile: stack label above value so the chip lists (modalities, tasks,
+     keywords) get the full column width to wrap into. */
+  @media (max-width: 640px) {
+    .rail__row {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
   }
   .rail__row dt {
     font-size: var(--fs-xs);

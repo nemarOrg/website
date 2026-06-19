@@ -1,0 +1,156 @@
+import { describe, expect, it } from "vitest";
+import {
+  channelColor,
+  defaultScaling,
+  dequantize,
+  formatClock,
+  formatSi,
+  niceScale,
+  pickViewLevel,
+  removeBandDc,
+  removeDcInPlace,
+  unitToSI,
+} from "./dsp";
+
+describe("dequantize", () => {
+  it("applies physical = digital * scale + offset", () => {
+    expect(dequantize(100, 0.5e-6, 0)).toBeCloseTo(50e-6, 12);
+    expect(dequantize(0, 1, 3)).toBe(3);
+  });
+  it("is identity for a float32 store (scale=1, offset=0)", () => {
+    expect(dequantize(42.5, 1, 0)).toBe(42.5);
+  });
+});
+
+describe("removeDcInPlace", () => {
+  it("subtracts the window mean so the result is zero-mean", () => {
+    const row = new Float32Array([1, 2, 3, 4]);
+    removeDcInPlace(row);
+    const mean = row.reduce((a, b) => a + b, 0) / row.length;
+    expect(mean).toBeCloseTo(0, 6);
+    expect(Array.from(row)).toEqual([-1.5, -0.5, 0.5, 1.5]);
+  });
+  it("handles an empty row", () => {
+    expect(removeDcInPlace(new Float32Array([])).length).toBe(0);
+  });
+});
+
+describe("defaultScaling", () => {
+  it("returns MNE-like per-modality defaults", () => {
+    expect(defaultScaling("EEG")).toBeCloseTo(75e-6, 12);
+    expect(defaultScaling("EMG")).toBeCloseTo(1e-3, 9);
+    expect(defaultScaling("MEG")).toBeCloseTo(1e-12, 15);
+  });
+});
+
+describe("channelColor", () => {
+  it("colors known types and falls back for unknown/missing", () => {
+    expect(channelColor("EEG")).toBe("#0072B2");
+    expect(channelColor("eog")).toBe("#009E73");
+    expect(channelColor(undefined)).toBe("#666666");
+    expect(channelColor("WEIRD")).toBe("#666666");
+  });
+});
+
+describe("pickViewLevel", () => {
+  // level 0 = 250000 samples (full), then halving pyramid.
+  const levels = [250000, 125000, 62500, 31250, 15625];
+  it("picks the coarsest level for a wide window", () => {
+    // whole recording at 1000px: coarsest level whose samples >= 1000 is index 4
+    // (15625 >= 1000), so we transfer the smallest envelope that still covers it.
+    expect(pickViewLevel(levels, 1.0, 1000)).toBe(4);
+  });
+  it("picks finer levels as the window narrows", () => {
+    // 1% visible, 1000px: level L visible = levels[L]*0.01 ; need >=1000 -> levels[L]>=100000
+    expect(pickViewLevel(levels, 0.01, 1000)).toBe(1); // 125000*.01=1250>=1000, 62500*.01=625<1000
+  });
+  it("falls back to level 0 when even it is too sparse", () => {
+    expect(pickViewLevel([800], 1.0, 1000)).toBe(0);
+  });
+  it("returns 0 for an empty pyramid", () => {
+    expect(pickViewLevel([], 1, 1000)).toBe(0);
+  });
+});
+
+describe("formatClock", () => {
+  it("formats seconds as HH:MM:SS", () => {
+    expect(formatClock(0)).toBe("00:00:00");
+    expect(formatClock(3661)).toBe("01:01:01");
+    expect(formatClock(59.9)).toBe("00:00:59");
+  });
+});
+
+describe("unitToSI", () => {
+  it("maps stored units to SI factors", () => {
+    expect(unitToSI("uV")).toBe(1e-6);
+    expect(unitToSI("µV")).toBe(1e-6);
+    expect(unitToSI("mV")).toBe(1e-3);
+    expect(unitToSI("fT")).toBe(1e-15);
+    expect(unitToSI("V")).toBe(1);
+  });
+  it("passes unknown/empty units through as 1", () => {
+    expect(unitToSI("n/a")).toBe(1);
+    expect(unitToSI(undefined)).toBe(1);
+  });
+});
+
+describe("formatSi", () => {
+  it("renders the natural metric prefix for the magnitude", () => {
+    expect(formatSi(20e-6, "V")).toBe("20 µV");
+    expect(formatSi(1e-3, "V")).toBe("1.0 mV");
+    expect(formatSi(1e-12, "T")).toBe("1.0 pT");
+    expect(formatSi(0, "V")).toBe("0 V");
+  });
+});
+
+describe("niceScale", () => {
+  it("rounds to 1/2/5 x 10^n", () => {
+    expect(niceScale(18e-6)).toBeCloseTo(10e-6, 12);
+    expect(niceScale(23e-6)).toBeCloseTo(20e-6, 12);
+    expect(niceScale(70e-6)).toBeCloseTo(50e-6, 12);
+    expect(niceScale(130e-6)).toBeCloseTo(100e-6, 12);
+  });
+  it("returns 1 for zero", () => {
+    expect(niceScale(0)).toBe(1);
+  });
+  it("returns 1 for negative values", () => {
+    expect(niceScale(-50e-6)).toBe(1);
+  });
+  it("returns 1 for NaN", () => {
+    expect(niceScale(Number.NaN)).toBe(1);
+  });
+});
+
+describe("removeBandDc", () => {
+  it("zero-means by midpoint: mean of all (outMin[i]+outMax[i])/2 is ~0", () => {
+    const min = new Float32Array([10, 20, 30]);
+    const max = new Float32Array([20, 30, 40]);
+    const { min: outMin, max: outMax } = removeBandDc(min, max);
+    // The midpoint mean across all output samples should be ~0
+    let midpointSum = 0;
+    for (let i = 0; i < outMin.length; i++) midpointSum += (outMin[i] + outMax[i]) / 2;
+    expect(midpointSum / outMin.length).toBeCloseTo(0, 5);
+  });
+  it("handles empty arrays without throwing", () => {
+    const { min, max } = removeBandDc(new Float32Array([]), new Float32Array([]));
+    expect(min.length).toBe(0);
+    expect(max.length).toBe(0);
+  });
+  it("does not mutate the input arrays", () => {
+    const min = new Float32Array([5, 10]);
+    const max = new Float32Array([15, 20]);
+    const origMin = min.slice();
+    const origMax = max.slice();
+    removeBandDc(min, max);
+    expect(Array.from(min)).toEqual(Array.from(origMin));
+    expect(Array.from(max)).toEqual(Array.from(origMax));
+  });
+});
+
+describe("formatSi sub-femto", () => {
+  it("formats a sub-femto value (5e-16 V) as a finite string with 'f' prefix", () => {
+    const result = formatSi(5e-16, "V");
+    expect(result).toMatch(/f/);
+    expect(result).not.toMatch(/Infinity|NaN/);
+  });
+});

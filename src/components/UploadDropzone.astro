@@ -1,0 +1,173 @@
+---
+// Drop zone for a BIDS folder. Dispatches a custom `nemar:files-dropped`
+// CustomEvent on document with `detail: { files: DroppedFile[] }`. On walk
+// failure it dispatches `nemar:drop-error` instead so the page can show a
+// distinct error rather than the misleading "drop something" empty state.
+//
+// Supports both drag-and-drop (with directory walking via webkitGetAsEntry)
+// and the click-to-browse fallback via <input type="file" webkitdirectory>.
+---
+
+<div class="dropzone" data-dropzone tabindex="0">
+  <div class="dropzone__inner">
+    <svg class="dropzone__icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3v12" />
+      <path d="m7 8 5-5 5 5" />
+      <path d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" />
+    </svg>
+    <div class="dropzone__title">Drop your BIDS folder here</div>
+    <div class="dropzone__hint">
+      or
+      <label class="dropzone__browse">
+        <input
+          type="file"
+          data-dropzone-input
+          {...({ webkitdirectory: "" } as Record<string, string>)}
+          multiple
+          hidden
+        />
+        <span>browse for a folder</span>
+      </label>
+    </div>
+    <div class="dropzone__cap">5 GB per file, 50 GB per dataset (single-PUT for now)</div>
+  </div>
+</div>
+
+<style>
+  .dropzone {
+    border: 2px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    padding: var(--space-12) var(--space-6);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .dropzone:hover,
+  .dropzone:focus-visible {
+    border-color: var(--brand-teal);
+    background: color-mix(in srgb, var(--brand-teal) 6%, var(--color-bg-elevated));
+    outline: none;
+  }
+  .dropzone[data-dropzone-active="true"] {
+    border-color: var(--brand-teal);
+    background: color-mix(in srgb, var(--brand-teal) 12%, var(--color-bg-elevated));
+  }
+  .dropzone[data-dropzone-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .dropzone__inner {
+    display: grid;
+    gap: var(--space-3);
+    justify-items: center;
+  }
+  .dropzone__icon {
+    color: var(--color-fg-subtle);
+  }
+  .dropzone__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .dropzone__hint {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .dropzone__browse {
+    color: var(--color-link);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .dropzone__browse:hover {
+    color: var(--color-link-hover);
+  }
+  .dropzone__cap {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    margin-block-start: var(--space-2);
+  }
+</style>
+
+<script>
+  import {
+    filesFromInput,
+    walkDataTransferItems,
+    type DroppedFile,
+  } from "../lib/upload-client";
+
+  const zone = document.querySelector<HTMLElement>("[data-dropzone]");
+  const input = document.querySelector<HTMLInputElement>("[data-dropzone-input]");
+
+  if (zone && input) {
+    const dispatch = (files: DroppedFile[]) => {
+      document.dispatchEvent(
+        new CustomEvent<{ files: DroppedFile[] }>("nemar:files-dropped", {
+          detail: { files },
+        }),
+      );
+    };
+
+    const disabled = () => zone.dataset.dropzoneDisabled === "true";
+
+    zone.addEventListener("click", (e) => {
+      if (disabled()) return;
+      if (e.target instanceof HTMLLabelElement || e.target instanceof HTMLInputElement) return;
+      input.click();
+    });
+    zone.addEventListener("keydown", (e) => {
+      if (disabled()) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        input.click();
+      }
+    });
+
+    let dragDepth = 0;
+    zone.addEventListener("dragenter", (e) => {
+      if (disabled()) return;
+      e.preventDefault();
+      dragDepth += 1;
+      zone.dataset.dropzoneActive = "true";
+    });
+    zone.addEventListener("dragover", (e) => {
+      if (disabled()) return;
+      e.preventDefault();
+    });
+    zone.addEventListener("dragleave", () => {
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) zone.dataset.dropzoneActive = "false";
+    });
+    zone.addEventListener("drop", async (e) => {
+      if (disabled()) return;
+      e.preventDefault();
+      dragDepth = 0;
+      zone.dataset.dropzoneActive = "false";
+      const items = e.dataTransfer?.items;
+      if (!items || items.length === 0) return;
+      try {
+        const files = await walkDataTransferItems(Array.from(items));
+        dispatch(files);
+      } catch (err) {
+        console.error("[upload-dropzone] failed to walk drop", err);
+        document.dispatchEvent(
+          new CustomEvent<{ message: string }>("nemar:drop-error", {
+            detail: {
+              message:
+                "Could not read the dropped folder. Check that you have permission to access it and try again.",
+            },
+          }),
+        );
+      }
+    });
+
+    input.addEventListener("change", () => {
+      if (disabled()) return;
+      if (!input.files) return;
+      dispatch(filesFromInput(input.files));
+      input.value = "";
+    });
+  }
+</script>

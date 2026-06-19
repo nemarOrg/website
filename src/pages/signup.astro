@@ -1,0 +1,422 @@
+---
+import Base from "../layouts/Base.astro";
+import { appUrl } from "../lib/host";
+
+const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
+---
+
+<Base
+  title="Sign up for NEMAR"
+  description="New researcher accounts are created through the NEMAR CLI for now. The web sign-up flow is on the way."
+>
+  <section class="signup">
+    <div class="signup__atmosphere" aria-hidden="true"></div>
+
+    <article class="signup__panel">
+      <div class="signup__rail" aria-hidden="true"></div>
+
+      <header class="signup__head">
+        <p class="signup__eyebrow">Creating a NEMAR account</p>
+        <h1 class="signup__title">Sign up via the <em>CLI</em></h1>
+        <p class="signup__lede">
+          New accounts need an ORCID, a GitHub handle, and a couple of consent
+          confirmations. The CLI walks you through it in about two minutes. A web
+          sign-up flow is in design.
+        </p>
+      </header>
+
+      <ol class="signup__steps">
+        <li class="signup__step">
+          <span class="signup__step-num" aria-hidden="true">1</span>
+          <div>
+            <h2 class="signup__step-title">Install the CLI</h2>
+            <p class="signup__step-body">
+              Requires <a href="https://bun.sh" rel="external noopener">Bun</a>. macOS and Linux are
+              first-class; Windows works via WSL.
+            </p>
+            <pre class="signup__code"><code>bun install -g @nemar/cli</code></pre>
+          </div>
+        </li>
+
+        <li class="signup__step">
+          <span class="signup__step-num" aria-hidden="true">2</span>
+          <div>
+            <h2 class="signup__step-title">Start the sign-up flow</h2>
+            <p class="signup__step-body">
+              The CLI opens a browser tab for ORCID authorization, asks for your
+              GitHub handle, and confirms the data-sharing terms. Your account is
+              created on submit and goes into a short admin review queue.
+            </p>
+            <pre class="signup__code"><code>nemar auth signup</code></pre>
+          </div>
+        </li>
+
+        <li class="signup__step">
+          <span class="signup__step-num" aria-hidden="true">3</span>
+          <div>
+            <h2 class="signup__step-title">Sign in here once you&rsquo;re approved</h2>
+            <p class="signup__step-body">
+              Approval is usually same-day. We send an email when your account is
+              active. Then come back to the
+              <a href={loginHref}>web sign-in</a>, enter the same email, and the
+              6-digit code flow gets you to your dashboard.
+            </p>
+          </div>
+        </li>
+      </ol>
+
+      <section class="signup__detail" aria-labelledby="signup-need">
+        <h2 id="signup-need" class="signup__detail-title">What sign-up asks you for</h2>
+        <dl class="signup__list">
+          <div class="signup__list-row">
+            <dt>Email</dt>
+            <dd>Used for code-based sign-in. We don&rsquo;t share it.</dd>
+          </div>
+          <div class="signup__list-row">
+            <dt>Display name</dt>
+            <dd>Appears on datasets you publish and in collaborator lists.</dd>
+          </div>
+          <div class="signup__list-row">
+            <dt>ORCID</dt>
+            <dd>
+              Verifies that you&rsquo;re a real researcher. Free to create at
+              <a href="https://orcid.org" rel="external noopener">orcid.org</a>.
+            </dd>
+          </div>
+          <div class="signup__list-row">
+            <dt>GitHub handle</dt>
+            <dd>
+              Datasets get an underlying GitHub repository under
+              <code>nemarDatasets</code>; we add you as a collaborator on yours.
+            </dd>
+          </div>
+          <div class="signup__list-row">
+            <dt>Affiliation</dt>
+            <dd>Your institution. Optional but appreciated for the citation graph.</dd>
+          </div>
+        </dl>
+      </section>
+
+      <footer class="signup__foot">
+        <a class="signup__cta signup__cta--primary" href="https://docs.nemar.org" rel="external noopener">
+          Open CLI install guide
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </a>
+        <a class="signup__cta signup__cta--ghost" href={loginHref}>
+          I already have an account
+        </a>
+      </footer>
+
+      <p class="signup__future" role="note">
+        Web sign-up is the next thing we&rsquo;re shipping after the dashboard
+        cutover. Full CLI reference lives at
+        <a href="https://docs.nemar.org" rel="external noopener">docs.nemar.org</a>.
+      </p>
+    </article>
+  </section>
+</Base>
+
+<style>
+  .signup {
+    position: relative;
+    isolation: isolate;
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+
+    --signup-bg-1: #eef3fb;
+    --signup-bg-2: #f8fafc;
+    --signup-glow: rgb(91 186 213 / 14%);
+    --signup-glow-2: rgb(96 60 186 / 10%);
+    --signup-panel-bg: var(--color-bg);
+    --signup-panel-border: var(--color-border);
+    --signup-code-bg: var(--color-bg-elevated);
+    --signup-code-border: var(--color-border);
+
+    background:
+      radial-gradient(ellipse at 18% 8%, var(--signup-glow), transparent 55%),
+      radial-gradient(ellipse at 92% 92%, var(--signup-glow-2), transparent 60%),
+      linear-gradient(180deg, var(--signup-bg-1), var(--signup-bg-2));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .signup {
+      --signup-bg-1: #060d24;
+      --signup-bg-2: #0a1638;
+      --signup-glow: rgb(91 186 213 / 18%);
+      --signup-glow-2: rgb(96 60 186 / 16%);
+      --signup-panel-bg: rgb(255 255 255 / 4%);
+      --signup-panel-border: rgb(255 255 255 / 10%);
+      --signup-code-bg: rgb(255 255 255 / 6%);
+      --signup-code-border: rgb(255 255 255 / 10%);
+    }
+  }
+  :global(:root[data-theme="dark"]) .signup {
+    --signup-bg-1: #060d24;
+    --signup-bg-2: #0a1638;
+    --signup-glow: rgb(91 186 213 / 18%);
+    --signup-glow-2: rgb(96 60 186 / 16%);
+    --signup-panel-bg: rgb(255 255 255 / 4%);
+    --signup-panel-border: rgb(255 255 255 / 10%);
+    --signup-code-bg: rgb(255 255 255 / 6%);
+    --signup-code-border: rgb(255 255 255 / 10%);
+  }
+
+  .signup__atmosphere {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 14% 18%, rgb(91 186 213 / 22%) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 82% 24%, rgb(96 60 186 / 25%) 50%, transparent 51%),
+      radial-gradient(1px 1px at 10% 78%, rgb(91 186 213 / 22%) 50%, transparent 51%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .signup__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 44rem;
+    background: var(--signup-panel-bg);
+    border: 1px solid var(--signup-panel-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    overflow: hidden;
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 6%) inset,
+      0 24px 64px -32px rgb(15 23 42 / 25%),
+      0 2px 4px rgb(15 23 42 / 4%);
+    backdrop-filter: blur(12px);
+    animation: signup-rise 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .signup__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    opacity: 0.85;
+  }
+
+  .signup__head {
+    margin-block-end: var(--space-8);
+  }
+  .signup__eyebrow {
+    margin: 0 0 var(--space-2);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .signup__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: clamp(var(--fs-3xl), 4vw, var(--fs-4xl));
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.015em;
+    line-height: var(--lh-tight);
+  }
+  .signup__title em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .signup__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-base);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 42rem;
+  }
+
+  /* ---------- Steps ---------- */
+  .signup__steps {
+    list-style: none;
+    margin: 0 0 var(--space-8);
+    padding: 0;
+    display: grid;
+    gap: var(--space-6);
+  }
+  .signup__step {
+    display: grid;
+    grid-template-columns: 32px 1fr;
+    gap: var(--space-4);
+    align-items: start;
+  }
+  .signup__step-num {
+    inline-size: 32px;
+    block-size: 32px;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--brand-teal) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 40%, transparent);
+    color: var(--brand-teal);
+    border-radius: 50%;
+    font-family: var(--font-display);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .signup__step-title {
+    margin: 0 0 var(--space-2);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    line-height: var(--lh-snug);
+  }
+  .signup__step-body {
+    margin: 0 0 var(--space-2);
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+    font-size: var(--fs-sm);
+  }
+  .signup__step-body a {
+    color: var(--color-link);
+  }
+  .signup__code {
+    margin: var(--space-2) 0 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--signup-code-bg);
+    border: 1px solid var(--signup-code-border);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    overflow-x: auto;
+  }
+  .signup__code code {
+    color: inherit;
+  }
+
+  /* ---------- "What sign-up asks you for" ---------- */
+  .signup__detail {
+    margin: 0 0 var(--space-6);
+    padding: var(--space-6);
+    background: color-mix(in srgb, var(--brand-teal) 4%, var(--color-bg-subtle));
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 20%, var(--color-border));
+    border-radius: var(--radius-lg);
+  }
+  .signup__detail-title {
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-muted);
+  }
+  .signup__list {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .signup__list-row {
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    gap: var(--space-3);
+    font-size: var(--fs-sm);
+    align-items: start;
+  }
+  .signup__list-row dt {
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+  }
+  .signup__list-row dd {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+  .signup__list-row a {
+    color: var(--color-link);
+  }
+  .signup__list-row code {
+    font-family: var(--font-mono);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+  }
+  @media (max-width: 560px) {
+    .signup__list-row { grid-template-columns: 1fr; gap: var(--space-1); }
+  }
+
+  /* ---------- Footer CTAs ---------- */
+  .signup__foot {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+    margin-block-end: var(--space-4);
+  }
+  .signup__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+    font-size: var(--fs-base);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+  }
+  .signup__cta svg {
+    transition: transform 0.2s ease;
+  }
+  .signup__cta--primary {
+    background: var(--brand-navy);
+    color: #f8fafc;
+    box-shadow: 0 8px 24px -10px rgb(11 26 58 / 50%);
+  }
+  .signup__cta--primary:hover {
+    background: color-mix(in srgb, var(--brand-navy) 84%, var(--brand-teal));
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 6px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .signup__cta--primary:hover svg {
+    transform: translateX(3px);
+  }
+  .signup__cta--ghost {
+    background: transparent;
+    color: var(--color-fg);
+    border: 1px solid var(--color-border-strong);
+  }
+  .signup__cta--ghost:hover {
+    background: var(--color-bg-subtle);
+    border-color: var(--color-fg-muted);
+  }
+
+  .signup__future {
+    margin: 0;
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--color-border);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .signup__future a {
+    color: var(--color-link);
+  }
+
+  @keyframes signup-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .signup__panel { animation: none; }
+  }
+  @media (max-width: 560px) {
+    .signup__panel { padding: var(--space-8) var(--space-5) var(--space-6); }
+    .signup__step { grid-template-columns: 28px 1fr; gap: var(--space-3); }
+    .signup__step-num { inline-size: 28px; block-size: 28px; font-size: var(--fs-xs); }
+    .signup__detail { padding: var(--space-4); }
+  }
+</style>

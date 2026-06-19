@@ -1,11 +1,25 @@
 import {
-  type Dataset,
   type DatasetQuery,
+  LICENSE_TIERS,
+  type LicenseTier,
   MODALITY_CODES,
   type ModalityCode,
   type ModalityOp,
   type SortOption,
 } from "./types";
+
+/**
+ * The structural subset a row needs for client-side filtering. Both the full
+ * {@link import("./types").Dataset} and the reduced
+ * {@link import("./types").SearchResult} satisfy it, so the freetext-search
+ * (hybrid endpoint) and browse (list endpoint) paths share one filter pass.
+ * License is NOT here: it's filtered server-side via `?license=` (browse) and
+ * unsupported by the hybrid search endpoint (search).
+ */
+export interface FilterableRow {
+  modalities: string;
+  participants: number;
+}
 
 /**
  * Reserved keywords in the search box that auto-toggle a sidebar control.
@@ -16,6 +30,8 @@ const RESERVED_KEYWORDS: Record<string, { kind: "modality" | "flag"; value: stri
   MEG: { kind: "modality", value: "MEG" },
   IEEG: { kind: "modality", value: "iEEG" },
   EMG: { kind: "modality", value: "EMG" },
+  NIRS: { kind: "modality", value: "NIRS" },
+  MOTION: { kind: "modality", value: "MOTION" },
   HED: { kind: "flag", value: "hed" },
 };
 
@@ -25,6 +41,9 @@ export interface FilterState {
   modalities: ModalityCode[];
   /** AND across modalities, or OR (default OR matches legacy default). */
   modalityOp: ModalityOp;
+  /** License permissiveness tiers to keep. OR semantics (a dataset has one
+   *  license -> one tier). Empty means no license filter. */
+  licenseTiers: LicenseTier[];
   /** Comma-separated file format filter (legacy "all" -> ""). */
   fileFormat: string;
   /** Inclusive participant count range. */
@@ -48,6 +67,7 @@ export function defaultFilterState(): FilterState {
     q: "",
     modalities: [],
     modalityOp: "OR",
+    licenseTiers: [],
     fileFormat: "",
     participants: { min: null, max: null },
     channels: { min: null, max: null },
@@ -80,15 +100,34 @@ function parseSort(value: string | null): SortOption {
   }
 }
 
-function parseModalities(value: string | null): ModalityCode[] {
-  if (!value) return [];
-  const candidates = value.split(",").map((s) => s.trim());
+// The sidebar's checkbox groups submit as REPEATED params on a native GET
+// form (?license=a&license=b), while our own links comma-join (?license=a,b).
+// Both arrive here via getAll(): each array element is split on comma so the
+// two encodings parse identically. Reading only params.get() would silently
+// drop every selection after the first.
+function parseLicenseTiers(values: string[]): LicenseTier[] {
+  const result: LicenseTier[] = [];
+  for (const raw of values) {
+    for (const part of raw.split(",")) {
+      const tier = part.trim().toLowerCase() as LicenseTier;
+      if (!tier) continue;
+      if (LICENSE_TIERS.includes(tier) && !result.includes(tier)) result.push(tier);
+    }
+  }
+  return result;
+}
+
+function parseModalities(values: string[]): ModalityCode[] {
   const result: ModalityCode[] = [];
-  for (const c of candidates) {
-    const norm =
-      c.toUpperCase() === "IEEG" ? ("iEEG" as ModalityCode) : (c.toUpperCase() as ModalityCode);
-    if (MODALITY_CODES.includes(norm) && !result.includes(norm)) {
-      result.push(norm);
+  for (const raw of values) {
+    for (const part of raw.split(",")) {
+      const c = part.trim();
+      if (!c) continue;
+      const norm =
+        c.toUpperCase() === "IEEG" ? ("iEEG" as ModalityCode) : (c.toUpperCase() as ModalityCode);
+      if (MODALITY_CODES.includes(norm) && !result.includes(norm)) {
+        result.push(norm);
+      }
     }
   }
   return result;
@@ -101,8 +140,9 @@ function parseModalities(value: string | null): ModalityCode[] {
 export function filterStateFromURL(params: URLSearchParams): FilterState {
   const s = defaultFilterState();
   s.q = (params.get("q") ?? "").trim();
-  s.modalities = parseModalities(params.get("modality"));
+  s.modalities = parseModalities(params.getAll("modality"));
   s.modalityOp = params.get("modality_op") === "AND" ? "AND" : "OR";
+  s.licenseTiers = parseLicenseTiers(params.getAll("license"));
   s.fileFormat = (params.get("format") ?? "").trim();
 
   s.participants = {
@@ -143,6 +183,7 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.q) sp.set("q", state.q);
   if (state.modalities.length > 0) sp.set("modality", state.modalities.join(","));
   if (state.modalityOp !== "OR") sp.set("modality_op", state.modalityOp);
+  if (state.licenseTiers.length > 0) sp.set("license", state.licenseTiers.join(","));
   if (state.fileFormat) sp.set("format", state.fileFormat);
   if (state.participants.min != null) sp.set("p_min", String(state.participants.min));
   if (state.participants.max != null) sp.set("p_max", String(state.participants.max));
@@ -172,16 +213,34 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
     // fetch wide and post-filter (cheaper than N round-trips).
     q.modality = state.modalities[0];
   }
+  if (state.licenseTiers.length > 0) {
+    // License filters server-side (OR semantics) against the backend's
+    // license_tier column (nemar-cli migration 0034). Doing it here keeps the
+    // count + pagination accurate, which per-page client filtering could not.
+    q.license = state.licenseTiers.join(",");
+  }
   return q;
 }
 
 /**
- * Apply the parts of the filter state that the server can't enforce.
+ * Apply the parts of the filter state that the server can't enforce. Generic
+ * over the row shape so it serves both browse (full Dataset) and freetext
+ * search (reduced SearchResult) rows — see {@link FilterableRow}. License is
+ * intentionally NOT here: browse filters it server-side via `?license=`, and
+ * the hybrid search endpoint doesn't support it at all.
  */
-export function applyClientFilters(datasets: Dataset[], state: FilterState): Dataset[] {
+export function applyClientFilters<T extends FilterableRow>(
+  datasets: T[],
+  state: FilterState,
+  opts: { allModalitiesClientSide?: boolean } = {},
+): T[] {
   return datasets.filter((d) => {
-    // Modality OR/AND when 2+ selected (single modality is already on server).
-    if (state.modalities.length > 1) {
+    // Modality OR/AND. In browse mode a single modality is already enforced
+    // server-side, so we only post-filter when 2+ are selected. In search
+    // mode the hybrid endpoint doesn't filter by modality, so the caller sets
+    // `allModalitiesClientSide` to enforce even a single selection here.
+    const modalityThreshold = opts.allModalitiesClientSide ? 1 : 2;
+    if (state.modalities.length >= modalityThreshold) {
       const dsMods = (d.modalities || "")
         .split(",")
         .map((m) => m.trim().toUpperCase())

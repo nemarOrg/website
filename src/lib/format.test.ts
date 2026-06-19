@@ -5,6 +5,7 @@ import {
   formatCount,
   formatDate,
   formatRelativeTime,
+  safeSnippet,
   splitModalities,
 } from "./format";
 
@@ -24,9 +25,9 @@ describe("formatAuthorByline", () => {
     expect(formatAuthorByline("Daniel G. Wakeman, Richard N Henson")).toBe(
       "Daniel G. Wakeman et al.",
     );
-    expect(
-      formatAuthorByline("Jonel Morris, Kenneth Cruz, Raydeep Kainth, Daniel Ferris"),
-    ).toBe("Jonel Morris et al.");
+    expect(formatAuthorByline("Jonel Morris, Kenneth Cruz, Raydeep Kainth, Daniel Ferris")).toBe(
+      "Jonel Morris et al.",
+    );
   });
   it("ignores empty entries between commas", () => {
     expect(formatAuthorByline("Daniel G. Wakeman,, Richard N Henson")).toBe(
@@ -108,5 +109,38 @@ describe("formatDate", () => {
   });
   it("returns empty for invalid", () => {
     expect(formatDate("nope")).toBe("");
+  });
+});
+
+describe("safeSnippet", () => {
+  it("returns empty for nullish input", () => {
+    expect(safeSnippet(null)).toBe("");
+    expect(safeSnippet(undefined)).toBe("");
+    expect(safeSnippet("")).toBe("");
+  });
+
+  it("preserves <mark> highlight tags from the backend snippet()", () => {
+    const raw = "…We tested their <mark>memory</mark> of these objects…";
+    expect(safeSnippet(raw)).toBe("…We tested their <mark>memory</mark> of these objects…");
+  });
+
+  it("escapes other HTML so README content can't inject markup", () => {
+    const raw = "a <script>alert(1)</script> & <b>bold</b> <mark>hit</mark>";
+    const out = safeSnippet(raw);
+    expect(out).toContain("&lt;script&gt;");
+    expect(out).toContain("&lt;b&gt;bold&lt;/b&gt;");
+    expect(out).toContain("&amp;");
+    expect(out).toContain("<mark>hit</mark>");
+    expect(out).not.toContain("<script>");
+    expect(out).not.toContain("<b>");
+  });
+
+  it("does not let a forged mark tag with attributes through", () => {
+    const raw = '<mark onmouseover="x">hi</mark>';
+    const out = safeSnippet(raw);
+    // The attribute-bearing open tag stays escaped; only bare <mark> is restored.
+    expect(out).toContain("&lt;mark onmouseover=");
+    expect(out).toContain("</mark>");
+    expect(out).not.toContain("<mark onmouseover");
   });
 });

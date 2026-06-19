@@ -1,0 +1,615 @@
+---
+import Base from "../layouts/Base.astro";
+import { safeRedirectPath } from "../lib/auth";
+import { WEB_SIGNIN_ENABLED, WEB_SIGNIN_ETA } from "../lib/flags";
+
+const url = new URL(Astro.request.url);
+const next = safeRedirectPath(url.searchParams.get("next"));
+const errorParam = url.searchParams.get("error");
+const errorMessage =
+  errorParam === "expired"
+    ? "Your previous code expired. Enter your email to receive a new one."
+    : errorParam === "unknown"
+      ? "Something went wrong. Try again."
+      : null;
+const isDev = import.meta.env.DEV;
+---
+
+<Base title="Sign in" description="Sign in to NEMAR. We email you a one-time code; no password required.">
+  <section class="signin">
+    <div class="signin__atmosphere" aria-hidden="true"></div>
+
+    <div class="signin__shell">
+      <article class="signin__panel">
+        <div class="signin__rail" aria-hidden="true"></div>
+
+        <header class="signin__head">
+          <p class="signin__eyebrow">Researcher access</p>
+          <h1 class="signin__title">Sign in to <em>NEMAR</em></h1>
+          <p class="signin__lede">
+            {WEB_SIGNIN_ENABLED
+              ? "We'll email you a one-time 6-digit code. No password required."
+              : `Web sign-in is coming ${WEB_SIGNIN_ETA}. For now, sign in with the CLI.`}
+          </p>
+        </header>
+
+        {errorMessage && <p class="signin__alert" role="alert">{errorMessage}</p>}
+
+        {!WEB_SIGNIN_ENABLED && (
+          <div class="signin__soon">
+            <span class="signin__soon-badge">Coming soon</span>
+            <p class="signin__soon-lede">
+              Passwordless web sign-in launches <strong>{WEB_SIGNIN_ETA}</strong>. Until then,
+              sign in with the NEMAR CLI &mdash; the web and CLI share the same account.
+            </p>
+            <pre class="signin__soon-code"><code>bun install -g @nemar/cli
+nemar auth login</code></pre>
+          </div>
+        )}
+
+        {WEB_SIGNIN_ENABLED && (
+        <form class="signin__form" data-login-form data-next={next}>
+          <label class="field">
+            <span class="field__label">Email</span>
+            <input
+              class="field__input"
+              type="email"
+              name="email"
+              autocomplete="email"
+              inputmode="email"
+              required
+              spellcheck="false"
+              autocapitalize="none"
+              placeholder="you@institution.edu"
+              data-login-email
+            />
+          </label>
+
+          <label class="remember">
+            <input
+              class="remember__box"
+              type="checkbox"
+              name="remember"
+              value="1"
+              data-login-remember
+            />
+            <span class="remember__text">Remember me on this device for 30 days</span>
+          </label>
+
+          {isDev && (
+            <p class="signin__devchip" role="note">
+              <span class="signin__devchip-tag">Dev</span>
+              Any valid email plus code <code>123456</code> signs in. Use
+              <code>admin@nemar.admin</code> for an admin session.
+            </p>
+          )}
+
+          <button class="signin__submit" type="submit" data-login-submit>
+            Email me a code
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <p class="signin__inline-error" role="alert" data-login-inline-error hidden></p>
+        </form>
+        )}
+
+        <footer class="signin__foot">
+          <p>
+            New to NEMAR? Sign-up requires ORCID and a GitHub handle, and currently
+            runs through the CLI. <a href="/signup">How to create an account</a>.
+            A web sign-up flow is on the way.
+          </p>
+        </footer>
+      </article>
+
+      <aside class="signin__signal" aria-hidden="true">
+        <div class="signin__brain"></div>
+        <div class="signin__stake">
+          <p class="signin__stake-eyebrow">What you&rsquo;re signing into</p>
+          <p class="signin__stake-line">
+            Open neuroscience data. <em>EEG, MEG, iEEG, EMG</em>.
+            BIDS-formatted, with quality reports and HED event annotations.
+          </p>
+          <p class="signin__stake-meta">
+            Hosted by the Swartz Center, UCSD. Funded by the National Institutes of Health.
+          </p>
+        </div>
+        <svg class="signin__trace" viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0 60 Q 30 28 60 60 T 120 60 T 180 60 Q 210 12 240 60 T 300 60 Q 330 92 360 60 T 420 60 Q 450 36 480 60 T 540 60 T 600 60" fill="none" stroke="currentColor" stroke-width="1.5" pathLength="1" stroke-dasharray="1" stroke-dashoffset="0"/>
+        </svg>
+      </aside>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .signin__soon {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4) 0 var(--space-2);
+  }
+  .signin__soon-badge {
+    justify-self: start;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: var(--fw-semibold);
+    color: var(--brand-teal);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 40%, transparent);
+    border-radius: var(--radius-pill);
+    padding: 2px 10px;
+  }
+  .signin__soon-lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .signin__soon-code {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    overflow-x: auto;
+  }
+  .signin {
+    position: relative;
+    isolation: isolate;
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+    /* Light defaults; dark mode override below. */
+    --signin-bg-1: #eef3fb;
+    --signin-bg-2: #f8fafc;
+    --signin-glow: rgb(91 186 213 / 18%);
+    --signin-glow-2: rgb(96 60 186 / 10%);
+    --signin-panel-bg: var(--color-bg);
+    --signin-panel-border: var(--color-border);
+    --signin-signal-fg: rgb(15 23 42 / 55%);
+    --signin-brain-blend: multiply;
+    --signin-brain-filter: invert(1) hue-rotate(180deg) saturate(0.6) brightness(0.9);
+    --signin-brain-opacity: 0.32;
+    --signin-trace: color-mix(in srgb, var(--brand-teal) 70%, transparent);
+
+    background:
+      radial-gradient(ellipse at 18% 8%, var(--signin-glow), transparent 55%),
+      radial-gradient(ellipse at 92% 88%, var(--signin-glow-2), transparent 60%),
+      linear-gradient(180deg, var(--signin-bg-1), var(--signin-bg-2));
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .signin {
+      --signin-bg-1: #060d24;
+      --signin-bg-2: #0a1638;
+      --signin-glow: rgb(91 186 213 / 22%);
+      --signin-glow-2: rgb(96 60 186 / 18%);
+      --signin-panel-bg: rgb(255 255 255 / 4%);
+      --signin-panel-border: rgb(255 255 255 / 10%);
+      --signin-signal-fg: rgb(241 245 249 / 70%);
+      --signin-brain-blend: screen;
+      --signin-brain-filter: hue-rotate(-10deg) saturate(1.1);
+      --signin-brain-opacity: 0.42;
+      --signin-trace: color-mix(in srgb, var(--brand-teal) 90%, transparent);
+    }
+  }
+  :global(:root[data-theme="dark"]) .signin {
+    --signin-bg-1: #060d24;
+    --signin-bg-2: #0a1638;
+    --signin-glow: rgb(91 186 213 / 22%);
+    --signin-glow-2: rgb(96 60 186 / 18%);
+    --signin-panel-bg: rgb(255 255 255 / 4%);
+    --signin-panel-border: rgb(255 255 255 / 10%);
+    --signin-signal-fg: rgb(241 245 249 / 70%);
+    --signin-brain-blend: screen;
+    --signin-brain-filter: hue-rotate(-10deg) saturate(1.1);
+    --signin-brain-opacity: 0.42;
+    --signin-trace: color-mix(in srgb, var(--brand-teal) 90%, transparent);
+  }
+
+  .signin__atmosphere {
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 22% 30%, rgb(91 186 213 / 35%) 50%, transparent 51%),
+      radial-gradient(1px 1px at 75% 18%, rgb(96 60 186 / 30%) 50%, transparent 51%),
+      radial-gradient(1.5px 1.5px at 12% 78%, rgb(91 186 213 / 25%) 50%, transparent 51%),
+      radial-gradient(1px 1px at 88% 70%, rgb(91 186 213 / 30%) 50%, transparent 51%);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .signin__shell {
+    inline-size: 100%;
+    max-inline-size: min(1040px, 100% - 2rem);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-10);
+    align-items: stretch;
+  }
+
+  @media (min-width: 880px) {
+    .signin__shell {
+      grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
+      gap: var(--space-12);
+    }
+  }
+
+  /* ---------- Panel (left column) ---------- */
+  .signin__panel {
+    position: relative;
+    background: var(--signin-panel-bg);
+    border: 1px solid var(--signin-panel-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 6%) inset,
+      0 24px 64px -32px rgb(15 23 42 / 25%),
+      0 2px 4px rgb(15 23 42 / 4%);
+    backdrop-filter: blur(12px);
+    overflow: hidden;
+    animation: signin-rise 480ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  .signin__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    opacity: 0.85;
+  }
+
+  .signin__head {
+    margin-block-end: var(--space-6);
+  }
+  .signin__eyebrow {
+    margin: 0 0 var(--space-2);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .signin__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.015em;
+    margin: 0 0 var(--space-3);
+    line-height: var(--lh-tight);
+  }
+  .signin__title em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .signin__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    font-size: var(--fs-base);
+  }
+
+  .signin__alert {
+    margin: 0 0 var(--space-5);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 32%, transparent);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+
+  /* ---------- Form ---------- */
+  .signin__form {
+    display: grid;
+    gap: var(--space-4);
+    margin-block-start: var(--space-2);
+  }
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .field__input {
+    min-block-size: 48px;
+    padding: 12px var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+  .field__input::placeholder {
+    color: var(--color-fg-subtle);
+  }
+  .field__input:hover:not(:focus) {
+    border-color: var(--color-fg-subtle);
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--brand-teal);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-teal) 22%, transparent);
+  }
+
+  .remember {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    user-select: none;
+  }
+  .remember__box {
+    inline-size: 16px;
+    block-size: 16px;
+    accent-color: var(--brand-teal);
+    cursor: pointer;
+  }
+  .remember__text {
+    line-height: 1.4;
+  }
+
+  .signin__devchip {
+    margin: var(--space-1) 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--brand-teal) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 22%, transparent);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    line-height: 1.55;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: baseline;
+  }
+  .signin__devchip-tag {
+    background: color-mix(in srgb, var(--brand-teal) 22%, transparent);
+    color: var(--brand-teal);
+    font-weight: var(--fw-bold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    font-size: 0.65rem;
+    flex-shrink: 0;
+  }
+  .signin__devchip code {
+    font-family: var(--font-mono);
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    padding: 0 6px;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg);
+    font-size: 0.78rem;
+  }
+
+  .signin__submit {
+    margin-block-start: var(--space-2);
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: none;
+    background: var(--brand-navy);
+    color: #f8fafc;
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    cursor: pointer;
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 0 color-mix(in srgb, var(--brand-teal) 40%, transparent);
+    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+  .signin__submit svg {
+    transition: transform 0.2s ease;
+  }
+  .signin__submit:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--brand-navy) 84%, var(--brand-teal));
+    box-shadow:
+      0 8px 24px -10px rgb(11 26 58 / 50%),
+      0 0 0 6px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .signin__submit:hover:not([disabled]) svg {
+    transform: translateX(3px);
+  }
+  .signin__submit:active:not([disabled]) {
+    transform: translateY(1px);
+  }
+  .signin__submit[disabled] {
+    opacity: 0.6;
+    cursor: progress;
+  }
+
+  .signin__inline-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--fs-sm);
+  }
+
+  .signin__foot {
+    margin-block-start: var(--space-6);
+    padding-block-start: var(--space-5);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .signin__foot p {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .signin__foot a {
+    color: var(--color-link);
+  }
+
+  /* ---------- Signal column (right, desktop only) ---------- */
+  .signin__signal {
+    position: relative;
+    display: none;
+    align-self: stretch;
+    padding: var(--space-8) var(--space-4);
+    overflow: hidden;
+  }
+  @media (min-width: 880px) {
+    .signin__signal {
+      display: grid;
+      grid-template-rows: 1fr auto auto;
+      gap: var(--space-6);
+    }
+  }
+
+  .signin__brain {
+    position: absolute;
+    inset: -10% -10% 30%;
+    background: url("/hero-brain.png") no-repeat center / contain;
+    mix-blend-mode: var(--signin-brain-blend);
+    filter: var(--signin-brain-filter);
+    opacity: var(--signin-brain-opacity);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .signin__stake {
+    position: relative;
+    z-index: 1;
+    align-self: end;
+    color: var(--signin-signal-fg);
+    max-inline-size: 36ch;
+  }
+  .signin__stake-eyebrow {
+    margin: 0 0 var(--space-3);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: var(--fs-xs);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .signin__stake-line {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    line-height: var(--lh-snug);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+  }
+  .signin__stake-line em {
+    font-style: normal;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    font-weight: var(--fw-semibold);
+  }
+  .signin__stake-meta {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--signin-signal-fg);
+    line-height: var(--lh-normal);
+  }
+
+  .signin__trace {
+    position: relative;
+    z-index: 1;
+    inline-size: 100%;
+    block-size: 56px;
+    color: var(--signin-trace);
+  }
+  .signin__trace path {
+    animation: signin-trace 5s ease-in-out infinite;
+  }
+  @keyframes signin-trace {
+    0%, 100% { stroke-dashoffset: 0; }
+    50% { stroke-dashoffset: -0.5; }
+  }
+  @keyframes signin-rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .signin__trace path { animation: none; }
+    .signin__panel { animation: none; }
+  }
+
+  /* ---------- Mobile tuning ---------- */
+  @media (max-width: 879px) {
+    .signin__panel {
+      padding: var(--space-8) var(--space-6) var(--space-6);
+    }
+    .signin__title {
+      font-size: var(--fs-2xl);
+    }
+  }
+</style>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>("[data-login-form]");
+  const emailEl = document.querySelector<HTMLInputElement>("[data-login-email]");
+  const rememberEl = document.querySelector<HTMLInputElement>("[data-login-remember]");
+  const submitEl = document.querySelector<HTMLButtonElement>("[data-login-submit]");
+  const errorEl = document.querySelector<HTMLElement>("[data-login-inline-error]");
+
+  if (form && emailEl && rememberEl && submitEl && errorEl) {
+    const nextPath = form.dataset.next ?? "/";
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = emailEl.value.trim().toLowerCase();
+      if (!email) return;
+      submitEl.disabled = true;
+      errorEl.hidden = true;
+      try {
+        // Same-origin route: in production this proxies to the backend;
+        // in `astro dev` it short-circuits with demo code 123456.
+        const res = await fetch("/api/auth/code/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          let detail = "unknown";
+          try {
+            const data = (await res.json()) as { error?: string };
+            if (data?.error) detail = data.error;
+          } catch {
+            /* keep "unknown" */
+          }
+          errorEl.textContent =
+            detail === "invalid_email"
+              ? "That doesn't look like an email address."
+              : "We couldn't send a code. Try again in a moment.";
+          errorEl.hidden = false;
+          submitEl.disabled = false;
+          return;
+        }
+        const params = new URLSearchParams({
+          email,
+          remember: rememberEl.checked ? "1" : "0",
+        });
+        if (nextPath && nextPath !== "/") params.set("next", nextPath);
+        location.href = `/login/verify?${params.toString()}`;
+      } catch {
+        errorEl.textContent = "Network error. Check your connection and try again.";
+        errorEl.hidden = false;
+        submitEl.disabled = false;
+      }
+    });
+  }
+</script>

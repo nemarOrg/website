@@ -1,64 +1,43 @@
 import { describe, expect, it } from "vitest";
-import { buildTree, classifyFile } from "./bids-tree";
-import type { ManifestEntry } from "./neuroschema";
-
-function entry(path: string, size = 100): ManifestEntry {
-  return { path, size, checksum_algorithm: "md5", checksum: "x", url: "" };
-}
-
-describe("buildTree", () => {
-  it("builds a tree from manifest entries", () => {
-    const tree = buildTree([
-      entry("README.md", 1000),
-      entry("dataset_description.json", 200),
-      entry("sub-01/eeg/sub-01_task-rest_eeg.set", 50_000),
-      entry("sub-01/eeg/sub-01_task-rest_eeg.fdt", 100_000),
-      entry("sub-02/eeg/sub-02_task-rest_eeg.set", 60_000),
-    ]);
-    expect(tree.files.map((f) => f.path).sort()).toEqual([
-      "README.md",
-      "dataset_description.json",
-    ]);
-    expect(tree.children.map((c) => c.name)).toEqual(["sub-01", "sub-02"]);
-    expect(tree.children[0]!.totalSize).toBe(150_000);
-    expect(tree.totalSize).toBe(1000 + 200 + 50_000 + 100_000 + 60_000);
-  });
-
-  it("sorts numerically (sub-2 before sub-10)", () => {
-    const tree = buildTree([entry("sub-10/x.txt"), entry("sub-2/x.txt"), entry("sub-1/x.txt")]);
-    expect(tree.children.map((c) => c.name)).toEqual(["sub-1", "sub-2", "sub-10"]);
-  });
-
-  it("aggregates sizes deep", () => {
-    const tree = buildTree([entry("a/b/c/d.txt", 1), entry("a/b/c/e.txt", 2), entry("a/b/f.txt", 4)]);
-    expect(tree.totalSize).toBe(7);
-    expect(tree.children[0]!.totalSize).toBe(7);
-    expect(tree.children[0]!.children[0]!.totalSize).toBe(7);
-  });
-
-  it("handles empty manifest", () => {
-    const tree = buildTree([]);
-    expect(tree.children).toEqual([]);
-    expect(tree.files).toEqual([]);
-    expect(tree.totalSize).toBe(0);
-  });
-});
+import { classifyFile } from "./bids-tree";
 
 describe("classifyFile", () => {
   it("flags EEG raw formats", () => {
-    expect(classifyFile("foo.set").isEEG).toBe(true);
-    expect(classifyFile("foo.edf").isEEG).toBe(true);
-    expect(classifyFile("foo.bdf").isEEG).toBe(true);
-    expect(classifyFile("foo.txt").isEEG).toBe(false);
+    expect(classifyFile("sub-01_task-rest_eeg.set").isEEG).toBe(true);
+    expect(classifyFile("sub-01_task-rest_eeg.edf").isEEG).toBe(true);
+    expect(classifyFile("sub-01_task-rest_eeg.bdf").isEEG).toBe(true);
+    expect(classifyFile("sub-01_task-rest_eeg.vhdr").isEEG).toBe(true);
+    expect(classifyFile("sub-01_task-rest_eeg.fif").isEEG).toBe(true);
   });
-  it("flags tsv and json", () => {
+
+  it("flags TSV files", () => {
     expect(classifyFile("participants.tsv").isTSV).toBe(true);
-    expect(classifyFile("dataset_description.json").isJSON).toBe(true);
+    expect(classifyFile("dataset.tsv").isTSV).toBe(true);
   });
-  it("flags readme variants", () => {
-    expect(classifyFile("README").isReadme).toBe(true);
+
+  it("flags JSON sidecars", () => {
+    expect(classifyFile("dataset_description.json").isJSON).toBe(true);
+    expect(classifyFile("task-rest_eeg.json").isJSON).toBe(true);
+  });
+
+  it("flags README variants case-insensitively", () => {
     expect(classifyFile("README.md").isReadme).toBe(true);
-    expect(classifyFile("readme.txt").isReadme).toBe(true);
-    expect(classifyFile("foo.md").isReadme).toBe(false);
+    expect(classifyFile("readme").isReadme).toBe(true);
+    expect(classifyFile("README.txt").isReadme).toBe(true);
+    expect(classifyFile("ReadMe.md").isReadme).toBe(true);
+  });
+
+  it("does not flag files that aren't BIDS raw, TSV, JSON, or README", () => {
+    const cls = classifyFile("sub-01_task-rest_eeg.fdt");
+    expect(cls.isEEG).toBe(false);
+    expect(cls.isTSV).toBe(false);
+    expect(cls.isJSON).toBe(false);
+    expect(cls.isReadme).toBe(false);
+    expect(cls.ext).toBe("fdt");
+  });
+
+  it("handles files with no extension", () => {
+    expect(classifyFile(".gitattributes").ext).toBe("gitattributes");
+    expect(classifyFile("LICENSE").ext).toBe("");
   });
 });

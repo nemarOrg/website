@@ -9,12 +9,19 @@ interface Props {
   githubUrl?: string | null;
   /**
    * When true, render an empty skeleton + data attrs and let the client fetch
-   * the rendered README HTML from `/api/dataset/<id>/readme?v=<v>` after page
-   * load. Cuts SSR critical path by ~500–1500 ms.
+   * the README directly from GitHub raw after page load. Cuts SSR critical
+   * path by ~500–1500 ms and avoids the website worker entirely (the partial
+   * endpoint pipeline that hosted /api/dataset/<id>/readme was retired in
+   * #76 — README now comes straight from raw.githubusercontent.com).
    */
   defer?: boolean;
   datasetId?: string;
   version?: string | null;
+  /** owner/repo slug for the GitHub raw fetch. e.g. "nemarDatasets/on005514". */
+  githubRepo?: string | null;
+  /** Optional fallback rendered if GitHub raw returns 404/error. Plain text
+   *  from metadata.description; the client wraps it in a fallback-note shell. */
+  fallbackDescription?: string | null;
 }
 
 const {
@@ -24,13 +31,27 @@ const {
   defer = false,
   datasetId = null,
   version = null,
+  githubRepo = null,
+  fallbackDescription = null,
 } = Astro.props;
 
 const html = !defer && source ? renderMarkdown(source) : null;
+const noscriptHref =
+  defer && githubRepo && version
+    ? `https://raw.githubusercontent.com/${githubRepo}/${encodeURIComponent(version)}/README.md`
+    : null;
 ---
 
 {defer && datasetId && version ? (
-  <article class="readme" data-readme-defer data-id={datasetId} data-version={version} aria-busy="true">
+  <article
+    class="readme"
+    data-readme-defer
+    data-id={datasetId}
+    data-version={version}
+    data-github-repo={githubRepo ?? ""}
+    data-fallback-desc={fallbackDescription ?? ""}
+    aria-busy="true"
+  >
     <div class="readme__skeleton" aria-hidden="true">
       <div class="readme__skeleton-row" style="width: 60%"></div>
       <div class="readme__skeleton-row" style="width: 100%"></div>
@@ -39,7 +60,7 @@ const html = !defer && source ? renderMarkdown(source) : null;
       <div class="readme__skeleton-row" style="width: 70%"></div>
     </div>
     <noscript>
-      <p class="readme__empty">README requires JavaScript. <a href={`/api/dataset/${datasetId}/readme?v=${encodeURIComponent(version)}`}>View raw HTML</a>.</p>
+      <p class="readme__empty">README requires JavaScript.{noscriptHref ? <> <a href={noscriptHref} rel="external">View raw markdown</a>.</> : null}</p>
     </noscript>
   </article>
 ) : (

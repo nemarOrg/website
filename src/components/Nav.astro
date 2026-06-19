@@ -1,17 +1,36 @@
 ---
+import { getSession } from "../lib/auth";
+import { appUrl, hostMode, marketingUrl } from "../lib/host";
 import Brand from "./Brand.astro";
 import ThemeToggle from "./ThemeToggle.astro";
+import UserMenu from "./UserMenu.astro";
 
-const links = [
+const url = new URL(Astro.request.url);
+const pathname = url.pathname;
+const mode = hostMode(url.hostname);
+const session = getSession(Astro.locals);
+
+const marketingLinks = [
   { href: "/about", label: "About" },
   { href: "/discover", label: "Discover" },
-  { href: "/citation-dashboard", label: "Citation Dashboard" },
+  { href: "https://dashboard.nemar.org/citations", label: "Citation Dashboard" },
   { href: "/community", label: "Community" },
-  { href: "/docs", label: "Documentation" },
+  { href: "https://docs.nemar.org", label: "Documentation" },
   { href: "/support", label: "Support" },
 ];
 
-const pathname = new URL(Astro.request.url).pathname;
+// On the app host the primary nav collapses to a single cross-host link
+// back to the public surface so the authed shell stays focused. The
+// marketing host and single-host mode (dev, *.pages.dev previews) both
+// keep the full marketing nav so a QA against one URL still sees every
+// link.
+const links =
+  mode === "app"
+    ? [{ href: marketingUrl("/discover", url.hostname), label: "Explore datasets" }]
+    : marketingLinks;
+
+const showUserMenu = mode !== "marketing";
+const signInHref = appUrl("/login", url.hostname);
 ---
 
 <header class="site-header">
@@ -24,7 +43,11 @@ const pathname = new URL(Astro.request.url).pathname;
             <li>
               <a
                 href={link.href}
-                aria-current={pathname.startsWith(link.href) ? "page" : undefined}
+                aria-current={
+                  link.href.startsWith("/") && pathname.startsWith(link.href)
+                    ? "page"
+                    : undefined
+                }
               >
                 {link.label}
               </a>
@@ -35,7 +58,13 @@ const pathname = new URL(Astro.request.url).pathname;
     </nav>
     <div class="site-header__actions">
       <ThemeToggle />
-      <button class="login-stub" type="button" data-login-stub>Login</button>
+      {
+        showUserMenu ? (
+          <UserMenu session={session} />
+        ) : (
+          <a class="site-header__signin" href={signInHref}>Sign in</a>
+        )
+      }
     </div>
     <button
       class="nav-toggle"
@@ -59,19 +88,6 @@ const pathname = new URL(Astro.request.url).pathname;
     </button>
   </div>
 </header>
-
-<dialog class="login-dialog" data-login-dialog>
-  <h2>Login is moving</h2>
-  <p>
-    Authentication for nemar.org is migrating from the legacy system to the new
-    Cloudflare-backed identity. Until that ships, sign in via the CLI:
-  </p>
-  <pre><code>npm install -g nemar-cli
-nemar login</code></pre>
-  <form method="dialog">
-    <button type="submit" class="dialog-close">Got it</button>
-  </form>
-</dialog>
 
 <style>
   .site-header {
@@ -119,8 +135,10 @@ nemar login</code></pre>
     gap: var(--space-2);
     align-items: center;
   }
-  .login-stub {
-    min-block-size: 44px;
+  .site-header__signin {
+    min-block-size: 40px;
+    display: inline-flex;
+    align-items: center;
     padding: 0 var(--space-5);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
@@ -128,9 +146,10 @@ nemar login</code></pre>
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
     background: transparent;
+    text-decoration: none;
     transition: background 0.15s ease, border-color 0.15s ease;
   }
-  .login-stub:hover {
+  .site-header__signin:hover {
     background: var(--color-bg-elevated);
     border-color: var(--color-fg-muted);
   }
@@ -167,42 +186,6 @@ nemar login</code></pre>
     }
   }
 
-  .login-dialog {
-    max-inline-size: 36rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-elevated);
-    color: var(--color-fg);
-    padding: var(--space-6);
-    font-family: var(--font-sans);
-    font-size: var(--fs-base);
-    line-height: var(--lh-normal);
-  }
-  .login-dialog::backdrop {
-    background: rgb(15 23 42 / 55%);
-  }
-  .login-dialog h2 {
-    font-size: var(--fs-2xl);
-    margin-block-end: var(--space-3);
-  }
-  .login-dialog p {
-    color: var(--color-fg-muted);
-    margin-block-end: var(--space-4);
-  }
-  .login-dialog pre {
-    background: var(--color-bg-subtle);
-    padding: var(--space-4);
-    border-radius: var(--radius-md);
-    overflow-x: auto;
-    margin-block-end: var(--space-4);
-  }
-  .dialog-close {
-    padding: var(--space-2) var(--space-5);
-    border-radius: var(--radius-pill);
-    background: var(--color-fg);
-    color: var(--color-bg);
-    font-weight: var(--fw-medium);
-  }
 </style>
 
 <script>
@@ -211,12 +194,6 @@ nemar login</code></pre>
       const nav = document.querySelector<HTMLElement>(".primary-nav");
       const open = nav?.classList.toggle("is-open") ?? false;
       btn.setAttribute("aria-expanded", String(open));
-    });
-  });
-
-  document.querySelectorAll<HTMLButtonElement>("[data-login-stub]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelector<HTMLDialogElement>("[data-login-dialog]")?.showModal();
     });
   });
 </script>

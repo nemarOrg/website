@@ -57,7 +57,8 @@ function renderInline(escaped: string): string {
   // Bare URL autolinks (only when not already inside an href).
   out = out.replace(
     /(^|[^"\(\[])(https?:\/\/[^\s<>)]+)(?![^<]*>)/g,
-    (_, prefix: string, url: string) => `${prefix}<a href="${safeUrl(url)}" rel="external">${url}</a>`,
+    (_, prefix: string, url: string) =>
+      `${prefix}<a href="${safeUrl(url)}" rel="external">${url}</a>`,
   );
   return out;
 }
@@ -97,8 +98,31 @@ const FENCE_RE = /^```(\S*)\s*$/;
 const HR_RE = /^(\*{3,}|-{3,}|_{3,})\s*$/;
 const ULI_RE = /^\s*[-*]\s+(.+)$/;
 const OLI_RE = /^\s*\d+\.\s+(.+)$/;
+// Lines that are *only* a markdown image. Two shapes show up in real
+// READMEs: a bare image (`![alt](url)`) and a link-wrapping-an-image
+// (`[![alt](img)](href)` — the clickable-DOI-badge pattern OpenNeuro
+// and Zenodo pin at the top of every README). Our zero-dep CommonMark
+// subset doesn't render <img>, so both otherwise paint as raw text and
+// force horizontal overflow on mobile. Stripping at source.
+const STANDALONE_IMAGE_RE = /^[ \t]*!\[[^\]]*\]\([^)]*\)[ \t]*$/;
+const LINKED_IMAGE_RE = /^[ \t]*\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)[ \t]*$/;
+
+/** Strip standalone markdown-image lines from a markdown source. Exposed
+ *  separately from `renderMarkdown` for callers that want to preview the
+ *  cleaned source (e.g. the inline file viewer that injects via innerHTML
+ *  outside the main renderer's flow). Handles both bare-image and
+ *  link-wrapping-image patterns. */
+export function stripStandaloneImages(input: string): string {
+  return input
+    .split("\n")
+    .filter((line) => !STANDALONE_IMAGE_RE.test(line) && !LINKED_IMAGE_RE.test(line))
+    .join("\n");
+}
 
 export function renderMarkdown(input: string): string {
+  // Pre-filter standalone image markdown so a DOI banner at the top of
+  // a README doesn't show as a literal `![DOI](https://...)` blob.
+  const source = stripStandaloneImages(input);
   const state: RenderState = {
     buf: [],
     listStack: [],
@@ -108,14 +132,16 @@ export function renderMarkdown(input: string): string {
     codeBuf: [],
   };
 
-  const lines = input.replace(/\r\n?/g, "\n").split("\n");
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
 
   for (const line of lines) {
     // Code fence state has priority.
     if (state.inCodeFence) {
       if (FENCE_RE.test(line)) {
         const langAttr = state.codeLang ? ` class="language-${escapeHtml(state.codeLang)}"` : "";
-        state.buf.push(`<pre><code${langAttr}>${escapeHtml(state.codeBuf.join("\n"))}</code></pre>`);
+        state.buf.push(
+          `<pre><code${langAttr}>${escapeHtml(state.codeBuf.join("\n"))}</code></pre>`,
+        );
         state.codeBuf.length = 0;
         state.codeLang = "";
         state.inCodeFence = false;

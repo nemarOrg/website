@@ -23,7 +23,7 @@ const { datasetId, version } = Astro.props;
       <div class="tree__skeleton-row"></div>
     </div>
     <noscript>
-      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`/api/dataset/${datasetId}/tree?v=${encodeURIComponent(version)}`}>View raw HTML</a>.</p>
+      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`https://data.nemar.org/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/`} rel="external">View on data.nemar.org</a>.</p>
     </noscript>
   </section>
 ) : (
@@ -36,10 +36,10 @@ const { datasetId, version } = Astro.props;
 )}
 
 <style is:global>
-  /* is:global because the tree HTML can be rendered server-side by the
-     /api/dataset/<id>/tree endpoint and injected client-side, in which case
-     it doesn't carry Astro's component-scope data attribute. .tree__ prefix
-     keeps collision risk low. Keep in sync with BidsDirChildren styles. */
+  /* is:global because the tree HTML is rendered client-side from the JSON
+     dir listing endpoint (data.nemar.org/<id>/<v>/?format=json) and injected
+     into the section, so it doesn't carry Astro's component-scope data
+     attribute. .tree__ prefix keeps collision risk low. */
   .tree {
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
@@ -93,7 +93,8 @@ const { datasetId, version } = Astro.props;
     0% { background-position: 100% 0; }
     100% { background-position: -100% 0; }
   }
-  .tree__list {
+  .tree__list,
+  .tree__children {
     list-style: none;
     padding: 0;
     margin: 0;
@@ -101,17 +102,26 @@ const { datasetId, version } = Astro.props;
   .tree__list--root {
     border-block-end: 1px solid var(--color-border);
   }
+  /* Empty placeholder where a subdirectory's children get injected on
+     first <details> toggle. No special styling; once filled it contains
+     a normal .tree__children ul that picks up the rules above. */
+  .tree__lazy {
+    /* nothing — content slot */
+  }
   .tree__row {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    padding: 8px var(--space-5);
+    padding: var(--space-3) var(--space-5);
+    min-block-size: 40px;
     font-size: var(--fs-sm);
     border-block-start: 1px solid var(--color-border);
   }
-  .tree__list--root .tree__row:first-child {
-    border-block-start: none;
-  }
+  /* The old `.tree__list--root .tree__row:first-child` no-top-border rule
+     was retired in #85: root file rows are now wrapped in a
+     `<li class="tree__file-wrap">`, so the `:first-child` selector doesn't
+     match the row anymore. The replacement selector below targets the new
+     shape (`.tree__list--root > .tree__file-wrap:first-child > .tree__row`). */
   .tree__row--dir {
     cursor: pointer;
     background: var(--color-bg);
@@ -176,6 +186,39 @@ const { datasetId, version } = Astro.props;
     color: var(--color-fg-muted);
     font-family: var(--font-mono);
   }
+  .tree__tag--signal {
+    background: color-mix(in srgb, var(--color-link) 16%, var(--color-bg-subtle));
+    color: var(--color-link);
+  }
+  /* "Show next N" footer. Rendered by render-dir-listing when the dir count
+     exceeds DEFAULT_DIR_CHUNK_SIZE (50). Removed by the click handler after
+     the final chunk is revealed. */
+  .tree__more {
+    padding: var(--space-3) var(--space-5);
+    border-block-start: 1px solid var(--color-border);
+    display: flex;
+    justify-content: center;
+    background: var(--color-bg-elevated);
+  }
+  .tree__more-btn {
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .tree__more-btn:hover {
+    background: var(--color-bg);
+    border-color: color-mix(in srgb, var(--color-fg-subtle) 40%, transparent);
+  }
+  .tree__more-counter {
+    color: var(--color-fg-subtle);
+    margin-inline-start: var(--space-2);
+    font-variant-numeric: tabular-nums;
+  }
   /* Empty-state banner shown when the tree endpoint returns no manifest. */
   .detail__no-manifest {
     padding: var(--space-6);
@@ -195,5 +238,566 @@ const { datasetId, version } = Astro.props;
     background: var(--color-bg-subtle);
     padding: 1px 6px;
     border-radius: var(--radius-sm);
+  }
+  /* File wrap: structural <li> that contains the row + the lazy preview
+     slot. The row inside is a <div class="tree__row">, so the existing
+     row-style rules above still apply unchanged. */
+  .tree__file-wrap {
+    display: flex;
+    flex-direction: column;
+  }
+  /* The first row of the root file list still loses its top border, but
+     now the rule has to walk through the new <li> wrapper. */
+  .tree__list--root > .tree__file-wrap:first-child > .tree__row {
+    border-block-start: none;
+  }
+  /* Preview-name button. Sized as a flex item that fills the same column
+     the old `<a class="tree__name">` did. Earlier drafts used
+     `display: contents`, but that breaks the accessibility tree on Safari
+     < 17.4 (WebKit bug 230700 — the button becomes invisible to
+     VoiceOver). Using `display: inline-flex` + `flex: 1` keeps the button
+     in the AX tree everywhere and still preserves the row's flex layout. */
+  .tree__preview-btn {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: start;
+    display: inline-flex;
+    align-items: center;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .tree__preview-btn:hover .tree__name {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .tree__preview-btn[data-zarr-available="false"] .tree__name {
+    color: var(--color-fg-subtle);
+  }
+  .tree__preview-btn:focus-visible .tree__name {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  /* Download icon link. Hidden by default; revealed on row hover or when
+     the row is keyboard-focused (per the user's preference for the
+     quieter visual). Reserves layout width so the row width doesn't jump
+     on hover. */
+  .tree__dl {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 28px;
+    block-size: 28px;
+    margin-inline-start: var(--space-2);
+    color: var(--color-fg-subtle);
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+  }
+  .tree__file-wrap:hover .tree__dl,
+  .tree__file-wrap:focus-within .tree__dl,
+  .tree__dl:focus {
+    opacity: 1;
+  }
+  .tree__dl:hover {
+    color: var(--color-fg);
+    background: var(--color-bg-elevated);
+  }
+  .tree__dl:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+  }
+  /* Lazy preview panel. Sits as a sibling <div> under the row inside the
+     same <li>. Hidden via the `hidden` attribute until the user clicks. */
+  .tree__preview {
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+    padding: var(--space-4) var(--space-5);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    max-block-size: 480px;
+    overflow: auto;
+  }
+  .tree__preview[hidden] { display: none; }
+  /* Markdown preview prose. Distinct from .readme__ so the dataset-header
+     README component's styles don't bleed in. */
+  .preview__md {
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+  }
+  .preview__md > :first-child { margin-block-start: 0; }
+  .preview__md p { margin-block: var(--space-2); color: var(--color-fg-muted); }
+  .preview__md h1,
+  .preview__md h2,
+  .preview__md h3 {
+    color: var(--color-fg);
+    margin-block: var(--space-3) var(--space-1);
+  }
+  .preview__md code {
+    background: var(--color-bg-subtle);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    font-size: 0.92em;
+  }
+  .preview__md pre {
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    overflow-x: auto;
+  }
+  .preview__md a { color: var(--color-link); }
+  .preview__md ul,
+  .preview__md ol { padding-inline-start: var(--space-5); }
+  /* JSON preview. Pre-formatted; line-by-line color tokens. */
+  .preview__json {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    line-height: 1.6;
+    white-space: pre;
+    color: var(--color-fg-muted);
+  }
+  .preview__json .json-key { color: var(--color-fg); font-weight: var(--fw-medium); }
+  .preview__json .json-str { color: var(--brand-teal); }
+  .preview__json .json-num { color: var(--brand-purple); }
+  .preview__json .json-kw  { color: var(--color-fg-subtle); font-style: italic; }
+  /* TSV preview. Sticky-header table that horizontally scrolls when wide. */
+  .preview__tsv { overflow-x: auto; }
+  .preview__tsv-table {
+    border-collapse: collapse;
+    font-size: var(--fs-xs);
+    font-family: var(--font-mono);
+    inline-size: max-content;
+    min-inline-size: 100%;
+  }
+  .preview__tsv-table th {
+    position: sticky;
+    inset-block-start: 0;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    padding: 4px var(--space-3);
+    text-align: start;
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+    white-space: nowrap;
+  }
+  .preview__tsv-table td {
+    border: 1px solid var(--color-border);
+    padding: 4px var(--space-3);
+    color: var(--color-fg-muted);
+    white-space: nowrap;
+  }
+  .preview__tsv-table tr:nth-child(even) td { background: var(--color-bg-subtle); }
+  .preview__tsv-more {
+    margin-block-start: var(--space-3);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+    text-align: center;
+  }
+  .preview__tsv-more-btn {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .preview__tsv-more-btn:hover {
+    background: var(--color-bg);
+  }
+  /* Shared preview state messages. */
+  .preview__empty,
+  .preview__loading,
+  .preview__soon,
+  .preview__too-large {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .preview__error {
+    margin: 0;
+    color: var(--color-warning);
+    font-size: var(--fs-sm);
+  }
+  /* Lazy subject-subtree failure state. Distinguishes a transient fetch
+     error from regular tree content so the user reads it as a retry
+     prompt, not as a file row. Sits inside [data-subject-target]. */
+  .tree__error {
+    margin: var(--space-2) 0 var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    color: var(--color-fg-muted);
+    background: color-mix(in srgb, var(--color-warning) 8%, var(--color-bg));
+    border-inline-start: 2px solid color-mix(in srgb, var(--color-warning) 50%, transparent);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-sm);
+  }
+
+  /* --- Zarr signal viewer: a clinical "scope" panel, mounted client-side into
+     the preview slot. All colors come from design tokens so it tracks light/dark
+     and stays homogeneous with the rest of the dataset page. --- */
+  .eegv {
+    --eegv-accent: var(--color-link);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 8px);
+  }
+  .eegv:focus {
+    outline: none;
+  }
+  .eegv:focus-visible {
+    outline: 2px solid var(--eegv-accent);
+    outline-offset: 1px;
+  }
+  .eegv__msg {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .eegv__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+  .eegv__group {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .eegv__group + .eegv__group {
+    padding-inline-start: var(--space-3);
+    border-inline-start: 1px solid var(--color-border);
+  }
+  .eegv__group-label {
+    font-size: 9px;
+    font-weight: var(--fw-semibold, 600);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-fg-subtle);
+  }
+  .eegv__group-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .eegv__btn {
+    min-inline-size: 26px;
+    padding: 3px 7px;
+    cursor: pointer;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font: inherit;
+    line-height: 1.2;
+  }
+  .eegv__btn:hover {
+    background: var(--color-bg-elevated, var(--color-bg));
+    border-color: var(--eegv-accent);
+  }
+  .eegv__btn:active {
+    transform: translateY(0.5px);
+  }
+  .eegv__btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* Active state for toggle buttons (e.g. the topomap toggle). */
+  .eegv__btn--active {
+    color: var(--eegv-accent);
+    border-color: var(--eegv-accent);
+    background: color-mix(in srgb, var(--eegv-accent) 10%, var(--color-bg));
+  }
+  .eegv__topo-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-block: 2px;
+  }
+  .eegv__field {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-fg-muted);
+    cursor: pointer;
+  }
+  .eegv__sel {
+    font: inherit;
+    padding: 2px 4px;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+  /* Settings (gear) popover: the set-once filter + display controls live here so the
+     primary toolbar stays minimal. The gear is pushed to the far end of the bar. */
+  .eegv__settings {
+    position: relative;
+    margin-inline-start: auto;
+  }
+  .eegv__gear {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 32px;
+    block-size: 32px;
+    padding: 0;
+    cursor: pointer;
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+  .eegv__gear:hover {
+    color: var(--color-fg);
+    border-color: var(--eegv-accent);
+  }
+  .eegv__gear--open {
+    color: var(--eegv-accent);
+    border-color: var(--eegv-accent);
+  }
+  .eegv__gear--active::after {
+    content: "";
+    position: absolute;
+    inset-block-start: 4px;
+    inset-inline-end: 4px;
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 50%;
+    background: var(--eegv-accent);
+  }
+  .eegv__menu {
+    /* Hidden by default from the stylesheet (not only the inline style), so the
+       closed state survives if the inline style is ever stripped; setMenu() toggles
+       the inline display between flex and none. */
+    display: none;
+    position: absolute;
+    inset-inline-end: 0;
+    inset-block-start: calc(100% + 6px);
+    z-index: 20;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    min-inline-size: 232px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 10px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  }
+  /* Inside the popover the groups stack vertically with a top rule between them,
+     replacing the horizontal divider the toolbar layout uses. */
+  .eegv__menu .eegv__group {
+    display: flex;
+  }
+  .eegv__menu .eegv__group + .eegv__group {
+    padding-inline-start: 0;
+    border-inline-start: none;
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .eegv__menu .eegv__group-row {
+    flex-wrap: wrap;
+  }
+  .eegv__readout {
+    min-inline-size: 10ch;
+    padding-inline: 4px;
+    text-align: center;
+    color: var(--color-fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .eegv__plot {
+    position: relative; /* positioning context for the cursor overlay */
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+  }
+  /* Scope frame: the positioned box holding the WebGL trace layer + the 2D chrome
+     layer stacked on top. The border/background live here; the canvases fill it. */
+  .eegv__scope {
+    position: relative;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden; /* clip the square-cornered canvases to the rounded frame */
+  }
+  .eegv__glcanvas,
+  .eegv__canvas {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    display: block;
+  }
+  /* GL (background + traces) underneath; 2D chrome (transparent) on top. */
+  .eegv__glcanvas { z-index: 0; }
+  .eegv__canvas { z-index: 1; }
+  /* Topomap split-panel: appears to the right of the scope when toggled; the scope
+     canvas (flex:1) shrinks to make room. JS sizes the square topo canvas inside. */
+  .eegv__topo {
+    flex: 0 0 33.333%;
+    min-inline-size: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+  }
+  .eegv__topo-canvas {
+    display: block;
+    max-inline-size: 100%;
+  }
+  .eegv__topo-scale {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    inline-size: 86%;
+  }
+  .eegv__topo-bar {
+    flex: 1 1 auto;
+    block-size: 7px;
+    border-radius: 3px;
+  }
+  .eegv__topo-end {
+    flex: 0 0 auto;
+    font-size: 9px;
+    color: var(--color-fg-muted);
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .eegv__topo-info {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .eegv__vscroll {
+    flex: 0 0 auto;
+    inline-size: 12px;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    accent-color: var(--eegv-accent);
+    cursor: pointer;
+    display: none;
+  }
+  /* The vertical channel scrollbar only exists once you zoom past the full
+     montage into a portion -- "see all" needs no scroll, "inspect a slice" does. */
+  .eegv__plot--scroll .eegv__vscroll {
+    display: block;
+  }
+  .eegv__hscroll {
+    inline-size: 100%;
+    block-size: 14px;
+    margin-block-start: 2px;
+    accent-color: var(--eegv-accent);
+    cursor: pointer;
+  }
+  .eegv__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    /* Compact scrollable table of event types: descriptions can be many, so scroll
+       rather than grow the viewer. */
+    max-block-size: 58px;
+    overflow-y: auto;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  .eegv__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .eegv__dot {
+    inline-size: 9px;
+    block-size: 9px;
+    border-radius: 2px;
+  }
+  .eegv__status {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Floating readout tucked into the scope's bottom-right corner: the JS sets its
+     text on hover and clears it on leave, so :empty hides it. Out of flow (absolute)
+     so it never resizes the scope; pointer-events:none so it can't block canvas hover. */
+  .eegv__cursor {
+    position: absolute;
+    inset-block-end: 8px;
+    inset-inline-end: 20px;
+    z-index: 5;
+    max-inline-size: min(60%, 340px);
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+    border: 1px solid var(--color-border);
+    backdrop-filter: blur(2px);
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    pointer-events: none;
+  }
+  .eegv__cursor:empty {
+    display: none;
+  }
+  .eegv__minimap {
+    inline-size: 100%;
+    block-size: 44px;
+    display: block;
+    cursor: pointer;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    margin-block-start: 2px;
+  }
+  .eegv__help {
+    position: absolute;
+    inset-inline-end: var(--space-3);
+    inset-block-start: 40px;
+    z-index: 10;
+    background: var(--color-bg-elevated, var(--color-bg));
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    padding: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+  .eegv__help-inner ul {
+    margin: var(--space-2) 0 0;
+    padding-inline-start: 1.2em;
+  }
+  .eegv__help-inner li {
+    margin-block-end: 4px;
+  }
+  .eegv__help-inner kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    padding: 1px 4px;
   }
 </style>

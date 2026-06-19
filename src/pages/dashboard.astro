@@ -1,0 +1,381 @@
+---
+import ConfirmDialog from "../components/ConfirmDialog.astro";
+import DashboardTour from "../components/DashboardTour.astro";
+import MyDatasetCard from "../components/MyDatasetCard.astro";
+import Base from "../layouts/Base.astro";
+import { getSession } from "../lib/auth";
+import { isCollaboratorManager } from "../lib/collaborators-api";
+import {
+  DashboardApiError,
+  type PublicationStatus,
+  getPublishStatus,
+  listMyDatasets,
+} from "../lib/dashboard-api";
+import type { Dataset } from "../lib/types";
+
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/dashboard")}`);
+}
+
+const url = new URL(Astro.request.url);
+const limit = 50;
+const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+
+// SSR: forward the request's cookie so the backend resolves the session.
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+
+let datasets: Dataset[] = [];
+let total = 0;
+let listError: string | null = null;
+try {
+  const result = await listMyDatasets({ limit, offset }, { cookieHeader });
+  datasets = result.datasets;
+  total = result.total_count;
+} catch (err) {
+  listError =
+    err instanceof DashboardApiError
+      ? `Could not load your datasets (${err.status}). Try refreshing.`
+      : err instanceof Error
+        ? err.message
+        : "Could not load your datasets.";
+}
+
+// Fan-out publish-status lookups in parallel: one request per visible
+// dataset. Acceptable while page limits cap this at 50 datasets per render.
+const statuses: Record<string, PublicationStatus | null> = {};
+let statusFetchFailures = 0;
+let statusSessionExpired = false;
+await Promise.all(
+  datasets.map(async (d) => {
+    try {
+      statuses[d.dataset_id] = await getPublishStatus(d.dataset_id, { cookieHeader });
+    } catch (err) {
+      console.warn(`[dashboard] getPublishStatus failed for ${d.dataset_id}`, err);
+      statuses[d.dataset_id] = null;
+      // A 401 means the cookie is dead, not that the network blipped. The
+      // correct action is signing in again, not refreshing the same dashboard.
+      if (err instanceof DashboardApiError && err.status === 401) {
+        statusSessionExpired = true;
+      } else {
+        statusFetchFailures += 1;
+      }
+    }
+  }),
+);
+
+const pendingNotice =
+  session.user.status === "pending"
+    ? "Your account is still under admin review. Most actions are locked until you're approved."
+    : null;
+---
+
+<Base
+  title="My datasets"
+  description="Manage the datasets you've uploaded to NEMAR."
+>
+  <section class="dashboard-shell">
+    <header class="dashboard-header">
+      <div>
+        <h1 class="dashboard-header__title">My datasets</h1>
+        <p class="dashboard-header__lede">
+          {total === 0
+            ? "No datasets yet."
+            : `${total} dataset${total === 1 ? "" : "s"} owned by you.`}
+        </p>
+      </div>
+      <a class="dashboard-header__cta" href="/upload" data-tour-target="upload">Upload dataset</a>
+    </header>
+
+    {pendingNotice && (
+      <p class="dashboard-notice" role="status">{pendingNotice}</p>
+    )}
+
+    {listError && (
+      <p class="dashboard-error" role="alert">{listError}</p>
+    )}
+
+    {statusSessionExpired && (
+      <p class="dashboard-error" role="alert">
+        Your session expired while loading. <a href={`/login?next=${encodeURIComponent("/dashboard")}`}>Sign in again</a> to refresh.
+      </p>
+    )}
+
+    {statusFetchFailures > 0 && !statusSessionExpired && (
+      <p class="dashboard-notice" role="status">
+        Publication status didn&rsquo;t load for {statusFetchFailures} dataset{statusFetchFailures === 1 ? "" : "s"}. Badges may be stale; refresh to retry.
+      </p>
+    )}
+
+    {!listError && datasets.length === 0 ? (
+      <div class="dashboard-empty">
+        <h2 class="dashboard-empty__title">You haven&rsquo;t uploaded any datasets yet</h2>
+        <p class="dashboard-empty__body">
+          Drop a BIDS folder on the upload page and we&rsquo;ll create your first dataset.
+        </p>
+        <a class="dashboard-empty__cta" href="/upload">Upload your first dataset</a>
+      </div>
+    ) : (
+      <ul class="dashboard-list" role="list">
+        {datasets.map((d: Dataset, i: number) => (
+          <li>
+            <MyDatasetCard
+              dataset={d}
+              publishStatus={statuses[d.dataset_id]}
+              canManage={isCollaboratorManager(session, d)}
+              {...(i === 0 ? { "data-tour-target": "first-card" } : {})}
+            />
+          </li>
+        ))}
+      </ul>
+    )}
+
+    <p class="dashboard-action-error" role="alert" data-dashboard-action-error hidden></p>
+  </section>
+
+  <ConfirmDialog
+    dialogId="dashboard-request-publication"
+    title="Request publication review?"
+    body="An admin will review the dataset's BIDS validation and approve or block it. You'll get an email when there's a decision."
+    confirmLabel="Request review"
+    confirmTone="primary"
+  />
+
+  <ConfirmDialog
+    dialogId="dashboard-delete-dataset"
+    title="Delete this draft?"
+    body="This removes the dataset and its files from NEMAR. The action can't be undone."
+    confirmLabel="Delete dataset"
+    confirmTone="danger"
+    requireTyping="DELETE"
+  />
+
+  {datasets.length > 0 && <DashboardTour />}
+</Base>
+
+<style>
+  .dashboard-shell {
+    max-inline-size: 64rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .dashboard-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .dashboard-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: 0 0 var(--space-1);
+  }
+  .dashboard-header__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .dashboard-header__cta {
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+  }
+  .dashboard-header__cta:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .dashboard-notice {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .dashboard-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .dashboard-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .dashboard-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .dashboard-empty__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    max-inline-size: 32rem;
+  }
+  .dashboard-empty__cta {
+    margin-block-start: var(--space-2);
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+  }
+  .dashboard-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .dashboard-action-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  import {
+    DashboardApiError,
+    deleteDraftDataset,
+    requestPublication,
+  } from "../lib/dashboard-api";
+
+  const errorEl = document.querySelector<HTMLElement>("[data-dashboard-action-error]");
+
+  const ERROR_MESSAGES: Record<string, string> = {
+    already_in_flight: "A review request is already in progress for this dataset.",
+    already_published: "This dataset is already published.",
+    not_deletable: "This dataset can't be deleted in its current state.",
+    not_found: "Dataset not found.",
+    bad_content_type: "Couldn't process the request. Refresh and try again.",
+    unauthenticated: "Sign in again to continue.",
+    internal_error: "Server error. Try again in a moment.",
+    // Returned by /api/v1/* when the upstream api.nemar.org fetch throws
+    // (network failure, DNS, Worker-to-backend disruption). Distinct from
+    // a backend 502 — this one is the worker → backend hop failing.
+    upstream_unreachable: "Can't reach the dataset service. Try again in a moment.",
+  };
+
+  function friendlyError(err: unknown): string {
+    if (err instanceof DashboardApiError && err.code && ERROR_MESSAGES[err.code]) {
+      return ERROR_MESSAGES[err.code];
+    }
+    return err instanceof Error ? err.message : "Something went wrong.";
+  }
+
+  function showError(msg: string): void {
+    if (!errorEl) return;
+    errorEl.hidden = false;
+    errorEl.textContent = msg;
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  let pending:
+    | { kind: "request"; datasetId: string }
+    | { kind: "delete"; datasetId: string; datasetName: string }
+    | null = null;
+  let actionInFlight = false;
+
+  function openDialog(dialogId: string): void {
+    document.dispatchEvent(
+      new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", {
+        detail: { dialogId },
+      }),
+    );
+  }
+
+  function queueAction(next: NonNullable<typeof pending>): void {
+    if (actionInFlight) return;
+    if (pending) {
+      console.warn("[dashboard] overwriting un-confirmed pending action", pending);
+    }
+    pending = next;
+    clearError();
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("[data-request-publication]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.datasetId;
+      if (!id) return;
+      queueAction({ kind: "request", datasetId: id });
+      openDialog("dashboard-request-publication");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-delete-dataset]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.datasetId;
+      const name = btn.dataset.datasetName;
+      if (!id || !name) return;
+      queueAction({ kind: "delete", datasetId: id, datasetName: name });
+      openDialog("dashboard-delete-dataset");
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const e = evt as CustomEvent<{ dialogId: string }>;
+    if (!pending) return;
+
+    if (e.detail.dialogId === "dashboard-request-publication" && pending.kind === "request") {
+      const target = pending;
+      pending = null;
+      actionInFlight = true;
+      try {
+        await requestPublication(target.datasetId);
+        location.reload();
+      } catch (err) {
+        showError(`Couldn't request publication: ${friendlyError(err)}`);
+        actionInFlight = false;
+      }
+      return;
+    }
+    if (e.detail.dialogId === "dashboard-delete-dataset" && pending.kind === "delete") {
+      const target = pending;
+      pending = null;
+      actionInFlight = true;
+      try {
+        await deleteDraftDataset(target.datasetId);
+        location.reload();
+      } catch (err) {
+        showError(`Couldn't delete: ${friendlyError(err)}`);
+        actionInFlight = false;
+      }
+      return;
+    }
+    console.error(
+      "[dashboard] confirm-dialog event did not match queued pending action",
+      e.detail.dialogId,
+      pending,
+    );
+  });
+</script>

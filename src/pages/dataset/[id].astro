@@ -1,20 +1,27 @@
 ---
 import ActionBar from "../../components/ActionBar.astro";
 import BidsTree from "../../components/BidsTree.astro";
+import DatasetTabs from "../../components/DatasetTabs.astro";
 import DetailRail from "../../components/DetailRail.astro";
-import ModalityBadge from "../../components/ModalityBadge.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
-import QualityPanel from "../../components/QualityPanel.astro";
 import Readme from "../../components/Readme.astro";
+import Tag from "../../components/Tag.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
-import { getDataset, resolveCanonical } from "../../lib/api";
+import { resolveCanonical } from "../../lib/api";
 import { datasetCitation } from "../../lib/cite";
 import { ORG_DATASETS } from "../../lib/constants";
-import { archiveZipUrl, getLanding, getMetadata } from "../../lib/data-api";
+import {
+  archiveZipUrl,
+  getLandingOutcome,
+  getMetadataOutcome,
+  isUnpublished,
+  outcomeValue,
+  resolveDatasetPageStatus,
+} from "../../lib/data-api";
 import { splitModalities } from "../../lib/format";
 import { detectProvenance } from "../../lib/provenance";
-import { getQaAggregates } from "../../lib/qa";
+import { modalityHref } from "../../lib/tags";
 
 const { id } = Astro.params;
 if (!id) {
@@ -34,65 +41,56 @@ if (/^ds\d{6}$/.test(id)) {
 
 const versionParam = url.searchParams.get("v");
 
-// Fan out the landing, metadata, and catalog-row fetches in parallel.
-// The catalog row (api.nemar.org/datasets/<id>) is the fallback for
-// fields that the neuroschema metadata.json doesn't populate yet on
-// OpenNeuro-imported datasets (license, modalities, tasks, etc.).
-// QA aggregates fetch tolerates 404s by returning null; QualityPanel renders
-// nothing when no data is available, so this is safe for datasets without
-// pipeline output yet.
-const [landing, metadata, catalogRow, qaAggregates] = await Promise.all([
-  getLanding(id),
-  getMetadata(id),
-  getDataset(id).catch(() => null),
-  getQaAggregates(id).catch(() => null),
+// SSR fan-out: landing + metadata only. The qa/ tree walk used to run here
+// but burned 5–28 s on HBN-sized datasets (see #81). Demographics now
+// hydrates client-side from participants.tsv, and the Data quality tab is
+// a "coming soon" placeholder until nemar-cli#511 ships a precomputed
+// static aggregate JSON we can fetch cheaply on tab click.
+const [landingOut, metadataOut] = await Promise.all([
+  getLandingOutcome(id),
+  getMetadataOutcome(id),
 ]);
 
-if (!landing || !metadata) {
-  Astro.response.status = 404;
-  Astro.response.headers.set("Cache-Control", "no-store");
-  return new Response(null, { status: 404 });
+// 404 only when BOTH signals independently report missing — a single not_found
+// could be a partial publish or a transient data-layer hiccup. Anything else
+// non-ok is degraded (503) so monitoring distinguishes "typo'd URL" from "data
+// layer down." Cache-Control is on the actual Response, not Astro.response,
+// because Astro returns the inner object verbatim and the header set on the
+// outer one never reaches the edge — Cloudflare would otherwise cache the
+// transient 404/503 stickily.
+const status = resolveDatasetPageStatus(landingOut, metadataOut);
+if (status.kind === "not_found") {
+  return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+}
+if (status.kind === "degraded") {
+  console.warn(`[dataset/${id}] ${status.signal} fetch failed: ${status.outcome}`);
+  return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });
 }
 
-// Merge sparse metadata with catalog row when neuroschema fields are empty.
-// The catalog has license, modalities, tasks, authors as CSV strings — we
-// split them into the array shape DetailRail expects.
+const landing = outcomeValue(landingOut);
+const metadata = outcomeValue(metadataOut);
+if (!landing || !metadata) {
+  // Type-narrowing safety net: resolveDatasetPageStatus already returned
+  // above for every non-ok combination, but TypeScript can't see through
+  // the discriminant. Log loudly if it ever fires — it shouldn't.
+  console.error(
+    `[dataset/${id}] safety-net 500: landing=${landingOut.kind} metadata=${metadataOut.kind}`,
+  );
+  return new Response(null, { status: 500, headers: { "Cache-Control": "no-store" } });
+}
+
+// `metadata.json` is the single source of truth for license, modalities,
+// tasks, and authors post-#78. Null-coalesce so DetailRail can render its
+// existing empty states without each consumer re-checking for undefined.
 const enrichedMetadata = {
   ...metadata,
-  license: metadata.license || catalogRow?.doi ? metadata.license : null,
-  recording_modality:
-    (metadata.recording_modality?.length ?? 0) > 0
-      ? metadata.recording_modality
-      : catalogRow?.modalities
-        ? catalogRow.modalities
-            .split(",")
-            .map((m) => m.trim())
-            .filter(Boolean)
-        : [],
-  tasks:
-    (metadata.tasks?.length ?? 0) > 0
-      ? metadata.tasks
-      : catalogRow?.tasks
-        ? catalogRow.tasks
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : [],
-  authors:
-    (metadata.authors?.length ?? 0) > 0
-      ? metadata.authors
-      : catalogRow?.authors
-        ? catalogRow.authors
-            .split(",")
-            .map((name) => ({
-              name: name.trim(),
-              name_type: "Personal" as const,
-              orcid: null,
-              affiliations: [],
-            }))
-            .filter((a) => a.name)
-        : [],
+  license: metadata.license || null,
+  recording_modality: metadata.recording_modality ?? [],
+  tasks: metadata.tasks ?? [],
+  authors: metadata.authors ?? [],
 };
+
+const unpublished = isUnpublished(landing);
 
 const selectedVersion =
   versionParam && landing.versions.some((v) => v.version === versionParam)
@@ -116,10 +114,10 @@ const cite = datasetDoi
     }
   : null;
 
-// README and BIDS tree fetches are deferred to the client (see
-// /api/dataset/[id]/readme.ts and tree.ts). SSR critical path now only awaits
-// landing + metadata + catalog row, so the header renders in ~300 ms instead
-// of waiting on the manifest/GitHub waterfall.
+// README and BIDS tree hydrate client-side (see the <script> block at the
+// bottom of this file): README from raw.githubusercontent.com directly,
+// tree from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636). SSR
+// critical path only awaits landing + metadata + catalog row + QA.
 
 const provenance = detectProvenance(metadata, landing);
 const modalities = enrichedMetadata.recording_modality.length
@@ -127,9 +125,22 @@ const modalities = enrichedMetadata.recording_modality.length
   : splitModalities("");
 
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
+// Owner/repo slug for the client-side GitHub raw fetch. Strips the
+// `https://github.com/` prefix + any trailing slash + any `.git` suffix
+// so raw.githubusercontent.com/<slug>/<version>/README.md resolves.
+// Falls back to `${ORG_DATASETS}/${id}` (the same default used for
+// githubUrl) when metadata doesn't specify a repo.
+// Trailing-slash strip MUST run before the `.git` strip — a URL ending in
+// `.git/` would otherwise leave `.git` in the slug because the `$` anchor
+// requires the literal to be the final char.
+const githubRepoSlug = githubUrl
+  .replace(/^https?:\/\/github\.com\//, "")
+  .replace(/\/$/, "")
+  .replace(/\.git$/, "");
 const issuesUrl = `${githubUrl}/issues`;
 const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
+const ogImageVersion = String(import.meta.env.CF_PAGES_COMMIT_SHA ?? "static-v1").slice(0, 12);
 
 // Edge-cache aggressively: dataset detail rarely changes within a window. Cloudflare
 // honors s-maxage at the edge; max-age stays short so browsers re-validate on nav.
@@ -143,6 +154,11 @@ Astro.response.headers.set(
 <Base
   title={metadata.name}
   description={metadata.description ?? `${id} dataset on NEMAR`}
+  image={`/og/dataset-card/${encodeURIComponent(id)}.png?v=${encodeURIComponent(ogImageVersion)}`}
+  imageType="image/png"
+  imageWidth={1200}
+  imageHeight={800}
+  imageAlt={`${metadata.name} dataset summary card on NEMAR.`}
   ogType="article"
 >
   <article class="detail">
@@ -162,16 +178,32 @@ Astro.response.headers.set(
       </div>
       <h1 class="detail__title">{metadata.name}</h1>
       {metadata.description && metadata.description !== metadata.name && (
-        <p class="detail__lede">{metadata.description}</p>
+        <section class="detail__lede-card" data-detail-lede>
+          <p class="detail__lede">{metadata.description}</p>
+          <span
+            class="detail__lede-ai"
+            role="img"
+            aria-label="AI-generated description, may include mistakes"
+            title="AI-generated description, may include mistakes"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            <span class="visually-hidden">AI-generated description, may include mistakes</span>
+          </span>
+        </section>
       )}
       <div class="detail__chips">
-        {modalities.map((m) => <ModalityBadge modality={m} size="md" />)}
+        {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
       </div>
       <div class="detail__actions">
         <ActionBar
           datasetId={id}
           version={selectedVersion}
           archiveUrl={archiveUrl}
+          archive={landing.archive ?? null}
           issuesUrl={issuesUrl}
           githubUrl={githubUrl}
           openneuroId={openneuroId}
@@ -189,10 +221,29 @@ Astro.response.headers.set(
 
     <div class="container detail__body">
       <div class="detail__main">
-        <Readme defer datasetId={id} version={selectedVersion} />
-        <QualityPanel aggregates={qaAggregates} hedSummary={null} />
-        {selectedVersion && (
-          <BidsTree datasetId={id} version={selectedVersion} />
+        {unpublished ? (
+          <div class="detail__unpublished">
+            <h2>Not yet published</h2>
+            <p>This dataset has been registered but no published version is available yet. Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</p>
+          </div>
+        ) : (
+          <>
+            <Readme
+              defer
+              datasetId={id}
+              version={selectedVersion}
+              githubRepo={githubRepoSlug}
+              fallbackDescription={
+                metadata.description && metadata.description !== metadata.name
+                  ? metadata.description
+                  : null
+              }
+            />
+            <DatasetTabs datasetId={id} version={selectedVersion} />
+            {selectedVersion && (
+              <BidsTree datasetId={id} version={selectedVersion} />
+            )}
+          </>
         )}
       </div>
       <DetailRail metadata={enrichedMetadata} cite={cite} />
@@ -201,43 +252,501 @@ Astro.response.headers.set(
 </Base>
 
 <script>
+  import { renderMarkdown } from "../../lib/markdown";
+  import type { DirListing } from "../../lib/dir-listing";
+  import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
+  import { formatBytes } from "../../lib/format";
+  import {
+    renderDirChunkRows,
+    renderSubdir,
+    renderTopLevel,
+  } from "../../lib/render-dir-listing";
+  import {
+    type ZarrIndexStore,
+    fetchZarrIndex,
+    prefetchZarrStoreMetadata,
+    zarrAvailablePaths,
+    zarrFailureReasonByPath,
+    zarrStoreByPath,
+  } from "../../lib/zarr-index";
+  // The preview renderers are dynamic-imported on first click (one bundle
+  // per format, code-split by Vite) so a user who never opens a TSV
+  // doesn't pay for parsing the TSV renderer's bundle.
+
+  // The fetched listing held per tree section. The "Show next" click handler
+  // re-emits rows from this without re-fetching. WeakMap keys by element so
+  // the entry is garbage-collected when the section detaches (SPA-style
+  // navigation isn't used here today, but it's the cheap-correct default).
+  const listingBySection = new WeakMap<HTMLElement, DirListing>();
+  const zarrBySection = new WeakMap<
+    HTMLElement,
+    {
+      paths: Set<string>;
+      stores: Map<string, ZarrIndexStore>;
+      /** BIDS path (or store-rel path) -> reason it has no viewer, when known. */
+      failureReasons: Map<string, string>;
+      prefetched: Set<string>;
+      firstPrefetched: boolean;
+    }
+  >();
+
   /**
-   * Replace defer placeholders with rendered HTML fetched from
-   * `/api/dataset/<id>/{readme,tree}?v=<v>` in parallel. Each endpoint is
-   * edge-cached so the first visit's work amortizes across subsequent ones.
+   * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
+   * were SSR'd by /api/dataset/<id>/{readme,tree} partial endpoints which
+   * fetched summary.json + manifest.json on every request, hit cold-isolate
+   * timeouts on HBN-sized datasets, and required several refresh cycles to
+   * warm. The pipeline was the actual failure surface for the user-visible
+   * "No description available" / "Manifest unavailable" placeholders.
+   *
+   * Now: README comes from raw.githubusercontent.com via GitHub's CDN;
+   * tree comes from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636 /
+   * v0.8.37 — typically a small top-level JSON with real per-file sizes
+   * and native lazy-per-directory). No website worker in the chain.
    */
-  async function hydrateDeferred(): Promise<void> {
-    const targets = [
-      ...document.querySelectorAll<HTMLElement>("[data-readme-defer], [data-tree-defer]"),
-    ];
-    await Promise.all(
-      targets.map(async (el) => {
-        const id = el.dataset.id;
-        const version = el.dataset.version;
-        if (!id || !version) return;
-        const endpoint = el.hasAttribute("data-readme-defer") ? "readme" : "tree";
-        const path = `/api/dataset/${encodeURIComponent(id)}/${endpoint}?v=${encodeURIComponent(version)}`;
-        try {
-          const res = await fetch(path, { headers: { Accept: "text/html" } });
-          if (!res.ok) throw new Error(`${path}: ${res.status}`);
-          el.innerHTML = await res.text();
-          el.removeAttribute("aria-busy");
-          if (endpoint === "readme") {
-            const wrap = el.querySelector<HTMLElement>("[data-readme-wrap]");
-            const sync = (window as typeof window & {
-              __nemarSyncReadme?: (wrap: HTMLElement) => void;
-            }).__nemarSyncReadme;
-            if (wrap && sync) sync(wrap);
-          }
-        } catch (err) {
-          el.removeAttribute("aria-busy");
-          console.warn(`[hydrateDeferred] ${path}`, err);
-          el.innerHTML = `<p class="readme__empty">Couldn't load this section. <a href="${path}">View raw HTML</a>.</p>`;
+
+  async function hydrateReadme(article: HTMLElement): Promise<void> {
+    const datasetId = article.dataset.id;
+    const version = article.dataset.version;
+    const repo = article.dataset.githubRepo;
+    const fallbackDesc = article.dataset.fallbackDesc ?? "";
+    if (!datasetId || !version) return;
+
+    let markdown: string | null = null;
+    if (repo) {
+      // Tagged version first. README content is per-version; the dataset
+      // repo's tag matches the published version label.
+      const rawUrl = `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(version)}/README.md`;
+      try {
+        const res = await fetch(rawUrl);
+        if (res.ok) {
+          const text = await res.text();
+          if (text.trim().length > 0) markdown = text;
         }
-      }),
-    );
+      } catch (err) {
+        console.warn(`[readme/${datasetId}] GitHub raw fetch failed:`, err);
+      }
+    }
+
+    article.removeAttribute("aria-busy");
+    if (markdown) {
+      article.innerHTML = renderReadmeWrap(renderMarkdown(markdown));
+      const wrap = article.querySelector<HTMLElement>("[data-readme-wrap]");
+      const sync = (
+        window as typeof window & { __nemarSyncReadme?: (w: HTMLElement) => void }
+      ).__nemarSyncReadme;
+      if (wrap && sync) sync(wrap);
+      return;
+    }
+
+    // No README at this version. Use metadata.description if present and
+    // meaningful (the SSR-passed fallback), else show the empty state.
+    if (fallbackDesc.length > 0) {
+      article.innerHTML = `<div class="readme__fallback-note" role="note"><strong>Description (from dataset metadata)</strong><span>This dataset doesn't ship a README. Showing the BIDS description instead.</span></div>${renderReadmeWrap(renderMarkdown(fallbackDesc))}`;
+      const wrap = article.querySelector<HTMLElement>("[data-readme-wrap]");
+      const sync = (
+        window as typeof window & { __nemarSyncReadme?: (w: HTMLElement) => void }
+      ).__nemarSyncReadme;
+      if (wrap && sync) sync(wrap);
+      return;
+    }
+
+    article.innerHTML = `<div class="readme__empty"><h2>No description available</h2><p>This dataset doesn't ship a README and the BIDS metadata has no description either. The file tree below and the metadata panel on the right are the authoritative description for now. The dataset's GitHub repository may have curation notes added later.</p></div>`;
   }
-  hydrateDeferred();
+
+  /** The expand/collapse shell the Readme.astro non-defer branch uses,
+   *  emitted in JS so injected README HTML matches the SSR path's markup
+   *  and the existing .readme__toggle delegated click handler works. */
+  function renderReadmeWrap(innerHtml: string): string {
+    return `<div class="readme__wrap" data-readme-wrap><div class="readme__body">${innerHtml}</div><div class="readme__fade" aria-hidden="true"></div><div class="readme__toolbar"><button class="readme__toggle" type="button" data-readme-toggle aria-expanded="false" aria-controls="readme-body"><span class="readme__toggle-label">Expand README</span></button></div></div>`;
+  }
+
+  async function hydrateTree(section: HTMLElement): Promise<void> {
+    const datasetId = section.dataset.id;
+    const version = section.dataset.version;
+    if (!datasetId || !version) return;
+    void fetchZarrIndex(datasetId).then((index) => {
+      if (!index) return;
+      zarrBySection.set(section, {
+        paths: zarrAvailablePaths(index),
+        stores: zarrStoreByPath(index),
+        failureReasons: zarrFailureReasonByPath(index),
+        prefetched: new Set<string>(),
+        firstPrefetched: false,
+      });
+      annotateZarrRows(section);
+    });
+    const listing = await fetchDirListing(datasetId, version, "");
+    section.removeAttribute("aria-busy");
+    if (!listing) {
+      // Parity with the subdir-toggle handler: both null paths log so a
+      // developer with devtools open can distinguish "this specific dataset
+      // is broken" from "the whole endpoint is down."
+      console.warn(`[tree/${datasetId}] top-level dir listing returned null (v=${version})`);
+      section.innerHTML = `<section class="detail__no-manifest" role="alert"><h2>File index unavailable</h2><p>The file index for <code>${escapeHtml(version)}</code> couldn't be loaded right now. Try refreshing in a few seconds, or use the <a href="/discover">Discover page</a> to pick another dataset or version.</p></section>`;
+      return;
+    }
+    listingBySection.set(section, listing);
+    section.innerHTML = renderTopLevel(listing);
+    annotateZarrRows(section);
+  }
+
+  function annotateZarrRows(section: HTMLElement): void {
+    const state = zarrBySection.get(section);
+    if (!state) return;
+    for (const btn of section.querySelectorAll<HTMLButtonElement>(
+      '[data-preview-type="eeg"][data-preview-path]',
+    )) {
+      const path = btn.dataset.previewPath ?? "";
+      const available = state.paths.has(path);
+      btn.dataset.zarrAvailable = available ? "true" : "false";
+      // A recorded data failure (derivative, corrupt, unsupported) carries a
+      // specific reason; attach it so the click handler explains *why* instead of
+      // a generic "not available". Absent => still generating / will retry.
+      const reason = state.failureReasons.get(path);
+      if (reason) {
+        btn.dataset.zarrFailureReason = reason;
+      } else {
+        delete btn.dataset.zarrFailureReason;
+      }
+      if (available) {
+        btn.title = `Open signal viewer for ${btn.dataset.fileName ?? path}`;
+      } else {
+        btn.title = reason ?? "No interactive Zarr viewer is available for this recording yet";
+      }
+    }
+    prefetchFirstZarrRow(section, state);
+  }
+
+  function prefetchFirstZarrRow(
+    section: HTMLElement,
+    state = zarrBySection.get(section),
+  ): void {
+    if (!state || state.firstPrefetched) return;
+    const btn = section.querySelector<HTMLButtonElement>(
+      '[data-preview-type="eeg"][data-zarr-available="true"][data-preview-path]',
+    );
+    if (!btn) return;
+    state.firstPrefetched = true;
+    prefetchZarrButton(btn, state);
+  }
+
+  function prefetchZarrButton(
+    btn: HTMLButtonElement,
+    state?: {
+      paths: Set<string>;
+      stores: Map<string, ZarrIndexStore>;
+      prefetched: Set<string>;
+      firstPrefetched: boolean;
+    },
+  ): void {
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    state ??= section ? zarrBySection.get(section) : undefined;
+    const datasetId = section?.dataset.id;
+    const path = btn.dataset.previewPath ?? "";
+    if (!state || !datasetId || !path || state.prefetched.has(path)) return;
+    state.prefetched.add(path);
+    prefetchZarrStoreMetadata(datasetId, path, state.stores.get(path));
+  }
+
+  // Delegated click for the "Show next N" footer. Single document-level
+  // listener (cheap, fires only when a tree__more-btn ancestor is hit) so
+  // we don't have to re-bind after each chunk reveal. Mirrors the toggle
+  // capture-phase delegate above.
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest<HTMLButtonElement>(".tree__more-btn");
+    if (!button) return;
+    const footer = button.closest<HTMLElement>("[data-tree-more]");
+    const section = button.closest<HTMLElement>("[data-tree-defer]");
+    if (!footer || !section) return;
+    const listing = listingBySection.get(section);
+    const list = section.querySelector<HTMLElement>("[data-dir-list]");
+    // No cached listing means the tree never finished hydrating (or was
+    // rewritten with an error). The footer shouldn't exist in that case;
+    // surface loudly + remove it so the user isn't left with a dead button.
+    if (!listing || !list) {
+      console.error(
+        `[tree] show-more clicked but cached listing missing (section=${section.dataset.id ?? "?"})`,
+      );
+      footer.remove();
+      return;
+    }
+
+    const rendered = Number(footer.dataset.rendered ?? "0");
+    const total = Number(footer.dataset.total ?? "0");
+    const chunk = Number(footer.dataset.chunk ?? "50");
+    const result = renderDirChunkRows(listing, rendered, chunk);
+    // Defensive: if the slice returns zero rows the data-rendered counter
+    // is out of sync with the cached listing (shouldn't be reachable via
+    // the happy path, but a stale counter would leave the button looping
+    // with no visible effect). Remove the footer to avoid a stuck button.
+    if (result.rendered === 0) {
+      console.warn(
+        `[tree] show-more produced 0 rows (rendered=${rendered} total=${total} listingDirs=${result.total})`,
+      );
+      footer.remove();
+      return;
+    }
+    list.insertAdjacentHTML("beforeend", result.html);
+    annotateZarrRows(section);
+
+    const newRendered = rendered + result.rendered;
+    if (newRendered >= total) {
+      footer.remove();
+      return;
+    }
+    footer.dataset.rendered = String(newRendered);
+    const nextCount = Math.min(chunk, total - newRendered);
+    const counter = footer.querySelector(".tree__more-counter");
+    // The button's text node sits before the counter <span>; updating
+    // nodeValue avoids clobbering the nested element + its event paths.
+    const label = button.firstChild;
+    if (label && label.nodeType === Node.TEXT_NODE) {
+      label.nodeValue = `Show next ${nextCount} `;
+    } else {
+      // Extension or DOM mutation displaced the text node. Counter still
+      // updates below; warn so a developer reading devtools can correlate
+      // the visual mismatch ("button label stuck at 50 but counter ticks").
+      console.warn("[tree] show-more button first child isn't a text node; label not updated");
+    }
+    if (counter) counter.textContent = `(${newRendered} of ${total} shown)`;
+  });
+
+  // Inline file-preview delegate. Mirrors the show-more click delegate
+  // above. Fires when the user clicks a `.tree__preview-btn` (the name of
+  // a previewable file). First click fetches + renders the inline panel
+  // under the row; subsequent clicks toggle visibility without re-fetching.
+  // The download icon (`.tree__dl`) is a separate `<a download>` and not
+  // intercepted here — the browser's default click handling triggers the
+  // byte download as before.
+  const MAX_PREVIEW_BYTES = 512 * 1024;
+  // Cache of fetched-and-parsed TSV text per slot. Used by the "Show all"
+  // re-reveal so we re-render from memory instead of re-fetching.
+  const tsvCacheBySlot = new WeakMap<HTMLElement, string>();
+
+  function maybePrefetchZarrFromTarget(target: EventTarget | null): void {
+    if (!(target instanceof Element)) return;
+    const btn = target.closest<HTMLButtonElement>(
+      '[data-preview-type="eeg"][data-zarr-available="true"][data-preview-path]',
+    );
+    if (btn) prefetchZarrButton(btn);
+  }
+
+  document.addEventListener("mouseover", (event) => maybePrefetchZarrFromTarget(event.target));
+  document.addEventListener("focusin", (event) => maybePrefetchZarrFromTarget(event.target));
+
+  document.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+
+    // "Show all N rows" inside an open TSV preview. Handled first so it
+    // doesn't fall into the preview-toggle branch below.
+    if (target.closest("[data-tsv-show-all]")) {
+      const btn = target.closest<HTMLButtonElement>("[data-tsv-show-all]");
+      const slot = btn?.closest<HTMLElement>("[data-preview-slot]");
+      if (!btn || !slot) return;
+      const cached = tsvCacheBySlot.get(slot);
+      if (!cached) {
+        // The slot is still in the DOM so the WeakMap entry can't have
+        // been GC'd — this means a code path rendered a TSV preview
+        // without going through the fetch branch. Surface so the user
+        // isn't left with an inert button.
+        console.warn("[preview] tsv-show-all clicked but cache missing");
+        slot.innerHTML = `<p class="preview__error" role="alert">Couldn't expand the table — its source isn't cached. Collapse and reopen the preview to retry.</p>`;
+        return;
+      }
+      const { renderTsvPreview } = await import("../../lib/render-file-preview-tsv");
+      slot.innerHTML = renderTsvPreview(cached, Number.POSITIVE_INFINITY);
+      return;
+    }
+
+    const btn = target.closest<HTMLButtonElement>("[data-preview-path]");
+    if (!btn) return;
+
+    const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
+    const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
+    if (!wrap || !slot) return;
+
+    const isExpanded = btn.getAttribute("aria-expanded") === "true";
+    if (isExpanded) {
+      slot.hidden = true;
+      btn.setAttribute("aria-expanded", "false");
+      return;
+    }
+
+    btn.setAttribute("aria-expanded", "true");
+    slot.hidden = false;
+
+    // Already rendered or already in flight — bail. `loaded` carries one of
+    // three states: undefined (never touched), "loading" (fetch in flight),
+    // or "true" (rendered). Without the "loading" sentinel, a rapid
+    // collapse + re-expand during the network round-trip would fire a
+    // second concurrent fetch; the late-arriving response would overwrite
+    // the slot content non-deterministically.
+    if (slot.dataset.loaded === "true" || slot.dataset.loaded === "loading") return;
+
+    const previewType = btn.dataset.previewType ?? "";
+    const fileSizeBytes = Number(btn.dataset.fileSize ?? "0");
+    const fileName = btn.dataset.fileName ?? "";
+    const filePath = btn.dataset.previewPath ?? "";
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    const treeId = section?.dataset.id;
+    const treeVersion = section?.dataset.version;
+    if (!treeId || !treeVersion) {
+      // The button is somehow outside a `[data-tree-defer]` section. The
+      // slot is already visible from the flip above — surface an error so
+      // the user isn't staring at an empty panel.
+      console.warn("[preview] missing tree id/version on btn", btn);
+      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't load preview: missing dataset context. Try refreshing the page.</p>`;
+      slot.dataset.loaded = "true";
+      return;
+    }
+    const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
+
+    // EEG/MEG/iEEG/EMG: open the interactive Zarr signal viewer. It streams the
+    // recording's serving-copy chunks from zarr.nemar.org (ranged GETs, no full
+    // download), so the MAX_PREVIEW_BYTES gate below intentionally does not apply.
+    // Code-split: the viewer + zarrita bundle only loads when a signal file is
+    // first opened.
+    if (previewType === "eeg") {
+      if (btn.dataset.zarrAvailable === "false") {
+        // A recorded data failure has a specific, permanent reason; show it.
+        // Otherwise the store is just missing (still generating / will retry).
+        const reason = btn.dataset.zarrFailureReason;
+        const lead = reason
+          ? escapeHtml(reason)
+          : "No interactive viewer is available for this recording yet.";
+        slot.innerHTML = `<p class="preview__empty">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+        slot.dataset.loaded = "true";
+        return;
+      }
+      prefetchZarrButton(btn);
+      slot.dataset.loaded = "loading";
+      slot.setAttribute("aria-busy", "true");
+      slot.innerHTML = `<p class="preview__loading">Loading viewer…</p>`;
+      try {
+        const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
+        await mountEegViewer(slot, {
+          datasetId: treeId,
+          version: treeVersion,
+          filePath,
+          downloadUrl: fileUrl,
+        });
+      } catch (err) {
+        console.error("[eeg-viewer] mount failed:", err);
+        slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      }
+      slot.removeAttribute("aria-busy");
+      slot.dataset.loaded = "true";
+      return;
+    }
+
+    // Oversized: skip the fetch and surface a download fallback. Threshold
+    // picked so a 30 KB participants.tsv previews fine but a multi-MB
+    // sourcedata file doesn't lock up the browser.
+    if (fileSizeBytes > MAX_PREVIEW_BYTES) {
+      slot.innerHTML = `<p class="preview__too-large">File too large to preview (${escapeHtml(formatBytes(fileSizeBytes))}). <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      slot.dataset.loaded = "true";
+      return;
+    }
+
+    // Claim the slot before the await: rapid double-clicks will short-
+    // circuit on the "loading" check above instead of firing parallel
+    // fetches. The success/failure paths below transition this to "true".
+    slot.dataset.loaded = "loading";
+    slot.setAttribute("aria-busy", "true");
+    slot.innerHTML = `<p class="preview__loading">Loading…</p>`;
+    try {
+      const res = await fetch(fileUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      slot.removeAttribute("aria-busy");
+
+      if (previewType === "md") {
+        const { renderMarkdownPreview } = await import("../../lib/render-file-preview-md");
+        slot.innerHTML = renderMarkdownPreview(text);
+      } else if (previewType === "json") {
+        const { renderJsonPreview } = await import("../../lib/render-file-preview-json");
+        slot.innerHTML = renderJsonPreview(text);
+      } else if (previewType === "tsv") {
+        const { renderTsvPreview } = await import("../../lib/render-file-preview-tsv");
+        tsvCacheBySlot.set(slot, text);
+        slot.innerHTML = renderTsvPreview(text);
+      } else {
+        // Defensive: unknown previewType (the renderer guards against
+        // emitting one). Show a generic error so the user can still
+        // download.
+        slot.innerHTML = `<p class="preview__error" role="alert">No preview available for this format. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      }
+      slot.dataset.loaded = "true";
+    } catch (err) {
+      console.error(`[preview/${treeId}] failed for ${filePath}:`, err);
+      slot.removeAttribute("aria-busy");
+      slot.innerHTML = `<p class="preview__error" role="alert">Preview failed. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>, or collapse + reopen to retry.</p>`;
+      // Clear the loading sentinel so collapse+reopen can retry the fetch.
+      delete slot.dataset.loaded;
+      // Roll aria-expanded back so the next click is treated as expand,
+      // not collapse (matters when the user collapses immediately to retry).
+    }
+  });
+
+  function escapeHtml(s: string): string {
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // Capture-phase toggle listener for lazy per-directory expansion. The
+  // toggle event on <details> does NOT bubble (HTML spec), so capture is
+  // the only way to delegate. Matches the pre-#76 Phase 3 pattern but for
+  // arbitrary directories rather than just subject-level dirs.
+  document.addEventListener(
+    "toggle",
+    (event) => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement)) return;
+      if (!details.open) return;
+      const dirPath = details.dataset.dirPath;
+      if (!dirPath) return;
+      const slot = details.querySelector<HTMLElement>("[data-dir-target]");
+      if (!slot || slot.dataset.loaded === "true") return;
+      const section = details.closest<HTMLElement>("[data-tree-defer]");
+      const treeId = section?.dataset.id;
+      const treeVersion = section?.dataset.version;
+      if (!treeId || !treeVersion) return;
+      const depthAttr = Number(details.dataset.depth ?? "0");
+      const childDepth = Number.isFinite(depthAttr) ? depthAttr + 1 : 1;
+      slot.setAttribute("aria-busy", "true");
+      fetchDirListing(treeId, treeVersion, dirPath)
+        .then((listing) => {
+          slot.removeAttribute("aria-busy");
+          if (!listing) {
+            slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
+            return;
+          }
+          slot.innerHTML = renderSubdir(listing, childDepth);
+          slot.dataset.loaded = "true";
+          if (section) annotateZarrRows(section);
+        })
+        .catch((err) => {
+          console.warn(`[tree/${treeId}] dir expand failed:`, err);
+          slot.removeAttribute("aria-busy");
+          slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
+        });
+    },
+    true,
+  );
+
+  // Kick off hydration on every defer slot present at first paint.
+  document
+    .querySelectorAll<HTMLElement>("[data-readme-defer]")
+    .forEach((el) => void hydrateReadme(el));
+  document
+    .querySelectorAll<HTMLElement>("[data-tree-defer]")
+    .forEach((el) => void hydrateTree(el));
 </script>
 
 <style>
@@ -273,11 +782,44 @@ Astro.response.headers.set(
     text-wrap: balance;
     max-inline-size: 28ch;
   }
+  /* Description card. Matches the README's container treatment (border,
+     bg, padding, radius) so the two read as parallel content blocks at
+     the same visual scale rather than "different cakes". Width fills
+     the container — no `max-inline-size` constraint so the description
+     wraps at the same line length as the README body below. */
+  .detail__lede-card {
+    position: relative;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5) var(--space-6);
+  }
+  @media (max-width: 540px) {
+    .detail__lede-card {
+      padding: var(--space-4) var(--space-5);
+    }
+  }
   .detail__lede {
+    margin: 0;
     color: var(--color-fg-muted);
-    font-size: var(--fs-lg);
+    font-size: var(--fs-base);
     line-height: var(--lh-relaxed);
-    max-inline-size: 60ch;
+  }
+  /* Floating AI-generated marker in the top-right corner of the card. The
+     icon is small and muted; hover / focus / long-press shows the
+     tooltip explaining provenance + that it may include mistakes. */
+  .detail__lede-ai {
+    position: absolute;
+    inset-block-start: var(--space-3);
+    inset-inline-end: var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-fg-subtle);
+    cursor: help;
+  }
+  .detail__lede-ai:hover,
+  .detail__lede-ai:focus-visible {
+    color: var(--color-fg);
   }
   .detail__chips {
     display: flex;
@@ -300,7 +842,15 @@ Astro.response.headers.set(
   }
   @media (max-width: 980px) {
     .detail__body {
-      grid-template-columns: 1fr;
+      /* `minmax(0, 1fr)` is critical here, not plain `1fr`. With `1fr` the
+         grid track's implicit `min-width: auto` resolves to the largest
+         min-content among the items (the tree's longest unbreakable file
+         row at ~430 px), so the column grew to ~800 px on a 393 px mobile
+         viewport — making the entire main column overflow the body while
+         the header sat at the correct width. `minmax(0, 1fr)` pins the
+         column min to 0 so the items shrink + their `overflow: hidden`
+         clipping (file-name ellipsis) actually takes effect. */
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   .detail__main {
@@ -308,6 +858,20 @@ Astro.response.headers.set(
     flex-direction: column;
     gap: var(--space-6);
     min-inline-size: 0;
+  }
+  .detail__unpublished {
+    padding: var(--space-6);
+    border: 1px solid color-mix(in srgb, var(--color-fg-subtle) 30%, transparent);
+    background: var(--color-bg-elevated);
+    border-radius: var(--radius-lg);
+  }
+  .detail__unpublished h2 {
+    font-size: var(--fs-lg);
+    margin-block-end: var(--space-2);
+  }
+  .detail__unpublished p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
   }
   .detail__no-manifest {
     padding: var(--space-6);

@@ -1,13 +1,27 @@
 ---
-import { formatAuthorByline, formatBytes, formatDate, splitModalities } from "../lib/format";
+import {
+  formatAuthorByline,
+  formatBytes,
+  formatDate,
+  safeSnippet,
+  splitModalities,
+} from "../lib/format";
 import type { Dataset } from "../lib/types";
-import ModalityBadge from "./ModalityBadge.astro";
+import Tag from "./Tag.astro";
 
 interface Props {
   dataset: Dataset;
+  /**
+   * Optional FTS5 highlight from the hybrid search endpoint. When present it
+   * replaces the static description so the card shows *why* it matched the
+   * query, with the matched terms wrapped in `<mark>`. Already sanitized at
+   * render time via `safeSnippet`.
+   */
+  snippet?: string;
 }
 
-const { dataset } = Astro.props;
+const { dataset, snippet } = Astro.props;
+const snippetHtml = safeSnippet(snippet);
 const modalities = splitModalities(dataset.modalities);
 const byline = formatAuthorByline(dataset.authors) || dataset.owner_username || "NEMAR";
 const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
@@ -47,15 +61,20 @@ if (updated) {
       </div>
       {modalities.length > 0 ? (
         <div class="ds-card__mods">
-          {modalities.map((m) => <ModalityBadge modality={m} />)}
+          {/* Non-clickable here: the whole card is already one <a>, so a
+              nested filter link would be invalid HTML. Modality filtering
+              lives on the detail page + the sidebar. */}
+          {modalities.map((m) => <Tag kind="modality" value={m} />)}
         </div>
       ) : (
         <span class="ds-card__mods-empty">Modalities pending</span>
       )}
     </header>
 
-    {dataset.description && (
-      <p class="ds-card__desc">{dataset.description}</p>
+    {snippetHtml ? (
+      <p class="ds-card__desc ds-card__snippet" set:html={snippetHtml} />
+    ) : (
+      dataset.description && <p class="ds-card__desc">{dataset.description}</p>
     )}
 
     {facts.length > 0 && (
@@ -174,6 +193,12 @@ if (updated) {
     line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+  }
+  .ds-card__snippet :global(mark) {
+    background: color-mix(in srgb, var(--brand-accent) 28%, transparent);
+    color: var(--color-fg);
+    padding: 0 2px;
+    border-radius: var(--radius-xs, 2px);
   }
   .ds-card__facts {
     display: flex;

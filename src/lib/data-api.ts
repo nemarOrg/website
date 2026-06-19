@@ -1,4 +1,4 @@
-import type { LandingPayload, Manifest, NeuroschemaDataset } from "./neuroschema";
+import type { LandingPayload, NeuroschemaDataset } from "./neuroschema";
 
 const DEFAULT_DATA_BASE = "https://data.nemar.org";
 
@@ -15,163 +15,234 @@ export interface DataApiInit {
   timeoutMs?: number;
 }
 
+/**
+ * Tagged result of a `jsonFetch` call. Every failure mode is captured as
+ * data — nothing throws. Lets callers branch on the real reason a fetch
+ * didn't succeed (404 vs timeout vs 5xx vs malformed JSON), which is the
+ * difference between "render real 404" and "render degraded state."
+ */
+export type FetchOutcome<T> =
+  | { kind: "ok"; value: T }
+  | { kind: "not_found" }
+  | { kind: "rate_limited" }
+  | { kind: "upstream_error"; status: number; statusText: string }
+  | { kind: "timeout" }
+  | { kind: "network_error"; message: string }
+  | { kind: "parse_error"; message: string };
+
+/**
+ * Retries once on 429 honoring Retry-After before settling on
+ * `rate_limited`. Bails the wait early when the parent abort signal
+ * fires so caller cancellation doesn't burn the full Retry-After delay.
+ */
 async function jsonFetch<T>(
   url: string,
   init: DataApiInit,
   accept = "application/json",
-): Promise<T | null> {
+): Promise<FetchOutcome<T>> {
   const controller = new AbortController();
   const timeout = init.timeoutMs ?? 5_000;
   const timer = setTimeout(() => controller.abort(), timeout);
   const onParentAbort = () => controller.abort();
   if (init.signal) init.signal.addEventListener("abort", onParentAbort);
 
+  // When the inner controller aborts we need to know WHY for the outcome
+  // tag: parent caller cancellation vs our own timeout vs an upstream
+  // abort. AbortError alone doesn't carry that signal. Track it ourselves.
+  const isParentAborted = () => init.signal?.aborted === true;
+
   async function attempt(): Promise<Response> {
     return fetch(url, { signal: controller.signal, headers: { Accept: accept } });
   }
 
+  function abortToOutcome(err: unknown): FetchOutcome<T> {
+    const name = (err as { name?: string }).name ?? "";
+    const message = (err as Error).message ?? String(err);
+    if (name === "AbortError") {
+      if (isParentAborted()) {
+        return { kind: "network_error", message: "request cancelled by caller" };
+      }
+      return { kind: "timeout" };
+    }
+    return { kind: "network_error", message };
+  }
+
   try {
-    let res = await attempt();
+    let res: Response;
+    try {
+      res = await attempt();
+    } catch (err) {
+      return abortToOutcome(err);
+    }
+
     if (res.status === 429) {
-      // Rate-limited. Wait the Retry-After header (or 1s default) and try once more.
       const retryAfter = Number.parseInt(res.headers.get("retry-after") ?? "1", 10);
       const waitMs = Math.min(Math.max(retryAfter, 1) * 1000, 5_000);
-      await new Promise((r) => setTimeout(r, waitMs));
-      res = await attempt();
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, waitMs);
+        controller.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            resolve();
+          },
+          { once: true },
+        );
+      });
+      if (controller.signal.aborted) {
+        return abortToOutcome({ name: "AbortError" });
+      }
+      try {
+        res = await attempt();
+      } catch (err) {
+        return abortToOutcome(err);
+      }
+      if (res.status === 429) return { kind: "rate_limited" };
     }
-    if (res.status === 404) return null;
-    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-      // Treat persistent rate-limiting / upstream errors as "data unavailable"
-      // rather than 500ing the entire page. The caller renders an empty state.
-      console.warn(`data.nemar.org ${url}: ${res.status} ${res.statusText}; rendering empty state`);
-      return null;
+
+    if (res.status === 404) return { kind: "not_found" };
+    if (res.status >= 500 && res.status < 600) {
+      return { kind: "upstream_error", status: res.status, statusText: res.statusText };
     }
     if (!res.ok) {
-      throw new Error(`data.nemar.org ${url}: ${res.status} ${res.statusText}`);
+      return { kind: "upstream_error", status: res.status, statusText: res.statusText };
     }
-    return (await res.json()) as T;
+
+    try {
+      const value = (await res.json()) as T;
+      return { kind: "ok", value };
+    } catch (err) {
+      return { kind: "parse_error", message: (err as Error).message ?? String(err) };
+    }
   } finally {
     clearTimeout(timer);
     if (init.signal) init.signal.removeEventListener("abort", onParentAbort);
   }
 }
 
+/**
+ * Compatibility wrapper for callers that just want `T | null`. Logs every
+ * non-ok outcome except `not_found` (which is a routine "the resource
+ * doesn't exist" — not worth a log line on every dataset page render).
+ */
+async function jsonFetchOrNull<T>(
+  url: string,
+  init: DataApiInit,
+  accept = "application/json",
+): Promise<T | null> {
+  const out = await jsonFetch<T>(url, init, accept);
+  if (out.kind === "ok") return out.value;
+  if (out.kind !== "not_found") {
+    const detail = out.kind === "upstream_error" ? `${out.kind} ${out.status}` : out.kind;
+    console.warn(`[data-api] ${url}: ${detail}`);
+  }
+  return null;
+}
+
+export function outcomeValue<T>(outcome: FetchOutcome<T>): T | null {
+  return outcome.kind === "ok" ? outcome.value : null;
+}
+
+/**
+ * Dataset detail page status resolution.
+ *
+ * The SSR page needs to choose between 404 (real "this dataset does not
+ * exist"), 503 (degraded — dataset may exist but the data layer can't
+ * answer right now), and 200 (render normally). The decision is non-
+ * obvious because the two upstream signals (landing + metadata) can each
+ * be any of seven outcomes, and only one of the nine combinations is a
+ * confirmed 404 — both reporting not_found independently. A single
+ * not_found from either signal could be a partial publish or a transient
+ * 404 from the data layer.
+ */
+export type DatasetPageStatus =
+  | { kind: "ok" }
+  | { kind: "not_found" }
+  | { kind: "degraded"; signal: "landing" | "metadata"; outcome: string };
+
+export function resolveDatasetPageStatus<L, M>(
+  landingOut: FetchOutcome<L>,
+  metadataOut: FetchOutcome<M>,
+): DatasetPageStatus {
+  if (landingOut.kind === "not_found" && metadataOut.kind === "not_found") {
+    return { kind: "not_found" };
+  }
+  if (landingOut.kind !== "ok" && landingOut.kind !== "not_found") {
+    return { kind: "degraded", signal: "landing", outcome: landingOut.kind };
+  }
+  if (landingOut.kind === "not_found") {
+    return { kind: "degraded", signal: "landing", outcome: "not_found" };
+  }
+  if (metadataOut.kind !== "ok" && metadataOut.kind !== "not_found") {
+    return { kind: "degraded", signal: "metadata", outcome: metadataOut.kind };
+  }
+  return { kind: "ok" };
+}
+
+// ============================================================================
+// Typed fetchers — landing + metadata only. After #76 these are the only two
+// SSR fetches the dataset detail page makes against data.nemar.org; summary,
+// manifest, page-bundle, and the partial-endpoint pipeline that consumed them
+// all went away with the pivot to canonical sources (GitHub raw README,
+// data.nemar.org/<id>/<v>/?format=json directory listings).
+// ============================================================================
+
 export async function getLanding(
   datasetId: string,
   init: DataApiInit = {},
 ): Promise<LandingPayload | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/`;
-  return jsonFetch<LandingPayload>(url, init);
+  return jsonFetchOrNull<LandingPayload>(landingUrl(datasetId, init), init);
 }
 
 export async function getMetadata(
   datasetId: string,
   init: DataApiInit = {},
 ): Promise<NeuroschemaDataset | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/metadata.json`;
-  return jsonFetch<NeuroschemaDataset>(url, init);
+  return jsonFetchOrNull<NeuroschemaDataset>(metadataUrl(datasetId, init), init);
 }
 
-export async function getManifest(
+export async function getLandingOutcome(
   datasetId: string,
-  version: string,
   init: DataApiInit = {},
-): Promise<Manifest | null> {
-  const url = `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/${encodeURIComponent(
-    version,
-  )}/manifest.json`;
-  return jsonFetch<Manifest>(url, init);
+): Promise<FetchOutcome<LandingPayload>> {
+  return jsonFetch<LandingPayload>(landingUrl(datasetId, init), init);
+}
+
+export async function getMetadataOutcome(
+  datasetId: string,
+  init: DataApiInit = {},
+): Promise<FetchOutcome<NeuroschemaDataset>> {
+  return jsonFetch<NeuroschemaDataset>(metadataUrl(datasetId, init), init);
+}
+
+function landingUrl(datasetId: string, init: DataApiInit): string {
+  return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/`;
+}
+
+function metadataUrl(datasetId: string, init: DataApiInit): string {
+  return `${dataBase(init.dataBase)}/${encodeURIComponent(datasetId)}/metadata.json`;
 }
 
 /**
- * Fetch the bytes behind a presigned manifest entry URL (used for README).
- * Returns null if absent or the fetch times out.
+ * Returns true when the landing payload indicates the dataset has no published
+ * version yet.
+ *
+ * Returns false on null — a missing/unreachable dataset is distinct from an
+ * unpublished one and we don't want to mask 404/5xx as "not yet published."
  */
-export async function fetchManifestEntryText(
-  url: string,
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = init.timeoutMs ?? 3_000;
-  const timer = setTimeout(() => controller.abort(), timeout);
-  const onParentAbort = () => controller.abort();
-  if (init.signal) init.signal.addEventListener("abort", onParentAbort);
-
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-    if (init.signal) init.signal.removeEventListener("abort", onParentAbort);
-  }
-}
-
-/** Find the README entry in a manifest by case-insensitive name match. */
-export function findReadmeEntry(manifest: Manifest): Manifest[number] | null {
-  const candidates = ["readme.md", "readme", "readme.txt"];
-  for (const entry of manifest) {
-    const lower = entry.path.toLowerCase();
-    if (candidates.includes(lower)) return entry;
-  }
-  return null;
+export function isUnpublished(landing: LandingPayload | null): boolean {
+  if (!landing) return false;
+  return !landing.latest || landing.versions.length === 0;
 }
 
 /**
- * Best-effort fetch of the README from the dataset's GitHub repo, used when
- * the data.nemar.org manifest doesn't list one (git-annex manifests typically
- * carry annexed content only, not git-tracked files like README.md at root).
- * Races HEAD/main/master across README.md/README/README.txt/readme.md in
- * parallel; first 200 wins. Returns null on any failure. SSR-only — no CORS.
+ * Build a download URL for the dataset zip archive at a given version.
+ *
+ * The archives live at `s3://nemar/<id>/archives/<v>.zip`. The link points
+ * at `<root>/<id>/<v>.zip`; data.nemar.org's worker resolves and signs the
+ * S3 path on demand.
  */
-export async function fetchGithubReadme(
-  githubUrl: string,
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<string | null> {
-  const match = /github\.com\/([^/]+)\/([^/?#]+)/.exec(githubUrl);
-  if (!match) return null;
-  const owner = match[1];
-  const repo = match[2].replace(/\.git$/, "");
-  const branches = ["HEAD", "main", "master"];
-  const filenames = ["README.md", "README", "README.txt", "readme.md"];
-
-  const controller = new AbortController();
-  const timeout = init.timeoutMs ?? 1_500;
-  const timer = setTimeout(() => controller.abort(), timeout);
-  const onParentAbort = () => controller.abort();
-  if (init.signal) init.signal.addEventListener("abort", onParentAbort);
-
-  const urls: string[] = [];
-  for (const branch of branches) {
-    for (const filename of filenames) {
-      urls.push(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filename}`);
-    }
-  }
-
-  try {
-    return await Promise.any(
-      urls.map(async (url) => {
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok) throw new Error(`${url}: ${res.status}`);
-        return res.text();
-      }),
-    );
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-    if (init.signal) init.signal.removeEventListener("abort", onParentAbort);
-  }
-}
-
-/** Build a download URL for the dataset zip archive at a given version. */
 export function archiveZipUrl(datasetId: string, version: string, base?: string): string {
-  // The archives live at s3://nemar/<id>/archives/<v>.zip. We route the request
-  // through data.nemar.org so the worker can issue a presigned URL on demand.
-  // Until the worker exposes /archives, the link points at the legacy
-  // download/<id>/<v>.zip path; if that 404s, the UI falls back to the manifest.
   const root = (base ?? dataBase()).replace(/\/$/, "");
   return `${root}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}.zip`;
 }

@@ -1,0 +1,156 @@
+---
+import CollaboratorList from "../../../components/CollaboratorList.astro";
+import InviteCollaboratorForm from "../../../components/InviteCollaboratorForm.astro";
+import Base from "../../../layouts/Base.astro";
+import { getDataset } from "../../../lib/api";
+import { getSession } from "../../../lib/auth";
+import {
+  type Collaborator,
+  isCollaboratorManager,
+  listCollaborators,
+} from "../../../lib/collaborators-api";
+import { DashboardApiError } from "../../../lib/dashboard-api";
+import type { Dataset } from "../../../lib/types";
+
+const session = getSession(Astro.locals);
+const datasetId = (Astro.params.id ?? "").trim();
+
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent(`/dataset/${datasetId}/collaborators`)}`);
+}
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+
+let dataset: Dataset | null = null;
+let collaborators: readonly Collaborator[] = [];
+let loadError: string | null = null;
+try {
+  // getDataset reads the public catalog; the dataset has to exist to land here.
+  dataset = await getDataset(datasetId);
+} catch {
+  return Astro.redirect("/404");
+}
+if (!dataset) {
+  return Astro.redirect("/404");
+}
+
+try {
+  const result = await listCollaborators(datasetId, { cookieHeader });
+  collaborators = result.collaborators;
+} catch (err) {
+  // 403 or 404 from the backend → render the surface as not-found (don't
+  // leak the existence of a collaborators page to outsiders). Log the
+  // actual status to the Worker tail so we can debug backend/frontend
+  // role drift later.
+  if (err instanceof DashboardApiError && (err.status === 403 || err.status === 404)) {
+    console.warn(
+      `[collaborators] listCollaborators returned ${err.status} for ${datasetId}; redirecting to /404`,
+    );
+    return Astro.redirect("/404");
+  }
+  loadError = err instanceof Error ? err.message : "Could not load this dataset's collaborators.";
+}
+
+const canManage = isCollaboratorManager(session, dataset);
+const ownerUsername = dataset.owner_username ?? "";
+---
+
+<Base
+  title={`Collaborators - ${dataset.name}`}
+  description={`Manage collaborators on ${dataset.name}.`}
+>
+  <section class="collab-shell">
+    <header class="collab-header">
+      <a class="collab-header__back" href="/dashboard">&larr; Back to my datasets</a>
+      <div>
+        <span class="collab-header__id">{dataset.dataset_id}</span>
+        <h1 class="collab-header__title">{dataset.name}</h1>
+        <p class="collab-header__lede">
+          Manage the people who can push to this dataset&rsquo;s repository.
+        </p>
+      </div>
+    </header>
+
+    {loadError && <p class="collab-error" role="alert">{loadError}</p>}
+
+    {canManage ? (
+      <InviteCollaboratorForm datasetId={datasetId} />
+    ) : (
+      <p class="collab-notice" role="status">
+        You can see the list because you collaborate on this dataset, but only the owner or an admin
+        can invite or remove people.
+      </p>
+    )}
+
+    <CollaboratorList collaborators={collaborators} ownerUsername={ownerUsername} />
+
+    {canManage && (
+      <p class="collab-footer-note">
+        Need to remove a collaborator? Contact <a href="mailto:admin@nemar.org">admin@nemar.org</a> for now,
+        owner-callable removal is filed as nemar-cli#577.
+      </p>
+    )}
+  </section>
+</Base>
+
+<style>
+  .collab-shell {
+    max-inline-size: 56rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .collab-header {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .collab-header__back {
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+  }
+  .collab-header__back:hover {
+    text-decoration: underline;
+  }
+  .collab-header__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .collab-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: var(--space-1) 0 var(--space-2);
+  }
+  .collab-header__lede {
+    color: var(--color-fg-muted);
+    margin: 0;
+  }
+  .collab-notice {
+    margin: 0;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .collab-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .collab-footer-note {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .collab-footer-note a {
+    color: var(--color-link);
+  }
+</style>

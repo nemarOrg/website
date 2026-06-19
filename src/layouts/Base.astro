@@ -1,6 +1,8 @@
 ---
-import Nav from "../components/Nav.astro";
+import CookieNotice from "../components/CookieNotice.astro";
 import Footer from "../components/Footer.astro";
+import Nav from "../components/Nav.astro";
+import { APP_HOST, MARKETING_BASE_URL, hostMode } from "../lib/host";
 import "../styles/global.css";
 
 interface Props {
@@ -11,6 +13,16 @@ interface Props {
    * Defaults to the brand-wide `/og-image.png`.
    */
   image?: string;
+  /** MIME type for the social preview image. */
+  imageType?: string;
+  /** Optional second OG image for clients that reject the primary format. */
+  fallbackImage?: string;
+  fallbackImageType?: string;
+  /** Social preview image dimensions. Defaults match the site-wide fallback. */
+  imageWidth?: number;
+  imageHeight?: number;
+  /** Alt text for the social preview image. */
+  imageAlt?: string;
   /** Override the OpenGraph `type`. Default "website"; detail pages use "article". */
   ogType?: "website" | "article";
   /** When true, suppresses the standard Nav (used for fullscreen marketing pages). */
@@ -21,6 +33,12 @@ const {
   title,
   description = "NEMAR (Neuroelectromagnetic Data Archive and Tools Resource): search, visualize, analyze, and download EEG, MEG, iEEG, and EMG datasets.",
   image = "/og-image.png",
+  imageType = "image/png",
+  fallbackImage,
+  fallbackImageType = "image/png",
+  imageWidth = 1200,
+  imageHeight = 630,
+  imageAlt = "NEMAR - open neuroscience data, ready to use.",
   ogType = "website",
   bareLayout = false,
 } = Astro.props;
@@ -28,17 +46,27 @@ const {
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
 const fullTitle = `${title}${titleSuffix}`;
 
-// Build absolute URLs for OG / canonical. Astro.site is set in astro.config.
-const siteOrigin = Astro.site?.origin ?? "https://nemar.org";
+// Build absolute URLs for OG / canonical against the host actually serving
+// this request. The same build runs on `ww2.nemar.org` (marketing today)
+// and `app.nemar.org`, so a static `Astro.site` value would lie. Falling
+// back to `MARKETING_BASE_URL` covers single-host preview deploys where
+// hostMode() returns "single".
+const reqHost = Astro.url.hostname;
+const siteOrigin = hostMode(reqHost) === "app" ? `https://${APP_HOST}` : MARKETING_BASE_URL;
 const canonicalUrl = new URL(Astro.url.pathname, siteOrigin).toString();
 const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrigin).toString();
+const absoluteFallbackImage = fallbackImage
+  ? fallbackImage.startsWith("http")
+    ? fallbackImage
+    : new URL(fallbackImage, siteOrigin).toString()
+  : null;
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <link rel="canonical" href={canonicalUrl} />
@@ -60,16 +88,26 @@ const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrig
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:image" content={absoluteImage} />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="NEMAR — open neuroscience data, ready to use." />
+    <meta property="og:image:type" content={imageType} />
+    <meta property="og:image:width" content={String(imageWidth)} />
+    <meta property="og:image:height" content={String(imageHeight)} />
+    <meta property="og:image:alt" content={imageAlt} />
+    {absoluteFallbackImage && (
+      <>
+        <meta property="og:image" content={absoluteFallbackImage} />
+        <meta property="og:image:type" content={fallbackImageType} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={imageAlt} />
+      </>
+    )}
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={absoluteImage} />
-    <meta name="twitter:image:alt" content="NEMAR — open neuroscience data, ready to use." />
+    <meta name="twitter:image:alt" content={imageAlt} />
 
     <script is:inline>
       // Prevent FOUC by applying the stored theme before paint.
@@ -91,6 +129,7 @@ const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrig
       <slot />
     </main>
     {!bareLayout && <Footer />}
+    <CookieNotice />
   </body>
 </html>
 
