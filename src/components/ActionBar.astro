@@ -111,9 +111,14 @@ cd {datasetId} && nemar dataset get</code></pre>
   </form>
 </dialog>
 
-<dialog class="cite-dialog" data-citations-dialog data-dataset-id={ds}>
+<dialog
+  class="cite-dialog"
+  data-citations-dialog
+  data-dataset-id={ds}
+  aria-labelledby="citations-dialog-heading"
+>
   <header class="cite-dialog__head">
-    <h2 data-citations-heading>Citations</h2>
+    <h2 id="citations-dialog-heading" data-citations-heading>Citations</h2>
     <div class="cite-filter" role="group" aria-label="Filter citations by what they reference">
       <button type="button" class="cite-filter__btn is-active" data-cite-filter="all" aria-pressed="true">All</button>
       <button type="button" class="cite-filter__btn" data-cite-filter="dataset" aria-pressed="false">Cites dataset</button>
@@ -416,7 +421,7 @@ cd {datasetId} && nemar dataset get</code></pre>
     const id = dialog.dataset.datasetId;
     if (!id) return;
 
-    let payload: { num_citations?: number; citations?: Citation[] };
+    let payload: { num_citations?: number; citations?: Citation[] } = {};
     try {
       const res = await fetch(
         `https://dashboard.nemar.org/citations/api/dataset/${encodeURIComponent(id)}.json`,
