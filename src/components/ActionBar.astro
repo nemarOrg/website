@@ -259,6 +259,13 @@ cd {datasetId} && nemar dataset get</code></pre>
   .action:active {
     transform: translateY(1px);
   }
+  /* The citations pill ships [hidden] and is revealed by the script only when
+     the API confirms count > 0. Without this, .action's display rule overrides
+     the UA [hidden] rule (equal specificity, author wins) and the pill leaks
+     onto every dataset. */
+  .action[hidden] {
+    display: none;
+  }
   .action--primary {
     background: var(--color-fg);
     color: var(--color-bg);
