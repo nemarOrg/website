@@ -46,7 +46,6 @@ const year = new Date().getFullYear();
 
   <div class="container site-footer__credits">
     <div class="site-footer__maker">
-      <span class="site-footer__credits-label">A project of</span>
       <div class="site-footer__chips">
         <a
           class="logo-chip logo-chip--maker"
@@ -65,14 +64,10 @@ const year = new Date().getFullYear();
           <img src="/logos/sdsc.svg" alt="SDSC" loading="lazy" />
         </a>
       </div>
-      <p class="site-footer__maker-text">
-        The Swartz Center for Computational Neuroscience and the San Diego
-        Supercomputer Center at UC San Diego.
-      </p>
     </div>
 
     <div class="site-footer__partners">
-      <span class="site-footer__credits-label">Partners &amp; sponsors</span>
+      <span class="site-footer__credits-label">Sponsors and partners</span>
       <div class="site-footer__chips">
         <a
           class="logo-chip logo-chip--asis"
@@ -176,7 +171,7 @@ const year = new Date().getFullYear();
   .site-footer__nav a:hover {
     color: var(--color-fg);
   }
-  /* Credits band: SCCN + SDSC as the makers, then partners & sponsors. Logos
+  /* Credits band: SCCN + SDSC as the makers, then sponsors and partners. Logos
      are boxless and normalized to a single tone per theme (see `.logo-chip`
      below); the NIH mark is exempted and kept in full color. */
   .site-footer__credits {
@@ -186,7 +181,7 @@ const year = new Date().getFullYear();
     display: grid;
     grid-template-columns: auto 1fr;
     gap: var(--space-8) var(--space-16);
-    align-items: start;
+    align-items: center;
   }
   @media (max-width: 720px) {
     .site-footer__credits {
@@ -234,7 +229,8 @@ const year = new Date().getFullYear();
     opacity: 1;
   }
   .logo-chip--maker img {
-    block-size: 42px;
+    block-size: 72px;
+    max-inline-size: 220px;
   }
   @media (prefers-color-scheme: dark) {
     :global(:root:not([data-theme="light"])) .logo-chip img {
@@ -261,13 +257,6 @@ const year = new Date().getFullYear();
       opacity: 1;
     }
   }
-  .site-footer__maker-text {
-    font-size: var(--fs-sm);
-    color: var(--color-fg-muted);
-    margin-block-start: var(--space-3);
-    max-inline-size: 42ch;
-  }
-
   .site-footer__bottom {
     margin-block-start: var(--space-12);
     display: flex;
