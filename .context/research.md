@@ -100,6 +100,88 @@ CLOUDFLARE_ACCOUNT_ID=<sccn-account-id> \
 
 `CLOUDFLARE_ACCOUNT_ID` required because the SCCN API token lacks the `memberships` scope wrangler queries when enumerating accounts.
 
+## ORCID SSO integration research (2026-06-21)
+
+Three parallel agents researched OAuth flow, UX patterns, and backend architecture. Key findings below.
+
+### Critical constraint: ORCID does not return email via OAuth
+
+Email is private by default on ORCID records. The token response, id_token, and `/oauth/userinfo` endpoint do not include an email claim. The backend must **link accounts by ORCID iD (`sub`)**, not email. On first ORCID login, collect email via a form field (ORCID's own recommended practice).
+
+### OAuth flow
+
+- **Public API / free tier** is sufficient — no Member API needed for SSO
+- Scope: `/authenticate openid`
+- Authorize: `https://orcid.org/oauth/authorize`
+- Token: `https://orcid.org/oauth/token` (form-urlencoded POST with client_secret)
+- Token response body includes `orcid` (the iD) and `name` directly — no extra API call needed
+- id_token (RS256): claims are `sub`, `name`, `given_name`, `family_name` — **no email claim**
+- **No PKCE** (ORCID deliberately doesn't support it — issue #5977, closed 2022-11-28)
+- Use server-side confidential client, `client_secret` in Worker env + `state`/`nonce` for CSRF/replay
+- Stack: raw `fetch` + `jose` for id_token verification (both Web Crypto, Workers-compatible)
+- Redirect URI must be `app.nemar.org/...` only (authenticated host)
+- Dev/test against `sandbox.orcid.org` (HTTP redirects allowed there)
+- ORCID access tokens expire in ~20 years — don't tie session lifetime to them; discard after use
+
+### What already exists in nemar-cli (verified by reading codebase)
+
+- **`users.orcid` column exists** (migration `0026_passwordless_auth.sql:72`) but holds DOI-**discovered** ORCIDs, not OAuth-verified. Must add `orcid_verified` flag to distinguish.
+- **Session system is built** (`backend/src/services/web-session.ts`) — 256-bit opaque cookies, SHA-256 hash in `web_sessions`, sliding expiry, DB revocation. ORCID login should call `issueSession()` exactly like the email-code flow.
+- **`github-auth.ts`** exists as a template to mirror.
+- **Next migration number: 0050**
+
+### DB schema (migration 0050)
+
+```sql
+CREATE TABLE oauth_identities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider TEXT NOT NULL CHECK (provider IN ('orcid')),
+  provider_subject TEXT NOT NULL,   -- ORCID iD e.g. 0000-0001-2345-6789
+  provider_email TEXT,              -- may be NULL (private by default)
+  display_name TEXT,
+  connected_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_login_at TEXT,
+  UNIQUE (provider, provider_subject)
+);
+CREATE INDEX idx_oauth_identities_user ON oauth_identities(user_id);
+ALTER TABLE users ADD COLUMN orcid_verified INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE web_sessions ADD COLUMN auth_method TEXT; -- 'email_code'|'orcid'
+```
+
+**Email collision rule:** if ORCID email matches an existing `users.email`, do NOT auto-link — require sign-in via existing method first. Auto-linking on email match is an account-takeover vector.
+
+**Discovered vs. verified:** if OAuth `provider_subject` matches existing `users.orcid` (DOI-discovered), set `orcid_verified=1`. If it differs, log for admin review — don't overwrite the citation-facing value.
+
+### Routes (4, mirror existing /auth/* Hono mount)
+
+```
+GET  /auth/orcid/start     → set state cookie, 302 to orcid.org/oauth/authorize
+GET  /auth/orcid/callback  → verify state, exchange code, find-or-create, issueSession
+POST /auth/orcid/link      → (authed) link ORCID to current account
+POST /auth/orcid/unlink    → (authed) remove oauth_identities row
+```
+
+New Worker secrets: `ORCID_CLIENT_ID`, `ORCID_CLIENT_SECRET`, `ORCID_API_BASE`.
+
+### Session strategy
+
+Reuse `issueSession()` — opaque cookie, no JWT. Don't store the ORCID access token (20-year expiry = worst-case exfil item). Read `orcid` + `name` from token body, discard the rest.
+
+### UX decision
+
+- **ORCID-primary** (OpenNeuro model — migrated to ORCID-only May 2025, closest peer)
+- ~90–93% of neuroscience/biomedical researchers have ORCID iDs — requiring it is a provenance signal
+- Button: "Sign in with ORCID", unaltered green SVG from ORCID Brand Library (not hardcoded hex — `#A6CE39` is community convention, not official)
+- iD display: green icon + full `https://orcid.org/0000-...` URI hyperlinked, 24×24px icon, on profile and dataset detail rail
+- First login: OAuth gives iD + name → ask for email via form → create account
+
+### First PR scope (thinnest correct slice)
+
+Migration 0050 + 4 routes + `/authenticate` scope only (no token storage) + find-or-create with no email auto-merge + email-collection onboarding for new signups. Defer profile enrichment (employment/affiliations) to a follow-up.
+
+**Confirm before building:** Public API (free/developer) or Member API credentials? Login works on either; `/read-limited` enrichment requires Member tier.
+
 ## Legacy nemar.org assets reused
 
 - `public/hero-brain.png` (368KB) — wireframe brain illustration from legacy `/app/templates/nemar/img/brain-blue.png`

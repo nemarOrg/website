@@ -11,12 +11,10 @@ Read `.context/handoff.md` before anything else — it has the most recent sessi
 ### Active worktrees
 
 ```
-/Users/yahya/Documents/git/nemar/website                  main (initial commit only; CF clones this for builds)
-/Users/yahya/Documents/git/nemar/epic-website-redesign    feature/issue-1-epic-nemar-redesign (production-set)
-/Users/yahya/Documents/git/nemar/website-phase3           feature/issue-4-phase3-qa-hed (PR #11 open)
+/Users/yahya/Documents/git/nemar/website    main (initial commit only; CF clones this for builds)
 ```
 
-Edits and `wrangler pages deploy` always run from `epic-website-redesign/`, never from `website/`.
+`feature/issue-1-epic-nemar-redesign` is the production branch on Cloudflare Pages but no longer has a local worktree — create one with `git worktree add ../epic-website-redesign -b feature/issue-1-epic-nemar-redesign origin/feature/issue-1-epic-nemar-redesign` if needed. Phase 3 worktree (`website-phase3`) was removed — PR #11 was closed without merging.
 
 ### Project-specific skill triggers
 
