@@ -46,6 +46,7 @@ const year = new Date().getFullYear();
 
   <div class="container site-footer__credits">
     <div class="site-footer__maker">
+      <span class="site-footer__credits-label">A project of</span>
       <div class="site-footer__chips">
         <a
           class="logo-chip logo-chip--maker"
@@ -229,8 +230,11 @@ const year = new Date().getFullYear();
     opacity: 1;
   }
   .logo-chip--maker img {
-    block-size: 65px;
-    max-inline-size: 200px;
+    block-size: 50px;
+    max-inline-size: 180px;
+  }
+  .site-footer__maker .site-footer__credits-label {
+    margin-block-end: var(--space-2);
   }
   @media (prefers-color-scheme: dark) {
     :global(:root:not([data-theme="light"])) .logo-chip img {
