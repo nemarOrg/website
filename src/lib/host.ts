@@ -54,6 +54,11 @@ const APP_ROUTE_PREFIXES: readonly string[] = [
   "/upload",
   "/admin",
   "/settings",
+  // ORCID SSO browser flow (website#128): /auth/orcid/start + /callback proxy
+  // to the api Worker, and /auth/orcid/complete collects the email for a
+  // brand-new ORCID signup. App-host only so the state/pending/session cookies
+  // (Domain=app.nemar.org) are sent and the OAuth redirect_uri host matches.
+  "/auth",
   "/api/auth",
   "/api/admin",
   // Same-origin proxy for cookie-authenticated dashboard mutations
