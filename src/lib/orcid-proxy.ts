@@ -13,7 +13,11 @@
 
 import { apiBase, copySetCookies } from "./api-base";
 
-const FORWARD_HEADERS = ["cookie", "user-agent", "x-forwarded-for", "cf-connecting-ip", "origin"];
+// Mirror the /api/v1 proxy's forward set. Deliberately omits x-forwarded-for /
+// cf-connecting-ip: the upstream's own CF edge sets cf-connecting-ip to this
+// Worker's IP, and forwarding a browser-supplied XFF would let a client spoof
+// the IP the backend records.
+const FORWARD_HEADERS = ["cookie", "user-agent", "origin"];
 
 export async function proxyOrcidRedirect(
   request: Request,
@@ -44,23 +48,26 @@ export async function proxyOrcidRedirect(
     });
   }
 
+  // Copy any Set-Cookie first so an error response that clears the state/pending
+  // cookie still reaches the browser even on the fallback path below.
   const out = new Headers({ "Cache-Control": "no-store" });
-  const location = upstream.headers.get("Location");
-  if (location) out.set("Location", location);
   copySetCookies(upstream, out);
 
   // Workers' `redirect: "manual"` surfaces the real 3xx (status + Location),
-  // not a browser-style opaque redirect. Relay it; if a Location came back,
-  // pin the status to 302 so a non-standard upstream status can't yield an
-  // invalid Response. Without a Location the upstream isn't a usable redirect.
+  // not a browser-style opaque redirect. Relay it; pin the status to 302 so a
+  // non-standard upstream status can't yield an invalid Response.
+  const location = upstream.headers.get("Location");
   if (location) {
+    out.set("Location", location);
     return new Response(null, { status: 302, headers: out });
   }
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: new URL("/login?error=orcid_error", url).toString(),
-      "Cache-Control": "no-store",
-    },
-  });
+
+  // No Location: the upstream isn't a usable redirect (a non-3xx status, or a
+  // backend error). Log it so a backend outage is distinguishable from a real
+  // redirect, then fall back without dropping any cookies the upstream set.
+  console.warn(
+    `[orcid-proxy] no redirect from ${upstreamPath} (upstream status ${upstream.status}); falling back to login`,
+  );
+  out.set("Location", new URL("/login?error=orcid_error", url).toString());
+  return new Response(null, { status: 302, headers: out });
 }

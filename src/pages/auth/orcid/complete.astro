@@ -6,6 +6,13 @@ import Base from "../../../layouts/Base.astro";
 // the HttpOnly `nemar_orcid_pending` cookie (set by the api Worker on the
 // callback) and is never exposed to this page; the form POSTs the email to
 // /api/v1/auth/orcid/finalize, which reads + verifies that cookie server-side.
+//
+// Fail fast when there's no pending cookie (direct hit, restored tab, or a
+// cookie already consumed by a prior finalize): render nothing useful, bounce
+// back to sign-in instead of showing a form whose submit can only 401.
+if (!Astro.cookies.has("nemar_orcid_pending")) {
+  return Astro.redirect("/login?error=orcid_pending_expired");
+}
 ---
 
 <Base
@@ -181,6 +188,10 @@ import Base from "../../../layouts/Base.astro";
   const submitEl = document.querySelector<HTMLButtonElement>("[data-finish-submit]");
   const errorEl = document.querySelector<HTMLElement>("[data-finish-error]");
 
+  // Values are trusted static strings rendered via innerHTML (one carries an
+  // <a>). The lookup key `code` is never interpolated into them. Keep every
+  // value a compile-time constant -- never build one from a server value, or
+  // this becomes an XSS sink.
   const MESSAGES: Record<string, string> = {
     email_in_use:
       "That email already has a NEMAR account. Sign in with it first, then link ORCID from settings.",
@@ -219,7 +230,12 @@ import Base from "../../../layouts/Base.astro";
           MESSAGES[code] ?? "We couldn't finish creating your account. Try again in a moment.";
         errorEl.hidden = false;
         submitEl.disabled = false;
-      } catch {
+      } catch (err) {
+        // A TypeError is the expected fetch network failure; anything else is a
+        // client bug masquerading as one, so log it for debugging.
+        if (!(err instanceof TypeError)) {
+          console.error("[orcid/complete] unexpected error finalizing signup", err);
+        }
         errorEl.textContent = "Network error. Check your connection and try again.";
         errorEl.hidden = false;
         submitEl.disabled = false;
