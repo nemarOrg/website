@@ -1,17 +1,27 @@
 ---
 import Base from "../layouts/Base.astro";
 import { safeRedirectPath } from "../lib/auth";
-import { WEB_SIGNIN_ENABLED, WEB_SIGNIN_ETA } from "../lib/flags";
+import { ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, WEB_SIGNIN_ETA } from "../lib/flags";
 
 const url = new URL(Astro.request.url);
 const next = safeRedirectPath(url.searchParams.get("next"));
 const errorParam = url.searchParams.get("error");
-const errorMessage =
-  errorParam === "expired"
-    ? "Your previous code expired. Enter your email to receive a new one."
-    : errorParam === "unknown"
-      ? "Something went wrong. Try again."
-      : null;
+
+const ERROR_MESSAGES: Record<string, string> = {
+  expired: "Your previous code expired. Enter your email to receive a new one.",
+  unknown: "Something went wrong. Try again.",
+  orcid_denied: "ORCID sign-in was cancelled. You can try again.",
+  orcid_state: "Your ORCID sign-in session expired. Please try again.",
+  orcid_exchange: "We couldn't complete ORCID sign-in. Please try again.",
+  orcid_error: "Something went wrong during ORCID sign-in. Please try again.",
+  orcid_unavailable: "ORCID sign-in is temporarily unavailable. Try email below.",
+  orcid_linked_other: "That ORCID iD is already linked to a different NEMAR account.",
+  orcid_already_have: "Your account already has a different ORCID iD linked.",
+  orcid_account: "We couldn't find an active account for that ORCID iD.",
+};
+const errorMessage = errorParam ? (ERROR_MESSAGES[errorParam] ?? ERROR_MESSAGES.unknown) : null;
+
+const orcidHref = `/auth/orcid/start${next && next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`;
 const isDev = import.meta.env.DEV;
 ---
 
@@ -27,15 +37,33 @@ const isDev = import.meta.env.DEV;
           <p class="signin__eyebrow">Researcher access</p>
           <h1 class="signin__title">Sign in to <em>NEMAR</em></h1>
           <p class="signin__lede">
-            {WEB_SIGNIN_ENABLED
-              ? "We'll email you a one-time 6-digit code. No password required."
-              : `Web sign-in is coming ${WEB_SIGNIN_ETA}. For now, sign in with the CLI.`}
+            {ORCID_SIGNIN_ENABLED
+              ? WEB_SIGNIN_ENABLED
+                ? "Sign in with your ORCID iD, or get a one-time code by email."
+                : "Sign in with your ORCID iD."
+              : WEB_SIGNIN_ENABLED
+                ? "We'll email you a one-time 6-digit code. No password required."
+                : `Web sign-in is coming ${WEB_SIGNIN_ETA}. For now, sign in with the CLI.`}
           </p>
         </header>
 
         {errorMessage && <p class="signin__alert" role="alert">{errorMessage}</p>}
 
-        {!WEB_SIGNIN_ENABLED && (
+        {ORCID_SIGNIN_ENABLED && (
+          <a class="signin__orcid" href={orcidHref}>
+            <svg class="signin__orcid-icon" width="20" height="20" viewBox="0 0 256 256" aria-hidden="true">
+              <path fill="#A6CE39" d="M128 0C57.3 0 0 57.3 0 128s57.3 128 128 128 128-57.3 128-128S198.7 0 128 0z"/>
+              <path fill="#fff" d="M86.3 186.2H70.9V79.1h15.4v107.1zM78.6 56.8c-5.1 0-9.2-4.1-9.2-9.2 0-5.1 4.1-9.2 9.2-9.2s9.2 4.1 9.2 9.2c0 5.1-4.1 9.2-9.2 9.2zm17.6 22.3h41.6c39.6 0 57 28.3 57 53.5 0 27.4-21.4 53.5-56.8 53.5H96.2V79.1zm15.3 92.2h24.6c35 0 43-26.5 43-38.6 0-19.7-12.5-38.6-43.8-38.6h-23.8v77.2z"/>
+            </svg>
+            <span>Sign in with ORCID</span>
+          </a>
+        )}
+
+        {ORCID_SIGNIN_ENABLED && WEB_SIGNIN_ENABLED && (
+          <div class="signin__divider" role="separator"><span>or</span></div>
+        )}
+
+        {!WEB_SIGNIN_ENABLED && !ORCID_SIGNIN_ENABLED && (
           <div class="signin__soon">
             <span class="signin__soon-badge">Coming soon</span>
             <p class="signin__soon-lede">
@@ -304,6 +332,54 @@ nemar auth login</code></pre>
     border: 1px solid color-mix(in srgb, var(--color-danger) 32%, transparent);
     color: var(--color-fg);
     font-size: var(--fs-sm);
+  }
+
+  /* ---------- ORCID button + divider ---------- */
+  .signin__orcid {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-block-size: 48px;
+    margin-block-start: var(--space-2);
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    text-decoration: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .signin__orcid:hover {
+    border-color: #a6ce39;
+    box-shadow: 0 0 0 4px color-mix(in srgb, #a6ce39 20%, transparent);
+  }
+  .signin__orcid:focus-visible {
+    outline: none;
+    border-color: #a6ce39;
+    box-shadow: 0 0 0 4px color-mix(in srgb, #a6ce39 30%, transparent);
+  }
+  .signin__orcid-icon {
+    flex-shrink: 0;
+  }
+  .signin__divider {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-block: var(--space-1);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .signin__divider::before,
+  .signin__divider::after {
+    content: "";
+    flex: 1;
+    block-size: 1px;
+    background: var(--color-border);
   }
 
   /* ---------- Form ---------- */
