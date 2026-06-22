@@ -54,6 +54,42 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
             data-finish-email
           />
         </label>
+        <label class="field">
+          <span class="field__label">City</span>
+          <input
+            class="field__input"
+            type="text"
+            name="city"
+            autocomplete="address-level2"
+            required
+            placeholder="City"
+            data-finish-city
+          />
+        </label>
+        <label class="field">
+          <span class="field__label">Country</span>
+          <input
+            class="field__input"
+            type="text"
+            name="country"
+            autocomplete="country-name"
+            required
+            placeholder="Country"
+            data-finish-country
+          />
+        </label>
+        <label class="field">
+          <span class="field__label">Affiliation <span class="field__opt">(optional)</span></span>
+          <input
+            class="field__input"
+            type="text"
+            name="affiliation"
+            autocomplete="organization"
+            placeholder="Institution"
+            data-finish-affiliation
+          />
+        </label>
+        <p class="finish__note">City and country are required for export-control screening.</p>
         <button class="finish__submit" type="submit" data-finish-submit>
           Create my account
         </button>
@@ -128,6 +164,18 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
     display: grid;
     gap: var(--space-2);
   }
+  .field__opt {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--color-fg-subtle);
+  }
+  .finish__note {
+    margin: calc(-1 * var(--space-2)) 0 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
   .field__label {
     font-size: var(--fs-xs);
     font-weight: var(--fw-semibold);
@@ -185,6 +233,9 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
 <script>
   const form = document.querySelector<HTMLFormElement>("[data-finish-form]");
   const emailEl = document.querySelector<HTMLInputElement>("[data-finish-email]");
+  const cityEl = document.querySelector<HTMLInputElement>("[data-finish-city]");
+  const countryEl = document.querySelector<HTMLInputElement>("[data-finish-country]");
+  const affiliationEl = document.querySelector<HTMLInputElement>("[data-finish-affiliation]");
   const submitEl = document.querySelector<HTMLButtonElement>("[data-finish-submit]");
   const errorEl = document.querySelector<HTMLElement>("[data-finish-error]");
 
@@ -201,11 +252,19 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
     invalid_email: "That doesn't look like an email address.",
   };
 
-  if (form && emailEl && submitEl && errorEl) {
+  if (form && emailEl && cityEl && countryEl && submitEl && errorEl) {
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const email = emailEl.value.trim().toLowerCase();
+      const city = cityEl.value.trim();
+      const country = countryEl.value.trim();
+      const affiliation = affiliationEl?.value.trim() || undefined;
       if (!email) return;
+      if (!city || !country) {
+        errorEl.textContent = "City and country are required for export-control screening.";
+        errorEl.hidden = false;
+        return;
+      }
       submitEl.disabled = true;
       errorEl.hidden = true;
       try {
@@ -213,7 +272,7 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({ email, city, country, affiliation }),
         });
         if (res.ok) {
           location.href = "/welcome";
