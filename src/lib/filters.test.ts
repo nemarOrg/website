@@ -89,7 +89,6 @@ describe("filterStateFromURL", () => {
     const s = filterStateFromURL(new URLSearchParams("has_qa=1&has_hed=1"));
     expect(s.hasDataQuality).toBe(true);
     expect(s.hasHed).toBe(true);
-    expect(s.has10_20).toBe(false);
   });
   it("clamps page to >=1", () => {
     expect(filterStateFromURL(new URLSearchParams("page=0")).page).toBe(1);
@@ -139,7 +138,6 @@ describe("filterStateToURL", () => {
     s.modalities = ["iEEG"];
     s.licenseTiers = ["sharealike", "noderiv"];
     s.participants = { min: 20, max: null };
-    s.has10_20 = true;
     s.sort = "size";
     const parsed = filterStateFromURL(filterStateToURL(s));
     expect(parsed).toEqual({ ...s, pageSize: 10 });

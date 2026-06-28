@@ -147,20 +147,43 @@ const { state, searchActive = false } = Astro.props;
           <span class="soon-pill">Phase 3</span>
         </label>
       </li>
-      <li>
-        <label class="flag--soon">
-          <input
-            type="checkbox"
-            name="has_1020"
-            value="1"
-            checked={state.has10_20}
-            disabled
-          />
-          Has 10-20 montage
-          <span class="soon-pill">Phase 3</span>
-        </label>
-      </li>
     </ul>
+  </div>
+
+  <div class="filters__group">
+    <h3>Channels &amp; montage</h3>
+    <label class="filters__field filters__field--soon">
+      <span class="filters__field-label">
+        Channel density
+        <span class="soon-pill">Soon</span>
+      </span>
+      <select disabled>
+        <option>Any density</option>
+        <option>Low (≤32)</option>
+        <option>Standard (33–64)</option>
+        <option>High (65–128)</option>
+        <option>High-density (129+)</option>
+      </select>
+    </label>
+    <label class="filters__field filters__field--soon">
+      <span class="filters__field-label">
+        Electrode system
+        <span class="soon-pill">Soon</span>
+      </span>
+      <select disabled>
+        <option>Any system</option>
+        <option>10-20</option>
+        <option>10-10</option>
+        <option>10-05</option>
+        <option>BioSemi</option>
+        <option>EGI geodesic</option>
+        <option>Other</option>
+      </select>
+    </label>
+    <p class="filters__note">
+      Filtering by channel count and cap type arrives with catalog metadata
+      (<a href="https://github.com/nemarOrg/nemar-cli/issues/854" rel="external">nemar-cli#854</a>).
+    </p>
   </div>
 
   <div class="filters__group">
@@ -368,6 +391,27 @@ const { state, searchActive = false } = Astro.props;
   .filters select:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .filters__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .filters__field select {
+    inline-size: 100%;
+  }
+  .filters__field-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+  }
+  .filters__field--soon .filters__field-label {
+    color: var(--color-fg-subtle);
+  }
+  .filters__field--soon .soon-pill {
+    margin-inline-start: auto;
   }
   .filters__hint {
     margin-block-start: var(--space-2);
