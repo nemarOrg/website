@@ -43,6 +43,27 @@ export function searchResultToDataset(r: SearchResult): Dataset {
   };
 }
 
+/**
+ * Backfill a hydrated detail row with fields the search projection carries but
+ * the `/datasets/:id` endpoint drops. The list + search endpoints return
+ * `participants` and `latest_version`, but the per-id detail endpoint returns
+ * them as null (a backend inconsistency, nemar-cli#864). Search cards hydrate
+ * via the detail endpoint for the richer fields (description, size, citations),
+ * so without this merge they would lose their participant count — exactly the
+ * "subjects missing" regression on search results. We keep the detail row's
+ * values when present and only fall back to the projection where it left a gap.
+ */
+export function backfillSearchHit(full: Dataset, hit: SearchResult): Dataset {
+  const hasParticipants = typeof full.participants === "number" && full.participants > 0;
+  return {
+    ...full,
+    participants: hasParticipants ? full.participants : hit.participants,
+    modalities: full.modalities || hit.modalities,
+    tasks: full.tasks || hit.tasks,
+    authors: full.authors || hit.authors,
+  };
+}
+
 function buildQuery(params: DatasetQuery): string {
   const sp = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -72,6 +93,37 @@ export async function listDatasets(
   }
   const json = (await res.json()) as DatasetListResponse;
   return json;
+}
+
+/**
+ * Fetch the full (server-prefiltered) catalog for `query`, paging past the
+ * api.nemar.org per-request cap of 200 rows. Used by the browse page when a
+ * client-only filter (participant/channel range, multi-modality AND/OR) is
+ * active: those filters can't run server-side, so the page must hold the whole
+ * result set to filter + paginate it client-side and report an honest count.
+ * The first page is fetched serially to learn `total_count`; the rest fan out
+ * in parallel. Rows are de-duplicated by id in case the window shifts between
+ * requests.
+ */
+export async function listAllDatasets(
+  query: DatasetQuery = {},
+  init: { signal?: AbortSignal } = {},
+): Promise<Dataset[]> {
+  const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
+  const first = await listDatasets({ ...query, limit: PAGE, offset: 0 }, init);
+  const total = first.total_count ?? first.count ?? first.datasets.length;
+  const byId = new Map<string, Dataset>();
+  for (const d of first.datasets) byId.set(d.dataset_id, d);
+
+  const offsets: number[] = [];
+  for (let off = PAGE; off < total; off += PAGE) offsets.push(off);
+  if (offsets.length > 0) {
+    const pages = await Promise.all(
+      offsets.map((off) => listDatasets({ ...query, limit: PAGE, offset: off }, init)),
+    );
+    for (const p of pages) for (const d of p.datasets) byId.set(d.dataset_id, d);
+  }
+  return [...byId.values()];
 }
 
 /**
