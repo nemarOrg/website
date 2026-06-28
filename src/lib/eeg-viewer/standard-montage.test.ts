@@ -92,6 +92,22 @@ describe("standardMontageFor named-net fallback (#855)", () => {
     expect(m.E1).not.toEqual(GSN_HYDROCEL_129.E1);
   });
 
+  it("does NOT mistake a 10-20 cap with an A2 ear ref for BioSemi (nm000109)", () => {
+    // Real nm000109 labels: classic 10-20 (incl. legacy T3/T4/T5/T6) + A2 ref.
+    // A2 matches the BioSemi A-bank probe and F3/F4/C3/C4 match [A-H]\d, but the
+    // bank labels are a minority, so it must resolve against STANDARD_1005.
+    const labels =
+      "Fp1 Fp2 F3 F4 F7 F8 T3 T4 C3 C4 T5 T6 P3 P4 O1 O2 Fz Cz Pz A2".split(" ");
+    const m = standardMontageFor(labels);
+    expect(m.Cz).toEqual(STANDARD_1005.Cz);
+    expect(m.F3).toEqual(STANDARD_1005.F3);
+    // T3 is the legacy alias for T7.
+    expect(m.T3).toEqual(STANDARD_1005.T7);
+    // NOT BioSemi positions.
+    expect(m.A2).toEqual(STANDARD_1005.A2);
+    expect(m.A2).not.toEqual(BIOSEMI_128.A2);
+  });
+
   it("ignores case and still resolves the EGI net", () => {
     const m = standardMontageFor(["e1", "e2", "e3", "cz"]);
     expect(m.e1).toEqual(GSN_HYDROCEL_129.E1);

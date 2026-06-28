@@ -431,9 +431,16 @@ function namedNetIndex(upperLabels: string[]): ReadonlyMap<string, Vec3> | null 
         count++;
       }
     }
-    if (count < 3) return null;
-    const maxBank = [...banks].sort().pop() as string;
-    return maxBank <= "D" ? BIOSEMI128 : BIOSEMI256;
+    // A real BioSemi cap is almost entirely bank-labeled (A1..H32). A standard
+    // 10-20/10-10 montage only has a few incidental [A-H]-letter labels (F3, F4,
+    // C3, C4) plus maybe A1/A2 ear refs, so require the bank labels to DOMINATE,
+    // not merely appear -- otherwise a plain 10-20 with an A2 reference would be
+    // mis-projected onto a BioSemi head.
+    if (count >= 3 && count >= upperLabels.length * 0.6) {
+      const maxBank = [...banks].sort().pop() as string;
+      return maxBank <= "D" ? BIOSEMI128 : BIOSEMI256;
+    }
+    // Not BioSemi -> fall through (the labels resolve against STANDARD_1005).
   }
   let eCount = 0;
   let eMax = 0;
