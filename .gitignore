@@ -2,6 +2,11 @@
 dist/
 # generated types
 .astro/
+# generated OG cards — rebuilt from the live catalog on every deploy by
+# `generate:og` (chained into `bun run build`) and refreshed out-of-band by the
+# nemar-og-rebuild-cron Pages deploy hook. Never hand-authored; tracking them
+# only produces churn and drift, so they are build artifacts like dist/.
+public/og/dataset-card/
 
 # dependencies
 node_modules/
