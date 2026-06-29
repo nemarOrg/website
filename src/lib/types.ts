@@ -28,6 +28,20 @@ export interface Dataset {
   file_size_formatted: string;
   latest_version: string | null;
   /**
+   * EEG channel count, derived during enrichment (measured `channels.tsv` EEG
+   * count, with the `*_eeg.json` `EEGChannelCount` sidecar as fallback);
+   * nemar-cli#854. NULL for non-EEG datasets and EEG rows not yet probed —
+   * keep it optional + nullable (sparse `on*`/legacy rows ship null).
+   */
+  n_channels?: number | null;
+  /**
+   * Electrode-system class: "10-20" | "10-10" | "10-05" | "biosemi" |
+   * "egi-geodesic" | "other" (nemar-cli#854). NULL when no scalp montage was
+   * resolvable. Filtering by it is client-side (the catalog API has no
+   * server-side param for it — verified prod).
+   */
+  electrode_system?: string | null;
+  /**
    * Raw license string as returned by api.nemar.org/datasets (e.g. "CC0",
    * "CC-BY-NC-ND-4.0"); backfilled on every catalog row by nemar-cli
    * migration 0034. The website derives the display tier from this via
@@ -147,6 +161,51 @@ export const LICENSE_TIERS: ReadonlyArray<LicenseTier> = [
   "noderiv",
   "unknown",
 ];
+
+/**
+ * Electrode-system classes emitted by the catalog's channel/montage enrichment
+ * (nemar-cli#854, `Dataset.electrode_system`). The values are the exact strings
+ * the backend stores; the labels are the display text for the discover filter.
+ */
+export type ElectrodeSystem = "10-20" | "10-10" | "10-05" | "biosemi" | "egi-geodesic" | "other";
+
+export const ELECTRODE_SYSTEMS: ReadonlyArray<{ value: ElectrodeSystem; label: string }> = [
+  { value: "10-20", label: "10-20" },
+  { value: "10-10", label: "10-10" },
+  { value: "10-05", label: "10-05" },
+  { value: "biosemi", label: "BioSemi" },
+  { value: "egi-geodesic", label: "EGI geodesic" },
+  { value: "other", label: "Other" },
+];
+
+const ELECTRODE_SYSTEM_VALUES: ReadonlySet<string> = new Set(ELECTRODE_SYSTEMS.map((s) => s.value));
+
+/** Narrow an arbitrary string to a known {@link ElectrodeSystem}, else null. */
+export function asElectrodeSystem(value: string | null | undefined): ElectrodeSystem | null {
+  return value && ELECTRODE_SYSTEM_VALUES.has(value) ? (value as ElectrodeSystem) : null;
+}
+
+/**
+ * Channel-density presets for the discover sidebar. Each bucket maps to an
+ * inclusive `n_channels` range; the sidebar exposes these instead of raw
+ * min/max inputs because users think in cap classes, not channel counts.
+ */
+export type DensityBucket = "low" | "standard" | "high" | "hd";
+
+export const DENSITY_BUCKETS: Record<
+  DensityBucket,
+  { min: number | null; max: number | null; label: string }
+> = {
+  low: { min: null, max: 32, label: "Low (≤32)" },
+  standard: { min: 33, max: 64, label: "Standard (33–64)" },
+  high: { min: 65, max: 128, label: "High (65–128)" },
+  hd: { min: 129, max: null, label: "High-density (129+)" },
+};
+
+/** Narrow an arbitrary string to a known {@link DensityBucket}, else null. */
+export function asDensityBucket(value: string | null | undefined): DensityBucket | null {
+  return value && value in DENSITY_BUCKETS ? (value as DensityBucket) : null;
+}
 
 /**
  * Server-side query params the api.nemar.org /datasets endpoint understands.
