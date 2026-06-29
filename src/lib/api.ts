@@ -40,6 +40,11 @@ export function searchResultToDataset(r: SearchResult): Dataset {
     file_size: 0,
     file_size_formatted: "",
     latest_version: null,
+    // The hybrid search projection carries no channel/montage facts; leave them
+    // null so a search card that filters on density/electrode is simply skipped
+    // (the controls are disabled while searching anyway).
+    n_channels: null,
+    electrode_system: null,
   };
 }
 

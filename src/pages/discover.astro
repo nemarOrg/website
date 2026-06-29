@@ -106,6 +106,8 @@ try {
       state.participants.max != null ||
       state.channels.min != null ||
       state.channels.max != null ||
+      state.density !== "" ||
+      state.electrodeSystem !== "" ||
       state.modalities.length >= 2;
 
     if (needsClientPaging) {

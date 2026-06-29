@@ -1,7 +1,17 @@
 ---
 import type { FilterState } from "../lib/filters";
 import { LICENSE_TIER_BLURB, LICENSE_TIER_LABELS, modalityVariant } from "../lib/tags";
-import { LICENSE_TIERS, MODALITY_CODES, MODALITY_LABELS, SORT_OPTIONS } from "../lib/types";
+import {
+  DENSITY_BUCKETS,
+  ELECTRODE_SYSTEMS,
+  LICENSE_TIERS,
+  MODALITY_CODES,
+  MODALITY_LABELS,
+  SORT_OPTIONS,
+} from "../lib/types";
+
+// Density presets in display order (insertion order of the record literal).
+const DENSITY_OPTIONS = Object.entries(DENSITY_BUCKETS);
 
 interface Props {
   state: FilterState;
@@ -152,37 +162,28 @@ const { state, searchActive = false } = Astro.props;
 
   <div class="filters__group">
     <h3>Channels &amp; montage</h3>
-    <label class="filters__field filters__field--soon">
-      <span class="filters__field-label">
-        Channel density
-        <span class="soon-pill">Soon</span>
-      </span>
-      <select disabled>
-        <option>Any density</option>
-        <option>Low (≤32)</option>
-        <option>Standard (33–64)</option>
-        <option>High (65–128)</option>
-        <option>High-density (129+)</option>
+    <label class="filters__field">
+      <span class="filters__field-label">Channel density</span>
+      <select name="density" disabled={searchActive}>
+        <option value="" selected={!state.density}>Any density</option>
+        {DENSITY_OPTIONS.map(([value, bucket]) => (
+          <option value={value} selected={state.density === value}>{bucket.label}</option>
+        ))}
       </select>
     </label>
-    <label class="filters__field filters__field--soon">
-      <span class="filters__field-label">
-        Electrode system
-        <span class="soon-pill">Soon</span>
-      </span>
-      <select disabled>
-        <option>Any system</option>
-        <option>10-20</option>
-        <option>10-10</option>
-        <option>10-05</option>
-        <option>BioSemi</option>
-        <option>EGI geodesic</option>
-        <option>Other</option>
+    <label class="filters__field">
+      <span class="filters__field-label">Electrode system</span>
+      <select name="es" disabled={searchActive}>
+        <option value="" selected={!state.electrodeSystem}>Any system</option>
+        {ELECTRODE_SYSTEMS.map((sys) => (
+          <option value={sys.value} selected={state.electrodeSystem === sys.value}>{sys.label}</option>
+        ))}
       </select>
     </label>
     <p class="filters__note">
-      Filtering by channel count and cap type arrives with catalog metadata
-      (<a href="https://github.com/nemarOrg/nemar-cli/issues/854" rel="external">nemar-cli#854</a>).
+      {searchActive
+        ? "Channel and montage filters apply while browsing — clear the search box to use them."
+        : "Counts come from each dataset's channels.tsv / EEG sidecar; datasets without a resolvable montage are excluded."}
     </p>
   </div>
 

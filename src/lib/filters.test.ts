@@ -85,6 +85,16 @@ describe("filterStateFromURL", () => {
     const s = filterStateFromURL(new URLSearchParams("p_min=10&p_max=100"));
     expect(s.participants).toEqual({ min: 10, max: 100 });
   });
+  it("parses channel density + electrode system (nemar-cli#854)", () => {
+    const s = filterStateFromURL(new URLSearchParams("density=high&es=egi-geodesic"));
+    expect(s.density).toBe("high");
+    expect(s.electrodeSystem).toBe("egi-geodesic");
+  });
+  it("rejects unknown density + electrode-system tokens", () => {
+    const s = filterStateFromURL(new URLSearchParams("density=ultra&es=bogus"));
+    expect(s.density).toBe("");
+    expect(s.electrodeSystem).toBe("");
+  });
   it("parses flags", () => {
     const s = filterStateFromURL(new URLSearchParams("has_qa=1&has_hed=1"));
     expect(s.hasDataQuality).toBe(true);
@@ -131,6 +141,22 @@ describe("filterStateToURL", () => {
     const s = defaultFilterState();
     s.licenseTiers = ["public", "attribution"];
     expect(filterStateToURL(s).get("license")).toBe("public,attribution");
+  });
+  it("serializes channel density + electrode system", () => {
+    const s = defaultFilterState();
+    s.density = "hd";
+    s.electrodeSystem = "biosemi";
+    const sp = filterStateToURL(s);
+    expect(sp.get("density")).toBe("hd");
+    expect(sp.get("es")).toBe("biosemi");
+  });
+  it("roundtrips density + electrode system through URL", () => {
+    const s = defaultFilterState();
+    s.density = "standard";
+    s.electrodeSystem = "10-10";
+    const parsed = filterStateFromURL(filterStateToURL(s));
+    expect(parsed.density).toBe("standard");
+    expect(parsed.electrodeSystem).toBe("10-10");
   });
   it("roundtrips through URL", () => {
     const s = defaultFilterState();
@@ -244,6 +270,74 @@ describe("applyClientFilters", () => {
     s.licenseTiers = ["public"];
     const out = applyClientFilters(datasets, s).map((d) => d.dataset_id);
     expect(out).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+describe("applyClientFilters — channels & montage (nemar-cli#854)", () => {
+  const rows = [
+    mkDataset({ dataset_id: "lo", n_channels: 32, electrode_system: "10-20" }),
+    mkDataset({ dataset_id: "mid", n_channels: 64, electrode_system: "10-10" }),
+    mkDataset({ dataset_id: "hi", n_channels: 128, electrode_system: "biosemi" }),
+    mkDataset({ dataset_id: "dense", n_channels: 256, electrode_system: "egi-geodesic" }),
+    mkDataset({ dataset_id: "unknown", n_channels: null, electrode_system: null }),
+  ];
+
+  it("density 'high' keeps 65–128, excludes out-of-range and null", () => {
+    const s = defaultFilterState();
+    s.density = "high";
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual(["hi"]);
+  });
+
+  it("density 'low' keeps ≤32", () => {
+    const s = defaultFilterState();
+    s.density = "low";
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual(["lo"]);
+  });
+
+  it("density 'hd' keeps 129+", () => {
+    const s = defaultFilterState();
+    s.density = "hd";
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual(["dense"]);
+  });
+
+  it("raw c_min/c_max range filters n_channels", () => {
+    const s = defaultFilterState();
+    s.channels = { min: 64, max: 128 };
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual(["mid", "hi"]);
+  });
+
+  it("density preset takes precedence over a raw channel range", () => {
+    const s = defaultFilterState();
+    s.density = "low";
+    s.channels = { min: 100, max: 200 };
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual(["lo"]);
+  });
+
+  it("electrode system keeps the exact class, excluding others + null", () => {
+    const s = defaultFilterState();
+    s.electrodeSystem = "egi-geodesic";
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual(["dense"]);
+  });
+
+  it("combines density + electrode system (AND)", () => {
+    const s = defaultFilterState();
+    s.density = "high";
+    s.electrodeSystem = "10-10";
+    // 'hi' is in the high band but biosemi, not 10-10 -> dropped.
+    expect(applyClientFilters(rows, s).map((d) => d.dataset_id)).toEqual([]);
+  });
+
+  it("skips channel/electrode predicates for reduced search rows (fields undefined)", () => {
+    // The hybrid search projection carries no n_channels/electrode_system, so a
+    // density/electrode filter must not drop those rows (it can't evaluate them).
+    const searchRows = [
+      { id: "a", modalities: "eeg", participants: 10 },
+      { id: "b", modalities: "eeg", participants: 20 },
+    ];
+    const s = defaultFilterState();
+    s.density = "high";
+    s.electrodeSystem = "10-20";
+    expect(applyClientFilters(searchRows, s).map((r) => r.id)).toEqual(["a", "b"]);
   });
 });
 

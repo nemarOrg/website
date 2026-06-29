@@ -1,11 +1,16 @@
 import {
+  DENSITY_BUCKETS,
   type DatasetQuery,
+  type DensityBucket,
+  type ElectrodeSystem,
   LICENSE_TIERS,
   type LicenseTier,
   MODALITY_CODES,
   type ModalityCode,
   type ModalityOp,
   type SortOption,
+  asDensityBucket,
+  asElectrodeSystem,
 } from "./types";
 
 /**
@@ -19,6 +24,15 @@ import {
 export interface FilterableRow {
   modalities: string;
   participants: number;
+  /**
+   * Channel/montage facts (nemar-cli#854). Present on full {@link
+   * import("./types").Dataset} rows (number-or-null), absent (`undefined`) on
+   * the reduced search projection. The filter pass distinguishes the two:
+   * `undefined` means "unknown, can't evaluate" (skip the predicate), `null`
+   * means "known to have no scalp montage" (excluded by a positive filter).
+   */
+  n_channels?: number | null;
+  electrode_system?: string | null;
 }
 
 /**
@@ -48,8 +62,12 @@ export interface FilterState {
   fileFormat: string;
   /** Inclusive participant count range. */
   participants: { min: number | null; max: number | null };
-  /** Inclusive channel count range. */
+  /** Inclusive channel count range (raw `c_min`/`c_max`; power-user URLs). */
   channels: { min: number | null; max: number | null };
+  /** Channel-density preset (sidebar). Expands to an `n_channels` range. */
+  density: DensityBucket | "";
+  /** Electrode-system class to keep. "" means no electrode-system filter. */
+  electrodeSystem: ElectrodeSystem | "";
   /** Inclusive citation count range. Off by default. */
   citations: { min: number | null; max: number | null };
   hasDataQuality: boolean;
@@ -70,6 +88,8 @@ export function defaultFilterState(): FilterState {
     fileFormat: "",
     participants: { min: null, max: null },
     channels: { min: null, max: null },
+    density: "",
+    electrodeSystem: "",
     citations: { min: null, max: null },
     hasDataQuality: false,
     hasHed: false,
@@ -151,6 +171,8 @@ export function filterStateFromURL(params: URLSearchParams): FilterState {
     min: parseIntOrNull(params.get("c_min")),
     max: parseIntOrNull(params.get("c_max")),
   };
+  s.density = asDensityBucket(params.get("density")) ?? "";
+  s.electrodeSystem = asElectrodeSystem(params.get("es")) ?? "";
   s.citations = {
     min: parseIntOrNull(params.get("cit_min")),
     max: parseIntOrNull(params.get("cit_max")),
@@ -186,6 +208,8 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.participants.max != null) sp.set("p_max", String(state.participants.max));
   if (state.channels.min != null) sp.set("c_min", String(state.channels.min));
   if (state.channels.max != null) sp.set("c_max", String(state.channels.max));
+  if (state.density) sp.set("density", state.density);
+  if (state.electrodeSystem) sp.set("es", state.electrodeSystem);
   if (state.citations.min != null) sp.set("cit_min", String(state.citations.min));
   if (state.citations.max != null) sp.set("cit_max", String(state.citations.max));
   if (state.hasDataQuality) sp.set("has_qa", "1");
@@ -259,6 +283,27 @@ export function applyClientFilters<T extends FilterableRow>(
     }
     if (state.participants.min != null && d.participants < state.participants.min) return false;
     if (state.participants.max != null && d.participants > state.participants.max) return false;
+
+    // Channel count: the density preset expands to a range, and raw c_min/c_max
+    // apply independently. Both read `n_channels` (nemar-cli#854). A row whose
+    // `n_channels` is `undefined` came from the reduced search projection, which
+    // carries no channel facts — skip the predicate rather than drop the row.
+    // A row that is `null` is known to have no scalp channel count, so a
+    // positive channel filter excludes it.
+    const bucket = state.density ? DENSITY_BUCKETS[state.density] : null;
+    const channelMin = bucket ? bucket.min : state.channels.min;
+    const channelMax = bucket ? bucket.max : state.channels.max;
+    const channelFilterActive = bucket != null || channelMin != null || channelMax != null;
+    if (channelFilterActive && d.n_channels !== undefined) {
+      if (d.n_channels == null) return false;
+      if (channelMin != null && d.n_channels < channelMin) return false;
+      if (channelMax != null && d.n_channels > channelMax) return false;
+    }
+
+    // Electrode system: exact class match. Same undefined/null contract as above.
+    if (state.electrodeSystem && d.electrode_system !== undefined) {
+      if (d.electrode_system !== state.electrodeSystem) return false;
+    }
 
     // file_size based filters could land here too if/when a slider exists.
     return true;
