@@ -5,8 +5,10 @@ import Pagination from "../components/Pagination.astro";
 import SearchBar from "../components/SearchBar.astro";
 import Base from "../layouts/Base.astro";
 import {
+  backfillSearchHit,
   getDataset,
   isManagedDatasetId,
+  listAllDatasets,
   listDatasets,
   searchDatasets,
   searchResultToDataset,
@@ -69,7 +71,14 @@ try {
         }
         attempted++;
         try {
-          return { dataset: await getDataset(r.id, { signal }), snippet: r.snippet };
+          // Hydrate for the detail-only facts (description, size, citations),
+          // but backfill participants/version from the search projection: the
+          // /datasets/:id endpoint returns those as null even when the catalog
+          // has them, which otherwise blanks the subject count on search cards.
+          return {
+            dataset: backfillSearchHit(await getDataset(r.id, { signal }), r),
+            snippet: r.snippet,
+          };
         } catch (err) {
           hydrationFailures++;
           console.warn(
@@ -83,23 +92,40 @@ try {
       fetchError = "Search is temporarily unavailable. Please try again in a moment.";
     }
   } else {
-    // Server-side offset pagination across the full catalog. Client-side
-    // filtering (multi-modality AND/OR, range sliders) still runs per page.
     const baseQuery = filterStateToAPIQuery(state);
-    const page = await listDatasets(
-      {
-        ...baseQuery,
-        limit: PAGE_SIZE,
-        offset: (state.page - 1) * PAGE_SIZE,
-      },
-      { signal },
-    );
-    // Note: multi-modality AND/OR and range filters reduce the visible count
-    // for the *current page* only — pagination still spans the server total.
-    // License IS server-side now (via filterStateToAPIQuery), so the count
-    // and pagination stay accurate for license filtering.
-    cards = applyClientFilters(page.datasets, state).map((d) => ({ dataset: d }));
-    totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+    // Participant/channel ranges and multi-modality AND/OR can only run
+    // client-side (the catalog API has no range params, and `modality` is a
+    // single-value LIKE). With plain offset pagination those filters pruned
+    // only the current 10-row page while the count + pager still spanned the
+    // server total — so selecting "min 100 participants" showed "642 datasets,
+    // 65 pages" with most pages empty. When a client-only filter is active we
+    // pull the whole server-prefiltered set, filter it as a unit, and paginate
+    // client-side so the count and pager are honest.
+    const needsClientPaging =
+      state.participants.min != null ||
+      state.participants.max != null ||
+      state.channels.min != null ||
+      state.channels.max != null ||
+      state.modalities.length >= 2;
+
+    if (needsClientPaging) {
+      const all = await listAllDatasets(baseQuery, { signal });
+      const filtered = applyClientFilters(all, state);
+      totalReturned = filtered.length;
+      cards = filtered
+        .slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE)
+        .map((d) => ({ dataset: d }));
+    } else {
+      // No client-only filter: efficient single-page server offset pagination.
+      // License + single modality are already enforced server-side via
+      // filterStateToAPIQuery, so the count and pager stay accurate.
+      const page = await listDatasets(
+        { ...baseQuery, limit: PAGE_SIZE, offset: (state.page - 1) * PAGE_SIZE },
+        { signal },
+      );
+      cards = page.datasets.map((d) => ({ dataset: d }));
+      totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+    }
   }
 } catch (err) {
   // Log the raw detail to Worker logs; show users a sanitized message rather

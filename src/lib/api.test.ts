@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isManagedDatasetId, resolveCanonical, searchDatasets, searchResultToDataset } from "./api";
-import type { SearchResult } from "./types";
+import {
+  backfillSearchHit,
+  isManagedDatasetId,
+  listAllDatasets,
+  resolveCanonical,
+  searchDatasets,
+  searchResultToDataset,
+} from "./api";
+import type { Dataset, SearchResult } from "./types";
 
 const originalFetch = globalThis.fetch;
 
@@ -123,6 +130,113 @@ describe("searchDatasets", () => {
         }),
     ) as unknown as typeof fetch;
     await expect(searchDatasets("x")).rejects.toThrow(/invalid response/);
+  });
+});
+
+describe("backfillSearchHit", () => {
+  const hit: SearchResult = {
+    id: "on005516",
+    name: "Healthy Brain Network (HBN) EEG - Release 11",
+    modalities: "eeg",
+    participants: 430,
+    doi: null,
+    tasks: "RestingState,DespicableMe",
+    authors: "Seyed Yahya Shirazi",
+    score: 0.9,
+  };
+
+  function detailRow(over: Partial<Dataset>): Dataset {
+    return {
+      ...searchResultToDataset(hit),
+      description: "Imported from OpenNeuro ds005516",
+      file_size: 427_000_000_000,
+      num_citations: 1,
+      // The /datasets/:id endpoint returns these null even when the catalog has
+      // them — the exact bug this helper papers over.
+      participants: null as unknown as number,
+      latest_version: null,
+      ...over,
+    };
+  }
+
+  it("restores participants from the projection when the detail row is null", () => {
+    const merged = backfillSearchHit(detailRow({}), hit);
+    expect(merged.participants).toBe(430);
+    // Detail-only facts survive the merge.
+    expect(merged.description).toBe("Imported from OpenNeuro ds005516");
+    expect(merged.num_citations).toBe(1);
+    expect(merged.file_size).toBe(427_000_000_000);
+  });
+
+  it("keeps the detail row's participants when it has a real value", () => {
+    const merged = backfillSearchHit(detailRow({ participants: 18 }), hit);
+    expect(merged.participants).toBe(18);
+  });
+
+  it("backfills modalities/tasks/authors only where the detail row left a gap", () => {
+    const merged = backfillSearchHit(
+      detailRow({ modalities: "", tasks: "", authors: "Detail Author" }),
+      hit,
+    );
+    expect(merged.modalities).toBe("eeg");
+    expect(merged.tasks).toBe("RestingState,DespicableMe");
+    expect(merged.authors).toBe("Detail Author");
+  });
+});
+
+describe("listAllDatasets", () => {
+  function listResponse(datasets: Array<{ dataset_id: string }>, total: number, offset: number) {
+    return new Response(
+      JSON.stringify({ datasets, count: datasets.length, total_count: total, limit: 200, offset }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  it("pages past the 200-row cap and concatenates every row", async () => {
+    const offsets: number[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const u = new URL(typeof input === "string" ? input : input.toString());
+      const offset = Number(u.searchParams.get("offset"));
+      offsets.push(offset);
+      // 450 rows total across 3 pages (200 + 200 + 50).
+      const start = offset;
+      const end = Math.min(offset + 200, 450);
+      const rows = Array.from({ length: end - start }, (_, i) => ({
+        dataset_id: `on${String(start + i).padStart(6, "0")}`,
+      }));
+      return listResponse(rows, 450, offset);
+    }) as unknown as typeof fetch;
+
+    const all = await listAllDatasets({ sort: "newest" });
+    expect(all).toHaveLength(450);
+    expect(offsets.sort((a, b) => a - b)).toEqual([0, 200, 400]);
+  });
+
+  it("de-duplicates rows by id across pages", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const u = new URL(typeof input === "string" ? input : input.toString());
+      const offset = Number(u.searchParams.get("offset"));
+      // Both pages report the same row id -> must collapse to one.
+      const rows = offset === 0 ? [{ dataset_id: "on000001" }] : [{ dataset_id: "on000001" }];
+      return listResponse(rows, 400, offset);
+    }) as unknown as typeof fetch;
+
+    const all = await listAllDatasets();
+    expect(all).toHaveLength(1);
+    expect(all[0].dataset_id).toBe("on000001");
+  });
+
+  it("makes a single request when the first page already holds everything", async () => {
+    const calls: number[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const u = new URL(typeof input === "string" ? input : input.toString());
+      calls.push(Number(u.searchParams.get("offset")));
+      return listResponse([{ dataset_id: "on000001" }], 1, 0);
+    }) as unknown as typeof fetch;
+
+    const all = await listAllDatasets();
+    expect(all).toHaveLength(1);
+    expect(calls).toEqual([0]);
   });
 });
 

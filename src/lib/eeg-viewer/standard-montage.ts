@@ -1,3 +1,4 @@
+import { BIOSEMI_128, BIOSEMI_256, GSN_HYDROCEL_129, GSN_HYDROCEL_257 } from "./net-montages";
 import type { Vec3 } from "./topo";
 
 /**
@@ -18,9 +19,10 @@ import type { Vec3 } from "./topo";
  * The frame is RAS, so it passes through `alsToRas` unchanged when tagged with a
  * non-ALS system (we use "").
  *
- * Non-standard labels (EGI "E1", BioSemi "A1", purely numeric, EOG/EMG/trigger names)
- * are absent here, so datasets without standard labels resolve <3 channels and get no
- * topomap rather than a misleading one.
+ * Labels this table can't place (EGI "E1", BioSemi "A1", purely numeric, EOG/EMG/
+ * trigger names) fall through to a canonical named-net montage when the cap is
+ * recognizable (`namedNetIndex` + `net-montages.ts`, #855); anything still
+ * unresolved yields <3 channels and no topomap, rather than a misleading one.
  */
 export const STANDARD_1005: Readonly<Record<string, Vec3>> = {
   A1: [-0.08608, -0.02499, -0.06799],
@@ -392,6 +394,67 @@ export function lookupStandardPosition(label: string): Vec3 | null {
   return INDEX.get(label.trim().toUpperCase()) ?? null;
 }
 
+function upperIndex(table: Readonly<Record<string, Vec3>>): ReadonlyMap<string, Vec3> {
+  const m = new Map<string, Vec3>();
+  for (const [label, xyz] of Object.entries(table)) m.set(label.toUpperCase(), xyz);
+  return m;
+}
+
+// Canonical named-net montages (#855), keyed uppercase. Consulted only when the
+// standard 10-xx set fails to resolve, so a dataset that ships no electrodes.tsv
+// but uses a recognizable EGI/BioSemi cap still gets an (estimated) topomap.
+const EGI_129 = upperIndex(GSN_HYDROCEL_129);
+const EGI_257 = upperIndex(GSN_HYDROCEL_257);
+const BIOSEMI128 = upperIndex(BIOSEMI_128);
+const BIOSEMI256 = upperIndex(BIOSEMI_256);
+
+/**
+ * Pick the canonical named-net montage matching a label set, or null when the
+ * labels look like neither an EGI geodesic net nor a BioSemi cap.
+ *
+ * The two label namespaces overlap on `E*` (BioSemi-256 banks run A..H, so it
+ * also has E1..E32), so we disambiguate on the BioSemi A-bank: every BioSemi
+ * cap starts at A1, while EGI geodesic nets are pure E-numbering (E1.., + Cz).
+ * Net size is read from the highest bank/number seen, since a dataset normally
+ * carries every electrode in its cap. The result is always an *estimated*
+ * layout (the caller flags it), never measured positions.
+ */
+function namedNetIndex(upperLabels: string[]): ReadonlyMap<string, Vec3> | null {
+  const hasABank = upperLabels.some((l) => /^A\d{1,2}$/.test(l));
+  if (hasABank) {
+    const banks = new Set<string>();
+    let count = 0;
+    for (const l of upperLabels) {
+      const m = /^([A-H])\d{1,2}$/.exec(l);
+      if (m) {
+        banks.add(m[1]);
+        count++;
+      }
+    }
+    // A real BioSemi cap is almost entirely bank-labeled (A1..H32). A standard
+    // 10-20/10-10 montage only has a few incidental [A-H]-letter labels (F3, F4,
+    // C3, C4) plus maybe A1/A2 ear refs, so require the bank labels to DOMINATE,
+    // not merely appear -- otherwise a plain 10-20 with an A2 reference would be
+    // mis-projected onto a BioSemi head.
+    if (count >= 3 && count >= upperLabels.length * 0.6) {
+      const maxBank = [...banks].sort().pop() as string;
+      return maxBank <= "D" ? BIOSEMI128 : BIOSEMI256;
+    }
+    // Not BioSemi -> fall through (the labels resolve against STANDARD_1005).
+  }
+  let eCount = 0;
+  let eMax = 0;
+  for (const l of upperLabels) {
+    const m = /^E(\d{1,3})$/.exec(l);
+    if (m) {
+      eCount++;
+      eMax = Math.max(eMax, Number(m[1]));
+    }
+  }
+  if (eCount >= 3) return eMax <= 129 ? EGI_129 : EGI_257;
+  return null;
+}
+
 /**
  * Build a {label: [x,y,z]} map (keyed by the caller's original label spelling) for the
  * channel labels that resolve against the standard montage. Labels that do not resolve
@@ -399,8 +462,26 @@ export function lookupStandardPosition(label: string): Vec3 | null {
  * the caller draws no topomap.
  */
 export function standardMontageFor(labels: Iterable<string>): Record<string, Vec3> {
+  const arr = [...labels];
+
+  // A recognizable EGI/BioSemi cap is authoritative for its own labels, so it
+  // is tried first: several bank labels (C1, F1, A1/A2 ear refs, ...) also
+  // exist in the 10-05 set but sit in different places on a geodesic/BioSemi
+  // cap, so a partial standard match must not win over the real net. This is
+  // what lets EGI `E1..E128` datasets that ship no electrodes.tsv (e.g. HBN
+  // mirrors) draw an estimated topomap; the caller flags it estimated (#855).
+  const net = namedNetIndex(arr.map((l) => l.trim().toUpperCase()));
+  if (net) {
+    const netOut: Record<string, Vec3> = {};
+    for (const label of arr) {
+      const pos = net.get(label.trim().toUpperCase());
+      if (pos) netOut[label] = pos;
+    }
+    if (Object.keys(netOut).length >= 3) return netOut;
+  }
+
   const out: Record<string, Vec3> = {};
-  for (const label of labels) {
+  for (const label of arr) {
     const pos = lookupStandardPosition(label);
     if (pos) out[label] = pos;
   }

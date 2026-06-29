@@ -54,7 +54,6 @@ export interface FilterState {
   citations: { min: number | null; max: number | null };
   hasDataQuality: boolean;
   hasHed: boolean;
-  has10_20: boolean;
   sort: SortOption;
   page: number; // 1-based
   pageSize: number;
@@ -74,7 +73,6 @@ export function defaultFilterState(): FilterState {
     citations: { min: null, max: null },
     hasDataQuality: false,
     hasHed: false,
-    has10_20: false,
     sort: "newest",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
@@ -160,7 +158,6 @@ export function filterStateFromURL(params: URLSearchParams): FilterState {
 
   s.hasDataQuality = params.get("has_qa") === "1";
   s.hasHed = params.get("has_hed") === "1";
-  s.has10_20 = params.get("has_1020") === "1";
 
   s.sort = parseSort(params.get("sort"));
 
@@ -193,7 +190,6 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.citations.max != null) sp.set("cit_max", String(state.citations.max));
   if (state.hasDataQuality) sp.set("has_qa", "1");
   if (state.hasHed) sp.set("has_hed", "1");
-  if (state.has10_20) sp.set("has_1020", "1");
   if (state.sort !== "newest") sp.set("sort", state.sort);
   if (state.page > 1) sp.set("page", String(state.page));
   if (state.pageSize !== DEFAULT_PAGE_SIZE) sp.set("page_size", String(state.pageSize));
