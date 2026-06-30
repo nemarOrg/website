@@ -239,6 +239,13 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
     // count + pagination accurate, which per-page client filtering could not.
     q.license = state.licenseTiers.join(",");
   }
+  if (state.hasHed) {
+    // #869: server-side `?has_hed=1` (the backend filters on datasets.has_hed = 1,
+    // excluding 0 and NULL). buildQuery serializes the boolean to `has_hed=true`,
+    // which the backend accepts alongside `1`. Server-side keeps count/pagination
+    // accurate, like license.
+    q.has_hed = true;
+  }
   return q;
 }
 

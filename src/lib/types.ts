@@ -42,6 +42,15 @@ export interface Dataset {
    */
   electrode_system?: string | null;
   /**
+   * HED (Hierarchical Event Descriptors) presence of the latest version
+   * (nemar-cli#869): 1 = has HED annotations, 0 = checked/none, NULL = not yet
+   * classified. Filterable server-side via `?has_hed=1`. Optional + nullable
+   * since older snapshots and unswept rows ship null.
+   */
+  has_hed?: number | null;
+  /** Declared `HEDVersion` of the latest version (nemar-cli#869), or null. */
+  hed_version?: string | null;
+  /**
    * Raw license string as returned by api.nemar.org/datasets (e.g. "CC0",
    * "CC-BY-NC-ND-4.0"); backfilled on every catalog row by nemar-cli
    * migration 0034. The website derives the display tier from this via
@@ -223,6 +232,8 @@ export interface DatasetQuery {
   author?: string;
   task?: string;
   has_doi?: boolean;
+  /** Only datasets with HED annotations; server-side `?has_hed=1` (nemar-cli#869). */
+  has_hed?: boolean;
   recent?: number; // days
   sort?: SortOption;
 }
