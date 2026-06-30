@@ -22,14 +22,18 @@ try {
   console.error(
     `[index] fetchHostedStats failed, using snapshot: ${err instanceof Error ? err.message : String(err)}`,
   );
-  stats = { datasets: 227, participants: 15_819, size: 7.12 * 1024 ** 4 };
+  stats = { datasets: 716, participants: 35_503, size: 51.5 * 1024 ** 4 };
 }
 
-// Stats refresh slowly. Edge-cache for 10 min; serve stale up to a day while
-// revalidating so new visitors always hit cache.
+// Cache policy depends on whether the figures are live:
+//  - Live: edge-cache 10 min, then refresh at least every 12 h. A returning
+//    visitor sees an at-most-12 h-stale count while a background revalidate runs.
+//  - Fallback (fetch threw): NEVER cache it. Caching one transient failure is
+//    what pinned the stale snapshot at the edge for a full day; `no-store` makes
+//    every request retry the live fetch until it succeeds.
 Astro.response.headers.set(
   "Cache-Control",
-  "public, max-age=60, s-maxage=600, stale-while-revalidate=86400",
+  statsAvailable ? "public, max-age=60, s-maxage=600, stale-while-revalidate=43200" : "no-store",
 );
 ---
 
