@@ -40,6 +40,11 @@ if (dataset.participants > 0) {
 if (typeof dataset.num_citations === "number" && dataset.num_citations > 0) {
   facts.push({ label: "Citations", value: String(dataset.num_citations) });
 }
+// HED annotations (nemar-cli #869). Shown only when classified present (has_hed=1);
+// 0/NULL render nothing. The HEDVersion is shown when available.
+if (dataset.has_hed === 1) {
+  facts.push({ label: "HED", value: dataset.hed_version ? `v${dataset.hed_version}` : "Yes" });
+}
 if (dataset.file_size > 0) {
   facts.push({ label: "Size", value: formatBytes(dataset.file_size) });
 }

@@ -196,6 +196,14 @@ describe("filterStateToAPIQuery", () => {
     const q = filterStateToAPIQuery(defaultFilterState());
     expect(q.license).toBeUndefined();
   });
+  it("passes has_hed server-side when the HED filter is on (#869)", () => {
+    const s = defaultFilterState();
+    s.hasHed = true;
+    expect(filterStateToAPIQuery(s).has_hed).toBe(true);
+  });
+  it("omits has_hed when the HED filter is off", () => {
+    expect(filterStateToAPIQuery(defaultFilterState()).has_hed).toBeUndefined();
+  });
 });
 
 describe("applyClientFilters", () => {
