@@ -1,0 +1,22 @@
+# Cloudflare Pages response headers. Applied to every response served by the
+# nemar-website Pages project (static assets and SSR/Functions output).
+# Defense-in-depth for pages that render third-party README / JSON / TSV
+# fetched from data.nemar.org. See AGENTS.md and PR #142 for the CSP rationale.
+#
+# CSP notes:
+#   script-src / style-src include 'unsafe-inline' because Astro emits an inline
+#   theme-bootstrap script (src/layouts/Base.astro) and inline scoped <style>
+#   blocks, and does NOT emit CSP nonces by default. A strict nonce/hash policy
+#   is the future hardening step. The markdown renderer already strips <script>,
+#   so README-borne script injection is blocked at the sanitizer regardless.
+#   'wasm-unsafe-eval' is required for the zarr / EEG viewer: zarrita's blosc /
+#   lz4 / zstd codecs are WebAssembly modules (WebAssembly.instantiate), which
+#   browsers block under a default script-src. It permits WASM compilation only,
+#   not JS eval().
+#   connect-src is limited to same-origin plus *.nemar.org (api/data/dashboard/
+#   zarr), the only hosts the client fetches from.
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' https://*.nemar.org; form-action 'self'
