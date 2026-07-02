@@ -1,7 +1,13 @@
 import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
-import { isPublicCacheable, onRequest, parseAuthMeResponse } from "./middleware";
+import {
+  SECURITY_HEADERS,
+  applySecurityHeaders,
+  isPublicCacheable,
+  onRequest,
+  parseAuthMeResponse,
+} from "./middleware";
 
 describe("isPublicCacheable", () => {
   const r = (cc: string | null) =>
@@ -196,5 +202,68 @@ describe("onRequest host dispatch", () => {
     );
     expect(res?.status).toBe(200);
     expect(await res?.text()).toBe("ok");
+  });
+});
+
+describe("security headers", () => {
+  type TestCtx = APIContext & { locals: { session?: unknown } };
+  function ctx(url: string, method = "GET"): TestCtx {
+    const request = new Request(url, { method });
+    return {
+      request,
+      locals: {},
+      cookies: { get: () => undefined },
+    } as unknown as TestCtx;
+  }
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  it("applySecurityHeaders sets the full header set on a Headers object", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers);
+    expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+    expect(headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+    expect(headers.get("Content-Security-Policy")).toBe(
+      SECURITY_HEADERS["Content-Security-Policy"],
+    );
+  });
+
+  it("CSP allows the origins the client actually fetches (regression guards)", () => {
+    const csp = SECURITY_HEADERS["Content-Security-Policy"];
+    // Client-side README fetch in dataset/[id].astro.
+    expect(csp).toContain("https://raw.githubusercontent.com");
+    // api / data / dashboard / zarr client fetches.
+    expect(csp).toContain("https://*.nemar.org");
+    // zarrita blosc/lz4/zstd WebAssembly codecs.
+    expect(csp).toContain("'wasm-unsafe-eval'");
+    // Inline theme-bootstrap script + Astro scoped <style>.
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+  });
+
+  it("stamps every SSR page response served by the worker", async () => {
+    // Marketing host => session=null, no /auth/me round-trip, passthrough path.
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/discover`), passthrough);
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("Content-Security-Policy")).toBe(
+      SECURITY_HEADERS["Content-Security-Policy"],
+    );
+    expect(res?.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res?.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
+    expect(res?.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("stamps non-GET SSR responses too", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/discover`, "POST"), passthrough);
+    expect(res?.headers.get("Content-Security-Policy")).toBe(
+      SECURITY_HEADERS["Content-Security-Policy"],
+    );
+  });
+
+  it("does NOT stamp CSP on cross-host redirects (no body to protect)", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Content-Security-Policy")).toBeNull();
+    expect(res?.headers.get("X-Frame-Options")).toBeNull();
   });
 });

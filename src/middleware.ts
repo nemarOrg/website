@@ -5,6 +5,74 @@ import { verifyDevSession } from "./lib/auth-dev";
 import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
 
 /**
+ * Content-Security-Policy shipped on every SSR page response.
+ *
+ * This lives in the middleware, NOT in `public/_headers`: the site is
+ * `output: "server"`, so @astrojs/cloudflare emits an Advanced-Mode
+ * `_worker.js` and every route is server-rendered through it. Cloudflare
+ * Pages applies `_headers` only to *static asset* responses, never to
+ * `_worker.js` output, so a CSP in `_headers` would never reach the pages it
+ * protects. The worker sees every SSR response here, so that's where it goes.
+ *
+ * Directive rationale (validated against the built client bundle):
+ *   - script-src 'unsafe-inline'  — the theme-bootstrap in Base.astro is
+ *     `is:inline`; Astro emits no CSP nonces by default. All other scripts
+ *     bundle to /_astro/*.js ('self').
+ *   - script-src 'wasm-unsafe-eval' — zarrita's blosc/lz4/zstd codecs are
+ *     WebAssembly (WebAssembly.instantiate), blocked under a default
+ *     script-src. Permits WASM compilation only, not JS eval().
+ *   - style-src 'unsafe-inline'   — Astro inline scoped <style> blocks.
+ *   - connect-src *.nemar.org       — api/data/dashboard/zarr client fetches.
+ *   - connect-src raw.githubusercontent.com — dataset/[id].astro fetches the
+ *     per-version README.md straight from the GitHub raw host client-side.
+ *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
+ *
+ * README-borne script injection is already blocked at the markdown sanitizer
+ * (it strips <script>, unit-tested), so this is defense-in-depth.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'self'",
+  "img-src 'self' data:",
+  "font-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  "connect-src 'self' https://*.nemar.org https://raw.githubusercontent.com",
+  "form-action 'self'",
+].join("; ");
+
+/**
+ * Security response headers applied to every SSR page the worker serves
+ * (cross-host redirects are exempt — they carry no body to protect). Defined
+ * once so the three serve paths (passthrough, cache HIT, cache MISS) can't
+ * drift. Static asset responses (/_astro/*, images) get `nosniff` from the
+ * trimmed `public/_headers` instead, since those never hit this worker.
+ *
+ * Exported for the middleware unit tests.
+ */
+export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "SAMEORIGIN",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+};
+
+/** Mutate `headers` in place with the security header set. */
+export function applySecurityHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+}
+
+/** Apply the security headers to a response and return it (passthrough paths). */
+function withSecurityHeaders(response: Response): Response {
+  applySecurityHeaders(response.headers);
+  return response;
+}
+
+/**
  * Three responsibilities in one handler:
  *
  *   1. Two-host routing. `nemar.org` and `app.nemar.org` share one Astro
@@ -65,14 +133,14 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   const request = context.request;
-  if (request.method !== "GET") return next();
-  if (context.locals.session) return next();
+  if (request.method !== "GET") return withSecurityHeaders(await next());
+  if (context.locals.session) return withSecurityHeaders(await next());
 
   type Runtime = { caches?: CacheStorage };
   const runtime = (context.locals as { runtime?: Runtime } | undefined)?.runtime;
   const cacheStorage: CacheStorage | undefined =
     runtime?.caches ?? (typeof caches !== "undefined" ? caches : undefined);
-  if (!cacheStorage) return next();
+  if (!cacheStorage) return withSecurityHeaders(await next());
 
   // Cache namespace is versioned so bumps orphan the previous generation on
   // next deploy. v1 -> v2: pre-PR-#54 entries persisted SWR-poisoned fallback
@@ -89,12 +157,13 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     console.warn("[edge-cache] cacheStorage.open failed; bypassing cache", err);
     return null;
   });
-  if (!cache) return next();
+  if (!cache) return withSecurityHeaders(await next());
 
   const cached = await cache.match(request);
   if (cached) {
     const headers = new Headers(cached.headers);
     headers.set("x-nemar-cache", "HIT");
+    applySecurityHeaders(headers);
     return new Response(cached.body, {
       status: cached.status,
       statusText: cached.statusText,
@@ -117,6 +186,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     }
     const headers = new Headers(response.headers);
     headers.set("x-nemar-cache", "MISS");
+    applySecurityHeaders(headers);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -124,7 +194,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     });
   }
 
-  return response;
+  return withSecurityHeaders(response);
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {

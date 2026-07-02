@@ -1,0 +1,13 @@
+# Cloudflare Pages response headers for STATIC ASSET responses only
+# (/_astro/*, images, fonts, favicon). This site is `output: "server"`, so
+# every page route is rendered by the Advanced-Mode `_worker.js`; Cloudflare
+# Pages does NOT apply `_headers` to worker output, only to static assets.
+#
+# The full security header set — including Content-Security-Policy — therefore
+# lives in `src/middleware.ts`, which runs on every SSR response. Do NOT add a
+# CSP here: it would silently never apply to the pages it's meant to protect.
+#
+# `nosniff` is the one header that genuinely matters for static assets: it
+# stops content-type sniffing of scripts, images, and fonts.
+/*
+  X-Content-Type-Options: nosniff
