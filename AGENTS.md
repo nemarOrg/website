@@ -144,6 +144,10 @@ Open dependencies blocking work in this repo:
 | `nemar-cli#512` | `on*` detail page right rail (sparse metadata.json + catalog row) | not started |
 | `nemar-cli#513` | BIDS-shaped download filenames (currently SHA-named) | not started |
 | `nemar-cli#653` | `license` on catalog rows → Discover license tier filter (color works today; filtering is a guarded no-op until this lands) | not started |
+| `/auth/me` fields | Settings self-service (#132/#135) — expose `given_name`, `family_name`, `orcid`, `orcid_verified`, `github_username`, `city`, `country`, `affiliation` (today: id/email/role/status only). Name backfill is nemar-cli#836; profile columns are migrations 0051/0052 | needs endpoint |
+| `/auth/email/change/{request,verify}` | Settings self-service email change (#133) — reuse `auth_codes` + email sender | needs endpoint |
+| `PATCH /auth/profile` | Settings self-service profile edit (#135) — github_username/city/country/affiliation; enforce city/country non-empty | needs endpoint |
+| ORCID replace path | Settings ORCID re-link (#134) — callback must replace an existing identity for the current user (today a different iD returns `orcid_already_have`). `POST /auth/orcid/unlink` already exists (nemar-cli#832) | needs endpoint |
 
 The frontend has fallbacks for all of these so the site ships standalone. When any upstream lands, no frontend change is needed (those are already wired through correct paths — `Dataset.license` is already an optional field).
 

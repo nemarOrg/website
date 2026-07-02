@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDevUser, signDevSession, verifyDevSession } from "./auth-dev";
+import { buildDevUser, reissueDevSession, signDevSession, verifyDevSession } from "./auth-dev";
 
 describe("buildDevUser", () => {
   it("returns role=user for a normal email", () => {
@@ -60,5 +60,42 @@ describe("signDevSession + verifyDevSession round-trip", () => {
     const token = await signDevSession(buildDevUser("alice@example.com"));
     const sig = token.split(".")[1];
     expect(await verifyDevSession(`!!!notbase64.${sig}`)).toBeNull();
+  });
+});
+
+describe("reissueDevSession", () => {
+  // Pull the signed token back out of the `nemar_session=<token>; Path=/; ...`
+  // Set-Cookie string so we can verify what the cookie actually carries.
+  const tokenFromCookie = (cookie: string): string =>
+    cookie.split(";")[0].replace(/^nemar_session=/, "");
+
+  it("merges the patch into the session and re-signs it verifiably", async () => {
+    const user = buildDevUser("alice@example.com");
+    const cookie = await reissueDevSession(user, {
+      given_name: "Alice",
+      family_name: "Ng",
+      city: "San Diego",
+    });
+    const out = await verifyDevSession(tokenFromCookie(cookie));
+    expect(out?.user).toEqual({
+      ...user,
+      given_name: "Alice",
+      family_name: "Ng",
+      city: "San Diego",
+    });
+  });
+
+  it("drops keys the patch sets to undefined (the ORCID-unlink pattern)", async () => {
+    const linked = { ...buildDevUser("alice@example.com"), orcid: "0000-0002-1825-0097" };
+    const cookie = await reissueDevSession(linked, {
+      orcid: undefined,
+      orcid_verified: undefined,
+    });
+    const out = await verifyDevSession(tokenFromCookie(cookie));
+    // JSON serialization strips undefined values, so the re-signed session has
+    // no `orcid` key at all — the page then renders the "not linked" state.
+    expect(out?.user).not.toHaveProperty("orcid");
+    expect(out?.user).not.toHaveProperty("orcid_verified");
+    expect(out?.user.email).toBe("alice@example.com");
   });
 });

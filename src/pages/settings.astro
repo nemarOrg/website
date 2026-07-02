@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { fullName, getSession, maskEmail } from "../lib/auth";
+import { fullName, getSession, isValidOrcid, maskEmail } from "../lib/auth";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -138,7 +138,7 @@ const roleLabel: Record<typeof role, string> = {
           <p class="card__lede">Your persistent researcher identifier.</p>
         </header>
 
-        {orcid ? (
+        {orcid && isValidOrcid(orcid) ? (
           <>
             <div class="orcid">
               <a class="orcid__id" href={`https://orcid.org/${orcid}`} rel="external noopener" target="_blank">
@@ -560,7 +560,7 @@ const roleLabel: Record<typeof role, string> = {
   }
   .field__req,
   .field__opt {
-    font-weight: var(--fw-normal);
+    font-weight: var(--fw-regular);
     font-size: var(--fs-xs);
     color: var(--color-fg-subtle);
   }

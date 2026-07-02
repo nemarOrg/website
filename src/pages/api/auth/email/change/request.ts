@@ -23,7 +23,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (email === locals.session.user.email) {
       return jsonResponse({ ok: false, error: "same_email" }, 409);
     }
-    // eslint-disable-next-line no-console
     console.log(`[dev-auth] email change to ${email} — use code 123456 on /settings`);
     return jsonResponse({ ok: true }, 200);
   }
