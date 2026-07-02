@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isValidEmail, maskEmail, safeRedirectPath } from "./auth";
+import {
+  fullName,
+  isValidEmail,
+  isValidGithubUsername,
+  isValidOrcid,
+  maskEmail,
+  safeRedirectPath,
+} from "./auth";
 
 describe("safeRedirectPath", () => {
   it("returns / for null/undefined/non-string input", () => {
@@ -75,5 +82,59 @@ describe("maskEmail", () => {
   });
   it("returns input unchanged when no @ present", () => {
     expect(maskEmail("not-an-email")).toBe("not-an-email");
+  });
+});
+
+describe("isValidGithubUsername", () => {
+  it("accepts plain alphanumeric handles", () => {
+    expect(isValidGithubUsername("ada")).toBe(true);
+    expect(isValidGithubUsername("octocat99")).toBe(true);
+  });
+  it("accepts single hyphens between alphanumerics", () => {
+    expect(isValidGithubUsername("nemar-org")).toBe(true);
+  });
+  it("tolerates a leading @", () => {
+    expect(isValidGithubUsername("@ada")).toBe(true);
+  });
+  it("rejects leading/trailing hyphens and doubled hyphens", () => {
+    expect(isValidGithubUsername("-ada")).toBe(false);
+    expect(isValidGithubUsername("ada-")).toBe(false);
+    expect(isValidGithubUsername("a--b")).toBe(false);
+  });
+  it("rejects empty, over-length, and invalid chars", () => {
+    expect(isValidGithubUsername("")).toBe(false);
+    expect(isValidGithubUsername("a".repeat(40))).toBe(false);
+    expect(isValidGithubUsername("ada lovelace")).toBe(false);
+    expect(isValidGithubUsername("ada_lovelace")).toBe(false);
+  });
+});
+
+describe("isValidOrcid", () => {
+  it("accepts a well-formed iD", () => {
+    expect(isValidOrcid("0000-0002-1825-0097")).toBe(true);
+  });
+  it("accepts a trailing X checksum", () => {
+    expect(isValidOrcid("0000-0002-1694-233X")).toBe(true);
+  });
+  it("rejects malformed iDs and URLs", () => {
+    expect(isValidOrcid("0000-0002-1825")).toBe(false);
+    expect(isValidOrcid("https://orcid.org/0000-0002-1825-0097")).toBe(false);
+    expect(isValidOrcid("")).toBe(false);
+    // @ts-expect-error runtime behavior
+    expect(isValidOrcid(null)).toBe(false);
+  });
+});
+
+describe("fullName", () => {
+  it("joins given + family", () => {
+    expect(fullName({ given_name: "Ada", family_name: "Lovelace" })).toBe("Ada Lovelace");
+  });
+  it("returns the present part when one is missing", () => {
+    expect(fullName({ given_name: "Ada" })).toBe("Ada");
+    expect(fullName({ family_name: "Lovelace" })).toBe("Lovelace");
+  });
+  it("returns empty string when both absent or blank", () => {
+    expect(fullName({})).toBe("");
+    expect(fullName({ given_name: "  ", family_name: "" })).toBe("");
   });
 });
