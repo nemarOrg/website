@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import { getSession, maskEmail } from "../lib/auth";
+import { fullName, getSession, isValidOrcid, maskEmail } from "../lib/auth";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -8,7 +8,17 @@ if (!session) {
 }
 
 const { email, role, status } = session.user;
-const username = email.split("@")[0] ?? "researcher";
+const name = fullName(session.user);
+const orcid = session.user.orcid;
+const orcidVerified = session.user.orcid_verified === true;
+const githubUsername = session.user.github_username ?? "";
+const city = session.user.city ?? "";
+const country = session.user.country ?? "";
+const affiliation = session.user.affiliation ?? "";
+// Handle/username is the local part of the email — only shown as a secondary
+// field, never mislabeled as the display name (which is ORCID-canonical).
+const handle = email.split("@")[0] ?? "researcher";
+const profileComplete = city.length > 0 && country.length > 0;
 
 const statusLabel: Record<typeof status, string> = {
   active: "Active",
@@ -29,27 +39,40 @@ const roleLabel: Record<typeof role, string> = {
       <p class="settings__eyebrow">Account</p>
       <h1 class="settings__title">Settings</h1>
       <p class="settings__lede">
-        Account details, theme, and privacy choices. Most settings live on the backend
-        and need a support email to change; the rest are on this device only.
+        Manage your name, email, ORCID iD, and profile. Your name comes from ORCID;
+        theme and privacy choices are stored on this device only.
       </p>
     </header>
 
     <div class="settings__grid">
-      <!-- Account block -->
+      <!-- Account block (#132 name, #133 email) -->
       <article class="card">
         <div class="card__rail" aria-hidden="true"></div>
         <header class="card__head">
           <h2 class="card__title">Your account</h2>
-          <p class="card__lede">Read-only. Sourced from the NEMAR backend.</p>
+          <p class="card__lede">Name is read-only and synced from ORCID.</p>
         </header>
         <dl class="kv">
           <div class="kv__row">
-            <dt>Display name</dt>
-            <dd><code>{username}</code></dd>
+            <dt>Name</dt>
+            <dd>
+              {name ? (
+                <span class="kv__name">{name}</span>
+              ) : (
+                <span class="kv__muted">Not set — sign in with ORCID to sync it.</span>
+              )}
+            </dd>
+          </div>
+          <div class="kv__row">
+            <dt>Username</dt>
+            <dd><code>{handle}</code></dd>
           </div>
           <div class="kv__row">
             <dt>Email</dt>
-            <dd>{maskEmail(email)}</dd>
+            <dd class="kv__email">
+              <span data-current-email>{maskEmail(email)}</span>
+              <button type="button" class="linkbtn" data-email-toggle>Change</button>
+            </dd>
           </div>
           <div class="kv__row">
             <dt>Role</dt>
@@ -64,13 +87,155 @@ const roleLabel: Record<typeof role, string> = {
             </dd>
           </div>
         </dl>
-        <footer class="card__foot">
-          <p>
-            Need to change your email or display name? Reach out to
-            <a href="mailto:admin@nemar.org">admin@nemar.org</a>. Account
-            transfers and deletions are also handled there.
+
+        <!-- Email change flow (#133) -->
+        <div class="flow" data-email-flow hidden>
+          <div class="flow__step" data-email-step="request">
+            <label class="field">
+              <span class="field__label">New email address</span>
+              <input
+                class="field__input"
+                type="email"
+                inputmode="email"
+                autocomplete="email"
+                placeholder="you@university.edu"
+                data-email-input
+              />
+            </label>
+            <p class="flow__hint">We'll email a 6-digit code to the new address to confirm it.</p>
+            <div class="flow__actions">
+              <button type="button" class="btn btn--ghost" data-email-cancel>Cancel</button>
+              <button type="button" class="btn btn--primary" data-email-send>Send code</button>
+            </div>
+          </div>
+          <div class="flow__step" data-email-step="verify" hidden>
+            <label class="field">
+              <span class="field__label">Enter the code sent to <strong data-email-target></strong></span>
+              <input
+                class="field__input field__input--code"
+                type="text"
+                inputmode="numeric"
+                maxlength="6"
+                autocomplete="one-time-code"
+                placeholder="123456"
+                data-email-code
+              />
+            </label>
+            <div class="flow__actions">
+              <button type="button" class="btn btn--ghost" data-email-back>Back</button>
+              <button type="button" class="btn btn--primary" data-email-verify>Confirm change</button>
+            </div>
+          </div>
+          <p class="flow__msg" role="alert" data-email-msg hidden></p>
+        </div>
+      </article>
+
+      <!-- ORCID block (#132 surface, #134 manage) -->
+      <article class="card">
+        <div class="card__rail" aria-hidden="true"></div>
+        <header class="card__head">
+          <h2 class="card__title">ORCID iD</h2>
+          <p class="card__lede">Your persistent researcher identifier.</p>
+        </header>
+
+        {orcid && isValidOrcid(orcid) ? (
+          <>
+            <div class="orcid">
+              <a class="orcid__id" href={`https://orcid.org/${orcid}`} rel="external noopener" target="_blank">
+                <svg class="orcid__icon" width="20" height="20" viewBox="0 0 256 256" aria-hidden="true">
+                  <path fill="#A6CE39" d="M128 0C57.3 0 0 57.3 0 128s57.3 128 128 128 128-57.3 128-128S198.7 0 128 0z"/>
+                  <path fill="#fff" d="M86.3 186.2H70.9V79.1h15.4v107.1zM78.6 56.8c-5.1 0-9.2-4.1-9.2-9.2 0-5.1 4.1-9.2 9.2-9.2s9.2 4.1 9.2 9.2c0 5.1-4.1 9.2-9.2 9.2zm17.6 22.3h41.6c39.6 0 57 28.3 57 53.5 0 27.4-21.4 53.5-56.8 53.5H96.2V79.1zm15.3 92.2h24.6c35 0 43-26.5 43-38.6 0-19.7-12.5-38.6-43.8-38.6h-23.8v77.2z"/>
+                </svg>
+                <span class="orcid__url">orcid.org/{orcid}</span>
+              </a>
+              {orcidVerified && (
+                <span class="orcid__verified" title="Ownership verified via ORCID sign-in">
+                  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.3 3.3 8.4l1.1-1.1 1.8 1.8 4.3-4.3 1.1 1.1z"/></svg>
+                  Verified
+                </span>
+              )}
+            </div>
+
+            <div class="orcid__actions">
+              <button type="button" class="linkbtn" data-orcid-relink>Change / re-link</button>
+              <button type="button" class="linkbtn linkbtn--danger" data-orcid-unlink>Unlink</button>
+            </div>
+
+            <div class="confirm" data-orcid-relink-confirm hidden>
+              <p class="confirm__text">Re-linking starts an ORCID sign-in and replaces the iD above with the one you authenticate. Continue?</p>
+              <div class="flow__actions">
+                <button type="button" class="btn btn--ghost" data-confirm-cancel>Cancel</button>
+                <a class="btn btn--primary" href="/auth/orcid/start?mode=relink&next=%2Fsettings">Continue to ORCID</a>
+              </div>
+            </div>
+
+            <div class="confirm confirm--danger" data-orcid-unlink-confirm hidden>
+              <p class="confirm__text">Unlink this ORCID iD? You can still sign in with your email code, so you won't be locked out.</p>
+              <div class="flow__actions">
+                <button type="button" class="btn btn--ghost" data-confirm-cancel>Cancel</button>
+                <button type="button" class="btn btn--danger" data-orcid-unlink-do>Unlink ORCID</button>
+              </div>
+            </div>
+            <p class="flow__msg" role="alert" data-orcid-msg hidden></p>
+          </>
+        ) : (
+          <div class="orcid orcid--empty">
+            <p class="orcid__prompt">No ORCID iD linked yet. Linking verifies your identity and keeps your name in sync.</p>
+            <a class="btn btn--primary" href="/auth/orcid/start?next=%2Fsettings">Connect your ORCID</a>
+          </div>
+        )}
+      </article>
+
+      <!-- Profile block (#135) -->
+      <article class="card">
+        <div class="card__rail" aria-hidden="true"></div>
+        <header class="card__head">
+          <h2 class="card__title">Profile</h2>
+          <p class="card__lede">Used for publishing and export-control screening.</p>
+        </header>
+
+        {!profileComplete && (
+          <p class="notice notice--warn" data-profile-notice>
+            City and country are required to access data. Add them below.
           </p>
-        </footer>
+        )}
+
+        <form class="profile" data-profile-form>
+          <label class="field">
+            <span class="field__label">GitHub handle <span class="field__req">required to publish</span></span>
+            <div class="field__prefixed">
+              <span class="field__prefix">@</span>
+              <input
+                class="field__input"
+                type="text"
+                name="github_username"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="octocat"
+                value={githubUsername}
+                data-profile-github
+              />
+            </div>
+          </label>
+          <div class="profile__grid2">
+            <label class="field">
+              <span class="field__label">City <span class="field__req">required</span></span>
+              <input class="field__input" type="text" name="city" autocomplete="address-level2" value={city} data-profile-city />
+            </label>
+            <label class="field">
+              <span class="field__label">Country <span class="field__req">required</span></span>
+              <input class="field__input" type="text" name="country" autocomplete="country-name" value={country} data-profile-country />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field__label">Affiliation <span class="field__opt">optional</span></span>
+            <input class="field__input" type="text" name="affiliation" autocomplete="organization" placeholder="University or institute" value={affiliation} data-profile-affiliation />
+          </label>
+          <div class="flow__actions flow__actions--end">
+            <p class="flow__msg" role="status" data-profile-msg hidden></p>
+            <button type="submit" class="btn btn--primary" data-profile-save>Save profile</button>
+          </div>
+        </form>
       </article>
 
       <!-- Appearance block -->
@@ -211,7 +376,7 @@ const roleLabel: Record<typeof role, string> = {
     margin: 0;
     color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
-    max-inline-size: 48ch;
+    max-inline-size: 52ch;
   }
 
   .settings__grid {
@@ -266,20 +431,6 @@ const roleLabel: Record<typeof role, string> = {
     color: var(--color-fg-subtle);
     font-size: var(--fs-sm);
   }
-  .card__foot {
-    margin-block-start: var(--space-5);
-    padding-block-start: var(--space-4);
-    border-block-start: 1px solid var(--color-border);
-  }
-  .card__foot p {
-    margin: 0;
-    color: var(--color-fg-subtle);
-    font-size: var(--fs-xs);
-    line-height: var(--lh-normal);
-  }
-  .card__foot a {
-    color: var(--color-link);
-  }
 
   /* ---------- Key/value pairs ---------- */
   .kv {
@@ -302,6 +453,19 @@ const roleLabel: Record<typeof role, string> = {
     margin: 0;
     color: var(--color-fg);
   }
+  .kv__name {
+    font-weight: var(--fw-medium);
+  }
+  .kv__muted {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .kv__email {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
   .kv__row code {
     font-family: var(--font-mono);
     background: var(--color-bg-subtle);
@@ -315,6 +479,214 @@ const roleLabel: Record<typeof role, string> = {
       grid-template-columns: 1fr;
       gap: var(--space-1);
     }
+  }
+
+  /* ---------- Inline link button ---------- */
+  .linkbtn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    color: var(--color-link);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .linkbtn:hover {
+    color: color-mix(in srgb, var(--color-link) 80%, var(--color-fg));
+  }
+  .linkbtn--danger {
+    color: var(--color-danger);
+  }
+
+  /* ---------- ORCID ---------- */
+  .orcid {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .orcid__id {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    text-decoration: none;
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+  }
+  .orcid__id:hover .orcid__url {
+    text-decoration: underline;
+  }
+  .orcid__icon {
+    flex-shrink: 0;
+  }
+  .orcid__verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    color: var(--color-success);
+  }
+  .orcid__actions {
+    display: flex;
+    gap: var(--space-4);
+    margin-block-start: var(--space-4);
+  }
+  .orcid--empty {
+    display: grid;
+    gap: var(--space-4);
+    justify-items: start;
+  }
+  .orcid__prompt {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+
+  /* ---------- Fields / forms ---------- */
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .field__req,
+  .field__opt {
+    font-weight: var(--fw-regular);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .field__req {
+    color: var(--color-warning);
+  }
+  .field__input {
+    inline-size: 100%;
+    min-block-size: 40px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--brand-teal);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .field__input--code {
+    font-family: var(--font-mono);
+    letter-spacing: 0.4em;
+    text-align: center;
+  }
+  .field__prefixed {
+    display: flex;
+    align-items: stretch;
+  }
+  .field__prefix {
+    display: inline-flex;
+    align-items: center;
+    padding-inline: var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-inline-end: none;
+    border-start-start-radius: var(--radius-md);
+    border-end-start-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+  }
+  .field__prefixed .field__input {
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
+  }
+  .profile {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .profile__grid2 {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 420px) {
+    .profile__grid2 {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  /* ---------- Inline flows / confirms ---------- */
+  .flow {
+    margin-block-start: var(--space-5);
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--color-border);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .flow__hint {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .flow__actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .flow__actions--end {
+    justify-content: flex-end;
+  }
+  .flow__msg {
+    margin: 0;
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .flow__msg[data-tone="error"] {
+    color: var(--color-danger);
+  }
+  .flow__msg[data-tone="success"] {
+    color: var(--color-success);
+  }
+  .confirm {
+    margin-block-start: var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .confirm--danger {
+    border-color: color-mix(in srgb, var(--color-danger) 38%, transparent);
+    background: color-mix(in srgb, var(--color-danger) 6%, var(--color-bg));
+  }
+  .confirm__text {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    line-height: var(--lh-normal);
+  }
+  .notice {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .notice--warn {
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: color-mix(in srgb, var(--color-warning) 82%, var(--color-fg));
   }
 
   /* ---------- Badges ---------- */
@@ -459,6 +831,11 @@ const roleLabel: Record<typeof role, string> = {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    text-decoration: none;
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   .btn--primary {
     background: var(--brand-navy);
@@ -506,6 +883,251 @@ const roleLabel: Record<typeof role, string> = {
 </style>
 
 <script>
+  // ---- Small helpers ----
+  const $ = <T extends HTMLElement>(sel: string): T | null => document.querySelector<T>(sel);
+
+  function setMsg(el: HTMLElement | null, text: string, tone: "error" | "success"): void {
+    if (!el) return;
+    el.textContent = text;
+    el.dataset.tone = tone;
+    el.hidden = false;
+  }
+  function clearMsg(el: HTMLElement | null): void {
+    if (!el) return;
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  // Map a failed mutation response to human copy. A 404 means the backend
+  // endpoint isn't deployed yet (these ship ahead of nemar-cli); say so plainly
+  // rather than showing a raw error.
+  function messageForStatus(status: number, code?: string): string {
+    if (status === 404 || status === 501) return "This isn't available yet — check back soon.";
+    if (status === 401) return "Your session expired. Sign in again.";
+    if (status === 409 && code === "same_email") return "That's already your email address.";
+    if (status === 409) return "That's already in use on another account.";
+    if (status === 429) return "Too many attempts. Wait a few minutes and try again.";
+    if (code === "invalid_github_username") return "That GitHub handle looks invalid.";
+    if (status >= 500) return "The server had a problem. Try again in a moment.";
+    return "Something went wrong. Please try again.";
+  }
+
+  async function readCode(res: Response): Promise<string | undefined> {
+    try {
+      const data = (await res.clone().json()) as { error?: string };
+      return typeof data.error === "string" ? data.error : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // ================= Email change (#133) =================
+  (() => {
+    const toggle = $("[data-email-toggle]");
+    const flow = $("[data-email-flow]");
+    const stepReq = $<HTMLElement>('[data-email-step="request"]');
+    const stepVerify = $<HTMLElement>('[data-email-step="verify"]');
+    const input = $<HTMLInputElement>("[data-email-input]");
+    const codeInput = $<HTMLInputElement>("[data-email-code]");
+    const target = $("[data-email-target]");
+    const msg = $("[data-email-msg]");
+    if (!toggle || !flow || !stepReq || !stepVerify || !input || !codeInput) return;
+
+    let pendingEmail = "";
+    const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+    const showStep = (which: "request" | "verify"): void => {
+      stepReq.hidden = which !== "request";
+      stepVerify.hidden = which !== "verify";
+    };
+    const openFlow = (): void => {
+      flow.hidden = false;
+      showStep("request");
+      clearMsg(msg);
+      input.focus();
+    };
+    const closeFlow = (): void => {
+      flow.hidden = true;
+      input.value = "";
+      codeInput.value = "";
+      clearMsg(msg);
+    };
+
+    toggle.addEventListener("click", () => (flow.hidden ? openFlow() : closeFlow()));
+    $("[data-email-cancel]")?.addEventListener("click", closeFlow);
+    $("[data-email-back]")?.addEventListener("click", () => {
+      clearMsg(msg);
+      showStep("request");
+    });
+
+    $("[data-email-send]")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const value = input.value.trim().toLowerCase();
+      if (!emailRe.test(value)) {
+        setMsg(msg, "Enter a valid email address.", "error");
+        return;
+      }
+      btn.disabled = true;
+      clearMsg(msg);
+      try {
+        const res = await fetch("/api/auth/email/change/request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email: value }),
+        });
+        if (!res.ok) {
+          setMsg(msg, messageForStatus(res.status, await readCode(res)), "error");
+          return;
+        }
+        pendingEmail = value;
+        if (target) target.textContent = value;
+        showStep("verify");
+        codeInput.focus();
+      } catch {
+        setMsg(msg, "Network error. Check your connection.", "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    $("[data-email-verify]")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const code = codeInput.value.replace(/\D/g, "");
+      if (!/^\d{6}$/.test(code)) {
+        setMsg(msg, "Enter the 6-digit code.", "error");
+        return;
+      }
+      btn.disabled = true;
+      clearMsg(msg);
+      try {
+        const res = await fetch("/api/auth/email/change/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ email: pendingEmail, code }),
+        });
+        if (!res.ok) {
+          const codeErr = await readCode(res);
+          const text =
+            res.status === 401
+              ? "That code didn't match, or it expired. Request a new one."
+              : messageForStatus(res.status, codeErr);
+          setMsg(msg, text, "error");
+          return;
+        }
+        setMsg(msg, "Email updated. Reloading…", "success");
+        setTimeout(() => location.reload(), 900);
+      } catch {
+        setMsg(msg, "Network error. Check your connection.", "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  // ================= ORCID manage (#134) =================
+  (() => {
+    const relinkBtn = $("[data-orcid-relink]");
+    const unlinkBtn = $("[data-orcid-unlink]");
+    const relinkConfirm = $("[data-orcid-relink-confirm]");
+    const unlinkConfirm = $("[data-orcid-unlink-confirm]");
+    const msg = $("[data-orcid-msg]");
+
+    const hideAll = (): void => {
+      if (relinkConfirm) relinkConfirm.hidden = true;
+      if (unlinkConfirm) unlinkConfirm.hidden = true;
+    };
+    relinkBtn?.addEventListener("click", () => {
+      clearMsg(msg);
+      hideAll();
+      if (relinkConfirm) relinkConfirm.hidden = false;
+    });
+    unlinkBtn?.addEventListener("click", () => {
+      clearMsg(msg);
+      hideAll();
+      if (unlinkConfirm) unlinkConfirm.hidden = false;
+    });
+    for (const c of document.querySelectorAll<HTMLButtonElement>("[data-confirm-cancel]")) {
+      c.addEventListener("click", hideAll);
+    }
+
+    $("[data-orcid-unlink-do]")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      btn.disabled = true;
+      clearMsg(msg);
+      try {
+        const res = await fetch("/api/auth/orcid/unlink", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        });
+        if (!res.ok) {
+          setMsg(msg, messageForStatus(res.status, await readCode(res)), "error");
+          btn.disabled = false;
+          return;
+        }
+        setMsg(msg, "ORCID unlinked. Reloading…", "success");
+        setTimeout(() => location.reload(), 900);
+      } catch {
+        setMsg(msg, "Network error. Check your connection.", "error");
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  // ================= Profile (#135) =================
+  (() => {
+    const form = $<HTMLFormElement>("[data-profile-form]");
+    const msg = $("[data-profile-msg]");
+    if (!form) return;
+    const gh = $<HTMLInputElement>("[data-profile-github]");
+    const city = $<HTMLInputElement>("[data-profile-city]");
+    const country = $<HTMLInputElement>("[data-profile-country]");
+    const affiliation = $<HTMLInputElement>("[data-profile-affiliation]");
+    // Same rule as the server-side isValidGithubUsername.
+    const ghRe = /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/;
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = $<HTMLButtonElement>("[data-profile-save]");
+      const handle = (gh?.value ?? "").trim().replace(/^@/, "");
+      if (handle.length > 0 && !ghRe.test(handle)) {
+        setMsg(msg, "That GitHub handle looks invalid.", "error");
+        return;
+      }
+      const payload = {
+        github_username: handle,
+        city: (city?.value ?? "").trim(),
+        country: (country?.value ?? "").trim(),
+        affiliation: (affiliation?.value ?? "").trim(),
+      };
+      if (btn) btn.disabled = true;
+      clearMsg(msg);
+      try {
+        const res = await fetch("/api/auth/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          setMsg(msg, messageForStatus(res.status, await readCode(res)), "error");
+          return;
+        }
+        setMsg(msg, "Profile saved.", "success");
+        // Clear the "required" notice if city + country are now present.
+        if (payload.city && payload.country) {
+          $("[data-profile-notice]")?.remove();
+        }
+      } catch {
+        setMsg(msg, "Network error. Check your connection.", "error");
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+  })();
+
   // ---- Theme picker ----
   // Reads the same `nemar:theme` localStorage key + `[data-theme]` attribute
   // that ThemeToggle / Base.astro use, so this settings surface stays in sync

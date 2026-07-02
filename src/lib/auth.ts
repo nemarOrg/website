@@ -9,6 +9,20 @@ export interface AuthUser {
   readonly email: string;
   readonly role: "user" | "admin";
   readonly status: "active" | "pending" | "disabled";
+  // ---- Optional profile fields (backend may not populate them yet) ----
+  // Name is canonical from ORCID (given/family backfilled on every login,
+  // nemar-cli#836); the website never lets the user edit it here.
+  readonly given_name?: string;
+  readonly family_name?: string;
+  // Linked ORCID iD (bare `0000-0000-0000-0000`, no URL) + verified flag.
+  readonly orcid?: string;
+  readonly orcid_verified?: boolean;
+  // Self-service profile fields (migrations 0051/0052). city/country are
+  // required for export-control screening; the rest are optional.
+  readonly github_username?: string;
+  readonly city?: string;
+  readonly country?: string;
+  readonly affiliation?: string;
 }
 
 /**
@@ -51,6 +65,44 @@ export function maskEmail(email: string): string {
   const domain = email.slice(at + 1);
   if (local.length <= 1) return `${local}***@${domain}`;
   return `${local[0]}${"*".repeat(Math.min(local.length - 1, 5))}@${domain}`;
+}
+
+/**
+ * GitHub username rules: 1–39 chars, alphanumeric or single hyphens, may not
+ * start or end with a hyphen and may not contain consecutive hyphens. Used to
+ * validate the handle before it's sent to the profile endpoint (required to
+ * publish a dataset). A leading `@` is tolerated and stripped by the caller.
+ */
+export function isValidGithubUsername(value: string): boolean {
+  if (typeof value !== "string") return false;
+  const handle = value.trim().replace(/^@/, "");
+  return /^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/.test(handle);
+}
+
+/**
+ * ORCID iD structural check: four hyphen-separated 4-digit groups, last group
+ * ending in a digit or `X` checksum. Accepts a bare iD; the caller strips any
+ * `https://orcid.org/` prefix first. Not a checksum validation — that's the
+ * backend's job — just enough to avoid rendering a broken orcid.org link.
+ */
+export function isValidOrcid(value: string): boolean {
+  if (typeof value !== "string") return false;
+  return /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/.test(value.trim());
+}
+
+/**
+ * Compose the display name from ORCID-canonical parts. Returns "" when both
+ * are absent so callers can null-check and fall back (Astro drops cards whose
+ * render throws — never assume a name exists).
+ */
+export function fullName(user: {
+  given_name?: string;
+  family_name?: string;
+}): string {
+  return [user.given_name, user.family_name]
+    .map((p) => (p ?? "").trim())
+    .filter((p) => p.length > 0)
+    .join(" ");
 }
 
 export function isValidEmail(value: string): boolean {

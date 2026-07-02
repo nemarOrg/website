@@ -115,7 +115,32 @@ export function buildDevUser(email: string): AuthUser {
     email: lower,
     role: isAdmin ? "admin" : "user",
     status: "active",
+    // Sample ORCID-canonical + profile fields so the Settings surface renders
+    // its populated states locally without a real backend. Production reads
+    // these from /auth/me instead; this block is dev-only (gated on DEV).
+    given_name: "Ada",
+    family_name: "Lovelace",
+    orcid: "0000-0002-1825-0097",
+    orcid_verified: true,
+    github_username: "ada",
+    city: "London",
+    country: "United Kingdom",
+    affiliation: "Analytical Engine Lab",
   };
+}
+
+/**
+ * Re-issue the dev session cookie after a mock mutation (email change, profile
+ * edit, ORCID unlink) so the local Settings page reflects the change on the
+ * next request without a real backend. Merges `patch` over the current user.
+ */
+export async function reissueDevSession(
+  current: AuthUser,
+  patch: Partial<AuthUser>,
+): Promise<string> {
+  const next: AuthUser = { ...current, ...patch };
+  const token = await signDevSession(next);
+  return devSessionCookie(token);
 }
 
 export function devSessionCookie(token: string): string {

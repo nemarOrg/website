@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
-import { type AuthSession, SESSION_COOKIE_NAME } from "./lib/auth";
+import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
 
@@ -293,7 +293,30 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
     return null;
   }
 
-  return { user: { id, email: user.email, role, status: user.status } };
+  // Required fields validated; layer on the optional profile fields the
+  // Settings surface reads. Each is only attached when the backend actually
+  // sent a usable value, so a sparse /auth/me (today's shape) yields exactly
+  // the id/email/role/status object the middleware tests assert on, and the
+  // page falls back gracefully when a field is missing.
+  const out: AuthUser = { id, email: user.email, role, status: user.status };
+  const withOptional = out as { -readonly [K in keyof AuthUser]: AuthUser[K] };
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+  withOptional.given_name = str(user.given_name);
+  withOptional.family_name = str(user.family_name);
+  withOptional.orcid = str(user.orcid);
+  if (typeof user.orcid_verified === "boolean") withOptional.orcid_verified = user.orcid_verified;
+  withOptional.github_username = str(user.github_username);
+  withOptional.city = str(user.city);
+  withOptional.country = str(user.country);
+  withOptional.affiliation = str(user.affiliation);
+  // Drop keys that resolved to undefined so the object stays clean (and the
+  // existing `toEqual` assertions on the minimal shape keep passing).
+  for (const k of Object.keys(withOptional) as (keyof AuthUser)[]) {
+    if (withOptional[k] === undefined) delete withOptional[k];
+  }
+
+  return { user: out };
 }
 
 export function isPublicCacheable(response: Response): boolean {

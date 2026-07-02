@@ -48,6 +48,54 @@ describe("parseAuthMeResponse", () => {
     });
   });
 
+  it("attaches optional profile fields when present and usable", () => {
+    const out = parseAuthMeResponse({
+      user: {
+        id: "u_2",
+        email: "ada@example.com",
+        role: "user",
+        status: "active",
+        given_name: "Ada",
+        family_name: "Lovelace",
+        orcid: "0000-0002-1825-0097",
+        orcid_verified: true,
+        github_username: "ada",
+        city: "London",
+        country: "United Kingdom",
+        affiliation: "Analytical Engine Lab",
+      },
+    });
+    expect(out?.user).toMatchObject({
+      given_name: "Ada",
+      family_name: "Lovelace",
+      orcid: "0000-0002-1825-0097",
+      orcid_verified: true,
+      github_username: "ada",
+      city: "London",
+      country: "United Kingdom",
+      affiliation: "Analytical Engine Lab",
+    });
+  });
+
+  it("omits blank / wrong-typed optional fields (sparse /auth/me)", () => {
+    const out = parseAuthMeResponse({
+      user: {
+        id: "u_3",
+        email: "sparse@example.com",
+        role: "user",
+        status: "active",
+        given_name: "   ",
+        orcid: 12345,
+        orcid_verified: "yes",
+      },
+    });
+    // Sparse body collapses to exactly the minimal shape — no undefined keys.
+    expect(out).toEqual({
+      user: { id: "u_3", email: "sparse@example.com", role: "user", status: "active" },
+    });
+    expect(out?.user).not.toHaveProperty("orcid_verified");
+  });
+
   it("returns null for null / non-object input", () => {
     expect(parseAuthMeResponse(null)).toBeNull();
     expect(parseAuthMeResponse(undefined)).toBeNull();
