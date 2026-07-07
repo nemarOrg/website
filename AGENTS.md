@@ -175,6 +175,21 @@ bun run lint                  # biome check
 - `.context/research.md` — technical explorations
 - `.context/ideas.md` — design concepts
 - `.context/scratch_history.md` — failed attempts + lessons
+- `.context/decisions/` — **Architecture Decision Records (ADRs).** One file per
+  significant, hard-to-reverse decision (`NNNN-short-kebab-title.md`). See
+  `.context/decisions/README.md` for the convention and index. Copy `0000-template.md`
+  to start a new ADR; number sequentially; never delete an ADR, supersede it. Write one
+  when a decision is expensive to reverse, cuts off other reasonable paths, has been argued
+  more than once, or embeds a non-obvious constraint. `ideas.md` is where a decision is
+  first sketched; promote the ones that meet that bar into an ADR.
+
+## Recording decisions
+
+When you make (or discover) an architecture-level decision, add an ADR under
+`.context/decisions/` and link it from that folder's README index. This is part of the
+Development Workflow above: land the ADR in the same PR as the change it justifies, so the
+rationale travels with the code. Routine choices that are obvious from reading the code do
+not need one.
 
 ---
 
