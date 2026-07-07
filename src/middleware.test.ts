@@ -4,9 +4,11 @@ import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import {
   SECURITY_HEADERS,
   applySecurityHeaders,
+  contentSecurityPolicy,
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  routeNeedsUnsafeEval,
 } from "./middleware";
 
 describe("isPublicCacheable", () => {
@@ -267,7 +269,7 @@ describe("security headers", () => {
 
   it("applySecurityHeaders sets the full header set on a Headers object", () => {
     const headers = new Headers();
-    applySecurityHeaders(headers);
+    applySecurityHeaders(headers, "/discover");
     expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
     expect(headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
@@ -287,6 +289,35 @@ describe("security headers", () => {
     // Inline theme-bootstrap script + Astro scoped <style>.
     expect(csp).toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+  });
+
+  it("grants 'unsafe-eval' ONLY on the /dataset/* viewer route", () => {
+    // numcodecs' Emscripten blosc/zstd/lz4 codecs (dynamically imported by the
+    // signal viewer on dataset detail) call the Function constructor at decode
+    // time; 'wasm-unsafe-eval' does not cover that, so the viewer route needs
+    // 'unsafe-eval'. Every other route must stay strict. Regression guard for
+    // "Failed to decode chunk via codec blosc".
+    expect(routeNeedsUnsafeEval("/dataset/nm000232")).toBe(true);
+    expect(routeNeedsUnsafeEval("/discover")).toBe(false);
+    expect(routeNeedsUnsafeEval("/")).toBe(false);
+    // A lookalike prefix must not be widened.
+    expect(routeNeedsUnsafeEval("/datasets")).toBe(false);
+
+    const viewerCsp = contentSecurityPolicy("/dataset/nm000232");
+    expect(viewerCsp).toContain(
+      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' 'unsafe-eval'",
+    );
+
+    const strictCsp = contentSecurityPolicy("/discover");
+    expect(strictCsp).not.toContain("'unsafe-eval'");
+    // The base export is the strict policy (used for every non-viewer route).
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).not.toContain("'unsafe-eval'");
+  });
+
+  it("stamps the viewer CSP (with 'unsafe-eval') on a /dataset/* response", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/dataset/nm000232`), passthrough);
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("Content-Security-Policy")).toContain("'unsafe-eval'");
   });
 
   it("stamps every SSR page response served by the worker", async () => {
