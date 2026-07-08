@@ -156,3 +156,30 @@ export function getRetiredRedirect(url: URL): string | null {
   }
   return null;
 }
+
+/**
+ * True only for the two production surfaces (`app.nemar.org` and the
+ * marketing hosts, including today's `ww2.nemar.org` beta). Everything
+ * else — `test.nemar.org` staging (epic #923 Phase 6), `*.pages.dev`
+ * previews, dev tunnels — is not production. Used by `isNoindexHost` below
+ * to keep search engines off every non-prod deploy.
+ */
+export function isProductionHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return APP_HOSTS.has(h) || MARKETING_HOSTS.has(h);
+}
+
+/**
+ * True when a host should get a blanket `X-Robots-Tag: noindex` /
+ * `robots.txt: Disallow: /` (staging, preview deploys). False for the
+ * production hosts and for local dev (`localhost`, `127.0.0.1`,
+ * `*.localhost`) — nothing to keep search engines off of there since it's
+ * never crawlable anyway, and it keeps the dev signal distinct from "this
+ * is a real non-prod deploy."
+ */
+export function isNoindexHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  if (isProductionHost(h)) return false;
+  if (h === "localhost" || h === "127.0.0.1" || h.endsWith(".localhost")) return false;
+  return true;
+}

@@ -87,6 +87,38 @@ CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:?set SCCN account id in env}" \
   --commit-dirty=true
 ```
 
+## Staging (test.nemar.org)
+
+A second, separate Cloudflare Pages project — `nemar-website-test` — serves
+`test.nemar.org` for QA against the nemar-cli staging APIs (epic #923 Phase
+6). It is a distinct project from prod `nemar-website`, not a Pages preview
+branch, so it gets its own custom domain and its own `SESSION_SECRET`.
+
+- **Config:** `wrangler.test.toml` (separate from `wrangler.toml` so prod
+  vars never sync onto the test project).
+- **Deploy:** `.github/workflows/deploy-test.yml`, triggered by pushing to
+  the `staging` branch or `workflow_dispatch`. It builds with
+  `PUBLIC_API_BASE_URL=https://api-test.nemar.org`,
+  `PUBLIC_DATA_BASE_URL=https://data-test.nemar.org`,
+  `PUBLIC_ZARR_BASE_URL=https://zarr-test.nemar.org` (Astro inlines `PUBLIC_*`
+  at build time — that's why staging needs its own build+deploy job, not just
+  a runtime var override), then `wrangler pages deploy -c wrangler.test.toml`.
+  The prod project keeps deploying via Cloudflare's GitHub integration;
+  this workflow never touches it.
+- **Noindex:** every non-production host (`test.nemar.org`, `*.pages.dev`
+  previews) gets `X-Robots-Tag: noindex, nofollow` on every SSR response
+  (`isNoindexHost` in `src/lib/host.ts`, threaded through
+  `applySecurityHeaders`/`withSecurityHeaders` in `src/middleware.ts`) plus a
+  `Disallow: /` from the dynamic `src/pages/robots.txt.ts`. Only
+  `app.nemar.org` and the marketing hosts (`isProductionHost`) are
+  crawlable. Local dev (`localhost`, `127.0.0.1`) is exempt from noindex —
+  there's nothing to keep crawlers off of there.
+- **ORCID limitation:** the ORCID sandbox callback may not be registered for
+  `test.nemar.org`, so ORCID sign-in can fail on staging. Use email-code
+  login instead — in non-production backend environments `/auth/code/request`
+  returns a `dev_code` field so sign-in works without an inbox (see
+  nemar-cli AGENTS.md "Web-Dashboard Auth").
+
 ## Development Workflow
 
 1. **Check context:** Read `.context/handoff.md` first (it has the most recent session state). Then `.context/plan.md`.
