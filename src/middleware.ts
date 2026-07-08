@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
-import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
+import { getCrossHostRedirect, getRetiredRedirect, hostMode, isNoindexHost } from "./lib/host";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -96,22 +96,28 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Content-Security-Policy": contentSecurityPolicy("/"),
 };
 
-/** Mutate `headers` in place with the security header set for `pathname`. */
-export function applySecurityHeaders(headers: Headers, pathname: string): void {
+/**
+ * Mutate `headers` in place with the security header set for `pathname`.
+ * `noindex` (epic #923 Phase 6) additionally stamps `X-Robots-Tag` so
+ * staging/preview hosts never get indexed; defaults false so callers on the
+ * production hosts are unaffected.
+ */
+export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
+  if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
 }
 
 /** Apply the security headers to a response and return it (passthrough paths). */
-function withSecurityHeaders(response: Response, pathname: string): Response {
-  applySecurityHeaders(response.headers, pathname);
+function withSecurityHeaders(response: Response, pathname: string, noindex = false): Response {
+  applySecurityHeaders(response.headers, pathname, noindex);
   return response;
 }
 
 /**
- * Three responsibilities in one handler:
+ * Four responsibilities in one handler:
  *
  *   1. Two-host routing. `nemar.org` and `app.nemar.org` share one Astro
  *      build but expose different surfaces. Authenticated routes requested
@@ -133,6 +139,11 @@ function withSecurityHeaders(response: Response, pathname: string): Response {
  *      personalized responses (e.g. the Nav's UserMenu) don't get served to
  *      anonymous visitors out of the edge.
  *
+ *   4. Stamp `X-Robots-Tag: noindex` on staging (`test.nemar.org`) and
+ *      preview (`*.pages.dev`) hosts (epic #923) so they never show up in
+ *      search results next to production. See `isNoindexHost` in
+ *      `lib/host.ts`; `robots.txt.ts` covers the crawler-side signal.
+ *
  * The cache key is the full request URL, so query-string filters on /discover
  * get their own entries. App-host requests fan out one extra HTTP call to
  * /auth/me; that overhead is acceptable since the cache is bypassed for
@@ -141,6 +152,11 @@ function withSecurityHeaders(response: Response, pathname: string): Response {
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(context.request.url);
+  // Staging (test.nemar.org) and preview (*.pages.dev) hosts get a blanket
+  // noindex so they never compete with production in search results. See
+  // isNoindexHost in lib/host.ts; computed once and threaded through every
+  // serve path below. Cross-host redirects (no body to protect) are exempt.
+  const noindex = isNoindexHost(url.hostname);
 
   // Retired paths (in-site /docs -> docs.nemar.org, /citation-dashboard ->
   // dashboard.nemar.org) take priority over cross-host routing so they never
@@ -171,14 +187,14 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   const request = context.request;
-  if (request.method !== "GET") return withSecurityHeaders(await next(), url.pathname);
-  if (context.locals.session) return withSecurityHeaders(await next(), url.pathname);
+  if (request.method !== "GET") return withSecurityHeaders(await next(), url.pathname, noindex);
+  if (context.locals.session) return withSecurityHeaders(await next(), url.pathname, noindex);
 
   type Runtime = { caches?: CacheStorage };
   const runtime = (context.locals as { runtime?: Runtime } | undefined)?.runtime;
   const cacheStorage: CacheStorage | undefined =
     runtime?.caches ?? (typeof caches !== "undefined" ? caches : undefined);
-  if (!cacheStorage) return withSecurityHeaders(await next(), url.pathname);
+  if (!cacheStorage) return withSecurityHeaders(await next(), url.pathname, noindex);
 
   // Cache namespace is versioned so bumps orphan the previous generation on
   // next deploy. v1 -> v2: pre-PR-#54 entries persisted SWR-poisoned fallback
@@ -195,13 +211,13 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     console.warn("[edge-cache] cacheStorage.open failed; bypassing cache", err);
     return null;
   });
-  if (!cache) return withSecurityHeaders(await next(), url.pathname);
+  if (!cache) return withSecurityHeaders(await next(), url.pathname, noindex);
 
   const cached = await cache.match(request);
   if (cached) {
     const headers = new Headers(cached.headers);
     headers.set("x-nemar-cache", "HIT");
-    applySecurityHeaders(headers, url.pathname);
+    applySecurityHeaders(headers, url.pathname, noindex);
     return new Response(cached.body, {
       status: cached.status,
       statusText: cached.statusText,
@@ -224,7 +240,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     }
     const headers = new Headers(response.headers);
     headers.set("x-nemar-cache", "MISS");
-    applySecurityHeaders(headers, url.pathname);
+    applySecurityHeaders(headers, url.pathname, noindex);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -232,7 +248,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     });
   }
 
-  return withSecurityHeaders(response, url.pathname);
+  return withSecurityHeaders(response, url.pathname, noindex);
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {

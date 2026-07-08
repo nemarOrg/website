@@ -278,6 +278,16 @@ describe("security headers", () => {
     );
   });
 
+  it("applySecurityHeaders sets X-Robots-Tag only when noindex=true", () => {
+    const indexed = new Headers();
+    applySecurityHeaders(indexed, "/discover", false);
+    expect(indexed.get("X-Robots-Tag")).toBeNull();
+
+    const noindexed = new Headers();
+    applySecurityHeaders(noindexed, "/discover", true);
+    expect(noindexed.get("X-Robots-Tag")).toBe("noindex, nofollow");
+  });
+
   it("CSP allows the origins the client actually fetches (regression guards)", () => {
     const csp = SECURITY_HEADERS["Content-Security-Policy"];
     // Client-side README fetch in dataset/[id].astro.
@@ -344,5 +354,16 @@ describe("security headers", () => {
     expect(res?.status).toBe(301);
     expect(res?.headers.get("Content-Security-Policy")).toBeNull();
     expect(res?.headers.get("X-Frame-Options")).toBeNull();
+  });
+
+  it("stamps X-Robots-Tag: noindex on preview hosts, not on production", async () => {
+    const preview = await onRequest(
+      ctx("https://fa9dbfa0.nemar-website.pages.dev/discover"),
+      passthrough,
+    );
+    expect(preview?.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+
+    const prod = await onRequest(ctx(`https://${MARKETING_HOST}/discover`), passthrough);
+    expect(prod?.headers.get("X-Robots-Tag")).toBeNull();
   });
 });

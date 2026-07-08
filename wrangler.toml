@@ -7,11 +7,13 @@ pages_build_output_dir = "./dist"
 [vars]
 PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
+PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
 
 # Preview env vars (override on Pages dashboard if needed)
 [env.preview.vars]
 PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
+PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
 
 # SESSION_SECRET is a server-only secret used to HMAC-sign the auth cookie.
 # Set it via `wrangler secret put SESSION_SECRET` or the Cloudflare Pages

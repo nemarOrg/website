@@ -1,0 +1,24 @@
+name = "nemar-website-test"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./dist"
+
+# Staging project for `test.nemar.org` (epic #923 Phase 6). Deployed by
+# .github/workflows/deploy-test.yml, NOT by Cloudflare's GitHub integration
+# (that auto-deploy targets the prod `nemar-website` project only).
+#
+# PUBLIC_* vars are Astro build-time env — Vite inlines them into the client
+# bundle at `astro build`, so setting them here (a runtime binding) has no
+# effect. They're documented for reference only; the actual values are passed
+# as env vars to `bun run build` in the workflow. This file exists as a
+# separate `-c` target so `wrangler pages deploy` never picks up the prod
+# `wrangler.toml` vars for the test project.
+[vars]
+PUBLIC_API_BASE_URL = "https://api-test.nemar.org"
+PUBLIC_DATA_BASE_URL = "https://data-test.nemar.org"
+PUBLIC_ZARR_BASE_URL = "https://zarr-test.nemar.org"
+
+# SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
+# per-project, not shared with prod. Set it via the Cloudflare Pages
+# dashboard for nemar-website-test, or `wrangler pages secret put
+# SESSION_SECRET -c wrangler.test.toml`. See src/lib/auth.ts.
