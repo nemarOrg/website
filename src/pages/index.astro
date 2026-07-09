@@ -164,10 +164,10 @@ Astro.response.headers.set(
 <style>
   /* Landing hero — leans into the legacy nemar.org look: a deep-space navy
      ground, a large translucent wireframe brain, corner-bracket framing, and
-     a bold stacked verb headline. It is DARK BY DEFAULT (the authentic look)
-     and only lightens when the visitor explicitly picks the light theme
-     (`[data-theme="light"]`); system preference doesn't lighten it. The rest
-     of the page chrome stays fully theme-aware. */
+     a bold stacked verb headline. The hero is fully theme-aware: light by
+     default (including system-light) and only taking on the deep-space navy
+     look for the dark theme or system-dark (see the dark palette block below).
+     The rest of the page chrome uses the same theme-aware convention. */
   .hero {
     position: relative;
     overflow: hidden;
@@ -181,33 +181,10 @@ Astro.response.headers.set(
     display: flex;
     align-items: center;
 
-    /* Dark (default) hero palette */
-    --hero-fg: #f1f5f9;
-    --hero-fg-muted: rgb(226 232 240 / 82%);
-    --hero-eyebrow: #7dd3e8;
-    --hero-bracket: rgb(125 211 232 / 70%);
-    --hero-glow: rgb(91 186 213 / 30%);
-    --hero-bg-1: #060d24;
-    --hero-bg-2: #0a1638;
-    --hero-bg-3: #112a5c;
-    --hero-brain-blend: screen;
-    --hero-brain-filter: hue-rotate(-8deg) saturate(1.15) brightness(1.05);
-    --hero-brain-opacity: 0.6;
-    --hero-veil: radial-gradient(ellipse at 42% 52%, transparent 40%, rgb(6 13 36 / 55%) 100%);
-    --hero-stat-bg: rgb(255 255 255 / 7%);
-    --hero-stat-border: rgb(255 255 255 / 14%);
-    --hero-search-bg: #ffffff;
-    --hero-search-fg: #0f172a;
-    --hero-search-border: transparent;
-
-    background:
-      radial-gradient(ellipse 80% 60% at 60% -10%, var(--hero-glow), transparent 70%),
-      linear-gradient(165deg, var(--hero-bg-1) 0%, var(--hero-bg-2) 55%, var(--hero-bg-3) 100%);
-    color: var(--hero-fg);
-  }
-
-  /* Light variant — only when the visitor explicitly chooses the light theme. */
-  :global(:root[data-theme="light"]) .hero {
+    /* Light (default) hero palette. The hero is fully theme-aware now, so a
+       light or system-light visitor gets a fully light landing — the dark
+       "deep space" look is applied under the dark selectors below (mirroring
+       how tokens.css resolves light as default, dark when dark-resolved). */
     --hero-fg: #0f172a;
     --hero-fg-muted: #475569;
     --hero-eyebrow: #2563eb;
@@ -225,6 +202,56 @@ Astro.response.headers.set(
     --hero-search-bg: #ffffff;
     --hero-search-fg: #0f172a;
     --hero-search-border: var(--color-border-strong);
+
+    background:
+      radial-gradient(ellipse 80% 60% at 60% -10%, var(--hero-glow), transparent 70%),
+      linear-gradient(165deg, var(--hero-bg-1) 0%, var(--hero-bg-2) 55%, var(--hero-bg-3) 100%);
+    color: var(--hero-fg);
+  }
+
+  /* Dark hero palette — the authentic deep-space navy look, applied for the
+     dark theme and system-dark. Duplicated across the guarded media query and
+     the explicit [data-theme="dark"] selector, the same pattern tokens.css
+     uses so the hero tracks the resolved theme in every case. */
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .hero {
+      --hero-fg: #f1f5f9;
+      --hero-fg-muted: rgb(226 232 240 / 82%);
+      --hero-eyebrow: #7dd3e8;
+      --hero-bracket: rgb(125 211 232 / 70%);
+      --hero-glow: rgb(91 186 213 / 30%);
+      --hero-bg-1: #060d24;
+      --hero-bg-2: #0a1638;
+      --hero-bg-3: #112a5c;
+      --hero-brain-blend: screen;
+      --hero-brain-filter: hue-rotate(-8deg) saturate(1.15) brightness(1.05);
+      --hero-brain-opacity: 0.6;
+      --hero-veil: radial-gradient(ellipse at 42% 52%, transparent 40%, rgb(6 13 36 / 55%) 100%);
+      --hero-stat-bg: rgb(255 255 255 / 7%);
+      --hero-stat-border: rgb(255 255 255 / 14%);
+      --hero-search-bg: #ffffff;
+      --hero-search-fg: #0f172a;
+      --hero-search-border: transparent;
+    }
+  }
+  :global(:root[data-theme="dark"]) .hero {
+    --hero-fg: #f1f5f9;
+    --hero-fg-muted: rgb(226 232 240 / 82%);
+    --hero-eyebrow: #7dd3e8;
+    --hero-bracket: rgb(125 211 232 / 70%);
+    --hero-glow: rgb(91 186 213 / 30%);
+    --hero-bg-1: #060d24;
+    --hero-bg-2: #0a1638;
+    --hero-bg-3: #112a5c;
+    --hero-brain-blend: screen;
+    --hero-brain-filter: hue-rotate(-8deg) saturate(1.15) brightness(1.05);
+    --hero-brain-opacity: 0.6;
+    --hero-veil: radial-gradient(ellipse at 42% 52%, transparent 40%, rgb(6 13 36 / 55%) 100%);
+    --hero-stat-bg: rgb(255 255 255 / 7%);
+    --hero-stat-border: rgb(255 255 255 / 14%);
+    --hero-search-bg: #ffffff;
+    --hero-search-fg: #0f172a;
+    --hero-search-border: transparent;
   }
 
   /* Large wireframe brain (legacy hero-brain.png: teal lines on transparent
@@ -389,10 +416,16 @@ Astro.response.headers.set(
     letter-spacing: -0.02em;
     font-size: clamp(var(--fs-4xl), 6.5vw, 5.25rem);
     color: var(--hero-fg);
-    text-shadow: 0 2px 24px rgb(0 0 0 / 35%);
-  }
-  :global(:root[data-theme="light"]) .hero__verbs {
     text-shadow: none;
+  }
+  /* Dark hero: lift the verbs off the deep ground with a soft shadow. */
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .hero__verbs {
+      text-shadow: 0 2px 24px rgb(0 0 0 / 35%);
+    }
+  }
+  :global(:root[data-theme="dark"]) .hero__verbs {
+    text-shadow: 0 2px 24px rgb(0 0 0 / 35%);
   }
   .hero__verbs span:last-child {
     background: linear-gradient(92deg, var(--brand-teal), var(--brand-purple));
@@ -598,11 +631,16 @@ Astro.response.headers.set(
     let raf = 0;
     let lastT = 0;
 
-    // Soft blue (legacy #6894ce) on the dark hero; deep indigo on the light one.
-    const starColor = () =>
-      document.documentElement.getAttribute("data-theme") === "light"
-        ? "30, 41, 99"
-        : "104, 148, 206";
+    // Deep indigo on the light hero; soft blue (legacy #6894ce) on the dark
+    // one. Resolve the effective theme so system-light gets the light dots,
+    // matching the now theme-aware hero.
+    const heroIsLight = () => {
+      const dt = document.documentElement.getAttribute("data-theme");
+      if (dt === "light") return true;
+      if (dt === "dark") return false;
+      return !window.matchMedia("(prefers-color-scheme: dark)").matches;
+    };
+    const starColor = () => (heroIsLight() ? "30, 41, 99" : "104, 148, 206");
 
     function resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -691,6 +729,11 @@ Astro.response.headers.set(
     new MutationObserver(() => {
       if (reduce) paint(false, 0);
     }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    // System mode has no data-theme mutation to observe, so also repaint the
+    // static field when the OS theme flips.
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      if (reduce) paint(false, 0);
+    });
 
     start();
   }
