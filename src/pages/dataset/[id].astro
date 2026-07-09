@@ -8,7 +8,7 @@ import Readme from "../../components/Readme.astro";
 import Tag from "../../components/Tag.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
-import { resolveCanonical } from "../../lib/api";
+import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
 import { datasetCitation } from "../../lib/cite";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
@@ -46,9 +46,25 @@ const versionParam = url.searchParams.get("v");
 // hydrates client-side from participants.tsv, and the Data quality tab is
 // a "coming soon" placeholder until nemar-cli#511 ships a precomputed
 // static aggregate JSON we can fetch cheaply on tab click.
-const [landingOut, metadataOut] = await Promise.all([
+const [landingOut, metadataOut, catalogRow] = await Promise.all([
   getLandingOutcome(id),
   getMetadataOutcome(id),
+  // The catalog row carries the recording channel count (nemar-cli#854), which
+  // metadata.json does not. Only managed ids (nm*/on*) resolve here; ds* returns
+  // 400 and is reached via the canonical redirect above. A failed lookup degrades
+  // to null so the channel stat is simply omitted — it never blocks the page.
+  isManagedDatasetId(id)
+    ? getDataset(id).catch((err) => {
+        // Degrade to null (the channel stat is optional and never blocks the
+        // page), but log so a catalog-API regression that silently drops the
+        // Channels row site-wide has a signal — mirrors this file's other
+        // fetch-failure logs and resolveCanonical's convention in api.ts.
+        console.warn(
+          `[dataset/${id}] catalog row fetch failed, omitting channel stat: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      })
+    : Promise.resolve(null),
 ]);
 
 // 404 only when BOTH signals independently report missing — a single not_found
@@ -246,7 +262,12 @@ Astro.response.headers.set(
           </>
         )}
       </div>
-      <DetailRail metadata={enrichedMetadata} cite={cite} />
+      <DetailRail
+        metadata={enrichedMetadata}
+        cite={cite}
+        nChannels={catalogRow?.n_channels ?? null}
+        electrodeSystem={catalogRow?.electrode_system ?? null}
+      />
     </div>
   </article>
 </Base>

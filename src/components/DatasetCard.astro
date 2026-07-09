@@ -2,6 +2,7 @@
 import {
   formatAuthorByline,
   formatBytes,
+  formatChannels,
   formatDate,
   safeSnippet,
   splitModalities,
@@ -35,6 +36,13 @@ interface Fact {
 const facts: Fact[] = [];
 if (dataset.participants > 0) {
   facts.push({ label: "Participants", value: String(dataset.participants) });
+}
+// Channel count + electrode system from the catalog row, e.g. "30 (10-10)".
+// See Dataset.n_channels in lib/types.ts for what's populated (EEG-derived
+// today); the render has no modality gate, so it surfaces whatever exists.
+const channels = formatChannels(dataset.n_channels, dataset.electrode_system);
+if (channels) {
+  facts.push({ label: "Channels", value: channels });
 }
 // Citation count from /datasets (nemar-cli #804). Absent until that ships.
 if (typeof dataset.num_citations === "number" && dataset.num_citations > 0) {
