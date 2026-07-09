@@ -5,8 +5,15 @@
   --brand-navy-deep: #06112a;
   --brand-teal: #5bbad5;
   --brand-purple: #603cba;
+  /* Gold — third accent, theme-aware. Pale gold reads on dark grounds (OG
+     cards, dark-mode logo); deep gold keeps contrast on light grounds. The
+     resolved --brand-gold flips per theme (deep here in light, pale in the
+     dark blocks below), mirroring how the neutrals/tags resolve. */
+  --brand-gold-light: #f4d06b;
+  --brand-gold-deep: #b8860b;
   --brand-accent: var(--brand-teal);
-  --brand-electrode: var(--brand-purple);
+  --brand-gold: var(--brand-gold-deep);
+  --brand-electrode: var(--brand-gold);
 
   /* Neutrals (light theme defaults) */
   --color-bg: #ffffff;
@@ -131,6 +138,9 @@
     --color-focus: #60a5fa;
     --color-link: #93c5fd;
     --color-link-hover: #bfdbfe;
+
+    /* Brand — pale gold reads on the navy ground; deep gold is for light. */
+    --brand-gold: var(--brand-gold-light);
 
     /* Tag color bible — dark-lifted (see :root for the semantics). */
     --modality-eeg: #60a5fa;
