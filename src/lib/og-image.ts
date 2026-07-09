@@ -1,5 +1,6 @@
 import { formatAuthorByline, formatBytes, splitModalities } from "./format";
 import type { NeuroschemaDataset } from "./neuroschema";
+import { ELECTRODE_GOLD, OG_DEFS, escapeXml } from "./og-chrome";
 import type { Dataset } from "./types";
 
 type MetadataSource = Pick<
@@ -74,24 +75,13 @@ export function renderDatasetOgSvg(model: DatasetOgModel, logoSvg: string): stri
       '<svg x="68" y="58" width="460" height="96" color="#f8fafc" style="color:#f8fafc"',
     )
     .replaceAll("var(--brand-accent, currentColor)", "#5bbad5")
-    .replaceAll("var(--brand-electrode, currentColor)", "#8b7cf6");
+    // Electrode dots render light gold so they stay legible on the dark card;
+    // the previous blue-violet (#8b7cf6) washed out against the navy.
+    .replaceAll("var(--brand-electrode, currentColor)", ELECTRODE_GOLD);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${CARD_W}" height="${CARD_H}" viewBox="0 0 ${CARD_W} ${CARD_H}" role="img" aria-label="${escapeXml(model.title)} dataset card">
-  <defs>
-    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
-      <stop offset="0%" stop-color="#06112a"/>
-      <stop offset="58%" stop-color="#0b1a3a"/>
-      <stop offset="100%" stop-color="#111d36"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" x2="1">
-      <stop offset="0%" stop-color="#5bbad5"/>
-      <stop offset="100%" stop-color="#603cba"/>
-    </linearGradient>
-    <filter id="shadow" x="-10%" y="-20%" width="120%" height="160%">
-      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#020617" flood-opacity="0.24"/>
-    </filter>
-  </defs>
+  ${OG_DEFS}
   <rect width="${CARD_W}" height="${CARD_H}" fill="url(#bg)"/>
   <rect x="36" y="34" width="1128" height="732" rx="46" fill="#0a1224" stroke="#1e293b" stroke-width="2"/>
   <circle cx="1038" cy="132" r="300" fill="#5bbad5" opacity="0.10"/>
@@ -99,8 +89,8 @@ export function renderDatasetOgSvg(model: DatasetOgModel, logoSvg: string): stri
   <path d="M650 104 C842 32 1046 92 1180 230" fill="none" stroke="#5bbad5" stroke-width="4" opacity="0.30"/>
   <path d="M708 222 C890 150 1040 208 1172 372" fill="none" stroke="#603cba" stroke-width="4" opacity="0.34"/>
   ${embeddedLogo}
-  <rect x="842" y="76" width="280" height="66" rx="33" fill="#f8fafc" opacity="0.12"/>
-  <text x="982" y="119" text-anchor="middle" font-family="JetBrains Mono" font-size="25" font-weight="700" fill="#f8fafc">${escapeXml(model.id)}</text>
+  <rect x="842" y="72" width="280" height="72" rx="36" fill="#f8fafc" opacity="0.12"/>
+  <text x="982" y="124" text-anchor="middle" font-family="JetBrains Mono" font-size="34" font-weight="700" fill="#f8fafc">${escapeXml(model.id)}</text>
   <text x="72" y="254" font-family="Inter" font-size="82" font-weight="700" fill="#f8fafc" letter-spacing="0">${tspans(titleLines, 72, 0, 94)}</text>
   ${renderChips(model.modalities)}
   <g transform="translate(72 604)">
@@ -215,9 +205,9 @@ function renderChips(modalities: string[]): string {
   let x = 72;
   return modalities
     .map((m) => {
-      const w = Math.max(86, 42 + m.length * 16);
-      const chip = `<g transform="translate(${x} 532)"><rect width="${w}" height="48" rx="24" fill="#f8fafc" opacity="0.12" stroke="#5bbad5" stroke-opacity="0.58"/><circle cx="25" cy="24" r="6" fill="url(#accent)"/><text x="44" y="31" font-family="JetBrains Mono" font-size="20" font-weight="700" fill="#f8fafc">${escapeXml(m)}</text></g>`;
-      x += w + 12;
+      const w = Math.max(104, 50 + m.length * 20);
+      const chip = `<g transform="translate(${x} 528)"><rect width="${w}" height="60" rx="30" fill="#f8fafc" opacity="0.12" stroke="#5bbad5" stroke-opacity="0.58"/><circle cx="30" cy="30" r="7" fill="url(#accent)"/><text x="52" y="39" font-family="JetBrains Mono" font-size="28" font-weight="700" fill="#f8fafc">${escapeXml(m)}</text></g>`;
+      x += w + 14;
       return chip;
     })
     .join("");
@@ -229,13 +219,4 @@ function metricCard(x: number, y: number, width: number, label: string, value: s
     <text x="28" y="42" font-family="JetBrains Mono" font-size="18" font-weight="700" fill="#5bbad5" letter-spacing="0">${escapeXml(label.toUpperCase())}</text>
     <text x="28" y="86" font-family="Inter" font-size="40" font-weight="700" fill="#f8fafc">${escapeXml(truncate(value, width > 300 ? 22 : 11))}</text>
   </g>`;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
 }

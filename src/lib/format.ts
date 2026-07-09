@@ -28,6 +28,25 @@ export function formatCount(value: number): string {
 }
 
 /**
+ * Recording channel count with the electrode system (montage) appended when
+ * known, for the dataset card + detail rail: `formatChannels(30, "10-10")`
+ * -> `"30 (10-10)"`, `formatChannels(30, null)` -> `"30"`. Returns null when
+ * there's no positive count, so callers can do
+ * `const c = formatChannels(...); if (c) ...`. What populates
+ * `n_channels`/`electrode_system` (EEG-derived today) is documented on
+ * `Dataset` in `types.ts`.
+ */
+export function formatChannels(
+  nChannels: number | null | undefined,
+  electrodeSystem: string | null | undefined,
+): string | null {
+  if (typeof nChannels !== "number" || !Number.isFinite(nChannels) || nChannels <= 0) {
+    return null;
+  }
+  return electrodeSystem ? `${nChannels} (${electrodeSystem})` : String(nChannels);
+}
+
+/**
  * Split a comma-separated modalities string from the API into a clean
  * uppercase list. Filters out empty entries and dedupes.
  */

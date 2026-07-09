@@ -129,8 +129,29 @@ describe("renderDatasetOgSvg", () => {
 
     expect(svg).toContain('style="color:#f8fafc"');
     expect(svg).toContain('fill="#5bbad5"');
-    expect(svg).toContain('fill="#8b7cf6"');
+    expect(svg).toContain('fill="#f4d06b"');
     expect(svg).not.toContain("var(--brand-accent");
     expect(svg).not.toContain("var(--brand-electrode");
+  });
+
+  it("renders the enlarged id pill and modality chip geometry", () => {
+    const svg = renderDatasetOgSvg(
+      {
+        id: "nm000132",
+        title: "ERP CORE",
+        description: "",
+        firstAuthor: "A. Researcher",
+        subjects: "40",
+        size: "17.5 GB",
+        modalities: ["EEG"],
+      },
+      '<svg viewBox="0 0 10 10"></svg>',
+    );
+    // id pill + text, enlarged from 66/33/25px to 72/36/34px.
+    expect(svg).toContain('width="280" height="72" rx="36"');
+    expect(svg).toContain('font-size="34" font-weight="700" fill="#f8fafc">nm000132<');
+    // modality chip, enlarged to height 60 / rx 30 / 28px text.
+    expect(svg).toContain('height="60" rx="30"');
+    expect(svg).toContain('font-size="28" font-weight="700" fill="#f8fafc">EEG<');
   });
 });

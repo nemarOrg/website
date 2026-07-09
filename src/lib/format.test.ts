@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatAuthorByline,
   formatBytes,
+  formatChannels,
   formatCount,
   formatDate,
   formatRelativeTime,
@@ -142,5 +143,25 @@ describe("safeSnippet", () => {
     expect(out).toContain("&lt;mark onmouseover=");
     expect(out).toContain("</mark>");
     expect(out).not.toContain("<mark onmouseover");
+  });
+});
+
+describe("formatChannels", () => {
+  it("appends the electrode system when present", () => {
+    expect(formatChannels(30, "10-10")).toBe("30 (10-10)");
+  });
+
+  it("returns the bare count when the electrode system is missing", () => {
+    expect(formatChannels(64, null)).toBe("64");
+    expect(formatChannels(64, undefined)).toBe("64");
+    expect(formatChannels(64, "")).toBe("64");
+  });
+
+  it("returns null when there is no positive count", () => {
+    expect(formatChannels(null, "10-10")).toBeNull();
+    expect(formatChannels(undefined, "10-10")).toBeNull();
+    expect(formatChannels(0, "10-10")).toBeNull();
+    expect(formatChannels(-4, "10-10")).toBeNull();
+    expect(formatChannels(Number.NaN, "10-10")).toBeNull();
   });
 });
