@@ -1,5 +1,6 @@
 ---
-// Theme toggle: cycles light -> dark -> system. Persists choice to localStorage.
+// Theme toggle: cycles system -> dark -> light; the icon reflects the current
+// choice (monitor = follow device). Persists the choice to localStorage.
 ---
 
 <button
@@ -34,6 +35,19 @@
   >
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
   </svg>
+  <svg
+    class="theme-icon icon-system"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+    <path d="M8 21h8M12 17v4"></path>
+  </svg>
 </button>
 
 <style>
@@ -55,30 +69,46 @@
     inline-size: 20px;
     block-size: 20px;
   }
+  /* The visible icon reflects the CHOICE, not the resolved theme: system mode
+     (no data-theme) shows the monitor, so you can always tell you're on
+     "follow device"; explicit light/dark show the sun/moon. */
+  .icon-sun,
   .icon-moon {
     display: none;
   }
-  :global(:root[data-theme="dark"]) .icon-sun {
+  .icon-system {
+    display: block;
+  }
+  :global(:root[data-theme="light"]) .icon-sun {
+    display: block;
+  }
+  :global(:root[data-theme="light"]) .icon-moon,
+  :global(:root[data-theme="light"]) .icon-system {
     display: none;
   }
   :global(:root[data-theme="dark"]) .icon-moon {
     display: block;
   }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme="light"])) .icon-sun {
-      display: none;
-    }
-    :global(:root:not([data-theme="light"])) .icon-moon {
-      display: block;
-    }
+  :global(:root[data-theme="dark"]) .icon-sun,
+  :global(:root[data-theme="dark"]) .icon-system {
+    display: none;
   }
 </style>
 
 <script>
+  type ThemeChoice = "light" | "dark" | "system";
   const STORAGE_KEY = "nemar:theme";
   const root = document.documentElement;
 
-  function applyTheme(value: "light" | "dark" | "system"): void {
+  // Hints match the cycle order (system -> dark -> light) so the tooltip says
+  // where the next click lands.
+  const LABELS: Record<ThemeChoice, string> = {
+    system: "Theme: follows your device — click for dark",
+    dark: "Theme: dark — click for light",
+    light: "Theme: light — click to follow your device",
+  };
+
+  function applyTheme(value: ThemeChoice): void {
     if (value === "system") {
       root.removeAttribute("data-theme");
     } else {
@@ -86,23 +116,43 @@
     }
   }
 
-  function nextTheme(current: "light" | "dark" | "system"): "light" | "dark" | "system" {
+  function nextTheme(current: ThemeChoice): ThemeChoice {
     if (current === "system") return "dark";
     if (current === "dark") return "light";
     return "system";
   }
 
-  function currentTheme(): "light" | "dark" | "system" {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark") return stored;
-    return "system";
+  // Effective choice from the DOM (system == no attribute). The attribute is
+  // the shared source of truth: the FOUC bootstrap in Base.astro and the
+  // Settings page's Appearance picker both set it directly, so reading it keeps
+  // this button in sync with theme changes from any source.
+  function choiceFromDom(): ThemeChoice {
+    const dt = root.getAttribute("data-theme");
+    return dt === "light" || dt === "dark" ? dt : "system";
   }
 
-  applyTheme(currentTheme());
+  // The icon swaps via CSS on [data-theme]; the label carries the current mode
+  // and the next step, so refresh it whenever the attribute changes.
+  function updateLabels(choice: ThemeChoice): void {
+    for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]")) {
+      btn.title = LABELS[choice];
+      btn.setAttribute("aria-label", LABELS[choice]);
+    }
+  }
+
+  updateLabels(choiceFromDom());
+
+  // Catch data-theme changes from any source — notably the Settings picker,
+  // which sets the attribute directly, bypassing the click handler below.
+  // Label-only (never writes data-theme) so it can't loop with its own observer.
+  new MutationObserver(() => updateLabels(choiceFromDom())).observe(root, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
 
   document.querySelectorAll<HTMLButtonElement>("[data-theme-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const next = nextTheme(currentTheme());
+      const next = nextTheme(choiceFromDom());
       if (next === "system") {
         localStorage.removeItem(STORAGE_KEY);
       } else {
