@@ -7,13 +7,15 @@ name: Deploy staging
 #
 # Owner setup (one-time, not done by this workflow):
 #   1. Add repo secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (SCCN
-#      account; Pages:Edit scope).
-#   2. Create the `staging` branch.
-#   3. Create the `nemar-website-test` Pages project (SCCN account).
-#   4. Attach the `test.nemar.org` custom domain to that project.
-#   5. Set a SESSION_SECRET on nemar-website-test (dashboard or
-#      `wrangler pages secret put SESSION_SECRET -c wrangler.test.toml`) —
-#      it must NOT reuse prod's secret.
+#      account; Pages:Edit scope). STILL OUTSTANDING — until these exist this
+#      workflow cannot run, so staging is deployed by hand. Use a narrow
+#      Pages:Edit token, not a broad account-wide one.
+#   Done during epic #923 Phase 7 (2026-07-18):
+#   2. [x] `staging` branch created.
+#   3. [x] `nemar-website-test` Pages project created (SCCN account).
+#   4. [x] `test.nemar.org` attached, with a proxied CNAME to
+#          nemar-website-test.pages.dev.
+#   5. [x] SESSION_SECRET set on nemar-website-test (distinct from prod's).
 #
 # Known limitation: ORCID sign-in may not work on staging (the ORCID sandbox
 # callback for test.nemar.org may not be registered). Use email-code login
@@ -43,6 +45,14 @@ jobs:
           PUBLIC_DATA_BASE_URL: https://data-test.nemar.org
           PUBLIC_ZARR_BASE_URL: https://zarr-test.nemar.org
         run: bun run build
+      # `wrangler pages deploy` rejects a custom config path outright ("Pages
+      # does not support custom paths for the Wrangler configuration file"), so
+      # `-c wrangler.test.toml` fails the job. Swap the staging config into
+      # place as wrangler.toml instead, which keeps the original intent (the
+      # test project must never pick up the prod wrangler.toml vars) and works.
+      # Safe because the CI checkout is throwaway.
+      - name: Use the staging wrangler config
+        run: mv wrangler.test.toml wrangler.toml
       - name: Deploy to nemar-website-test
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -51,4 +61,3 @@ jobs:
           bunx wrangler pages deploy dist
           --project-name nemar-website-test
           --branch main
-          -c wrangler.test.toml
