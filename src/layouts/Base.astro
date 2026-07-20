@@ -2,6 +2,7 @@
 import CookieNotice from "../components/CookieNotice.astro";
 import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
+import { resolveDataBase } from "../lib/data-base";
 import { APP_HOST, MARKETING_BASE_URL, hostMode } from "../lib/host";
 import "../styles/global.css";
 
@@ -46,6 +47,9 @@ const {
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
 const fullTitle = `${title}${titleSuffix}`;
 
+// Preconnect to the data plane this build actually reads (data-test on staging).
+const dataBase = resolveDataBase();
+
 // Build absolute URLs for OG / canonical against the host actually serving
 // this request. The same build runs on `ww2.nemar.org` (marketing today)
 // and `app.nemar.org`, so a static `Astro.site` value would lie. Falling
@@ -78,7 +82,7 @@ const absoluteFallbackImage = fallbackImage
     <meta name="theme-color" content="#0b1a3a" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <link rel="preconnect" href="https://api.nemar.org" crossorigin />
-    <link rel="preconnect" href="https://data.nemar.org" crossorigin />
+    <link rel="preconnect" href={dataBase} crossorigin />
     <title>{fullTitle}</title>
 
     <!-- OpenGraph -->

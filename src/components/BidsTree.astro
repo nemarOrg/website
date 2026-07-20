@@ -4,7 +4,11 @@ interface Props {
   version: string | null;
 }
 
+import { resolveDataBase } from "../lib/data-base";
+
 const { datasetId, version } = Astro.props;
+const dataBase = resolveDataBase();
+const dataHost = new URL(dataBase).host;
 ---
 
 {version ? (
@@ -23,7 +27,7 @@ const { datasetId, version } = Astro.props;
       <div class="tree__skeleton-row"></div>
     </div>
     <noscript>
-      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`https://data.nemar.org/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/`} rel="external">View on data.nemar.org</a>.</p>
+      <p style="padding: var(--space-5)">File tree requires JavaScript. <a href={`${dataBase}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/`} rel="external">View on {dataHost}</a>.</p>
     </noscript>
   </section>
 ) : (
