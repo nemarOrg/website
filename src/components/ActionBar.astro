@@ -1,4 +1,5 @@
 ---
+import { resolveDataBase } from "../lib/data-base";
 import type { LandingArchive } from "../lib/neuroschema";
 
 interface Props {
@@ -28,11 +29,17 @@ const archiveSizeGb =
   typeof archive?.size === "number" ? (archive.size / 1_000_000_000).toFixed(1) : null;
 const ghCloneUrl = githubUrl ?? `https://github.com/nemarDatasets/${ds}`;
 
+// Resolve the data-plane host per environment (data.nemar.org on prod,
+// data-test.nemar.org on staging) so the copyable commands and direct link
+// point at the plane this site actually reads from.
+const dataBase = resolveDataBase();
+const dataHost = new URL(dataBase).host;
+
 // Per-method commands, each separately copyable in the modal.
 const cliCmd = `nemar dataset download ${ds}`;
 const dataladCmd = `datalad clone ${ghCloneUrl} ${ds}\ncd ${ds} && datalad get .`;
 const annexCmd = `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .`;
-const directCmd = `curl -s https://data.nemar.org/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt\nwget -xc -i urls.txt`;
+const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt\nwget -xc -i urls.txt`;
 ---
 
 <div class="actions">
@@ -188,7 +195,7 @@ cd {datasetId} && nemar dataset get</code></pre>
       <strong>Just the files.</strong>
       <p>
         <code>rclone</code>, <code>aria2c</code>, or any HTTPS client
-        works against <a href={`https://data.nemar.org/${datasetId}/`} rel="external">data.nemar.org/{datasetId}/</a>
+        works against <a href={`${dataBase}/${datasetId}/`} rel="external">{dataHost}/{datasetId}/</a>
         — the manifest carries presigned S3 URLs.
       </p>
     </li>

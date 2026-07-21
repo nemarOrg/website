@@ -1,5 +1,9 @@
 ---
+import { resolveDataBase } from "../lib/data-base";
+
 const year = new Date().getFullYear();
+const dataBase = resolveDataBase();
+const dataHost = new URL(dataBase).host;
 ---
 
 <footer class="site-footer">
@@ -36,7 +40,7 @@ const year = new Date().getFullYear();
       <div>
         <h3>Data</h3>
         <ul role="list">
-          <li><a href="https://data.nemar.org/">data.nemar.org</a></li>
+          <li><a href={`${dataBase}/`}>{dataHost}</a></li>
           <li><a href="https://api.nemar.org/">api.nemar.org</a></li>
           <li><a href="https://docs.nemar.org/">docs.nemar.org</a></li>
         </ul>

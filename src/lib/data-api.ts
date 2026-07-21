@@ -1,13 +1,6 @@
 import type { LandingPayload, NeuroschemaDataset } from "./neuroschema";
 
-const DEFAULT_DATA_BASE = "https://data.nemar.org";
-
-function dataBase(envOverride?: string): string {
-  if (envOverride) return envOverride.replace(/\/$/, "");
-  const fromEnv =
-    (typeof import.meta.env !== "undefined" && import.meta.env.PUBLIC_DATA_BASE_URL) || null;
-  return (fromEnv ?? DEFAULT_DATA_BASE).replace(/\/$/, "");
-}
+import { resolveDataBase as dataBase } from "./data-base";
 
 export interface DataApiInit {
   signal?: AbortSignal;

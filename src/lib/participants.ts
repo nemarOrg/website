@@ -9,7 +9,7 @@
  * pass parsed output through without further translation.
  */
 
-const DEFAULT_DATA_BASE = "https://data.nemar.org";
+import { resolveDataBase } from "./data-base";
 
 /** Per-row normalized output. Order matches the input row order so the
  *  histogram can align `ages[i]` with `sexes[i]`. Rows with non-numeric
@@ -100,7 +100,7 @@ export function parseParticipantsTsv(text: string): ParticipantsData {
 /** Compose the participants.tsv URL the Demographics panel fetches.
  *  Encoded per-segment so dataset ids with unusual characters round-trip. */
 export function participantsUrl(datasetId: string, version: string, dataBase?: string): string {
-  const root = (dataBase ?? DEFAULT_DATA_BASE).replace(/\/$/, "");
+  const root = (dataBase ?? resolveDataBase()).replace(/\/$/, "");
   return `${root}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/participants.tsv`;
 }
 

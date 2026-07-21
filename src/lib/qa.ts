@@ -5,6 +5,8 @@
  * qa/ tree, so no frontend changes are needed when that ships.
  */
 
+import { resolveDataBase as dataBase } from "./data-base";
+
 /**
  * Dataset-level QA aggregate, precomputed by the hallu sync (#511 deliverable).
  * Arrays carry one entry per analyzed .set file; charts compute their own
@@ -96,15 +98,6 @@ export const FILE_PLOT_LABELS: Record<FilePlotKind, string> = {
   icamaps: "Independent component topomaps",
   spectopo: "Channel log spectra with topomaps",
 };
-
-const DEFAULT_DATA_BASE = "https://data.nemar.org";
-
-function dataBase(envOverride?: string): string {
-  if (envOverride) return envOverride.replace(/\/$/, "");
-  const fromEnv =
-    (typeof import.meta.env !== "undefined" && import.meta.env.PUBLIC_DATA_BASE_URL) || null;
-  return (fromEnv ?? DEFAULT_DATA_BASE).replace(/\/$/, "");
-}
 
 interface FetchInit {
   signal?: AbortSignal;
