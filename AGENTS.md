@@ -12,7 +12,16 @@
 - Hand-rolled SVG charts (no chart-lib dep)
 - Vanilla CSS with token variables (no Tailwind, no CSS-in-JS)
 
-**Deploy target:** Cloudflare Pages, project `nemar-website` on the SCCN Cloudflare account. Production branch is currently `feature/issue-1-epic-nemar-redesign` until Phase 5 cutover, then swaps to `main`.
+**Deploy target:** Cloudflare Pages, project `nemar-website` on the SCCN Cloudflare account. Production branch is `main` (the Phase 5 cutover happened; the old epic branch `feature/issue-1-epic-nemar-redesign` is retired). Prod deploys via Cloudflare's GitHub integration on push to `main`; there is no prod deploy workflow file in this repo.
+
+**Branch ↔ environment map** (mirrors nemar-cli's `dev`/`main` split):
+
+| Website branch | Deploys to | Pages project | Backend it talks to | nemar-cli branch |
+|---|---|---|---|---|
+| `main` | ww2.nemar.org / app.nemar.org | `nemar-website` (CF GitHub integration) | api/data/zarr.nemar.org | `main` |
+| `staging` | test.nemar.org | `nemar-website-test` (`.github/workflows/deploy-test.yml`) | api-test/data-test/zarr-test.nemar.org | `dev` |
+
+There is deliberately no `dev` branch in this repo — `staging` is the website's counterpart to nemar-cli's `dev`. To refresh test.nemar.org after merging to `main`, fast-forward and push: `git push origin origin/main:staging`.
 
 **Two custom domains on Pages, one build:**
 - `ww2.nemar.org` — beta marketing surface (anonymous, cacheable). Skips `/auth/me` entirely. The redesigned Astro build lives here today.
@@ -31,18 +40,31 @@
 ```
 src/
   layouts/Base.astro                  shared shell (nav + footer + theme bootstrap)
+  middleware.ts                       two-host routing, session (/auth/me proxy), edge cache, security headers
   pages/
     index.astro                       landing (hero + search + stat tiles)
     discover.astro                    filter sidebar + offset-paginated dataset list
     dataset/[id].astro                detail (SSR fetch fan-out, prov toggle, README, BIDS tree, rail)
-    about.astro support.astro
-    community.astro citation-dashboard.astro    Phase 4 stubs
-    docs/index.astro
-    404.astro
+    dataset/[id]/collaborators.astro  per-dataset collaborator management (app host)
+    login.astro login/*.astro signup.astro welcome.astro    sign-in (ORCID + email code) + onboarding
+    auth/orcid/{start.ts,callback.ts,complete.astro}        ORCID OAuth proxy flow
+    api/auth/**                       session-backed proxies: code, email change, profile, unlink, logout
+    api/v1/[...path].ts               generic authenticated API proxy
+    dashboard.astro                   my-datasets list + publish status (app host)
+    upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + direct-to-storage PUTs)
+    settings.astro                    account: name/email/ORCID/GitHub/profile self-service
+    admin/publication-requests.astro  admin-only (role=admin; 404s for others)
+    about.astro support.astro community.astro
+    og/** robots.txt.ts 404.astro
   components/                         all .astro components; scoped <style> per file
   lib/                                 typed helpers + clients
-    api.ts                            api.nemar.org client (unwraps {dataset:...})
-    data-api.ts                       data.nemar.org client (landing/metadata/manifest/README fetch)
+    api.ts / api-base.ts              api.nemar.org client (unwraps {dataset:...}); env-aware base
+    data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
+    auth.ts auth-dev.ts auth-proxy.ts orcid-proxy.ts   session types/helpers, dev mock session, backend proxies
+    dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
+    bids-precheck.ts                  hand-rolled client-side BIDS structural pre-check (upload)
+    flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
+    host.ts                           two-host route classification + noindex/production host logic
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
     filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
     tags.ts                           modality/license/keyword classification + /discover hrefs
@@ -51,12 +73,13 @@ src/
     bids-tree.ts                      manifest paths → nested TreeNode
     neuroschema.ts                    types mirroring data.nemar.org/<id>/metadata.json
     markdown.ts                       zero-dep CommonMark subset
+    eeg-viewer/                       WebGL EEG viewer (traces, topo, montages)
   styles/
     tokens.css                        CSS variables; light + dark themes
     reset.css global.css
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
-public/                               static logos + brain hero assets
+public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
 ```
 
 ## Environment Setup
@@ -94,6 +117,9 @@ A second, separate Cloudflare Pages project — `nemar-website-test` — serves
 6). It is a distinct project from prod `nemar-website`, not a Pages preview
 branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 
+- **Branch mapping:** the website `staging` branch is the counterpart of
+  nemar-cli's `dev` branch (which deploys api-test/data-test/zarr-test).
+  Keep `staging` a fast-forward of `main`; never commit to it directly.
 - **Config:** `wrangler.test.toml` (separate from `wrangler.toml` so prod
   vars never sync onto the test project).
 - **Deploy:** `.github/workflows/deploy-test.yml`, triggered by pushing to
@@ -102,9 +128,11 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
   `PUBLIC_DATA_BASE_URL=https://data-test.nemar.org`,
   `PUBLIC_ZARR_BASE_URL=https://zarr-test.nemar.org` (Astro inlines `PUBLIC_*`
   at build time — that's why staging needs its own build+deploy job, not just
-  a runtime var override), then `wrangler pages deploy -c wrangler.test.toml`.
-  The prod project keeps deploying via Cloudflare's GitHub integration;
-  this workflow never touches it.
+  a runtime var override), then deploys with wrangler. The repo secrets
+  (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`, Pages:Edit scope) were
+  added 2026-07-20, so pushes to `staging` deploy automatically — no manual
+  deploy needed. The prod project keeps deploying via Cloudflare's GitHub
+  integration; this workflow never touches it.
 - **Noindex:** every non-production host (`test.nemar.org`, `*.pages.dev`
   previews) gets `X-Robots-Tag: noindex, nofollow` on every SSR response
   (`isNoindexHost` in `src/lib/host.ts`, threaded through
@@ -113,11 +141,24 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
   `app.nemar.org` and the marketing hosts (`isProductionHost`) are
   crawlable. Local dev (`localhost`, `127.0.0.1`) is exempt from noindex —
   there's nothing to keep crawlers off of there.
-- **ORCID limitation:** the ORCID sandbox callback may not be registered for
-  `test.nemar.org`, so ORCID sign-in can fail on staging. Use email-code
-  login instead — in non-production backend environments `/auth/code/request`
-  returns a `dev_code` field so sign-in works without an inbox (see
-  nemar-cli AGENTS.md "Web-Dashboard Auth").
+- **Signing in on test.nemar.org:** use the email-code form (enabled on
+  non-production builds via `webSigninEnabled()` in `src/lib/flags.ts`,
+  issue #159). The staging backend returns the code as `dev_code` in the
+  `/auth/code/request` response; `/login/verify` surfaces and prefills it,
+  so no inbox is needed. Seed extra test users with nemar-cli's
+  `scripts/seed-dev-db.sql` (test-owner/test-admin/test-user +
+  one per status) or the admin-gated `POST /admin/test-fixtures/seed-web-user`.
+- **ORCID limitation (confirmed, nemar-cli epic #923 known limitation):**
+  `https://test.nemar.org/auth/orcid/callback` is not registered with ORCID,
+  so ORCID sign-in cannot complete on staging. Non-production backends
+  default to sandbox.orcid.org (a separate identity space — real iDs can't
+  authenticate there). To make a *real* ORCID iD work on staging: register
+  the test.nemar.org callback as an extra redirect URI on the production
+  ORCID app, then `wrangler secret put ORCID_API_BASE --env dev` =
+  `https://orcid.org` on the nemar-cli dev worker. Owner actions, not code.
+- **Staging D1 is not synthetic:** `nemar-db-dev` is a partial production
+  mirror (~722 datasets, ~600 users with real emails, live RESEND key).
+  Don't run bulk operations against it casually.
 
 ## Development Workflow
 
@@ -126,7 +167,8 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 3. **Code:** Follow patterns in this file + the rules. **Component styles are scoped per .astro file** — duplicated layout CSS in nested components is intentional, not DRY-violating (see BidsTree.astro / BidsDirChildren.astro).
 4. **Test:** real APIs only. Vitest covers pure helpers in `src/lib/*.test.ts`. Astro page rendering verified via `/browse` against the dev server or a Cloudflare Pages preview deploy.
 5. **Commit:** atomic, <50 chars, no emojis, no AI attribution.
-6. **PR:** target the epic branch (`feature/issue-1-epic-nemar-redesign`), not `main`, until Phase 5 cutover.
+6. **PR:** target `main`. (The redesign epic branch is retired; the Phase 5 cutover is done.)
+7. **After merge:** prod deploys automatically from `main`. If the change should be QA'd against the staging backend, fast-forward `staging` (`git push origin origin/main:staging`) to redeploy test.nemar.org.
 
 ## [CRITICAL] Core Principles
 
