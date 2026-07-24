@@ -143,11 +143,15 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
   there's nothing to keep crawlers off of there.
 - **Signing in on test.nemar.org:** use the email-code form (enabled on
   non-production builds via `webSigninEnabled()` in `src/lib/flags.ts`,
-  issue #159). The staging backend returns the code as `dev_code` in the
-  `/auth/code/request` response; `/login/verify` surfaces and prefills it,
-  so no inbox is needed. Seed extra test users with nemar-cli's
-  `scripts/seed-dev-db.sql` (test-owner/test-admin/test-user +
-  one per status) or the admin-gated `POST /admin/test-fixtures/seed-web-user`.
+  issue #159). Sign-in there is allowlisted (nemar-cli#1008, because the
+  staging D1 mirrors real production users): admins/owners (code arrives
+  by real email) plus the shared QA account **`test@nemar.org`**
+  (`test-web`, a normal approved member for upload/flow QA) and the
+  `@nemar.test` fixtures. For the synthetic accounts the backend echoes
+  the code as `dev_code` and `/login/verify` surfaces + prefills it, so
+  no inbox is needed. Seed extra fixture users with nemar-cli's
+  `scripts/seed-dev-db.sql` or the admin-gated
+  `POST /admin/test-fixtures/seed-web-user`.
 - **ORCID limitation (confirmed, nemar-cli epic #923 known limitation):**
   `https://test.nemar.org/auth/orcid/callback` is not registered with ORCID,
   so ORCID sign-in cannot complete on staging. Non-production backends
