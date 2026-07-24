@@ -29,12 +29,17 @@ Auth, dashboard, upload, settings, collaborator management, and one admin page
    After it merges to `dev` you can verify on test.nemar.org, then promote dev → main.
    Settings *edit* actions still need nemar-cli #911 (email change), #912 (PATCH
    /auth/profile), #913 (ORCID re-link) — all still open.
-3. **Staging sign-in unblocked:** website PR #160 (issue #159) makes the email-code
-   form build-aware (`webSigninEnabled()` in `src/lib/flags.ts`: on for non-prod
-   backends + astro dev, off for prod and prod-build previews) and surfaces/prefills
-   the backend's `dev_code` on /login/verify. ORCID on test.nemar.org still can't
-   complete — callback unregistered (owner action; see AGENTS.md staging section
-   for the two options, sandbox vs production-ORCID override).
+3. **Staging sign-in unblocked, safely:** website PR #160 (issue #159) makes the
+   email-code form build-aware (`webSigninEnabled()` in `src/lib/flags.ts`: on for
+   non-prod backends + astro dev, off for prod and prod-build previews) and
+   surfaces/prefills the backend's `dev_code` on /login/verify. Because the staging
+   D1 mirrors real users and `dev_code` is echoed to the requester, nemar-cli
+   PR #1009 (issue #1008) allowlists non-prod code issuance: admins/owners (real
+   email delivery, never echoed) + `test@nemar.org` (`test-web`, normal approved
+   member, the shared upload-QA account — already seeded into nemar-db-dev) +
+   `@nemar.test` fixtures (dev_code echoed for these synthetic accounts only).
+   ORCID on test.nemar.org still can't complete — callback unregistered (owner
+   action; see AGENTS.md staging section for the two options).
 4. **Admin portal planned:** epic **website#158** — port dashboard.nemar.org
    (nemar-observability Worker) into `/admin` on app.nemar.org. Key facts: all admin
    authority is nemar-cli `/admin/*` behind adminMiddleware; the observability
@@ -59,7 +64,10 @@ Auth, dashboard, upload, settings, collaborator management, and one admin page
   The live passwordless suite asserts the new fields at dev→main promotion.
 - **website PR #160** (staging email sign-in) — review, merge to `main`, then
   `git push origin origin/main:staging` and QA the dev_code sign-in flow on
-  test.nemar.org end to end.
+  test.nemar.org end to end (sign in as `test@nemar.org`).
+- **nemar-cli PR #1009** (staging sign-in allowlist, issue #1008) — merge to `dev`
+  BEFORE or together with website #160 reaching test.nemar.org; it closes the
+  mirrored-real-users sign-in hole that the email form would otherwise open.
 - **nemar-cli PR #965** (`fix/seed-web-user-failopen`, open since 2026-07-21) —
   pre-existing, small: makes the seed-web-user fixture guard fail-closed. Worth
   merging.
