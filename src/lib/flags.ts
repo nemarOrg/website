@@ -2,7 +2,7 @@
  * Feature flags for staged rollout. Flip a flag to enable the feature at launch.
  */
 
-import { apiBase } from "./api-base";
+import { DEFAULT_API_BASE, apiBase } from "./api-base";
 
 /**
  * Passwordless web sign-in (the /login page). Planned launch: July 2026.
@@ -11,8 +11,6 @@ import { apiBase } from "./api-base";
  * so flipping this to `true` is the only change needed at launch.
  */
 export const WEB_SIGNIN_ENABLED = false;
-
-const PROD_API_BASE = "https://api.nemar.org";
 
 /**
  * Build-aware email-code availability (#159). The launch flag gates the
@@ -26,7 +24,7 @@ const PROD_API_BASE = "https://api.nemar.org";
 export function webSigninEnabled(): boolean {
   if (WEB_SIGNIN_ENABLED) return true;
   if (import.meta.env.DEV) return true;
-  return apiBase() !== PROD_API_BASE;
+  return apiBase() !== DEFAULT_API_BASE;
 }
 
 /** Human-facing launch estimate shown in the "coming soon" UI. */
