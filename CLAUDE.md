@@ -11,10 +11,10 @@ Read `.context/handoff.md` before anything else — it has the most recent sessi
 ### Active worktrees
 
 ```
-/Users/yahya/Documents/git/nemar/website    main (initial commit only; CF clones this for builds)
+/Users/yahya/Documents/git/nemar/website    main — the production branch (CF GitHub integration deploys it)
 ```
 
-`feature/issue-1-epic-nemar-redesign` is the production branch on Cloudflare Pages but no longer has a local worktree — create one with `git worktree add ../epic-website-redesign -b feature/issue-1-epic-nemar-redesign origin/feature/issue-1-epic-nemar-redesign` if needed. Phase 3 worktree (`website-phase3`) was removed — PR #11 was closed without merging.
+`main` is the production branch on Cloudflare Pages; the redesign epic branch `feature/issue-1-epic-nemar-redesign` is retired (Phase 5 cutover done). The `staging` branch (kept as a fast-forward of `main`) deploys test.nemar.org and pairs with nemar-cli's `dev` branch — see AGENTS.md "Branch ↔ environment map".
 
 ### Project-specific skill triggers
 

@@ -1,69 +1,67 @@
 # nemar-website Development Plan
 
+Updated 2026-07-24. See `.context/handoff.md` for the latest session narrative.
+
 ## Project Overview
 
-**Goal:** Redesign nemar.org as an Astro frontend on Cloudflare Pages, reusing the existing `api.nemar.org` (D1 catalog) and `data.nemar.org` (BIDS HTTPS) backends. Replace the legacy Joomla site.
+**Goal:** nemar.org redesign — Astro frontend on Cloudflare Pages,
+reusing the `api.nemar.org` (D1 catalog) and `data.nemar.org` (BIDS HTTPS) backends.
 
-**Epic issue:** [`nemarOrg/website#1`](https://github.com/nemarOrg/website/issues/1)
+**Stack:** Astro 6, Bun, Cloudflare Pages (SCCN account), Biome, Vitest, vanilla CSS tokens.
 
-**Stack:** Astro 6, Bun, Cloudflare Pages (SCCN account), Biome, Vitest, vanilla CSS with tokens.
+**Branches:** `main` = production (`nemar-website` Pages project, CF GitHub integration →
+ww2.nemar.org + app.nemar.org). `staging` = fast-forward mirror of `main` deployed to
+test.nemar.org (`nemar-website-test` project) against the nemar-cli `dev`-branch backends
+(api-test/data-test/zarr-test). The redesign epic branch is retired.
 
-## Phase status
+## Shipped (high level)
 
-<!-- Status markers: [ ] pending, [~] in progress, [x] complete, [PR] in review -->
+- Redesign epic #1 phases 1–3: landing, Discover, dataset detail, QA/HED panels, EEG viewer.
+- Auth: ORCID sign-in (#128/#130), onboarding fields (#131), settings self-service frontend
+  (#132–135 via PR #144) — name, email change, ORCID link/unlink, profile fields.
+- Researcher dashboard: my-datasets, publish status, collaborators, upload flow with
+  client-side BIDS pre-check (`src/lib/bids-precheck.ts`), delete/publish request dialogs.
+- Admin: `/admin/publication-requests` (approve/deny, role-gated).
+- Staging site test.nemar.org + noindex for non-prod hosts (epic #923 Phase 6–7).
+- OG cards, schema.org groundwork, theme-aware hero, channel/montage filters.
 
-### Phase 1: Foundation + Discover — [x] merged
-PR #7. Astro scaffold, design tokens, nav, footer, landing with brain hero + stat tiles, Discover with filter sidebar + cards + offset pagination.
+## Current workstreams
 
-### Phase 2: Dataset detail — [x] merged
-PR #8 (main) + #9 (polish). Detail route with header, action bar, README (manifest → GitHub raw → metadata fallback), version switcher, BIDS file tree, right rail with all metadata fields. ProvenanceToggle (compact chip) for `on*` datasets.
+### 1. Account features blocked on backend field exposure
+Settings shows "ORCID not connected" / empty GitHub despite linked ORCID because
+`/auth/me` returns only `id/email/role/status`. Frontend is complete and correct.
+Fix is nemar-cli#910 (expose profile fields), plus #911 (email change), #912 (profile
+PATCH), #913 (ORCID re-link) for the corresponding settings actions. Implement on
+nemar-cli `dev`, verify on test.nemar.org, then promote.
 
-### Phase 3: Data quality + HED visualization (website side) — [PR] PR #11
-- [x] `src/lib/qa.ts` + 18 unit tests (parseLinenoiseDb, buildHistogram, bucketAgesBySex, filePlotUrl)
-- [x] `QualityPanel.astro` composing 4 SVG charts + HED wordcloud
-- [x] `PipelineSuccessChart`, `HistogramChart` (×3), `AgeGenderChart`, `HedWordcloud`
-- [x] `FileVisModal.astro` (5 SVGs + 4-stat strip) + `FileViewModal.astro` (TSV table)
-- [x] BidsDirChildren wires the modals; `Vis · soon` / `View · soon` tags replaced with real buttons
-- [x] `?qa=fixture` dev toggle for visual work
-- [ ] **Blocked on `nemarOrg/nemar-cli#511`** for the live `/qa/*` route. Frontend can ship behind the fixture toggle today; empty state on missing QA is graceful.
+### 2. Admin portal epic — [website#158](https://github.com/nemarOrg/website/issues/158)
+Port dashboard.nemar.org (nemar-observability Worker) into `/admin` on app.nemar.org:
+observability overview tiles (public snapshot JSON), signup approvals, publication
+requests (exists), import/quarantine triage, notices. Pure frontend; nemar-cli
+`/admin/*` + cookie auth already work. Phases in the epic issue.
 
-### Phase 4: Citation Dashboard + Community + Docs — [ ] not started
-Issue: nemarOrg/website#5.
+### 3. Upload UX: real in-browser BIDS validation
+Replace/augment the hand-rolled `bids-precheck.ts` structural scan with the same
+deno-based bids-validator nemar-cli uses (browser build), so users get real validation
+errors before bytes move. Spec in progress; issue to be filed.
 
-### Phase 5: Live-features architecture + cutover — [ ] not started
-Issue: nemarOrg/website#6.
+### 4. Staging QA loop
+test.nemar.org now auto-deploys on push to `staging` (secrets landed 2026-07-20).
+Login on staging: email-code flow returns `dev_code` in non-production backends;
+ORCID sign-in may fail (sandbox callback registration). Seeding a real ORCID into
+staging D1 is being documented.
 
-## Cross-repo dependencies
+## Cross-repo dependencies (open nemar-cli issues)
 
-Backend issues that block parts of this repo (frontend has fallbacks for all three):
+- #910/#911/#912/#913 — settings self-service backend (see workstream 1)
+- #511 — QA sync + `/qa/*` route (Phase 3 live data)
+- #512 — OpenNeuro import backfill (sparse `on*` rail)
+- #513 — BIDS-shaped download filenames
+- #653 — `license` on catalog rows (Discover license filter)
 
-- [`nemar-cli#511`](https://github.com/nemarOrg/nemar-cli/issues/511) — QA sync + `/qa/*` Worker route (Phase 3 live data)
-- [`nemar-cli#512`](https://github.com/nemarOrg/nemar-cli/issues/512) — OpenNeuro import doesn't backfill modalities/tasks (sparse `on*` rail)
-- [`nemar-cli#513`](https://github.com/nemarOrg/nemar-cli/issues/513) — File downloads return SHA-named instead of BIDS-shaped
+## Historical phase issues
 
-## Sibling epics
-
-- [`website#10`](https://github.com/nemarOrg/website/issues/10) — Researcher dashboard (signup, upload, manage). Not started; today's "Contribute your dataset" CTA on the landing 404s.
-- [`website#12`](https://github.com/nemarOrg/website/issues/12) — Fuzzy/context search engine (Meilisearch / Typesense). Not started; SearchBar component already in place and will transparently switch.
-
-## Active worktrees
-
-```
-/Users/yahya/Documents/git/nemar/website                  main
-/Users/yahya/Documents/git/nemar/epic-website-redesign    feature/issue-1-epic-nemar-redesign
-/Users/yahya/Documents/git/nemar/website-phase3           feature/issue-4-phase3-qa-hed (PR #11)
-```
-
-## Next session pick-up checklist
-
-1. Read `.context/handoff.md` (the most recent session state).
-2. Squash-merge PR #11 if eyeballed clean.
-3. Choose next direction:
-   - Phase 4 (website-only, ships fast)
-   - Backend issue from the dependency list above
-   - Researcher dashboard epic (website#10) — biggest user-facing impact
-
-## Notes
-
-- Production branch on Cloudflare Pages is currently `feature/issue-1-epic-nemar-redesign`. Stays that way until Phase 5 cutover, then swaps to `main`.
-- `imageService: "passthrough"` on the Cloudflare adapter is mandatory — sharp doesn't run in Workers. Don't change.
+Redesign epic #1 (phases: #2 ✓, #3 ✓, #4 QA/HED shipped website-side, #5 Phase 4
+citation/community/docs still open, #6 Phase 5 apex-DNS cutover still open — the
+production-branch swap to `main` is done; `nemar.org` apex DNS is still legacy F5).
+Researcher dashboard epic #10 largely shipped (dashboard/upload/settings live).
