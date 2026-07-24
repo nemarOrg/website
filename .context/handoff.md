@@ -57,25 +57,37 @@ Auth, dashboard, upload, settings, collaborator management, and one admin page
    PII caution for nemar-db-dev), CLAUDE.md (worktrees), deploy-test.yml comments,
    `.context/plan.md` rewritten.
 
-## Open PRs / immediate pick-ups
+## Merged this session (all done + QA'd)
 
-- **nemar-cli PR #1007** (auth: /auth/me profile fields) — review, merge to `dev`,
-  wait for `deploy-dev`, then check test.nemar.org settings shows ORCID/GitHub.
-  The live passwordless suite asserts the new fields at dev→main promotion.
-- **website PR #160** (staging email sign-in) — review, merge to `main`, then
-  `git push origin origin/main:staging` and QA the dev_code sign-in flow on
-  test.nemar.org end to end (sign in as `test@nemar.org`).
-- **nemar-cli PR #1009** (staging sign-in allowlist, issue #1008) — merge to `dev`
-  BEFORE or together with website #160 reaching test.nemar.org; it closes the
-  mirrored-real-users sign-in hole that the email form would otherwise open.
-- **nemar-cli PR #965** (`fix/seed-web-user-failopen`, open since 2026-07-21) —
-  pre-existing, small: makes the seed-web-user fixture guard fail-closed. Worth
-  merging.
+- **nemar-cli #1009** (staging sign-in allowlist, #1008) → `dev`. Verified live on
+  api-test: `test@nemar.org` gets `dev_code`, unknown emails refused.
+- **nemar-cli #1007** (auth: /auth/me profile fields, #910) → `dev`. Verified live:
+  `/auth/me` for `test@nemar.org` returns the full profile block incl
+  `github_username`, `orcid_verified` as a real boolean. Fixes the "ORCID/GitHub not
+  connected" settings display. **Prod app.nemar.org gets it at the next nemar-cli
+  dev→main promotion.** (Rebased over #1009 at merge time — both had added a test in
+  the same spot; both kept.)
+- **nemar-cli #965** (fail-closed seed-web-user guard) → `dev`.
+- **website #160** (staging email sign-in, #159) → `main`; `staging` fast-forwarded,
+  test.nemar.org redeployed.
+- **website #162** (workflow docs refresh) → `main`.
+
+## Immediate pick-ups
+
+- **Promote nemar-cli `dev` → `main`** when ready, so the `/auth/me` profile fields
+  (#1007) reach production app.nemar.org. The live passwordless suite (incl. the new
+  populated-profile assertion) runs at that promotion.
 - **Owner actions for real-ORCID staging login:** register
   `https://test.nemar.org/auth/orcid/callback` on the production ORCID app +
   `wrangler secret put ORCID_API_BASE --env dev` = `https://orcid.org`
   (see AGENTS.md staging section; alternative: register on sandbox and use a
-  sandbox test account).
+  sandbox test account). Until then, use `test@nemar.org` email-code login on staging.
+- **nemar-cli #1010** (filed): `integration-dev` `CLI Dataset Validate` tests are
+  CI-flaky (Deno validator exit 1, pass locally) — non-required job, unrelated to the
+  auth work, but worth pinning the Deno version / fixing the fixture.
+- The auto-bump deploy after the #1007 merge failed its test-gate on ONE unrelated
+  flaky DOI-sandbox test; nemar-api-dev is running the #1007-merge commit (deploy-dev
+  succeeded there). A later real dev commit will re-deploy the bump cleanly.
 
 ## Next big workstreams (in rough priority order)
 
