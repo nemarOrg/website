@@ -89,14 +89,32 @@ Auth, dashboard, upload, settings, collaborator management, and one admin page
   flaky DOI-sandbox test; nemar-api-dev is running the #1007-merge commit (deploy-dev
   succeeded there). A later real dev commit will re-deploy the bump cleanly.
 
-## Next big workstreams (in rough priority order)
+## Epic backlog (organized 2026-07-24 — every open thread lives under an epic)
 
-1. Admin portal epic website#158 (phases 1–5; start with the shell + overview).
-2. In-browser BIDS validation website#161.
-3. Settings edit backends: nemar-cli #912 (PATCH /auth/profile) → #911 (email
-   change) → #913 (ORCID re-link). Frontend for all three already shipped in PR #144.
-4. Phase 4 pages (citation dashboard / community / docs; issues #5) and the apex
-   DNS cutover (#6) remain open from the redesign epic.
+Pick up any epic cold; sub-issues are linked via `gh sub-issue`.
+
+- **Tiered access — nemar-cli#1013** (backend). Phase 1 SHIPPED to dev (base
+  auto-approve + service-access upload gate; see ADR 0010). Children:
+  #1012 (fix approve for username=NULL), #1016 (collaborator attestation +
+  download-only), #1018 (route-level gate test), #1014 (co-author surfacing).
+  Phase 2 = admin grant/export-control-review UI → lives in website#158.
+  Phase 3 = compute. **Next real step: promote nemar-cli dev→main** (check the
+  grandfather backfill count on prod first — the upload gate is stricter now).
+- **Admin portal — website#158**. Port dashboard.nemar.org (nemar-observability)
+  to `/admin`: observability overview, signup/publication approvals, quarantine
+  triage, AND the tiered-access service-access approval queue (#1013 Phase 2).
+  Pure frontend; nemar-cli `/admin/*` + cookie auth already work.
+- **Settings self-service backends — nemar-cli#1019**. #910 DONE (merged to dev;
+  auto-closes on dev→main). Remaining: #912 (PATCH /auth/profile — the "Save
+  profile" button no-op), #911 (email change), #913 (ORCID re-link).
+- **Contribute / upload experience — website#164**. #161 (in-browser BIDS
+  validation) + the website upload-page `service_access` gating / "request upload
+  access" flow (tiered-access #1013 Phase 2, website side).
+
+Standalone (no epic needed): nemar-cli#1010 (flaky integration-dev CI).
+Parked: legacy import (nemar-cli#833 / website#129).
+Redesign-epic remnants still open: website#5 (Phase 4 citation/community/docs),
+website#6 (apex DNS cutover).
 
 ## Gotchas (current)
 
