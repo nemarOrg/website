@@ -191,3 +191,54 @@ Migration 0050 + 4 routes + `/authenticate` scope only (no token storage) + find
 Brain illustration is recolored per theme via CSS:
 - Dark mode: `mix-blend-mode: screen` (teal glows through black)
 - Light mode: `filter: invert(1) hue-rotate(180deg) saturate(0.7) brightness(0.85)` (dark navy outline)
+
+## Zarr signal viewer needs CSP `'unsafe-eval'` on `/dataset/*` (verified live, 2026-07-07)
+
+**Symptom:** EEG/MEG viewer shows "Signal unavailable: Failed to decode chunk via codec
+'blosc'" on every zarr store (seen on nm000232, nm000179; reproduces on all). The
+`nemar-cli` worker verified the stored bytes are valid and the store contract is unchanged
+(zarr v3 `sharding_indexed → bytes → blosc(cname=zstd, clevel=5, shuffle=shuffle)`, used
+since biosigio 1.0.0). So it is reader-side, not corruption.
+
+**Root cause (NOT a zstd-support gap):** numcodecs 0.3.2's blosc/lz4/zstd codecs decode
+zstd-in-blosc fine — proven by decoding the exact failing chunk in Bun (min -32768 /
+max 32767, all finite). They fail *only in the browser* because they are Emscripten+embind
+WASM modules whose invoker glue (`La()` → `Function.apply`) calls the `Function`
+constructor at decode time. The browser classifies that as `eval`. The CSP added in
+website #143 grants `'wasm-unsafe-eval'` (WASM compilation only) but NOT `'unsafe-eval'`,
+so the first chunk decode throws:
+
+```
+EvalError: Evaluating a string as JavaScript violates the following Content Security
+Policy directive because 'unsafe-eval' is not an allowed source of script:
+script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'
+    at Function (<anonymous>)
+    at jA (blosc.<hash>.js)
+```
+
+Bun/Node don't enforce CSP, which is why unit tests and backend spikes never caught it.
+The browser itself names the missing directive — the fix is exactly `'unsafe-eval'`.
+
+**Why reconversion does NOT help:** switching biosigio's `cname` from zstd to lz4/blosclz
+(the backend's "option 2") would NOT fix this — lz4 goes through the same Emscripten codec
+and hits the identical `Function()` block. The compressor choice is irrelevant; the eval
+requirement is a property of the numcodecs WASM build, not the codec.
+
+**Fix shipped:** route-scoped CSP. `routeNeedsUnsafeEval(pathname)` in `src/middleware.ts`
+appends `'unsafe-eval'` to `script-src` ONLY on `/dataset/*` (the only route that
+dynamically imports the viewer + zarrita). Every other page keeps the strict #143 policy.
+Regression-guarded in `src/middleware.test.ts` ("grants 'unsafe-eval' ONLY on the
+/dataset/* viewer route").
+
+**Do not regress:**
+- Do NOT strip `'unsafe-eval'` from the `/dataset/*` CSP thinking `'wasm-unsafe-eval'` is
+  enough — it is not, for these codecs.
+- Do NOT broaden `'unsafe-eval'` to the global CSP; keep it route-scoped.
+- If numcodecs is ever rebuilt with `-sDYNAMIC_EXECUTION=0` (no eval) or replaced with
+  pure-JS codecs (e.g. `fzstd` + a blosc-container parser), the `'unsafe-eval'` grant can
+  be removed. Until then it is load-bearing.
+- How to reproduce without a deploy: `bun` decodes a real chunk (proves bytes+codec OK);
+  in a browser DevTools console on a dataset page, `import()` the deployed
+  `_astro/blosc.<hash>.js` chunk, `fromConfig(...)`, and `.decode()` a raw
+  `eeg_250hz/view/1/c/0/0/0` frame — throws the EvalError above under a CSP lacking
+  `'unsafe-eval'`.

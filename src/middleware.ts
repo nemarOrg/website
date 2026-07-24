@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
-import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
+import { getCrossHostRedirect, getRetiredRedirect, hostMode, isNoindexHost } from "./lib/host";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -21,6 +21,13 @@ import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
  *   - script-src 'wasm-unsafe-eval' — zarrita's blosc/lz4/zstd codecs are
  *     WebAssembly (WebAssembly.instantiate), blocked under a default
  *     script-src. Permits WASM compilation only, not JS eval().
+ *   - script-src 'unsafe-eval' (only on /dataset/* — see routeNeedsUnsafeEval)
+ *     — those same numcodecs codecs are Emscripten+embind modules whose glue
+ *     crafts invoker functions via the Function constructor at decode time,
+ *     which CSP classifies as eval and 'wasm-unsafe-eval' does NOT cover.
+ *     Without it every zarr chunk read throws "Failed to decode chunk via
+ *     codec blosc" in-browser. Scoped to the signal-viewer route (the only
+ *     page that loads the codecs) so every other page keeps the strict policy.
  *   - style-src 'unsafe-inline'   — Astro inline scoped <style> blocks.
  *   - connect-src *.nemar.org       — api/data/dashboard/zarr client fetches.
  *   - connect-src raw.githubusercontent.com — dataset/[id].astro fetches the
@@ -30,50 +37,87 @@ import { getCrossHostRedirect, getRetiredRedirect, hostMode } from "./lib/host";
  * README-borne script injection is already blocked at the markdown sanitizer
  * (it strips <script>, unit-tested), so this is defense-in-depth.
  */
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'self'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-  "connect-src 'self' https://*.nemar.org https://raw.githubusercontent.com",
-  "form-action 'self'",
-].join("; ");
+/** Strict script-src for every route. The signal-viewer route widens this by
+ * appending 'unsafe-eval' (see routeNeedsUnsafeEval); nothing else does. */
+const SCRIPT_SRC_BASE = "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'";
 
 /**
- * Security response headers applied to every SSR page the worker serves
- * (cross-host redirects are exempt — they carry no body to protect). Defined
- * once so the three serve paths (passthrough, cache HIT, cache MISS) can't
- * drift. Static asset responses (/_astro/*, images) get `nosniff` from the
- * trimmed `public/_headers` instead, since those never hit this worker.
+ * The interactive signal viewer is dynamically imported only on the dataset
+ * detail route (`/dataset/[id]`). It pulls in zarrita, whose numcodecs
+ * blosc/zstd/lz4 codecs are Emscripten+embind WASM: their invoker glue calls
+ * the Function constructor at decode time, which the browser treats as eval.
+ * `'wasm-unsafe-eval'` permits WASM compilation but NOT that, so those routes
+ * need `'unsafe-eval'`. Scoping it here keeps every non-viewer page strict.
  *
  * Exported for the middleware unit tests.
  */
-export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+export function routeNeedsUnsafeEval(pathname: string): boolean {
+  return pathname.startsWith("/dataset/");
+}
+
+/** Build the Content-Security-Policy for a given request path. */
+export function contentSecurityPolicy(pathname: string): string {
+  const scriptSrc = routeNeedsUnsafeEval(pathname)
+    ? `${SCRIPT_SRC_BASE} 'unsafe-eval'`
+    : SCRIPT_SRC_BASE;
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    scriptSrc,
+    "connect-src 'self' https://*.nemar.org https://raw.githubusercontent.com",
+    "form-action 'self'",
+  ].join("; ");
+}
+
+/**
+ * Path-independent security response headers applied to every SSR page the
+ * worker serves (cross-host redirects are exempt — they carry no body to
+ * protect). Defined once so the three serve paths (passthrough, cache HIT,
+ * cache MISS) can't drift. Static asset responses (/_astro/*, images) get
+ * `nosniff` from the trimmed `public/_headers` instead, since those never hit
+ * this worker. The Content-Security-Policy is added separately because it
+ * varies by route.
+ *
+ * Exported (with the strict base CSP folded in) for the middleware unit tests.
+ */
+const STATIC_SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "SAMEORIGIN",
   "Referrer-Policy": "strict-origin-when-cross-origin",
-  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
 };
 
-/** Mutate `headers` in place with the security header set. */
-export function applySecurityHeaders(headers: Headers): void {
-  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  ...STATIC_SECURITY_HEADERS,
+  "Content-Security-Policy": contentSecurityPolicy("/"),
+};
+
+/**
+ * Mutate `headers` in place with the security header set for `pathname`.
+ * `noindex` (epic #923 Phase 6) additionally stamps `X-Robots-Tag` so
+ * staging/preview hosts never get indexed; defaults false so callers on the
+ * production hosts are unaffected.
+ */
+export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
+  for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
+  headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
+  if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
 }
 
 /** Apply the security headers to a response and return it (passthrough paths). */
-function withSecurityHeaders(response: Response): Response {
-  applySecurityHeaders(response.headers);
+function withSecurityHeaders(response: Response, pathname: string, noindex = false): Response {
+  applySecurityHeaders(response.headers, pathname, noindex);
   return response;
 }
 
 /**
- * Three responsibilities in one handler:
+ * Four responsibilities in one handler:
  *
  *   1. Two-host routing. `nemar.org` and `app.nemar.org` share one Astro
  *      build but expose different surfaces. Authenticated routes requested
@@ -95,6 +139,11 @@ function withSecurityHeaders(response: Response): Response {
  *      personalized responses (e.g. the Nav's UserMenu) don't get served to
  *      anonymous visitors out of the edge.
  *
+ *   4. Stamp `X-Robots-Tag: noindex` on staging (`test.nemar.org`) and
+ *      preview (`*.pages.dev`) hosts (epic #923) so they never show up in
+ *      search results next to production. See `isNoindexHost` in
+ *      `lib/host.ts`; `robots.txt.ts` covers the crawler-side signal.
+ *
  * The cache key is the full request URL, so query-string filters on /discover
  * get their own entries. App-host requests fan out one extra HTTP call to
  * /auth/me; that overhead is acceptable since the cache is bypassed for
@@ -103,6 +152,11 @@ function withSecurityHeaders(response: Response): Response {
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(context.request.url);
+  // Staging (test.nemar.org) and preview (*.pages.dev) hosts get a blanket
+  // noindex so they never compete with production in search results. See
+  // isNoindexHost in lib/host.ts; computed once and threaded through every
+  // serve path below. Cross-host redirects (no body to protect) are exempt.
+  const noindex = isNoindexHost(url.hostname);
 
   // Retired paths (in-site /docs -> docs.nemar.org, /citation-dashboard ->
   // dashboard.nemar.org) take priority over cross-host routing so they never
@@ -133,14 +187,14 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   const request = context.request;
-  if (request.method !== "GET") return withSecurityHeaders(await next());
-  if (context.locals.session) return withSecurityHeaders(await next());
+  if (request.method !== "GET") return withSecurityHeaders(await next(), url.pathname, noindex);
+  if (context.locals.session) return withSecurityHeaders(await next(), url.pathname, noindex);
 
   type Runtime = { caches?: CacheStorage };
   const runtime = (context.locals as { runtime?: Runtime } | undefined)?.runtime;
   const cacheStorage: CacheStorage | undefined =
     runtime?.caches ?? (typeof caches !== "undefined" ? caches : undefined);
-  if (!cacheStorage) return withSecurityHeaders(await next());
+  if (!cacheStorage) return withSecurityHeaders(await next(), url.pathname, noindex);
 
   // Cache namespace is versioned so bumps orphan the previous generation on
   // next deploy. v1 -> v2: pre-PR-#54 entries persisted SWR-poisoned fallback
@@ -157,13 +211,13 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     console.warn("[edge-cache] cacheStorage.open failed; bypassing cache", err);
     return null;
   });
-  if (!cache) return withSecurityHeaders(await next());
+  if (!cache) return withSecurityHeaders(await next(), url.pathname, noindex);
 
   const cached = await cache.match(request);
   if (cached) {
     const headers = new Headers(cached.headers);
     headers.set("x-nemar-cache", "HIT");
-    applySecurityHeaders(headers);
+    applySecurityHeaders(headers, url.pathname, noindex);
     return new Response(cached.body, {
       status: cached.status,
       statusText: cached.statusText,
@@ -186,7 +240,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     }
     const headers = new Headers(response.headers);
     headers.set("x-nemar-cache", "MISS");
-    applySecurityHeaders(headers);
+    applySecurityHeaders(headers, url.pathname, noindex);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -194,7 +248,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     });
   }
 
-  return withSecurityHeaders(response);
+  return withSecurityHeaders(response, url.pathname, noindex);
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {

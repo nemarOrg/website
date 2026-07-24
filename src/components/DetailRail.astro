@@ -1,5 +1,5 @@
 ---
-import { formatDate, formatRelativeTime } from "../lib/format";
+import { formatChannels, formatDate, formatRelativeTime } from "../lib/format";
 import type { NeuroschemaDataset } from "../lib/neuroschema";
 import {
   LICENSE_TIER_BLURB,
@@ -15,11 +15,20 @@ import Tag from "./Tag.astro";
 
 interface Props {
   metadata: NeuroschemaDataset;
+  /**
+   * Channel count + electrode system from the catalog row, passed in from the
+   * detail page (metadata.json has no channel field); rendered as "30 (10-10)".
+   * See Dataset.n_channels / .electrode_system in lib/types.ts for what's
+   * populated (EEG-derived today); the render has no modality gate.
+   */
+  nChannels?: number | null;
+  electrodeSystem?: string | null;
   /** DOI + APA/BibTeX strings for the cite-export block at the top of the rail. */
   cite?: { doi: string | null; apa: string; bibtex: string } | null;
 }
 
-const { metadata, cite = null } = Astro.props;
+const { metadata, cite = null, nChannels = null, electrodeSystem = null } = Astro.props;
+const channels = formatChannels(nChannels, electrodeSystem);
 const rights = metadata.rights ?? [];
 const license = metadata.license || rights[0]?.rights || null;
 const rids = metadata.related_identifiers ?? [];
@@ -89,6 +98,13 @@ const licenseTitle = license
     <div class="rail__row">
       <dt>Sessions</dt>
       <dd>{metadata.sessions_count}</dd>
+    </div>
+  )}
+
+  {channels && (
+    <div class="rail__row">
+      <dt>Channels</dt>
+      <dd>{channels}</dd>
     </div>
   )}
 

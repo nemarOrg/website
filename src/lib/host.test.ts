@@ -8,6 +8,8 @@ import {
   getRetiredRedirect,
   hostMode,
   isAppRoute,
+  isNoindexHost,
+  isProductionHost,
   marketingUrl,
 } from "./host";
 
@@ -184,5 +186,45 @@ describe("appUrl / marketingUrl", () => {
   it("returns relative paths in single-host mode", () => {
     expect(appUrl("/login", "localhost")).toBe("/login");
     expect(marketingUrl("/discover", "localhost")).toBe("/discover");
+  });
+});
+
+describe("isProductionHost", () => {
+  it("is true for the app host and every marketing host (beta + canonical + www alias)", () => {
+    expect(isProductionHost(APP_HOST)).toBe(true);
+    expect(isProductionHost(BETA_HOST)).toBe(true);
+    expect(isProductionHost(MARKETING_HOST)).toBe(true);
+    expect(isProductionHost(`www.${MARKETING_HOST}`)).toBe(true);
+  });
+
+  it("is false for staging, preview, and localhost", () => {
+    expect(isProductionHost("test.nemar.org")).toBe(false);
+    expect(isProductionHost("fa9dbfa0.nemar-website.pages.dev")).toBe(false);
+    expect(isProductionHost("localhost")).toBe(false);
+  });
+
+  it("normalizes uppercase host headers", () => {
+    expect(isProductionHost(APP_HOST.toUpperCase())).toBe(true);
+    expect(isProductionHost("TEST.NEMAR.ORG")).toBe(false);
+  });
+});
+
+describe("isNoindexHost", () => {
+  it("is true for staging and preview hosts", () => {
+    expect(isNoindexHost("test.nemar.org")).toBe(true);
+    expect(isNoindexHost("fa9dbfa0.nemar-website.pages.dev")).toBe(true);
+  });
+
+  it("is false for every production host", () => {
+    expect(isNoindexHost(APP_HOST)).toBe(false);
+    expect(isNoindexHost(BETA_HOST)).toBe(false);
+    expect(isNoindexHost(MARKETING_HOST)).toBe(false);
+    expect(isNoindexHost(`www.${MARKETING_HOST}`)).toBe(false);
+  });
+
+  it("is false for localhost variants (nothing to keep crawlers off of)", () => {
+    expect(isNoindexHost("localhost")).toBe(false);
+    expect(isNoindexHost("127.0.0.1")).toBe(false);
+    expect(isNoindexHost("foo.localhost")).toBe(false);
   });
 });

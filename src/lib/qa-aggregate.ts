@@ -1,7 +1,6 @@
+import { resolveDataBase } from "./data-base";
 import type { QaAggregates } from "./qa";
 import { parseLinenoiseDb } from "./qa";
-
-const DEFAULT_DATA_BASE = "https://data.nemar.org";
 // Cap simultaneous per-file fetches so a 200-subject dataset doesn't saturate
 // data.nemar.org (triggering 429s) or graze Cloudflare Worker subrequest
 // ceilings. 25 is comfortable below both and keeps cold-call latency reasonable.
@@ -45,7 +44,7 @@ export async function buildQaAggregates(
   id: string,
   init: { signal?: AbortSignal; dataBase?: string } = {},
 ): Promise<QaAggregates | null> {
-  const base = (init.dataBase ?? DEFAULT_DATA_BASE).replace(/\/$/, "");
+  const base = (init.dataBase ?? resolveDataBase()).replace(/\/$/, "");
   // Directory listings require a trailing slash; the bare path returns a 308
   // redirect that resolves to a 404 path. Keep the unslashed form for
   // child-URL composition and append "/" only at fetch time.

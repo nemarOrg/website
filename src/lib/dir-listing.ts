@@ -14,7 +14,7 @@
  * preflight 2026-05-27). Safe to fetch client-side.
  */
 
-const DEFAULT_DATA_BASE = "https://data.nemar.org";
+import { resolveDataBase } from "./data-base";
 
 /** Discriminated by `kind` so TypeScript narrows inside `if (entry.kind === "file")`. */
 export type DirListingEntry =
@@ -51,7 +51,7 @@ export function dirListingUrl(
   const trimmed = path.replace(/^\/+/, "").replace(/\/+$/, "");
   const segments = trimmed.length === 0 ? [] : trimmed.split("/").map(encodeURIComponent);
   const suffix = segments.length === 0 ? "" : `${segments.join("/")}/`;
-  const root = (base ?? DEFAULT_DATA_BASE).replace(/\/$/, "");
+  const root = (base ?? resolveDataBase()).replace(/\/$/, "");
   return `${root}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/${suffix}?format=json`;
 }
 
@@ -112,6 +112,6 @@ export function fileDownloadUrl(
 ): string {
   const trimmed = path.replace(/^\/+/, "");
   const segments = trimmed.split("/").map(encodeURIComponent);
-  const root = (base ?? DEFAULT_DATA_BASE).replace(/\/$/, "");
+  const root = (base ?? resolveDataBase()).replace(/\/$/, "");
   return `${root}/${encodeURIComponent(datasetId)}/${encodeURIComponent(version)}/${segments.join("/")}`;
 }
