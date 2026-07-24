@@ -4,7 +4,12 @@
  * proxy so a change to the error envelope or cookie handling lands once.
  */
 
-const DEFAULT_API_BASE = "https://api.nemar.org";
+/**
+ * The production API origin. Exported so `webSigninEnabled()` in flags.ts
+ * can compare against the same constant — a duplicated literal there would
+ * silently un-gate email sign-in in production if this value ever changed.
+ */
+export const DEFAULT_API_BASE = "https://api.nemar.org";
 
 /**
  * Resolves the api.nemar.org base URL at call time. `PUBLIC_API_BASE_URL`

@@ -83,6 +83,11 @@ const masked = maskEmail(emailRaw);
           </p>
         )}
 
+        <p class="verify__devchip" role="note" data-verify-devcode hidden>
+          <span class="verify__devchip-tag">Staging</span>
+          Test backend code <code data-verify-devcode-value></code> &mdash; prefilled for you.
+        </p>
+
         <button class="verify__submit" type="submit" data-verify-submit>
           Verify and sign in
         </button>
@@ -492,6 +497,23 @@ const masked = maskEmail(emailRaw);
     // Initial paint + auto-focus.
     codeEl.focus();
     syncCells(true);
+
+    // Staging convenience (#159): the login page stashes the backend's
+    // `dev_code` echo (non-production backends only; production never
+    // returns it, so this can never render there). Surface + prefill so
+    // QA signs in without an inbox. One-shot: cleared on read.
+    const devCode = sessionStorage.getItem("nemar_dev_code");
+    if (devCode) {
+      sessionStorage.removeItem("nemar_dev_code");
+      codeEl.value = devCode.replace(/\D/g, "").slice(0, 6);
+      syncCells(document.activeElement === codeEl);
+      const chip = document.querySelector<HTMLElement>("[data-verify-devcode]");
+      const chipValue = document.querySelector<HTMLElement>("[data-verify-devcode-value]");
+      if (chip && chipValue) {
+        chipValue.textContent = codeEl.value;
+        chip.hidden = false;
+      }
+    }
 
     // Build the "back to login" href once. Honors the `next` query param so
     // a deep-linked sign-in flow still returns to the right page after retry.
