@@ -9,6 +9,13 @@ export interface AuthUser {
   readonly email: string;
   readonly role: "user" | "admin";
   readonly status: "active" | "pending" | "disabled";
+  // Uncollapsed backend role (owner > admin > member), alongside the
+  // website's collapsed `role` above. `parseAuthMeResponse` in
+  // `src/middleware.ts` maps backend "owner"/"admin" -> website "admin" for
+  // the existing admin gate; later admin-portal phases need to tell an
+  // owner from an admin for owner-only actions (role change, delete user,
+  // rollback of public/DOI datasets), so this carries the raw value too.
+  readonly backend_role?: "owner" | "admin" | "member";
   // ---- Optional profile fields (backend may not populate them yet) ----
   // Name is canonical from ORCID (given/family backfilled on every login,
   // nemar-cli#836); the website never lets the user edit it here.

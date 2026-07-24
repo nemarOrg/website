@@ -342,6 +342,15 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   } else {
     return null;
   }
+  // Uncollapsed backend role, kept alongside the collapsed `role` above for
+  // owner-only admin-portal actions (see AuthUser.backend_role). Only set
+  // for the backend's actual enum ("owner"/"admin"/"member"); the "user"
+  // branch above is a defensive fallback for a shape the backend doesn't
+  // send, so it carries no backend_role.
+  const backendRole: "owner" | "admin" | "member" | undefined =
+    user.role === "owner" || user.role === "admin" || user.role === "member"
+      ? user.role
+      : undefined;
 
   if (user.status !== "active" && user.status !== "pending" && user.status !== "disabled") {
     return null;
@@ -356,6 +365,7 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   const withOptional = out as { -readonly [K in keyof AuthUser]: AuthUser[K] };
   const str = (v: unknown): string | undefined =>
     typeof v === "string" && v.trim().length > 0 ? v.trim() : undefined;
+  withOptional.backend_role = backendRole;
   withOptional.given_name = str(user.given_name);
   withOptional.family_name = str(user.family_name);
   withOptional.orcid = str(user.orcid);

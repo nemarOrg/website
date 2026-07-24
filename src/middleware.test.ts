@@ -98,6 +98,21 @@ describe("parseAuthMeResponse", () => {
     expect(out?.user).not.toHaveProperty("orcid_verified");
   });
 
+  it("collapses backend role owner to admin while keeping backend_role", () => {
+    const out = parseAuthMeResponse({
+      user: { id: "u_4", email: "owner@example.com", role: "owner", status: "active" },
+    });
+    expect(out).toEqual({
+      user: {
+        id: "u_4",
+        email: "owner@example.com",
+        role: "admin",
+        status: "active",
+        backend_role: "owner",
+      },
+    });
+  });
+
   it("returns null for null / non-object input", () => {
     expect(parseAuthMeResponse(null)).toBeNull();
     expect(parseAuthMeResponse(undefined)).toBeNull();
