@@ -1,0 +1,28 @@
+---
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is
+  // unreachable — it's here only so TypeScript narrows `session` to
+  // non-null for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+---
+
+<AdminLayout title="Overview" active="overview" session={session}>
+  <p class="admin-placeholder">Overview tiles land in Phase 2.</p>
+</AdminLayout>
+
+<style>
+  .admin-placeholder {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+</style>
