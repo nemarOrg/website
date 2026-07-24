@@ -34,3 +34,4 @@ Add new entries here as you create ADRs:
 - ADR 0007 - [Hand-rolled SVG charts (no chart library)](0007-hand-rolled-svg-charts.md) (accepted)
 - ADR 0008 - [ORCID-primary authentication](0008-orcid-primary-authentication.md) (accepted)
 - ADR 0009 - [Route-scoped CSP `'unsafe-eval'` for the zarr signal-viewer codecs](0009-route-scoped-csp-unsafe-eval-zarr-viewer.md) (accepted)
+- ADR 0010 - [Tiered access: base (auto) vs service (admin-gated)](0010-tiered-access-base-service.md) (accepted)
