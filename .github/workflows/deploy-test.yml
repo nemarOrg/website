@@ -5,11 +5,10 @@ name: Deploy staging
 # (api-test/data-test/zarr-test.nemar.org). The prod `nemar-website` project
 # deploys via Cloudflare's GitHub integration and is untouched by this file.
 #
-# Owner setup (one-time, not done by this workflow):
-#   1. Add repo secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (SCCN
-#      account; Pages:Edit scope). STILL OUTSTANDING — until these exist this
-#      workflow cannot run, so staging is deployed by hand. Use a narrow
-#      Pages:Edit token, not a broad account-wide one.
+# Owner setup (one-time, not done by this workflow) — all done:
+#   1. [x] Repo secrets CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (SCCN
+#          account; narrow Pages:Edit token) added 2026-07-20; pushes to
+#          `staging` deploy automatically.
 #   Done during epic #923 Phase 7 (2026-07-18):
 #   2. [x] `staging` branch created.
 #   3. [x] `nemar-website-test` Pages project created (SCCN account).
