@@ -2,6 +2,26 @@
 import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
 
+/**
+ * Short commit ref for the current build, or `"dev"` when there isn't one.
+ *
+ * Read through `globalThis` rather than a bare `process.env` on purpose: this
+ * file is `@ts-check`ed and the project intentionally ships no
+ * `@types/node`. A bare `process` typechecks locally — something in the
+ * dependency tree supplies the global — but fails `astro check` on a clean
+ * CI install with "Cannot find name 'process'". Going through a cast keeps
+ * it green in both.
+ *
+ * @returns {string}
+ */
+function buildRef() {
+  const env = /** @type {{ process?: { env?: Record<string, string | undefined> } }} */ (
+    globalThis
+  ).process?.env;
+  const sha = env?.CF_PAGES_COMMIT_SHA ?? env?.GITHUB_SHA;
+  return sha ? sha.slice(0, 8) : "dev";
+}
+
 // https://astro.build/config
 export default defineConfig({
   output: "server",
@@ -47,13 +67,7 @@ export default defineConfig({
       // `CF_PAGES_COMMIT_SHA` is set by Cloudflare Pages builds and
       // `GITHUB_SHA` by Actions; local `astro dev` has neither and gets a
       // stable "dev" so repeated local runs share one namespace.
-      __EDGE_CACHE_NAMESPACE__: JSON.stringify(
-        `nemar-edge-${
-          process.env.CF_PAGES_COMMIT_SHA?.slice(0, 8) ??
-          process.env.GITHUB_SHA?.slice(0, 8) ??
-          "dev"
-        }`,
-      ),
+      __EDGE_CACHE_NAMESPACE__: JSON.stringify(`nemar-edge-${buildRef()}`),
     },
     resolve: {
       // Workaround for Cloudflare Workers' lack of `Buffer` etc.
