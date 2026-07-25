@@ -1,0 +1,230 @@
+---
+/**
+ * Site-wide notice banners, rendered above the header on every page.
+ *
+ * Deliberately empty at SSR time and filled in by the inline script below.
+ * The public pages carry long stale-while-revalidate edge-cache windows (12 h
+ * on the landing page, 24 h on dataset detail), so a server-rendered banner
+ * would be frozen into cached HTML — a new outage notice invisible until
+ * `s-maxage` expired, a resolved one lingering for the whole SWR window.
+ * Fetching from the `no-store` `/api/notices` route keeps page HTML
+ * cacheable and the banner always current. See `src/pages/api/notices.ts`.
+ *
+ * Notices stack, most urgent first, so a transient `critical` maintenance
+ * banner sits above a long-lived `info` announcement rather than under it.
+ * Each is dismissed independently by id — see `dismissalKey`/`dismissalStore`
+ * in `src/lib/notices-api.ts` for why `critical` dismissals are
+ * session-scoped while the other two persist.
+ */
+---
+
+<div class="site-notices" data-site-notices aria-live="polite" hidden></div>
+
+<template data-site-notice-template>
+  <div class="site-notice" role="status">
+    <span class="site-notice__icon" aria-hidden="true"></span>
+    <p class="site-notice__message"></p>
+    <button type="button" class="site-notice__dismiss" aria-label="Dismiss this notice">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+        <path
+          d="M4 4l8 8M12 4l-8 8"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.75"
+          stroke-linecap="round"></path>
+      </svg>
+    </button>
+  </div>
+</template>
+
+<style>
+  .site-notices {
+    display: grid;
+  }
+  .site-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-block-end: 1px solid var(--notice-border);
+    background: var(--notice-bg);
+    color: var(--notice-fg);
+    font-size: var(--fs-sm);
+    line-height: 1.5;
+  }
+  .site-notice__icon {
+    flex: none;
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    border-radius: 50%;
+    background: var(--notice-accent);
+    margin-block-start: 0.45em;
+  }
+  .site-notice__message {
+    margin: 0;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .site-notice__dismiss {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 28px;
+    block-size: 28px;
+    margin-block-start: -2px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm, 6px);
+    background: transparent;
+    color: inherit;
+    opacity: 0.7;
+    cursor: pointer;
+  }
+  .site-notice__dismiss:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--notice-accent) 14%, transparent);
+  }
+  .site-notice__dismiss:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+    opacity: 1;
+  }
+
+  /* One tone per backend level. The vocabulary is fixed at
+     info | warning | critical by a zod enum and a CHECK constraint on the
+     notices table, so presentation maps onto those three rather than
+     inventing levels the backend would reject (nemar-cli#1025 widens it;
+     website#180 tracks consuming that here):
+       info     -> a tip / standing announcement
+       warning  -> attention needed, not urgent
+       critical -> outage or maintenance, most prominent */
+  .site-notice--info {
+    --notice-bg: color-mix(in srgb, var(--color-info) 10%, var(--color-bg));
+    --notice-border: color-mix(in srgb, var(--color-info) 32%, transparent);
+    --notice-accent: var(--color-info);
+    --notice-fg: var(--color-fg);
+  }
+  .site-notice--warning {
+    --notice-bg: color-mix(in srgb, var(--color-warning) 14%, var(--color-bg));
+    --notice-border: color-mix(in srgb, var(--color-warning) 38%, transparent);
+    --notice-accent: var(--color-warning);
+    --notice-fg: var(--color-fg);
+  }
+  .site-notice--critical {
+    --notice-bg: color-mix(in srgb, var(--color-danger) 16%, var(--color-bg));
+    --notice-border: color-mix(in srgb, var(--color-danger) 44%, transparent);
+    --notice-accent: var(--color-danger);
+    --notice-fg: var(--color-fg);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .site-notice {
+      animation: site-notice-in 160ms ease-out;
+    }
+  }
+  @keyframes site-notice-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
+
+<script>
+  import {
+    type Notice,
+    activeNotices,
+    isNoticeDismissed,
+    rememberNoticeDismissal,
+    resolveDismissalStorage,
+  } from "../lib/notices-api";
+
+  const container = document.querySelector<HTMLElement>("[data-site-notices]");
+  const template = document.querySelector<HTMLTemplateElement>("[data-site-notice-template]");
+
+  // The storage-access lambdas are passed rather than the objects: reading
+  // `localStorage` itself throws in some privacy modes, so the access has to
+  // happen inside resolveDismissalStorage's try. Dismissal logic lives in
+  // notices-api.ts so it's unit-testable against real Storage objects.
+  function storageFor(level: Notice["level"]): Storage | null {
+    return resolveDismissalStorage(
+      level,
+      () => localStorage,
+      () => sessionStorage,
+    );
+  }
+
+  function render(notices: readonly Notice[]): void {
+    if (!container || !template) return;
+    container.replaceChildren();
+
+    let shown = 0;
+    for (const notice of notices) {
+      if (isNoticeDismissed(notice, storageFor(notice.level))) continue;
+      const frag = template.content.cloneNode(true) as DocumentFragment;
+      const el = frag.querySelector<HTMLElement>(".site-notice");
+      const message = frag.querySelector<HTMLElement>(".site-notice__message");
+      const dismiss = frag.querySelector<HTMLButtonElement>(".site-notice__dismiss");
+      if (!el || !message || !dismiss) continue;
+
+      el.classList.add(`site-notice--${notice.level}`);
+      // textContent, never innerHTML: the message is admin-authored, but
+      // admin-authored is not the same as trusted markup, and a banner on
+      // every page is the last place to allow script injection.
+      message.textContent = notice.message;
+      // A critical notice interrupts; the other two are polite updates.
+      if (notice.level === "critical") el.setAttribute("role", "alert");
+
+      dismiss.addEventListener("click", () => {
+        rememberNoticeDismissal(notice, storageFor(notice.level));
+        el.remove();
+        if (!container.firstElementChild) container.hidden = true;
+      });
+
+      container.append(frag);
+      shown++;
+    }
+    container.hidden = shown === 0;
+  }
+
+  async function load(): Promise<void> {
+    try {
+      const res = await fetch("/api/notices", {
+        headers: { Accept: "application/json" },
+        credentials: "same-origin",
+        // Bounded like every call in notices-api.ts, for the same reason: a
+        // connection that opens and never responds leaves a promise that
+        // never settles, which no try/catch can reach. Harmless here (it's
+        // post-hydration, not SSR) but it would mean the banner silently
+        // never resolves, with nothing logged — the worst outcome for an
+        // outage notice.
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as { notices?: Notice[] };
+      // Re-filter client-side against the visitor's own clock. The server
+      // route already did this, but its idea of "now" is the edge's, and
+      // this is the layer that survives nemar-cli#1024 either way.
+      render(activeNotices(body.notices ?? [], new Date()));
+    } catch (err) {
+      // Chrome, not content: the page renders exactly as it would without a
+      // banner. Logged anyway — the server-side warn only covers an upstream
+      // failure, not this fetch failing to reach our own route at all
+      // (offline, connection reset, timeout above), which would otherwise
+      // leave no trace anywhere.
+      console.warn(
+        "[site-notices] could not load notices:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  load();
+</script>
