@@ -1,0 +1,388 @@
+---
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+import UserAdminRow from "../../components/admin/UserAdminRow.astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+import { DashboardApiError } from "../../lib/dashboard-api";
+import {
+  type AdminUserListRow,
+  type AdminUserStatus,
+  listAdminUsers,
+} from "../../lib/users-admin-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is
+  // unreachable — it's here only so TypeScript narrows `session` to
+  // non-null for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+const isOwner = session.user.backend_role === "owner";
+
+// Status filter chips. Distinct from `AdminUserStatus`: "all" is a
+// website-only sentinel (no `status=` param sent at all), not a value the
+// backend recognizes.
+type StatusFilterValue = AdminUserStatus | "all";
+const CHIPS: ReadonlyArray<{ value: StatusFilterValue; label: string }> = [
+  { value: "verified", label: "Awaiting approval" },
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "revoked", label: "Revoked" },
+  { value: "all", label: "All" },
+];
+const KNOWN_VALUES = new Set(CHIPS.map((c) => c.value));
+
+const url = new URL(Astro.request.url);
+const rawStatus = url.searchParams.get("status");
+// The endpoint has no pagination and returns every matching row (~600 in
+// the dev mirror) — defaulting to an unfiltered dump would be a
+// multi-hundred-row unbounded fetch on every page load. "Awaiting
+// approval" (status=verified) is the working queue, so it's the default
+// both with no `status` param and with an unrecognized one.
+const effectiveChip: StatusFilterValue =
+  rawStatus && KNOWN_VALUES.has(rawStatus as StatusFilterValue)
+    ? (rawStatus as StatusFilterValue)
+    : "verified";
+const statusQuery: AdminUserStatus | undefined =
+  effectiveChip === "all" ? undefined : effectiveChip;
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let users: readonly AdminUserListRow[] = [];
+let listError: string | null = null;
+try {
+  const result = await listAdminUsers(statusQuery ? { status: statusQuery } : {}, { cookieHeader });
+  users = result.users;
+} catch (err) {
+  listError =
+    err instanceof DashboardApiError
+      ? `Could not load users (${err.status}).`
+      : err instanceof Error
+        ? err.message
+        : "Could not load users.";
+}
+---
+
+<AdminLayout title="Users" active="users" session={session}>
+  <Fragment slot="lede">
+    Signup approvals and account management. The default view is the awaiting-approval queue;
+    switch chips to see other lifecycle stages. This endpoint has no server-side pagination, so
+    each chip fetches its whole matching set — use the search box below to narrow a large view
+    client-side rather than picking "All" by default.
+  </Fragment>
+
+  <nav class="admin-filters" aria-label="Filter by status">
+    {
+      CHIPS.map((chip) => {
+        const href = chip.value === "verified" ? "/admin/users" : `/admin/users?status=${chip.value}`;
+        const active = effectiveChip === chip.value;
+        return (
+          <a class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]} href={href}>
+            {chip.label}
+          </a>
+        );
+      })
+    }
+  </nav>
+
+  <input
+    type="search"
+    class="users-search"
+    placeholder="Filter this view by email or username…"
+    aria-label="Filter loaded users by email or username"
+    data-user-search
+  />
+
+  {listError && <p class="admin-action-error" role="alert">{listError}</p>}
+
+  {
+    !listError && users.length === 0 ? (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">No users in this view</h2>
+        <p class="admin-empty__body">Try a different status chip.</p>
+      </div>
+    ) : (
+      <ul class="admin-list" role="list" data-user-list>
+        {users.map((u) => (
+          <li data-user-list-item data-search-key={`${u.email} ${u.username ?? ""}`.toLowerCase()}>
+            <UserAdminRow user={u} isOwner={isOwner} />
+          </li>
+        ))}
+      </ul>
+    )
+  }
+  <p class="admin-empty admin-empty--search-hidden" data-user-search-empty hidden>
+    No loaded users match that search.
+  </p>
+
+  <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
+
+  <ConfirmDialog
+    dialogId="admin-approve-user"
+    title="Approve this user?"
+    body="They gain platform access immediately and get a notification email."
+    confirmLabel="Approve"
+    confirmTone="primary"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-revoke-user"
+    title="Revoke this user's access?"
+    body="Their API tokens are revoked, S3 access is removed, and they're pulled from every dataset repo they can reach. They get a notification email."
+    confirmLabel="Revoke access"
+    confirmTone="danger"
+    requireTyping="REVOKE"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-change-role"
+    title="Change this user's role?"
+    body="Demoting from owner/admin revokes their existing API tokens, forcing re-authentication."
+    confirmLabel="Change role"
+    confirmTone="primary"
+    requireTyping="CHANGE ROLE"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-delete-user"
+    title="Delete this user?"
+    body="This is a soft delete: their PII is masked and credentials revoked, but the account row is kept for audit history. Not reversible from this UI."
+    confirmLabel="Delete user"
+    confirmTone="danger"
+    requireTyping="DELETE"
+  />
+</AdminLayout>
+
+<style>
+  .admin-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .admin-filters__chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+  }
+  .admin-filters__chip:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .admin-filters__chip--active {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .users-search {
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    width: 100%;
+    max-inline-size: 26rem;
+  }
+  .users-search:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .admin-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .admin-empty--search-hidden {
+    padding: var(--space-6);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .admin-empty__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  import {
+    approveUser,
+    changeUserRole,
+    deleteUserById,
+    revokeUser,
+  } from "../../lib/users-admin-api";
+  import { DashboardApiError } from "../../lib/dashboard-api";
+  import type { AdminUserRole } from "../../lib/users-admin-api";
+
+  const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
+
+  // The `/admin/users*` backend routes put a human-readable sentence
+  // directly in the error body (see users-admin-api.ts's file header) —
+  // `.code` is usually already the right thing to show. This map only
+  // covers proxy/transport-level codes, which aren't human text.
+  const FRIENDLY: Record<string, string> = {
+    upstream_unreachable: "Can't reach the user service. Try again in a moment.",
+    unauthenticated: "Sign in again to continue.",
+  };
+
+  function friendly(err: unknown): string {
+    if (err instanceof DashboardApiError) {
+      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
+      if (err.code) return err.code;
+      return err.message;
+    }
+    return err instanceof Error ? err.message : "Action failed.";
+  }
+
+  function showError(msg: string): void {
+    if (!errorEl) return;
+    errorEl.hidden = false;
+    errorEl.textContent = msg;
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  // Client-side search over the already-fetched page (per-chip fetch, no
+  // pagination — see the page frontmatter comment on `statusQuery`).
+  const searchInput = document.querySelector<HTMLInputElement>("[data-user-search]");
+  const listItems = Array.from(document.querySelectorAll<HTMLLIElement>("[data-user-list-item]"));
+  const searchEmptyEl = document.querySelector<HTMLElement>("[data-user-search-empty]");
+  function applySearch(): void {
+    const q = (searchInput?.value ?? "").trim().toLowerCase();
+    let visible = 0;
+    for (const item of listItems) {
+      const match = !q || (item.dataset.searchKey ?? "").includes(q);
+      item.hidden = !match;
+      if (match) visible++;
+    }
+    if (searchEmptyEl) searchEmptyEl.hidden = !(q && visible === 0);
+  }
+  searchInput?.addEventListener("input", applySearch);
+
+  type PendingAction =
+    | { kind: "approve"; username: string }
+    | { kind: "revoke"; username: string }
+    | { kind: "role"; username: string; role: AdminUserRole }
+    | { kind: "delete"; id: number };
+  let pending: PendingAction | null = null;
+  let inFlight = false;
+
+  function openDialog(dialogId: string): void {
+    document.dispatchEvent(
+      new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", { detail: { dialogId } }),
+    );
+  }
+  function queue(next: PendingAction): void {
+    if (inFlight) return;
+    if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
+    pending = next;
+    clearError();
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-approve]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      if (!username) return;
+      queue({ kind: "approve", username });
+      openDialog("admin-approve-user");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-revoke]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      if (!username) return;
+      queue({ kind: "revoke", username });
+      openDialog("admin-revoke-user");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-change-role]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      const selectId = btn.dataset.roleSelectId;
+      const select = selectId ? document.getElementById(selectId) : null;
+      if (!username || !(select instanceof HTMLSelectElement)) return;
+      queue({ kind: "role", username, role: select.value as AdminUserRole });
+      openDialog("admin-change-role");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-delete]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idRaw = btn.dataset.userId;
+      const id = idRaw ? Number.parseInt(idRaw, 10) : Number.NaN;
+      if (!Number.isInteger(id)) return;
+      queue({ kind: "delete", id });
+      openDialog("admin-delete-user");
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const e = evt as CustomEvent<{ dialogId: string }>;
+    if (!pending) return;
+    const target = pending;
+    pending = null;
+
+    try {
+      if (e.detail.dialogId === "admin-approve-user" && target.kind === "approve") {
+        inFlight = true;
+        await approveUser(target.username);
+      } else if (e.detail.dialogId === "admin-revoke-user" && target.kind === "revoke") {
+        inFlight = true;
+        await revokeUser(target.username);
+      } else if (e.detail.dialogId === "admin-change-role" && target.kind === "role") {
+        inFlight = true;
+        await changeUserRole(target.username, target.role);
+      } else if (e.detail.dialogId === "admin-delete-user" && target.kind === "delete") {
+        inFlight = true;
+        await deleteUserById(target.id);
+      } else {
+        console.error("[admin] confirm-dialog event did not match queued pending action", e.detail.dialogId, target);
+        return;
+      }
+      location.reload();
+    } catch (err) {
+      showError(`Couldn't complete that action: ${friendly(err)}`);
+      inFlight = false;
+    }
+  });
+</script>
