@@ -1,0 +1,591 @@
+---
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+import { formatDate, formatRelativeTime } from "../../lib/format";
+import {
+  NOTICE_LEVELS,
+  NOTICE_SCOPES,
+  type Notice,
+  isNoticeExpired,
+  listAdminNotices,
+} from "../../lib/notices-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above; this branch exists
+  // only so TypeScript narrows `session` for AdminLayout's required prop.
+  return Astro.redirect("/login");
+}
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let notices: readonly Notice[] = [];
+let listError: string | null = null;
+try {
+  notices = await listAdminNotices({ cookieHeader });
+} catch (err) {
+  // `DashboardApiError.message` already carries the backend's sentence.
+  listError = err instanceof Error ? err.message : "Could not load notices.";
+  console.warn("[admin/notices] list failed:", listError);
+}
+
+// Expiry computed here, not trusted from the server — see isNoticeExpired
+// and nemar-cli#1024. The admin list is the one place it matters most: an
+// admin needs to see that a notice has lapsed even while the public
+// endpoint is still (wrongly) serving it.
+const now = new Date();
+const rows = notices.map((notice) => ({ notice, expired: isNoticeExpired(notice, now) }));
+const liveCount = rows.filter((r) => !r.expired).length;
+
+const LEVEL_HINTS: Record<string, string> = {
+  info: "A tip or standing announcement. Dismissed for good once a visitor closes it.",
+  warning: "Needs attention but isn't urgent. Dismissed for good once closed.",
+  critical: "An outage or maintenance window. Returns on the next visit even after being closed.",
+};
+const SCOPE_HINTS: Record<string, string> = {
+  all: "Everyone, including signed-out visitors.",
+  members: "Signed-in members only.",
+  admins: "Admins and owners only.",
+};
+---
+
+<AdminLayout title="Notices" active="notices" session={session}>
+  <Fragment slot="lede">
+    Site-wide banners shown on every page and to CLI users on startup. Notices stack with the most
+    urgent on top, so a maintenance banner sits above a long-running announcement. Each is dismissed
+    per visitor; critical ones come back on the next visit while they're still live. There's no edit
+    endpoint, so changing a notice means deleting it and creating a new one, which re-shows it to
+    everyone who had dismissed it.
+  </Fragment>
+
+  <section class="notice-form-card" aria-labelledby="new-notice-heading">
+    <h2 class="notice-form-card__title" id="new-notice-heading">New notice</h2>
+    <form class="notice-form" data-notice-form>
+      <label class="notice-form__field">
+        <span class="notice-form__label">Message</span>
+        <textarea
+          name="message"
+          class="notice-form__textarea"
+          rows="3"
+          maxlength="1000"
+          required
+          placeholder="e.g. nemar.org has moved to its new home. The previous site stays available until 31 October."
+        ></textarea>
+        <span class="notice-form__hint" data-message-counter>0 / 1000</span>
+      </label>
+
+      <div class="notice-form__row">
+        <label class="notice-form__field">
+          <span class="notice-form__label">Level</span>
+          <select name="level" class="notice-form__select" data-level-select>
+            {NOTICE_LEVELS.map((level) => (
+              <option value={level} selected={level === "info"}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label class="notice-form__field">
+          <span class="notice-form__label">Audience</span>
+          <select name="scope" class="notice-form__select" data-scope-select>
+            {NOTICE_SCOPES.map((scope) => (
+              <option value={scope} selected={scope === "all"}>
+                {scope}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label class="notice-form__field">
+          <span class="notice-form__label">Expires (optional)</span>
+          <input type="datetime-local" name="expires_at" class="notice-form__input" />
+          <span class="notice-form__hint">Your local time. Leave empty for no expiry.</span>
+        </label>
+      </div>
+
+      <p class="notice-form__hint notice-form__hint--block" data-level-hint>{LEVEL_HINTS.info}</p>
+      <p class="notice-form__hint notice-form__hint--block" data-scope-hint>{SCOPE_HINTS.all}</p>
+
+      <p class="admin-action-error" role="alert" data-form-error hidden></p>
+
+      <div class="notice-form__actions">
+        <button type="submit" class="notice-btn notice-btn--primary" data-notice-submit>
+          Publish notice
+        </button>
+      </div>
+    </form>
+  </section>
+
+  {listError && <p class="admin-action-error" role="alert">{listError}</p>}
+
+  <h2 class="notice-list-heading">
+    Published{" "}
+    <span class="notice-list-heading__count">
+      {rows.length} total, {liveCount} live
+    </span>
+  </h2>
+
+  {
+    !listError && rows.length === 0 ? (
+      <div class="admin-empty">
+        <h3 class="admin-empty__title">No notices</h3>
+        <p class="admin-empty__body">Nothing is being shown to visitors right now.</p>
+      </div>
+    ) : (
+      <ul class="admin-list" role="list">
+        {rows.map(({ notice, expired }) => (
+          <li>
+            <article class:list={["notice-row", { "notice-row--expired": expired }]}>
+              <div class="notice-row__head">
+                <span class:list={["notice-badge", `notice-badge--${notice.level}`]}>
+                  {notice.level}
+                </span>
+                <span class="notice-row__scope">{notice.scope}</span>
+                {expired && <span class="notice-row__expired-flag">Expired</span>}
+              </div>
+
+              <p class="notice-row__message">{notice.message}</p>
+
+              <dl class="notice-row__meta">
+                <div>
+                  <dt>Created</dt>
+                  <dd>{formatRelativeTime(notice.created_at) || formatDate(notice.created_at) || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Expires</dt>
+                  <dd>
+                    {notice.expires_at
+                      ? formatDate(notice.expires_at) || notice.expires_at
+                      : "Never"}
+                  </dd>
+                </div>
+              </dl>
+
+              <footer class="notice-row__actions">
+                <button
+                  type="button"
+                  class="notice-btn notice-btn--danger-ghost"
+                  data-notice-delete
+                  data-notice-id={notice.id}
+                >
+                  Delete
+                </button>
+              </footer>
+            </article>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
+
+  <ConfirmDialog
+    dialogId="admin-delete-notice"
+    title="Delete this notice?"
+    body="It stops showing to visitors and CLI users immediately. There's no undo — recreating it mints a new id, so anyone who had dismissed it will see it again."
+    confirmLabel="Delete notice"
+    confirmTone="danger"
+  />
+</AdminLayout>
+
+<style>
+  .notice-form-card {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+  }
+  .notice-form-card__title {
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+  }
+  .notice-form {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .notice-form__row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--space-4);
+  }
+  .notice-form__field {
+    display: grid;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .notice-form__label {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .notice-form__textarea,
+  .notice-form__input,
+  .notice-form__select {
+    inline-size: 100%;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+  .notice-form__textarea {
+    resize: vertical;
+    min-block-size: 4.5rem;
+  }
+  .notice-form__textarea:focus-visible,
+  .notice-form__input:focus-visible,
+  .notice-form__select:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .notice-form__hint {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .notice-form__hint--block {
+    margin: 0;
+  }
+  .notice-form__actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .notice-list-heading {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .notice-list-heading__count {
+    font-family: var(--font-sans);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--color-fg-subtle);
+  }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .notice-row {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .notice-row--expired {
+    opacity: 0.62;
+  }
+  .notice-row__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .notice-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    line-height: 1.5;
+    text-transform: capitalize;
+  }
+  /* Same three tones as SiteNotices.astro, so what an admin picks here
+     visibly matches what a visitor will see. Duplicated per the project's
+     scoped-style convention (AGENTS.md) — keep the two in sync. */
+  .notice-badge--info {
+    color: var(--color-info);
+    background: color-mix(in srgb, var(--color-info) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-info) 35%, transparent);
+  }
+  .notice-badge--warning {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  .notice-badge--critical {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 38%, transparent);
+  }
+  .notice-row__scope {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .notice-row__expired-flag {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    padding: 1px 8px;
+  }
+  .notice-row__message {
+    margin: 0;
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+  }
+  .notice-row__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .notice-row__meta > div {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+  }
+  .notice-row__meta dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-block-end: 2px;
+  }
+  .notice-row__meta dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .notice-row__actions {
+    display: flex;
+    justify-content: flex-end;
+    border-block-start: 1px solid var(--color-border);
+    padding-block-start: var(--space-3);
+  }
+  .notice-btn {
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .notice-btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .notice-btn[disabled] {
+    opacity: 0.55;
+    cursor: progress;
+  }
+  .notice-btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .notice-btn--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .notice-btn--danger-ghost {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  }
+  .notice-btn--danger-ghost:hover {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: var(--color-danger);
+  }
+  .admin-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .admin-empty__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  import { DashboardApiError } from "../../lib/dashboard-api";
+  import {
+    type NoticeLevel,
+    type NoticeScope,
+    createNotice,
+    deleteNotice,
+    toRfc3339,
+  } from "../../lib/notices-api";
+
+  const FRIENDLY: Record<string, string> = {
+    upstream_unreachable: "Can't reach the notices service. Try again in a moment.",
+    unauthenticated: "Sign in again to continue.",
+  };
+
+  function friendly(err: unknown): string {
+    if (err instanceof DashboardApiError) {
+      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
+      if (err.code) return err.code;
+      return err.message;
+    }
+    return err instanceof Error ? err.message : "Action failed.";
+  }
+
+  function show(el: HTMLElement | null, msg: string): void {
+    if (!el) return;
+    el.hidden = false;
+    el.textContent = msg;
+  }
+  function hide(el: HTMLElement | null): void {
+    if (!el) return;
+    el.hidden = true;
+    el.textContent = "";
+  }
+
+  const formError = document.querySelector<HTMLElement>("[data-form-error]");
+  const actionError = document.querySelector<HTMLElement>("[data-admin-action-error]");
+
+  // Live hints, so the level/scope choice explains its consequence at the
+  // moment it's made rather than only in the lede.
+  const LEVEL_HINTS: Record<string, string> = {
+    info: "A tip or standing announcement. Dismissed for good once a visitor closes it.",
+    warning: "Needs attention but isn't urgent. Dismissed for good once closed.",
+    critical: "An outage or maintenance window. Returns on the next visit even after being closed.",
+  };
+  const SCOPE_HINTS: Record<string, string> = {
+    all: "Everyone, including signed-out visitors.",
+    members: "Signed-in members only.",
+    admins: "Admins and owners only.",
+  };
+  const levelSelect = document.querySelector<HTMLSelectElement>("[data-level-select]");
+  const scopeSelect = document.querySelector<HTMLSelectElement>("[data-scope-select]");
+  const levelHint = document.querySelector<HTMLElement>("[data-level-hint]");
+  const scopeHint = document.querySelector<HTMLElement>("[data-scope-hint]");
+  levelSelect?.addEventListener("change", () => {
+    if (levelHint) levelHint.textContent = LEVEL_HINTS[levelSelect.value] ?? "";
+  });
+  scopeSelect?.addEventListener("change", () => {
+    if (scopeHint) scopeHint.textContent = SCOPE_HINTS[scopeSelect.value] ?? "";
+  });
+
+  const form = document.querySelector<HTMLFormElement>("[data-notice-form]");
+  const textarea = form?.querySelector<HTMLTextAreaElement>('textarea[name="message"]');
+  const counter = document.querySelector<HTMLElement>("[data-message-counter]");
+  // The backend caps `message` at 1000 (z.string().max(1000)); showing the
+  // count avoids a 400 that would otherwise arrive only after publishing.
+  function updateCounter(): void {
+    if (counter && textarea) counter.textContent = `${textarea.value.length} / 1000`;
+  }
+  textarea?.addEventListener("input", updateCounter);
+  updateCounter();
+
+  let submitting = false;
+  form?.addEventListener("submit", async (evt) => {
+    evt.preventDefault();
+    if (submitting) return;
+    hide(formError);
+
+    const message = textarea?.value.trim() ?? "";
+    if (!message) {
+      show(formError, "A notice needs a message.");
+      return;
+    }
+
+    const rawExpiry =
+      form.querySelector<HTMLInputElement>('input[name="expires_at"]')?.value ?? "";
+    const expires_at = toRfc3339(rawExpiry);
+    // toRfc3339 returns undefined both for "empty" and for "unparseable".
+    // Only the second is an error, so distinguish before posting: sending
+    // nothing would silently create a never-expiring notice.
+    if (rawExpiry.trim() && !expires_at) {
+      show(formError, "That expiry date couldn't be read. Pick it again.");
+      return;
+    }
+
+    const submitBtn = document.querySelector<HTMLButtonElement>("[data-notice-submit]");
+    submitting = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Publishing…";
+    }
+    try {
+      await createNotice({
+        message,
+        level: (levelSelect?.value ?? "info") as NoticeLevel,
+        scope: (scopeSelect?.value ?? "all") as NoticeScope,
+        ...(expires_at ? { expires_at } : {}),
+      });
+      location.reload();
+    } catch (err) {
+      show(formError, `Couldn't publish that notice: ${friendly(err)}`);
+      submitting = false;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Publish notice";
+      }
+    }
+  });
+
+  let pendingDeleteId: number | null = null;
+  document.querySelectorAll<HTMLButtonElement>("[data-notice-delete]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const raw = btn.dataset.noticeId;
+      const id = raw ? Number.parseInt(raw, 10) : Number.NaN;
+      if (!Number.isInteger(id)) return;
+      pendingDeleteId = id;
+      hide(actionError);
+      document.dispatchEvent(
+        new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", {
+          detail: { dialogId: "admin-delete-notice" },
+        }),
+      );
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const e = evt as CustomEvent<{ dialogId: string }>;
+    if (e.detail.dialogId !== "admin-delete-notice" || pendingDeleteId === null) return;
+    const id = pendingDeleteId;
+    pendingDeleteId = null;
+    try {
+      await deleteNotice(id);
+      location.reload();
+    } catch (err) {
+      show(actionError, `Couldn't delete that notice: ${friendly(err)}`);
+    }
+  });
+</script>
