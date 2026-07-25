@@ -158,6 +158,26 @@ export function isActionable(user: Pick<AdminUserListRow, "username">): boolean 
   return typeof user.username === "string" && user.username.length > 0;
 }
 
+/**
+ * True when `userId` is the signed-in admin's own account. The backend
+ * rejects self-revoke, self-role-change, and self-delete (see users.ts:
+ * "Cannot revoke your own access" / "Cannot change your own role" / "Cannot
+ * delete your own account") to prevent lockout, but only after a typed
+ * ConfirmDialog confirmation — so the UI needs to know this up front to
+ * avoid walking someone through a destructive-looking flow that was never
+ * possible. Self-approve is NOT blocked by the backend, so callers must not
+ * fold this into an approve gate.
+ *
+ * Compared as strings deliberately: `AdminUserListRow.id`/`AdminUserDetail.id`
+ * are numeric (D1 row ids), but `AuthUser.id` is a string and, in the local
+ * dev mock, non-numeric (e.g. `"dev-qa_nemar_admin"`). `Number(sessionUserId)`
+ * would silently evaluate to `NaN` for that case and never match, so the dev
+ * render would look "fixed" while staying broken for every real account.
+ */
+export function isSelf(userId: number, sessionUserId: string): boolean {
+  return String(userId) === String(sessionUserId);
+}
+
 export async function listAdminUsers(
   query: { status?: AdminUserStatus; role?: AdminUserRole; includeDeleted?: boolean } = {},
   init: Init = {},

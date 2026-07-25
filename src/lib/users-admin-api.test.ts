@@ -7,6 +7,7 @@ import {
   fetchAwaitingApprovalCount,
   getAdminUser,
   isActionable,
+  isSelf,
   listAdminUsers,
   revokeUser,
 } from "./users-admin-api";
@@ -42,6 +43,29 @@ describe("isActionable", () => {
 
   it("false when username is an empty string", () => {
     expect(isActionable(row({ username: "" }))).toBe(false);
+  });
+});
+
+describe("isSelf", () => {
+  it("true when the row id matches the session user id", () => {
+    expect(isSelf(1, "1")).toBe(true);
+  });
+
+  it("false when the ids differ", () => {
+    expect(isSelf(1, "2")).toBe(false);
+  });
+
+  // The dev-mock session issues non-numeric ids (e.g. "dev-qa_nemar_admin").
+  // A `Number(sessionUserId)` comparison would silently evaluate to NaN and
+  // never match, so the self-gating would look correct against a real
+  // numeric session but stay broken for every local dev render. Comparing
+  // as strings pins this case.
+  it("compares as strings, not Number() — non-numeric session id", () => {
+    expect(isSelf(42, "dev-qa_nemar_admin")).toBe(false);
+  });
+
+  it("compares as strings, not Number() — matching numeric-looking string", () => {
+    expect(isSelf(42, "42")).toBe(true);
   });
 });
 

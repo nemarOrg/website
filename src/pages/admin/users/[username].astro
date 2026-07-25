@@ -11,6 +11,7 @@ import {
   type AdminUserRole,
   getAdminUser,
   isActionable,
+  isSelf,
 } from "../../../lib/users-admin-api";
 
 const session = getSession(Astro.locals);
@@ -51,14 +52,20 @@ try {
 }
 
 const actionable = user ? isActionable(user) : false;
+// See UserAdminRow.astro for the full self-gating rationale: the backend
+// rejects self-revoke/role-change/delete to prevent lockout but only after
+// confirmation, so the UI needs to know up front. Self-approve is not
+// blocked server-side, so `self` deliberately does not gate `canApprove`.
+const self = user !== null && isSelf(user.id, session.user.id);
 const canApprove =
   user !== null &&
   actionable &&
   (user.status === "verified" ||
     user.status === "revoked" ||
     user.status === "revoked_iam_pending");
-const canRevoke = user !== null && actionable && user.status === "approved";
-const canChangeRole = user !== null && isOwner && actionable && user.status === "approved";
+const canRevoke = user !== null && actionable && user.status === "approved" && !self;
+const canChangeRole = user !== null && isOwner && actionable && user.status === "approved" && !self;
+const canDelete = user !== null && isOwner && !self;
 const currentRole: AdminUserRole = user?.role ?? "member";
 const ROLE_OPTIONS: readonly AdminUserRole[] = ["member", "admin", "owner"];
 
@@ -95,6 +102,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
             ) : (
               <p class="user-detail__username user-detail__username--missing">no username</p>
             )}
+            {self && <span class="user-detail__self-marker">This is you</span>}
           </div>
           <UserStatusBadge status={user.status} />
         </header>
@@ -105,7 +113,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
             <a href="https://github.com/nemarOrg/nemar-cli/issues/1012" target="_blank" rel="noopener noreferrer">
               nemar-cli#1012
             </a>
-            ).{isOwner ? " It can still be deleted below." : ""}
+            ).{canDelete ? " It can still be deleted below." : ""}
           </p>
         )}
 
@@ -194,7 +202,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
               </button>
             </span>
           )}
-          {isOwner && (
+          {canDelete && (
             <button
               type="button"
               class="user-detail__btn user-detail__btn--danger"
@@ -309,6 +317,18 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
   .user-detail__username--missing {
     color: var(--color-warning);
     font-style: italic;
+  }
+  .user-detail__self-marker {
+    display: inline-flex;
+    align-items: center;
+    margin-block-start: var(--space-2);
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
+    background: color-mix(in srgb, var(--color-info) 12%, transparent);
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
   }
   .user-detail__notice {
     margin: 0;

@@ -6,28 +6,41 @@
  * shared stylesheet.
  */
 import { formatDate, formatRelativeTime } from "../../lib/format";
-import { type AdminUserListRow, type AdminUserRole, isActionable } from "../../lib/users-admin-api";
+import {
+  type AdminUserListRow,
+  type AdminUserRole,
+  isActionable,
+  isSelf,
+} from "../../lib/users-admin-api";
 import UserStatusBadge from "../UserStatusBadge.astro";
 
 interface Props {
   user: AdminUserListRow;
   /** `session.user.backend_role === "owner"` — gates role-change + delete. */
   isOwner: boolean;
+  /** `session.user.id` — compared via {@link isSelf} to suppress revoke,
+   *  role-change, and delete on the signed-in admin's own row (the backend
+   *  rejects all three to prevent lockout; approve is intentionally NOT
+   *  gated here since the backend doesn't block self-approve). */
+  sessionUserId: string;
 }
 
-const { user, isOwner } = Astro.props;
+const { user, isOwner, sessionUserId } = Astro.props;
 const actionable = isActionable(user);
+const self = isSelf(user.id, sessionUserId);
 // Backend allows approving a "verified" user OR re-approving a "revoked"
 // one (see admin/users.ts POST /approve/:username); revoked_iam_pending is
-// the same DB-level "revoked" family for approval purposes.
+// the same DB-level "revoked" family for approval purposes. Self-approve is
+// not blocked server-side, so `self` deliberately does not gate this.
 const canApprove =
   actionable &&
   (user.status === "verified" ||
     user.status === "revoked" ||
     user.status === "revoked_iam_pending");
-const canRevoke = actionable && user.status === "approved";
+const canRevoke = actionable && user.status === "approved" && !self;
 // Role change requires status === "approved" server-side too (400 otherwise).
-const canChangeRole = isOwner && actionable && user.status === "approved";
+const canChangeRole = isOwner && actionable && user.status === "approved" && !self;
+const canDelete = isOwner && !self;
 const currentRole: AdminUserRole = user.role ?? "member";
 const ROLE_OPTIONS: readonly AdminUserRole[] = ["member", "admin", "owner"];
 const createdDate = formatDate(user.created_at);
@@ -45,6 +58,7 @@ const createdRelative = formatRelativeTime(user.created_at);
           <span class="user-row__username user-row__username--missing">no username</span>
         )
       }
+      {self && <span class="user-row__self-marker">This is you</span>}
     </div>
     <UserStatusBadge status={user.status} />
   </div>
@@ -56,7 +70,7 @@ const createdRelative = formatRelativeTime(user.created_at);
         <a href="https://github.com/nemarOrg/nemar-cli/issues/1012" target="_blank" rel="noopener noreferrer">
           nemar-cli#1012
         </a>
-        ).{isOwner ? " It can still be deleted below." : ""}
+        ).{canDelete ? " It can still be deleted below." : ""}
       </p>
     )
   }
@@ -139,14 +153,8 @@ const createdRelative = formatRelativeTime(user.created_at);
       )
     }
     {
-      isOwner && (
-        <button
-          type="button"
-          class="user-row__btn user-row__btn--danger"
-          data-user-delete
-          data-user-id={user.id}
-          data-user-label={user.username ?? user.email}
-        >
+      canDelete && (
+        <button type="button" class="user-row__btn user-row__btn--danger" data-user-delete data-user-id={user.id}>
           Delete
         </button>
       )
@@ -191,6 +199,17 @@ const createdRelative = formatRelativeTime(user.created_at);
   .user-row__username--missing {
     color: var(--color-warning);
     font-style: italic;
+  }
+  .user-row__self-marker {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
+    background: color-mix(in srgb, var(--color-info) 12%, transparent);
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
   }
   .user-row__notice {
     margin: 0;

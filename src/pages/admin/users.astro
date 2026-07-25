@@ -109,7 +109,7 @@ try {
       <ul class="admin-list" role="list" data-user-list>
         {users.map((u) => (
           <li data-user-list-item data-search-key={`${u.email} ${u.username ?? ""}`.toLowerCase()}>
-            <UserAdminRow user={u} isOwner={isOwner} />
+            <UserAdminRow user={u} isOwner={isOwner} sessionUserId={session.user.id} />
           </li>
         ))}
       </ul>
