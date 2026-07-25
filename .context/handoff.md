@@ -1,131 +1,140 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-07-24.
+**Last session:** 2026-07-24/25.
 
 ## TL;DR — where we are right now
 
-`main` is production (Phase 5 branch cutover done; the redesign epic branch is retired).
-Prod deploys via Cloudflare's GitHub integration to the `nemar-website` Pages project
-(ww2.nemar.org + app.nemar.org; apex nemar.org still legacy F5). The `staging` branch
-(a fast-forward mirror of `main`) auto-deploys test.nemar.org via
-`.github/workflows/deploy-test.yml` (secrets landed 2026-07-20) against the nemar-cli
-`dev`-branch backends (api-test/data-test/zarr-test). See AGENTS.md
-"Branch ↔ environment map".
+`main` is production (Cloudflare GitHub integration → `nemar-website` Pages project,
+ww2.nemar.org + app.nemar.org; apex nemar.org still legacy F5). `staging` is a
+fast-forward mirror of `main` deploying test.nemar.org against the nemar-cli `dev`
+backends. See AGENTS.md "Branch ↔ environment map".
 
-Auth, dashboard, upload, settings, collaborator management, and one admin page
-(`/admin/publication-requests`) are all live on app.nemar.org.
+**New this session: the `/admin` portal is live on app.nemar.org.** Phases 1–2 of
+epic #158 shipped to production (PR #171, `b58093f`); Phase 3 (users admin) is in
+review as PR #174.
 
-## What happened this session (2026-07-24)
+## What happened this session
 
-1. **Staging stood up as the counterpart of nemar-cli `dev`:** `staging`
-   fast-forwarded to `main`, deploy verified green, test.nemar.org serving with
-   noindex. Decision: keep the branch name `staging` (no `dev` branch here).
-2. **Settings "ORCID not connected" root-caused:** frontend is correct;
-   production `/auth/me` returns only `id/email/role/status` because nemar-cli#910
-   never landed (migrations 0051/0052 added the columns; the endpoint change didn't).
-   **Fix implemented:** nemar-cli PR #1007 (branch `feature/issue-910-auth-me-profile-fields`,
-   base `dev`) — extends `findSessionByCookieId` SQL + `publicUser()` to return
-   given_name/family_name/orcid/orcid_verified (boolean)/github_username/city/country/affiliation.
-   After it merges to `dev` you can verify on test.nemar.org, then promote dev → main.
-   Settings *edit* actions still need nemar-cli #911 (email change), #912 (PATCH
-   /auth/profile), #913 (ORCID re-link) — all still open.
-3. **Staging sign-in unblocked, safely:** website PR #160 (issue #159) makes the
-   email-code form build-aware (`webSigninEnabled()` in `src/lib/flags.ts`: on for
-   non-prod backends + astro dev, off for prod and prod-build previews) and
-   surfaces/prefills the backend's `dev_code` on /login/verify. Because the staging
-   D1 mirrors real users and `dev_code` is echoed to the requester, nemar-cli
-   PR #1009 (issue #1008) allowlists non-prod code issuance: admins/owners (real
-   email delivery, never echoed) + `test@nemar.org` (`test-web`, normal approved
-   member, the shared upload-QA account — already seeded into nemar-db-dev) +
-   `@nemar.test` fixtures (dev_code echoed for these synthetic accounts only).
-   ORCID on test.nemar.org still can't complete — callback unregistered (owner
-   action; see AGENTS.md staging section for the two options).
-4. **Admin portal planned:** epic **website#158** — port dashboard.nemar.org
-   (nemar-observability Worker) into `/admin` on app.nemar.org. Key facts: all admin
-   authority is nemar-cli `/admin/*` behind adminMiddleware; the observability
-   dashboard is a thin Bearer-relay with one tile-grid page; nemar-cli auth accepts
-   the session cookie, and the website already has the role-gate + cookie/proxy
-   patterns (`admin-api.ts`, `/api/v1/[...path].ts`). Pure frontend work, 5 phases
-   in the epic. Snapshot JSON: `GET dashboard.nemar.org/observability/api/snapshot`
-   (public; SSR-fetch it). Drill-down lists must come from nemar-cli `/admin/*`
-   directly (the observability drilldown endpoint is Bearer-only).
-5. **In-browser BIDS validation planned:** issue **website#161** — replace the
-   hand-rolled `bids-precheck.ts`-only flow with real `@bids/validator` (browser
-   build, `fileListToTree` + `validate`), pinned to nemar-cli's
-   `validator-version.json` (2.4.1) for CLI/CI/web lockstep.
-6. **Docs refreshed:** AGENTS.md (branch map, architecture map, staging login,
-   PII caution for nemar-db-dev), CLAUDE.md (worktrees), deploy-test.yml comments,
-   `.context/plan.md` rewritten.
+1. **ADR 0010 landed** (PR #166). The tiered-access decision (base auto on ORCID vs
+   admin-granted service access) is now recorded in `.context/decisions/`.
+   Note: `main` is protected — 4 required checks — so even docs need a PR.
+2. **Admin portal epic #158, Phases 1–2 shipped to prod** (PR #171 → `b58093f`):
+   - **Phase 1 (#167, PR #169):** `adminGate()` extracted from the previously-inlined
+     gate (404-not-403 preserved), `ADMIN_TABS`, `AdminLayout.astro`,
+     `/admin` route, `publication-requests` refactored onto the shell (URL and
+     behaviour unchanged), UserMenu → `/admin`, and additive `AuthUser.backend_role`
+     carrying the uncollapsed `owner|admin|member` for owner-only gating.
+   - **Phase 2 (#168, PR #170):** fail-soft observability client + hand-rolled SVG
+     tile grid / breakdowns / sparklines, wired into `/admin` at `6b06d26`.
+   - Verified in prod: anonymous `/admin` → 302 `/login?next=%2Fadmin`.
+3. **Phase 3 (#172, PR #174) — users admin**, awaiting review at time of writing.
+   Signup-approval queue, user detail, approve/revoke + owner-only role change and
+   delete, awaiting-approval badge in the shared shell.
+4. **Two upstream issues filed** from things found while reading the real backends
+   (see "Blockers found this session").
 
-## Merged this session (all done + QA'd)
+## Gotchas learned this session (these cost real time)
 
-- **nemar-cli #1009** (staging sign-in allowlist, #1008) → `dev`. Verified live on
-  api-test: `test@nemar.org` gets `dev_code`, unknown emails refused.
-- **nemar-cli #1007** (auth: /auth/me profile fields, #910) → `dev`. Verified live:
-  `/auth/me` for `test@nemar.org` returns the full profile block incl
-  `github_username`, `orcid_verified` as a real boolean. Fixes the "ORCID/GitHub not
-  connected" settings display. **Prod app.nemar.org gets it at the next nemar-cli
-  dev→main promotion.** (Rebased over #1009 at merge time — both had added a test in
-  the same spot; both kept.)
-- **nemar-cli #965** (fail-closed seed-web-user guard) → `dev`.
-- **website #160** (staging email sign-in, #159) → `main`; `staging` fast-forwarded,
-  test.nemar.org redeployed.
-- **website #162** (workflow docs refresh) → `main`.
+- **`main` requires branches to be up to date.** A PR cut before another merge lands
+  goes `mergeStateStatus: BEHIND` and `gh pr merge` refuses with a misleading
+  "add --auto" hint. Fix: merge `main` into the branch, re-run gates, wait for CI.
+- **`Closes #N` does not fire for PRs merged into a non-default branch.** Phase PRs
+  targeting an epic branch leave their issues open; close them by hand.
+- **Phase PRs → epic branch are squash-merged** (matches the prior epic's history:
+  single-parent commits). The "regular merge commit, never squash" rule in the
+  global instructions governs merges to `main`, not phase→epic.
+- **Local dev cannot authenticate a dev-mock session against production
+  `api.nemar.org`.** This is pre-existing (the publication-requests page has the
+  same limitation), not new. To exercise admin UI locally you need a fixture API
+  server pointed at via `PUBLIC_API_BASE_URL`. Consequence: **Phase 3's UI was
+  verified against fixtures, not live data — it deserves a real admin pass on a
+  preview deploy.**
+- **Dev admin session recipe** (`astro dev` only): emails ending `@nemar.admin` get
+  `role: "admin"` in the dev mock; accepted code is `123456`.
+  `POST /api/auth/code/request` then `/api/auth/code/verify`. Note the mock yields
+  `admin`, not `owner`, which makes it a good test that owner-only controls are
+  *absent*.
+- **First `/admin` request under `astro dev` can exceed 5s** (Vite cold dependency
+  optimization) and trip the observability deadline, rendering the degraded
+  "Overview data is unavailable" state. Re-request warm before believing it.
+  Warm render is ~370ms.
+
+## The recurring bug class to watch for
+
+**An optional `AbortSignal` that is never defaulted.** Three separate places in this
+codebase pass `signal: init.signal` where callers supply nothing. A `try/catch`
+around `fetch` covers a request that *fails* — it does not cover one that *hangs*
+(connection opens, never writes a response): that promise never settles, so there is
+nothing to catch. These clients run during SSR, so an unbounded one stalls the page
+render itself.
+
+- Fixed in `observability.ts` (Phase 2 review) and `users-admin-api.ts` (Phase 3),
+  both via `resolveSignal()` = `AbortSignal.timeout()` combined with any caller
+  signal through `AbortSignal.any()`. Decorative fetches get a shorter deadline than
+  primary content — the awaiting-approval badge uses 2s because it is awaited from
+  the shared `AdminLayout` on *every* admin page.
+- **Still outstanding: website#173** — same pattern in `admin-api.ts`, and an audit
+  of `dashboard-api.ts`, `collaborators-api.ts`, `upload-client.ts`.
+- Test it by driving the real abort path (a fetch that only settles by rejecting on
+  its signal's abort event), never a faked timer.
+
+## Blockers found this session
+
+- **nemar-cli#1023 (filed)** — no admin endpoints exist to grant/revoke service
+  access, and `GET /admin/users` doesn't project `service_access` or the
+  city/country/affiliation fields ADR 0010 requires for export-control review. The
+  enforcement half of tiered access shipped; the granting half was never built.
+  This is why the service-access queue was cut from Phase 3.
+- **nemar-cli#1012 (pre-existing, open)** — ORCID/web signups land with
+  `username = NULL`, and every admin write endpoint except delete is keyed by
+  username, so those users are unaddressable. Phase 3 renders them with an
+  explanation + issue link and offers only the id-keyed delete (owner-only). Do not
+  "fix" this by hiding those rows: they are exactly the population the approval
+  queue exists to serve.
 
 ## Immediate pick-ups
 
-- **Promote nemar-cli `dev` → `main`** when ready, so the `/auth/me` profile fields
-  (#1007) reach production app.nemar.org. The live passwordless suite (incl. the new
-  populated-profile assertion) runs at that promotion.
-- **Owner actions for real-ORCID staging login:** register
+- **Merge PR #174** once review clears; close #172 by hand if it targeted a
+  non-default branch (it targets `main`, so `Closes` should fire).
+- **Real admin pass on a preview deploy** of the users admin (fixture-verified only).
+- **Promote nemar-cli `dev` → `main`** — still the blocker for `/auth/me` profile
+  fields (#1007) reaching production app.nemar.org. Check the grandfather backfill
+  count first; the upload gate is stricter now.
+- **Phases 4–5 of #158** (imports/quarantine triage, notices) — not yet scoped into
+  issues.
+- **Design pass**: the admin active tab uses `--brand-teal`/`--brand-navy` while
+  `DatasetTabs` uses theme-aware `--color-fg`/`--color-bg`. Both token-based, but
+  they read as two systems side by side.
+- **Owner actions for real-ORCID staging login** — register
   `https://test.nemar.org/auth/orcid/callback` on the production ORCID app +
-  `wrangler secret put ORCID_API_BASE --env dev` = `https://orcid.org`
-  (see AGENTS.md staging section; alternative: register on sandbox and use a
-  sandbox test account). Until then, use `test@nemar.org` email-code login on staging.
-- **nemar-cli #1010** (filed): `integration-dev` `CLI Dataset Validate` tests are
-  CI-flaky (Deno validator exit 1, pass locally) — non-required job, unrelated to the
-  auth work, but worth pinning the Deno version / fixing the fixture.
-- The auto-bump deploy after the #1007 merge failed its test-gate on ONE unrelated
-  flaky DOI-sandbox test; nemar-api-dev is running the #1007-merge commit (deploy-dev
-  succeeded there). A later real dev commit will re-deploy the bump cleanly.
+  `wrangler secret put ORCID_API_BASE --env dev` = `https://orcid.org`.
 
-## Epic backlog (organized 2026-07-24 — every open thread lives under an epic)
+## Epic backlog
 
-Pick up any epic cold; sub-issues are linked via `gh sub-issue`.
+- **Admin portal — website#158.** Phases 1–2 shipped, Phase 3 in review, 4–5 open.
+  Phase 2 of tiered access (the service-access grant queue) belongs here once
+  nemar-cli#1023 lands.
+- **Tiered access — nemar-cli#1013.** Phase 1 shipped to dev (ADR 0010). Children:
+  #1012, #1016, #1018, #1014, and the new #1023.
+- **Settings self-service backends — nemar-cli#1019.** #910 merged to dev;
+  remaining #911 (email change), #912 (PATCH /auth/profile), #913 (ORCID re-link).
+- **Contribute / upload — website#164.** #161 (in-browser BIDS validation) + the
+  upload-page `service_access` gate.
 
-- **Tiered access — nemar-cli#1013** (backend). Phase 1 SHIPPED to dev (base
-  auto-approve + service-access upload gate; see ADR 0010). Children:
-  #1012 (fix approve for username=NULL), #1016 (collaborator attestation +
-  download-only), #1018 (route-level gate test), #1014 (co-author surfacing).
-  Phase 2 = admin grant/export-control-review UI → lives in website#158.
-  Phase 3 = compute. **Next real step: promote nemar-cli dev→main** (check the
-  grandfather backfill count on prod first — the upload gate is stricter now).
-- **Admin portal — website#158**. Port dashboard.nemar.org (nemar-observability)
-  to `/admin`: observability overview, signup/publication approvals, quarantine
-  triage, AND the tiered-access service-access approval queue (#1013 Phase 2).
-  Pure frontend; nemar-cli `/admin/*` + cookie auth already work.
-- **Settings self-service backends — nemar-cli#1019**. #910 DONE (merged to dev;
-  auto-closes on dev→main). Remaining: #912 (PATCH /auth/profile — the "Save
-  profile" button no-op), #911 (email change), #913 (ORCID re-link).
-- **Contribute / upload experience — website#164**. #161 (in-browser BIDS
-  validation) + the website upload-page `service_access` gating / "request upload
-  access" flow (tiered-access #1013 Phase 2, website side).
-
-Standalone (no epic needed): nemar-cli#1010 (flaky integration-dev CI).
+Standalone: nemar-cli#1010 (flaky integration-dev CI), website#173.
 Parked: legacy import (nemar-cli#833 / website#129).
-Redesign-epic remnants still open: website#5 (Phase 4 citation/community/docs),
-website#6 (apex DNS cutover).
+Redesign-epic remnants: website#5 (Phase 4 citation/community/docs), #6 (apex DNS).
 
-## Gotchas (current)
+## Standing gotchas
 
 - `staging` must stay a fast-forward of `main`; never commit to it directly.
-- nemar-cli has NO staging branch: its `dev` branch Worker (`nemar-api-dev`)
-  serves both the raw workers.dev URL and the `*-test.nemar.org` domains, with
-  D1 `nemar-db-dev` — a partial prod mirror containing real user emails. Careful
-  with bulk ops.
+- nemar-cli has no staging branch: its `dev` Worker serves the `*-test.nemar.org`
+  domains with D1 `nemar-db-dev`, a partial prod mirror **containing real user
+  emails**. Careful with bulk ops.
 - `imageService: "passthrough"` stays (sharp doesn't run in Workers).
 - Session cookie is `Domain=app.nemar.org`; browser-side authenticated calls go
   through the same-origin `/api/v1/[...path]` proxy.
 - OG cards under `public/og/` are generated, not source.
-- The website role mapping collapses backend `owner|admin` → `"admin"`; owner-only
-  admin UI (delete user, bulk ops) needs the raw role — plan for it in epic #158.
+- `/admin` cannot be edge-cached: `isPublicCacheable` requires an explicit
+  `Cache-Control: public, max-age`, which Astro SSR pages don't emit, and
+  authenticated traffic bypasses the cache entirely.
