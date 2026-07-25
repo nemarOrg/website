@@ -248,9 +248,43 @@ describe("onRequest host dispatch", () => {
     expect(res?.headers.get("Location")).toBe(`https://${APP_HOST}/api/auth/logout`);
   });
 
-  it("doesn't set Cache-Control on cross-host redirects (deploy churn safety)", async () => {
+  // website#183. This previously asserted the header was ABSENT, under the
+  // name "deploy churn safety" — but omitting Cache-Control achieves the
+  // opposite of that intent: a bare 301 is heuristically cacheable and
+  // browsers cache permanent redirects persistently. Since the redirect
+  // encodes a route classification that can change between deploys (it did,
+  // in website#181), it must not outlive the deploy that issued it.
+  it("marks cross-host redirects no-store so a reclassification can reach clients", async () => {
     const res = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
-    expect(res?.headers.get("Cache-Control")).toBeNull();
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("marks non-GET cross-host redirects no-store too", async () => {
+    const res = await onRequest(
+      ctx(`https://${MARKETING_HOST}/api/auth/logout`, "POST"),
+      passthrough,
+    );
+    expect(res?.status).toBe(307);
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // Retired paths are a permanent move, so caching them is defensible — but
+  // they're low-traffic legacy links by definition, and the same "this is a
+  // deploy-time mapping" argument applies if one is ever un-retired. The
+  // saving isn't worth the asymmetry.
+  it("marks retired-path redirects no-store as well", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/docs/upload`), passthrough);
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe("https://docs.nemar.org/web/uploading/");
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // The edge cache must keep ignoring these regardless — isPublicCacheable
+  // requires an explicit public max-age, and no-store is an explicit denial.
+  it("keeps redirects out of the edge cache", async () => {
+    const res = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
+    expect(isPublicCacheable(res as Response)).toBe(false);
   });
 
   it("skips /auth/me on the marketing host and passes through with session=null", async () => {
