@@ -1,0 +1,73 @@
+---
+/**
+ * Status pill for an admin user row/detail view. Mirrors
+ * `PublishStateBadge.astro`'s structure (same token-driven color-mix
+ * treatment) adapted to the users lifecycle: pending -> verified ->
+ * approved | revoked. `revoked_iam_pending` is a real backend value (a
+ * revoke whose IAM cleanup partially failed) — it reads as "Revoked" with
+ * the same danger tone since the account access is already gone.
+ */
+import type { AdminUserStatus } from "../lib/users-admin-api";
+
+interface Props {
+  status: AdminUserStatus;
+}
+
+const { status } = Astro.props;
+
+const LABELS: Record<AdminUserStatus, string> = {
+  pending: "Pending",
+  verified: "Awaiting approval",
+  approved: "Approved",
+  revoked: "Revoked",
+  revoked_iam_pending: "Revoked",
+};
+const TONES: Record<AdminUserStatus, "neutral" | "warning" | "success" | "danger"> = {
+  pending: "neutral",
+  verified: "warning",
+  approved: "success",
+  revoked: "danger",
+  revoked_iam_pending: "danger",
+};
+const label = LABELS[status];
+const tone = TONES[status];
+---
+
+<span class:list={["user-status-badge", `user-status-badge--${tone}`]}>
+  {label}
+</span>
+
+<style>
+  .user-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    font-weight: var(--fw-medium);
+  }
+  .user-status-badge--neutral {
+    color: var(--color-fg-muted);
+    background: var(--color-bg-subtle);
+    border-color: var(--color-border);
+  }
+  .user-status-badge--warning {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  .user-status-badge--success {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  }
+  .user-status-badge--danger {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  }
+</style>
