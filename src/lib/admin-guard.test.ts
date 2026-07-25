@@ -13,9 +13,18 @@ describe("adminGate", () => {
     expect(adminGate(null, "/admin")).toBe("/login?next=%2Fadmin");
   });
 
-  it("encodes query params in the next path", () => {
-    expect(adminGate(null, "/admin/publication-requests?status=requested")).toBe(
-      "/login?next=%2Fadmin%2Fpublication-requests%3Fstatus%3Drequested",
+  it("percent-encodes a nested admin path", () => {
+    expect(adminGate(null, "/admin/publication-requests")).toBe(
+      "/login?next=%2Fadmin%2Fpublication-requests",
+    );
+  });
+
+  // Defensive only: call sites pass `Astro.url.pathname`, which never carries a
+  // query string (that's `Astro.url.search`). This pins the encoding so a future
+  // caller passing something richer can't break out of the `next` param.
+  it("percent-encodes characters that would otherwise break out of next", () => {
+    expect(adminGate(null, "/admin/x?status=requested&a=b")).toBe(
+      "/login?next=%2Fadmin%2Fx%3Fstatus%3Drequested%26a%3Db",
     );
   });
 
