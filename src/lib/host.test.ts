@@ -8,6 +8,7 @@ import {
   getRetiredRedirect,
   hostMode,
   isAppRoute,
+  isHostNeutralRoute,
   isNoindexHost,
   isProductionHost,
   marketingUrl,
@@ -90,6 +91,37 @@ describe("isAppRoute", () => {
 
 describe("getCrossHostRedirect", () => {
   const url = (host: string, pathAndSearch: string) => new URL(`https://${host}${pathAndSearch}`);
+
+  // website#181. The site-wide notice banner renders on both hosts and
+  // fetches this route same-origin. A 301 off either host is cross-origin,
+  // where no CORS headers apply, so the fetch rejects and no notice ever
+  // displays — silently, because the banner fails soft. This must stay put
+  // on whichever host asked.
+  it("never redirects the host-neutral notices feed off either host", () => {
+    expect(getCrossHostRedirect(url(APP_HOST, "/api/notices"))).toBeNull();
+    expect(getCrossHostRedirect(url(BETA_HOST, "/api/notices"))).toBeNull();
+    expect(getCrossHostRedirect(url(APP_HOST, "/api/notices?x=1"))).toBeNull();
+  });
+
+  // The neutral list is prefix-matched like the others, but must not swallow
+  // a sibling path that merely starts with the same characters.
+  it("does not treat a lookalike sibling path as host-neutral", () => {
+    expect(isHostNeutralRoute("/api/notices")).toBe(true);
+    expect(isHostNeutralRoute("/api/notices/history")).toBe(true);
+    expect(isHostNeutralRoute("/api/notices-admin")).toBe(false);
+    expect(isHostNeutralRoute("/api/v1/notices")).toBe(false);
+  });
+
+  // Regression guard: the cookie-scoped proxies must keep redirecting, or
+  // the session cookie (Domain=app.nemar.org) stops reaching them.
+  it("still redirects the cookie-scoped api prefixes to the app host", () => {
+    expect(getCrossHostRedirect(url(BETA_HOST, "/api/v1/datasets"))).toBe(
+      `https://${APP_HOST}/api/v1/datasets`,
+    );
+    expect(getCrossHostRedirect(url(BETA_HOST, "/api/auth/code/request"))).toBe(
+      `https://${APP_HOST}/api/auth/code/request`,
+    );
+  });
 
   it("redirects app paths from the beta marketing host to the app host", () => {
     expect(getCrossHostRedirect(url(BETA_HOST, "/dashboard"))).toBe(

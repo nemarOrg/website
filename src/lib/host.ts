@@ -81,6 +81,35 @@ export function hostMode(hostname: string): HostMode {
   return "single";
 }
 
+/**
+ * Routes that legitimately serve on BOTH production hosts and must never be
+ * redirected across them.
+ *
+ * The app/marketing split is otherwise binary: every path belongs to exactly
+ * one host and the middleware 301s it off the other. That breaks down for a
+ * public endpoint consumed by chrome rendered on every page of both hosts.
+ *
+ * `/api/notices` is the case (website#181). It feeds the site-wide notice
+ * banner, which renders on marketing *and* app pages. Classified as
+ * marketing-only it 301'd cross-origin off `app.nemar.org` to
+ * `ww2.nemar.org`, where no CORS headers apply — so the banner's fetch
+ * rejected and no notice ever displayed to a signed-in user, including the
+ * `admins`/`members`-scoped ones that only exist for them. Classified
+ * app-only it would break the marketing banner the same way in reverse.
+ *
+ * Unlike `/api/v1` and `/api/auth`, this endpoint has no cookie-scope
+ * requirement: it works with or without a session, and forwards whichever
+ * cookie the request already carries same-origin.
+ */
+const HOST_NEUTRAL_ROUTE_PREFIXES: readonly string[] = ["/api/notices"];
+
+export function isHostNeutralRoute(pathname: string): boolean {
+  for (const prefix of HOST_NEUTRAL_ROUTE_PREFIXES) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return true;
+  }
+  return false;
+}
+
 export function isAppRoute(pathname: string): boolean {
   for (const prefix of APP_ROUTE_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return true;
@@ -103,6 +132,10 @@ export function isAppRoute(pathname: string): boolean {
 export function getCrossHostRedirect(url: URL): string | null {
   const mode = hostMode(url.hostname);
   if (mode === "single") return null;
+  // Checked before the app/marketing decision: a host-neutral route is
+  // correct on whichever host it was requested from, so there is nothing to
+  // redirect (website#181).
+  if (isHostNeutralRoute(url.pathname)) return null;
   const wantsApp = isAppRoute(url.pathname);
   const onAppHost = mode === "app";
   if (wantsApp === onAppHost) return null;
