@@ -287,6 +287,36 @@ describe("onRequest host dispatch", () => {
     expect(isPublicCacheable(res as Response)).toBe(false);
   });
 
+  // website#190. Verifies the wiring, not just the pure function: the
+  // decision needs the Referer header, which only the middleware has.
+  it("rewrites a legacy dataset URL to the new page for an external visitor", async () => {
+    const res = await onRequest(
+      ctx(`https://${MARKETING_HOST}/dataexplorer/detail?dataset_id=ds007964`),
+      passthrough,
+    );
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe("/dataset/ds007964");
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("bounces a legacy dataset URL back to ww1 when the visitor came from ww1", async () => {
+    const c = ctx(`https://${MARKETING_HOST}/dataexplorer/detail?dataset_id=ds007964`);
+    const withReferer = {
+      ...c,
+      request: new Request(c.request.url, {
+        headers: { referer: "https://ww1.nemar.org/dataexplorer" },
+      }),
+    } as unknown as TestCtx;
+    const res = await onRequest(withReferer, passthrough);
+    // 302, not 301: ww1 retires, and a cached permanent redirect would
+    // outlive it with no way to reach the clients holding it.
+    expect(res?.status).toBe(302);
+    expect(res?.headers.get("Location")).toBe(
+      "https://ww1.nemar.org/dataexplorer/detail?dataset_id=ds007964",
+    );
+    expect(res?.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   it("skips /auth/me on the marketing host and passes through with session=null", async () => {
     const c = ctx(`https://${MARKETING_HOST}/discover`);
     const res = await onRequest(c, passthrough);

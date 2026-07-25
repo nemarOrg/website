@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   backfillSearchHit,
+  getDataset,
   isManagedDatasetId,
   listAllDatasets,
+  listDatasets,
   resolveCanonical,
   searchDatasets,
   searchResultToDataset,
@@ -14,6 +16,59 @@ const originalFetch = globalThis.fetch;
 afterEach(() => {
   globalThis.fetch = originalFetch;
   vi.restoreAllMocks();
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response. These calls run
+// during SSR, so without a deadline one hung upstream stalls the render of
+// the page a visitor is waiting on rather than degrading it (website#173).
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  // resolveCanonical is the one that matters most: it runs during SSR of
+  // every ds* dataset page, which after the apex cutover (website#190) is
+  // the path every legacy citation URL travels.
+  it("aborts a hung resolveCanonical rather than stalling the render", async () => {
+    globalThis.fetch = hangingFetch;
+    await expect(resolveCanonical("ds002718", { timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  it("aborts a hung getDataset", async () => {
+    globalThis.fetch = hangingFetch;
+    await expect(getDataset("on007964", { timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  it("aborts a hung listDatasets", async () => {
+    globalThis.fetch = hangingFetch;
+    await expect(listDatasets({}, { timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  it("aborts a hung searchDatasets", async () => {
+    globalThis.fetch = hangingFetch;
+    await expect(searchDatasets("eeg", { timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  // A caller-supplied signal must still abort even though a deadline is also
+  // in play — AbortSignal.any() combines them, it doesn't replace one.
+  it("honours a caller-supplied signal alongside the deadline", async () => {
+    globalThis.fetch = hangingFetch;
+    const controller = new AbortController();
+    const pending = resolveCanonical("ds002718", { signal: controller.signal });
+    controller.abort(new Error("caller went away"));
+    await expect(pending).rejects.toThrow("caller went away");
+  });
 });
 
 describe("resolveCanonical", () => {

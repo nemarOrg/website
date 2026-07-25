@@ -5,6 +5,7 @@ import {
   MARKETING_HOST,
   appUrl,
   getCrossHostRedirect,
+  getLegacyRedirect,
   getRetiredRedirect,
   hostMode,
   isAppRoute,
@@ -258,5 +259,102 @@ describe("isNoindexHost", () => {
     expect(isNoindexHost("localhost")).toBe(false);
     expect(isNoindexHost("127.0.0.1")).toBe(false);
     expect(isNoindexHost("foo.localhost")).toBe(false);
+  });
+});
+
+describe("getLegacyRedirect", () => {
+  const u = (pathAndSearch: string) => new URL(`https://nemar.org${pathAndSearch}`);
+  const LEGACY = "/dataexplorer/detail?dataset_id=ds007964";
+
+  it("ignores paths that aren't the legacy dataset route", () => {
+    expect(getLegacyRedirect(u("/discover"), null)).toBeNull();
+    expect(getLegacyRedirect(u("/dataset/on007964"), null)).toBeNull();
+    expect(getLegacyRedirect(u("/dataexplorer"), null)).toBeNull();
+  });
+
+  // The citation case, and the default. A paper links the legacy URL; the
+  // reader must land on the dataset.
+  it("sends an external visitor to the new dataset page", () => {
+    expect(getLegacyRedirect(u(LEGACY), null)).toEqual({
+      location: "/dataset/ds007964",
+      status: 301,
+    });
+    expect(getLegacyRedirect(u(LEGACY), "https://scholar.google.com/")).toEqual({
+      location: "/dataset/ds007964",
+      status: 301,
+    });
+  });
+
+  // Someone mid-session on the legacy site stays there rather than being
+  // ejected to the new one.
+  it("bounces a ww1 visitor back to ww1, preserving the query", () => {
+    expect(getLegacyRedirect(u(LEGACY), "https://ww1.nemar.org/dataexplorer")).toEqual({
+      location: "https://ww1.nemar.org/dataexplorer/detail?dataset_id=ds007964",
+      status: 302,
+    });
+  });
+
+  // 302 for ww1, not 301: ww1 retires, and a cached permanent redirect would
+  // outlive it with no way to reach the clients holding it (website#183).
+  it("uses a temporary status for the ww1 bounce and a permanent one for the move", () => {
+    expect(getLegacyRedirect(u(LEGACY), "https://ww1.nemar.org/x")?.status).toBe(302);
+    expect(getLegacyRedirect(u(LEGACY), null)?.status).toBe(301);
+  });
+
+  // Referer is unreliable — stripped by privacy modes, absent on typed and
+  // bookmarked navigation. Absent or unparseable must therefore mean "new
+  // site", because that is the citation case and the one that must not break.
+  it("defaults to the new site when Referer is missing or malformed", () => {
+    for (const referer of [null, "", "not a url", "ww1.nemar.org", "://broken"]) {
+      expect(getLegacyRedirect(u(LEGACY), referer)?.location).toBe("/dataset/ds007964");
+    }
+  });
+
+  it("does not mistake a lookalike host for ww1", () => {
+    for (const referer of [
+      "https://ww1.nemar.org.evil.test/x",
+      "https://notww1.nemar.org/x",
+      "https://ww2.nemar.org/x",
+    ]) {
+      expect(getLegacyRedirect(u(LEGACY), referer)?.location).toBe("/dataset/ds007964");
+    }
+  });
+
+  // The id is passed through untranslated: /dataset/<id> already resolves a
+  // ds* id to its on* canonical via a catalog lookup, which correctly
+  // declines when no mirror exists. Re-deriving it here would duplicate that
+  // rule and could disagree with it.
+  it("passes the id through without translating it", () => {
+    expect(getLegacyRedirect(u("/dataexplorer/detail?dataset_id=nm000103"), null)?.location).toBe(
+      "/dataset/nm000103",
+    );
+    expect(getLegacyRedirect(u("/dataexplorer/detail?dataset_id=on007964"), null)?.location).toBe(
+      "/dataset/on007964",
+    );
+  });
+
+  it("encodes a hostile id rather than interpolating it raw", () => {
+    const r = getLegacyRedirect(u("/dataexplorer/detail?dataset_id=..%2F..%2Fadmin"), null);
+    expect(r?.location).toBe("/dataset/..%2F..%2Fadmin");
+    expect(r?.location.startsWith("/dataset/")).toBe(true);
+  });
+
+  it("falls back to discover when there is no usable id", () => {
+    expect(getLegacyRedirect(u("/dataexplorer/detail"), null)).toEqual({
+      location: "/discover",
+      status: 302,
+    });
+    expect(getLegacyRedirect(u("/dataexplorer/detail?dataset_id=%20%20"), null)?.location).toBe(
+      "/discover",
+    );
+  });
+
+  it("tolerates a trailing slash and case on the path", () => {
+    expect(getLegacyRedirect(u("/dataexplorer/detail/?dataset_id=ds007964"), null)?.location).toBe(
+      "/dataset/ds007964",
+    );
+    expect(getLegacyRedirect(u("/DataExplorer/Detail?dataset_id=ds007964"), null)?.location).toBe(
+      "/dataset/ds007964",
+    );
   });
 });
