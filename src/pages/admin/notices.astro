@@ -9,6 +9,7 @@ import {
   NOTICE_SCOPES,
   type Notice,
   isNoticeExpired,
+  linkifyMessage,
   listAdminNotices,
 } from "../../lib/notices-api";
 
@@ -156,7 +157,21 @@ const SCOPE_HINTS: Record<string, string> = {
                 {expired && <span class="notice-row__expired-flag">Expired</span>}
               </div>
 
-              <p class="notice-row__message">{notice.message}</p>
+              {/* Same linkification the banner applies, so an admin sees
+                  what a visitor will. Rendered as Astro expressions, never
+                  set:html — the escaping is what keeps an admin-authored
+                  message from becoming markup. */}
+              <p class="notice-row__message">
+                {linkifyMessage(notice.message).map((segment) =>
+                  segment.type === "link" ? (
+                    <a href={segment.value} target="_blank" rel="noopener noreferrer">
+                      {segment.value}
+                    </a>
+                  ) : (
+                    segment.value
+                  ),
+                )}
+              </p>
 
               <dl class="notice-row__meta">
                 <div>
@@ -361,6 +376,11 @@ const SCOPE_HINTS: Record<string, string> = {
     margin: 0;
     color: var(--color-fg);
     overflow-wrap: anywhere;
+  }
+  .notice-row__message a {
+    color: var(--color-link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
   .notice-row__meta {
     display: grid;

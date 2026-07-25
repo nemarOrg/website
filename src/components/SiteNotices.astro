@@ -42,10 +42,16 @@
     display: grid;
   }
   .site-notice {
+    position: relative;
     display: flex;
+    justify-content: center;
     align-items: flex-start;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
+    /* Symmetric inline padding, wide enough to clear the absolutely
+       positioned dismiss button on the right. Without matching padding on
+       the left the "centred" message would sit off-centre by exactly the
+       button's width — the usual way centred banners end up subtly wrong. */
+    padding: var(--space-3) calc(var(--space-4) + 28px);
     border-block-end: 1px solid var(--notice-border);
     background: var(--notice-bg);
     color: var(--notice-fg);
@@ -62,18 +68,44 @@
   }
   .site-notice__message {
     margin: 0;
-    flex: 1 1 auto;
+    /* Not flex:1 — the message sizes to its content so the flex row can
+       centre it. Capped so a long announcement wraps into a readable
+       column instead of stretching the full viewport width. */
+    flex: 0 1 auto;
     min-inline-size: 0;
+    max-inline-size: 78ch;
+    text-align: center;
     overflow-wrap: anywhere;
   }
+  /* `:global` is load-bearing, not stylistic. These anchors are built with
+     createElement at runtime, so they never receive Astro's scoping
+     attribute — a plain `.site-notice__message a` rule compiles to
+     `a[data-astro-cid-…]` and silently matches nothing, leaving the links
+     with the global link colour instead of the banner's own. */
+  .site-notice__message :global(a) {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .site-notice__message :global(a:hover) {
+    text-decoration-thickness: 2px;
+  }
+  .site-notice__message :global(a:focus-visible) {
+    outline: none;
+    border-radius: 2px;
+    box-shadow: var(--shadow-focus);
+  }
   .site-notice__dismiss {
+    /* Pinned rather than in flow, so it can't shift the centred message. */
+    position: absolute;
+    inset-inline-end: var(--space-3);
+    inset-block-start: calc(var(--space-3) - 2px);
     flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     inline-size: 28px;
     block-size: 28px;
-    margin-block-start: -2px;
     padding: 0;
     border: 1px solid transparent;
     border-radius: var(--radius-sm, 6px);
@@ -155,6 +187,7 @@
     type Notice,
     activeNotices,
     isNoticeDismissed,
+    linkifyMessage,
     presentationLevel,
     rememberNoticeDismissal,
     resolveDismissalStorage,
@@ -193,10 +226,24 @@
       // render an unstyled, unreadable banner.
       const level = presentationLevel(notice.level);
       el.classList.add(`site-notice--${level}`);
-      // textContent, never innerHTML: the message is admin-authored, but
-      // admin-authored is not the same as trusted markup, and a banner on
-      // every page is the last place to allow script injection.
-      message.textContent = notice.message;
+      // Built from real nodes, never innerHTML: the message is
+      // admin-authored, but admin-authored is not the same as trusted
+      // markup, and a banner on every page is the last place to allow
+      // script injection. `linkifyMessage` only ever yields https?:// URLs,
+      // so a `javascript:` href is unreachable from message text.
+      message.replaceChildren();
+      for (const segment of linkifyMessage(notice.message)) {
+        if (segment.type === "text") {
+          message.append(segment.value);
+          continue;
+        }
+        const link = document.createElement("a");
+        link.href = segment.value;
+        link.textContent = segment.value;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        message.append(link);
+      }
       // A critical notice interrupts; the other two are polite updates.
       if (level === "critical") el.setAttribute("role", "alert");
 

@@ -180,6 +180,52 @@ export function presentationLevel(level: string): NoticeLevel {
   return LEGACY_LEVEL_ALIASES[level] ?? "tip";
 }
 
+/** One run of a notice message: literal text, or a URL to render as a link. */
+export type MessageSegment =
+  | { readonly type: "text"; readonly value: string }
+  | { readonly type: "link"; readonly value: string };
+
+/**
+ * Matches an explicit http(s) URL.
+ *
+ * Anchored on the scheme deliberately — that is what makes the result safe
+ * to assign to `href`. A looser pattern (bare `www.`, or "anything with a
+ * dot") would eventually match something whose scheme is attacker-chosen,
+ * and `javascript:alert(1)` in an href is script execution. Requiring
+ * `https?://` means the scheme can never come from the message.
+ *
+ * The trailing class excludes `.,;:!?'"` so ordinary sentence punctuation
+ * after a URL isn't swallowed into it ("see https://nemar.org." should link
+ * the URL, not the full stop). Parentheses are excluded from the body for
+ * the same reason with "(see https://nemar.org)" — the tradeoff is that a
+ * URL genuinely containing parens is cut short, which is rarer in a short
+ * operational banner than a parenthesised aside.
+ */
+const URL_PATTERN = /https?:\/\/[^\s<>()]*[^\s<>().,;:!?'"]/g;
+
+/**
+ * Splits a message into text and link runs.
+ *
+ * Returns data rather than markup on purpose: the banner builds real DOM
+ * nodes from it and the admin list renders it through Astro's escaping, so
+ * neither path ever concatenates HTML. That is the property that keeps an
+ * admin-authored message from becoming an injection vector, and it is why
+ * this is a pure function with its own tests instead of a regex applied
+ * inline at two call sites.
+ */
+export function linkifyMessage(message: string): MessageSegment[] {
+  const segments: MessageSegment[] = [];
+  let cursor = 0;
+  for (const match of message.matchAll(URL_PATTERN)) {
+    const start = match.index ?? 0;
+    if (start > cursor) segments.push({ type: "text", value: message.slice(cursor, start) });
+    segments.push({ type: "link", value: match[0] });
+    cursor = start + match[0].length;
+  }
+  if (cursor < message.length) segments.push({ type: "text", value: message.slice(cursor) });
+  return segments;
+}
+
 /**
  * Most urgent first, then most recently created.
  *
