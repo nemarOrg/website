@@ -1,7 +1,13 @@
 ---
+import OverviewGrid from "../../components/admin/OverviewGrid.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
+import {
+  type MetricHistory,
+  fetchMetricHistory,
+  fetchObservabilitySnapshot,
+} from "../../lib/observability";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -14,15 +20,32 @@ if (!session) {
   // non-null for AdminLayout's required `session` prop below.
   return Astro.redirect("/login");
 }
+
+// Sparklines cost one extra subrequest each, so this is a deliberately small
+// curated set rather than one per tile: the metrics where a *trend* changes
+// what an admin does (is the catalog growing, is the archive backlog draining,
+// is Zarr failure accumulating). Everything else reads fine as a point value.
+const SPARKLINE_METRICS = ["datasets.public", "archive.missing", "zarr.failed"] as const;
+
+// Snapshot and histories are issued concurrently — awaiting them in sequence
+// would stack four round-trips onto every admin page render. Each fetcher is
+// fail-soft (returns null on error, non-2xx, or its 5s deadline), so a
+// dashboard.nemar.org outage degrades this page instead of hanging or 500ing it.
+const [snapshot, historyResults] = await Promise.all([
+  fetchObservabilitySnapshot(),
+  Promise.all(SPARKLINE_METRICS.map((key) => fetchMetricHistory(key))),
+]);
+
+const history: Record<string, MetricHistory | null> = Object.fromEntries(
+  SPARKLINE_METRICS.map((key, i) => [key, historyResults[i] ?? null]),
+);
 ---
 
 <AdminLayout title="Overview" active="overview" session={session}>
-  <p class="admin-placeholder">Overview tiles land in Phase 2.</p>
-</AdminLayout>
+  <Fragment slot="lede">
+    Platform health across datasets, archives, Zarr conversion, imports, publication, access, and
+    users. Figures come from the observability snapshot and refresh hourly.
+  </Fragment>
 
-<style>
-  .admin-placeholder {
-    margin: 0;
-    color: var(--color-fg-muted);
-  }
-</style>
+  <OverviewGrid snapshot={snapshot} history={history} />
+</AdminLayout>
