@@ -9,9 +9,9 @@ ww2.nemar.org + app.nemar.org; apex nemar.org still legacy F5). `staging` is a
 fast-forward mirror of `main` deploying test.nemar.org against the nemar-cli `dev`
 backends. See AGENTS.md "Branch ↔ environment map".
 
-**New this session: the `/admin` portal is live on app.nemar.org.** Phases 1–2 of
-epic #158 shipped to production (PR #171, `b58093f`); Phase 3 (users admin) is in
-review as PR #174.
+**New this session: the `/admin` portal is live on app.nemar.org.** Phases 1–3 of
+epic #158 shipped to production (PR #171 → `b58093f`; PR #174 → `92cf934`).
+Phases 4–5 (imports/quarantine triage, notices) are not yet scoped.
 
 ## What happened this session
 
@@ -27,9 +27,16 @@ review as PR #174.
    - **Phase 2 (#168, PR #170):** fail-soft observability client + hand-rolled SVG
      tile grid / breakdowns / sparklines, wired into `/admin` at `6b06d26`.
    - Verified in prod: anonymous `/admin` → 302 `/login?next=%2Fadmin`.
-3. **Phase 3 (#172, PR #174) — users admin**, awaiting review at time of writing.
-   Signup-approval queue, user detail, approve/revoke + owner-only role change and
-   delete, awaiting-approval badge in the shared shell.
+3. **Phase 3 (#172, PR #174 → `92cf934`) — users admin, shipped.** Signup-approval
+   queue, user detail, approve/revoke + owner-only role change and delete,
+   awaiting-approval badge in the shared shell. Review caught one real bug, fixed
+   before merge: **self-targeting actions weren't gated client-side.** The backend
+   blocks self-revoke / self-role-change / self-delete to prevent lockout, but the
+   UI walked an owner through the full typed confirmation before surfacing the 400.
+   Now gated via an exported, tested `isSelf()` helper that compares ids **as
+   strings** — `Number(session.user.id)` would be `NaN` for the dev mock's
+   non-numeric ids, so the bug would have looked fixed locally while staying live
+   in production. Self-*approve* is deliberately not gated: the backend permits it.
 4. **Two upstream issues filed** from things found while reading the real backends
    (see "Blockers found this session").
 
@@ -94,9 +101,10 @@ render itself.
 
 ## Immediate pick-ups
 
-- **Merge PR #174** once review clears; close #172 by hand if it targeted a
-  non-default branch (it targets `main`, so `Closes` should fire).
-- **Real admin pass on a preview deploy** of the users admin (fixture-verified only).
+- **Real admin pass on a preview deploy** of the users admin. It was verified
+  against a fixture API server, not live data (see the dev-auth gotcha above), so
+  the owner-only affordances and the null-username rows deserve one look with a
+  real admin session before they're trusted.
 - **Promote nemar-cli `dev` → `main`** — still the blocker for `/auth/me` profile
   fields (#1007) reaching production app.nemar.org. Check the grandfather backfill
   count first; the upload gate is stricter now.
