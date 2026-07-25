@@ -19,21 +19,33 @@ import { apiBase, dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError } from "./dashboard-api";
 
 /**
- * Severity, constrained to these three by BOTH a `z.enum` in
- * `admin/notices.ts` and a `CHECK` constraint on the `notices` table.
- * (Deliberately not citing a migration number: the table has already been
- * rebuilt once by an unrelated migration that re-declared the same
- * constraint, so a number here rots.) Adding a level requires an upstream
- * migration, so the website maps presentation onto these three rather than
- * inventing levels the backend would reject — nemar-cli#1025 widens the
- * vocabulary, tracked for this repo at website#180.
+ * Severity, constrained by BOTH a `z.enum` in `admin/notices.ts` and a
+ * `CHECK` constraint on the `notices` table (nemar-cli#1025). Ordered here
+ * most urgent first — {@link LEVEL_RANK} depends on that.
+ *
+ * - `critical`     live outage, data at risk
+ * - `warning`      degraded right now
+ * - `maintenance`  planned or in-progress work window
+ * - `announcement` good news: a conference, a release, a milestone
+ * - `tip`          low-key hint or standing note
+ *
+ * `info` was renamed to `tip` upstream. It is absent here because it can no
+ * longer be *read back*: the backend still accepts it on write and
+ * normalizes it to `tip` before storing, so nothing that posts `info`
+ * breaks — but no response will ever carry it.
  */
-export type NoticeLevel = "info" | "warning" | "critical";
+export type NoticeLevel = "critical" | "warning" | "maintenance" | "announcement" | "tip";
 
 /** Audience. The public endpoint applies this server-side from the session. */
 export type NoticeScope = "all" | "admins" | "members";
 
-export const NOTICE_LEVELS: readonly NoticeLevel[] = ["info", "warning", "critical"];
+export const NOTICE_LEVELS: readonly NoticeLevel[] = [
+  "critical",
+  "warning",
+  "maintenance",
+  "announcement",
+  "tip",
+];
 export const NOTICE_SCOPES: readonly NoticeScope[] = ["all", "admins", "members"];
 
 /**
@@ -134,15 +146,47 @@ export function isNoticeExpired(notice: Pick<Notice, "expires_at">, now: Date): 
   return expiry <= now.getTime();
 }
 
-const LEVEL_RANK: Record<NoticeLevel, number> = { critical: 0, warning: 1, info: 2 };
+/** Urgency rank, derived from NOTICE_LEVELS so the two can't disagree. */
+const LEVEL_RANK: Record<NoticeLevel, number> = Object.fromEntries(
+  NOTICE_LEVELS.map((level, index) => [level, index]),
+) as Record<NoticeLevel, number>;
+
+/**
+ * Levels a backend may still return that aren't in the current vocabulary.
+ * `info` was renamed to `tip` by nemar-cli#1025, which is on that repo's
+ * `dev` but not yet promoted to `main` — so production `api.nemar.org` still
+ * serves `info` today.
+ */
+const LEGACY_LEVEL_ALIASES: Readonly<Record<string, NoticeLevel>> = { info: "tip" };
+
+/**
+ * Maps whatever the backend sent onto a level this frontend can render.
+ *
+ * The website and the API deploy independently, so at any moment either can
+ * be ahead: production serves `info` while this build knows only `tip`, and
+ * after a future vocabulary change the reverse could hold. Both directions
+ * have to be survivable, because the failure is ugly and silent — an
+ * unmapped level yields `undefined` from `LEVEL_RANK`, `NaN` out of the sort
+ * comparator (which makes the *whole* stack order arbitrary, not just that
+ * row) and a `site-notice--<unknown>` class with no styling, so the banner
+ * renders unreadable rather than not at all.
+ *
+ * Unknown levels fall back to `tip`: the quietest treatment, on the
+ * principle that a message we can't classify should still be shown, just
+ * not shouted.
+ */
+export function presentationLevel(level: string): NoticeLevel {
+  if ((NOTICE_LEVELS as readonly string[]).includes(level)) return level as NoticeLevel;
+  return LEGACY_LEVEL_ALIASES[level] ?? "tip";
+}
 
 /**
  * Most urgent first, then most recently created.
  *
  * Reproduces the backend's own `ORDER BY` (services/notices.ts) so the
  * stack reads the same whichever endpoint supplied it, and so a transient
- * `critical` maintenance banner always sits above a long-lived `info`
- * announcement rather than below it.
+ * `maintenance` or `critical` banner always sits above a long-lived `tip`
+ * or `announcement` rather than below it.
  *
  * Total: this is a plain string comparison, not a date parse, so a garbled
  * `created_at` can never throw here — it just lands wherever it sorts
@@ -153,7 +197,7 @@ const LEVEL_RANK: Record<NoticeLevel, number> = { critical: 0, warning: 1, info:
  */
 export function sortNotices(notices: readonly Notice[]): Notice[] {
   return [...notices].sort((a, b) => {
-    const byLevel = LEVEL_RANK[a.level] - LEVEL_RANK[b.level];
+    const byLevel = LEVEL_RANK[presentationLevel(a.level)] - LEVEL_RANK[presentationLevel(b.level)];
     if (byLevel !== 0) return byLevel;
     return (b.created_at ?? "").localeCompare(a.created_at ?? "");
   });
@@ -178,19 +222,27 @@ export function dismissalKey(id: number): string {
 }
 
 /**
+ * Levels describing live or imminent operational state. These re-assert on
+ * the next visit even after being dismissed — see {@link dismissalStore}.
+ */
+const OPERATIONAL_LEVELS: readonly NoticeLevel[] = ["critical", "warning", "maintenance"];
+
+/**
  * Where a dismissal is remembered, by severity.
  *
- * `info` and `warning` persist in `localStorage`: a standing announcement
- * (say a months-long "the site has moved" banner) that reappeared on every
- * visit after being dismissed would be an irritation, not information.
+ * The split is *operationally live* vs *read-once*, not raw severity:
  *
- * `critical` uses `sessionStorage`, so it can be dismissed to get it out of
- * the way but returns on the next visit while it is still live. An active
- * outage or data-loss warning should keep asserting itself; that is the
- * whole point of the level.
+ * - `critical` / `warning` / `maintenance` use `sessionStorage`, so they can
+ *   be dismissed to get them out of the way but return on the next visit
+ *   while still live. An outage, a degradation, or an upcoming maintenance
+ *   window should keep asserting itself until it expires — that is what the
+ *   levels are for.
+ * - `announcement` / `tip` persist in `localStorage`. A conference notice or
+ *   a months-long "the site has moved" banner that reappeared on every visit
+ *   after being dismissed would be an irritation, not information.
  */
-export function dismissalStore(level: NoticeLevel): "local" | "session" {
-  return level === "critical" ? "session" : "local";
+export function dismissalStore(level: string): "local" | "session" {
+  return OPERATIONAL_LEVELS.includes(presentationLevel(level)) ? "session" : "local";
 }
 
 /**
@@ -206,7 +258,7 @@ export function dismissalStore(level: NoticeLevel): "local" | "session" {
  * implementations, not mocks).
  */
 export function resolveDismissalStorage(
-  level: NoticeLevel,
+  level: string,
   getLocal: () => Storage,
   getSession: () => Storage,
 ): Storage | null {

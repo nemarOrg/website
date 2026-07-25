@@ -35,6 +35,12 @@
   --color-warning: #b45309;
   --color-danger: #b91c1c;
   --color-info: var(--brand-teal);
+  /* Planned/in-progress work — the notice `maintenance` level (website#180).
+     Violet keeps "scheduled" visibly distinct from "broken now" (danger red)
+     and "degraded" (warning amber), which is the whole point of the level.
+     Dark-lifted below like the tag families, because it is rendered as TEXT
+     in the admin badge, not only as a dot. */
+  --color-maintenance: #6d28d9;
 
   /* --- TAG COLOR BIBLE (see .rules/design-language.md "Tag color bible") ---
      Three tag families share one element (Tag.astro) but carry distinct
@@ -142,6 +148,9 @@
     /* Brand — pale gold reads on the navy ground; deep gold is for light. */
     --brand-gold: var(--brand-gold-light);
 
+    /* Semantic — dark-lifted where used as text (see :root). */
+    --color-maintenance: #a78bfa;
+
     /* Tag color bible — dark-lifted (see :root for the semantics). */
     --modality-eeg: #60a5fa;
     --modality-meg: #a78bfa;
@@ -174,6 +183,9 @@
   --color-focus: #60a5fa;
   --color-link: #93c5fd;
   --color-link-hover: #bfdbfe;
+
+  /* Semantic — dark-lifted where used as text (see :root). */
+  --color-maintenance: #a78bfa;
 
   /* Tag color bible — dark-lifted (see :root for the semantics). */
   --modality-eeg: #60a5fa;

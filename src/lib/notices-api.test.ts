@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  NOTICE_LEVELS,
   type Notice,
+  type NoticeLevel,
   activeNotices,
   createNotice,
   deleteNotice,
@@ -10,6 +12,7 @@ import {
   isNoticeDismissed,
   isNoticeExpired,
   listAdminNotices,
+  presentationLevel,
   rememberNoticeDismissal,
   resolveDismissalStorage,
   sortNotices,
@@ -20,7 +23,7 @@ function notice(overrides: Partial<Notice> = {}): Notice {
   return {
     id: 1,
     message: "Scheduled maintenance tonight.",
-    level: "info",
+    level: "tip",
     scope: "all",
     created_at: "2026-07-20 12:00:00",
     expires_at: null,
@@ -72,27 +75,79 @@ describe("isNoticeExpired", () => {
 describe("sortNotices", () => {
   // A transient maintenance banner must sit above a months-long standing
   // announcement, never under it.
-  it("puts critical above warning above info", () => {
+  it("orders the full vocabulary most urgent first", () => {
     const sorted = sortNotices([
-      notice({ id: 1, level: "info" }),
-      notice({ id: 2, level: "critical" }),
-      notice({ id: 3, level: "warning" }),
+      notice({ id: 1, level: "tip" }),
+      notice({ id: 2, level: "announcement" }),
+      notice({ id: 3, level: "maintenance" }),
+      notice({ id: 4, level: "warning" }),
+      notice({ id: 5, level: "critical" }),
     ]);
-    expect(sorted.map((n) => n.id)).toEqual([2, 3, 1]);
+    expect(sorted.map((n) => n.level)).toEqual([
+      "critical",
+      "warning",
+      "maintenance",
+      "announcement",
+      "tip",
+    ]);
+  });
+
+  // The ranking is derived from NOTICE_LEVELS, so the two can never disagree
+  // — a level added to the array can't silently sort to the bottom.
+  it("ranks exactly in NOTICE_LEVELS order", () => {
+    const shuffled = [...NOTICE_LEVELS].reverse().map((level, i) => notice({ id: i, level }));
+    expect(sortNotices(shuffled).map((n) => n.level)).toEqual([...NOTICE_LEVELS]);
   });
 
   it("puts the newest first within a level", () => {
     const sorted = sortNotices([
-      notice({ id: 1, level: "info", created_at: "2026-01-01 00:00:00" }),
-      notice({ id: 2, level: "info", created_at: "2026-07-01 00:00:00" }),
+      notice({ id: 1, level: "tip", created_at: "2026-01-01 00:00:00" }),
+      notice({ id: 2, level: "tip", created_at: "2026-07-01 00:00:00" }),
     ]);
     expect(sorted.map((n) => n.id)).toEqual([2, 1]);
   });
 
   it("does not mutate its input", () => {
-    const input = [notice({ id: 1, level: "info" }), notice({ id: 2, level: "critical" })];
+    const input = [notice({ id: 1, level: "tip" }), notice({ id: 2, level: "critical" })];
     sortNotices(input);
     expect(input.map((n) => n.id)).toEqual([1, 2]);
+  });
+});
+
+describe("presentationLevel", () => {
+  it("passes through every level in the current vocabulary", () => {
+    for (const level of NOTICE_LEVELS) {
+      expect(presentationLevel(level)).toBe(level);
+    }
+  });
+
+  // Production api.nemar.org still serves `info` (nemar-cli#1025 is on that
+  // repo's `dev`, not promoted to `main`), so this build must render rows
+  // from BOTH backends. Without the alias, `info` would miss LEVEL_RANK,
+  // produce NaN in the sort comparator — which randomizes the whole stack,
+  // not just that row — and get an unstyled `site-notice--info` class.
+  it("maps the legacy info level onto tip", () => {
+    expect(presentationLevel("info")).toBe("tip");
+  });
+
+  it("falls back to the quietest level for anything unrecognized", () => {
+    expect(presentationLevel("wat")).toBe("tip");
+    expect(presentationLevel("")).toBe("tip");
+  });
+
+  it("keeps sorting total when the backend sends a legacy level", () => {
+    const sorted = sortNotices([
+      notice({ id: 1, level: "info" as NoticeLevel }),
+      notice({ id: 2, level: "critical" }),
+      notice({ id: 3, level: "warning" }),
+    ]);
+    // info ranks as tip (last), not NaN — which would leave the order
+    // arbitrary for every element, not just this one.
+    expect(sorted.map((n) => n.id)).toEqual([2, 3, 1]);
+  });
+
+  it("routes a legacy level's dismissal to the store its mapped level uses", () => {
+    expect(dismissalStore("info")).toBe(dismissalStore("tip"));
   });
 });
 
@@ -104,13 +159,13 @@ describe("activeNotices", () => {
       [
         notice({
           id: 1,
-          level: "info",
+          level: "tip",
           message: "Site has moved",
           expires_at: "2026-10-31T00:00:00.000Z",
         }),
         notice({
           id: 2,
-          level: "critical",
+          level: "maintenance",
           message: "Maintenance",
           expires_at: "2026-07-25T18:00:00.000Z",
         }),
@@ -139,10 +194,21 @@ describe("dismissal", () => {
 
   // A standing announcement stays dismissed; a live outage re-asserts on
   // the next visit. This is the behavioural difference between the levels.
-  it("persists info and warning dismissals but not critical ones", () => {
-    expect(dismissalStore("info")).toBe("local");
-    expect(dismissalStore("warning")).toBe("local");
+  // The split is "operationally live" vs "read-once", not raw severity: an
+  // upcoming maintenance window must keep re-asserting like an outage does,
+  // while a conference announcement stays dismissed.
+  it("session-scopes the operational levels and persists the rest", () => {
     expect(dismissalStore("critical")).toBe("session");
+    expect(dismissalStore("warning")).toBe("session");
+    expect(dismissalStore("maintenance")).toBe("session");
+    expect(dismissalStore("announcement")).toBe("local");
+    expect(dismissalStore("tip")).toBe("local");
+  });
+
+  it("covers every level in the vocabulary", () => {
+    for (const level of NOTICE_LEVELS) {
+      expect(["local", "session"]).toContain(dismissalStore(level));
+    }
   });
 });
 
@@ -192,7 +258,7 @@ describe("fetchActiveNotices", () => {
     const fakeFetch = (async (url: string) => {
       expect(url).toBe("/api/v1/notices");
       return jsonResponse({
-        notices: [notice({ id: 1, level: "info" }), notice({ id: 2, level: "critical" })],
+        notices: [notice({ id: 1, level: "tip" }), notice({ id: 2, level: "critical" })],
       });
     }) as unknown as typeof fetch;
     const result = await fetchActiveNotices({ fetch: fakeFetch }, NOW);
@@ -303,15 +369,17 @@ describe("dismissal storage", () => {
         () => session,
       );
     expect(get("critical")).toBe(session);
-    expect(get("warning")).toBe(local);
-    expect(get("info")).toBe(local);
+    expect(get("warning")).toBe(session);
+    expect(get("maintenance")).toBe(session);
+    expect(get("announcement")).toBe(local);
+    expect(get("tip")).toBe(local);
   });
 
   // The access itself throws in some privacy modes — not the get/set, the
   // property read — so the try has to wrap the accessor call.
   it("returns null when reading the storage object throws", () => {
     const result = resolveDismissalStorage(
-      "info",
+      "tip",
       () => {
         throw new DOMException("denied", "SecurityError");
       },
@@ -382,7 +450,7 @@ describe("admin CRUD", () => {
       expect(init.method).toBe("POST");
       expect(JSON.parse(init.body as string)).toEqual({
         message: "Site has moved",
-        level: "info",
+        level: "tip",
         scope: "all",
         expires_at: "2026-10-31T00:00:00.000Z",
       });
@@ -391,7 +459,7 @@ describe("admin CRUD", () => {
     const created = await createNotice(
       {
         message: "Site has moved",
-        level: "info",
+        level: "tip",
         scope: "all",
         expires_at: "2026-10-31T00:00:00.000Z",
       },
@@ -407,10 +475,7 @@ describe("admin CRUD", () => {
         400,
       )) as unknown as typeof fetch;
     await expect(
-      createNotice(
-        { message: "x".repeat(1001), level: "info", scope: "all" },
-        { fetch: fakeFetch },
-      ),
+      createNotice({ message: "x".repeat(1001), level: "tip", scope: "all" }, { fetch: fakeFetch }),
     ).rejects.toMatchObject({
       status: 400,
       message: "Could not create notice: message: String must contain at most 1000 character(s)",
@@ -422,7 +487,7 @@ describe("admin CRUD", () => {
       expect(JSON.parse(init.body as string)).not.toHaveProperty("expires_at");
       return jsonResponse(notice(), 201);
     }) as unknown as typeof fetch;
-    await createNotice({ message: "m", level: "info", scope: "all" }, { fetch: fakeFetch });
+    await createNotice({ message: "m", level: "tip", scope: "all" }, { fetch: fakeFetch });
   });
 
   it("deletes by id", async () => {
@@ -470,7 +535,7 @@ describe("request deadlines", () => {
   it("aborts a hung create", async () => {
     await expect(
       createNotice(
-        { message: "m", level: "info", scope: "all" },
+        { message: "m", level: "tip", scope: "all" },
         { fetch: hangingFetch, timeoutMs: 10 },
       ),
     ).rejects.toMatchObject({ name: "TimeoutError" });
