@@ -8,6 +8,35 @@ import type {
 } from "./types";
 
 /**
+ * Default deadline for the public catalog calls below.
+ *
+ * These run during SSR of pages a visitor is waiting on, so the ceiling is
+ * "how long is it acceptable to stall a render", not "how long might the
+ * backend reasonably take".
+ */
+const DEFAULT_TIMEOUT_MS = 5000;
+
+/**
+ * Combines a caller-supplied abort signal with a deadline (website#173).
+ *
+ * Every fetch in this file previously passed `signal: init.signal`, which is
+ * `undefined` whenever the caller omits it — and none of the page callers
+ * pass one. A `try/catch` around `fetch` covers a request that *fails*
+ * (refused connection, DNS/TLS error); it does **not** cover one that opens
+ * and never writes a response. That promise simply never settles, so there
+ * is nothing to catch and nothing to time out.
+ *
+ * That matters most on `resolveCanonical`: it runs during SSR of every
+ * `ds*` dataset page, which after the apex cutover (website#190) is the path
+ * every legacy citation URL travels. A hung upstream there stalls the render
+ * rather than degrading it.
+ */
+function resolveSignal(init: { signal?: AbortSignal; timeoutMs?: number }): AbortSignal {
+  const timeout = AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+}
+
+/**
  * Project a reduced {@link SearchResult} into a full {@link Dataset} shape.
  * Used as the graceful fallback when per-id hydration of a search hit fails:
  * the card still renders name/modalities/participants/authors/snippet, just
@@ -85,11 +114,11 @@ function buildQuery(params: DatasetQuery): string {
 
 export async function listDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<DatasetListResponse> {
   const url = `${apiBase()}/datasets${buildQuery(query)}`;
   const res = await fetch(url, {
-    signal: init.signal,
+    signal: resolveSignal(init),
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
@@ -112,7 +141,7 @@ export async function listDatasets(
  */
 export async function listAllDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<Dataset[]> {
   const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
   const first = await listDatasets({ ...query, limit: PAGE, offset: 0 }, init);
@@ -144,13 +173,13 @@ export async function listAllDatasets(
  */
 export async function searchDatasets(
   q: string,
-  init: { limit?: number; signal?: AbortSignal } = {},
+  init: { limit?: number; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<DatasetSearchResponse> {
   const sp = new URLSearchParams({ q });
   if (init.limit != null) sp.set("limit", String(init.limit));
   const url = `${apiBase()}/datasets/search?${sp.toString()}`;
   const res = await fetch(url, {
-    signal: init.signal,
+    signal: resolveSignal(init),
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
@@ -182,11 +211,11 @@ export function isManagedDatasetId(id: string): boolean {
 
 export async function getDataset(
   id: string,
-  init: { signal?: AbortSignal } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<Dataset> {
   const url = `${apiBase()}/datasets/${encodeURIComponent(id)}`;
   const res = await fetch(url, {
-    signal: init.signal,
+    signal: resolveSignal(init),
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
@@ -206,11 +235,11 @@ export async function getDataset(
  */
 export async function resolveCanonical(
   sourceId: string,
-  init: { signal?: AbortSignal } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<string | null> {
   const url = `${apiBase()}/datasets/resolve/${encodeURIComponent(sourceId)}`;
   const res = await fetch(url, {
-    signal: init.signal,
+    signal: resolveSignal(init),
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {

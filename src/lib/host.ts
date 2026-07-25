@@ -179,6 +179,77 @@ const RETIRED_DOCS: ReadonlyMap<string, string> = new Map([
   ["/docs/cli-vs-web", "https://docs.nemar.org/ecosystem/cli-vs-web/"],
 ]);
 
+/** Where the legacy NEMAR site lives after the apex cutover (website#190). */
+export const LEGACY_HOST = "ww1.nemar.org";
+
+/**
+ * Legacy dataset-detail path. The old site addressed datasets as
+ * `/dataexplorer/detail?dataset_id=ds007964`; the new site uses
+ * `/dataset/<id>`.
+ */
+const LEGACY_DATASET_PATH = "/dataexplorer/detail";
+
+export interface LegacyRedirect {
+  readonly location: string;
+  /**
+   * `301` for the move to the new site — that is permanent. `302` for the
+   * bounce back to ww1, which is explicitly temporary: ww1 retires, and a
+   * cached permanent redirect would outlive it with no way to reach the
+   * clients holding it (the hazard #183 was filed for).
+   */
+  readonly status: 301 | 302;
+}
+
+/**
+ * Resolves a legacy NEMAR URL after the apex cutover (website#190).
+ *
+ * Once `nemar.org` points at this build, legacy paths land here instead of
+ * the old application — they have no route and would 404. Two audiences
+ * arrive at the same URL and want opposite things:
+ *
+ * - **Someone browsing ww1** whose legacy page linked to an absolute
+ *   `nemar.org` URL. Ejecting them to the new site mid-session loses their
+ *   context, so they go back to ww1.
+ * - **Everyone else** — a citation in a published paper, a bookmark, a
+ *   search result. They want the dataset, which now lives on the new site.
+ *
+ * `Referer` separates them, with one deliberate asymmetry: it is unreliable
+ * (stripped by privacy modes, absent on typed or bookmarked navigation), so
+ * **absent must mean "new site"**. That is the citation case, and it is the
+ * one that must not break.
+ *
+ * The id is passed through untranslated: `/dataset/<id>` already resolves a
+ * `ds*` id to its `on*` canonical via a real catalog lookup
+ * (`resolveCanonical` in `src/pages/dataset/[id].astro`), which correctly
+ * declines when no mirror exists rather than inventing an id. Re-deriving
+ * the mapping here would duplicate that rule and could disagree with it.
+ */
+export function getLegacyRedirect(url: URL, referer: string | null): LegacyRedirect | null {
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  if (path.toLowerCase() !== LEGACY_DATASET_PATH) return null;
+
+  const cameFromLegacy = (() => {
+    if (!referer) return false;
+    try {
+      return new URL(referer).hostname.toLowerCase() === LEGACY_HOST;
+    } catch {
+      // A malformed Referer is not evidence of anything; fall through to the
+      // safe default rather than throwing inside the middleware.
+      return false;
+    }
+  })();
+
+  if (cameFromLegacy) {
+    return { location: `https://${LEGACY_HOST}${url.pathname}${url.search}`, status: 302 };
+  }
+
+  const datasetId = url.searchParams.get("dataset_id")?.trim();
+  // No usable id — send them somewhere they can still find the dataset
+  // rather than to a 404 built from an empty path.
+  if (!datasetId) return { location: "/discover", status: 302 };
+  return { location: `/dataset/${encodeURIComponent(datasetId)}`, status: 301 };
+}
+
 export function getRetiredRedirect(url: URL): string | null {
   const path = url.pathname.replace(/\/+$/, "") || "/";
   const mapped = RETIRED_DOCS.get(path);

@@ -2,7 +2,13 @@ import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
-import { getCrossHostRedirect, getRetiredRedirect, hostMode, isNoindexHost } from "./lib/host";
+import {
+  getCrossHostRedirect,
+  getLegacyRedirect,
+  getRetiredRedirect,
+  hostMode,
+  isNoindexHost,
+} from "./lib/host";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -195,6 +201,20 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   // Retired paths (in-site /docs -> docs.nemar.org, /citation-dashboard ->
   // dashboard.nemar.org) take priority over cross-host routing so they never
   // bounce through the app host first.
+  // Legacy NEMAR URLs (website#190). Handled before the retired-path and
+  // cross-host rules because it is the most specific match, and here rather
+  // than as a page route because the decision needs the `Referer` header as
+  // well as the query string.
+  const legacy = getLegacyRedirect(url, context.request.headers.get("referer"));
+  if (legacy) {
+    return new Response(null, {
+      status: legacy.status,
+      // `no-store` matters doubly here: the response varies by `Referer`, so
+      // caching it would serve one audience's answer to the other.
+      headers: { Location: legacy.location, ...NO_STORE_HEADER },
+    });
+  }
+
   const retired = getRetiredRedirect(url);
   if (retired) {
     return new Response(null, {
