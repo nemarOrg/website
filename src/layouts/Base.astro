@@ -2,6 +2,7 @@
 import CookieNotice from "../components/CookieNotice.astro";
 import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
+import SiteNotices from "../components/SiteNotices.astro";
 import { resolveDataBase } from "../lib/data-base";
 import { APP_HOST, MARKETING_BASE_URL, hostMode } from "../lib/host";
 import "../styles/global.css";
@@ -128,6 +129,10 @@ const absoluteFallbackImage = fallbackImage
     </script>
   </head>
   <body>
+    {/* Above the nav so a maintenance or outage notice is the first thing
+        read, and so it never overlaps the sticky header. Suppressed on the
+        bare layout (auth/OG surfaces), which deliberately has no chrome. */}
+    {!bareLayout && <SiteNotices />}
     {!bareLayout && <Nav />}
     <main id="main">
       <slot />
