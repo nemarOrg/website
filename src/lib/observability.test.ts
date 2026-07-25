@@ -24,6 +24,15 @@ function throwingFetch(): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
+// A fetch impl that only ever settles by rejecting when its signal aborts —
+// simulates a hung upstream (connection open, response never written)
+// rather than an outright network failure, so it exercises the deadline
+// path instead of the plain try/catch-on-throw path.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
 describe("fetchObservabilitySnapshot", () => {
   it("parses the real captured snapshot", async () => {
     const fakeFetch = vi.fn(async (url: string) => {
@@ -74,6 +83,12 @@ describe("fetchObservabilitySnapshot", () => {
   it("returns null when fetch throws (network error)", async () => {
     const snapshot = await fetchObservabilitySnapshot({ fetch: throwingFetch() });
     expect(snapshot).toBeNull();
+  });
+
+  it("returns null when the upstream hangs past the deadline", async () => {
+    await expect(
+      fetchObservabilitySnapshot({ fetch: hangingFetch, timeoutMs: 10 }),
+    ).resolves.toBeNull();
   });
 
   it("returns null on a garbage (non-JSON) body", async () => {
@@ -191,6 +206,12 @@ describe("fetchMetricHistory", () => {
   it("returns null when fetch throws", async () => {
     const history = await fetchMetricHistory("datasets.public", { fetch: throwingFetch() });
     expect(history).toBeNull();
+  });
+
+  it("returns null when the upstream hangs past the deadline", async () => {
+    await expect(
+      fetchMetricHistory("datasets.public", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).resolves.toBeNull();
   });
 
   it("returns null on a garbage body", async () => {

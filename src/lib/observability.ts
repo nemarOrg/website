@@ -81,6 +81,21 @@ interface FetchInit {
   readonly fetch?: typeof fetch;
   readonly signal?: AbortSignal;
   readonly baseUrl?: string;
+  /** Abort the request after this many ms. Defaults to 5000. */
+  readonly timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 5000;
+
+/**
+ * Combines a caller-supplied abort signal (if any) with a deadline, so a
+ * hung dashboard.nemar.org response can't stall an SSR render indefinitely
+ * — a plain `try/catch` around `fetch` only covers outright network
+ * rejection, not a connection that opens and then never writes a response.
+ */
+function resolveSignal(init: FetchInit): AbortSignal {
+  const timeout = AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -191,7 +206,7 @@ export async function fetchObservabilitySnapshot(
   try {
     res = await fetchImpl(`${base}/snapshot`, {
       headers: { Accept: "application/json" },
-      signal: init.signal,
+      signal: resolveSignal(init),
     });
   } catch {
     return null;
@@ -220,7 +235,7 @@ export async function fetchMetricHistory(
   try {
     res = await fetchImpl(`${base}/snapshot/history?metric=${encodeURIComponent(metricKey)}`, {
       headers: { Accept: "application/json" },
-      signal: init.signal,
+      signal: resolveSignal(init),
     });
   } catch {
     return null;
