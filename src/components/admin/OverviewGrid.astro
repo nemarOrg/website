@@ -6,6 +6,7 @@
  * passes it straight through — this component owns no fetching itself so
  * it stays easy to render from a scratch page or the real route alike.
  */
+import { adminMetricHref } from "../../lib/admin-tabs";
 import { formatRelativeTime } from "../../lib/format";
 import type { Metric, MetricHistory, MetricSection, MetricSnapshot } from "../../lib/observability";
 import MetricBreakdown from "./MetricBreakdown.astro";
@@ -20,15 +21,9 @@ interface Props {
 
 const { snapshot, history = {} } = Astro.props;
 
-// Deep-link only the families with a real destination today. Phase 1
-// (website#167) ships /admin/users and /admin/imports as *disabled* tabs,
-// so linking users.*/imports.* now would be a dead link — Phase 3 (users
-// admin) and Phase 4 (imports/quarantine triage) enable those routes; see
-// the phase breakdown on epic website#158. Only publication.* has a live
-// destination (`/admin/publication-requests`, shipped today).
-function hrefFor(metricKey: string): string | undefined {
-  return metricKey.startsWith("publication.") ? "/admin/publication-requests" : undefined;
-}
+// Tile deep-links live in `admin-tabs.ts` (unit-tested there) rather than
+// inline here — Astro frontmatter is outside the vitest surface and nobody
+// clicks every metric tile during manual QA.
 
 // Any metric carrying a breakdown renders as a distribution rather than a
 // plain tile — checked structurally (not by a fixed key list) so a new
@@ -79,7 +74,7 @@ function historyFor(section: MetricSection): Array<{ metric: Metric; hist: Metri
                     <MetricBreakdown metric={metric} />
                   </div>
                 ) : (
-                  <MetricTile metric={metric} href={hrefFor(metric.key)} />
+                  <MetricTile metric={metric} href={adminMetricHref(metric.key)} />
                 ),
               )}
             </div>

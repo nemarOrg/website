@@ -374,7 +374,16 @@ export async function fetchAwaitingApprovalCount(init: Init = {}): Promise<numbe
       { ...init, timeoutMs: init.timeoutMs ?? BADGE_TIMEOUT_MS },
     );
     return count;
-  } catch {
+  } catch (err) {
+    // `null` (couldn't ask) and `0` (nobody waiting) both render as "no
+    // badge", so without a log line a broken users endpoint is
+    // indistinguishable from an empty approval queue — and the
+    // indistinguishable one reads as good news. `console.*` from the
+    // Worker lands in Workers Logs.
+    console.warn(
+      "[users-admin-api] awaiting-approval badge degraded to null:",
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
 }
