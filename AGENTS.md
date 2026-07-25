@@ -95,6 +95,29 @@ bun run lint       # biome
 
 ## Deploy (SCCN Cloudflare account)
 
+**On the marketing surface, "deployed" and "visible" are different things.**
+`ww2.nemar.org` responses are edge-cached by `src/middleware.ts`, and the
+cached artifact is the page HTML — component markup and hashed asset URLs
+included. `app.nemar.org` skips the cache entirely (authenticated), so the
+two hosts can disagree for hours and it reads like a host-specific rendering
+bug rather than a cache one. That is exactly how website#188 presented.
+
+The cache namespace is now derived from the build commit
+(`__EDGE_CACHE_NAMESPACE__` in `astro.config.mjs`), so a deploy invalidates
+by construction. To confirm a change is actually live, compare the **served
+asset hash** across hosts rather than trusting the deploy's green tick:
+
+```bash
+curl -s https://ww2.nemar.org/ | grep -o '_astro/index\.[A-Za-z0-9]*\.css'
+curl -s https://app.nemar.org/login | grep -o '_astro/index\.[A-Za-z0-9]*\.css'
+curl -sD- -o/dev/null https://ww2.nemar.org/ | grep -i x-nemar-cache
+```
+
+Different hashes with `x-nemar-cache: HIT` means ww2 is still serving a
+previous build. Grep the bundle for a marker unique to your change — a
+generic declaration like `text-align:center` appears throughout and will
+false-positive.
+
 ```bash
 # Build
 rm -rf dist && bun run build
