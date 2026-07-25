@@ -13,6 +13,7 @@
  */
 import { ADMIN_TABS, type AdminTab } from "../lib/admin-tabs";
 import type { AuthSession } from "../lib/auth";
+import { fetchAwaitingApprovalCount } from "../lib/users-admin-api";
 import Base from "./Base.astro";
 
 interface Props {
@@ -22,11 +23,19 @@ interface Props {
 }
 
 // `session` is intentionally unread here: it stays on the prop contract because
-// phases 3-5 gate owner-only affordances (role change, delete user, rollback of
-// public/DOI datasets) on `session.user.backend_role`, and every admin page
-// already resolves it for `adminGate()`.
+// phases 4-5 gate owner-only affordances (rollback of public/DOI datasets) on
+// `session.user.backend_role`, and every admin page already resolves it for
+// `adminGate()`. (Phase 3 users pages read `backend_role` themselves.)
 const { title, active } = Astro.props;
 const hasLede = Astro.slots.has("lede");
+
+// Awaiting-approval badge on the Users tab, rendered from every admin page
+// (not just /admin/users) since the shell is shared. Fail-soft — never
+// throws — so a `nemar-cli` hiccup degrades to "no badge" instead of
+// breaking every admin page's render; see fetchAwaitingApprovalCount's
+// docstring for the mirrored contract in observability.ts.
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const usersAwaitingApproval = await fetchAwaitingApprovalCount({ cookieHeader });
 ---
 
 <Base title={`Admin - ${title}`} description="NEMAR admin portal.">
@@ -49,6 +58,9 @@ const hasLede = Astro.slots.has("lede");
             aria-current={tab.id === active ? "page" : undefined}
           >
             {tab.label}
+            {tab.id === "users" && Boolean(usersAwaitingApproval) && (
+              <span class="admin-tabs__badge">{usersAwaitingApproval}</span>
+            )}
           </a>
         ) : (
           <span class="admin-tabs__link admin-tabs__link--soon" aria-disabled="true">
@@ -107,6 +119,20 @@ const hasLede = Astro.slots.has("lede");
     background: var(--brand-teal);
     color: var(--brand-navy);
     border-color: var(--brand-teal);
+  }
+  .admin-tabs__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-inline-size: 1.25rem;
+    padding: 0 5px;
+    margin-inline-start: var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--color-warning);
+    color: var(--color-bg);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    line-height: 1.4;
   }
   .admin-tabs__link--soon {
     cursor: default;
