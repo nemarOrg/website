@@ -1,6 +1,6 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-07-24/25.
+**Last session:** 2026-07-25.
 
 ## TL;DR — where we are right now
 
@@ -9,62 +9,63 @@ ww2.nemar.org + app.nemar.org; apex nemar.org still legacy F5). `staging` is a
 fast-forward mirror of `main` deploying test.nemar.org against the nemar-cli `dev`
 backends. See AGENTS.md "Branch ↔ environment map".
 
-**New this session: the `/admin` portal is live on app.nemar.org.** Phases 1–3 of
-epic #158 shipped to production (PR #171 → `b58093f`; PR #174 → `92cf934`).
-Phases 4–5 (imports/quarantine triage, notices) are not yet scoped.
+**Epic #158 (admin portal) is CLOSED — all five tabs live**: Overview,
+Publications, Users, Imports, Notices. Phases 4 (#176 → PR #177) and 5 (#178 →
+PR #179) shipped this session, plus four follow-up fixes.
+
+**nemar-cli is at 0.9.6 on `main`** — the notice level vocabulary and the
+same-day expiry fix were promoted to production, with migrations 0063 and 0064
+applied to `nemar-db`.
+
+**Notices are live and in real use.** A production notice is up
+(`tip`, pointing at ww1.nemar.org, expiring 2026-10-01).
 
 ## What happened this session
 
-1. **ADR 0010 landed** (PR #166). The tiered-access decision (base auto on ORCID vs
-   admin-granted service access) is now recorded in `.context/decisions/`.
-   Note: `main` is protected — 4 required checks — so even docs need a PR.
-2. **Admin portal epic #158, Phases 1–2 shipped to prod** (PR #171 → `b58093f`):
-   - **Phase 1 (#167, PR #169):** `adminGate()` extracted from the previously-inlined
-     gate (404-not-403 preserved), `ADMIN_TABS`, `AdminLayout.astro`,
-     `/admin` route, `publication-requests` refactored onto the shell (URL and
-     behaviour unchanged), UserMenu → `/admin`, and additive `AuthUser.backend_role`
-     carrying the uncollapsed `owner|admin|member` for owner-only gating.
-   - **Phase 2 (#168, PR #170):** fail-soft observability client + hand-rolled SVG
-     tile grid / breakdowns / sparklines, wired into `/admin` at `6b06d26`.
-   - Verified in prod: anonymous `/admin` → 302 `/login?next=%2Fadmin`.
-3. **Phase 3 (#172, PR #174 → `92cf934`) — users admin, shipped.** Signup-approval
-   queue, user detail, approve/revoke + owner-only role change and delete,
-   awaiting-approval badge in the shared shell. Review caught one real bug, fixed
-   before merge: **self-targeting actions weren't gated client-side.** The backend
-   blocks self-revoke / self-role-change / self-delete to prevent lockout, but the
-   UI walked an owner through the full typed confirmation before surfacing the 400.
-   Now gated via an exported, tested `isSelf()` helper that compares ids **as
-   strings** — `Number(session.user.id)` would be `NaN` for the dev mock's
-   non-numeric ids, so the bug would have looked fixed locally while staying live
-   in production. Self-*approve* is deliberately not gated: the backend permits it.
-4. **Two upstream issues filed** from things found while reading the real backends
-   (see "Blockers found this session").
+1. **Phase 4 — imports/quarantine triage** (#176, PR #177). `/admin/imports` with
+   status chips backed by fleet-wide `by_status` counts, retry / verify / rollback
+   gated on the statuses each endpoint actually accepts.
+2. **Phase 5 — notices** (#178, PR #179). `/admin/notices` CRUD plus site-wide
+   banners in `Base.astro`, client-fetched from a `no-store` `/api/notices`.
+3. **nemar-cli #1025/#1026** — notice `level` widened to
+   `tip | announcement | maintenance | warning | critical` (migration 0063).
+   `--level info` still works and normalises to `tip`.
+4. **nemar-cli #1024/#1027** — same-day expiry fixed (migration 0064), plus
+   #1029, a round-trip guard the review panel caught.
+5. **Promotion #1028** — `dev` → `main`, reviewed before merge as requested.
+6. **Website follow-ups:** #181/#182 (host-neutral `/api/notices`), #180/#184
+   (five levels + `--color-maintenance` token), #183/#185 (redirects `no-store`),
+   #186/#187 (hyperlinked + centred banners), #188/#189 (per-build edge cache).
 
 ## Gotchas learned this session (these cost real time)
 
-- **`main` requires branches to be up to date.** A PR cut before another merge lands
-  goes `mergeStateStatus: BEHIND` and `gh pr merge` refuses with a misleading
-  "add --auto" hint. Fix: merge `main` into the branch, re-run gates, wait for CI.
-- **`Closes #N` does not fire for PRs merged into a non-default branch.** Phase PRs
-  targeting an epic branch leave their issues open; close them by hand.
-- **Phase PRs → epic branch are squash-merged** (matches the prior epic's history:
-  single-parent commits). The "regular merge commit, never squash" rule in the
-  global instructions governs merges to `main`, not phase→epic.
-- **Local dev cannot authenticate a dev-mock session against production
-  `api.nemar.org`.** This is pre-existing (the publication-requests page has the
-  same limitation), not new. To exercise admin UI locally you need a fixture API
-  server pointed at via `PUBLIC_API_BASE_URL`. Consequence: **Phase 3's UI was
-  verified against fixtures, not live data — it deserves a real admin pass on a
-  preview deploy.**
-- **Dev admin session recipe** (`astro dev` only): emails ending `@nemar.admin` get
-  `role: "admin"` in the dev mock; accepted code is `123456`.
-  `POST /api/auth/code/request` then `/api/auth/code/verify`. Note the mock yields
-  `admin`, not `owner`, which makes it a good test that owner-only controls are
-  *absent*.
-- **First `/admin` request under `astro dev` can exceed 5s** (Vite cold dependency
-  optimization) and trip the observability deadline, rendering the degraded
-  "Overview data is unavailable" state. Re-request warm before believing it.
-  Warm render is ~370ms.
+- **"Deployed" ≠ "visible" on ww2.** Marketing HTML is edge-cached and the cached
+  artifact includes hashed asset URLs, so a deploy could stay invisible for up to
+  12 h. Fixed in #189 (namespace derived from the build commit), documented in
+  AGENTS.md with the asset-hash check. **Never confirm a deploy by grepping the
+  bundle for a generic declaration** — `text-align:center` false-positived and I
+  reported #187 as live on ww2 when it wasn't.
+- **`gh run list --limit 1` is not "my run".** Twice I read "No migrations to
+  apply" from a deploy that fired seconds after the merge commit's own run, and
+  twice concluded wrongly. Resolve the merge SHA and view that run.
+- **Astro scopes styles by attribute.** Elements built with `createElement` never
+  receive `data-astro-cid-*`, so `.parent a { }` compiles to `a[data-astro-cid-…]`
+  and silently matches nothing. Use `.parent :global(a)`. Nodes cloned from a
+  `<template>` in the same file *do* carry it — so "some rules apply, some don't"
+  is the signature.
+- **`astro.config.mjs` is `@ts-check`ed with no `@types/node`.** A bare
+  `process.env` typechecks locally (something in the tree supplies the global) and
+  fails `astro check` in CI. Read env through a `globalThis` cast.
+- **Concurrent review subagents share one working tree.** One mutated a file to
+  measure coverage while another read it mid-mutation and reported a critical bug
+  that did not exist. Verify a finding against the file before acting on it.
+- **A migration that narrows a CHECK has a deploy window.** Migrations apply before
+  the Worker deploys, so briefly the new constraint is live against old code.
+  Admin-only and retryable, but don't create a notice during a deploy.
+- **SQLite `datetime()` returns NULL for input it can't parse**, and NULL in a
+  nullable column can mean the opposite of what the caller intended (here: "never
+  expires"). It also reinterprets a bare numeric string as a Julian Day Number
+  rather than rejecting it. Guard round-trips, don't assume rejection.
 
 ## The recurring bug class to watch for
 
@@ -87,41 +88,56 @@ render itself.
 
 ## Blockers found this session
 
-- **nemar-cli#1023 (filed)** — no admin endpoints exist to grant/revoke service
+- **nemar-observability#8 (filed)** — deprecate that Worker's admin action relays.
+  All four relayed actions now exist in this portal, so the paste-an-`nm_…`-API-key
+  mutation path has no remaining reason to exist. Parity already achieved; it's a
+  removal, not a migration.
+- **nemar-cli#1023 (pre-existing)** — no admin endpoints to grant/revoke service
   access, and `GET /admin/users` doesn't project `service_access` or the
-  city/country/affiliation fields ADR 0010 requires for export-control review. The
-  enforcement half of tiered access shipped; the granting half was never built.
-  This is why the service-access queue was cut from Phase 3.
+  city/country/affiliation fields ADR 0010 needs. Still why the service-access
+  queue is cut from the portal.
 - **nemar-cli#1012 (pre-existing, open)** — ORCID/web signups land with
   `username = NULL`, and every admin write endpoint except delete is keyed by
-  username, so those users are unaddressable. Phase 3 renders them with an
-  explanation + issue link and offers only the id-keyed delete (owner-only). Do not
-  "fix" this by hiding those rows: they are exactly the population the approval
-  queue exists to serve.
+  username. The users page renders them with an explanation + issue link and offers
+  only the id-keyed delete (owner-only). Do not "fix" this by hiding those rows:
+  they are exactly the population the approval queue exists to serve.
 
 ## Immediate pick-ups
 
-- **Real admin pass on a preview deploy** of the users admin. It was verified
-  against a fixture API server, not live data (see the dev-auth gotcha above), so
-  the owner-only affordances and the null-username rows deserve one look with a
-  real admin session before they're trusted.
-- **Promote nemar-cli `dev` → `main`** — still the blocker for `/auth/me` profile
-  fields (#1007) reaching production app.nemar.org. Check the grandfather backfill
-  count first; the upload gate is stricter now.
-- **Phases 4–5 of #158** (imports/quarantine triage, notices) — not yet scoped into
-  issues.
-- **Design pass**: the admin active tab uses `--brand-teal`/`--brand-navy` while
-  `DatasetTabs` uses theme-aware `--color-fg`/`--color-bg`. Both token-based, but
-  they read as two systems side by side.
+- **Apex cutover — website#190.** ww2 becomes `nemar.org`, legacy moves to ww1.
+  Planned "soon", no hard date. Read that issue before touching it: the code half
+  is two constants, but there is a **redirect-loop hazard**. The current
+  apex → ww2 bridge is a bare `301` with no `Cache-Control`, so browsers have
+  cached it persistently; if ww2 redirects back to apex at cutover those clients
+  loop with no server-side remedy. **Leave ww2 serving at cutover**, retire it
+  later. Also: the Cloudflare rule `nemar.org/dataset/* → ww2` must be removed or
+  the apex can never serve.
+- **Legacy URL rewrite — website#190 §2.** `/dataexplorer/detail?dataset_id=ds007964`
+  → `/dataset/on007964`. The `ds` ⇄ `on` digit correspondence is a **contract**
+  (confirmed by the owner; 199/199 sampled rows agree), so it is a plain string
+  rewrite. Referrer rule: coming from ww1 → stay on ww1; otherwise → new page.
+  `Referer` is unreliable, so absent-referer must default to the new site (the
+  citation case). These redirects can't be edge-cached — use `no-store`.
+  Note those legacy URLs **already return 521** today, so this is repair, not
+  regression-avoidance.
+- **Enforce the `ds`/`on` contract upstream.** `importDatasetSchema` in nemar-cli
+  validates `dataset_id` and `source_id` independently, so a violating import is
+  accepted today. Once the apex rewrites citation URLs on that contract, one bad
+  row silently routes a cited link to the **wrong dataset**. A two-line `.refine()`.
+- **Real admin pass on live data.** Notices got one this session (the owner created
+  a production notice and it worked). Publications, users and imports have still
+  only ever been verified against fixtures and dev mocks — which is exactly the gap
+  that let the app-host banner bug (#181) ship.
 - **Owner actions for real-ORCID staging login** — register
   `https://test.nemar.org/auth/orcid/callback` on the production ORCID app +
   `wrangler secret put ORCID_API_BASE --env dev` = `https://orcid.org`.
 
 ## Epic backlog
 
-- **Admin portal — website#158.** Phases 1–2 shipped, Phase 3 in review, 4–5 open.
-  Phase 2 of tiered access (the service-access grant queue) belongs here once
-  nemar-cli#1023 lands.
+- **Admin portal — website#158. CLOSED.** All five phases shipped. The
+  service-access grant queue was cut and still belongs somewhere once
+  nemar-cli#1023 lands — it is the one piece ADR 0010 asked for that has no home.
+- **Apex cutover — website#190.** Cutover plan + legacy URL preservation.
 - **Tiered access — nemar-cli#1013.** Phase 1 shipped to dev (ADR 0010). Children:
   #1012, #1016, #1018, #1014, and the new #1023.
 - **Settings self-service backends — nemar-cli#1019.** #910 merged to dev;
@@ -129,7 +145,8 @@ render itself.
 - **Contribute / upload — website#164.** #161 (in-browser BIDS validation) + the
   upload-page `service_access` gate.
 
-Standalone: nemar-cli#1010 (flaky integration-dev CI), website#173.
+Standalone: nemar-cli#1010 (flaky integration-dev CI), website#173
+(undefaulted-AbortSignal audit in the remaining API clients).
 Parked: legacy import (nemar-cli#833 / website#129).
 Redesign-epic remnants: website#5 (Phase 4 citation/community/docs), #6 (apex DNS).
 
@@ -146,3 +163,12 @@ Redesign-epic remnants: website#5 (Phase 4 citation/community/docs), #6 (apex DN
 - `/admin` cannot be edge-cached: `isPublicCacheable` requires an explicit
   `Cache-Control: public, max-age`, which Astro SSR pages don't emit, and
   authenticated traffic bypasses the cache entirely.
+- The edge-cache namespace is derived from the build commit (#189), so deploys
+  self-invalidate. `app.nemar.org` skips the cache entirely, which is why it and
+  ww2 can disagree and why that reads like a host-specific bug.
+- Notice levels are `tip | announcement | maintenance | warning | critical`.
+  `presentationLevel()` maps anything unknown (including legacy `info`) to `tip`,
+  so the site survives the website and API deploying out of step in either
+  direction. Don't "simplify" it away.
+- Notice messages are linkified from data, never HTML. The pattern is anchored on
+  `https?://` — that is the security property, not a convenience.
