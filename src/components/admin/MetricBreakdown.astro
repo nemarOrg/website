@@ -1,0 +1,194 @@
+---
+/**
+ * Renders a metric's `breakdown[]` as a compact labelled distribution — a
+ * stacked horizontal bar plus a legend, modelled on
+ * `PipelineSuccessChart.astro`. `datasets.by_license` and
+ * `datasets.by_modality` key their segment colors off the existing tag
+ * token families (`src/lib/tags.ts`, same classifiers `Tag.astro` uses),
+ * falling back to the family's own "unknown"/"other" token for any label
+ * we don't recognize. `access.top` is a list of dataset ids, not a
+ * distribution, so it renders as a ranked link list instead.
+ */
+import type { Metric, MetricBreakdownEntry } from "../../lib/observability";
+import { licenseTier, modalityVariant } from "../../lib/tags";
+
+interface Props {
+  metric: Metric;
+}
+
+const { metric } = Astro.props;
+const entries: readonly MetricBreakdownEntry[] = metric.breakdown ?? [];
+const total = entries.reduce((sum, e) => sum + e.value, 0);
+
+const isLicense = metric.key === "datasets.by_license";
+const isModality = metric.key === "datasets.by_modality";
+const isTop = metric.key === "access.top";
+
+// Generic categorical fallback for a breakdown metric we don't have a tag
+// family for. Existing brand + neutral tokens only, no invented hex.
+const GENERIC_PALETTE = [
+  "var(--brand-teal)",
+  "var(--brand-purple)",
+  "var(--brand-gold)",
+  "var(--color-fg-muted)",
+  "var(--color-border-strong)",
+];
+
+function colorFor(label: string, index: number): string {
+  if (isLicense) return `var(--license-${licenseTier(label)})`;
+  if (isModality) return `var(--modality-${modalityVariant(label)})`;
+  return GENERIC_PALETTE[index % GENERIC_PALETTE.length] ?? "var(--color-fg-muted)";
+}
+
+let offset = 0;
+const segments = entries.map((e, i) => {
+  const widthPct = total > 0 ? (e.value / total) * 100 : 0;
+  const x = offset;
+  offset += widthPct;
+  return { ...e, widthPct, x, color: colorFor(e.label, i) };
+});
+---
+
+<figure class="mbreak">
+  <figcaption>
+    <span class="mbreak__title">{metric.label}</span>
+    <span class="mbreak__hint">{total} {metric.unit}</span>
+  </figcaption>
+  {
+    entries.length === 0 ? (
+      <div class="mbreak__empty">No data</div>
+    ) : isTop ? (
+      <ol class="mbreak__ranked">
+        {entries.map((e) => (
+          <li>
+            <a href={`/dataset/${encodeURIComponent(e.label)}`} class="mbreak__ranked-link">
+              {e.label}
+            </a>
+            <span class="mbreak__ranked-count">{e.value}</span>
+          </li>
+        ))}
+      </ol>
+    ) : (
+      <div class="mbreak__chart">
+        <svg
+          viewBox="0 0 100 18"
+          preserveAspectRatio="none"
+          class="mbreak__svg"
+          role="img"
+          aria-label={metric.label}
+        >
+          {segments.map((s) => (
+            <rect x={s.x} y="2" width={s.widthPct} height="14" fill={s.color}>
+              <title>{`${s.label}: ${s.value}`}</title>
+            </rect>
+          ))}
+        </svg>
+        <ul class="mbreak__legend" role="list">
+          {segments.map((s) => (
+            <li>
+              <span class="mbreak__swatch" style={`background:${s.color}`} />
+              <span class="mbreak__legend-label">{s.label}</span>
+              <span class="mbreak__legend-count">{s.value}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+  }
+</figure>
+
+<style>
+  .mbreak {
+    margin: 0;
+  }
+  .mbreak figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-block-end: var(--space-2);
+  }
+  .mbreak__title {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .mbreak__hint {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .mbreak__svg {
+    inline-size: 100%;
+    block-size: 18px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--color-bg-subtle);
+  }
+  .mbreak__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-block-start: var(--space-2);
+    list-style: none;
+    padding: 0;
+  }
+  .mbreak__legend li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .mbreak__swatch {
+    inline-size: 10px;
+    block-size: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .mbreak__legend-count {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+  }
+  .mbreak__ranked {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--space-1);
+  }
+  .mbreak__ranked li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 4px 0;
+    border-block-end: 1px solid var(--color-border);
+    font-size: var(--fs-sm);
+  }
+  .mbreak__ranked li:last-child {
+    border-block-end: none;
+  }
+  .mbreak__ranked-link {
+    color: var(--color-link);
+    text-decoration: none;
+    font-family: var(--font-mono);
+  }
+  .mbreak__ranked-link:hover {
+    text-decoration: underline;
+    color: var(--color-link-hover);
+  }
+  .mbreak__ranked-count {
+    font-family: var(--font-mono);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .mbreak__empty {
+    padding: var(--space-4);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    text-align: center;
+  }
+</style>

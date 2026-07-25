@@ -1,0 +1,110 @@
+---
+/**
+ * One observability metric, styled after `StatTile.astro`. Adds a severity
+ * dot (mirrors the license-tag dot convention in `Tag.astro`) and an
+ * optional `of <total>` suffix. Pass `href` to make the whole tile a link
+ * (see `OverviewGrid.astro` for which metric families are wired today);
+ * omit it for a plain, read-only tile.
+ */
+import { type Metric, formatMetricValue } from "../../lib/observability";
+
+interface Props {
+  metric: Metric;
+  href?: string;
+}
+
+const { metric, href } = Astro.props;
+
+// Only the semantic tokens exist in tokens.css (no --color-ok/--color-error
+// aliases) — map severity to those directly, with a neutral fallback for
+// any severity the upstream adds without us knowing about it yet.
+const SEVERITY_COLOR: Record<string, string> = {
+  ok: "var(--color-success)",
+  warn: "var(--color-warning)",
+  error: "var(--color-danger)",
+  info: "var(--color-fg-muted)",
+};
+const accent = SEVERITY_COLOR[metric.severity] ?? "var(--color-fg-muted)";
+
+const totalLabel =
+  typeof metric.total === "number" ? formatMetricValue({ ...metric, value: metric.total }) : null;
+
+const Wrapper = href ? "a" : "div";
+---
+
+<Wrapper class="metric-tile" href={href} style={`--metric-accent:${accent}`}>
+  <div class="metric-tile__head">
+    <span class="metric-tile__dot" aria-hidden="true"></span>
+    <span class="metric-tile__label">{metric.label}</span>
+  </div>
+  <div class="metric-tile__value">
+    <span>{formatMetricValue(metric)}</span>
+    {totalLabel && <span class="metric-tile__total">of {totalLabel}</span>}
+  </div>
+  {metric.hint && <div class="metric-tile__hint">{metric.hint}</div>}
+</Wrapper>
+
+<style>
+  .metric-tile {
+    display: block;
+    padding: var(--space-5) var(--space-6);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    min-inline-size: 9rem;
+    text-decoration: none;
+    color: inherit;
+  }
+  a.metric-tile {
+    transition:
+      border-color 0.14s ease,
+      background 0.14s ease;
+  }
+  a.metric-tile:hover {
+    border-color: var(--color-border-strong);
+    background: color-mix(in srgb, var(--metric-accent) 6%, var(--color-bg-elevated));
+  }
+  a.metric-tile:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .metric-tile__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-block-end: var(--space-1);
+  }
+  .metric-tile__dot {
+    inline-size: 7px;
+    block-size: 7px;
+    border-radius: 50%;
+    background: var(--metric-accent);
+    flex-shrink: 0;
+  }
+  .metric-tile__label {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .metric-tile__value {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    letter-spacing: -0.02em;
+    line-height: var(--lh-tight);
+  }
+  .metric-tile__total {
+    font-family: var(--font-sans);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--color-fg-subtle);
+  }
+  .metric-tile__hint {
+    margin-block-start: var(--space-1);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+</style>

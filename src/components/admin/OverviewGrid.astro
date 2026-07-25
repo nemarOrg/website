@@ -1,0 +1,159 @@
+---
+/**
+ * Single integration point for the observability Overview: renders every
+ * snapshot section as a titled tile group. The caller (Phase 1's `/admin`
+ * shell) SSR-fetches the snapshot via `fetchObservabilitySnapshot` and
+ * passes it straight through — this component owns no fetching itself so
+ * it stays easy to render from a scratch page or the real route alike.
+ */
+import { formatRelativeTime } from "../../lib/format";
+import type { Metric, MetricHistory, MetricSection, MetricSnapshot } from "../../lib/observability";
+import MetricBreakdown from "./MetricBreakdown.astro";
+import MetricSparkline from "./MetricSparkline.astro";
+import MetricTile from "./MetricTile.astro";
+import SectionErrorNotice from "./SectionErrorNotice.astro";
+
+interface Props {
+  snapshot: MetricSnapshot | null;
+  history?: Record<string, MetricHistory | null>;
+}
+
+const { snapshot, history = {} } = Astro.props;
+
+// Deep-link only the families with a real destination today. Phase 1
+// (website#167) ships /admin/users and /admin/imports as *disabled* tabs,
+// so linking users.*/imports.* now would be a dead link — Phase 3 (users
+// admin) and Phase 4 (imports/quarantine triage) enable those routes; see
+// the phase breakdown on epic website#158. Only publication.* has a live
+// destination (`/admin/publication-requests`, shipped today).
+function hrefFor(metricKey: string): string | undefined {
+  return metricKey.startsWith("publication.") ? "/admin/publication-requests" : undefined;
+}
+
+// Any metric carrying a breakdown renders as a distribution rather than a
+// plain tile — checked structurally (not by a fixed key list) so a new
+// breakdown-bearing metric the upstream adds renders correctly without a
+// frontend change.
+function hasBreakdown(metric: Metric): boolean {
+  return Boolean(metric.breakdown && metric.breakdown.length > 0);
+}
+
+function historyFor(section: MetricSection): Array<{ metric: Metric; hist: MetricHistory }> {
+  const out: Array<{ metric: Metric; hist: MetricHistory }> = [];
+  for (const metric of section.metrics) {
+    const hist = history[metric.key];
+    if (hist) out.push({ metric, hist });
+  }
+  return out;
+}
+---
+
+<div class="overview-grid">
+  {
+    snapshot && (
+      <p class="overview-grid__updated">
+        Snapshot updated {formatRelativeTime(snapshot.generated_at) || "just now"}
+      </p>
+    )
+  }
+
+  {snapshot && snapshot.section_errors.length > 0 && <SectionErrorNotice errors={snapshot.section_errors} />}
+
+  {
+    !snapshot ? (
+      <div class="overview-grid__empty">
+        <h2 class="overview-grid__empty-title">Overview data is unavailable</h2>
+        <p class="overview-grid__empty-body">
+          Couldn't reach the observability service. Try refreshing in a moment.
+        </p>
+      </div>
+    ) : (
+      <div class="overview-grid__sections">
+        {snapshot.sections.map((section) => (
+          <section class="overview-grid__section" aria-label={section.label}>
+            <h2 class="overview-grid__section-title">{section.label}</h2>
+            <div class="overview-grid__tiles">
+              {section.metrics.map((metric) =>
+                hasBreakdown(metric) ? (
+                  <div class="overview-grid__breakdown-tile">
+                    <MetricBreakdown metric={metric} />
+                  </div>
+                ) : (
+                  <MetricTile metric={metric} href={hrefFor(metric.key)} />
+                ),
+              )}
+            </div>
+            {historyFor(section).length > 0 && (
+              <div class="overview-grid__sparklines">
+                {historyFor(section).map(({ metric, hist }) => (
+                  <MetricSparkline points={hist.points} label={metric.label} />
+                ))}
+              </div>
+            )}
+          </section>
+        ))}
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .overview-grid {
+    display: grid;
+    gap: var(--space-6);
+  }
+  .overview-grid__updated {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .overview-grid__empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .overview-grid__empty-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .overview-grid__empty-body {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .overview-grid__sections {
+    display: grid;
+    gap: var(--space-8);
+  }
+  .overview-grid__section-title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .overview-grid__tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: var(--space-4);
+  }
+  .overview-grid__breakdown-tile {
+    grid-column: span 2;
+    padding: var(--space-5) var(--space-6);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    min-inline-size: 0;
+  }
+  .overview-grid__sparklines {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: var(--space-4);
+    margin-block-start: var(--space-3);
+  }
+</style>

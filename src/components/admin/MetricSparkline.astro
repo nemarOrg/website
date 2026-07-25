@@ -1,0 +1,110 @@
+---
+/**
+ * Small trend line over a metric's history points, modelled on
+ * `HistogramChart.astro` (viewBox-scaled inline SVG, `<title>` for a11y,
+ * token-only fills, explicit empty state). No sparkline component exists
+ * elsewhere in the repo yet; this is intentionally minimal — a polyline
+ * over a normalized domain, not a full chart.
+ */
+import type { MetricPoint } from "../../lib/observability";
+
+interface Props {
+  points: readonly MetricPoint[];
+  label: string;
+}
+
+const { points, label } = Astro.props;
+const finite = points.filter((p) => Number.isFinite(p.value));
+
+const W = 120;
+const H = 32;
+const PAD = 2;
+
+let pathPoints = "";
+let minV = 0;
+let maxV = 0;
+let latest: number | null = null;
+
+if (finite.length > 0) {
+  const values = finite.map((p) => p.value);
+  minV = Math.min(...values);
+  maxV = Math.max(...values);
+  latest = values[values.length - 1] ?? null;
+  const span = maxV - minV || 1;
+  pathPoints = finite
+    .map((p, i) => {
+      const x = finite.length === 1 ? W / 2 : PAD + (i / (finite.length - 1)) * (W - PAD * 2);
+      const y = H - PAD - ((p.value - minV) / span) * (H - PAD * 2);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+}
+---
+
+<figure class="spark">
+  <figcaption>
+    <span class="spark__label">{label}</span>
+    {latest !== null && <span class="spark__latest">{latest}</span>}
+  </figcaption>
+  {
+    finite.length === 0 ? (
+      <div class="spark__empty">No history</div>
+    ) : (
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        class="spark__svg"
+        role="img"
+        aria-label={`${label} trend`}
+      >
+        <title>{`${label}: ${finite.length} points, range ${minV}–${maxV}`}</title>
+        <polyline
+          points={pathPoints}
+          fill="none"
+          stroke="var(--brand-teal)"
+          stroke-width="1.5"
+          stroke-linejoin="round"
+          stroke-linecap="round"
+        />
+      </svg>
+    )
+  }
+</figure>
+
+<style>
+  .spark {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .spark figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+  .spark__label {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .spark__latest {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .spark__svg {
+    inline-size: 100%;
+    block-size: 32px;
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+  }
+  .spark__empty {
+    padding: var(--space-2);
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    text-align: center;
+  }
+</style>
