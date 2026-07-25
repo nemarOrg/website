@@ -92,6 +92,20 @@ const STATIC_SECURITY_HEADERS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Build-scoped edge-cache namespace, injected by `astro.config.mjs`'s
+ * `vite.define` (website#188). Declared here rather than imported because
+ * it's a compile-time constant substitution, not a module.
+ *
+ * The `typeof` guard covers any consumer that compiles this file without
+ * that define in place (a bare `tsc`, a future test harness): falling back
+ * to a fixed name keeps caching working rather than throwing a
+ * ReferenceError at the top of every request.
+ */
+declare const __EDGE_CACHE_NAMESPACE__: string | undefined;
+const EDGE_CACHE_NAMESPACE: string =
+  typeof __EDGE_CACHE_NAMESPACE__ === "string" ? __EDGE_CACHE_NAMESPACE__ : "nemar-edge-fallback";
+
+/**
  * Applied to every redirect this middleware issues (website#183).
  *
  * A bare `301` with no `Cache-Control` is heuristically cacheable, and
@@ -217,15 +231,26 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     runtime?.caches ?? (typeof caches !== "undefined" ? caches : undefined);
   if (!cacheStorage) return withSecurityHeaders(await next(), url.pathname, noindex);
 
-  // Cache namespace is versioned so bumps orphan the previous generation on
-  // next deploy. v1 -> v2: pre-PR-#54 entries persisted SWR-poisoned fallback
-  // HTML from /api/dataset/<id>/readme and /api/dataset/<id>/tree with
-  // s-maxage=600 stale-while-revalidate=86400, and stayed served as HIT from
-  // each PoP for up to 24 h after PR #54 (fixes #53) tagged future fallbacks
-  // with Cache-Control: no-store. Bumping here unreferences that entire
-  // fleet. Bump again on any future change to cache-policy semantics or
-  // partial-rendering logic. Issue #65.
-  const cache = await cacheStorage.open("nemar-edge-v2").catch((err) => {
+  // Cache namespace is per-build (website#188), so every deploy orphans the
+  // previous generation instead of serving it.
+  //
+  // It used to be a hand-bumped constant (`nemar-edge-v2`) with a note to
+  // bump it "on any change to cache-policy semantics". That under-described
+  // the problem: the cached artifact is the page HTML, which carries
+  // component markup and hashed asset URLs, so *any* deploy that touches a
+  // component or stylesheet stayed invisible on the marketing surface until
+  // the entry aged out — up to `stale-while-revalidate=43200` (12 h) on the
+  // landing page, 86400 (24 h) on dataset detail. #187's banner changes were
+  // live on app.nemar.org and still missing from ww2.nemar.org for exactly
+  // this reason; `app` is unaffected because authenticated responses skip
+  // the cache, which makes it read like a host-specific bug rather than a
+  // cache one.
+  //
+  // The original v1 -> v2 bump was for a real policy fix (PR #54 / issue
+  // #53: SWR-poisoned fallback HTML from the readme and tree endpoints);
+  // #65 recorded the convention. Both are subsumed here — a policy change
+  // now invalidates for free, because it ships in a build.
+  const cache = await cacheStorage.open(EDGE_CACHE_NAMESPACE).catch((err) => {
     // The cache layer is broken (quota error, runtime error), not just
     // unavailable. Log so we notice systemic failures, but keep serving
     // (cache is best-effort).

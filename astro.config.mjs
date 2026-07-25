@@ -32,6 +32,29 @@ export default defineConfig({
     clientPrerender: true,
   },
   vite: {
+    define: {
+      // Edge-cache namespace, fixed at build time (website#188).
+      //
+      // `src/middleware.ts` caches marketing HTML in `caches.default`. The
+      // cached artifact is the page HTML, which carries component markup and
+      // the hashed asset URLs — so without a per-build namespace every
+      // deploy stays invisible on the marketing surface until the entry
+      // expires, which is up to 12 h on the landing page and 24 h on dataset
+      // detail. Deriving the name from the commit means a deploy invalidates
+      // by construction rather than by someone remembering to bump a
+      // constant.
+      //
+      // `CF_PAGES_COMMIT_SHA` is set by Cloudflare Pages builds and
+      // `GITHUB_SHA` by Actions; local `astro dev` has neither and gets a
+      // stable "dev" so repeated local runs share one namespace.
+      __EDGE_CACHE_NAMESPACE__: JSON.stringify(
+        `nemar-edge-${
+          process.env.CF_PAGES_COMMIT_SHA?.slice(0, 8) ??
+          process.env.GITHUB_SHA?.slice(0, 8) ??
+          "dev"
+        }`,
+      ),
+    },
     resolve: {
       // Workaround for Cloudflare Workers' lack of `Buffer` etc.
       alias: import.meta.env?.PROD
