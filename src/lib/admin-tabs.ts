@@ -22,7 +22,7 @@ export const ADMIN_TABS: readonly AdminTabDef[] = [
     href: "/admin/publication-requests",
     enabled: true,
   },
-  { id: "users", label: "Users", href: "/admin/users", enabled: false },
+  { id: "users", label: "Users", href: "/admin/users", enabled: true },
   { id: "imports", label: "Imports", href: "/admin/imports", enabled: false },
   { id: "notices", label: "Notices", href: "/admin/notices", enabled: false },
 ];
