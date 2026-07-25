@@ -91,6 +91,26 @@ const STATIC_SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
 };
 
+/**
+ * Applied to every redirect this middleware issues (website#183).
+ *
+ * A bare `301` with no `Cache-Control` is heuristically cacheable, and
+ * browsers cache permanent redirects aggressively and persistently. That
+ * matters because both redirect decisions here encode a *route
+ * classification* — a deploy-time choice that can change — rather than a
+ * fact about the world.
+ *
+ * It has already changed once: `/api/notices` was classified marketing-only
+ * and 301'd off the app host (website#181). Every browser that hit it in
+ * that window could hold that redirect indefinitely, so the server-side fix
+ * never reaches those clients. The redirect must not outlive the deploy that
+ * created it.
+ *
+ * Cost is nil: these are empty-body responses on paths that are, by
+ * definition, being requested on the wrong host.
+ */
+const NO_STORE_HEADER: Readonly<Record<string, string>> = { "Cache-Control": "no-store" };
+
 export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   ...STATIC_SECURITY_HEADERS,
   "Content-Security-Policy": contentSecurityPolicy("/"),
@@ -163,20 +183,21 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   // bounce through the app host first.
   const retired = getRetiredRedirect(url);
   if (retired) {
-    return new Response(null, { status: 301, headers: { Location: retired } });
+    return new Response(null, {
+      status: 301,
+      headers: { Location: retired, ...NO_STORE_HEADER },
+    });
   }
 
   const redirectTarget = getCrossHostRedirect(url);
   if (redirectTarget) {
     // 307 preserves method + body on POST/PUT/DELETE; 301 is fine for GET/HEAD
-    // navigation. No Cache-Control: browser redirect cache is plenty, and
-    // CDN-caching the redirect would pin clients to the wrong host if we ever
-    // re-balance the route split.
+    // navigation.
     const method = context.request.method;
     const status = method === "GET" || method === "HEAD" ? 301 : 307;
     return new Response(null, {
       status,
-      headers: { Location: redirectTarget },
+      headers: { Location: redirectTarget, ...NO_STORE_HEADER },
     });
   }
 
