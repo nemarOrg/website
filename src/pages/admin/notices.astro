@@ -43,9 +43,14 @@ const rows = notices.map((notice) => ({ notice, expired: isNoticeExpired(notice,
 const liveCount = rows.filter((r) => !r.expired).length;
 
 const LEVEL_HINTS: Record<string, string> = {
-  info: "A tip or standing announcement. Dismissed for good once a visitor closes it.",
-  warning: "Needs attention but isn't urgent. Dismissed for good once closed.",
-  critical: "An outage or maintenance window. Returns on the next visit even after being closed.",
+  critical:
+    "A live outage or data risk. Most prominent, and returns on the next visit even after being closed.",
+  warning: "Something is degraded right now. Returns on the next visit even after being closed.",
+  maintenance:
+    "A planned or in-progress work window. Returns on the next visit even after being closed.",
+  announcement:
+    "Good news \u2014 a conference, a release, a milestone. Dismissed for good once a visitor closes it.",
+  tip: "A hint or standing note. Dismissed for good once a visitor closes it.",
 };
 const SCOPE_HINTS: Record<string, string> = {
   all: "Everyone, including signed-out visitors.",
@@ -58,7 +63,8 @@ const SCOPE_HINTS: Record<string, string> = {
   <Fragment slot="lede">
     Site-wide banners shown on every page and to CLI users on startup. Notices stack with the most
     urgent on top, so a maintenance banner sits above a long-running announcement. Each is dismissed
-    per visitor; critical ones come back on the next visit while they're still live. There's no edit
+    per visitor; operational ones (critical, warning, maintenance) come back on the next visit while
+    they're still live, while announcements and tips stay dismissed. There's no edit
     endpoint, so changing a notice means deleting it and creating a new one, which re-shows it to
     everyone who had dismissed it.
   </Fragment>
@@ -84,7 +90,7 @@ const SCOPE_HINTS: Record<string, string> = {
           <span class="notice-form__label">Level</span>
           <select name="level" class="notice-form__select" data-level-select>
             {NOTICE_LEVELS.map((level) => (
-              <option value={level} selected={level === "info"}>
+              <option value={level} selected={level === "tip"}>
                 {level}
               </option>
             ))}
@@ -109,7 +115,7 @@ const SCOPE_HINTS: Record<string, string> = {
         </label>
       </div>
 
-      <p class="notice-form__hint notice-form__hint--block" data-level-hint>{LEVEL_HINTS.info}</p>
+      <p class="notice-form__hint notice-form__hint--block" data-level-hint>{LEVEL_HINTS.tip}</p>
       <p class="notice-form__hint notice-form__hint--block" data-scope-hint>{SCOPE_HINTS.all}</p>
 
       <p class="admin-action-error" role="alert" data-form-error hidden></p>
@@ -310,13 +316,23 @@ const SCOPE_HINTS: Record<string, string> = {
     line-height: 1.5;
     text-transform: capitalize;
   }
-  /* Same three tones as SiteNotices.astro, so what an admin picks here
+  /* Same five tones as SiteNotices.astro, so what an admin picks here
      visibly matches what a visitor will see. Duplicated per the project's
      scoped-style convention (AGENTS.md) — keep the two in sync. */
-  .notice-badge--info {
+  .notice-badge--tip {
     color: var(--color-info);
     background: color-mix(in srgb, var(--color-info) 12%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-info) 35%, transparent);
+  }
+  .notice-badge--announcement {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-success) 35%, transparent);
+  }
+  .notice-badge--maintenance {
+    color: var(--color-maintenance);
+    background: color-mix(in srgb, var(--color-maintenance) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-maintenance) 38%, transparent);
   }
   .notice-badge--warning {
     color: var(--color-warning);
@@ -482,9 +498,11 @@ const SCOPE_HINTS: Record<string, string> = {
   // Live hints, so the level/scope choice explains its consequence at the
   // moment it's made rather than only in the lede.
   const LEVEL_HINTS: Record<string, string> = {
-    info: "A tip or standing announcement. Dismissed for good once a visitor closes it.",
-    warning: "Needs attention but isn't urgent. Dismissed for good once closed.",
-    critical: "An outage or maintenance window. Returns on the next visit even after being closed.",
+    critical: "A live outage or data risk. Most prominent, and returns on the next visit even after being closed.",
+    warning: "Something is degraded right now. Returns on the next visit even after being closed.",
+    maintenance: "A planned or in-progress work window. Returns on the next visit even after being closed.",
+    announcement: "Good news \u2014 a conference, a release, a milestone. Dismissed for good once a visitor closes it.",
+    tip: "A hint or standing note. Dismissed for good once a visitor closes it.",
   };
   const SCOPE_HINTS: Record<string, string> = {
     all: "Everyone, including signed-out visitors.",
@@ -545,7 +563,7 @@ const SCOPE_HINTS: Record<string, string> = {
     try {
       await createNotice({
         message,
-        level: (levelSelect?.value ?? "info") as NoticeLevel,
+        level: (levelSelect?.value ?? "tip") as NoticeLevel,
         scope: (scopeSelect?.value ?? "all") as NoticeScope,
         ...(expires_at ? { expires_at } : {}),
       });

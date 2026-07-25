@@ -93,18 +93,31 @@
     opacity: 1;
   }
 
-  /* One tone per backend level. The vocabulary is fixed at
-     info | warning | critical by a zod enum and a CHECK constraint on the
-     notices table, so presentation maps onto those three rather than
-     inventing levels the backend would reject (nemar-cli#1025 widens it;
-     website#180 tracks consuming that here):
-       info     -> a tip / standing announcement
-       warning  -> attention needed, not urgent
-       critical -> outage or maintenance, most prominent */
-  .site-notice--info {
+  /* One tone per backend level (nemar-cli#1025). Kept in sync with the
+     admin badges in src/pages/admin/notices.astro, per the project's
+     scoped-style duplication convention, so what an admin picks there is
+     what a visitor sees here:
+       tip          -> a hint or standing note, quietest
+       announcement -> good news; green so it reads as positive, not alarming
+       maintenance  -> planned work; violet, distinct from "broken now"
+       warning      -> degraded right now
+       critical     -> outage, most prominent */
+  .site-notice--tip {
     --notice-bg: color-mix(in srgb, var(--color-info) 10%, var(--color-bg));
     --notice-border: color-mix(in srgb, var(--color-info) 32%, transparent);
     --notice-accent: var(--color-info);
+    --notice-fg: var(--color-fg);
+  }
+  .site-notice--announcement {
+    --notice-bg: color-mix(in srgb, var(--color-success) 12%, var(--color-bg));
+    --notice-border: color-mix(in srgb, var(--color-success) 34%, transparent);
+    --notice-accent: var(--color-success);
+    --notice-fg: var(--color-fg);
+  }
+  .site-notice--maintenance {
+    --notice-bg: color-mix(in srgb, var(--color-maintenance) 12%, var(--color-bg));
+    --notice-border: color-mix(in srgb, var(--color-maintenance) 36%, transparent);
+    --notice-accent: var(--color-maintenance);
     --notice-fg: var(--color-fg);
   }
   .site-notice--warning {
@@ -142,6 +155,7 @@
     type Notice,
     activeNotices,
     isNoticeDismissed,
+    presentationLevel,
     rememberNoticeDismissal,
     resolveDismissalStorage,
   } from "../lib/notices-api";
@@ -174,13 +188,17 @@
       const dismiss = frag.querySelector<HTMLButtonElement>(".site-notice__dismiss");
       if (!el || !message || !dismiss) continue;
 
-      el.classList.add(`site-notice--${notice.level}`);
+      // Normalized, not raw: the API can serve a level this build doesn't
+      // know (they deploy independently), and an unmapped class name would
+      // render an unstyled, unreadable banner.
+      const level = presentationLevel(notice.level);
+      el.classList.add(`site-notice--${level}`);
       // textContent, never innerHTML: the message is admin-authored, but
       // admin-authored is not the same as trusted markup, and a banner on
       // every page is the last place to allow script injection.
       message.textContent = notice.message;
       // A critical notice interrupts; the other two are polite updates.
-      if (notice.level === "critical") el.setAttribute("role", "alert");
+      if (level === "critical") el.setAttribute("role", "alert");
 
       dismiss.addEventListener("click", () => {
         rememberNoticeDismissal(notice, storageFor(notice.level));
