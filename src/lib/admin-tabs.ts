@@ -1,8 +1,8 @@
 /**
  * Static definition of the `/admin` section nav. `AdminLayout.astro` renders
  * one entry per tab; disabled tabs render as inert `(coming soon)` markers
- * instead of a dead link. Phases 3-5 flip `enabled` to true as each surface
- * ships — nothing else about the nav needs to change.
+ * instead of a dead link. Phase 5 flips the last `enabled` to true when
+ * notices ship — nothing else about the nav needs to change.
  */
 
 export type AdminTab = "overview" | "publications" | "users" | "imports" | "notices";
@@ -23,6 +23,6 @@ export const ADMIN_TABS: readonly AdminTabDef[] = [
     enabled: true,
   },
   { id: "users", label: "Users", href: "/admin/users", enabled: true },
-  { id: "imports", label: "Imports", href: "/admin/imports", enabled: false },
+  { id: "imports", label: "Imports", href: "/admin/imports", enabled: true },
   { id: "notices", label: "Notices", href: "/admin/notices", enabled: false },
 ];

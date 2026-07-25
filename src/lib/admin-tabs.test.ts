@@ -12,17 +12,18 @@ describe("ADMIN_TABS", () => {
     ]);
   });
 
-  it("enables overview, publications, and users through phase 3", () => {
+  it("enables everything except notices through phase 4", () => {
     const enabled = ADMIN_TABS.filter((t) => t.enabled).map((t) => t.id);
-    expect(enabled).toEqual(["overview", "publications", "users"]);
+    expect(enabled).toEqual(["overview", "publications", "users", "imports"]);
   });
 
-  it("points overview, publications, and users at their existing routes", () => {
+  it("points the shipped tabs at their existing routes", () => {
     expect(ADMIN_TABS.find((t) => t.id === "overview")?.href).toBe("/admin");
     expect(ADMIN_TABS.find((t) => t.id === "publications")?.href).toBe(
       "/admin/publication-requests",
     );
     expect(ADMIN_TABS.find((t) => t.id === "users")?.href).toBe("/admin/users");
+    expect(ADMIN_TABS.find((t) => t.id === "imports")?.href).toBe("/admin/imports");
   });
 
   it("has a unique id and href per tab", () => {

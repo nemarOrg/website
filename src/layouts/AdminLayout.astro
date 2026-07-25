@@ -13,6 +13,7 @@
  */
 import { ADMIN_TABS, type AdminTab } from "../lib/admin-tabs";
 import type { AuthSession } from "../lib/auth";
+import { fetchImportsAttentionCount } from "../lib/imports-admin-api";
 import { fetchAwaitingApprovalCount } from "../lib/users-admin-api";
 import Base from "./Base.astro";
 
@@ -22,20 +23,27 @@ interface Props {
   session: AuthSession;
 }
 
-// `session` is intentionally unread here: it stays on the prop contract because
-// phases 4-5 gate owner-only affordances (rollback of public/DOI datasets) on
-// `session.user.backend_role`, and every admin page already resolves it for
-// `adminGate()`. (Phase 3 users pages read `backend_role` themselves.)
+// `session` is intentionally unread here: it stays on the prop contract
+// because every admin page already resolves it for `adminGate()` and the
+// pages that need owner-only affordances read `backend_role` themselves
+// (Phase 3's users pages do). Phase 4's rollback is deliberately NOT
+// owner-gated in the UI — the backend's gate depends on the dataset's
+// `concept_doi`/`visibility`, neither of which is in the `import_jobs`
+// projection, so the page surfaces the backend's 403 rather than guessing.
 const { title, active } = Astro.props;
 const hasLede = Astro.slots.has("lede");
 
-// Awaiting-approval badge on the Users tab, rendered from every admin page
-// (not just /admin/users) since the shell is shared. Fail-soft — never
-// throws — so a `nemar-cli` hiccup degrades to "no badge" instead of
-// breaking every admin page's render; see fetchAwaitingApprovalCount's
-// docstring for the mirrored contract in observability.ts.
+// Tab badges, rendered from every admin page (not just their own tab) since
+// the shell is shared. Both are fail-soft — neither throws — so a
+// `nemar-cli` hiccup degrades to "no badge" instead of breaking every admin
+// page's render; see each fetch's docstring for the mirrored contract in
+// observability.ts. Issued together so the two deadlines overlap rather
+// than stacking on the critical path of every render.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
-const usersAwaitingApproval = await fetchAwaitingApprovalCount({ cookieHeader });
+const [usersAwaitingApproval, importsNeedingAttention] = await Promise.all([
+  fetchAwaitingApprovalCount({ cookieHeader }),
+  fetchImportsAttentionCount({ cookieHeader }),
+]);
 ---
 
 <Base title={`Admin - ${title}`} description="NEMAR admin portal.">
@@ -60,6 +68,9 @@ const usersAwaitingApproval = await fetchAwaitingApprovalCount({ cookieHeader })
             {tab.label}
             {tab.id === "users" && Boolean(usersAwaitingApproval) && (
               <span class="admin-tabs__badge">{usersAwaitingApproval}</span>
+            )}
+            {tab.id === "imports" && Boolean(importsNeedingAttention) && (
+              <span class="admin-tabs__badge">{importsNeedingAttention}</span>
             )}
           </a>
         ) : (
