@@ -12,9 +12,9 @@ describe("ADMIN_TABS", () => {
     ]);
   });
 
-  it("enables everything except notices through phase 4", () => {
+  it("enables every tab now that phase 5 has shipped", () => {
     const enabled = ADMIN_TABS.filter((t) => t.enabled).map((t) => t.id);
-    expect(enabled).toEqual(["overview", "publications", "users", "imports"]);
+    expect(enabled).toEqual(["overview", "publications", "users", "imports", "notices"]);
   });
 
   it("points the shipped tabs at their existing routes", () => {
@@ -61,12 +61,18 @@ describe("adminMetricHref", () => {
     expect(adminMetricHref("imports.imported")).toBe("/admin/imports");
   });
 
-  // The dead-link guard: families whose tab hasn't shipped, and families
-  // with no tab at all, must produce no href rather than a 404.
-  it("returns undefined for a family whose tab is not enabled", () => {
-    const notices = ADMIN_TABS.find((t) => t.id === "notices");
-    expect(notices?.enabled).toBe(false);
-    expect(adminMetricHref("notices.active")).toBeUndefined();
+  // The dead-link guard. Every tab is enabled as of Phase 5, so there is no
+  // longer a disabled tab to demonstrate it against; assert the invariant it
+  // exists to protect instead, which still fails if a future phase adds a
+  // tab-linked metric family before its route ships.
+  it("only ever resolves to an enabled tab", () => {
+    const enabledHrefs = new Set(ADMIN_TABS.filter((t) => t.enabled).map((t) => t.href));
+    for (const key of ["publication.pending", "users.awaiting_approval", "imports.failed"]) {
+      const href = adminMetricHref(key);
+      expect(href).toBeDefined();
+      // Strip the ?view= filter to compare against the tab's own href.
+      expect(enabledHrefs.has((href as string).split("?")[0])).toBe(true);
+    }
   });
 
   it("returns undefined for a family with no admin tab", () => {
