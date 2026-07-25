@@ -1,19 +1,22 @@
 ---
 import ConfirmDialog from "../../components/ConfirmDialog.astro";
 import PublicationRequestRow from "../../components/PublicationRequestRow.astro";
-import Base from "../../layouts/Base.astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
 import { type PublicationRequest, listPublicationRequests } from "../../lib/admin-api";
+import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
 import { DashboardApiError, type PublicationStatus } from "../../lib/dashboard-api";
 
 const session = getSession(Astro.locals);
-if (!session) {
-  return Astro.redirect(`/login?next=${encodeURIComponent("/admin/publication-requests")}`);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
 }
-// Non-admin visitors get a 404 (not 403) to avoid leaking the existence of
-// the admin surface to non-admin users.
-if (session.user.role !== "admin") {
-  return Astro.redirect("/404");
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is
+  // unreachable — it's here only so TypeScript narrows `session` to
+  // non-null for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
 }
 
 const url = new URL(Astro.request.url);
@@ -57,57 +60,47 @@ const filters: { value: string; label: string }[] = [
 ];
 ---
 
-<Base
-  title="Admin - Publication requests"
-  description="Review and approve dataset publication requests."
->
-  <section class="admin-shell">
-    <header class="admin-header">
-      <div>
-        <h1 class="admin-header__title">Publication requests</h1>
-        <p class="admin-header__lede">
-          Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
-          publicly visible.
-        </p>
-      </div>
-    </header>
+<AdminLayout title="Publication requests" active="publications" session={session}>
+  <Fragment slot="lede">
+    Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
+    publicly visible.
+  </Fragment>
 
-    <nav class="admin-filters" aria-label="Filter by status">
-      {filters.map((f) => {
-        const href = f.value
-          ? `/admin/publication-requests?status=${f.value}`
-          : "/admin/publication-requests";
-        const active = (effectiveFilter ?? "") === f.value;
-        return (
-          <a
-            class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]}
-            href={href}
-          >
-            {f.label}
-          </a>
-        );
-      })}
-    </nav>
+  <nav class="admin-filters" aria-label="Filter by status">
+    {filters.map((f) => {
+      const href = f.value
+        ? `/admin/publication-requests?status=${f.value}`
+        : "/admin/publication-requests";
+      const active = (effectiveFilter ?? "") === f.value;
+      return (
+        <a
+          class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]}
+          href={href}
+        >
+          {f.label}
+        </a>
+      );
+    })}
+  </nav>
 
-    {listError && <p class="admin-action-error" role="alert">{listError}</p>}
+  {listError && <p class="admin-action-error" role="alert">{listError}</p>}
 
-    {!listError && requests.length === 0 ? (
-      <div class="admin-empty">
-        <h2 class="admin-empty__title">No publication requests in this view</h2>
-        <p class="admin-empty__body">Requests appear here as researchers submit them for review.</p>
-      </div>
-    ) : (
-      <ul class="admin-list" role="list">
-        {requests.map((r: PublicationRequest) => (
-          <li>
-            <PublicationRequestRow request={r} />
-          </li>
-        ))}
-      </ul>
-    )}
+  {!listError && requests.length === 0 ? (
+    <div class="admin-empty">
+      <h2 class="admin-empty__title">No publication requests in this view</h2>
+      <p class="admin-empty__body">Requests appear here as researchers submit them for review.</p>
+    </div>
+  ) : (
+    <ul class="admin-list" role="list">
+      {requests.map((r: PublicationRequest) => (
+        <li>
+          <PublicationRequestRow request={r} />
+        </li>
+      ))}
+    </ul>
+  )}
 
-    <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
-  </section>
+  <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
 
   <ConfirmDialog
     dialogId="admin-approve"
@@ -125,26 +118,9 @@ const filters: { value: string; label: string }[] = [
     confirmLabel="Send denial"
     confirmTone="danger"
   />
-</Base>
+</AdminLayout>
 
 <style>
-  .admin-shell {
-    max-inline-size: 64rem;
-    margin: 0 auto;
-    padding: var(--space-10) var(--space-4) var(--space-16);
-    display: grid;
-    gap: var(--space-6);
-  }
-  .admin-header__title {
-    font-family: var(--font-display);
-    font-size: var(--fs-3xl);
-    margin: 0 0 var(--space-1);
-  }
-  .admin-header__lede {
-    margin: 0;
-    color: var(--color-fg-muted);
-    max-inline-size: 48rem;
-  }
   .admin-filters {
     display: flex;
     flex-wrap: wrap;

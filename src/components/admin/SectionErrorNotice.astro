@@ -1,0 +1,61 @@
+---
+/**
+ * Visible degraded-data banner for `snapshot.section_errors` — sections
+ * the observability Worker failed to compute (e.g. the `sync` section's
+ * live `nemar_sync_status` column bug). Styled like the
+ * `.admin-action-error` banner in `admin/publication-requests.astro`, but
+ * at warning severity: a missing section degrades the Overview, it isn't
+ * fatal, so it must never be silently dropped.
+ */
+import type { MetricSectionError } from "../../lib/observability";
+
+interface Props {
+  errors: readonly MetricSectionError[];
+}
+
+const { errors } = Astro.props;
+---
+
+{
+  errors.length > 0 && (
+    <div class="section-error-notice" role="alert">
+      <p class="section-error-notice__title">
+        {errors.length === 1
+          ? "1 section is unavailable"
+          : `${errors.length} sections are unavailable`}
+      </p>
+      <ul class="section-error-notice__list">
+        {errors.map((e) => (
+          <li>
+            <strong>{e.key}</strong>: {e.error}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+<style>
+  .section-error-notice {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .section-error-notice__title {
+    margin: 0 0 var(--space-1);
+    font-weight: var(--fw-semibold);
+  }
+  .section-error-notice__list {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    display: grid;
+    gap: 2px;
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+</style>

@@ -1,0 +1,121 @@
+---
+/**
+ * Shared shell for every page under `/admin`. Renders the admin header, the
+ * cross-page section nav, and hands off the page body to the default slot.
+ * Individual pages own their own `adminGate()` call (Astro.redirect has to
+ * run from the page itself) — this layout assumes it's only ever reached
+ * after that gate passed.
+ *
+ * The section nav links between full-page navigations (not in-page
+ * tabpanels like DatasetTabs.astro), so it's a plain `<nav>` of `<a>`
+ * elements with `aria-current="page"`, not an ARIA `role="tablist"` — that
+ * role would misrepresent cross-page links as a single-page tab widget.
+ */
+import { ADMIN_TABS, type AdminTab } from "../lib/admin-tabs";
+import type { AuthSession } from "../lib/auth";
+import Base from "./Base.astro";
+
+interface Props {
+  title: string;
+  active: AdminTab;
+  session: AuthSession;
+}
+
+// `session` is intentionally unread here: it stays on the prop contract because
+// phases 3-5 gate owner-only affordances (role change, delete user, rollback of
+// public/DOI datasets) on `session.user.backend_role`, and every admin page
+// already resolves it for `adminGate()`.
+const { title, active } = Astro.props;
+const hasLede = Astro.slots.has("lede");
+---
+
+<Base title={`Admin - ${title}`} description="NEMAR admin portal.">
+  <div class="admin-shell">
+    <header class="admin-header">
+      <h1 class="admin-header__title">{title}</h1>
+      {hasLede && (
+        <p class="admin-header__lede">
+          <slot name="lede" />
+        </p>
+      )}
+    </header>
+
+    <nav class="admin-tabs" aria-label="Admin sections">
+      {ADMIN_TABS.map((tab) =>
+        tab.enabled ? (
+          <a
+            class:list={["admin-tabs__link", { "admin-tabs__link--active": tab.id === active }]}
+            href={tab.href}
+            aria-current={tab.id === active ? "page" : undefined}
+          >
+            {tab.label}
+          </a>
+        ) : (
+          <span class="admin-tabs__link admin-tabs__link--soon" aria-disabled="true">
+            {tab.label} <span class="admin-tabs__suffix">(coming soon)</span>
+          </span>
+        ),
+      )}
+    </nav>
+
+    <slot />
+  </div>
+</Base>
+
+<style>
+  .admin-shell {
+    max-inline-size: 64rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .admin-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: 0 0 var(--space-1);
+  }
+  .admin-header__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    max-inline-size: 48rem;
+  }
+  .admin-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: var(--space-3);
+  }
+  .admin-tabs__link {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+  }
+  a.admin-tabs__link:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .admin-tabs__link--active {
+    background: var(--brand-teal);
+    color: var(--brand-navy);
+    border-color: var(--brand-teal);
+  }
+  .admin-tabs__link--soon {
+    cursor: default;
+    opacity: 0.65;
+  }
+  .admin-tabs__suffix {
+    color: inherit;
+    opacity: 0.8;
+    font-size: var(--fs-xs);
+    margin-inline-start: 2px;
+  }
+</style>
