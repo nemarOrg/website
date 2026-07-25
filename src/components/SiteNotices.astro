@@ -94,9 +94,10 @@
   }
 
   /* One tone per backend level. The vocabulary is fixed at
-     info | warning | critical by a zod enum and migration 0016's CHECK
-     constraint, so presentation maps onto those three rather than
-     inventing levels the backend would reject:
+     info | warning | critical by a zod enum and a CHECK constraint on the
+     notices table, so presentation maps onto those three rather than
+     inventing levels the backend would reject (nemar-cli#1025 widens it;
+     website#180 tracks consuming that here):
        info     -> a tip / standing announcement
        warning  -> attention needed, not urgent
        critical -> outage or maintenance, most prominent */
@@ -140,42 +141,24 @@
   import {
     type Notice,
     activeNotices,
-    dismissalKey,
-    dismissalStore,
+    isNoticeDismissed,
+    rememberNoticeDismissal,
+    resolveDismissalStorage,
   } from "../lib/notices-api";
 
   const container = document.querySelector<HTMLElement>("[data-site-notices]");
   const template = document.querySelector<HTMLTemplateElement>("[data-site-notice-template]");
 
-  /**
-   * `localStorage`/`sessionStorage` throw outright in some privacy modes
-   * and in sandboxed frames. A banner is chrome — failing to read a
-   * dismissal must show the notice (the safe direction), and failing to
-   * write one must not break the dismiss button.
-   */
+  // The storage-access lambdas are passed rather than the objects: reading
+  // `localStorage` itself throws in some privacy modes, so the access has to
+  // happen inside resolveDismissalStorage's try. Dismissal logic lives in
+  // notices-api.ts so it's unit-testable against real Storage objects.
   function storageFor(level: Notice["level"]): Storage | null {
-    try {
-      return dismissalStore(level) === "session" ? sessionStorage : localStorage;
-    } catch {
-      return null;
-    }
-  }
-
-  function isDismissed(notice: Notice): boolean {
-    try {
-      return storageFor(notice.level)?.getItem(dismissalKey(notice.id)) === "1";
-    } catch {
-      return false;
-    }
-  }
-
-  function rememberDismissal(notice: Notice): void {
-    try {
-      storageFor(notice.level)?.setItem(dismissalKey(notice.id), "1");
-    } catch {
-      // Dismissal won't survive the navigation. The banner still closes
-      // now, which is the part the click asked for.
-    }
+    return resolveDismissalStorage(
+      level,
+      () => localStorage,
+      () => sessionStorage,
+    );
   }
 
   function render(notices: readonly Notice[]): void {
@@ -184,7 +167,7 @@
 
     let shown = 0;
     for (const notice of notices) {
-      if (isDismissed(notice)) continue;
+      if (isNoticeDismissed(notice, storageFor(notice.level))) continue;
       const frag = template.content.cloneNode(true) as DocumentFragment;
       const el = frag.querySelector<HTMLElement>(".site-notice");
       const message = frag.querySelector<HTMLElement>(".site-notice__message");
@@ -200,7 +183,7 @@
       if (notice.level === "critical") el.setAttribute("role", "alert");
 
       dismiss.addEventListener("click", () => {
-        rememberDismissal(notice);
+        rememberNoticeDismissal(notice, storageFor(notice.level));
         el.remove();
         if (!container.firstElementChild) container.hidden = true;
       });
@@ -216,6 +199,13 @@
       const res = await fetch("/api/notices", {
         headers: { Accept: "application/json" },
         credentials: "same-origin",
+        // Bounded like every call in notices-api.ts, for the same reason: a
+        // connection that opens and never responds leaves a promise that
+        // never settles, which no try/catch can reach. Harmless here (it's
+        // post-hydration, not SSR) but it would mean the banner silently
+        // never resolves, with nothing logged — the worst outcome for an
+        // outage notice.
+        signal: AbortSignal.timeout(3000),
       });
       if (!res.ok) return;
       const body = (await res.json()) as { notices?: Notice[] };
@@ -223,9 +213,16 @@
       // route already did this, but its idea of "now" is the edge's, and
       // this is the layer that survives nemar-cli#1024 either way.
       render(activeNotices(body.notices ?? [], new Date()));
-    } catch {
-      // Chrome, not content: a failed banner fetch leaves the page exactly
-      // as it renders without one. Already logged server-side.
+    } catch (err) {
+      // Chrome, not content: the page renders exactly as it would without a
+      // banner. Logged anyway — the server-side warn only covers an upstream
+      // failure, not this fetch failing to reach our own route at all
+      // (offline, connection reset, timeout above), which would otherwise
+      // leave no trace anywhere.
+      console.warn(
+        "[site-notices] could not load notices:",
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

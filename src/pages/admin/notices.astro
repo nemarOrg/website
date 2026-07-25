@@ -581,10 +581,19 @@ const SCOPE_HINTS: Record<string, string> = {
     if (e.detail.dialogId !== "admin-delete-notice" || pendingDeleteId === null) return;
     const id = pendingDeleteId;
     pendingDeleteId = null;
+    // ConfirmDialog closes synchronously on confirm — it doesn't await this
+    // handler — so without disabling the button an admin can fire a second
+    // DELETE for the same id while the first is still in flight and get a
+    // confusing 404 for a delete that actually succeeded.
+    const btn = document.querySelector<HTMLButtonElement>(
+      `[data-notice-delete][data-notice-id="${CSS.escape(String(id))}"]`,
+    );
+    if (btn) btn.disabled = true;
     try {
       await deleteNotice(id);
       location.reload();
     } catch (err) {
+      if (btn) btn.disabled = false;
       show(actionError, `Couldn't delete that notice: ${friendly(err)}`);
     }
   });

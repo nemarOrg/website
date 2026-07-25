@@ -7,8 +7,11 @@ import {
   dismissalKey,
   dismissalStore,
   fetchActiveNotices,
+  isNoticeDismissed,
   isNoticeExpired,
   listAdminNotices,
+  rememberNoticeDismissal,
+  resolveDismissalStorage,
   sortNotices,
   toRfc3339,
 } from "./notices-api";
@@ -151,7 +154,24 @@ describe("toRfc3339", () => {
   it("converts a datetime-local value to a Z-suffixed RFC3339 string", () => {
     const result = toRfc3339("2026-07-25T14:30");
     expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-    expect(result).toBe(new Date("2026-07-25T14:30").toISOString());
+  });
+
+  // Asserts the *direction* of the conversion independently, rather than
+  // against `new Date(...)` — the same call the implementation makes, which
+  // would agree with itself no matter which way it interpreted the input.
+  // A bare datetime-local value is local time, so the UTC instant must be
+  // offset by exactly the runner's own offset for that date. On a UTC
+  // runner that difference is zero, which is still the correct assertion.
+  it("interprets a bare datetime-local value as local time, not UTC", () => {
+    const local = "2026-07-25T14:30";
+    const offsetMinutes = new Date(local).getTimezoneOffset();
+    const asIfUtc = Date.parse(`${local}:00.000Z`);
+    expect(Date.parse(toRfc3339(local) as string)).toBe(asIfUtc + offsetMinutes * 60_000);
+  });
+
+  // An explicit offset must be honoured as given, not re-interpreted.
+  it("preserves an explicit offset", () => {
+    expect(toRfc3339("2026-07-25T14:30:00+02:00")).toBe("2026-07-25T12:30:00.000Z");
   });
 
   // Distinguishable from the error case by the caller: empty means "no
@@ -216,6 +236,122 @@ describe("fetchActiveNotices", () => {
     }) as unknown as typeof fetch;
     await fetchActiveNotices({ fetch: fakeFetch, cookieHeader: "nemar_session=abc" }, NOW);
   });
+
+  // REGRESSION (the bug that shipped and was caught only by running it):
+  // `/api/notices` runs server-side, but an anonymous visitor sends no
+  // cookie. Without the explicit `baseUrl`, the cookie-presence heuristic
+  // resolves to the relative `/api/v1`, which is unfetchable from the
+  // server. Because the banner fails soft, the symptom is not an error — it
+  // is a banner that silently never appears for signed-out visitors, i.e.
+  // most of the marketing surface. Deleting the `init.baseUrl ??` from
+  // `baseFor` must fail a test, not pass CI.
+  it("honours baseUrl over the cookie heuristic when there is no cookie", async () => {
+    let calledUrl = "";
+    const fakeFetch = (async (url: string) => {
+      calledUrl = url;
+      return jsonResponse({ notices: [] });
+    }) as unknown as typeof fetch;
+    await fetchActiveNotices({ fetch: fakeFetch, baseUrl: "https://api.nemar.org" }, NOW);
+    expect(calledUrl).toBe("https://api.nemar.org/notices");
+    // The failure mode being guarded, stated explicitly.
+    expect(calledUrl.startsWith("/")).toBe(false);
+  });
+
+  it("prefers baseUrl even when a cookie is also present", async () => {
+    let calledUrl = "";
+    const fakeFetch = (async (url: string) => {
+      calledUrl = url;
+      return jsonResponse({ notices: [] });
+    }) as unknown as typeof fetch;
+    await fetchActiveNotices(
+      {
+        fetch: fakeFetch,
+        cookieHeader: "nemar_session=abc",
+        baseUrl: "https://api-test.nemar.org",
+      },
+      NOW,
+    );
+    expect(calledUrl).toBe("https://api-test.nemar.org/notices");
+  });
+});
+
+describe("dismissal storage", () => {
+  // Real Storage objects, not mocks: jsdom's localStorage/sessionStorage are
+  // genuine implementations, so this is the same "real-shape input" policy
+  // the fetch-shaped fakes above follow.
+  function freshStorage(): Storage {
+    const store = new Map<string, string>();
+    return {
+      get length() {
+        return store.size;
+      },
+      clear: () => store.clear(),
+      getItem: (k: string) => store.get(k) ?? null,
+      key: (i: number) => [...store.keys()][i] ?? null,
+      removeItem: (k: string) => void store.delete(k),
+      setItem: (k: string, v: string) => void store.set(k, v),
+    } as Storage;
+  }
+
+  it("routes critical to session storage and the rest to local", () => {
+    const local = freshStorage();
+    const session = freshStorage();
+    const get = (level: Parameters<typeof resolveDismissalStorage>[0]) =>
+      resolveDismissalStorage(
+        level,
+        () => local,
+        () => session,
+      );
+    expect(get("critical")).toBe(session);
+    expect(get("warning")).toBe(local);
+    expect(get("info")).toBe(local);
+  });
+
+  // The access itself throws in some privacy modes — not the get/set, the
+  // property read — so the try has to wrap the accessor call.
+  it("returns null when reading the storage object throws", () => {
+    const result = resolveDismissalStorage(
+      "info",
+      () => {
+        throw new DOMException("denied", "SecurityError");
+      },
+      () => freshStorage(),
+    );
+    expect(result).toBeNull();
+  });
+
+  it("round-trips a dismissal", () => {
+    const storage = freshStorage();
+    const n = notice({ id: 42 });
+    expect(isNoticeDismissed(n, storage)).toBe(false);
+    expect(rememberNoticeDismissal(n, storage)).toBe(true);
+    expect(isNoticeDismissed(n, storage)).toBe(true);
+  });
+
+  it("keeps dismissals independent per notice", () => {
+    const storage = freshStorage();
+    rememberNoticeDismissal(notice({ id: 1 }), storage);
+    // Dismissing a standing announcement must not suppress a maintenance
+    // banner posted later — the whole reason keys are per-id.
+    expect(isNoticeDismissed(notice({ id: 2 }), storage)).toBe(false);
+  });
+
+  // Safe direction: unreadable storage shows the notice again (annoying)
+  // rather than hiding a live one (information lost).
+  it("treats unavailable storage as not-dismissed", () => {
+    expect(isNoticeDismissed(notice({ id: 1 }), null)).toBe(false);
+  });
+
+  it("reports a failed write rather than throwing", () => {
+    const readOnly = {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("QuotaExceededError");
+      },
+    } as unknown as Storage;
+    expect(rememberNoticeDismissal(notice({ id: 1 }), readOnly)).toBe(false);
+    expect(rememberNoticeDismissal(notice({ id: 1 }), null)).toBe(false);
+  });
 });
 
 describe("admin CRUD", () => {
@@ -262,6 +398,23 @@ describe("admin CRUD", () => {
       { fetch: fakeFetch },
     );
     expect(created.id).toBe(9);
+  });
+
+  it("surfaces the backend's validation error when creating fails", async () => {
+    const fakeFetch = (async () =>
+      jsonResponse(
+        { error: "message: String must contain at most 1000 character(s)" },
+        400,
+      )) as unknown as typeof fetch;
+    await expect(
+      createNotice(
+        { message: "x".repeat(1001), level: "info", scope: "all" },
+        { fetch: fakeFetch },
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "Could not create notice: message: String must contain at most 1000 character(s)",
+    });
   });
 
   it("omits expires_at entirely for a notice with no expiry", async () => {

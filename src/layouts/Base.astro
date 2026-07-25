@@ -130,8 +130,13 @@ const absoluteFallbackImage = fallbackImage
   </head>
   <body>
     {/* Above the nav so a maintenance or outage notice is the first thing
-        read, and so it never overlaps the sticky header. Suppressed on the
-        bare layout (auth/OG surfaces), which deliberately has no chrome. */}
+        read, and so it never overlaps the sticky header. Gated on
+        `bareLayout` alongside Nav/Footer for consistency — note that no
+        route currently passes it, so this renders everywhere Base does,
+        sign-in pages included. That's intended: an outage notice matters
+        just as much to someone trying to log in. (OG card routes never
+        reach here at all; they're APIRoutes emitting image bytes, not
+        pages.) */}
     {!bareLayout && <SiteNotices />}
     {!bareLayout && <Nav />}
     <main id="main">

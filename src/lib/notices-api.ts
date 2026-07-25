@@ -19,11 +19,14 @@ import { apiBase, dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError } from "./dashboard-api";
 
 /**
- * Severity, constrained to these three by BOTH `z.enum` in
- * `admin/notices.ts` and a `CHECK` constraint in migration 0016. Adding a
- * fourth (e.g. a distinct `maintenance`) requires an upstream migration,
- * so the website maps presentation onto these three rather than inventing
- * levels the backend would reject.
+ * Severity, constrained to these three by BOTH a `z.enum` in
+ * `admin/notices.ts` and a `CHECK` constraint on the `notices` table.
+ * (Deliberately not citing a migration number: the table has already been
+ * rebuilt once by an unrelated migration that re-declared the same
+ * constraint, so a number here rots.) Adding a level requires an upstream
+ * migration, so the website maps presentation onto these three rather than
+ * inventing levels the backend would reject — nemar-cli#1025 widens the
+ * vocabulary, tracked for this repo at website#180.
  */
 export type NoticeLevel = "info" | "warning" | "critical";
 
@@ -141,8 +144,12 @@ const LEVEL_RANK: Record<NoticeLevel, number> = { critical: 0, warning: 1, info:
  * `critical` maintenance banner always sits above a long-lived `info`
  * announcement rather than below it.
  *
- * Total: an unparseable `created_at` sorts last within its level instead of
- * throwing inside the comparator.
+ * Total: this is a plain string comparison, not a date parse, so a garbled
+ * `created_at` can never throw here — it just lands wherever it sorts
+ * lexicographically. The `?? ""` guards only against a *missing* value,
+ * which the type says can't happen but the unvalidated `res.json()` cast
+ * means it can; without it a null would throw on `.localeCompare` inside a
+ * comparator during SSR, and Astro drops a page whose render throws.
  */
 export function sortNotices(notices: readonly Notice[]): Notice[] {
   return [...notices].sort((a, b) => {
@@ -184,6 +191,66 @@ export function dismissalKey(id: number): string {
  */
 export function dismissalStore(level: NoticeLevel): "local" | "session" {
   return level === "critical" ? "session" : "local";
+}
+
+/**
+ * Resolves the `Storage` a notice's dismissal belongs in, or null when
+ * storage is unreachable.
+ *
+ * `localStorage`/`sessionStorage` **throw on property access** in some
+ * privacy modes and in sandboxed iframes — not on use, on access — so this
+ * has to be inside the try, not just the get/set calls.
+ *
+ * Takes the two stores as arguments rather than reaching for the globals so
+ * it is unit-testable with real `Storage` objects (jsdom's are genuine
+ * implementations, not mocks).
+ */
+export function resolveDismissalStorage(
+  level: NoticeLevel,
+  getLocal: () => Storage,
+  getSession: () => Storage,
+): Storage | null {
+  try {
+    return dismissalStore(level) === "session" ? getSession() : getLocal();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when this notice has already been dismissed.
+ *
+ * Fails to `false` — "not dismissed", i.e. show the notice. That is the safe
+ * direction: an unreadable store means an already-dismissed banner reappears
+ * (mildly annoying), never that a live banner stays hidden (information
+ * lost).
+ */
+export function isNoticeDismissed(notice: Pick<Notice, "id">, storage: Storage | null): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(dismissalKey(notice.id)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Records a dismissal. Returns whether it will actually persist, so a caller
+ * can tell "dismissed for good" from "dismissed until reload" — the banner
+ * closes either way, because the click asked for that much regardless.
+ */
+export function rememberNoticeDismissal(
+  notice: Pick<Notice, "id">,
+  storage: Storage | null,
+): boolean {
+  if (!storage) return false;
+  try {
+    storage.setItem(dismissalKey(notice.id), "1");
+    return true;
+  } catch {
+    // Quota exceeded, or a store that reads but refuses writes.
+    return false;
+  }
 }
 
 /**
