@@ -1,0 +1,547 @@
+---
+import ConfirmDialog from "../../../components/ConfirmDialog.astro";
+import UserStatusBadge from "../../../components/UserStatusBadge.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import { DashboardApiError } from "../../../lib/dashboard-api";
+import { formatDate, formatRelativeTime } from "../../../lib/format";
+import {
+  type AdminUserDetail,
+  type AdminUserRole,
+  getAdminUser,
+  isActionable,
+} from "../../../lib/users-admin-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is
+  // unreachable — it's here only so TypeScript narrows `session` to
+  // non-null for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+const isOwner = session.user.backend_role === "owner";
+
+const { username } = Astro.params;
+if (!username) {
+  return Astro.redirect("/admin/users");
+}
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let user: AdminUserDetail | null = null;
+let notFound = false;
+let loadError: string | null = null;
+try {
+  user = await getAdminUser(username, { cookieHeader });
+} catch (err) {
+  if (err instanceof DashboardApiError && err.status === 404) {
+    notFound = true;
+  } else {
+    loadError =
+      err instanceof DashboardApiError
+        ? `Could not load this user (${err.status}).`
+        : err instanceof Error
+          ? err.message
+          : "Could not load this user.";
+  }
+}
+
+const actionable = user ? isActionable(user) : false;
+const canApprove =
+  user !== null &&
+  actionable &&
+  (user.status === "verified" ||
+    user.status === "revoked" ||
+    user.status === "revoked_iam_pending");
+const canRevoke = user !== null && actionable && user.status === "approved";
+const canChangeRole = user !== null && isOwner && actionable && user.status === "approved";
+const currentRole: AdminUserRole = user?.role ?? "member";
+const ROLE_OPTIONS: readonly AdminUserRole[] = ["member", "admin", "owner"];
+
+const displayName = user ? [user.given_name, user.family_name].filter(Boolean).join(" ") : "";
+---
+
+<AdminLayout title={user?.username ? `User: ${user.username}` : "User"} active="users" session={session}>
+  <Fragment slot="lede">
+    <a href="/admin/users">&larr; Back to Users</a>
+  </Fragment>
+
+  {
+    notFound && (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">User not found</h2>
+        <p class="admin-empty__body">
+          No account matches "{username}". It may have been renamed, deleted, or never existed.
+        </p>
+      </div>
+    )
+  }
+
+  {loadError && <p class="admin-action-error" role="alert">{loadError}</p>}
+
+  {
+    user && (
+      <div class="user-detail">
+        <header class="user-detail__header">
+          <div>
+            <h2 class="user-detail__email">{user.email}</h2>
+            {displayName && <p class="user-detail__name">{displayName}</p>}
+            {user.username ? (
+              <p class="user-detail__username">@{user.username}</p>
+            ) : (
+              <p class="user-detail__username user-detail__username--missing">no username</p>
+            )}
+          </div>
+          <UserStatusBadge status={user.status} />
+        </header>
+
+        {!actionable && (
+          <p class="user-detail__notice" role="note">
+            No username yet, so this account can't be approved, revoked, or role-changed here (
+            <a href="https://github.com/nemarOrg/nemar-cli/issues/1012" target="_blank" rel="noopener noreferrer">
+              nemar-cli#1012
+            </a>
+            ).{isOwner ? " It can still be deleted below." : ""}
+          </p>
+        )}
+
+        <dl class="user-detail__grid">
+          <div>
+            <dt>Role</dt>
+            <dd>{currentRole}</dd>
+          </div>
+          <div>
+            <dt>GitHub</dt>
+            <dd>{user.github_username ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>ORCID</dt>
+            <dd>{user.orcid ? `${user.orcid}${user.orcid_verified ? " (verified)" : ""}` : "—"}</dd>
+          </div>
+          <div>
+            <dt>Affiliation</dt>
+            <dd>{user.affiliation ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Location</dt>
+            <dd>{[user.city, user.country].filter(Boolean).join(", ") || "—"}</dd>
+          </div>
+          <div>
+            <dt>Service access</dt>
+            <dd>{user.service_access ? "Granted" : "Not granted"}</dd>
+          </div>
+          <div>
+            <dt>Datasets owned</dt>
+            <dd>{user.dataset_count}</dd>
+          </div>
+          <div>
+            <dt>Active tokens</dt>
+            <dd>{user.active_tokens}</dd>
+          </div>
+          <div>
+            <dt>Signed up</dt>
+            <dd>{formatDate(user.created_at) || "—"}</dd>
+          </div>
+          <div>
+            <dt>Approved</dt>
+            <dd>{formatDate(user.approved_at) || "—"}</dd>
+          </div>
+          <div>
+            <dt>Revoked</dt>
+            <dd>{formatDate(user.revoked_at) || "—"}</dd>
+          </div>
+          <div>
+            <dt>Last change</dt>
+            <dd>{formatRelativeTime(user.revoked_at ?? user.approved_at ?? user.created_at) || "—"}</dd>
+          </div>
+        </dl>
+
+        <footer class="user-detail__actions">
+          {canApprove && (
+            <button type="button" class="user-detail__btn user-detail__btn--primary" data-user-approve data-username={user.username}>
+              Approve
+            </button>
+          )}
+          {canRevoke && (
+            <button type="button" class="user-detail__btn user-detail__btn--danger-ghost" data-user-revoke data-username={user.username}>
+              Revoke access
+            </button>
+          )}
+          {canChangeRole && (
+            <span class="user-detail__role-change">
+              <label class="user-detail__role-select-label" for="role-select-detail">
+                Role
+              </label>
+              <select id="role-select-detail" class="user-detail__role-select" data-role-select>
+                {ROLE_OPTIONS.map((r) => (
+                  <option value={r} selected={r === currentRole}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                class="user-detail__btn"
+                data-user-change-role
+                data-username={user.username}
+                data-role-select-id="role-select-detail"
+              >
+                Change role
+              </button>
+            </span>
+          )}
+          {isOwner && (
+            <button
+              type="button"
+              class="user-detail__btn user-detail__btn--danger"
+              data-user-delete
+              data-user-id={user.id}
+            >
+              Delete user
+            </button>
+          )}
+        </footer>
+      </div>
+    )
+  }
+
+  <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
+
+  <ConfirmDialog
+    dialogId="admin-approve-user"
+    title="Approve this user?"
+    body="They gain platform access immediately and get a notification email."
+    confirmLabel="Approve"
+    confirmTone="primary"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-revoke-user"
+    title="Revoke this user's access?"
+    body="Their API tokens are revoked, S3 access is removed, and they're pulled from every dataset repo they can reach. They get a notification email."
+    confirmLabel="Revoke access"
+    confirmTone="danger"
+    requireTyping="REVOKE"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-change-role"
+    title="Change this user's role?"
+    body="Demoting from owner/admin revokes their existing API tokens, forcing re-authentication."
+    confirmLabel="Change role"
+    confirmTone="primary"
+    requireTyping="CHANGE ROLE"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-delete-user"
+    title="Delete this user?"
+    body="This is a soft delete: their PII is masked and credentials revoked, but the account row is kept for audit history. Not reversible from this UI."
+    confirmLabel="Delete user"
+    confirmTone="danger"
+    requireTyping="DELETE"
+  />
+</AdminLayout>
+
+<style>
+  .admin-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .admin-empty__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .user-detail {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    display: grid;
+    gap: var(--space-5);
+  }
+  .user-detail__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .user-detail__email {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+  }
+  .user-detail__name {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-muted);
+  }
+  .user-detail__username {
+    margin: var(--space-1) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .user-detail__username--missing {
+    color: var(--color-warning);
+    font-style: italic;
+  }
+  .user-detail__notice {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .user-detail__notice a {
+    color: inherit;
+    text-decoration: underline;
+  }
+  .user-detail__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .user-detail__grid > div {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-3);
+  }
+  .user-detail__grid dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-block-end: 2px;
+  }
+  .user-detail__grid dd {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .user-detail__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+    padding-block-start: var(--space-4);
+  }
+  .user-detail__role-change {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .user-detail__role-select-label {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .user-detail__role-select {
+    min-block-size: 40px;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .user-detail__btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .user-detail__btn:hover {
+    background: var(--color-bg-subtle);
+  }
+  .user-detail__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .user-detail__btn--primary:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .user-detail__btn--danger-ghost {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  }
+  .user-detail__btn--danger-ghost:hover {
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: var(--color-danger);
+  }
+  .user-detail__btn--danger {
+    background: var(--color-danger);
+    color: var(--color-bg);
+    border-color: var(--color-danger);
+  }
+  .user-detail__btn--danger:hover {
+    background: color-mix(in srgb, var(--color-danger) 82%, #000);
+  }
+</style>
+
+<script>
+  import {
+    approveUser,
+    changeUserRole,
+    deleteUserById,
+    revokeUser,
+  } from "../../../lib/users-admin-api";
+  import { DashboardApiError } from "../../../lib/dashboard-api";
+  import type { AdminUserRole } from "../../../lib/users-admin-api";
+
+  const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
+
+  // See users.astro's script for why this map only covers proxy/transport
+  // codes — the users backend puts human-readable text straight in `.code`.
+  const FRIENDLY: Record<string, string> = {
+    upstream_unreachable: "Can't reach the user service. Try again in a moment.",
+    unauthenticated: "Sign in again to continue.",
+  };
+
+  function friendly(err: unknown): string {
+    if (err instanceof DashboardApiError) {
+      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
+      if (err.code) return err.code;
+      return err.message;
+    }
+    return err instanceof Error ? err.message : "Action failed.";
+  }
+
+  function showError(msg: string): void {
+    if (!errorEl) return;
+    errorEl.hidden = false;
+    errorEl.textContent = msg;
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  type PendingAction =
+    | { kind: "approve"; username: string }
+    | { kind: "revoke"; username: string }
+    | { kind: "role"; username: string; role: AdminUserRole }
+    | { kind: "delete"; id: number };
+  let pending: PendingAction | null = null;
+  let inFlight = false;
+
+  function openDialog(dialogId: string): void {
+    document.dispatchEvent(
+      new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", { detail: { dialogId } }),
+    );
+  }
+  function queue(next: PendingAction): void {
+    if (inFlight) return;
+    if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
+    pending = next;
+    clearError();
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-approve]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      if (!username) return;
+      queue({ kind: "approve", username });
+      openDialog("admin-approve-user");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-revoke]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      if (!username) return;
+      queue({ kind: "revoke", username });
+      openDialog("admin-revoke-user");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-change-role]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const username = btn.dataset.username;
+      const selectId = btn.dataset.roleSelectId;
+      const select = selectId ? document.getElementById(selectId) : null;
+      if (!username || !(select instanceof HTMLSelectElement)) return;
+      queue({ kind: "role", username, role: select.value as AdminUserRole });
+      openDialog("admin-change-role");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-user-delete]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const idRaw = btn.dataset.userId;
+      const id = idRaw ? Number.parseInt(idRaw, 10) : Number.NaN;
+      if (!Number.isInteger(id)) return;
+      queue({ kind: "delete", id });
+      openDialog("admin-delete-user");
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const e = evt as CustomEvent<{ dialogId: string }>;
+    if (!pending) return;
+    const target = pending;
+    pending = null;
+
+    try {
+      if (e.detail.dialogId === "admin-approve-user" && target.kind === "approve") {
+        inFlight = true;
+        await approveUser(target.username);
+      } else if (e.detail.dialogId === "admin-revoke-user" && target.kind === "revoke") {
+        inFlight = true;
+        await revokeUser(target.username);
+      } else if (e.detail.dialogId === "admin-change-role" && target.kind === "role") {
+        inFlight = true;
+        await changeUserRole(target.username, target.role);
+      } else if (e.detail.dialogId === "admin-delete-user" && target.kind === "delete") {
+        inFlight = true;
+        await deleteUserById(target.id);
+        // A deleted user is no longer reachable by username; go back to
+        // the queue instead of reloading this now-404ing detail page.
+        location.href = "/admin/users";
+        return;
+      } else {
+        console.error("[admin] confirm-dialog event did not match queued pending action", e.detail.dialogId, target);
+        return;
+      }
+      location.reload();
+    } catch (err) {
+      showError(`Couldn't complete that action: ${friendly(err)}`);
+      inFlight = false;
+    }
+  });
+</script>
