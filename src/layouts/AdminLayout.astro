@@ -21,22 +21,23 @@ interface Props {
   session: AuthSession;
 }
 
-const { title, active, session } = Astro.props;
+// `session` is intentionally unread here: it stays on the prop contract because
+// phases 3-5 gate owner-only affordances (role change, delete user, rollback of
+// public/DOI datasets) on `session.user.backend_role`, and every admin page
+// already resolves it for `adminGate()`.
+const { title, active } = Astro.props;
 const hasLede = Astro.slots.has("lede");
 ---
 
 <Base title={`Admin - ${title}`} description="NEMAR admin portal.">
   <div class="admin-shell">
     <header class="admin-header">
-      <div>
-        <h1 class="admin-header__title">{title}</h1>
-        {hasLede && (
-          <p class="admin-header__lede">
-            <slot name="lede" />
-          </p>
-        )}
-      </div>
-      <p class="admin-header__signed-in">Signed in as {session.user.email}</p>
+      <h1 class="admin-header__title">{title}</h1>
+      {hasLede && (
+        <p class="admin-header__lede">
+          <slot name="lede" />
+        </p>
+      )}
     </header>
 
     <nav class="admin-tabs" aria-label="Admin sections">
@@ -69,13 +70,6 @@ const hasLede = Astro.slots.has("lede");
     display: grid;
     gap: var(--space-6);
   }
-  .admin-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
   .admin-header__title {
     font-family: var(--font-display);
     font-size: var(--fs-3xl);
@@ -85,12 +79,6 @@ const hasLede = Astro.slots.has("lede");
     margin: 0;
     color: var(--color-fg-muted);
     max-inline-size: 48rem;
-  }
-  .admin-header__signed-in {
-    margin: 0;
-    color: var(--color-fg-subtle);
-    font-size: var(--fs-xs);
-    white-space: nowrap;
   }
   .admin-tabs {
     display: flex;
