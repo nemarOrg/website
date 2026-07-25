@@ -16,6 +16,14 @@
  * `message`. `readError()` maps `error` -> `code`, so every throw below
  * prefers `detail.message ?? detail.code ?? res.statusText` — the code IS
  * the useful text here.
+ *
+ * Every fetch carries a deadline (mirrors `resolveSignal` in
+ * `observability.ts`): a plain `try/catch` only covers outright network
+ * rejection, not a connection that opens and never writes a response. That
+ * matters more here than in most clients — `fetchAwaitingApprovalCount` is
+ * awaited from the shared `AdminLayout` on every admin page, so a hung
+ * upstream without a deadline would hang the entire admin section, not
+ * just this one client.
  */
 import { dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError } from "./dashboard-api";
@@ -38,7 +46,36 @@ type Init = {
   readonly signal?: AbortSignal;
   readonly fetch?: typeof fetch;
   readonly cookieHeader?: string;
+  /** Abort the request after this many ms. Defaults to 5000. */
+  readonly timeoutMs?: number;
 };
+
+const DEFAULT_TIMEOUT_MS = 5000;
+
+/**
+ * Decorative chrome gets a tighter deadline than primary content: the
+ * awaiting-approval badge renders from the shared `AdminLayout`, so it is on
+ * the critical path of *every* admin page. Waiting the full 5s for a number
+ * the page reads fine without would make a degraded backend feel like a
+ * broken one.
+ */
+const BADGE_TIMEOUT_MS = 2000;
+
+/**
+ * Combines a caller-supplied abort signal (if any) with a deadline. Mirrors
+ * `resolveSignal` in `./observability.ts` deliberately, so both authenticated
+ * clients behave identically under a hung upstream.
+ *
+ * A plain `try/catch` around `fetch` only covers outright rejection (refused
+ * connection, DNS/TLS failure). It does NOT cover a connection that opens and
+ * then never writes a response: that promise simply never settles, so there is
+ * nothing to catch. These calls run during SSR, so an unbounded one stalls the
+ * page render itself.
+ */
+function resolveSignal(init: Init): AbortSignal {
+  const timeout = AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+}
 
 /**
  * Row shape from `GET /admin/users`. A narrow, explicit column projection
@@ -138,7 +175,7 @@ export async function listAdminUsers(
     method: "GET",
     headers,
     credentials: "include",
-    signal: init.signal,
+    signal: resolveSignal(init),
   });
   if (!res.ok) {
     const detail = await readError(res);
@@ -157,7 +194,7 @@ export async function getAdminUser(username: string, init: Init = {}): Promise<A
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
     `${dashboardApiBase(init.cookieHeader)}/admin/users/${encodeURIComponent(username)}`,
-    { method: "GET", headers, credentials: "include", signal: init.signal },
+    { method: "GET", headers, credentials: "include", signal: resolveSignal(init) },
   );
   if (!res.ok) {
     const detail = await readError(res);
@@ -186,7 +223,7 @@ export async function approveUser(username: string, init: Init = {}): Promise<Ap
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
     `${dashboardApiBase(init.cookieHeader)}/admin/approve/${encodeURIComponent(username)}`,
-    { method: "POST", headers, credentials: "include", body: "{}", signal: init.signal },
+    { method: "POST", headers, credentials: "include", body: "{}", signal: resolveSignal(init) },
   );
   if (!res.ok) {
     const detail = await readError(res);
@@ -220,7 +257,7 @@ export async function revokeUser(username: string, init: Init = {}): Promise<Rev
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
     `${dashboardApiBase(init.cookieHeader)}/admin/revoke/${encodeURIComponent(username)}`,
-    { method: "POST", headers, credentials: "include", body: "{}", signal: init.signal },
+    { method: "POST", headers, credentials: "include", body: "{}", signal: resolveSignal(init) },
   );
   // 207 (partial IAM-cleanup failure) is still `res.ok` (in the 200-299
   // range) — the revoke itself succeeded; the page surfaces `warning`.
@@ -260,7 +297,7 @@ export async function changeUserRole(
       headers,
       credentials: "include",
       body: JSON.stringify({ role }),
-      signal: init.signal,
+      signal: resolveSignal(init),
     },
   );
   if (!res.ok) {
@@ -290,7 +327,7 @@ export async function deleteUserById(id: number, init: Init = {}): Promise<Delet
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
     `${dashboardApiBase(init.cookieHeader)}/admin/users/by-id/${encodeURIComponent(String(id))}`,
-    { method: "DELETE", headers, credentials: "include", body: "{}", signal: init.signal },
+    { method: "DELETE", headers, credentials: "include", body: "{}", signal: resolveSignal(init) },
   );
   if (!res.ok) {
     const detail = await readError(res);
@@ -312,7 +349,10 @@ export async function deleteUserById(id: number, init: Init = {}): Promise<Delet
  */
 export async function fetchAwaitingApprovalCount(init: Init = {}): Promise<number | null> {
   try {
-    const { count } = await listAdminUsers({ status: "verified" }, init);
+    const { count } = await listAdminUsers(
+      { status: "verified" },
+      { ...init, timeoutMs: init.timeoutMs ?? BADGE_TIMEOUT_MS },
+    );
     return count;
   } catch {
     return null;

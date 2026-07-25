@@ -315,3 +315,33 @@ describe("fetchAwaitingApprovalCount", () => {
     await expect(fetchAwaitingApprovalCount({ fetch: fakeFetch })).resolves.toBeNull();
   });
 });
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response. Without a deadline
+// these calls would hang the SSR render of every admin page, since
+// fetchAwaitingApprovalCount is awaited from the shared AdminLayout.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung list request rather than hanging forever", async () => {
+    await expect(listAdminUsers({}, { fetch: hangingFetch, timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  it("degrades the badge count to null when the request hangs", async () => {
+    await expect(
+      fetchAwaitingApprovalCount({ fetch: hangingFetch, timeoutMs: 10 }),
+    ).resolves.toBeNull();
+  });
+
+  it("aborts a hung mutation rather than leaving the button stuck", async () => {
+    await expect(
+      approveUser("alice", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+});
