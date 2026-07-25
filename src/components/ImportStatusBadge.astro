@@ -1,0 +1,91 @@
+---
+/**
+ * Status pill for an `import_jobs` row. Mirrors `UserStatusBadge.astro`'s
+ * structure (same token-driven color-mix treatment) adapted to the import
+ * lifecycle.
+ *
+ * Tone choices worth stating, because they aren't all obvious:
+ * - `incomplete` reads warning, not danger: the import did reach `complete`
+ *   once and the retry engine is actively working it back. It needs
+ *   watching, not a decision.
+ * - `rolled_back` reads neutral, not danger: it is the *resolved* end of a
+ *   failed import, i.e. an operator already dealt with it.
+ * - The three in-flight stages share one neutral "info" tone; the stage
+ *   itself is rendered separately on the row.
+ */
+import type { ImportStatus } from "../lib/imports-admin-api";
+
+interface Props {
+  status: ImportStatus;
+}
+
+const { status } = Astro.props;
+
+const LABELS: Record<ImportStatus, string> = {
+  preparing: "Preparing",
+  copying: "Copying",
+  finalizing: "Finalizing",
+  complete: "Complete",
+  incomplete: "Incomplete",
+  failed: "Failed",
+  quarantined: "Quarantined",
+  rolled_back: "Rolled back",
+};
+const TONES: Record<ImportStatus, "neutral" | "info" | "warning" | "success" | "danger"> = {
+  preparing: "info",
+  copying: "info",
+  finalizing: "info",
+  complete: "success",
+  incomplete: "warning",
+  failed: "danger",
+  quarantined: "danger",
+  rolled_back: "neutral",
+};
+const label = LABELS[status];
+const tone = TONES[status];
+---
+
+<span class:list={["import-status-badge", `import-status-badge--${tone}`]}>
+  {label}
+</span>
+
+<style>
+  .import-status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    font-weight: var(--fw-medium);
+    white-space: nowrap;
+  }
+  .import-status-badge--neutral {
+    color: var(--color-fg-muted);
+    background: var(--color-bg-subtle);
+    border-color: var(--color-border);
+  }
+  .import-status-badge--info {
+    color: var(--color-info);
+    background: color-mix(in srgb, var(--color-info) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-info) 35%, transparent);
+  }
+  .import-status-badge--warning {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  .import-status-badge--success {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+  }
+  .import-status-badge--danger {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 30%, transparent);
+  }
+</style>
