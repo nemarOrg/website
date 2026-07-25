@@ -11,6 +11,7 @@ import {
   fetchActiveNotices,
   isNoticeDismissed,
   isNoticeExpired,
+  linkifyMessage,
   listAdminNotices,
   presentationLevel,
   rememberNoticeDismissal,
@@ -148,6 +149,117 @@ describe("presentationLevel", () => {
 
   it("routes a legacy level's dismissal to the store its mapped level uses", () => {
     expect(dismissalStore("info")).toBe(dismissalStore("tip"));
+  });
+});
+
+describe("linkifyMessage", () => {
+  const text = (v: string) => ({ type: "text", value: v });
+  const link = (v: string) => ({ type: "link", value: v });
+
+  it("returns a single text run when there is no URL", () => {
+    expect(linkifyMessage("Scheduled maintenance tonight.")).toEqual([
+      text("Scheduled maintenance tonight."),
+    ]);
+  });
+
+  it("splits text around a URL", () => {
+    expect(linkifyMessage("Moved to https://nemar.org today")).toEqual([
+      text("Moved to "),
+      link("https://nemar.org"),
+      text(" today"),
+    ]);
+  });
+
+  it("handles a URL at the very start and very end", () => {
+    expect(linkifyMessage("https://nemar.org is live")).toEqual([
+      link("https://nemar.org"),
+      text(" is live"),
+    ]);
+    expect(linkifyMessage("see https://nemar.org")).toEqual([
+      text("see "),
+      link("https://nemar.org"),
+    ]);
+  });
+
+  it("links more than one URL", () => {
+    expect(linkifyMessage("a https://x.org b https://y.org")).toEqual([
+      text("a "),
+      link("https://x.org"),
+      text(" b "),
+      link("https://y.org"),
+    ]);
+  });
+
+  // Sentence punctuation after a URL belongs to the sentence, not the href.
+  it("does not swallow trailing punctuation", () => {
+    expect(linkifyMessage("go to https://nemar.org.")).toEqual([
+      text("go to "),
+      link("https://nemar.org"),
+      text("."),
+    ]);
+    expect(linkifyMessage("(see https://nemar.org)")).toEqual([
+      text("(see "),
+      link("https://nemar.org"),
+      text(")"),
+    ]);
+  });
+
+  it("keeps a path, query and fragment on the link", () => {
+    expect(linkifyMessage("at https://nemar.org/discover?modality=eeg#top now")).toEqual([
+      text("at "),
+      link("https://nemar.org/discover?modality=eeg#top"),
+      text(" now"),
+    ]);
+  });
+
+  // THE security property. Anchoring on https?:// is what makes the result
+  // safe to assign to `href`; a scheme that came from message text could be
+  // `javascript:`, which in an href is script execution.
+  it("never treats a javascript: or data: scheme as a link", () => {
+    for (const hostile of [
+      "javascript:alert(1)",
+      "click javascript:alert(document.cookie) now",
+      "data:text/html,<script>alert(1)</script>",
+      "vbscript:msgbox(1)",
+    ]) {
+      expect(linkifyMessage(hostile).every((s) => s.type === "text")).toBe(true);
+    }
+  });
+
+  // Markup in a message stays literal text — the renderers build nodes from
+  // these segments rather than concatenating HTML, so this run is inert.
+  it("leaves HTML in the message as plain text", () => {
+    const segments = linkifyMessage('<img src=x onerror="alert(1)">');
+    expect(segments).toEqual([text('<img src=x onerror="alert(1)">')]);
+  });
+
+  // A URL embedded in markup must not let the markup ride along into an
+  // href — the tag characters terminate the match.
+  it("stops a URL match at markup characters", () => {
+    const segments = linkifyMessage('<a href="https://evil.test">x</a>');
+    const links = segments.filter((s) => s.type === "link").map((s) => s.value);
+    expect(links).toEqual(["https://evil.test"]);
+    expect(segments.map((s) => s.value).join("")).toBe('<a href="https://evil.test">x</a>');
+  });
+
+  it("round-trips the original message exactly", () => {
+    for (const message of [
+      "plain",
+      "a https://x.org b",
+      "https://x.org",
+      "trailing https://x.org.",
+      "",
+    ]) {
+      expect(
+        linkifyMessage(message)
+          .map((s) => s.value)
+          .join(""),
+      ).toBe(message);
+    }
+  });
+
+  it("returns nothing for an empty message", () => {
+    expect(linkifyMessage("")).toEqual([]);
   });
 });
 
