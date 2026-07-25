@@ -34,8 +34,8 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
         <ul class="user-menu__list" role="none">
           {session.user.role === "admin" && (
             <li role="none">
-              <a class="user-menu__item user-menu__item--admin" href="/admin/publication-requests" role="menuitem">
-                Admin: publication requests
+              <a class="user-menu__item user-menu__item--admin" href="/admin" role="menuitem">
+                Admin
               </a>
             </li>
           )}
