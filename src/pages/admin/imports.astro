@@ -1,0 +1,446 @@
+---
+import ConfirmDialog from "../../components/ConfirmDialog.astro";
+import ImportJobRow from "../../components/admin/ImportJobRow.astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+import { DashboardApiError } from "../../lib/dashboard-api";
+import {
+  ATTENTION_STATUSES,
+  IN_FLIGHT_STATUSES,
+  type ImportJob,
+  type ImportStatus,
+  listAdminImports,
+  listImportsByStatuses,
+  sumStatuses,
+  totalCount,
+} from "../../lib/imports-admin-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is
+  // unreachable — it's here only so TypeScript narrows `session` to
+  // non-null for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+
+/**
+ * A chip is one of three fetch shapes: a set of statuses (merged
+ * client-side because the backend's `status` param is single-valued), a
+ * blocklist filter, or no filter at all. `statuses` also drives the chip's
+ * count, read out of the fleet-wide `by_status` every response carries.
+ */
+type Chip = {
+  readonly value: string;
+  readonly label: string;
+  readonly statuses?: readonly ImportStatus[];
+  readonly blocklisted?: boolean;
+};
+
+const CHIPS: readonly Chip[] = [
+  { value: "attention", label: "Needs attention", statuses: ATTENTION_STATUSES },
+  { value: "failed", label: "Failed", statuses: ["failed"] },
+  { value: "quarantined", label: "Quarantined", statuses: ["quarantined"] },
+  { value: "incomplete", label: "Incomplete", statuses: ["incomplete"] },
+  { value: "blocklisted", label: "Blocklisted", blocklisted: true },
+  { value: "inflight", label: "In flight", statuses: IN_FLIGHT_STATUSES },
+  { value: "all", label: "All" },
+];
+
+const url = new URL(Astro.request.url);
+const rawView = url.searchParams.get("view");
+// Same reasoning as /admin/users: the endpoint has no pagination, so an
+// unfiltered default would dump a row for every import ever attempted.
+// "Needs attention" is the working queue, so it's the default both with no
+// `view` param and with an unrecognized one.
+const activeChip = CHIPS.find((c) => c.value === rawView) ?? CHIPS[0];
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let jobs: readonly ImportJob[] = [];
+let byStatus: Readonly<Record<string, number>> = {};
+let listError: string | null = null;
+try {
+  const result = activeChip.statuses
+    ? await listImportsByStatuses(activeChip.statuses, { cookieHeader })
+    : await listAdminImports(
+        activeChip.blocklisted !== undefined ? { blocklisted: activeChip.blocklisted } : {},
+        { cookieHeader },
+      );
+  jobs = result.imports;
+  byStatus = result.by_status;
+} catch (err) {
+  listError =
+    err instanceof DashboardApiError
+      ? `Could not load imports (${err.status}).`
+      : err instanceof Error
+        ? err.message
+        : "Could not load imports.";
+}
+
+/** Chip counts come from the fleet-wide `by_status`, so they stay accurate
+ *  whichever chip is applied. "Blocklisted" has no count: `by_status` breaks
+ *  down by status only, and blocklisting is orthogonal to it. */
+function countFor(chip: Chip): number | null {
+  if (chip.statuses) return sumStatuses(byStatus, chip.statuses);
+  if (chip.value === "all") return totalCount(byStatus);
+  return null;
+}
+---
+
+<AdminLayout title="Imports" active="imports" session={session}>
+  <Fragment slot="lede">
+    OpenNeuro import jobs and quarantine triage. The default view is everything needing a decision:
+    failed, quarantined, and incomplete imports. Retry re-arms a stuck import and un-parks it from
+    the retry engine's blocklist; Verify forces an S3 integrity check now; Roll back cascade-deletes
+    the dataset (GitHub repo, S3 objects, and catalog row) and is not reversible. This endpoint has
+    no server-side pagination, so "All" fetches every import on record.
+  </Fragment>
+
+  <nav class="admin-filters" aria-label="Filter imports">
+    {
+      CHIPS.map((chip) => {
+        const href = chip.value === "attention" ? "/admin/imports" : `/admin/imports?view=${chip.value}`;
+        const active = activeChip.value === chip.value;
+        const count = countFor(chip);
+        return (
+          <a class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]} href={href}>
+            {chip.label}
+            {count !== null && <span class="admin-filters__count">{count}</span>}
+          </a>
+        );
+      })
+    }
+  </nav>
+
+  <input
+    type="search"
+    class="imports-search"
+    placeholder="Filter this view by dataset id, source id, or error…"
+    aria-label="Filter loaded imports by dataset id, source id, or error"
+    data-import-search
+  />
+
+  {listError && <p class="admin-action-error" role="alert">{listError}</p>}
+
+  {
+    !listError && jobs.length === 0 ? (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">Nothing here</h2>
+        <p class="admin-empty__body">
+          {activeChip.value === "attention"
+            ? "No imports need attention right now."
+            : "Try a different filter."}
+        </p>
+      </div>
+    ) : (
+      <ul class="admin-list" role="list" data-import-list>
+        {jobs.map((job) => (
+          <li
+            data-import-list-item
+            data-search-key={`${job.dataset_id} ${job.source_id ?? ""} ${job.last_error ?? ""}`.toLowerCase()}
+          >
+            <ImportJobRow job={job} />
+          </li>
+        ))}
+      </ul>
+    )
+  }
+  <p class="admin-empty admin-empty--search-hidden" data-import-search-empty hidden>
+    No loaded imports match that search.
+  </p>
+
+  <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
+
+  <ConfirmDialog
+    dialogId="admin-retry-import"
+    title="Retry this import?"
+    body="The job resets to 'preparing' and is un-parked from the retry engine's blocklist. This does not itself re-run the workflow — re-dispatch onboard-openneuro.yml, or let the retry sweep pick it up."
+    confirmLabel="Retry import"
+    confirmTone="primary"
+  />
+
+  <ConfirmDialog
+    dialogId="admin-rollback-import"
+    title="Roll back this import?"
+    body="This deletes the GitHub repo, every S3 object, and the catalog row for this dataset, then marks the import rolled back. It is not reversible from this UI."
+    confirmLabel="Roll back import"
+    confirmTone="danger"
+    requireTyping="ROLLBACK"
+  />
+</AdminLayout>
+
+<style>
+  .admin-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .admin-filters__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 4px 12px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+  }
+  .admin-filters__chip:hover {
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .admin-filters__chip--active {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .admin-filters__count {
+    font-variant-numeric: tabular-nums;
+    font-size: var(--fs-xs);
+    opacity: 0.75;
+  }
+  .imports-search {
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    width: 100%;
+    max-inline-size: 26rem;
+  }
+  .imports-search:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+  .admin-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-3);
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    text-align: center;
+  }
+  .admin-empty--search-hidden {
+    padding: var(--space-6);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .admin-empty__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+  }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+</style>
+
+<script>
+  import { DashboardApiError } from "../../lib/dashboard-api";
+  import { retryImport, rollbackImport, verifyImport } from "../../lib/imports-admin-api";
+
+  const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
+
+  // The `/admin/imports*` backend routes put a human-readable sentence
+  // directly in the error body (see imports-admin-api.ts's file header) —
+  // `.code` is usually already the right thing to show. This map only
+  // covers proxy/transport-level codes, which aren't human text.
+  const FRIENDLY: Record<string, string> = {
+    upstream_unreachable: "Can't reach the import service. Try again in a moment.",
+    unauthenticated: "Sign in again to continue.",
+  };
+
+  function friendly(err: unknown): string {
+    if (err instanceof DashboardApiError) {
+      // `rollback_incomplete` is our own synthesized code and its message
+      // already names the cascade steps that were left behind, so it must
+      // fall through to `.message` rather than being shown as a bare code.
+      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
+      if (err.code && err.code !== "rollback_incomplete") return err.code;
+      return err.message;
+    }
+    return err instanceof Error ? err.message : "Action failed.";
+  }
+
+  function showError(msg: string): void {
+    if (!errorEl) return;
+    errorEl.hidden = false;
+    errorEl.textContent = msg;
+    errorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  /** Per-row result line, used by Verify (which reports rather than reloads). */
+  function showRowResult(datasetId: string, tone: "info" | "success" | "danger", msg: string): void {
+    const row = document.querySelector<HTMLElement>(
+      `[data-import-row][data-dataset-id="${CSS.escape(datasetId)}"]`,
+    );
+    const target = row?.querySelector<HTMLElement>("[data-import-result]");
+    if (!target) return;
+    target.hidden = false;
+    target.dataset.tone = tone;
+    target.textContent = msg;
+  }
+
+  // Client-side search over the already-fetched view (per-chip fetch, no
+  // pagination — see the page frontmatter comment on `activeChip`).
+  const searchInput = document.querySelector<HTMLInputElement>("[data-import-search]");
+  const listItems = Array.from(document.querySelectorAll<HTMLLIElement>("[data-import-list-item]"));
+  const searchEmptyEl = document.querySelector<HTMLElement>("[data-import-search-empty]");
+  function applySearch(): void {
+    const q = (searchInput?.value ?? "").trim().toLowerCase();
+    let visible = 0;
+    for (const item of listItems) {
+      const match = !q || (item.dataset.searchKey ?? "").includes(q);
+      item.hidden = !match;
+      if (match) visible++;
+    }
+    if (searchEmptyEl) searchEmptyEl.hidden = !(q && visible === 0);
+  }
+  searchInput?.addEventListener("input", applySearch);
+
+  type PendingAction =
+    | { kind: "retry"; datasetId: string }
+    | { kind: "rollback"; datasetId: string };
+  let pending: PendingAction | null = null;
+  let inFlight = false;
+
+  function openDialog(dialogId: string): void {
+    document.dispatchEvent(
+      new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", { detail: { dialogId } }),
+    );
+  }
+  function queue(next: PendingAction): void {
+    if (inFlight) return;
+    if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
+    pending = next;
+    clearError();
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("[data-import-retry]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const datasetId = btn.dataset.datasetId;
+      if (!datasetId) return;
+      queue({ kind: "retry", datasetId });
+      openDialog("admin-retry-import");
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-import-rollback]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const datasetId = btn.dataset.datasetId;
+      if (!datasetId) return;
+      queue({ kind: "rollback", datasetId });
+      openDialog("admin-rollback-import");
+    });
+  });
+
+  // Verify is the one action that reports rather than mutates-and-reloads:
+  // its whole value is the integrity report, which a reload would discard.
+  // It can still change the row's status server-side (recovering a healthy
+  // row, or reclassifying a `complete` one to `incomplete`), so the result
+  // line says so rather than silently leaving a stale badge on screen.
+  document.querySelectorAll<HTMLButtonElement>("[data-import-verify]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const datasetId = btn.dataset.datasetId;
+      if (!datasetId || inFlight) return;
+      clearError();
+      inFlight = true;
+      btn.disabled = true;
+      const previousLabel = btn.textContent;
+      btn.textContent = "Verifying…";
+      showRowResult(datasetId, "info", "Checking every object in S3…");
+      try {
+        const result = await verifyImport(datasetId);
+        if (result.complete) {
+          showRowResult(
+            datasetId,
+            "success",
+            `Complete: all ${result.expectedCount} objects present. Reload to see the updated status.`,
+          );
+        } else {
+          const missing = result.missingKeys.length;
+          const zeroByte = result.zeroByteKeys.length;
+          const parts = [
+            `${result.presentCount} of ${result.expectedCount} objects present`,
+            missing > 0 ? `${missing} missing` : null,
+            zeroByte > 0 ? `${zeroByte} zero-byte` : null,
+          ].filter(Boolean);
+          const sample = result.missingKeys.slice(0, 3).join(", ");
+          showRowResult(
+            datasetId,
+            "danger",
+            `Incomplete: ${parts.join(", ")}.${sample ? ` First missing: ${sample}.` : ""} Reload to see the updated status.`,
+          );
+        }
+      } catch (err) {
+        showRowResult(datasetId, "danger", `Verify failed: ${friendly(err)}`);
+      } finally {
+        inFlight = false;
+        btn.disabled = false;
+        btn.textContent = previousLabel;
+      }
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const e = evt as CustomEvent<{ dialogId: string }>;
+    if (!pending) return;
+    const target = pending;
+    pending = null;
+
+    try {
+      if (e.detail.dialogId === "admin-retry-import" && target.kind === "retry") {
+        inFlight = true;
+        await retryImport(target.datasetId);
+      } else if (e.detail.dialogId === "admin-rollback-import" && target.kind === "rollback") {
+        inFlight = true;
+        // Throws on a partial cascade even though that arrives as HTTP 200 —
+        // see rollbackImport. The catch below surfaces which steps were left
+        // behind rather than flashing a success and reloading.
+        await rollbackImport(target.datasetId);
+      } else {
+        console.error(
+          "[admin] confirm-dialog event did not match queued pending action",
+          e.detail.dialogId,
+          target,
+        );
+        return;
+      }
+      location.reload();
+    } catch (err) {
+      showError(`Couldn't complete that action: ${friendly(err)}`);
+      inFlight = false;
+    }
+  });
+</script>
