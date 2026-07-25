@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ATTENTION_STATUSES,
+  IMPORT_TIMEOUTS_MS,
   type ImportJob,
   attentionCount,
   canRetry,
@@ -95,8 +96,12 @@ describe("isBlocklisted", () => {
     expect(isBlocklisted(job({ blocklisted: 0 }))).toBe(false);
   });
 
-  it("false when the column is null", () => {
-    expect(isBlocklisted(job({ blocklisted: null }))).toBe(false);
+  // `blocklisted` is NOT NULL DEFAULT 0 in migration 0058, so this can't
+  // come from the database. It can still come off the wire: the client
+  // casts `res.json()` without validating, so a malformed response reaches
+  // the predicate unchecked. Belt-and-suspenders, deliberately cast.
+  it("false when the wire delivers a null despite the NOT NULL column", () => {
+    expect(isBlocklisted(job({ blocklisted: null as unknown as number }))).toBe(false);
   });
 });
 
@@ -138,11 +143,14 @@ describe("sortImportJobs", () => {
     expect(sorted.map((j) => j.dataset_id)).toEqual(["newer", "older"]);
   });
 
-  // A null timestamp must sort last rather than throw — the column is
-  // nullable and the whole row would otherwise be lost from the view.
-  it("sorts a null updated_at last within its status group", () => {
+  // `updated_at` is NOT NULL in migration 0044, so this is a malformed-wire
+  // case, not a schema one — the client casts `res.json()` unchecked. It
+  // must sort last rather than throw inside the comparator: this runs during
+  // SSR and Astro drops a page whose render throws, so one bad row would
+  // take out the whole triage view.
+  it("sorts a wire-delivered null updated_at last instead of throwing", () => {
     const sorted = sortImportJobs([
-      job({ dataset_id: "nulled", status: "failed", updated_at: null }),
+      job({ dataset_id: "nulled", status: "failed", updated_at: null as unknown as string }),
       job({ dataset_id: "dated", status: "failed", updated_at: "2026-07-01 00:00:00" }),
     ]);
     expect(sorted.map((j) => j.dataset_id)).toEqual(["dated", "nulled"]);
@@ -239,6 +247,61 @@ describe("listAdminImports", () => {
   });
 });
 
+describe("SSR cookie path", () => {
+  // The production path for every call on this page: Astro passes the
+  // request's Cookie header through, the client targets api.nemar.org
+  // directly instead of the same-origin /api/v1 proxy, and the session
+  // cookie rides along. A regression here breaks every SSR admin render
+  // while every proxy-path test above stays green.
+  it("hits api.nemar.org directly and attaches the Cookie header", async () => {
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.nemar.org/admin/imports?status=failed");
+      expect((init.headers as Record<string, string>).Cookie).toBe("nemar_session=abc");
+      return jsonResponse({ imports: [], total: 0, by_status: {} });
+    }) as unknown as typeof fetch;
+    await listAdminImports(
+      { status: "failed" },
+      { fetch: fakeFetch, cookieHeader: "nemar_session=abc" },
+    );
+  });
+
+  it("attaches the Cookie header on mutations too", async () => {
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.nemar.org/admin/imports/on000001/retry");
+      expect((init.headers as Record<string, string>).Cookie).toBe("nemar_session=abc");
+      return jsonResponse({ ok: true, dataset_id: "on000001", status: "preparing" });
+    }) as unknown as typeof fetch;
+    await retryImport("on000001", { fetch: fakeFetch, cookieHeader: "nemar_session=abc" });
+  });
+
+  it("carries the cookie through the badge count", async () => {
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      expect(url).toBe("https://api.nemar.org/admin/imports?status=quarantined");
+      expect((init.headers as Record<string, string>).Cookie).toBe("nemar_session=abc");
+      return jsonResponse({ imports: [], total: 0, by_status: { failed: 1 } });
+    }) as unknown as typeof fetch;
+    await expect(
+      fetchImportsAttentionCount({ fetch: fakeFetch, cookieHeader: "nemar_session=abc" }),
+    ).resolves.toBe(1);
+  });
+});
+
+describe("request deadline values", () => {
+  // Pins the values, not the wiring — AbortSignal.timeout() doesn't expose
+  // its duration and this project tests deadlines by driving the real abort
+  // path rather than faking timers. What this catches is someone flattening
+  // verify/rollback back to the base deadline, which would abort healthy
+  // calls on large datasets.
+  it("gives verify and rollback more room than a plain read", () => {
+    expect(IMPORT_TIMEOUTS_MS.verify).toBeGreaterThan(IMPORT_TIMEOUTS_MS.default);
+    expect(IMPORT_TIMEOUTS_MS.rollback).toBeGreaterThan(IMPORT_TIMEOUTS_MS.verify);
+  });
+
+  it("gives the every-page badge the tightest deadline", () => {
+    expect(IMPORT_TIMEOUTS_MS.badge).toBeLessThan(IMPORT_TIMEOUTS_MS.default);
+  });
+});
+
 describe("listImportsByStatuses", () => {
   it("fetches one request per status and merges them in triage order", async () => {
     const requested: string[] = [];
@@ -270,7 +333,45 @@ describe("listImportsByStatuses", () => {
       throw new Error("should not fetch");
     }) as unknown as typeof fetch;
     const result = await listImportsByStatuses([], { fetch: fakeFetch });
-    expect(result).toEqual({ imports: [], total: 0, by_status: {} });
+    expect(result).toEqual({ imports: [], total: 0, by_status: {}, failedStatuses: [] });
+  });
+
+  // One flaky status query must not blank the default landing view of the
+  // whole page — but the gap must be named, because "no failed imports" and
+  // "we couldn't ask about failed imports" would otherwise render
+  // identically and the second reads as good news.
+  it("renders the statuses that succeeded and names the one that failed", async () => {
+    const fakeFetch = (async (url: string) => {
+      const status = new URL(url, "https://app.nemar.org").searchParams.get("status") ?? "";
+      if (status === "failed") return jsonResponse({ error: "upstream exploded" }, 500);
+      return jsonResponse({
+        imports: [job({ dataset_id: `${status}-1`, status: status as ImportJob["status"] })],
+        total: 1,
+        by_status: { failed: 9, quarantined: 1, incomplete: 1 },
+      });
+    }) as unknown as typeof fetch;
+
+    const result = await listImportsByStatuses(ATTENTION_STATUSES, { fetch: fakeFetch });
+
+    expect(result.imports.map((j) => j.dataset_id)).toEqual(["quarantined-1", "incomplete-1"]);
+    expect(result.failedStatuses).toEqual(["failed"]);
+    // by_status comes from a response that succeeded, so the chip counts
+    // still reflect the real fleet even though one query is missing.
+    expect(result.by_status.failed).toBe(9);
+  });
+
+  // Nothing partial to show and nothing to explain — behave like the
+  // single-status call so the page renders its normal error state, carrying
+  // the backend's own sentence rather than a synthesized one.
+  it("throws the underlying error when every status query fails", async () => {
+    const fakeFetch = (async () =>
+      jsonResponse({ error: "Admin access required" }, 403)) as unknown as typeof fetch;
+    await expect(
+      listImportsByStatuses(ATTENTION_STATUSES, { fetch: fakeFetch }),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: "Could not list imports: Admin access required",
+    });
   });
 });
 
@@ -316,6 +417,15 @@ describe("verifyImport", () => {
     expect(result.missingKeys).toHaveLength(1);
     expect(result.presentCount).toBe(119);
   });
+
+  it("surfaces the backend's 404 sentence", async () => {
+    const fakeFetch = (async () =>
+      jsonResponse({ error: "No import job for this dataset" }, 404)) as unknown as typeof fetch;
+    await expect(verifyImport("on999999", { fetch: fakeFetch })).rejects.toMatchObject({
+      status: 404,
+      message: "Verify failed: No import job for this dataset",
+    });
+  });
 });
 
 describe("rollbackImport", () => {
@@ -347,6 +457,8 @@ describe("rollbackImport", () => {
       })) as unknown as typeof fetch;
     await expect(rollbackImport("on000001", { fetch: fakeFetch })).rejects.toMatchObject({
       code: "rollback_incomplete",
+      // The trap in one assertion: a 200 that is nonetheless a failure.
+      status: 200,
       message:
         "Rollback incomplete — on000001 is partly deleted and stays quarantined: s3 delete failed: AccessDenied; d1 row retained",
     });
@@ -397,6 +509,16 @@ describe("fetchImportsAttentionCount", () => {
 
   it("degrades to null instead of throwing when the backend errors", async () => {
     const fakeFetch = (async () => jsonResponse({ error: "boom" }, 500)) as unknown as typeof fetch;
+    await expect(fetchImportsAttentionCount({ fetch: fakeFetch })).resolves.toBeNull();
+  });
+
+  // A transport-level rejection (refused connection, DNS/TLS failure) never
+  // reaches the response branch at all, so it exercises a different path
+  // through the same catch.
+  it("degrades to null on a raw fetch rejection", async () => {
+    const fakeFetch = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
     await expect(fetchImportsAttentionCount({ fetch: fakeFetch })).resolves.toBeNull();
   });
 });

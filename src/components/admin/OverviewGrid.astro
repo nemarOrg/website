@@ -6,7 +6,7 @@
  * passes it straight through — this component owns no fetching itself so
  * it stays easy to render from a scratch page or the real route alike.
  */
-import { ADMIN_TABS, type AdminTab } from "../../lib/admin-tabs";
+import { adminMetricHref } from "../../lib/admin-tabs";
 import { formatRelativeTime } from "../../lib/format";
 import type { Metric, MetricHistory, MetricSection, MetricSnapshot } from "../../lib/observability";
 import MetricBreakdown from "./MetricBreakdown.astro";
@@ -21,35 +21,9 @@ interface Props {
 
 const { snapshot, history = {} } = Astro.props;
 
-// Deep-link each metric family to the admin tab that can act on it, keyed
-// off `ADMIN_TABS.enabled` rather than a hardcoded list so a tab that hasn't
-// shipped yet can never produce a dead link. (That guard is why users.* and
-// imports.* were unlinked before Phases 3 and 4 enabled their routes; see
-// the phase breakdown on epic website#158.)
-const TAB_FOR_FAMILY: ReadonlyArray<readonly [string, AdminTab]> = [
-  ["publication.", "publications"],
-  ["users.", "users"],
-  ["imports.", "imports"],
-];
-
-// Where a tile maps to one filter of a tab rather than the whole tab, land
-// the operator on that filter. `imports.upstream_inaccessible` is a subset
-// of quarantined (same `last_error` match the observability Worker uses),
-// so it shares that destination.
-const VIEW_FOR_METRIC: Readonly<Record<string, string>> = {
-  "imports.active": "/admin/imports?view=inflight",
-  "imports.failed": "/admin/imports?view=failed",
-  "imports.quarantined": "/admin/imports?view=quarantined",
-  "imports.upstream_inaccessible": "/admin/imports?view=quarantined",
-};
-
-function hrefFor(metricKey: string): string | undefined {
-  const family = TAB_FOR_FAMILY.find(([prefix]) => metricKey.startsWith(prefix));
-  if (!family) return undefined;
-  const tab = ADMIN_TABS.find((t) => t.id === family[1]);
-  if (!tab?.enabled) return undefined;
-  return VIEW_FOR_METRIC[metricKey] ?? tab.href;
-}
+// Tile deep-links live in `admin-tabs.ts` (unit-tested there) rather than
+// inline here — Astro frontmatter is outside the vitest surface and nobody
+// clicks every metric tile during manual QA.
 
 // Any metric carrying a breakdown renders as a distribution rather than a
 // plain tile — checked structurally (not by a fixed key list) so a new
@@ -100,7 +74,7 @@ function historyFor(section: MetricSection): Array<{ metric: Metric; hist: Metri
                     <MetricBreakdown metric={metric} />
                   </div>
                 ) : (
-                  <MetricTile metric={metric} href={hrefFor(metric.key)} />
+                  <MetricTile metric={metric} href={adminMetricHref(metric.key)} />
                 ),
               )}
             </div>

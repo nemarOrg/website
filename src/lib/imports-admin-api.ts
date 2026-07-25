@@ -78,25 +78,36 @@ export const IN_FLIGHT_STATUSES: readonly ImportStatus[] = ["preparing", "copyin
  * Row shape from `GET /admin/imports`. Explicit column projection from the
  * `import_jobs` table — the handler selects these seventeen columns by name,
  * so this is the whole row as far as the website is concerned.
+ *
+ * Nullability here tracks the D1 schema column by column rather than
+ * defaulting everything to nullable. `import_jobs` is not the catalog
+ * `datasets` table: the fields below that are non-null are declared
+ * `NOT NULL` in migration 0044 (`source`, `source_id`, `stage`,
+ * `created_at`, `updated_at`) or `NOT NULL DEFAULT 0` in migration 0058
+ * (`recovery_attempts`, `blocklisted`, which backfills every pre-existing
+ * row), and the write paths supply them unconditionally. Marking those
+ * optional anyway would bury the fields that genuinely *are* optional
+ * (`last_error`, `next_retry_at`, …) in uniform noise and grow dead `??`
+ * guards downstream.
  */
 export interface ImportJob {
   readonly dataset_id: string;
-  readonly source: string | null;
-  readonly source_id: string | null;
-  readonly stage: string | null;
+  readonly source: string;
+  readonly source_id: string;
+  readonly stage: string;
   readonly status: ImportStatus;
   readonly last_error: string | null;
   readonly workflow_run_url: string | null;
-  readonly created_at: string | null;
-  readonly updated_at: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
   readonly completed_at: string | null;
   /** Automatic retry-engine dispatches burned so far (manual retries don't count). */
-  readonly recovery_attempts: number | null;
+  readonly recovery_attempts: number;
   readonly first_incomplete_at: string | null;
   /** When the retry sweep will next consider this row. */
   readonly next_retry_at: string | null;
   /** D1 stores this as an INTEGER (0/1), not a JSON boolean. */
-  readonly blocklisted: number | null;
+  readonly blocklisted: number;
   readonly blocklist_reason: string | null;
   readonly maintainer_notified_at: string | null;
   readonly integrity_checked_at: string | null;
@@ -122,23 +133,34 @@ type Init = {
   readonly timeoutMs?: number;
 };
 
-const DEFAULT_TIMEOUT_MS = 5000;
-
 /**
- * Verify re-reads every S3 key for the dataset version, so it is legitimately
- * slower than a D1 read. A 5s deadline would abort healthy checks on large
- * datasets and make a working endpoint look broken.
+ * Per-operation request deadlines, exported so the differences between them
+ * are a pinned contract rather than four loose magic numbers — reverting
+ * `verify` or `rollback` to the base deadline is a silent regression that
+ * aborts healthy calls, so `imports-admin-api.test.ts` asserts the ordering
+ * here.
+ *
+ * Caveat worth knowing: these tests pin the *values*, not the wiring.
+ * `AbortSignal.timeout()` doesn't expose its duration, and this project
+ * tests deadlines by driving the real abort path rather than faking timers
+ * (see `.context/handoff.md`), so "does `verifyImport` actually pass
+ * `verify` here" is not covered by a unit test.
+ *
+ * - `default` — a plain D1-backed read or state flip.
+ * - `verify` — re-reads every S3 key for the dataset version, so it is
+ *   legitimately slower than a D1 read. A 5s deadline would abort healthy
+ *   checks on large datasets and make a working endpoint look broken.
+ * - `rollback` — a full cascade delete (GitHub repo, then S3 keys, then
+ *   D1); the slowest call in this file by a wide margin.
+ * - `badge` — decorative chrome on the critical path of every admin page,
+ *   so it gets the tightest deadline of the four.
  */
-const VERIFY_TIMEOUT_MS = 30_000;
-
-/**
- * Rollback runs a full cascade delete (GitHub repo, then S3 keys, then D1),
- * so it is the slowest call in this file by a wide margin.
- */
-const ROLLBACK_TIMEOUT_MS = 60_000;
-
-/** Decorative chrome, on the critical path of every admin page. See below. */
-const BADGE_TIMEOUT_MS = 2000;
+export const IMPORT_TIMEOUTS_MS = {
+  default: 5000,
+  verify: 30_000,
+  rollback: 60_000,
+  badge: 2000,
+} as const;
 
 /**
  * Combines a caller-supplied abort signal (if any) with a deadline. Mirrors
@@ -151,7 +173,7 @@ const BADGE_TIMEOUT_MS = 2000;
  * nothing to catch. These calls run during SSR, so an unbounded one stalls the
  * page render itself.
  */
-function resolveSignal(init: Init, fallbackMs = DEFAULT_TIMEOUT_MS): AbortSignal {
+function resolveSignal(init: Init, fallbackMs: number = IMPORT_TIMEOUTS_MS.default): AbortSignal {
   const timeout = AbortSignal.timeout(init.timeoutMs ?? fallbackMs);
   return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
 }
@@ -169,15 +191,21 @@ function headersFor(init: Init, withBody: boolean): Record<string, string> {
  * engine is already working it) before everything else, then most recently
  * updated first.
  *
- * This deliberately reproduces the backend's own `ORDER BY` — which puts
- * failed and quarantined on top — because the needs-attention view
- * concatenates three separate single-status responses, and each of those is
- * only internally sorted. Without re-sorting, the merged list would show
- * every failed row, then every quarantined row, with no interleaving by
- * recency inside the tail.
+ * This reproduces the backend's own `ORDER BY`, which puts failed and
+ * quarantined on top. It is not load-bearing for the needs-attention view
+ * specifically — `ATTENTION_STATUSES` is already in triage order and the
+ * per-status responses are concatenated in that same order, so that one
+ * merge would come out grouped correctly anyway. It IS load-bearing for
+ * `IN_FLIGHT_STATUSES`, whose three statuses all rank equally here and so
+ * interleave by recency instead of staying clumped by stage, and it makes
+ * the ordering a property of this function rather than of the order a
+ * caller happens to pass `statuses` in.
  *
- * Pure and total: rows with a null `updated_at` sort last within their
- * status group rather than throwing.
+ * Pure and total. `updated_at` is `NOT NULL` in the schema, so the `?? ""`
+ * below is not schema defensiveness — it guards the *wire* boundary, which
+ * is an unchecked `as ImportListResponse` cast. A malformed response would
+ * otherwise throw inside a comparator during SSR, and Astro drops a page
+ * whose render throws.
  */
 export function sortImportJobs(jobs: readonly ImportJob[]): ImportJob[] {
   const rank = (status: ImportStatus): number => {
@@ -222,7 +250,8 @@ export function isBlocklisted(job: Pick<ImportJob, "blocklisted">): boolean {
 /**
  * True for a quarantined row that failed because OpenNeuro's objects aren't
  * anonymously readable, rather than because anything on the NEMAR side went
- * wrong (nemar-cli#808 / nemar-cli#827).
+ * wrong (nemar-cli#818 keeps the marker sticky across state callbacks;
+ * nemar-cli#827 is the weekly OpenNeuro-support report built on it).
  *
  * Borrowed from the observability Worker, which surfaces exactly this as its
  * own `imports.upstream_inaccessible` metric using the same `last_error`
@@ -302,18 +331,51 @@ export async function listAdminImports(
  * produce duplicates.
  *
  * `by_status` is fleet-wide and therefore identical across all responses;
- * the first is authoritative for the chip counts.
+ * the first that succeeded is authoritative for the chip counts.
+ *
+ * Partial failure is reported, not hidden, and not fatal. `Promise.all`
+ * would discard two good status queries because a third hiccuped, blanking
+ * the default landing view of the whole page; silently dropping the failed
+ * one would be worse still, because "no failed imports" and "we couldn't
+ * ask about failed imports" would render identically and the second reads
+ * as good news. So successful statuses render and `failedStatuses` names
+ * the ones whose state is unknown, for the page to surface alongside them.
+ * Only a total wipeout throws.
  */
+export interface MultiStatusImportListResponse extends ImportListResponse {
+  /** Statuses whose query failed; their rows are absent from `imports`. */
+  readonly failedStatuses: readonly ImportStatus[];
+}
+
 export async function listImportsByStatuses(
   statuses: readonly ImportStatus[],
   init: Init = {},
-): Promise<ImportListResponse> {
-  const responses = await Promise.all(statuses.map((status) => listAdminImports({ status }, init)));
-  const imports = sortImportJobs(responses.flatMap((r) => r.imports));
+): Promise<MultiStatusImportListResponse> {
+  const settled = await Promise.allSettled(
+    statuses.map((status) => listAdminImports({ status }, init)),
+  );
+  const ok = settled.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  const failedStatuses = statuses.filter((_, i) => settled[i].status === "rejected");
+
+  // Every status failed: there is nothing to show and nothing partial to
+  // explain, so behave like the single-status call and let the page render
+  // its error state. Rethrows the first rejection so the operator sees the
+  // backend's actual sentence rather than a synthesized one.
+  if (ok.length === 0 && statuses.length > 0) {
+    const firstRejection = settled.find((r) => r.status === "rejected");
+    throw (firstRejection as PromiseRejectedResult).reason;
+  }
+
+  for (const status of failedStatuses) {
+    console.warn(`[imports-admin-api] status query failed, omitting from view: ${status}`);
+  }
+
+  const imports = sortImportJobs(ok.flatMap((r) => r.imports));
   return {
     imports,
     total: imports.length,
-    by_status: responses[0]?.by_status ?? {},
+    by_status: ok[0]?.by_status ?? {},
+    failedStatuses,
   };
 }
 
@@ -373,7 +435,7 @@ export async function verifyImport(
       headers: headersFor(init, true),
       credentials: "include",
       body: "{}",
-      signal: resolveSignal(init, VERIFY_TIMEOUT_MS),
+      signal: resolveSignal(init, IMPORT_TIMEOUTS_MS.verify),
     },
   );
   if (!res.ok) {
@@ -396,14 +458,23 @@ export async function verifyImport(
  * claim a clean rollback. Callers must branch on `rolled_back`, not on
  * `res.ok` — see {@link rollbackImport}, which converts that case into a
  * thrown error so no caller can mistake it for success.
+ *
+ * Modeled as a discriminated union rather than two independent booleans
+ * because the backend always writes `ok` and `rolled_back` together (see
+ * imports.ts, both the partial and clean branches) — a split state like
+ * `{ok: true, rolled_back: false}` is unrepresentable here rather than
+ * merely undocumented. Mirrors the `DatasetPublishState` precedent in
+ * `dashboard-api.ts`.
  */
-export interface ImportRollbackResult {
-  readonly ok: boolean;
+interface ImportRollbackBase {
   readonly dataset_id: string;
-  readonly rolled_back: boolean;
   readonly steps: readonly string[];
   readonly warnings: readonly string[];
 }
+
+export type ImportRollbackResult =
+  | (ImportRollbackBase & { readonly ok: true; readonly rolled_back: true })
+  | (ImportRollbackBase & { readonly ok: false; readonly rolled_back: false });
 
 /**
  * Runs the rollback cascade (GitHub repo + S3 + D1 delete, then marks the
@@ -427,7 +498,7 @@ export async function rollbackImport(
       headers: headersFor(init, true),
       credentials: "include",
       body: "{}",
-      signal: resolveSignal(init, ROLLBACK_TIMEOUT_MS),
+      signal: resolveSignal(init, IMPORT_TIMEOUTS_MS.rollback),
     },
   );
   if (!res.ok) {
@@ -462,15 +533,25 @@ export async function rollbackImport(
  * of the filter, while an unfiltered call would drag down a row for every
  * import ever attempted on every single admin page load. `quarantined` is
  * the narrowest of the three attention statuses in practice.
+ *
+ * Logs before degrading. `null` (couldn't ask) and `0` (nothing to triage)
+ * both render as "no badge", so without a log line a broken imports
+ * subsystem is indistinguishable from a healthy quiet one — and the
+ * indistinguishable one reads as good news. The log is the only trail an
+ * operator has; `console.*` from the Worker lands in Workers Logs.
  */
 export async function fetchImportsAttentionCount(init: Init = {}): Promise<number | null> {
   try {
     const { by_status } = await listAdminImports(
       { status: "quarantined" },
-      { ...init, timeoutMs: init.timeoutMs ?? BADGE_TIMEOUT_MS },
+      { ...init, timeoutMs: init.timeoutMs ?? IMPORT_TIMEOUTS_MS.badge },
     );
     return attentionCount(by_status);
-  } catch {
+  } catch (err) {
+    console.warn(
+      "[imports-admin-api] attention-count badge degraded to null:",
+      err instanceof Error ? err.message : err,
+    );
     return null;
   }
 }

@@ -47,7 +47,7 @@ const datasetHref = job.status === "rolled_back" ? null : `/dataset/${job.datase
   <div class="import-row__primary">
     <div class="import-row__heading">
       <span class="import-row__id">{job.dataset_id}</span>
-      {job.source_id && <span class="import-row__source">from {job.source_id}</span>}
+      <span class="import-row__source">from {job.source_id}</span>
     </div>
     <div class="import-row__badges">
       <ImportStatusBadge status={job.status} />
@@ -83,11 +83,11 @@ const datasetHref = job.status === "rolled_back" ? null : `/dataset/${job.datase
   <dl class="import-row__meta">
     <div>
       <dt>Stage</dt>
-      <dd>{job.stage ?? "—"}</dd>
+      <dd>{job.stage}</dd>
     </div>
     <div>
       <dt>Retry attempts</dt>
-      <dd>{job.recovery_attempts ?? 0}</dd>
+      <dd>{job.recovery_attempts}</dd>
     </div>
     <div>
       <dt>Next retry</dt>

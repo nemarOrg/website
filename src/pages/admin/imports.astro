@@ -4,7 +4,6 @@ import ImportJobRow from "../../components/admin/ImportJobRow.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
-import { DashboardApiError } from "../../lib/dashboard-api";
 import {
   ATTENTION_STATUSES,
   IN_FLIGHT_STATUSES,
@@ -63,22 +62,31 @@ const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 let jobs: readonly ImportJob[] = [];
 let byStatus: Readonly<Record<string, number>> = {};
 let listError: string | null = null;
+/** Statuses whose query failed on a multi-status view. Their rows are
+ *  missing from `jobs`, so the page must say so rather than let the gap
+ *  read as "none of those exist". */
+let partialFailures: readonly ImportStatus[] = [];
 try {
-  const result = activeChip.statuses
-    ? await listImportsByStatuses(activeChip.statuses, { cookieHeader })
-    : await listAdminImports(
-        activeChip.blocklisted !== undefined ? { blocklisted: activeChip.blocklisted } : {},
-        { cookieHeader },
-      );
-  jobs = result.imports;
-  byStatus = result.by_status;
+  if (activeChip.statuses) {
+    const result = await listImportsByStatuses(activeChip.statuses, { cookieHeader });
+    jobs = result.imports;
+    byStatus = result.by_status;
+    partialFailures = result.failedStatuses;
+  } else {
+    const result = await listAdminImports(
+      activeChip.blocklisted !== undefined ? { blocklisted: activeChip.blocklisted } : {},
+      { cookieHeader },
+    );
+    jobs = result.imports;
+    byStatus = result.by_status;
+  }
 } catch (err) {
-  listError =
-    err instanceof DashboardApiError
-      ? `Could not load imports (${err.status}).`
-      : err instanceof Error
-        ? err.message
-        : "Could not load imports.";
+  // `DashboardApiError.message` already carries the backend's own sentence
+  // ("Admin access required", the owner-gate refusal, …) prefixed by this
+  // client. Replacing it with a bare status code would render a 403 and a
+  // flaky 500 identically and strictly lose information.
+  listError = err instanceof Error ? err.message : "Could not load imports.";
+  console.warn("[admin/imports] list failed:", listError);
 }
 
 /** Chip counts come from the fleet-wide `by_status`, so they stay accurate
@@ -127,6 +135,15 @@ function countFor(chip: Chip): number | null {
   {listError && <p class="admin-action-error" role="alert">{listError}</p>}
 
   {
+    partialFailures.length > 0 && (
+      <p class="admin-action-error" role="alert">
+        Couldn't load {partialFailures.join(", ")} imports, so none are shown below. This view is
+        incomplete &mdash; an empty result here does not mean there are none. Reload to try again.
+      </p>
+    )
+  }
+
+  {
     !listError && jobs.length === 0 ? (
       <div class="admin-empty">
         <h2 class="admin-empty__title">Nothing here</h2>
@@ -141,7 +158,7 @@ function countFor(chip: Chip): number | null {
         {jobs.map((job) => (
           <li
             data-import-list-item
-            data-search-key={`${job.dataset_id} ${job.source_id ?? ""} ${job.last_error ?? ""}`.toLowerCase()}
+            data-search-key={`${job.dataset_id} ${job.source_id} ${job.last_error ?? ""}`.toLowerCase()}
           >
             <ImportJobRow job={job} />
           </li>
@@ -333,25 +350,45 @@ function countFor(chip: Chip): number | null {
     | { kind: "retry"; datasetId: string }
     | { kind: "rollback"; datasetId: string };
   let pending: PendingAction | null = null;
-  let inFlight = false;
+
+  // Two independent locks, not one shared flag.
+  //
+  // `mutationInFlight` serializes the dialog-driven retry/rollback flow,
+  // which genuinely must be one-at-a-time: there is a single `pending` slot
+  // and a single ConfirmDialog per action, and success ends in a full page
+  // reload.
+  //
+  // `verifying` is per-dataset because Verify is a separate, non-dialog
+  // lane. A single shared flag would let one rollback — up to 60s — make
+  // every Verify button on the page silently inert, which reads as a frozen
+  // page rather than as a queue.
+  let mutationInFlight = false;
+  const verifying = new Set<string>();
 
   function openDialog(dialogId: string): void {
     document.dispatchEvent(
       new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", { detail: { dialogId } }),
     );
   }
-  function queue(next: PendingAction): void {
-    if (inFlight) return;
+  /** Returns false when the click was dropped, having explained why. */
+  function queue(next: PendingAction): boolean {
+    if (mutationInFlight) {
+      // Never drop a click silently: the button still looks clickable, so
+      // without this the page just appears broken.
+      showError("Another import action is still running. Wait for it to finish, then try again.");
+      return false;
+    }
     if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
     pending = next;
     clearError();
+    return true;
   }
 
   document.querySelectorAll<HTMLButtonElement>("[data-import-retry]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const datasetId = btn.dataset.datasetId;
       if (!datasetId) return;
-      queue({ kind: "retry", datasetId });
+      if (!queue({ kind: "retry", datasetId })) return;
       openDialog("admin-retry-import");
     });
   });
@@ -360,7 +397,7 @@ function countFor(chip: Chip): number | null {
     btn.addEventListener("click", () => {
       const datasetId = btn.dataset.datasetId;
       if (!datasetId) return;
-      queue({ kind: "rollback", datasetId });
+      if (!queue({ kind: "rollback", datasetId })) return;
       openDialog("admin-rollback-import");
     });
   });
@@ -373,9 +410,13 @@ function countFor(chip: Chip): number | null {
   document.querySelectorAll<HTMLButtonElement>("[data-import-verify]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const datasetId = btn.dataset.datasetId;
-      if (!datasetId || inFlight) return;
+      // Per-dataset, not global: verifying one row must not disable Verify
+      // on every other row. Re-clicking the same row while its check is
+      // running is the only case worth ignoring, and the button is already
+      // disabled then.
+      if (!datasetId || verifying.has(datasetId)) return;
       clearError();
-      inFlight = true;
+      verifying.add(datasetId);
       btn.disabled = true;
       const previousLabel = btn.textContent;
       btn.textContent = "Verifying…";
@@ -404,9 +445,15 @@ function countFor(chip: Chip): number | null {
           );
         }
       } catch (err) {
+        // Logged as well as shown: this catch also covers rendering bugs in
+        // the branch above (a contract drift that dropped `missingKeys`
+        // would surface as "Verify failed: Cannot read properties of
+        // undefined"), and those should be distinguishable from a genuine
+        // verify failure in Workers Logs.
+        console.error("[admin/imports] verify failed for", datasetId, err);
         showRowResult(datasetId, "danger", `Verify failed: ${friendly(err)}`);
       } finally {
-        inFlight = false;
+        verifying.delete(datasetId);
         btn.disabled = false;
         btn.textContent = previousLabel;
       }
@@ -421,10 +468,10 @@ function countFor(chip: Chip): number | null {
 
     try {
       if (e.detail.dialogId === "admin-retry-import" && target.kind === "retry") {
-        inFlight = true;
+        mutationInFlight = true;
         await retryImport(target.datasetId);
       } else if (e.detail.dialogId === "admin-rollback-import" && target.kind === "rollback") {
-        inFlight = true;
+        mutationInFlight = true;
         // Throws on a partial cascade even though that arrives as HTTP 200 —
         // see rollbackImport. The catch below surfaces which steps were left
         // behind rather than flashing a success and reloading.
@@ -440,7 +487,7 @@ function countFor(chip: Chip): number | null {
       location.reload();
     } catch (err) {
       showError(`Couldn't complete that action: ${friendly(err)}`);
-      inFlight = false;
+      mutationInFlight = false;
     }
   });
 </script>
