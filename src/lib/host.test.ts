@@ -266,10 +266,10 @@ describe("getLegacyRedirect", () => {
   const u = (pathAndSearch: string) => new URL(`https://nemar.org${pathAndSearch}`);
   const LEGACY = "/dataexplorer/detail?dataset_id=ds007964";
 
-  it("ignores paths that aren't the legacy dataset route", () => {
+  it("ignores paths that aren't legacy routes", () => {
     expect(getLegacyRedirect(u("/discover"), null)).toBeNull();
     expect(getLegacyRedirect(u("/dataset/on007964"), null)).toBeNull();
-    expect(getLegacyRedirect(u("/dataexplorer"), null)).toBeNull();
+    expect(getLegacyRedirect(u("/"), null)).toBeNull();
   });
 
   // The citation case, and the default. A paper links the legacy URL; the
@@ -356,5 +356,53 @@ describe("getLegacyRedirect", () => {
     expect(getLegacyRedirect(u("/DataExplorer/Detail?dataset_id=ds007964"), null)?.location).toBe(
       "/dataset/ds007964",
     );
+  });
+  // The legacy dataset browser has a direct successor on the new site.
+  it("sends the legacy dataset browser to /discover", () => {
+    expect(getLegacyRedirect(u("/dataexplorer"), null)).toEqual({
+      location: "/discover",
+      status: 301,
+    });
+    expect(getLegacyRedirect(u("/dataexplorer/"), null)?.location).toBe("/discover");
+    expect(getLegacyRedirect(u("/dataexplorer/browse?tag=eeg"), null)?.location).toBe("/discover");
+  });
+
+  // HUBzero sections the redesign didn't carry over. The content exists only
+  // on ww1, so a new-site page would be a worse answer than the real thing.
+  it.each(["/resources", "/tools", "/members", "/groups", "/citations"])(
+    "sends legacy-only %s to ww1",
+    (path) => {
+      const r = getLegacyRedirect(u(path), null);
+      expect(r?.location).toBe(`https://ww1.nemar.org${path}`);
+      // 302: ww1 retires, so this must not be cached permanently.
+      expect(r?.status).toBe(302);
+    },
+  );
+
+  it("matches legacy-only subpaths but not prefix collisions", () => {
+    expect(getLegacyRedirect(u("/tools/matlab"), null)?.location).toBe(
+      "https://ww1.nemar.org/tools/matlab",
+    );
+    // A different route that merely starts with the same characters must not
+    // be swept to the legacy site.
+    expect(getLegacyRedirect(u("/toolsmith"), null)).toBeNull();
+    expect(getLegacyRedirect(u("/resources-new"), null)).toBeNull();
+  });
+
+  // These exist on BOTH sites. Redirecting them would hide the current
+  // content behind the retired version — the opposite of the intent.
+  it.each(["/about", "/support", "/login", "/discover", "/", "/dataset/on007964"])(
+    "leaves %s alone (the new site serves it)",
+    (path) => {
+      expect(getLegacyRedirect(u(path), null)).toBeNull();
+    },
+  );
+
+  it("keeps a ww1 visitor on ww1 for every legacy path, not just dataset detail", () => {
+    for (const path of ["/dataexplorer", "/resources", "/tools/matlab"]) {
+      const r = getLegacyRedirect(u(path), "https://ww1.nemar.org/x");
+      expect(r?.location).toBe(`https://ww1.nemar.org${path}`);
+      expect(r?.status).toBe(302);
+    }
   });
 });
