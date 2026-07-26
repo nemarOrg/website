@@ -2,6 +2,98 @@
 
 **Last session:** 2026-07-25.
 
+## ⛔ ACTIVE: apex cutover, blocked on SDSC (read this first)
+
+`ww2.nemar.org` becomes `nemar.org`; the legacy HUBzero site moves to
+`ww1.nemar.org`. **Everything on our side is done. The blocker is a change on
+the legacy server that was requested by email on 2026-07-25.** Do not start the
+cutover until that lands and is verified.
+
+### Waiting on: two changes on the SDSC legacy box (`132.249.225.118`, Apache)
+
+1. **`ServerAlias ww1.nemar.org`.** The vhost serves exactly one hostname and
+   302-redirects everything else to `nemar.org`. Verified by hitting the origin
+   IP directly and varying only the `Host` header:
+
+   ```
+   Host: nemar.org              -> 200
+   Host: ww1.nemar.org          -> 302 -> https://nemar.org/...
+   Host: totallyfake.nemar.org  -> 302 -> https://nemar.org/...
+   ```
+
+   `ww1` isn't singled out — it's a catch-all canonical redirect. **This is the
+   origin, not Cloudflare** (`Server: Apache`, no `cf-ray`). The only CF
+   redirect rule on the zone is apex-only + `/dataset/*`-only.
+
+2. **Base URL must follow the request host.** Pages emit
+   `<base href="https://nemar.org/dataexplorer" />`, so all 36 root-relative
+   links resolve against the apex no matter which hostname served the page.
+   Without this, ww1 would render but eject visitors to the apex on the first
+   click — i.e. to the *new* site. Generator is **HUBzero** (Joomla-derived);
+   the setting is `$live_site` in `configuration.php`, empty string = derive
+   from request. This also means a Cloudflare-only Host-header override is
+   **not** sufficient on its own.
+
+Verify when they reply:
+
+```bash
+curl -k -o /dev/null -w '%{http_code}\n' -H 'Host: ww1.nemar.org' https://132.249.225.118/dataexplorer   # want 200
+curl -k -s -H 'Host: ww1.nemar.org' https://132.249.225.118/dataexplorer | grep -i '<base'                # want ww1
+```
+
+### Already done (don't redo)
+
+- **`ww1.nemar.org` DNS exists** — A → `132.249.225.118`, proxied. Created via
+  the Cloudflare API using the `sccn` token from `~/.config/cfman/tokens.json`
+  (zone `e684135de46029c91fd6c93715ace4ce`). That token can read/write DNS but
+  is **not** authorized for the origin-rules phase.
+- **Legacy URL rewrite shipped** (#192, #193) and is live but inert until the
+  apex moves. `/dataexplorer/detail?dataset_id=X` → `/dataset/X` (301);
+  `/dataexplorer*` → `/discover` (301); `/resources` `/tools` `/members`
+  `/groups` `/citations` → ww1 (302). `/about` `/support` `/login` are
+  deliberately untouched — they exist on **both** sites.
+- **Constants branch prepared, deliberately unmerged**:
+  `feat/apex-cutover-constants` flips `MARKETING_BASE_URL` (host.ts) and `site`
+  (astro.config.mjs) to `https://nemar.org`. **Merging it before DNS moves
+  breaks app.nemar.org**, which would then redirect marketing routes to a
+  legacy origin.
+
+### Cutover sequence, once SDSC confirms
+
+1. Verify ww1 serves 200 with a ww1-scoped `<base>` (commands above)
+2. Merge `feat/apex-cutover-constants`
+3. Add `nemar.org` **and** `www.nemar.org` as Pages custom domains on
+   `nemar-website` — Pages is Host-strict, and `www` is a CNAME to the apex, so
+   it breaks without its own entry
+4. Delete the CF dynamic-redirect rule `DOI canonical /dataset/<id> -> ww2`
+   (ruleset `5a4775f9fd6a4465ae4434b48dca0ef7`) — **while it exists the apex can
+   never serve**, it just bounces
+5. **Leave `ww2.nemar.org` serving. Do NOT redirect it to the apex.**
+
+### Why step 5 is not optional
+
+The current apex → ww2 bridge is a bare `301` with no `Cache-Control`, so
+browsers have cached it persistently. If ww2 then redirects back to the apex,
+those clients loop (`apex → ww2 → apex → …`) and **no server-side change can
+reach them**. Leaving ww2 serving means a poisoned cache lands on a working
+page. Retire ww2 only after those entries age out. Canonical tags already point
+at `MARKETING_BASE_URL`, so ww2 won't compete for rankings once the constant
+flips.
+
+### Verified facts worth not re-deriving
+
+- DOIs already resolve to the apex in the new format
+  (`10.82901/nemar.on007964` → `nemar.org/dataset/on007964`), so the cutover
+  *removes* a hop rather than threatening them. Nothing to re-register.
+- `on` ⇄ `ds` is a **contract** (owner-confirmed), now enforced at the import
+  endpoint (nemar-cli#1030/#1031, on `dev`). But the rewrite doesn't depend on
+  it: `/dataset/ds*` already resolves via a real catalog lookup
+  (`resolveCanonical` → `GET /datasets/resolve/<id>`), which declines when no
+  mirror exists instead of inventing an id.
+- `nm` datasets have `source`/`source_id` NULL — no mapping, and none needed.
+- The legacy site is **healthy** (200). An earlier 521 was transient; don't
+  repeat the mistake of concluding legacy is already broken.
+
 ## TL;DR — where we are right now
 
 `main` is production (Cloudflare GitHub integration → `nemar-website` Pages project,
@@ -18,7 +110,11 @@ same-day expiry fix were promoted to production, with migrations 0063 and 0064
 applied to `nemar-db`.
 
 **Notices are live and in real use.** A production notice is up
-(`tip`, pointing at ww1.nemar.org, expiring 2026-10-01).
+(`tip`, pointing at ww1.nemar.org, expiring 2026-10-01). Note that link only
+works today by redirecting to the apex — see the cutover section above.
+
+**The active thread is the apex cutover**, blocked on SDSC. Read that section
+first; it is the only thing in flight.
 
 ## What happened this session
 
@@ -36,6 +132,9 @@ applied to `nemar-db`.
 6. **Website follow-ups:** #181/#182 (host-neutral `/api/notices`), #180/#184
    (five levels + `--color-maintenance` token), #183/#185 (redirects `no-store`),
    #186/#187 (hyperlinked + centred banners), #188/#189 (per-build edge cache).
+7. **Cutover prep:** #192 (deadlines on `api.ts` + the legacy dataset rewrite),
+   #193 (the rest of the legacy paths), nemar-cli#1030/#1031 (`ds`/`on` contract
+   enforced per-source, unregistered sources fail closed).
 
 ## Gotchas learned this session (these cost real time)
 
@@ -104,26 +203,16 @@ render itself.
 
 ## Immediate pick-ups
 
-- **Apex cutover — website#190.** ww2 becomes `nemar.org`, legacy moves to ww1.
-  Planned "soon", no hard date. Read that issue before touching it: the code half
-  is two constants, but there is a **redirect-loop hazard**. The current
-  apex → ww2 bridge is a bare `301` with no `Cache-Control`, so browsers have
-  cached it persistently; if ww2 redirects back to apex at cutover those clients
-  loop with no server-side remedy. **Leave ww2 serving at cutover**, retire it
-  later. Also: the Cloudflare rule `nemar.org/dataset/* → ww2` must be removed or
-  the apex can never serve.
-- **Legacy URL rewrite — website#190 §2.** `/dataexplorer/detail?dataset_id=ds007964`
-  → `/dataset/on007964`. The `ds` ⇄ `on` digit correspondence is a **contract**
-  (confirmed by the owner; 199/199 sampled rows agree), so it is a plain string
-  rewrite. Referrer rule: coming from ww1 → stay on ww1; otherwise → new page.
-  `Referer` is unreliable, so absent-referer must default to the new site (the
-  citation case). These redirects can't be edge-cached — use `no-store`.
-  Note those legacy URLs **already return 521** today, so this is repair, not
-  regression-avoidance.
-- **Enforce the `ds`/`on` contract upstream.** `importDatasetSchema` in nemar-cli
-  validates `dataset_id` and `source_id` independently, so a violating import is
-  accepted today. Once the apex rewrites citation URLs on that contract, one bad
-  row silently routes a cited link to the **wrong dataset**. A two-line `.refine()`.
+- **Apex cutover — website#190.** See the ACTIVE section at the top of this
+  file. Blocked on SDSC; do not start it before their reply is verified.
+- **Promote nemar-cli `dev` → `main`** when convenient. `dev` carries the
+  `ds`/`on` contract enforcement (#1031) and nothing else since the 0.9.6
+  promotion. Not urgent: it protects the *future* apex rewrite and there are no
+  violating rows today.
+- **Finish the `AbortSignal` audit — website#173.** `api.ts` was done in #192
+  (4 fetches). Ten instances remain in `admin-api.ts`, `collaborators-api.ts`,
+  `dashboard-api.ts` and `dir-listing.ts` — authenticated surfaces, smaller blast
+  radius, same one-line fix.
 - **Real admin pass on live data.** Notices got one this session (the owner created
   a production notice and it worked). Publications, users and imports have still
   only ever been verified against fixtures and dev mocks — which is exactly the gap
