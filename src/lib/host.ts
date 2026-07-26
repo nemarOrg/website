@@ -33,12 +33,19 @@ export const APP_HOST = "app.nemar.org";
 export const MARKETING_HOST = "nemar.org";
 
 /**
- * Where outbound cross-host marketing links and redirects actually
- * point. Today the redesigned Astro build is live at `ww2.nemar.org`;
- * once `nemar.org` DNS moves to Pages, change this to
- * `https://nemar.org` and redeploy. One-line cutover.
+ * Where outbound cross-host marketing links and redirects actually point.
+ *
+ * Flipped to the apex at cutover (website#190). `ww2.nemar.org` stays in
+ * `MARKETING_HOSTS` below and keeps serving — deliberately. Browsers have
+ * cached the old bare-301 apex → ww2 bridge, and if ww2 redirected back to
+ * the apex those clients would loop with no server-side remedy. Retire ww2
+ * only once those cached entries have aged out.
+ *
+ * Canonical URLs, OG URLs and cross-host redirects all derive from this, so
+ * a ww2 page automatically canonicalises to the apex and stops competing
+ * with it in search.
  */
-export const MARKETING_BASE_URL = "https://ww2.nemar.org";
+export const MARKETING_BASE_URL = "https://nemar.org";
 
 const APP_HOSTS: ReadonlySet<string> = new Set([APP_HOST]);
 const MARKETING_HOSTS: ReadonlySet<string> = new Set([
@@ -189,6 +196,33 @@ export const LEGACY_HOST = "ww1.nemar.org";
  */
 const LEGACY_DATASET_PATH = "/dataexplorer/detail";
 
+/** Legacy dataset browser. The new site's equivalent is `/discover`. */
+const LEGACY_EXPLORER_PATH = "/dataexplorer";
+
+/**
+ * Legacy sections with **no** counterpart on the new site — HUBzero
+ * features the redesign didn't carry over. Their content exists only on
+ * ww1, so they are sent there rather than to a new-site page that would be
+ * a poor substitute or a 404.
+ *
+ * Deliberately an explicit list rather than "anything the new site doesn't
+ * route". A catch-all would swallow genuinely new paths and any real 404,
+ * sending visitors to a legacy site that also doesn't have them — turning
+ * a clear error into a confusing round trip. It would also silently
+ * capture every future route added to this build before its page lands.
+ *
+ * Note what is NOT here: `/about`, `/support` and `/login` exist on both
+ * sites, so the new site's own versions serve them. Redirecting those to
+ * ww1 would hide the current content behind the retired one.
+ */
+const LEGACY_ONLY_PREFIXES: readonly string[] = [
+  "/resources",
+  "/tools",
+  "/members",
+  "/groups",
+  "/citations",
+];
+
 export interface LegacyRedirect {
   readonly location: string;
   /**
@@ -225,8 +259,14 @@ export interface LegacyRedirect {
  * the mapping here would duplicate that rule and could disagree with it.
  */
 export function getLegacyRedirect(url: URL, referer: string | null): LegacyRedirect | null {
-  const path = url.pathname.replace(/\/+$/, "") || "/";
-  if (path.toLowerCase() !== LEGACY_DATASET_PATH) return null;
+  const path = (url.pathname.replace(/\/+$/, "") || "/").toLowerCase();
+
+  const isDatasetDetail = path === LEGACY_DATASET_PATH;
+  const isExplorer = path === LEGACY_EXPLORER_PATH || path.startsWith(`${LEGACY_EXPLORER_PATH}/`);
+  const isLegacyOnly = LEGACY_ONLY_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+  if (!isDatasetDetail && !isExplorer && !isLegacyOnly) return null;
 
   const cameFromLegacy = (() => {
     if (!referer) return false;
@@ -239,15 +279,28 @@ export function getLegacyRedirect(url: URL, referer: string | null): LegacyRedir
     }
   })();
 
+  // Mid-session on the legacy site: keep them there, whatever the path.
   if (cameFromLegacy) {
     return { location: `https://${LEGACY_HOST}${url.pathname}${url.search}`, status: 302 };
   }
 
-  const datasetId = url.searchParams.get("dataset_id")?.trim();
-  // No usable id — send them somewhere they can still find the dataset
-  // rather than to a 404 built from an empty path.
-  if (!datasetId) return { location: "/discover", status: 302 };
-  return { location: `/dataset/${encodeURIComponent(datasetId)}`, status: 301 };
+  // No counterpart on the new site — the content lives only on ww1. `302`
+  // because ww1 is temporary: a cached permanent redirect would outlive it.
+  if (isLegacyOnly) {
+    return { location: `https://${LEGACY_HOST}${url.pathname}${url.search}`, status: 302 };
+  }
+
+  if (isDatasetDetail) {
+    const datasetId = url.searchParams.get("dataset_id")?.trim();
+    // No usable id — send them somewhere they can still find the dataset
+    // rather than to a 404 built from an empty path.
+    if (!datasetId) return { location: "/discover", status: 302 };
+    return { location: `/dataset/${encodeURIComponent(datasetId)}`, status: 301 };
+  }
+
+  // The dataset browser itself. `/discover` is its direct successor, so this
+  // move is permanent.
+  return { location: "/discover", status: 301 };
 }
 
 export function getRetiredRedirect(url: URL): string | null {
