@@ -46,7 +46,7 @@ export default defineConfig({
   // at apex DNS cutover. Used by Astro for sitemap/RSS-style absolute URLs;
   // per-page `<link rel="canonical">` and `og:url` are derived from the request
   // hostname in `src/layouts/Base.astro` so app-host pages get the right origin.
-  site: "https://ww2.nemar.org",
+  site: "https://nemar.org",
   trailingSlash: "ignore",
   experimental: {
     clientPrerender: true,
