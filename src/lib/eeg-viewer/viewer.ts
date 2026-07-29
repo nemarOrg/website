@@ -64,6 +64,21 @@ export interface ViewerOptions {
    * recording that is simply still being converted.
    */
   failureReason?: string;
+  /**
+   * True when this mount attempt has been superseded and must not touch the
+   * slot any more.
+   *
+   * The teardown at the top of this function only sees whatever was in the
+   * slot when *this* call started. It cannot see an instance mounted by a
+   * later call that began — and finished — while this one was still awaiting
+   * `openRecording`. Without this predicate, a slow first file resolving after
+   * a fast second file already rendered would blow away the second viewer's
+   * DOM via `slot.innerHTML = ""` and rebuild itself in its place, leaving the
+   * second instance's observers, listeners and WebGL context alive and
+   * detached for the rest of the page's life, still streaming on every theme
+   * toggle. The caller owns the sequencing, so it supplies the check.
+   */
+  isStale?: () => boolean;
 }
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
@@ -123,9 +138,17 @@ export async function mountEegViewer(
   try {
     store = await openRecording(url);
   } catch (err) {
+    // Even the error path must respect staleness: a superseded attempt writing
+    // "viewer unavailable" would replace a working viewer that a later mount
+    // put in this slot.
+    if (opts.isStale?.()) return undefined;
     renderUnavailable(slot, opts, err);
     return undefined;
   }
+  // Past the await, so a newer mount may already own this slot. Return before
+  // writing anything — see `isStale` on ViewerOptions. Nothing needs releasing
+  // here: no DOM was built yet, and the store holds no handle to close.
+  if (opts.isStale?.()) return undefined;
   if (store.groups.length === 0) {
     renderUnavailable(slot, opts, new Error("store has no channel groups"));
     return undefined;
@@ -188,8 +211,9 @@ export async function mountEegViewer(
   let overviewLoaded = false;
   let overviewSeq = 0; // guards a fire-and-forget overview load against group switches
 
-  // The previous instance (if any) was already torn down at the top of this
-  // function, before the `openRecording` await.
+  // Safe to claim the slot: the previous instance was torn down at the top of
+  // this function, and the `isStale` check after the await ruled out a newer
+  // mount having taken ownership in the meantime.
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes);
   const cleanups: Array<() => void> = [];

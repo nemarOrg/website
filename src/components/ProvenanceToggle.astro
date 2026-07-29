@@ -238,4 +238,19 @@ const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersio
       if (!el.contains(e.target as Node)) el.open = false;
     });
   });
+
+  // Close on Escape. This is `role="dialog"` inside a <details>, not a native
+  // <dialog>, so it gets none of the built-in dismissal behaviour — Escape has
+  // never worked here. Now that it carries a close button like the real
+  // dialogs do, it reads as one, so it needs to behave like one. Focus goes
+  // back to the summary chip that opened it, which is what <dialog> does and
+  // what a keyboard user needs to not lose their place.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const el of document.querySelectorAll<HTMLDetailsElement>("[data-prov-toggle]")) {
+      if (!el.open) continue;
+      el.open = false;
+      if (el.contains(document.activeElement)) el.querySelector("summary")?.focus();
+    }
+  });
 </script>

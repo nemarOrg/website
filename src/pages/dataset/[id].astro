@@ -644,6 +644,11 @@ Astro.response.headers.set(
         version: treeVersion,
         filePath,
         downloadUrl: fileUrl,
+        // Checked *inside* the mount, right after its own async gap, so a
+        // superseded attempt returns before it clears the slot. The check
+        // below only runs once the mount has already written its DOM, which
+        // is too late to protect a newer mount that got there first.
+        isStale: () => seq !== eegModalSeq,
       });
       if (seq !== eegModalSeq) {
         // Superseded while mounting (rapid reopen, or the dialog was closed
