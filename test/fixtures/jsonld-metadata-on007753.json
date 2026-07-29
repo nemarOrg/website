@@ -1,0 +1,169 @@
+{
+  "schema_version": "0.3.0",
+  "doc_type": "dataset",
+  "dataset_id": "on007753",
+  "name": "BCCWJ-EEG",
+  "description": "This dataset comprises EEG recordings from 41 Japanese native speakers reading newspaper articles from the Balanced Corpus of Contemporary Written Japanese (BCCWJ) presented word-by-word. Part of the BCCWJ-Brain collection, it enables cross-modality comparisons of language processing by providing high temporal resolution electrophysiological data acquired alongside fMRI and MEG from separate participant groups using identical stimuli. The dataset includes both raw and preprocessed data: raw data converted to FIF format, bandpass-filtered data (0.1–40 Hz), and fully preprocessed derivatives with ICA-cleaned, re-referenced, epoched, and downsampled signals suitable for event-related potential analyses.",
+  "source": "nemar",
+  "recording_modality": [
+    "EEG"
+  ],
+  "bids_version": null,
+  "license": "CC0",
+  "authors": [
+    {
+      "name": "Yushi Sugimoto",
+      "name_type": "Personal"
+    },
+    {
+      "name": "Masayuki Asahara",
+      "name_type": "Personal"
+    },
+    {
+      "name": "Hyeonjeong Jeong",
+      "name_type": "Personal"
+    },
+    {
+      "name": "Akitake Kanno",
+      "name_type": "Personal"
+    },
+    {
+      "name": "Masatoshi Koizumi",
+      "name_type": "Personal"
+    },
+    {
+      "name": "Yohei Oseki",
+      "name_type": "Personal"
+    }
+  ],
+  "keywords": [
+    {
+      "term": "EEG"
+    },
+    {
+      "term": "language processing"
+    },
+    {
+      "term": "event-related potentials"
+    },
+    {
+      "term": "reading"
+    },
+    {
+      "term": "Japanese"
+    },
+    {
+      "term": "rapid serial visual presentation"
+    },
+    {
+      "term": "BCCWJ"
+    },
+    {
+      "term": "BCCWJ-Brain"
+    },
+    {
+      "term": "cross-modality"
+    },
+    {
+      "term": "preprocessing"
+    },
+    {
+      "term": "independent component analysis"
+    },
+    {
+      "term": "common average reference"
+    },
+    {
+      "term": "neurolinguistics"
+    },
+    {
+      "term": "electrophysiology"
+    },
+    {
+      "term": "MNE-Python"
+    },
+    {
+      "term": "Eelbrain"
+    }
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "https://github.com/nemarDatasets/on007753",
+      "identifier_type": "URL",
+      "relation_type": "IsDescribedBy"
+    },
+    {
+      "identifier": "https://nemar.org/dataset/on007753",
+      "identifier_type": "URL",
+      "relation_type": "IsDescribedBy"
+    },
+    {
+      "identifier": "10.18112/openneuro.ds007752",
+      "identifier_type": "DOI",
+      "relation_type": "IsPartOf"
+    },
+    {
+      "identifier": "10.18112/openneuro.ds007763",
+      "identifier_type": "DOI",
+      "relation_type": "IsPartOf"
+    },
+    {
+      "identifier": "10.7554/eLife.85012",
+      "identifier_type": "DOI",
+      "relation_type": "IsReferencedBy"
+    },
+    {
+      "identifier": "10.3389/fnins.2013.00267",
+      "identifier_type": "DOI",
+      "relation_type": "IsReferencedBy"
+    },
+    {
+      "identifier": "10.1007/s10579-013-9261-0",
+      "identifier_type": "DOI",
+      "relation_type": "IsReferencedBy"
+    },
+    {
+      "identifier": "10.18112/openneuro.ds007753.v1.1.1",
+      "identifier_type": "DOI",
+      "relation_type": "IsDerivedFrom"
+    }
+  ],
+  "contributors": [],
+  "dates": [],
+  "rights": [
+    {
+      "rights": "CC0",
+      "rights_uri": null,
+      "rights_identifier": "CC0",
+      "rights_identifier_scheme": "SPDX"
+    }
+  ],
+  "language": null,
+  "funding": [],
+  "tasks": [
+    "BCCWJreading"
+  ],
+  "datatypes": [
+    "eeg"
+  ],
+  "sessions": [],
+  "sessions_count": null,
+  "demographics": {
+    "subjects_count": 41,
+    "age_min": 18,
+    "age_max": 35
+  },
+  "data_summary": {
+    "total_files": 505,
+    "size_bytes": 95701291014,
+    "size_human": "89.1 GB"
+  },
+  "provenance": {
+    "latest_snapshot": "v1.0.0",
+    "publish_date": "2026-07-06 02:09:16"
+  },
+  "external_links": {
+    "dataset_doi": "10.82901/nemar.on007753",
+    "github_url": "https://github.com/nemarDatasets/on007753"
+  }
+}
