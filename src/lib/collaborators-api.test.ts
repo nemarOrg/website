@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "./auth";
 import {
+  COLLABORATOR_TIMEOUTS_MS,
   type Collaborator,
   inviteCollaborator,
   isCollaboratorManager,
@@ -139,5 +140,47 @@ describe("inviteCollaborator", () => {
     }) as unknown as typeof fetch;
     await inviteCollaborator("nm/weird", "carol", { fetch: fakeFetch });
     expect(fakeFetch).toHaveBeenCalledOnce();
+  });
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response.
+// `/dataset/:id/collaborators` awaits listCollaborators during SSR, so without
+// a deadline a hung api.nemar.org stalls the render itself.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung list rather than stalling the SSR render", async () => {
+    await expect(
+      listCollaborators("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung invite rather than leaving the form stuck", async () => {
+    await expect(
+      inviteCollaborator("nm-xyz", "carol", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  // A caller-supplied signal must still abort even though a deadline is also
+  // in play — AbortSignal.any() combines them, it doesn't replace one.
+  it("honours a caller-supplied signal alongside the deadline", async () => {
+    const controller = new AbortController();
+    const pending = listCollaborators("nm-xyz", {
+      fetch: hangingFetch,
+      signal: controller.signal,
+    });
+    controller.abort(new Error("caller went away"));
+    await expect(pending).rejects.toThrow("caller went away");
+  });
+
+  // Invite carries a GitHub round-trip the read does not, so it must stay
+  // strictly slower than the list read.
+  it("gives invite a longer deadline than the list read", () => {
+    expect(COLLABORATOR_TIMEOUTS_MS.invite).toBeGreaterThan(COLLABORATOR_TIMEOUTS_MS.list);
   });
 });
