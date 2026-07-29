@@ -18,15 +18,15 @@
  * `detail.message ?? detail.code ?? res.statusText` — the code IS the
  * useful text here.
  *
- * Every fetch carries a deadline (mirrors `resolveSignal` in
- * `users-admin-api.ts` / `observability.ts`): a plain `try/catch` only
- * covers outright network rejection, not a connection that opens and never
- * writes a response. `fetchImportsAttentionCount` is awaited from the
- * shared `AdminLayout` on every admin page, so an unbounded fetch here
- * would hang the whole admin section rather than just this one view.
+ * Every fetch carries a deadline (`resolveSignal` from `request-deadline.ts`):
+ * a plain `try/catch` only covers outright network rejection, not a connection
+ * that opens and never writes a response. `fetchImportsAttentionCount` is
+ * awaited from the shared `AdminLayout` on every admin page, so an unbounded
+ * fetch here would hang the whole admin section rather than just this one view.
  */
 import { dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError } from "./dashboard-api";
+import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 /**
  * Lifecycle of an `import_jobs` row. Mirrors `IMPORT_STATUSES` in
@@ -129,7 +129,7 @@ type Init = {
   readonly signal?: AbortSignal;
   readonly fetch?: typeof fetch;
   readonly cookieHeader?: string;
-  /** Abort the request after this many ms. Defaults to 5000. */
+  /** Abort the request after this many ms. See {@link IMPORT_TIMEOUTS_MS}. */
   readonly timeoutMs?: number;
 };
 
@@ -156,27 +156,11 @@ type Init = {
  *   so it gets the tightest deadline of the four.
  */
 export const IMPORT_TIMEOUTS_MS = {
-  default: 5000,
+  default: DEFAULT_REQUEST_TIMEOUT_MS,
   verify: 30_000,
   rollback: 60_000,
   badge: 2000,
 } as const;
-
-/**
- * Combines a caller-supplied abort signal (if any) with a deadline. Mirrors
- * `resolveSignal` in `./users-admin-api.ts` deliberately, so every
- * authenticated admin client behaves identically under a hung upstream.
- *
- * A plain `try/catch` around `fetch` only covers outright rejection (refused
- * connection, DNS/TLS failure). It does NOT cover a connection that opens and
- * then never writes a response: that promise simply never settles, so there is
- * nothing to catch. These calls run during SSR, so an unbounded one stalls the
- * page render itself.
- */
-function resolveSignal(init: Init, fallbackMs: number = IMPORT_TIMEOUTS_MS.default): AbortSignal {
-  const timeout = AbortSignal.timeout(init.timeoutMs ?? fallbackMs);
-  return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-}
 
 function headersFor(init: Init, withBody: boolean): Record<string, string> {
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -305,7 +289,7 @@ export async function listAdminImports(
     method: "GET",
     headers: headersFor(init, false),
     credentials: "include",
-    signal: resolveSignal(init),
+    signal: resolveSignal(init, IMPORT_TIMEOUTS_MS.default),
   });
   if (!res.ok) {
     const detail = await readError(res);
@@ -394,7 +378,7 @@ export async function retryImport(datasetId: string, init: Init = {}): Promise<I
       headers: headersFor(init, true),
       credentials: "include",
       body: "{}",
-      signal: resolveSignal(init),
+      signal: resolveSignal(init, IMPORT_TIMEOUTS_MS.default),
     },
   );
   if (!res.ok) {

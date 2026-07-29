@@ -11,6 +11,44 @@
  */
 import { dashboardApiBase } from "./api-base";
 import type { DroppedFileMeta } from "./bids-precheck";
+import { resolveSignal } from "./request-deadline";
+
+/**
+ * Init for the two JSON control-plane calls in this file. No `cookieHeader` —
+ * uploads are browser-only and go through the same-origin `/api/v1` proxy, so
+ * the cookie attaches on its own.
+ */
+type Init = {
+  readonly signal?: AbortSignal;
+  readonly fetch?: typeof fetch;
+  /** Abort the request after this many ms. See {@link UPLOAD_TIMEOUTS_MS}. */
+  readonly timeoutMs?: number;
+};
+
+/**
+ * Deadlines for the upload flow's two JSON calls. Both are far longer than the
+ * 5s base deadline elsewhere in the app, because both are genuinely slow and
+ * both bracket work the user cannot redo cheaply.
+ *
+ * - `create` — POSTs the whole file manifest and gets a presigned PUT URL back
+ *   per file, so its cost scales with the dataset's file count rather than
+ *   being a fixed D1 read.
+ * - `finalize` — runs after every byte is already in S3. Aborting it early is
+ *   the expensive mistake in this file: the user is left with an orphaned
+ *   draft they cannot see, which is exactly the case the catch block below
+ *   writes an actionable message for. Long enough that only a genuinely hung
+ *   backend trips it.
+ *
+ * NOTE: the byte-transfer path ({@link runUploadQueue} / {@link
+ * putToPresignedUrl}) deliberately has NO deadline. Its `signal` is the user's
+ * cancel button, and a multi-gigabyte PUT legitimately runs for minutes or
+ * hours — a timeout there would abort healthy uploads. XHR surfaces stalled
+ * transfers through its own `error`/`abort` events instead.
+ */
+export const UPLOAD_TIMEOUTS_MS = {
+  create: 30_000,
+  finalize: 60_000,
+} as const;
 
 export interface DroppedFile extends DroppedFileMeta {
   readonly file: File;
@@ -52,21 +90,28 @@ export class UploadError extends Error {
   }
 }
 
-export async function createDraftDataset(input: {
-  name: string;
-  description?: string;
-  files: { path: string; size: number }[];
-}): Promise<DraftDataset> {
+export async function createDraftDataset(
+  input: {
+    name: string;
+    description?: string;
+    files: { path: string; size: number }[];
+  },
+  init: Init = {},
+): Promise<DraftDataset> {
+  const fetchImpl = init.fetch ?? fetch;
   let res: Response;
   try {
-    res = await fetch(`${dashboardApiBase()}/datasets`, {
+    res = await fetchImpl(`${dashboardApiBase()}/datasets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify(input),
+      signal: resolveSignal(init, UPLOAD_TIMEOUTS_MS.create),
     });
   } catch (err) {
-    // Naked `fetch` throws on network failure (offline, DNS, CORS). Wrap so
+    // Naked `fetch` throws on network failure (offline, DNS, CORS), and the
+    // deadline above rejects here too rather than leaving the page spinning on
+    // a backend that accepted the connection and never answered. Wrap both so
     // the upload page surfaces a contextual error rather than "Failed to fetch".
     throw new UploadError(
       `Could not reach the server while creating your dataset. Check your connection and try again. (${err instanceof Error ? err.message : "unknown"})`,
@@ -90,16 +135,21 @@ export async function createDraftDataset(input: {
   };
 }
 
-export async function finalizeDataset(id: string): Promise<{ ok: true; status?: string }> {
+export async function finalizeDataset(
+  id: string,
+  init: Init = {},
+): Promise<{ ok: true; status?: string }> {
+  const fetchImpl = init.fetch ?? fetch;
   let res: Response;
   try {
-    res = await fetch(`${dashboardApiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
+    res = await fetchImpl(`${dashboardApiBase()}/datasets/${encodeURIComponent(id)}/finalize`, {
       method: "POST",
       credentials: "include",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
       },
+      signal: resolveSignal(init, UPLOAD_TIMEOUTS_MS.finalize),
     });
   } catch (err) {
     // Finalize failure after files uploaded is the worst case: the user has

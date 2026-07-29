@@ -12,6 +12,48 @@ import {
   type PublicationStatus,
   deriveAdminBadgeState,
 } from "./dashboard-api";
+import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
+
+type Init = {
+  readonly signal?: AbortSignal;
+  readonly fetch?: typeof fetch;
+  readonly cookieHeader?: string;
+  /** Abort the request after this many ms. See {@link ADMIN_TIMEOUTS_MS}. */
+  readonly timeoutMs?: number;
+};
+
+/**
+ * Per-operation request deadlines, exported so the difference between them is
+ * a pinned contract rather than loose magic numbers.
+ *
+ * - `list` — a D1-backed read that SSRs `/admin/publication-requests`. It is
+ *   the page's primary content, so it gets the base deadline.
+ * - `deny` — one DB update plus a best-effort email. Slower than a read
+ *   because it writes, but nowhere near `approve`.
+ * - `approve` — the outlier, and the reason this table has three entries
+ *   instead of two. `POST /admin/publish/:id/approve` fully awaits
+ *   `runPublicationApproval`, a sixteen-step state machine (nemar-cli
+ *   `backend/src/services/publication-orchestrator.ts`) that walks GitHub
+ *   (tree read, blob read, workflow check, workflow deploy, run poll,
+ *   visibility flip, repo spec, tag protection), verifies S3, and mints a
+ *   Zenodo DOI — several steps wrapped in `withRetry` at three attempts. Only
+ *   `waitForPublicPropagation` is deferred to `waitUntil`; everything else
+ *   blocks the response. A single retried GitHub step can push a *healthy*
+ *   run past fifteen seconds, and an abort there is worse than a slow spinner:
+ *   the Worker-side run is not tied to our AbortController, so it keeps going
+ *   while the page re-enables the button and invites a second click.
+ *
+ * Even at two minutes this is still a bound, which is the point — the bug in
+ * website#173 was an *unbounded* wait, not a short one. Making approve
+ * non-blocking (kick off the job, poll for progress) is the real fix, tracked
+ * in website#200; it needs a backend change, not a constant. When that lands,
+ * `approve` drops back to a normal deadline and this comment goes away.
+ */
+export const ADMIN_TIMEOUTS_MS = {
+  list: DEFAULT_REQUEST_TIMEOUT_MS,
+  deny: 15_000,
+  approve: 120_000,
+} as const;
 
 export interface PublicationRequest {
   /** Human-readable dataset name, included for display without a second fetch. */
@@ -33,7 +75,7 @@ export interface PublicationRequestListResponse {
 
 export async function listPublicationRequests(
   query: { status?: PublicationStatus["status"] } = {},
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<PublicationRequestListResponse> {
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
@@ -46,7 +88,7 @@ export async function listPublicationRequests(
     method: "GET",
     headers,
     credentials: "include",
-    signal: init.signal,
+    signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.list),
   });
   if (!res.ok) {
     const detail = await readError(res);
@@ -61,7 +103,7 @@ export async function listPublicationRequests(
 
 export async function approvePublicationRequest(
   datasetId: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<{ status: PublicationStatus }> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
@@ -76,7 +118,7 @@ export async function approvePublicationRequest(
       headers,
       credentials: "include",
       body: "{}",
-      signal: init.signal,
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.approve),
     },
   );
   if (!res.ok) {
@@ -93,7 +135,7 @@ export async function approvePublicationRequest(
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<{ status: PublicationStatus }> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
@@ -112,7 +154,7 @@ export async function denyPublicationRequest(
       headers,
       credentials: "include",
       body: JSON.stringify({ reason: trimmed }),
-      signal: init.signal,
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.deny),
     },
   );
   if (!res.ok) {

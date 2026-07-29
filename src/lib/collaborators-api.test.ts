@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "./auth";
 import {
+  COLLABORATOR_TIMEOUTS_MS,
   type Collaborator,
   inviteCollaborator,
   isCollaboratorManager,
@@ -139,5 +140,80 @@ describe("inviteCollaborator", () => {
     }) as unknown as typeof fetch;
     await inviteCollaborator("nm/weird", "carol", { fetch: fakeFetch });
     expect(fakeFetch).toHaveBeenCalledOnce();
+  });
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response.
+// `/dataset/:id/collaborators` awaits listCollaborators during SSR, so without
+// a deadline a hung api.nemar.org stalls the render itself.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung list rather than stalling the SSR render", async () => {
+    await expect(
+      listCollaborators("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung invite rather than leaving the form stuck", async () => {
+    await expect(
+      inviteCollaborator("nm-xyz", "carol", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  // A caller-supplied signal must still abort even though a deadline is also
+  // in play — AbortSignal.any() combines them, it doesn't replace one.
+  it("honours a caller-supplied signal alongside the deadline", async () => {
+    const controller = new AbortController();
+    const pending = listCollaborators("nm-xyz", {
+      fetch: hangingFetch,
+      signal: controller.signal,
+    });
+    controller.abort(new Error("caller went away"));
+    await expect(pending).rejects.toThrow("caller went away");
+  });
+
+  // Invite carries a GitHub round-trip the read does not, so it must stay
+  // strictly slower than the list read.
+  it("gives invite a longer deadline than the list read", () => {
+    expect(COLLABORATOR_TIMEOUTS_MS.invite).toBeGreaterThan(COLLABORATOR_TIMEOUTS_MS.list);
+  });
+});
+
+// The suite above proves a deadline EXISTS, not which constant a call site
+// passes — every case there supplies an explicit `timeoutMs`, which
+// `resolveSignal` always prefers over the fallback. Spy on the static instead,
+// with no override, so the fallback becomes observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list deadline when listing collaborators", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await listCollaborators("nm-xyz", {
+      fetch: okFetch({ dataset_id: "nm-xyz", collaborators: [], count: 0 }),
+    });
+    expect(spy).toHaveBeenCalledWith(COLLABORATOR_TIMEOUTS_MS.list);
+  });
+
+  // The regression this exists for: invite carries a GitHub round-trip, so
+  // inheriting the read deadline would abort healthy invites.
+  it("passes the invite deadline when inviting", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await inviteCollaborator("nm-xyz", "carol", {
+      fetch: okFetch({ message: "ok", dataset_id: "nm-xyz", invitee: "carol" }),
+    });
+    expect(spy).toHaveBeenCalledWith(COLLABORATOR_TIMEOUTS_MS.invite);
   });
 });
