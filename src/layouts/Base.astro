@@ -29,6 +29,14 @@ interface Props {
   ogType?: "website" | "article";
   /** When true, suppresses the standard Nav (used for fullscreen marketing pages). */
   bareLayout?: boolean;
+  /**
+   * Pre-serialized, pre-escaped schema.org JSON-LD for this page (website#156).
+   * Callers build this with `datasetJsonLdScript` (or another builder in
+   * `src/lib/`) — Base.astro stays generic and never contains mapping logic.
+   * Already safe to embed via `set:html`; never pass raw `JSON.stringify`
+   * output here.
+   */
+  jsonLdScript?: string;
 }
 
 const {
@@ -43,6 +51,7 @@ const {
   imageAlt = "NEMAR - open neuroscience data, ready to use.",
   ogType = "website",
   bareLayout = false,
+  jsonLdScript,
 } = Astro.props;
 
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
@@ -113,6 +122,8 @@ const absoluteFallbackImage = fallbackImage
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={absoluteImage} />
     <meta name="twitter:image:alt" content={imageAlt} />
+
+    {jsonLdScript && <script type="application/ld+json" set:html={jsonLdScript} is:inline />}
 
     <script is:inline>
       // Prevent FOUC by applying the stored theme before paint.

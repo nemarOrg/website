@@ -16,8 +16,10 @@ import { zarrStoreUrl } from "../zarr-base";
  */
 import {
   type Modality,
+  autoscaleGain,
   channelColor,
   defaultScaling,
+  estimateSignalAmplitude,
   formatClock,
   formatSi,
   removeBandDc,
@@ -87,6 +89,28 @@ const ELECTRIC = new Set<Modality>(["EEG", "EMG", "IEEG", "MISC"]);
  * this and the viewport) but never varies with channel count. */
 const MAX_PLOT_HEIGHT = 540;
 const MIN_VISIBLE_CHANNELS = 4;
+/** Fraction of a channel slot's half-height the auto-scale estimator targets
+ *  (website#109) -- the midpoint of the issue's "60-80% of the slot" goal. */
+const AUTOSCALE_TARGET_FRACTION = 0.7;
+
+/**
+ * Per-channel magnitude arrays for the auto-scale amplitude estimate, built
+ * from an already-read window. DC-removed to match what the default trace view
+ * actually shows (a channel's baseline offset must not inflate its estimate).
+ * Line channels use the dequantized samples directly; band (pyramid) channels
+ * use max(|min|, |max|) per column as the per-sample magnitude proxy. New
+ * arrays only -- the caller's `WindowData.channels` is reused later to build
+ * the render frame and must not be mutated here.
+ */
+function windowChannelMagnitudes(channels: ChannelWindow[]): Float32Array[] {
+  return channels.map((cw) => {
+    if (cw.kind === "line") return removeDcInPlace(cw.line.slice());
+    const { min, max } = removeBandDc(cw.min, cw.max);
+    const out = new Float32Array(min.length);
+    for (let i = 0; i < min.length; i++) out[i] = Math.max(Math.abs(min[i]), Math.abs(max[i]));
+    return out;
+  });
+}
 
 export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Promise<void> {
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">Loading viewer…</p></div>`;
@@ -111,6 +135,15 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let windowStartS = 0;
   let windowLengthS = 10;
   let gain = 1;
+  // Auto-scale (website#109): `gain` above is only the pre-data fallback (the
+  // modality DEFAULT_SCALINGS at 1x). `autoscalePending` marks that the next
+  // successful window read should set the INITIAL gain from the recording's
+  // own amplitude; it is consumed once and re-armed on a group switch (a new
+  // modality/montage needs its own estimate) but never once the user has
+  // touched Scale +/- themselves -- auto-scale must not fight a manual
+  // adjustment.
+  let autoscalePending = true;
+  let gainManuallySet = false;
   let dcRemove = true;
   let showEvents = true;
   let chanStart = 0;
@@ -365,6 +398,23 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
     firstPaint = false;
+    const modality = (g.modality as Modality) ?? "MISC";
+
+    // Auto-scale (website#109): set the INITIAL gain from this recording's own
+    // amplitude the first time we have real data for it (first load, or after a
+    // group switch that re-armed this) -- unless the user already touched
+    // Scale +/-, in which case their choice wins and auto-scale never fires
+    // again for this mount. A zero estimate (silent/all-bad channels) leaves
+    // `gain` at its current value, i.e. the modality DEFAULT_SCALINGS fallback.
+    if (autoscalePending) {
+      autoscalePending = false;
+      if (!gainManuallySet) {
+        const amplitude = estimateSignalAmplitude(windowChannelMagnitudes(win.channels));
+        if (amplitude > 0) {
+          gain = autoscaleGain(amplitude, defaultScaling(modality), AUTOSCALE_TARGET_FRACTION);
+        }
+      }
+    }
 
     const visible = g.channelsByRow.slice(chanStart, visEnd);
     const n = Math.min(visible.length, win.channels.length);
@@ -396,7 +446,6 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       }
     }
 
-    const modality = (g.modality as Modality) ?? "MISC";
     const frame: ViewerFrame = {
       channels,
       nCols: win.nCols,
@@ -623,10 +672,12 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   ui.on("page-fwd", () => scroll(windowLengthS));
   ui.on("gain-up", () => {
     gain *= 1.5;
+    gainManuallySet = true;
     render();
   });
   ui.on("gain-down", () => {
     gain /= 1.5;
+    gainManuallySet = true;
     render();
   });
   ui.on("chan-zoom-in", () => zoomChan(0.5));
@@ -721,6 +772,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       overviewLoaded = false;
       overviewData = null;
       overviewSeq++; // invalidate any in-flight overview load from the prior group
+      // Re-arm auto-scale for the new group's own amplitude/modality (website#109).
+      // The `gainManuallySet` guard inside renderImpl still wins if the user has
+      // already touched Scale +/-, so this cannot stomp a manual adjustment.
+      autoscalePending = true;
       // Topomap is scalp-only; disable + hide it when the active group is not scalp.
       const scalpNow = !!topoLayout && isScalpModality(group().modality);
       ui.topoBtn.disabled = !scalpNow;
@@ -882,9 +937,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
       }
     } else if (k === "+" || k === "=") {
       gain *= 1.5;
+      gainManuallySet = true;
       render();
     } else if (k === "-") {
       gain /= 1.5;
+      gainManuallySet = true;
       render();
     } else if (k === "d") {
       dcRemove = !dcRemove;

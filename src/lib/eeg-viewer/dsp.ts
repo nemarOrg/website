@@ -216,3 +216,66 @@ export function niceScale(value: number): number {
   const nice = frac >= 5 ? 5 : frac >= 2 ? 2 : 1;
   return nice * pow;
 }
+
+/**
+ * Robust per-recording amplitude estimate for the viewer's initial auto-scale
+ * gain (website#109). For each channel, take the `percentile`-th percentile of
+ * |sample| (default ~95th; non-finite samples are skipped); then take the
+ * MEDIAN across channels. The median (not mean or max) across channels is what
+ * makes this robust: a single dead (flat/zero) or railed (saturated) channel
+ * becomes one entry among many rather than a value that can drag a mean or
+ * dominate a max, so it cannot skew the estimate the rest of the montage would
+ * otherwise get.
+ *
+ * Callers should pass already DC-removed samples (the viewer's default trace
+ * view) so a channel's baseline offset does not inflate its percentile.
+ *
+ * Returns 0 when there is no usable signal (no channels, every sample
+ * non-finite, or every channel is genuinely silent/constant at zero) so the
+ * caller can fall back to a default scaling instead of dividing by zero.
+ */
+export function estimateSignalAmplitude(channels: ArrayLike<number>[], percentile = 0.95): number {
+  const p = Number.isFinite(percentile) ? Math.min(1, Math.max(0, percentile)) : 0.95;
+  const perChannel: number[] = [];
+  for (const channel of channels) {
+    const abs: number[] = [];
+    for (let i = 0; i < channel.length; i++) {
+      const v = channel[i];
+      if (Number.isFinite(v)) abs.push(Math.abs(v));
+    }
+    if (abs.length === 0) continue; // all-non-finite channel: excluded, not treated as 0
+    abs.sort((a, b) => a - b);
+    const idx = Math.min(abs.length - 1, Math.floor(p * (abs.length - 1)));
+    perChannel.push(abs[idx]);
+  }
+  if (perChannel.length === 0) return 0;
+  perChannel.sort((a, b) => a - b);
+  const mid = Math.floor(perChannel.length / 2);
+  return perChannel.length % 2 === 0
+    ? (perChannel[mid - 1] + perChannel[mid]) / 2
+    : perChannel[mid];
+}
+
+/**
+ * Initial viewer gain that puts `amplitudeSI` (the robust estimate above) at
+ * `targetFraction` of a channel slot's half-height, so a typical trace fills
+ * roughly `2 * targetFraction` of its slot's full height (traces swing both up
+ * and down from the slot's baseline). `physPerDivSI` is the modality's
+ * DEFAULT_SCALINGS full-scale-per-div (what a slot's half-height spans at
+ * gain=1); the returned gain divides that down (or up) to fit the estimate.
+ *
+ * Falls back to 1 -- gain unchanged, i.e. the modality default -- for any
+ * input that would make the ratio zero, negative, or non-finite: a zero/absent
+ * amplitude estimate (silent or all-bad recording), a non-positive
+ * physPerDivSI, or an out-of-range targetFraction. This is what keeps an
+ * all-zero/constant recording from producing a divide-by-zero Infinity gain.
+ */
+export function autoscaleGain(
+  amplitudeSI: number,
+  physPerDivSI: number,
+  targetFraction = 0.7,
+): number {
+  if (!(amplitudeSI > 0) || !(physPerDivSI > 0) || !(targetFraction > 0)) return 1;
+  const gain = (targetFraction * physPerDivSI) / amplitudeSI;
+  return Number.isFinite(gain) && gain > 0 ? gain : 1;
+}
