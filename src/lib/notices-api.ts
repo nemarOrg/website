@@ -17,6 +17,7 @@
  */
 import { apiBase, dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError } from "./dashboard-api";
+import { DECORATIVE_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 /**
  * Severity, constrained by BOTH a `z.enum` in `admin/notices.ts` and a
@@ -86,24 +87,11 @@ type Init = {
   readonly baseUrl?: string;
 };
 
-const DEFAULT_TIMEOUT_MS = 5000;
-
 /**
  * The banner is chrome on every page, so it gets a tight deadline: a page
  * that renders without its banner is far better than one that waits on it.
  */
-export const BANNER_TIMEOUT_MS = 2500;
-
-/**
- * Combines a caller-supplied abort signal with a deadline. Mirrors
- * `resolveSignal` in `imports-admin-api.ts` / `users-admin-api.ts`, for the
- * reason documented there: a `try/catch` around `fetch` covers a request
- * that fails, not one that opens and never writes a response.
- */
-function resolveSignal(init: Init, fallbackMs = DEFAULT_TIMEOUT_MS): AbortSignal {
-  const timeout = AbortSignal.timeout(init.timeoutMs ?? fallbackMs);
-  return init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
-}
+export const BANNER_TIMEOUT_MS = DECORATIVE_TIMEOUT_MS;
 
 /** API origin for a call: explicit override, else the cookie heuristic. */
 function baseFor(init: Init): string {
