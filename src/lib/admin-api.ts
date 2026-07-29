@@ -12,6 +12,37 @@ import {
   type PublicationStatus,
   deriveAdminBadgeState,
 } from "./dashboard-api";
+import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
+
+type Init = {
+  readonly signal?: AbortSignal;
+  readonly fetch?: typeof fetch;
+  readonly cookieHeader?: string;
+  /** Abort the request after this many ms. See {@link ADMIN_TIMEOUTS_MS}. */
+  readonly timeoutMs?: number;
+};
+
+/**
+ * Per-operation request deadlines, exported so the difference between them is
+ * a pinned contract rather than loose magic numbers.
+ *
+ * - `list` — a D1-backed read that SSRs `/admin/publication-requests`. It is
+ *   the page's primary content, so it gets the base deadline.
+ * - `decide` — approve/deny. These hand the dataset to the publish
+ *   orchestrator rather than just flipping a column, so they are legitimately
+ *   slower than a read; a 5s deadline would abort healthy decisions and make a
+ *   working endpoint look broken. They are also user-initiated clicks with a
+ *   spinner attached, not SSR, so a longer wait degrades one button rather
+ *   than the whole render.
+ *
+ * As in `imports-admin-api.ts`, these tests pin the *values*, not the wiring:
+ * `AbortSignal.timeout()` doesn't expose its duration, and this project drives
+ * the real abort path rather than faking timers.
+ */
+export const ADMIN_TIMEOUTS_MS = {
+  list: DEFAULT_REQUEST_TIMEOUT_MS,
+  decide: 15_000,
+} as const;
 
 export interface PublicationRequest {
   /** Human-readable dataset name, included for display without a second fetch. */
@@ -33,7 +64,7 @@ export interface PublicationRequestListResponse {
 
 export async function listPublicationRequests(
   query: { status?: PublicationStatus["status"] } = {},
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<PublicationRequestListResponse> {
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
@@ -46,7 +77,7 @@ export async function listPublicationRequests(
     method: "GET",
     headers,
     credentials: "include",
-    signal: init.signal,
+    signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.list),
   });
   if (!res.ok) {
     const detail = await readError(res);
@@ -61,7 +92,7 @@ export async function listPublicationRequests(
 
 export async function approvePublicationRequest(
   datasetId: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<{ status: PublicationStatus }> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
@@ -76,7 +107,7 @@ export async function approvePublicationRequest(
       headers,
       credentials: "include",
       body: "{}",
-      signal: init.signal,
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.decide),
     },
   );
   if (!res.ok) {
@@ -93,7 +124,7 @@ export async function approvePublicationRequest(
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<{ status: PublicationStatus }> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
@@ -112,7 +143,7 @@ export async function denyPublicationRequest(
       headers,
       credentials: "include",
       body: JSON.stringify({ reason: trimmed }),
-      signal: init.signal,
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.decide),
     },
   );
   if (!res.ok) {
