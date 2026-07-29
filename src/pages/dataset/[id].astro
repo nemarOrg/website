@@ -22,7 +22,7 @@ import {
 } from "../../lib/data-api";
 import { resolveDataBase } from "../../lib/data-base";
 import { splitModalities } from "../../lib/format";
-import { APP_HOST, MARKETING_BASE_URL, hostMode } from "../../lib/host";
+import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
 import { modalityHref } from "../../lib/tags";
@@ -144,11 +144,15 @@ const modalities = enrichedMetadata.recording_modality.length
   ? enrichedMetadata.recording_modality
   : splitModalities("");
 
-// Server-rendered schema.org Dataset JSON-LD (website#156). Same canonical-
-// origin logic as Base.astro's `<link rel="canonical">` (app vs. marketing
-// host); excludes the `?v=` query string so the identifier stays stable
-// across version switches, matching the canonical URL below it in <head>.
-const jsonLdOrigin = hostMode(url.hostname) === "app" ? `https://${APP_HOST}` : MARKETING_BASE_URL;
+// Server-rendered schema.org Dataset JSON-LD (website#156). Shares
+// `canonicalOriginFor` with Base.astro's `<link rel="canonical">` rather than
+// re-deriving the origin, so the two cannot drift: this page is a marketing
+// route, and since website#210 the app host renders it for signed-in users.
+// Host-derived logic would then emit `app.nemar.org` here while the canonical
+// tag in the same <head> said `nemar.org` — structured data contradicting the
+// page it describes. Excludes the `?v=` query string so the identifier stays
+// stable across version switches, matching the canonical URL.
+const jsonLdOrigin = canonicalOriginFor(url.pathname, url.hostname);
 const jsonLdPageUrl = new URL(url.pathname, jsonLdOrigin).toString();
 const jsonLdScript = datasetJsonLdScript({
   id,

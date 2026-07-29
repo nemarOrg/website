@@ -467,6 +467,21 @@ describe("canonicalOriginFor", () => {
     expect(canonicalOriginFor("/", APP_HOST)).toBe(MARKETING_BASE_URL);
   });
 
+  // Dataset detail is the subtle one, and it shipped broken in review: the page
+  // emits schema.org JSON-LD alongside the canonical tag, and that JSON-LD had
+  // its own copy of the old host-derived origin. `/dataset/<id>` is a marketing
+  // route (only `/dataset/<id>/collaborators` is an app route), so on the app
+  // host the two would have disagreed — structured data contradicting the
+  // canonical tag in the same <head>. Both now read from here.
+  it("keeps dataset detail on the marketing origin even from the app host", () => {
+    expect(canonicalOriginFor("/dataset/nm000103", APP_HOST)).toBe(MARKETING_BASE_URL);
+    expect(canonicalOriginFor("/dataset/on007753", MARKETING_HOST)).toBe(MARKETING_BASE_URL);
+    // ...while the collaborators sub-route genuinely is app-owned.
+    expect(canonicalOriginFor("/dataset/nm000103/collaborators", APP_HOST)).toBe(
+      `https://${APP_HOST}`,
+    );
+  });
+
   it("sends app routes to the app origin", () => {
     expect(canonicalOriginFor("/dashboard", APP_HOST)).toBe(`https://${APP_HOST}`);
     expect(canonicalOriginFor("/settings", MARKETING_HOST)).toBe(`https://${APP_HOST}`);
