@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type DroppedFile,
   UPLOAD_TIMEOUTS_MS,
@@ -242,5 +242,37 @@ describe("request deadlines", () => {
   // the expensive mistake in this file; it must stay strictly longer than create.
   it("gives finalize a longer deadline than create", () => {
     expect(UPLOAD_TIMEOUTS_MS.finalize).toBeGreaterThan(UPLOAD_TIMEOUTS_MS.create);
+  });
+});
+
+// The suite above proves a deadline EXISTS, not which constant a call site
+// passes — every case there supplies an explicit `timeoutMs`, which
+// `resolveSignal` always prefers over the fallback. Spy on the static instead,
+// with no override, so the fallback becomes observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the create deadline when creating a draft", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await createDraftDataset(
+      { name: "x", files: [] },
+      { fetch: okFetch({ dataset: { id: "nm-xyz", visibility: "private", upload_urls: {} } }) },
+    );
+    expect(spy).toHaveBeenCalledWith(UPLOAD_TIMEOUTS_MS.create);
+  });
+
+  // The regression this exists for: finalize runs after every byte is in S3,
+  // so inheriting the shorter create deadline would orphan drafts.
+  it("passes the finalize deadline when finalizing", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await finalizeDataset("nm-xyz", { fetch: okFetch({ dataset: { status: "ready" } }) });
+    expect(spy).toHaveBeenCalledWith(UPLOAD_TIMEOUTS_MS.finalize);
   });
 });

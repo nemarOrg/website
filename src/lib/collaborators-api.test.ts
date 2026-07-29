@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthSession } from "./auth";
 import {
   COLLABORATOR_TIMEOUTS_MS,
@@ -182,5 +182,38 @@ describe("request deadlines", () => {
   // strictly slower than the list read.
   it("gives invite a longer deadline than the list read", () => {
     expect(COLLABORATOR_TIMEOUTS_MS.invite).toBeGreaterThan(COLLABORATOR_TIMEOUTS_MS.list);
+  });
+});
+
+// The suite above proves a deadline EXISTS, not which constant a call site
+// passes — every case there supplies an explicit `timeoutMs`, which
+// `resolveSignal` always prefers over the fallback. Spy on the static instead,
+// with no override, so the fallback becomes observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list deadline when listing collaborators", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await listCollaborators("nm-xyz", {
+      fetch: okFetch({ dataset_id: "nm-xyz", collaborators: [], count: 0 }),
+    });
+    expect(spy).toHaveBeenCalledWith(COLLABORATOR_TIMEOUTS_MS.list);
+  });
+
+  // The regression this exists for: invite carries a GitHub round-trip, so
+  // inheriting the read deadline would abort healthy invites.
+  it("passes the invite deadline when inviting", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await inviteCollaborator("nm-xyz", "carol", {
+      fetch: okFetch({ message: "ok", dataset_id: "nm-xyz", invitee: "carol" }),
+    });
+    expect(spy).toHaveBeenCalledWith(COLLABORATOR_TIMEOUTS_MS.invite);
   });
 });

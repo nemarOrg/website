@@ -453,3 +453,47 @@ describe("request deadlines", () => {
     expect(DASHBOARD_TIMEOUTS_MS.mutate).toBeGreaterThan(DASHBOARD_TIMEOUTS_MS.list);
   });
 });
+
+// The suite above proves a deadline EXISTS. It cannot prove which constant a
+// given call site passes, because every case supplies an explicit `timeoutMs`
+// and `resolveSignal` always prefers that over the fallback. `AbortSignal.timeout()`
+// doesn't expose its duration on the returned signal, but it is an ordinary
+// spyable static, so assert on the argument instead — with NO `timeoutMs`
+// override, which is what makes the fallback observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown, status = 200): typeof fetch {
+    return (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list deadline when listing datasets", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await listMyDatasets({}, { fetch: okFetch({ datasets: [], total_count: 0 }) });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.list);
+  });
+
+  // The regression this exists for: the status fan-out inheriting the list
+  // deadline would multiply a degraded backend's cost across every visible row.
+  it("passes the decorative deadline for the publish-status fan-out", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await getPublishStatus("nm-xyz", { fetch: okFetch({}, 404) });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.status);
+  });
+
+  it("passes the mutate deadline when requesting publication", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await requestPublication("nm-xyz", {
+      fetch: okFetch({ dataset_id: "nm-xyz", status: "none" }),
+    });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.mutate);
+  });
+
+  it("passes the mutate deadline when deleting a draft", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await deleteDraftDataset("nm-xyz", { fetch: okFetch({ ok: true }) });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.mutate);
+  });
+});
