@@ -14,7 +14,11 @@ Read `.context/handoff.md` before anything else — it has the most recent sessi
 /Users/yahya/Documents/git/nemar/website    main — the production branch (CF GitHub integration deploys it)
 ```
 
-`main` is the production branch on Cloudflare Pages; the redesign epic branch `feature/issue-1-epic-nemar-redesign` is retired (Phase 5 cutover done). The `staging` branch (kept as a fast-forward of `main`) deploys test.nemar.org and pairs with nemar-cli's `dev` branch — see AGENTS.md "Branch ↔ environment map".
+`main` is the production branch on Cloudflare Pages, serving `nemar.org`, `www`, `ww2`, and `app.nemar.org` since the apex cutover (website#190). The redesign epic branch `feature/issue-1-epic-nemar-redesign` is retired.
+
+**Open PRs against `staging`, not `main`.** `staging` leads: work lands there, deploys to test.nemar.org against the nemar-cli `dev` backends for QA, and then promotes to `main` (`git push origin origin/staging:main`). This inverted on 2026-07-29 — staging used to be a fast-forward mirror refreshed *after* each production merge, which meant it could never catch anything. See AGENTS.md "Branch ↔ environment map".
+
+Caveat worth knowing before you rely on a staging soak: `test.nemar.org` resolves to single-host mode, so cross-host redirects, the signed-in redirect suppression, and app-vs-marketing canonical origins are all inert there. Those need checking on production after promotion (website#212).
 
 ### Project-specific skill triggers
 
