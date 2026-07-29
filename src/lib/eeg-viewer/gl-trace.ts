@@ -328,6 +328,18 @@ export function createGlTraceRenderer(canvas: HTMLCanvasElement): GlTraceRendere
       if (vao) gl.deleteVertexArray(vao);
       if (prog) gl.deleteProgram(prog);
       prog = buf = vao = null;
+      // Deleting the GL objects above does not release the *context*. Each
+      // viewer mount builds a fresh <canvas>, so without this the old context
+      // survives until the browser happens to GC the detached canvas — and
+      // browsers cap live WebGL contexts (~16 in Chrome), evicting the oldest
+      // once the cap is hit. Twenty open/close cycles were measured creating
+      // twenty contexts with four already force-lost, which a user can reach
+      // just by skimming recordings on one dataset page. Losing the context
+      // deterministically here keeps that bounded. The fallout is benign
+      // either way (`createGlTraceRenderer` returning null drops to the 2D
+      // canvas path), but silently degrading to CPU rendering mid-session is
+      // exactly the kind of thing nobody would think to look for.
+      canvas.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext();
     },
   };
 }

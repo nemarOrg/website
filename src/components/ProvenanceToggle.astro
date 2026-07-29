@@ -1,5 +1,6 @@
 ---
 import type { DerivedProvenance } from "../lib/provenance";
+import DialogCloseButton from "./DialogCloseButton.astro";
 
 interface Props {
   datasetId: string;
@@ -33,6 +34,7 @@ const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersio
     </svg>
   </summary>
   <div class="prov-toggle__popover" role="dialog" aria-label="Switch dataset source">
+    <DialogCloseButton />
     <p class="prov-toggle__body">
       <strong>You're viewing the NEMAR copy</strong>{currentVersion ? ` at ${currentVersion}` : ""}.
       Each OpenNeuro pull is a NEMAR major bump
@@ -150,6 +152,8 @@ const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersio
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
     line-height: var(--lh-relaxed);
+    /* Clears the corner close button floating in the popover's top-right. */
+    padding-inline-end: var(--dialog-x-clearance);
   }
   .prov-toggle__body strong {
     color: var(--color-fg);
@@ -233,5 +237,20 @@ const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersio
     document.querySelectorAll<HTMLDetailsElement>("[data-prov-toggle]").forEach((el) => {
       if (!el.contains(e.target as Node)) el.open = false;
     });
+  });
+
+  // Close on Escape. This is `role="dialog"` inside a <details>, not a native
+  // <dialog>, so it gets none of the built-in dismissal behaviour — Escape has
+  // never worked here. Now that it carries a close button like the real
+  // dialogs do, it reads as one, so it needs to behave like one. Focus goes
+  // back to the summary chip that opened it, which is what <dialog> does and
+  // what a keyboard user needs to not lose their place.
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    for (const el of document.querySelectorAll<HTMLDetailsElement>("[data-prov-toggle]")) {
+      if (!el.open) continue;
+      el.open = false;
+      if (el.contains(document.activeElement)) el.querySelector("summary")?.focus();
+    }
   });
 </script>

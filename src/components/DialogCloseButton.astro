@@ -1,0 +1,77 @@
+---
+/**
+ * Shared corner close affordance for every native <dialog> plus the
+ * ProvenanceToggle details/summary popover (website#199). One markup + style
+ * source so the X is visually and behaviorally identical everywhere instead
+ * of being re-implemented per file — the project's scoped-style-per-file
+ * rule (AGENTS.md) is about siblings duplicating *layout* CSS for markup
+ * they each render themselves; a small reusable leaf like this one is the
+ * normal Astro way to share both markup and behavior at once.
+ *
+ * It is an ADDITION next to each dialog's existing bottom Close button /
+ * Cancel button, not a replacement, and Esc keeps working (native <dialog>
+ * behavior; this button doesn't change it).
+ *
+ * Behavior is delegated on `document` rather than wired per-instance, so
+ * using this component three times on one page (ActionBar's three dialogs)
+ * still only registers one listener (Astro dedupes identical inline
+ * scripts). Click closes the nearest ancestor <dialog> via the native
+ * `.close()` — which fires the same "close" event Esc and the bottom Close
+ * button already fire, so e.g. ConfirmDialog's existing close listener
+ * keeps working unmodified — or, when there is no ancestor <dialog>, the
+ * nearest ancestor <details> (ProvenanceToggle's popover).
+ */
+---
+
+<button type="button" class="dialog-x" data-dialog-close aria-label="Close">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <line x1="18" y1="6" x2="6" y2="18"></line>
+    <line x1="6" y1="6" x2="18" y2="18"></line>
+  </svg>
+</button>
+
+<style>
+  .dialog-x {
+    position: absolute;
+    inset-block-start: var(--space-4);
+    inset-inline-end: var(--space-4);
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--space-8);
+    block-size: var(--space-8);
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-fg-muted);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .dialog-x:hover {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+  }
+  .dialog-x:focus-visible {
+    outline: none;
+    border-color: var(--color-focus);
+    box-shadow: var(--shadow-focus);
+  }
+</style>
+
+<script>
+  document.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    const btn = target.closest<HTMLButtonElement>("[data-dialog-close]");
+    if (!btn) return;
+    const dialog = btn.closest("dialog");
+    if (dialog) {
+      dialog.close();
+      return;
+    }
+    const details = btn.closest("details");
+    if (details) details.open = false;
+  });
+</script>

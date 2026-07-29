@@ -1,6 +1,7 @@
 ---
 import { resolveDataBase } from "../lib/data-base";
 import type { LandingArchive } from "../lib/neuroschema";
+import DialogCloseButton from "./DialogCloseButton.astro";
 
 interface Props {
   datasetId: string;
@@ -86,6 +87,8 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
 </div>
 
 <dialog class="compute-dialog" data-download-dialog>
+  <DialogCloseButton />
+  <div class="compute-dialog__scroll">
   <h2>Download this dataset</h2>
   <p class="compute-dialog__intro">
     {archiveSkipReason
@@ -160,9 +163,12 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
   <form method="dialog">
     <button type="submit" class="dialog-close">Close</button>
   </form>
+  </div>
 </dialog>
 
 <dialog class="compute-dialog" data-compute-dialog>
+  <DialogCloseButton />
+  <div class="compute-dialog__scroll">
   <h2>Compute on this dataset</h2>
   <p class="compute-dialog__intro">
     Two routes today, with a third (in-browser one-click submission)
@@ -213,6 +219,7 @@ cd {datasetId} && nemar dataset get</code></pre>
   <form method="dialog">
     <button type="submit" class="dialog-close">Close</button>
   </form>
+  </div>
 </dialog>
 
 <dialog
@@ -221,6 +228,8 @@ cd {datasetId} && nemar dataset get</code></pre>
   data-dataset-id={ds}
   aria-labelledby="citations-dialog-heading"
 >
+  <DialogCloseButton />
+  <div class="cite-dialog__scroll">
   <header class="cite-dialog__head">
     <h2 id="citations-dialog-heading" data-citations-heading>Citations</h2>
     <div class="cite-filter" role="group" aria-label="Filter citations by what they reference">
@@ -234,6 +243,7 @@ cd {datasetId} && nemar dataset get</code></pre>
   <form method="dialog">
     <button type="submit" class="dialog-close">Close</button>
   </form>
+  </div>
 </dialog>
 
 <style>
@@ -351,15 +361,41 @@ cd {datasetId} && nemar dataset get</code></pre>
     border-radius: var(--radius-lg);
     background: var(--color-bg-elevated);
     color: var(--color-fg);
-    padding: var(--space-6);
-    overflow-y: auto;
+    /* The dialog itself no longer scrolls (padding: 0) — .compute-dialog__scroll
+       below does, so the corner close button (a direct child, sitting outside
+       that inner scroll region) stays pinned in view instead of scrolling away
+       with long content. This is the same "Close button below the fold" bug
+       the corner X exists to fix (website#199) — it would just move to the top
+       corner if the whole dialog stayed the scroll container. */
+    padding: 0;
+    overflow: hidden;
+  }
+  /* `display: flex` MUST be gated on `[open]` rather than living on the bare
+     `.compute-dialog` selector. The browser hides a closed <dialog> with a
+     plain-element UA rule (`dialog { display: none }`), which a bare class
+     selector like `.compute-dialog { display: flex }` outranks on
+     specificity — that silently un-hides the closed dialog underneath
+     whatever else is open, exactly the "Compute on this dataset" text
+     bleeding through behind a screenshot that caught us during review. */
+  .compute-dialog[open] {
+    display: flex;
+    flex-direction: column;
   }
   .compute-dialog::backdrop {
     background: rgb(15 23 42 / 55%);
   }
+  .compute-dialog__scroll {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    overflow-y: auto;
+    padding: var(--space-6);
+  }
   .compute-dialog h2 {
     font-size: var(--fs-2xl);
     margin-block-end: var(--space-3);
+    /* Clears the corner close button, which floats above this scrolling
+       content rather than participating in its layout. */
+    padding-inline-end: var(--dialog-x-clearance);
   }
   .compute-dialog__intro {
     color: var(--color-fg-muted);
@@ -462,11 +498,26 @@ cd {datasetId} && nemar dataset get</code></pre>
     border-radius: var(--radius-lg);
     background: var(--color-bg-elevated);
     color: var(--color-fg);
-    padding: var(--space-6);
-    overflow-y: auto;
+    /* See .compute-dialog above: the dialog itself doesn't scroll so the
+       corner close button, a direct child sitting outside .cite-dialog__scroll,
+       stays pinned in view while the citation list scrolls under it. */
+    padding: 0;
+    overflow: hidden;
+  }
+  /* Gated on [open] — see the .compute-dialog[open] comment above for why a
+     bare `.cite-dialog { display: flex }` would un-hide the closed dialog. */
+  .cite-dialog[open] {
+    display: flex;
+    flex-direction: column;
   }
   .cite-dialog::backdrop {
     background: rgb(15 23 42 / 55%);
+  }
+  .cite-dialog__scroll {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    overflow-y: auto;
+    padding: var(--space-6);
   }
   .cite-dialog__head {
     display: flex;
@@ -475,6 +526,8 @@ cd {datasetId} && nemar dataset get</code></pre>
     justify-content: space-between;
     gap: var(--space-3);
     margin-block-end: var(--space-4);
+    /* Clears the corner close button floating above this row. */
+    padding-inline-end: var(--dialog-x-clearance);
   }
   .cite-dialog__head h2 {
     font-size: var(--fs-2xl);
