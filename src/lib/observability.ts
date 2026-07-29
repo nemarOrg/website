@@ -41,6 +41,12 @@ export interface Metric {
   readonly total?: number;
   readonly hint?: string;
   readonly breakdown?: readonly MetricBreakdownEntry[];
+  /**
+   * Unit of the `breakdown[].value` numbers when it differs from `unit`. A tile
+   * can count datasets while its bars are denominated in bytes — `access.top`
+   * and `cf.bytes_by_host` both do. Absent means the breakdown shares `unit`.
+   */
+  readonly breakdown_unit?: string;
   readonly drilldown?: string;
 }
 
@@ -131,11 +137,13 @@ function parseMetric(raw: unknown): Metric | null {
   const breakdown = Array.isArray(raw.breakdown)
     ? raw.breakdown.map(parseBreakdownEntry).filter((b): b is MetricBreakdownEntry => b !== null)
     : undefined;
+  const breakdownUnit = typeof raw.breakdown_unit === "string" ? raw.breakdown_unit : undefined;
   return {
     ...metric,
     ...(total !== undefined && { total }),
     ...(hint !== undefined && { hint }),
     ...(breakdown !== undefined && breakdown.length > 0 && { breakdown }),
+    ...(breakdownUnit !== undefined && { breakdown_unit: breakdownUnit }),
     ...(drilldown !== undefined && { drilldown }),
   };
 }

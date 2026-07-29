@@ -244,3 +244,99 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue(metric({ value: 42, unit: "widgets" }))).toBe("42");
   });
 });
+
+describe("breakdown_unit", () => {
+  // A tile can count datasets while its bars are bytes (access.top,
+  // cf.bytes_by_host). Dropping this field made the admin Overview render raw
+  // byte integers labelled with the tile's own unit (website#196).
+  it("is parsed through when the upstream metric supplies it", async () => {
+    const snapshot = await fetchObservabilitySnapshot({
+      fetch: fetchReturning({
+        schema_version: "1.0",
+        generated_at: "2026-07-29T12:00:00.000Z",
+        sections: [
+          {
+            key: "access",
+            label: "Access (30d)",
+            source: "access",
+            updated_at: "2026-07-29T12:00:00.000Z",
+            metrics: [
+              {
+                key: "access.top",
+                label: "Most read datasets",
+                value: 2,
+                unit: "count",
+                severity: "info",
+                breakdown: [
+                  { label: "on004080", value: 13124701 },
+                  { label: "on004475", value: 12024714 },
+                ],
+                breakdown_unit: "bytes",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    const top = snapshot?.sections[0]?.metrics[0];
+    expect(top?.breakdown_unit).toBe("bytes");
+    expect(top?.unit).toBe("count");
+  });
+
+  it("is absent when upstream omits it, so consumers fall back to unit", async () => {
+    const snapshot = await fetchObservabilitySnapshot({
+      fetch: fetchReturning({
+        schema_version: "1.0",
+        generated_at: "2026-07-29T12:00:00.000Z",
+        sections: [
+          {
+            key: "datasets",
+            label: "Datasets",
+            source: "nemar-cli",
+            updated_at: "2026-07-29T12:00:00.000Z",
+            metrics: [
+              {
+                key: "datasets.by_license",
+                label: "By license",
+                value: 754,
+                unit: "datasets",
+                severity: "info",
+                breakdown: [{ label: "public", value: 570 }],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(snapshot?.sections[0]?.metrics[0]?.breakdown_unit).toBeUndefined();
+  });
+
+  it("drops a non-string breakdown_unit rather than passing it through", async () => {
+    const snapshot = await fetchObservabilitySnapshot({
+      fetch: fetchReturning({
+        schema_version: "1.0",
+        generated_at: "2026-07-29T12:00:00.000Z",
+        sections: [
+          {
+            key: "cf",
+            label: "Edge traffic (30d)",
+            source: "cloudflare",
+            updated_at: "2026-07-29T12:00:00.000Z",
+            metrics: [
+              {
+                key: "cf.bytes_by_host",
+                label: "Bytes by host",
+                value: 1,
+                unit: "count",
+                severity: "info",
+                breakdown: [{ label: "data.nemar.org", value: 180000000 }],
+                breakdown_unit: 42,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(snapshot?.sections[0]?.metrics[0]?.breakdown_unit).toBeUndefined();
+  });
+});
