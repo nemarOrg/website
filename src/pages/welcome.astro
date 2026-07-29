@@ -13,11 +13,23 @@ const isPending = session.user.status === "pending";
 
 const steps: { title: string; body: string; cta?: { href: string; label: string } }[] = [
   {
-    title: "Your account was created automatically",
-    body: "When you verified your email, NEMAR created a researcher account for you. There is no separate sign-up step.",
+    // Two bodies because this page is shown to both kinds of new account.
+    // An ORCID web sign-up is auto-approved to base access on the spot
+    // (nemar-cli ADR 0010), so "no approval queue" is true for them. A
+    // `pending` account -- a legacy or CLI-path signup -- is still waiting on
+    // an admin, and the notice above this timeline says so. Asserting "active"
+    // unconditionally would contradict that notice on the same screen.
+    title: isPending ? "Your account was created" : "Your account is active",
+    body: isPending
+      ? "Authorizing with ORCID created your NEMAR account and signed you in. Browsing and search work now; the rest unlocks when an admin approves you."
+      : "Authorizing with ORCID created your NEMAR account and signed you in. There is no separate sign-up step and no approval queue: browse, search, and your dashboard all work right now.",
   },
   {
-    title: "Upload a BIDS folder when you're ready",
+    title: "Ask for upload access when you're ready to contribute",
+    body: "Reading is open to every ORCID account. Uploading and compute need one extra grant, because an admin has to check your GitHub handle and location against export-control and local-jurisdiction rules first.",
+  },
+  {
+    title: "Then upload a BIDS folder",
     body: "NEMAR datasets follow the BIDS standard. Drop your folder, we run a pre-check, walk you through any fixes, and create the dataset entry while files transfer in the background.",
     cta: { href: "https://docs.nemar.org/web/uploading/", label: "Read the upload guide" },
   },
