@@ -271,9 +271,26 @@ describe("autoscaleGain", () => {
     expect(autoscaleGain(2e-6, -75e-6)).toBe(1);
   });
 
-  it("never returns Infinity or NaN for a vanishingly small amplitude", () => {
+  it("returns a large but finite gain for a very small amplitude", () => {
+    // 1e-15 is small enough to be physically absurd but still divides cleanly
+    // (~5.25e10). This covers the ordinary small-signal path, NOT the overflow
+    // guard — see the denormal case below for that.
     const gain = autoscaleGain(1e-15, 75e-6);
     expect(Number.isFinite(gain)).toBe(true);
     expect(gain).toBeGreaterThan(0);
+  });
+
+  it("falls back to 1 when the quotient overflows to Infinity", () => {
+    // The real overflow threshold: below roughly 2.9e-313, (0.7 * 75e-6) /
+    // amplitude exceeds Number.MAX_VALUE and the division itself produces
+    // Infinity — the first guard passes (the amplitude is finite and > 0), so
+    // only the post-division `Number.isFinite(gain)` check catches it.
+    // Deleting that check leaves every other test in this file green, which is
+    // why this case is pinned explicitly with a denormal input.
+    for (const amplitude of [5e-320, Number.MIN_VALUE]) {
+      const gain = autoscaleGain(amplitude, 75e-6);
+      expect(Number.isFinite(gain)).toBe(true);
+      expect(gain).toBe(1);
+    }
   });
 });
