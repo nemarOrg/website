@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DASHBOARD_TIMEOUTS_MS,
   DashboardApiError,
   type PublicationRequestStatus,
   type PublicationStatus,
@@ -397,5 +398,102 @@ describe("DashboardApiError shape", () => {
     expect(e.status).toBe(500);
     expect(e.code).toBe("internal_error");
     expect(e.message).toBe("nope");
+  });
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response. `/dashboard` awaits
+// listMyDatasets and a getPublishStatus fan-out during SSR, so without a
+// deadline a hung api.nemar.org stalls the render itself.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung dataset list rather than stalling the SSR render", async () => {
+    await expect(listMyDatasets({}, { fetch: hangingFetch, timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  it("aborts a hung publish-status lookup so the badge degrades", async () => {
+    await expect(
+      getPublishStatus("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung publication request rather than leaving the button stuck", async () => {
+    await expect(
+      requestPublication("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung delete rather than leaving the button stuck", async () => {
+    await expect(
+      deleteDraftDataset("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  // A caller-supplied signal must still abort even though a deadline is also
+  // in play — AbortSignal.any() combines them, it doesn't replace one.
+  it("honours a caller-supplied signal alongside the deadline", async () => {
+    const controller = new AbortController();
+    const pending = listMyDatasets({}, { fetch: hangingFetch, signal: controller.signal });
+    controller.abort(new Error("caller went away"));
+    await expect(pending).rejects.toThrow("caller went away");
+  });
+
+  // The status fan-out is decorative (it renders a badge the page reads fine
+  // without) and runs once per visible dataset, so it must stay strictly
+  // tighter than the list read. Mutations must stay strictly longer than both.
+  it("orders the deadlines decorative < primary < mutation", () => {
+    expect(DASHBOARD_TIMEOUTS_MS.status).toBeLessThan(DASHBOARD_TIMEOUTS_MS.list);
+    expect(DASHBOARD_TIMEOUTS_MS.mutate).toBeGreaterThan(DASHBOARD_TIMEOUTS_MS.list);
+  });
+});
+
+// The suite above proves a deadline EXISTS. It cannot prove which constant a
+// given call site passes, because every case supplies an explicit `timeoutMs`
+// and `resolveSignal` always prefers that over the fallback. `AbortSignal.timeout()`
+// doesn't expose its duration on the returned signal, but it is an ordinary
+// spyable static, so assert on the argument instead — with NO `timeoutMs`
+// override, which is what makes the fallback observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown, status = 200): typeof fetch {
+    return (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list deadline when listing datasets", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await listMyDatasets({}, { fetch: okFetch({ datasets: [], total_count: 0 }) });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.list);
+  });
+
+  // The regression this exists for: the status fan-out inheriting the list
+  // deadline would multiply a degraded backend's cost across every visible row.
+  it("passes the decorative deadline for the publish-status fan-out", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await getPublishStatus("nm-xyz", { fetch: okFetch({}, 404) });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.status);
+  });
+
+  it("passes the mutate deadline when requesting publication", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await requestPublication("nm-xyz", {
+      fetch: okFetch({ dataset_id: "nm-xyz", status: "none" }),
+    });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.mutate);
+  });
+
+  it("passes the mutate deadline when deleting a draft", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await deleteDraftDataset("nm-xyz", { fetch: okFetch({ ok: true }) });
+    expect(spy).toHaveBeenCalledWith(DASHBOARD_TIMEOUTS_MS.mutate);
   });
 });

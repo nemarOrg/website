@@ -8,7 +8,32 @@
 import { dashboardApiBase, readError } from "./api-base";
 import type { AuthSession } from "./auth";
 import { DashboardApiError } from "./dashboard-api";
+import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 import type { Dataset } from "./types";
+
+type Init = {
+  readonly signal?: AbortSignal;
+  readonly fetch?: typeof fetch;
+  readonly cookieHeader?: string;
+  /** Abort the request after this many ms. See {@link COLLABORATOR_TIMEOUTS_MS}. */
+  readonly timeoutMs?: number;
+};
+
+/**
+ * Per-operation request deadlines, exported so the difference between them is
+ * a pinned contract rather than loose magic numbers.
+ *
+ * - `list` — a D1-backed read that SSRs `/dataset/:id/collaborators`, and the
+ *   page's primary content; base deadline.
+ * - `invite` — grants repo access on the dataset's GitHub repo as well as
+ *   writing the row, so it carries a third-party round-trip the read does not.
+ *   It is a user-initiated click with a spinner, so a longer wait degrades one
+ *   form rather than the whole render.
+ */
+export const COLLABORATOR_TIMEOUTS_MS = {
+  list: DEFAULT_REQUEST_TIMEOUT_MS,
+  invite: 15_000,
+} as const;
 
 export interface Collaborator {
   readonly username: string;
@@ -26,14 +51,19 @@ export interface CollaboratorListResponse {
 
 export async function listCollaborators(
   datasetId: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<CollaboratorListResponse> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
     `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(datasetId)}/collaborators`,
-    { method: "GET", headers, credentials: "include", signal: init.signal },
+    {
+      method: "GET",
+      headers,
+      credentials: "include",
+      signal: resolveSignal(init, COLLABORATOR_TIMEOUTS_MS.list),
+    },
   );
   if (!res.ok) {
     const detail = await readError(res);
@@ -56,7 +86,7 @@ export interface InviteResponse {
 export async function inviteCollaborator(
   datasetId: string,
   username: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<InviteResponse> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
@@ -71,7 +101,7 @@ export async function inviteCollaborator(
       headers,
       credentials: "include",
       body: JSON.stringify({ username }),
-      signal: init.signal,
+      signal: resolveSignal(init, COLLABORATOR_TIMEOUTS_MS.invite),
     },
   );
   if (!res.ok) {
