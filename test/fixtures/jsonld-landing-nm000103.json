@@ -1,0 +1,19 @@
+{
+  "dataset_id": "nm000103",
+  "latest": "v2.0.0",
+  "metadata_url": "/nm000103/metadata.json",
+  "versions": [
+    {
+      "version": "v2.0.0",
+      "doi": "10.82901/nemar.nm000103.v2.0.0",
+      "created_at": "2026-02-23 07:49:00",
+      "manifest_url": "/nm000103/v2.0.0/manifest.json",
+      "browse_url": "/nm000103/v2.0.0/"
+    }
+  ],
+  "archive": {
+    "status": null,
+    "size": null,
+    "skip_reason": "Archive (>100 GB) removed to save space; use the per-file direct download (#752)."
+  }
+}
