@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoscaleGain,
   channelColor,
   defaultScaling,
   dequantize,
+  estimateSignalAmplitude,
   formatClock,
   formatSi,
   niceScale,
@@ -152,5 +154,126 @@ describe("formatSi sub-femto", () => {
     const result = formatSi(5e-16, "V");
     expect(result).toMatch(/f/);
     expect(result).not.toMatch(/Infinity|NaN/);
+  });
+});
+
+describe("estimateSignalAmplitude", () => {
+  // arithmetic ramp 0..99 so the 95th percentile (index floor(0.95*99)=94) is
+  // exactly the value 94 at that scale -- deterministic, no need for a
+  // statistical distribution.
+  const ramp = (scale: number): Float32Array =>
+    Float32Array.from({ length: 100 }, (_, i) => i * scale);
+
+  it("takes the 95th percentile per channel, then the median across channels", () => {
+    // per-channel p95 values: 94, 188, 282 -> median 188.
+    const amp = estimateSignalAmplitude([ramp(1), ramp(2), ramp(3)]);
+    expect(amp).toBeCloseTo(188, 6);
+  });
+
+  it("matches the issue's on003800 order of magnitude (~2 uV in, ~26x gain out)", () => {
+    // ~1.6 uV std, near-Gaussian -> p95(|x|) ~ 1.96*std ~ 3e-6, modeled directly.
+    const amp = estimateSignalAmplitude([ramp(3e-6 / 94)]);
+    expect(amp).toBeCloseTo(3e-6, 9);
+  });
+
+  it("returns 0 for a single all-zero channel (no divide-by-zero upstream)", () => {
+    const amp = estimateSignalAmplitude([new Float32Array(50)]);
+    expect(amp).toBe(0);
+    expect(Number.isFinite(amp)).toBe(true);
+  });
+
+  it("returns 0 when every channel is all-zero", () => {
+    const amp = estimateSignalAmplitude([new Float32Array(10), new Float32Array(10)]);
+    expect(amp).toBe(0);
+  });
+
+  it("handles a constant non-zero channel without throwing", () => {
+    const amp = estimateSignalAmplitude([Float32Array.from({ length: 10 }, () => 5)]);
+    expect(amp).toBe(5);
+  });
+
+  it("skips NaN samples rather than treating them as 0", () => {
+    // finite values [1,2,3,5] after dropping the NaNs; p95 index floor(0.95*3)=2 -> 3.
+    const withNaN = Float32Array.from([Number.NaN, 1, 2, 3, Number.NaN, 5]);
+    const amp = estimateSignalAmplitude([withNaN]);
+    expect(amp).toBeCloseTo(3, 6);
+  });
+
+  it("excludes an all-NaN channel rather than folding it in as 0", () => {
+    const healthy = ramp(1); // p95 -> 94
+    const allNaN = Float32Array.from({ length: 50 }, () => Number.NaN);
+    const amp = estimateSignalAmplitude([healthy, allNaN]);
+    expect(amp).toBeCloseTo(94, 6); // not dragged toward 0 by the NaN channel
+  });
+
+  it("median ignores one dead channel among several healthy ones", () => {
+    // per-channel p95: 0 (dead), 100, 150, 200, 250 -> sorted median is 150, a
+    // healthy value, not pulled toward the dead channel.
+    const dead = new Float32Array(20); // all zero
+    const healthyAt = (idx95: number) =>
+      Float32Array.from({ length: 20 }, (_, i) => (i * idx95) / 18); // idx floor(0.95*19)=18
+    const amp = estimateSignalAmplitude([
+      dead,
+      healthyAt(100),
+      healthyAt(150),
+      healthyAt(200),
+      healthyAt(250),
+    ]);
+    expect(amp).toBeCloseTo(150, 3);
+  });
+
+  it("works for a single-channel recording (no cross-channel median needed)", () => {
+    const amp = estimateSignalAmplitude([ramp(1)]);
+    expect(amp).toBeCloseTo(94, 6);
+  });
+
+  it("returns 0 for no channels at all", () => {
+    expect(estimateSignalAmplitude([])).toBe(0);
+  });
+
+  it("honors a custom percentile", () => {
+    // median (p50) of a 0..99 ramp: idx floor(0.5*99)=49 -> 49.
+    const amp = estimateSignalAmplitude([ramp(1)], 0.5);
+    expect(amp).toBeCloseTo(49, 6);
+  });
+});
+
+describe("autoscaleGain", () => {
+  it("scales the estimate to targetFraction of the modality div (on003800-shaped)", () => {
+    // ~2 uV robust estimate against the 75 uV EEG default -> ~26x, matching the
+    // issue's observed "user must Scale-up ~26x" for on003800.
+    const gain = autoscaleGain(2e-6, 75e-6, 0.7);
+    expect(gain).toBeCloseTo(26.25, 6);
+  });
+
+  it("shrinks gently for a recording that already fits (on003810-shaped)", () => {
+    // ~45 uV against the 75 uV EEG default with targetFraction 0.7 -> a modest
+    // gain near 1, not a huge swing, matching "fits at default".
+    const gain = autoscaleGain(45e-6, 75e-6, 0.7);
+    expect(gain).toBeGreaterThan(1);
+    expect(gain).toBeLessThan(1.5);
+  });
+
+  it("falls back to 1 for a zero amplitude instead of dividing by zero", () => {
+    expect(autoscaleGain(0, 75e-6)).toBe(1);
+  });
+
+  it("falls back to 1 for a negative amplitude", () => {
+    expect(autoscaleGain(-5e-6, 75e-6)).toBe(1);
+  });
+
+  it("falls back to 1 for a NaN amplitude", () => {
+    expect(autoscaleGain(Number.NaN, 75e-6)).toBe(1);
+  });
+
+  it("falls back to 1 for a non-positive physPerDivSI", () => {
+    expect(autoscaleGain(2e-6, 0)).toBe(1);
+    expect(autoscaleGain(2e-6, -75e-6)).toBe(1);
+  });
+
+  it("never returns Infinity or NaN for a vanishingly small amplitude", () => {
+    const gain = autoscaleGain(1e-15, 75e-6);
+    expect(Number.isFinite(gain)).toBe(true);
+    expect(gain).toBeGreaterThan(0);
   });
 });
