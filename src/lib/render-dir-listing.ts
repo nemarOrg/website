@@ -94,7 +94,15 @@ function renderFileRow(
   if (isRoot) {
     row.push(`<span class="tree__icon" aria-hidden="true">▪</span>`);
   }
-  if (previewType) {
+  if (previewType === "eeg") {
+    // Clicking the name opens the full-screen signal-viewer modal
+    // (website#199) rather than expanding an inline region, so this is
+    // `aria-haspopup="dialog"` — not `aria-expanded`, which would claim the
+    // button toggles adjacent content the way the md/json/tsv buttons do.
+    row.push(
+      `<button class="tree__preview-btn" type="button" data-preview-path="${esc(fullPath)}" data-preview-type="${previewType}" data-file-size="${entry.size}" data-file-name="${esc(entry.name)}" aria-haspopup="dialog" title="Open signal viewer for ${esc(entry.name)}"><span class="tree__name">${displayName}</span></button>`,
+    );
+  } else if (previewType) {
     // Clicking the name opens the inline preview; the document-level
     // click delegate fetches lazily on the first open. data-file-size
     // gates the 512 KB cap before the fetch runs.
@@ -115,11 +123,13 @@ function renderFileRow(
 
   // Wrap the row in an <li> that also carries the lazy preview slot for
   // the on-click expansion. The slot stays hidden until the user opens
-  // the preview; once filled, data-loaded prevents re-fetches.
+  // the preview; once filled, data-loaded prevents re-fetches. EEG rows
+  // skip the slot entirely — they mount into the shared modal's slot
+  // (EegViewerDialog.astro), not a per-row one.
   return [
     `<li class="tree__file-wrap" data-preview-wrap>`,
     row.join(""),
-    previewType
+    previewType && previewType !== "eeg"
       ? `<div class="tree__preview" data-preview-slot hidden aria-live="polite"></div>`
       : "",
     "</li>",

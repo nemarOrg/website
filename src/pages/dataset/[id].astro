@@ -3,6 +3,7 @@ import ActionBar from "../../components/ActionBar.astro";
 import BidsTree from "../../components/BidsTree.astro";
 import DatasetTabs from "../../components/DatasetTabs.astro";
 import DetailRail from "../../components/DetailRail.astro";
+import EegViewerDialog from "../../components/EegViewerDialog.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import Readme from "../../components/Readme.astro";
 import Tag from "../../components/Tag.astro";
@@ -257,7 +258,10 @@ Astro.response.headers.set(
             />
             <DatasetTabs datasetId={id} version={selectedVersion} />
             {selectedVersion && (
-              <BidsTree datasetId={id} version={selectedVersion} />
+              <>
+                <BidsTree datasetId={id} version={selectedVersion} />
+                <EegViewerDialog />
+              </>
             )}
           </>
         )}
@@ -310,6 +314,21 @@ Astro.response.headers.set(
       firstPrefetched: boolean;
     }
   >();
+
+  // EEG viewer modal state (website#199). Every "eeg" preview button mounts
+  // into the same page-level dialog/slot (EegViewerDialog.astro) rather than
+  // an inline per-row slot, so re-opens — same file or a different one —
+  // share one instance instead of accumulating one per row.
+  //
+  // `eegModalSeq` is bumped on every open *and* on close; a mount attempt
+  // whose captured `seq` no longer matches the live counter by the time it
+  // resolves was superseded (a newer open, or a close, happened first) and
+  // tears itself down instead of touching the DOM. `eegSlotDestroy` holds
+  // the teardown handle `mountEegViewer` returns for whatever is currently
+  // live in the slot, so both a new open and a dialog close can release it
+  // (ResizeObserver/MutationObserver/WebGL context) instead of orphaning it.
+  let eegModalSeq = 0;
+  let eegSlotDestroy: (() => void) | null = null;
 
   /**
    * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
@@ -557,6 +576,122 @@ Astro.response.headers.set(
   document.addEventListener("mouseover", (event) => maybePrefetchZarrFromTarget(event.target));
   document.addEventListener("focusin", (event) => maybePrefetchZarrFromTarget(event.target));
 
+  // Open the EEG/MEG/iEEG/EMG signal viewer in the page-level modal
+  // (EegViewerDialog.astro) rather than expanding an inline row slot.
+  // Mirrors the failure paths the old inline branch had (zarrAvailable
+  // false with its recorded reason, mount-failure catch), the aria-busy /
+  // data-loaded state markers, and the code-split dynamic import — only the
+  // host (a shared dialog slot instead of a per-row slot) and the
+  // concurrency guard changed. A per-row slot only ever had to protect
+  // against re-clicking *itself* mid-fetch; a shared slot also has to
+  // protect against a second, different file being opened before the first
+  // finishes loading, so `eegModalSeq` supersedes-and-tears-down a stale
+  // attempt instead of just bailing on it.
+  async function openEegViewerModal(btn: HTMLButtonElement): Promise<void> {
+    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+    const slot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
+    if (!dialog || !slot) {
+      console.error("[eeg-viewer] modal dialog markup missing");
+      return;
+    }
+
+    const fileName = btn.dataset.fileName ?? "";
+    const filePath = btn.dataset.previewPath ?? "";
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    const treeId = section?.dataset.id;
+    const treeVersion = section?.dataset.version;
+    if (!treeId || !treeVersion || !filePath) {
+      console.warn("[eeg-viewer] missing dataset context on btn", btn);
+      return;
+    }
+    const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
+
+    if (titleEl) titleEl.textContent = fileName || "Signal viewer";
+    dialog.showModal();
+
+    // Bump first so any in-flight attempt (including one this same call is
+    // about to supersede) can tell it's stale by the time it resolves.
+    const seq = ++eegModalSeq;
+
+    // Release whatever is currently live in the slot *before* touching it —
+    // covers both "reopen a different file" (must not show the previous
+    // recording) and "reopen the same file" (no point rendering twice).
+    eegSlotDestroy?.();
+    eegSlotDestroy = null;
+
+    if (btn.dataset.zarrAvailable === "false") {
+      // A recorded data failure has a specific, permanent reason; show it.
+      // Otherwise the store is just missing (still generating / will retry).
+      const reason = btn.dataset.zarrFailureReason;
+      const lead = reason
+        ? escapeHtml(reason)
+        : "No interactive viewer is available for this recording yet.";
+      slot.innerHTML = `<p class="preview__empty">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.dataset.loaded = "true";
+      return;
+    }
+
+    prefetchZarrButton(btn);
+    slot.dataset.loaded = "loading";
+    slot.setAttribute("aria-busy", "true");
+    slot.innerHTML = `<p class="preview__loading">Loading viewer…</p>`;
+    try {
+      const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
+      if (seq !== eegModalSeq) return; // a newer open (or a close) superseded this one
+      const destroy = await mountEegViewer(slot, {
+        datasetId: treeId,
+        version: treeVersion,
+        filePath,
+        downloadUrl: fileUrl,
+      });
+      if (seq !== eegModalSeq) {
+        // Superseded while mounting (rapid reopen, or the dialog was closed
+        // before the store finished opening) — tear it down immediately
+        // rather than let it keep rendering/streaming unseen. `destroy()`
+        // only unwinds side effects (observers, listeners, GL context), not
+        // the DOM `mountEegViewer` already wrote into the slot — if a newer
+        // *open* superseded us, that attempt owns the slot and is left
+        // alone, but if a *close* superseded us the dialog is hidden and
+        // nothing should be sitting in the slot, so re-clear it defensively.
+        destroy?.();
+        if (!dialog.open) {
+          slot.innerHTML = "";
+          delete slot.dataset.loaded;
+          slot.removeAttribute("aria-busy");
+        }
+        return;
+      }
+      eegSlotDestroy = destroy ?? null;
+    } catch (err) {
+      console.error("[eeg-viewer] mount failed:", err);
+      if (seq !== eegModalSeq) return;
+      slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+    } finally {
+      if (seq === eegModalSeq) {
+        slot.removeAttribute("aria-busy");
+        slot.dataset.loaded = "true";
+      }
+    }
+  }
+
+  // Closing the modal (Esc, or the corner/bottom close controls, which both
+  // call the native `dialog.close()`) must not leave the viewer instance
+  // running behind a hidden dialog — release its observers/GL context and
+  // clear the slot so the next open never flashes stale content before the
+  // new mount finishes.
+  document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.addEventListener("close", () => {
+    eegModalSeq++; // invalidate any mount still in flight
+    eegSlotDestroy?.();
+    eegSlotDestroy = null;
+    const slot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+    if (slot) {
+      slot.innerHTML = "";
+      delete slot.dataset.loaded;
+      slot.removeAttribute("aria-busy");
+    }
+  });
+
   document.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -584,6 +719,14 @@ Astro.response.headers.set(
 
     const btn = target.closest<HTMLButtonElement>("[data-preview-path]");
     if (!btn) return;
+
+    // EEG/MEG/iEEG/EMG: open the interactive Zarr signal viewer in the
+    // page-level modal (website#199) instead of the inline row-toggle path
+    // below — it never expands its own row's `data-preview-slot`.
+    if (btn.dataset.previewType === "eeg") {
+      await openEegViewerModal(btn);
+      return;
+    }
 
     const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
     const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
@@ -624,44 +767,6 @@ Astro.response.headers.set(
       return;
     }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
-
-    // EEG/MEG/iEEG/EMG: open the interactive Zarr signal viewer. It streams the
-    // recording's serving-copy chunks from zarr.nemar.org (ranged GETs, no full
-    // download), so the MAX_PREVIEW_BYTES gate below intentionally does not apply.
-    // Code-split: the viewer + zarrita bundle only loads when a signal file is
-    // first opened.
-    if (previewType === "eeg") {
-      if (btn.dataset.zarrAvailable === "false") {
-        // A recorded data failure has a specific, permanent reason; show it.
-        // Otherwise the store is just missing (still generating / will retry).
-        const reason = btn.dataset.zarrFailureReason;
-        const lead = reason
-          ? escapeHtml(reason)
-          : "No interactive viewer is available for this recording yet.";
-        slot.innerHTML = `<p class="preview__empty">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
-        slot.dataset.loaded = "true";
-        return;
-      }
-      prefetchZarrButton(btn);
-      slot.dataset.loaded = "loading";
-      slot.setAttribute("aria-busy", "true");
-      slot.innerHTML = `<p class="preview__loading">Loading viewer…</p>`;
-      try {
-        const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
-        await mountEegViewer(slot, {
-          datasetId: treeId,
-          version: treeVersion,
-          filePath,
-          downloadUrl: fileUrl,
-        });
-      } catch (err) {
-        console.error("[eeg-viewer] mount failed:", err);
-        slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
-      }
-      slot.removeAttribute("aria-busy");
-      slot.dataset.loaded = "true";
-      return;
-    }
 
     // Oversized: skip the fetch and surface a download fallback. Threshold
     // picked so a 30 KB participants.tsv previews fine but a multi-MB

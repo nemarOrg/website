@@ -5,7 +5,11 @@ import { zarrStoreUrl } from "../zarr-base";
  * and drives the render loop: pick the pyramid level for the window, dequantize
  * only the visible channel rows, optional DC removal, overlay events, draw.
  *
- * Design intent (embeds inline under one recording in the BIDS tree):
+ * The slot is a full-screen modal's body (EegViewerDialog.astro, website#199)
+ * rather than an inline row in the BIDS tree — the caller owns showing/hiding
+ * the dialog; this module only measures and fills whatever slot it's given.
+ *
+ * Design intent:
  * - The scope has a FIXED height. Channels share it, so "show all" squeezes the
  *   montage rather than growing the box (stable embed boundary).
  * - Two zoom axes mirror MNE/EEGLAB: a time window (horizontal) with a time
@@ -88,7 +92,30 @@ const ELECTRIC = new Set<Modality>(["EEG", "EMG", "IEEG", "MISC"]);
 const MAX_PLOT_HEIGHT = 540;
 const MIN_VISIBLE_CHANNELS = 4;
 
-export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Promise<void> {
+/**
+ * Mounts the viewer into `slot`, tearing down whatever instance was
+ * previously mounted there first (so re-opening on a new file, or on a
+ * failed re-open, never leaves the prior instance's ResizeObserver /
+ * MutationObserver / WebGL context running under replaced DOM). Returns a
+ * disposer the caller should invoke when the host UI (e.g. a modal) closes,
+ * so the instance doesn't keep rendering — and its listeners/GL context
+ * don't keep living — once nothing is visible. Returns `undefined` when
+ * nothing was actually mounted (the store failed to open, has no channel
+ * groups, or the canvas context is unavailable) — those paths already
+ * degrade to a static "unavailable" message with no listeners to tear down.
+ */
+export async function mountEegViewer(
+  slot: HTMLElement,
+  opts: ViewerOptions,
+): Promise<(() => void) | undefined> {
+  // Tear down any previous mount into this slot *before* doing anything
+  // else, not just on the happy path below — otherwise a re-open that fails
+  // early (store won't open, no channel groups, no 2D context) would strand
+  // the previous instance's observers/listeners under the DOM this function
+  // is about to overwrite.
+  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup?.();
+  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = undefined;
+
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">Loading viewer…</p></div>`;
   const url = zarrStoreUrl(opts.datasetId, opts.filePath);
 
@@ -97,11 +124,11 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     store = await openRecording(url);
   } catch (err) {
     renderUnavailable(slot, opts, err);
-    return;
+    return undefined;
   }
   if (store.groups.length === 0) {
     renderUnavailable(slot, opts, new Error("store has no channel groups"));
-    return;
+    return undefined;
   }
 
   let eventTypes: EventType[] = [];
@@ -161,7 +188,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   let overviewLoaded = false;
   let overviewSeq = 0; // guards a fire-and-forget overview load against group switches
 
-  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup?.();
+  // The previous instance (if any) was already torn down at the top of this
+  // function, before the `openRecording` await.
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes);
   const cleanups: Array<() => void> = [];
@@ -172,7 +200,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
-    return;
+    return undefined;
   }
   const ctx = maybeCtx; // non-null for the closures below
 
@@ -199,7 +227,7 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     // width comes from flex (shrinks when the topo panel opens); we set its height.
     const rectW = ui.scope.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
     const cssW = Math.max(320, Math.round(rectW) || 800);
-    // Fit the area the preview opens into: height tracks width (a ~2:1 scope) and
+    // Fit the area the modal opens into: height tracks width (a ~2:1 scope) and
     // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
     // It does NOT vary with channel count (stable embed boundary).
     const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
@@ -937,9 +965,10 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     cleanups.push(() => mo.disconnect());
   }
   cleanups.push(() => glRenderer?.dispose());
-  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = () => {
+  const destroy = () => {
     for (const c of cleanups) c();
   };
+  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = destroy;
 
   await render();
   void store.eventsReady.then((events) => {
@@ -948,6 +977,8 @@ export async function mountEegViewer(slot: HTMLElement, opts: ViewerOptions): Pr
     fillEventLegend(ui.legend, eventTypes);
     render();
   });
+
+  return destroy;
 }
 
 /**
