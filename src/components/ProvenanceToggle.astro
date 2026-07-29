@@ -1,5 +1,6 @@
 ---
 import type { DerivedProvenance } from "../lib/provenance";
+import DialogCloseButton from "./DialogCloseButton.astro";
 
 interface Props {
   datasetId: string;
@@ -33,6 +34,7 @@ const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersio
     </svg>
   </summary>
   <div class="prov-toggle__popover" role="dialog" aria-label="Switch dataset source">
+    <DialogCloseButton />
     <p class="prov-toggle__body">
       <strong>You're viewing the NEMAR copy</strong>{currentVersion ? ` at ${currentVersion}` : ""}.
       Each OpenNeuro pull is a NEMAR major bump
@@ -150,6 +152,8 @@ const isViewingMirror = mirrorVersion != null && currentVersion === mirrorVersio
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
     line-height: var(--lh-relaxed);
+    /* Clears the corner close button floating in the popover's top-right. */
+    padding-inline-end: var(--dialog-x-clearance);
   }
   .prov-toggle__body strong {
     color: var(--color-fg);
