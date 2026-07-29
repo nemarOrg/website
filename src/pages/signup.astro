@@ -7,7 +7,7 @@ const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
 
 <Base
   title="Sign up for NEMAR"
-  description="New researcher accounts are created through the NEMAR CLI for now. The web sign-up flow is on the way."
+  description="Create a NEMAR account with your ORCID iD. Takes about a minute, no install required."
 >
   <section class="signup">
     <div class="signup__atmosphere" aria-hidden="true"></div>
@@ -17,11 +17,11 @@ const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
 
       <header class="signup__head">
         <p class="signup__eyebrow">Creating a NEMAR account</p>
-        <h1 class="signup__title">Sign up via the <em>CLI</em></h1>
+        <h1 class="signup__title">Sign up with your <em>ORCID</em></h1>
         <p class="signup__lede">
-          New accounts need an ORCID, a GitHub handle, and a couple of consent
-          confirmations. The CLI walks you through it in about two minutes. A web
-          sign-up flow is in design.
+          Your ORCID iD is the only credential you need. Sign in with it and, if
+          you don&rsquo;t have a NEMAR account yet, we create one on the spot &mdash;
+          nothing to install, no waiting on approval to start browsing.
         </p>
       </header>
 
@@ -29,77 +29,99 @@ const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
         <li class="signup__step">
           <span class="signup__step-num" aria-hidden="true">1</span>
           <div>
-            <h2 class="signup__step-title">Install the CLI</h2>
+            <h2 class="signup__step-title">Authorize with ORCID</h2>
             <p class="signup__step-body">
-              Requires <a href="https://bun.sh" rel="external noopener">Bun</a>. macOS and Linux are
-              first-class; Windows works via WSL.
+              Head to <a href={loginHref}>sign in</a> and press
+              &ldquo;Sign in with ORCID&rdquo;. It&rsquo;s the same button
+              whether or not you already have a NEMAR account &mdash; we work out
+              which from your iD. No ORCID yet? They&rsquo;re free at
+              <a href="https://orcid.org" rel="external noopener">orcid.org</a>.
             </p>
-            <pre class="signup__code"><code>bun install -g @nemar/cli</code></pre>
           </div>
         </li>
 
         <li class="signup__step">
           <span class="signup__step-num" aria-hidden="true">2</span>
           <div>
-            <h2 class="signup__step-title">Start the sign-up flow</h2>
+            <h2 class="signup__step-title">Tell us where to reach you</h2>
             <p class="signup__step-body">
-              The CLI opens a browser tab for ORCID authorization, asks for your
-              GitHub handle, and confirms the data-sharing terms. Your account is
-              created on submit and goes into a short admin review queue.
+              First-time visitors get a short form: email, city, and country.
+              City and country are required for export-control screening, not
+              analytics. Affiliation is optional.
             </p>
-            <pre class="signup__code"><code>nemar auth signup</code></pre>
           </div>
         </li>
 
         <li class="signup__step">
           <span class="signup__step-num" aria-hidden="true">3</span>
           <div>
-            <h2 class="signup__step-title">Sign in here once you&rsquo;re approved</h2>
+            <h2 class="signup__step-title">You&rsquo;re in</h2>
             <p class="signup__step-body">
-              Approval is usually same-day. We send an email when your account is
-              active. Then come back to the
-              <a href={loginHref}>web sign-in</a>, enter the same email, and the
-              6-digit code flow gets you to your dashboard.
+              Your account is active as soon as you submit &mdash; browse,
+              search, and use your dashboard right away. There&rsquo;s no
+              approval queue standing between you and the data.
             </p>
           </div>
         </li>
       </ol>
 
+      <section class="signup__detail" aria-labelledby="signup-upload">
+        <h2 id="signup-upload" class="signup__detail-title">Uploading is a separate step</h2>
+        <p class="signup__step-body">
+          Signing up gets you a reading account. Contributing data or running
+          compute needs one additional grant from an admin, who checks your
+          GitHub handle and location against export-control and local
+          restrictions. That review happens when you ask for upload access, not
+          when you sign up, so nothing blocks you in the meantime. Your GitHub
+          handle is collected then rather than now &mdash; it&rsquo;s only needed
+          once a dataset of yours is headed for publication.
+        </p>
+      </section>
+
       <section class="signup__detail" aria-labelledby="signup-need">
         <h2 id="signup-need" class="signup__detail-title">What sign-up asks you for</h2>
         <dl class="signup__list">
           <div class="signup__list-row">
-            <dt>Email</dt>
-            <dd>Used for code-based sign-in. We don&rsquo;t share it.</dd>
-          </div>
-          <div class="signup__list-row">
-            <dt>Display name</dt>
-            <dd>Appears on datasets you publish and in collaborator lists.</dd>
-          </div>
-          <div class="signup__list-row">
             <dt>ORCID</dt>
             <dd>
-              Verifies that you&rsquo;re a real researcher. Free to create at
+              Your identity. It carries your name across, so there&rsquo;s no
+              separate display-name field. Free to create at
               <a href="https://orcid.org" rel="external noopener">orcid.org</a>.
             </dd>
           </div>
           <div class="signup__list-row">
-            <dt>GitHub handle</dt>
+            <dt>Email</dt>
             <dd>
-              Datasets get an underlying GitHub repository under
-              <code>nemarDatasets</code>; we add you as a collaborator on yours.
+              How we reach you, and how the 6-digit code sign-in works if you
+              ever want to sign in without ORCID. We don&rsquo;t share it.
+            </dd>
+          </div>
+          <div class="signup__list-row">
+            <dt>City and country</dt>
+            <dd>
+              Required. NEMAR&rsquo;s compute is subject to export-control and
+              local-jurisdiction rules, so an admin needs to know where you are
+              before granting upload access.
             </dd>
           </div>
           <div class="signup__list-row">
             <dt>Affiliation</dt>
             <dd>Your institution. Optional but appreciated for the citation graph.</dd>
           </div>
+          <div class="signup__list-row">
+            <dt>GitHub handle</dt>
+            <dd>
+              Not asked for at sign-up. Datasets get an underlying repository
+              under <code>nemarDatasets</code>, so we collect this when you
+              request upload access.
+            </dd>
+          </div>
         </dl>
       </section>
 
       <footer class="signup__foot">
-        <a class="signup__cta signup__cta--primary" href="https://docs.nemar.org" rel="external noopener">
-          Open CLI install guide
+        <a class="signup__cta signup__cta--primary" href={loginHref}>
+          Sign up with ORCID
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
             <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -110,9 +132,10 @@ const loginHref = appUrl("/login", new URL(Astro.request.url).hostname);
       </footer>
 
       <p class="signup__future" role="note">
-        Web sign-up is the next thing we&rsquo;re shipping after the dashboard
-        cutover. Full CLI reference lives at
-        <a href="https://docs.nemar.org" rel="external noopener">docs.nemar.org</a>.
+        Prefer the terminal? <code>nemar auth signup</code> in the
+        <a href="https://docs.nemar.org" rel="external noopener">NEMAR CLI</a>
+        does the same thing and is still fully supported &mdash; it just
+        isn&rsquo;t required any more.
       </p>
     </article>
   </section>
