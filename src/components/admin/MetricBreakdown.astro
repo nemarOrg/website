@@ -9,6 +9,7 @@
  * we don't recognize. `access.top` is a list of dataset ids, not a
  * distribution, so it renders as a ranked link list instead.
  */
+import { formatBytes, formatCount } from "../../lib/format";
 import type { Metric, MetricBreakdownEntry } from "../../lib/observability";
 import { licenseTier, modalityVariant } from "../../lib/tags";
 
@@ -19,6 +20,15 @@ interface Props {
 const { metric } = Astro.props;
 const entries: readonly MetricBreakdownEntry[] = metric.breakdown ?? [];
 const total = entries.reduce((sum, e) => sum + e.value, 0);
+
+// A breakdown can be denominated differently from its tile: `access.top` counts
+// datasets but its bars are Zarr chunk bytes, and `cf.bytes_by_host` is the
+// same shape. Without this, a byte breakdown renders as a bare integer
+// (13124701) labelled with the tile's own unit ("count"). Upstream sends
+// `breakdown_unit`; absent, the breakdown shares `unit`.
+const breakdownUnit = metric.breakdown_unit ?? metric.unit;
+const isBytes = breakdownUnit === "bytes";
+const fmtValue = (v: number): string => (isBytes ? formatBytes(v) : formatCount(v));
 
 const isLicense = metric.key === "datasets.by_license";
 const isModality = metric.key === "datasets.by_modality";
@@ -52,7 +62,7 @@ const segments = entries.map((e, i) => {
 <figure class="mbreak">
   <figcaption>
     <span class="mbreak__title">{metric.label}</span>
-    <span class="mbreak__hint">{total} {metric.unit}</span>
+    <span class="mbreak__hint">{isBytes ? fmtValue(total) : `${formatCount(total)} ${breakdownUnit}`}</span>
   </figcaption>
   {
     entries.length === 0 ? (
@@ -64,7 +74,7 @@ const segments = entries.map((e, i) => {
             <a href={`/dataset/${encodeURIComponent(e.label)}`} class="mbreak__ranked-link">
               {e.label}
             </a>
-            <span class="mbreak__ranked-count">{e.value}</span>
+            <span class="mbreak__ranked-count">{fmtValue(e.value)}</span>
           </li>
         ))}
       </ol>
@@ -79,7 +89,7 @@ const segments = entries.map((e, i) => {
         >
           {segments.map((s) => (
             <rect x={s.x} y="2" width={s.widthPct} height="14" fill={s.color}>
-              <title>{`${s.label}: ${s.value}`}</title>
+              <title>{`${s.label}: ${fmtValue(s.value)}`}</title>
             </rect>
           ))}
         </svg>
@@ -88,7 +98,7 @@ const segments = entries.map((e, i) => {
             <li>
               <span class="mbreak__swatch" style={`background:${s.color}`} />
               <span class="mbreak__legend-label">{s.label}</span>
-              <span class="mbreak__legend-count">{s.value}</span>
+              <span class="mbreak__legend-count">{fmtValue(s.value)}</span>
             </li>
           ))}
         </ul>
