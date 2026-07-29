@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DASHBOARD_TIMEOUTS_MS,
   DashboardApiError,
   type PublicationRequestStatus,
   type PublicationStatus,
@@ -397,5 +398,58 @@ describe("DashboardApiError shape", () => {
     expect(e.status).toBe(500);
     expect(e.code).toBe("internal_error");
     expect(e.message).toBe("nope");
+  });
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response. `/dashboard` awaits
+// listMyDatasets and a getPublishStatus fan-out during SSR, so without a
+// deadline a hung api.nemar.org stalls the render itself.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung dataset list rather than stalling the SSR render", async () => {
+    await expect(listMyDatasets({}, { fetch: hangingFetch, timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+
+  it("aborts a hung publish-status lookup so the badge degrades", async () => {
+    await expect(
+      getPublishStatus("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung publication request rather than leaving the button stuck", async () => {
+    await expect(
+      requestPublication("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung delete rather than leaving the button stuck", async () => {
+    await expect(
+      deleteDraftDataset("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  // A caller-supplied signal must still abort even though a deadline is also
+  // in play — AbortSignal.any() combines them, it doesn't replace one.
+  it("honours a caller-supplied signal alongside the deadline", async () => {
+    const controller = new AbortController();
+    const pending = listMyDatasets({}, { fetch: hangingFetch, signal: controller.signal });
+    controller.abort(new Error("caller went away"));
+    await expect(pending).rejects.toThrow("caller went away");
+  });
+
+  // The status fan-out is decorative (it renders a badge the page reads fine
+  // without) and runs once per visible dataset, so it must stay strictly
+  // tighter than the list read. Mutations must stay strictly longer than both.
+  it("orders the deadlines decorative < primary < mutation", () => {
+    expect(DASHBOARD_TIMEOUTS_MS.status).toBeLessThan(DASHBOARD_TIMEOUTS_MS.list);
+    expect(DASHBOARD_TIMEOUTS_MS.mutate).toBeGreaterThan(DASHBOARD_TIMEOUTS_MS.list);
   });
 });
