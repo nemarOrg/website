@@ -55,7 +55,7 @@ describe("renderTopLevel", () => {
     expect(html).toContain(`<details class="tree__dir" data-dir-path="sub-01" data-depth="0">`);
   });
 
-  it("emits a preview slot for previewable files (md/json/tsv/eeg)", () => {
+  it("emits a preview slot for inline-previewable files (md/json/tsv)", () => {
     const html = renderTopLevel(
       listing({
         children: [
@@ -70,9 +70,22 @@ describe("renderTopLevel", () => {
     expect(html).toContain(`data-preview-type="json"`);
     expect(html).toContain(`data-preview-type="eeg"`);
     expect(html).toContain(`data-preview-type="md"`);
-    // Each previewable file gets exactly one preview slot.
+    // md/json/tsv each get exactly one inline preview slot; eeg opens the
+    // shared signal-viewer modal instead (website#199) and gets no per-row
+    // slot of its own.
     const slots = html.match(/data-preview-slot/g) ?? [];
-    expect(slots.length).toBe(4);
+    expect(slots.length).toBe(3);
+  });
+
+  it("marks the eeg preview button aria-haspopup=dialog, not aria-expanded", () => {
+    const html = renderTopLevel(
+      listing({ children: [{ kind: "file", name: "sub-01_task-rest_eeg.set", size: 100000 }] }),
+    );
+    expect(html).toContain(`data-preview-type="eeg"`);
+    expect(html).toContain(`aria-haspopup="dialog"`);
+    // The eeg button doesn't toggle adjacent content, so it must not claim
+    // aria-expanded the way the md/json/tsv inline-preview buttons do.
+    expect(html).not.toMatch(/data-preview-type="eeg"[^>]*aria-expanded/);
   });
 
   it("omits the preview button + slot for unknown formats (CHANGES, .gitattributes)", () => {

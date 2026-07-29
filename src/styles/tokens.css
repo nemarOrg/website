@@ -110,6 +110,11 @@
   --space-20: 5rem;
   --space-24: 6rem;
 
+  /* Reserved inline-end clearance so dialog titles/header rows don't run
+     under the shared corner close button (DialogCloseButton.astro, a
+     --space-8 square inset --space-4 from the edge). */
+  --dialog-x-clearance: 2.75rem;
+
   /* Radii + shadows */
   --radius-sm: 4px;
   --radius-md: 8px;
