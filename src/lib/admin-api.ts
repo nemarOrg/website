@@ -28,20 +28,31 @@ type Init = {
  *
  * - `list` — a D1-backed read that SSRs `/admin/publication-requests`. It is
  *   the page's primary content, so it gets the base deadline.
- * - `decide` — approve/deny. These hand the dataset to the publish
- *   orchestrator rather than just flipping a column, so they are legitimately
- *   slower than a read; a 5s deadline would abort healthy decisions and make a
- *   working endpoint look broken. They are also user-initiated clicks with a
- *   spinner attached, not SSR, so a longer wait degrades one button rather
- *   than the whole render.
+ * - `deny` — one DB update plus a best-effort email. Slower than a read
+ *   because it writes, but nowhere near `approve`.
+ * - `approve` — the outlier, and the reason this table has three entries
+ *   instead of two. `POST /admin/publish/:id/approve` fully awaits
+ *   `runPublicationApproval`, a sixteen-step state machine (nemar-cli
+ *   `backend/src/services/publication-orchestrator.ts`) that walks GitHub
+ *   (tree read, blob read, workflow check, workflow deploy, run poll,
+ *   visibility flip, repo spec, tag protection), verifies S3, and mints a
+ *   Zenodo DOI — several steps wrapped in `withRetry` at three attempts. Only
+ *   `waitForPublicPropagation` is deferred to `waitUntil`; everything else
+ *   blocks the response. A single retried GitHub step can push a *healthy*
+ *   run past fifteen seconds, and an abort there is worse than a slow spinner:
+ *   the Worker-side run is not tied to our AbortController, so it keeps going
+ *   while the page re-enables the button and invites a second click.
  *
- * As in `imports-admin-api.ts`, these tests pin the *values*, not the wiring:
- * `AbortSignal.timeout()` doesn't expose its duration, and this project drives
- * the real abort path rather than faking timers.
+ * Even at two minutes this is still a bound, which is the point — the bug in
+ * website#173 was an *unbounded* wait, not a short one. Making approve
+ * non-blocking (kick off the job, poll for progress) is the real fix, tracked
+ * in website#200; it needs a backend change, not a constant. When that lands,
+ * `approve` drops back to a normal deadline and this comment goes away.
  */
 export const ADMIN_TIMEOUTS_MS = {
   list: DEFAULT_REQUEST_TIMEOUT_MS,
-  decide: 15_000,
+  deny: 15_000,
+  approve: 120_000,
 } as const;
 
 export interface PublicationRequest {
@@ -107,7 +118,7 @@ export async function approvePublicationRequest(
       headers,
       credentials: "include",
       body: "{}",
-      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.decide),
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.approve),
     },
   );
   if (!res.ok) {
@@ -143,7 +154,7 @@ export async function denyPublicationRequest(
       headers,
       credentials: "include",
       body: JSON.stringify({ reason: trimmed }),
-      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.decide),
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.deny),
     },
   );
   if (!res.ok) {

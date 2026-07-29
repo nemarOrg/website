@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ADMIN_TIMEOUTS_MS,
   type PublicationRequest,
@@ -222,10 +222,55 @@ describe("request deadlines", () => {
     await expect(pending).rejects.toThrow("caller went away");
   });
 
-  // Approve and deny hand off to the publish orchestrator, so they must stay
-  // strictly slower than a plain read; collapsing them onto the base deadline
-  // would abort healthy decisions.
-  it("gives publish decisions a longer deadline than the list read", () => {
-    expect(ADMIN_TIMEOUTS_MS.decide).toBeGreaterThan(ADMIN_TIMEOUTS_MS.list);
+  // Both writes must stay strictly slower than a plain read, and approve —
+  // which fully awaits a sixteen-step orchestrator — strictly slower than deny,
+  // which is one update plus an email.
+  it("orders the deadlines list < deny < approve", () => {
+    expect(ADMIN_TIMEOUTS_MS.deny).toBeGreaterThan(ADMIN_TIMEOUTS_MS.list);
+    expect(ADMIN_TIMEOUTS_MS.approve).toBeGreaterThan(ADMIN_TIMEOUTS_MS.deny);
+  });
+});
+
+// The suite above proves a deadline EXISTS. It cannot prove which constant a
+// given call site passes, because every case supplies an explicit `timeoutMs`
+// and `resolveSignal` always prefers that over the fallback — so swapping
+// `approve`'s fallback to `list` leaves those tests green.
+//
+// `AbortSignal.timeout()` doesn't expose its duration on the returned signal,
+// but it is an ordinary spyable static, so assert on the argument instead.
+// These run with NO `timeoutMs` override, which is what makes the fallback
+// observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list deadline when listing requests", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await listPublicationRequests({}, { fetch: okFetch({ requests: [], count: 0 }) });
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.list);
+  });
+
+  // The regression this exists for: approve silently inheriting a read-sized
+  // deadline would abort healthy publications partway through the orchestrator.
+  it("passes the approve deadline when approving", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await approvePublicationRequest("nm-xyz", {
+      fetch: okFetch({ status: { dataset_id: "nm-xyz", status: "none" } }),
+    });
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.approve);
+  });
+
+  it("passes the deny deadline when denying", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await denyPublicationRequest("nm-xyz", "spam", {
+      fetch: okFetch({ status: { dataset_id: "nm-xyz", status: "none" } }),
+    });
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.deny);
   });
 });
