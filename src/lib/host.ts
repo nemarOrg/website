@@ -124,19 +124,47 @@ export function isAppRoute(pathname: string): boolean {
   return DATASET_COLLABORATORS_RE.test(pathname);
 }
 
+export interface CrossHostOptions {
+  /**
+   * True when the request carries a session cookie. Presence only — the cookie
+   * has NOT been validated at the point this runs, because validating it costs
+   * an `/auth/me` round-trip and the redirect decision happens before that.
+   *
+   * A stale or forged cookie therefore buys nothing beyond having a marketing
+   * page rendered on the app host instead of redirected to the marketing host.
+   * The page still resolves the session properly downstream and renders
+   * signed-out, so the worst case is a slightly slower anonymous render on the
+   * wrong host, not disclosure.
+   */
+  readonly hasSession?: boolean;
+}
+
 /**
  * Returns an absolute URL on the other production host when the path is
- * misrouted, or null when the current host already serves this path. Always
- * null in single-host mode; redirects only fire across the two production
- * surfaces. App-bound redirects always go to `app.nemar.org`; marketing-bound
- * redirects always go to `MARKETING_BASE_URL` (so a user on
- * `ww2.nemar.org/dashboard` lands on `app.nemar.org/dashboard`, and a user
- * on `app.nemar.org/discover` lands on `ww2.nemar.org/discover` today /
- * `nemar.org/discover` after cutover). Callers are responsible for the
- * 301 vs 307 status-code choice based on request method — this function
- * only computes the Location URL.
+ * misrouted, or null when the current host should serve this path itself.
+ * Always null in single-host mode; redirects only fire across the two
+ * production surfaces. Callers are responsible for the 301 vs 307 status-code
+ * choice based on request method — this function only computes the Location.
+ *
+ * Marketing-bound redirects are suppressed for a request that carries a
+ * session (website#210). A signed-in user clicking Discover used to be sent
+ * from `app.nemar.org` to the marketing host, where the session cookie does
+ * not travel and `/auth/me` is deliberately never called — so they watched
+ * themselves get signed out for using the nav. Now the app host renders the
+ * marketing route itself, keeping the session and the nav intact.
+ *
+ * The suppression is deliberately one-directional:
+ *
+ * - **app -> marketing is suppressed** when a session is present. The app host
+ *   is already uncached and already personalized, so serving a marketing route
+ *   there costs nothing and changes no caching assumption.
+ * - **marketing -> app is NEVER suppressed**, cookie or not. The marketing
+ *   host's whole value is that its responses are anonymous and edge-cacheable;
+ *   letting a cookie change what it serves would vary a shared cache entry on
+ *   a per-user header and leak one visitor's page to the next. Authenticated
+ *   routes belong on the app host unconditionally.
  */
-export function getCrossHostRedirect(url: URL): string | null {
+export function getCrossHostRedirect(url: URL, opts: CrossHostOptions = {}): string | null {
   const mode = hostMode(url.hostname);
   if (mode === "single") return null;
   // Checked before the app/marketing decision: a host-neutral route is
@@ -146,8 +174,28 @@ export function getCrossHostRedirect(url: URL): string | null {
   const wantsApp = isAppRoute(url.pathname);
   const onAppHost = mode === "app";
   if (wantsApp === onAppHost) return null;
+  if (onAppHost && !wantsApp && opts.hasSession) return null;
   const targetBase = wantsApp ? `https://${APP_HOST}` : MARKETING_BASE_URL;
   return `${targetBase}${url.pathname}${url.search}`;
+}
+
+/**
+ * Origin a page should declare as its canonical home, which is a property of
+ * the *route*, not of the host that happened to serve the request.
+ *
+ * This mattered less before website#210: a marketing route could only ever be
+ * served by the marketing host, so "canonical = serving host" gave the right
+ * answer by construction. Now that the app host renders marketing routes for
+ * signed-in users, host-based canonicals would have `app.nemar.org/discover`
+ * competing with `nemar.org/discover` for the same content.
+ *
+ * Single-host mode (localhost, `*.pages.dev` previews) keeps returning
+ * `MARKETING_BASE_URL` for everything, exactly as before — those hosts are
+ * noindexed anyway, and changing them would churn preview output for no gain.
+ */
+export function canonicalOriginFor(pathname: string, hostname: string): string {
+  if (hostMode(hostname) === "single") return MARKETING_BASE_URL;
+  return isAppRoute(pathname) ? `https://${APP_HOST}` : MARKETING_BASE_URL;
 }
 
 /**

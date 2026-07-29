@@ -4,7 +4,7 @@ import Footer from "../components/Footer.astro";
 import Nav from "../components/Nav.astro";
 import SiteNotices from "../components/SiteNotices.astro";
 import { resolveDataBase } from "../lib/data-base";
-import { APP_HOST, MARKETING_BASE_URL, hostMode } from "../lib/host";
+import { canonicalOriginFor } from "../lib/host";
 import "../styles/global.css";
 
 interface Props {
@@ -60,13 +60,17 @@ const fullTitle = `${title}${titleSuffix}`;
 // Preconnect to the data plane this build actually reads (data-test on staging).
 const dataBase = resolveDataBase();
 
-// Build absolute URLs for OG / canonical against the host actually serving
-// this request. The same build runs on `ww2.nemar.org` (marketing today)
-// and `app.nemar.org`, so a static `Astro.site` value would lie. Falling
-// back to `MARKETING_BASE_URL` covers single-host preview deploys where
-// hostMode() returns "single".
+// Build absolute URLs for OG / canonical. One build serves several hosts, so a
+// static `Astro.site` value would lie.
+//
+// Canonical origin follows the ROUTE, not the serving host. Since website#210
+// the app host also renders marketing routes for signed-in users, so keying
+// this on the host would publish `app.nemar.org/discover` as the canonical for
+// content whose real home is the marketing host, and the two would compete for
+// the same query. `canonicalOriginFor` resolves app routes to the app host and
+// everything else to MARKETING_BASE_URL.
 const reqHost = Astro.url.hostname;
-const siteOrigin = hostMode(reqHost) === "app" ? `https://${APP_HOST}` : MARKETING_BASE_URL;
+const siteOrigin = canonicalOriginFor(Astro.url.pathname, reqHost);
 const canonicalUrl = new URL(Astro.url.pathname, siteOrigin).toString();
 const absoluteImage = image.startsWith("http") ? image : new URL(image, siteOrigin).toString();
 const absoluteFallbackImage = fallbackImage

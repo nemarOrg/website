@@ -225,6 +225,21 @@ describe("onRequest host dispatch", () => {
       cookies: { get: () => ({ value: "stale-cookie-from-other-host" }) },
     } as unknown as TestCtx;
   }
+
+  /**
+   * Same, but genuinely cookie-less. Since website#210 the presence of a
+   * session cookie decides whether the app host keeps a marketing route, so
+   * "has a cookie" and "has no cookie" are now distinct paths and the default
+   * `ctx` above (which always supplies one) can no longer express both.
+   */
+  function anonCtx(url: string, method = "GET"): TestCtx {
+    const request = new Request(url, { method });
+    return {
+      request,
+      locals: {},
+      cookies: { get: () => undefined },
+    } as unknown as TestCtx;
+  }
   const passthrough = async () => new Response("ok", { status: 200 });
 
   it("301s an app path requested on the marketing host", async () => {
@@ -234,9 +249,29 @@ describe("onRequest host dispatch", () => {
   });
 
   it("301s a marketing path requested on the app host, preserving query", async () => {
-    const res = await onRequest(ctx(`https://${APP_HOST}/discover?modality=eeg`), passthrough);
+    const res = await onRequest(anonCtx(`https://${APP_HOST}/discover?modality=eeg`), passthrough);
     expect(res?.status).toBe(301);
     expect(res?.headers.get("Location")).toBe(`${MARKETING_BASE_URL}/discover?modality=eeg`);
+  });
+
+  // website#210. The same request with a session cookie must NOT redirect: the
+  // cookie is scoped to the app host, so bouncing to the marketing host is
+  // what signed the user out for clicking their own nav.
+  it("serves a marketing path on the app host when a session cookie is present", async () => {
+    const res = await onRequest(ctx(`https://${APP_HOST}/discover?modality=eeg`), passthrough);
+    expect(res?.status).toBe(200);
+    expect(res?.headers.get("Location")).toBeNull();
+  });
+
+  // The asymmetry that keeps the shared edge cache safe: a cookie must never
+  // persuade the marketing host to serve an authenticated route, because its
+  // responses are cached and shared between visitors.
+  it("still 301s an app path off the marketing host even with a cookie", async () => {
+    for (const host of [MARKETING_HOST, "ww2.nemar.org"]) {
+      const res = await onRequest(ctx(`https://${host}/settings`), passthrough);
+      expect(res?.status).toBe(301);
+      expect(res?.headers.get("Location")).toBe(`https://${APP_HOST}/settings`);
+    }
   });
 
   it("uses 307 for non-GET methods so body and method aren't dropped", async () => {

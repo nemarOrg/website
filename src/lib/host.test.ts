@@ -4,6 +4,7 @@ import {
   MARKETING_BASE_URL,
   MARKETING_HOST,
   appUrl,
+  canonicalOriginFor,
   getCrossHostRedirect,
   getLegacyRedirect,
   getRetiredRedirect,
@@ -404,5 +405,90 @@ describe("getLegacyRedirect", () => {
       expect(r?.location).toBe(`https://ww1.nemar.org${path}`);
       expect(r?.status).toBe(302);
     }
+  });
+});
+
+// website#210. A signed-in user clicking Discover on the app host used to be
+// 301'd to the marketing host, where the `app.nemar.org`-scoped session cookie
+// does not travel and `/auth/me` is deliberately never called — so the nav
+// signed them out. The app host now renders marketing routes itself when a
+// session is present.
+describe("getCrossHostRedirect with a session", () => {
+  const url = (host: string, pathAndSearch: string) => new URL(`https://${host}${pathAndSearch}`);
+
+  it("keeps marketing routes on the app host for a signed-in user", () => {
+    for (const path of ["/discover", "/about", "/support", "/community", "/"]) {
+      expect(getCrossHostRedirect(url(APP_HOST, path), { hasSession: true })).toBeNull();
+    }
+  });
+
+  it("preserves the query string case by not redirecting at all", () => {
+    expect(
+      getCrossHostRedirect(url(APP_HOST, "/discover?modality=eeg&page=3"), { hasSession: true }),
+    ).toBeNull();
+  });
+
+  it("still redirects marketing routes off the app host without a session", () => {
+    expect(getCrossHostRedirect(url(APP_HOST, "/discover"), { hasSession: false })).toBe(
+      `${MARKETING_BASE_URL}/discover`,
+    );
+    // Omitted option behaves as absent, not as true.
+    expect(getCrossHostRedirect(url(APP_HOST, "/discover"))).toBe(`${MARKETING_BASE_URL}/discover`);
+  });
+
+  // The load-bearing asymmetry. The marketing host's responses are shared edge
+  // cache entries; letting a cookie change what it serves would vary a shared
+  // entry per-user and hand one visitor's page to the next. Authenticated
+  // routes leave the marketing host unconditionally.
+  it("NEVER suppresses the marketing-to-app redirect, cookie or not", () => {
+    for (const host of [MARKETING_HOST, BETA_HOST]) {
+      expect(getCrossHostRedirect(url(host, "/dashboard"), { hasSession: true })).toBe(
+        `https://${APP_HOST}/dashboard`,
+      );
+      expect(getCrossHostRedirect(url(host, "/settings"), { hasSession: true })).toBe(
+        `https://${APP_HOST}/settings`,
+      );
+    }
+  });
+
+  it("leaves app routes on the app host and single-host mode untouched", () => {
+    expect(getCrossHostRedirect(url(APP_HOST, "/dashboard"), { hasSession: true })).toBeNull();
+    expect(getCrossHostRedirect(url("localhost", "/discover"), { hasSession: true })).toBeNull();
+  });
+});
+
+describe("canonicalOriginFor", () => {
+  // Canonical is a property of the route. Once the app host can render
+  // /discover, a host-derived canonical would put `app.nemar.org/discover`
+  // into competition with the marketing host for identical content.
+  it("sends marketing routes to the marketing origin from either host", () => {
+    expect(canonicalOriginFor("/discover", APP_HOST)).toBe(MARKETING_BASE_URL);
+    expect(canonicalOriginFor("/discover", MARKETING_HOST)).toBe(MARKETING_BASE_URL);
+    expect(canonicalOriginFor("/", APP_HOST)).toBe(MARKETING_BASE_URL);
+  });
+
+  // Dataset detail is the subtle one, and it shipped broken in review: the page
+  // emits schema.org JSON-LD alongside the canonical tag, and that JSON-LD had
+  // its own copy of the old host-derived origin. `/dataset/<id>` is a marketing
+  // route (only `/dataset/<id>/collaborators` is an app route), so on the app
+  // host the two would have disagreed — structured data contradicting the
+  // canonical tag in the same <head>. Both now read from here.
+  it("keeps dataset detail on the marketing origin even from the app host", () => {
+    expect(canonicalOriginFor("/dataset/nm000103", APP_HOST)).toBe(MARKETING_BASE_URL);
+    expect(canonicalOriginFor("/dataset/on007753", MARKETING_HOST)).toBe(MARKETING_BASE_URL);
+    // ...while the collaborators sub-route genuinely is app-owned.
+    expect(canonicalOriginFor("/dataset/nm000103/collaborators", APP_HOST)).toBe(
+      `https://${APP_HOST}`,
+    );
+  });
+
+  it("sends app routes to the app origin", () => {
+    expect(canonicalOriginFor("/dashboard", APP_HOST)).toBe(`https://${APP_HOST}`);
+    expect(canonicalOriginFor("/settings", MARKETING_HOST)).toBe(`https://${APP_HOST}`);
+  });
+
+  it("keeps single-host mode on the marketing origin, as before", () => {
+    expect(canonicalOriginFor("/dashboard", "localhost")).toBe(MARKETING_BASE_URL);
+    expect(canonicalOriginFor("/discover", "abc.pages.dev")).toBe(MARKETING_BASE_URL);
   });
 });
