@@ -34,6 +34,13 @@ pnpm-debug.log*
 
 # Claude / gstack local state
 .claude/*.local.md
+# Agent subtasks get their own git worktree, created *inside* the repo here.
+# Each one is a full checkout, so an unguarded `git add -A` would commit
+# several copies of the tree. They are also visible to test globs — vitest
+# picks up their `src/lib/*.test.ts` and reruns the whole suite once per
+# worktree, which is why a local `bun run test` can report several times the
+# real file count. CI clones fresh and never sees them.
+.claude/worktrees/
 .gstack/
 
 # Playwright artifacts
