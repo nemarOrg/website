@@ -18,17 +18,44 @@
 
 | Website branch | Deploys to | Pages project | Backend it talks to | nemar-cli branch |
 |---|---|---|---|---|
-| `main` | ww2.nemar.org / app.nemar.org | `nemar-website` (CF GitHub integration) | api/data/zarr.nemar.org | `main` |
+| `main` | nemar.org / www / ww2 / app.nemar.org | `nemar-website` (CF GitHub integration) | api/data/zarr.nemar.org | `main` |
 | `staging` | test.nemar.org | `nemar-website-test` (`.github/workflows/deploy-test.yml`) | api-test/data-test/zarr-test.nemar.org | `dev` |
 
-There is deliberately no `dev` branch in this repo — `staging` is the website's counterpart to nemar-cli's `dev`. To refresh test.nemar.org after merging to `main`, fast-forward and push: `git push origin origin/main:staging`.
+There is deliberately no `dev` branch in this repo — `staging` is the website's counterpart to nemar-cli's `dev`.
 
-**Two custom domains on Pages, one build:**
-- `ww2.nemar.org` — beta marketing surface (anonymous, cacheable). Skips `/auth/me` entirely. The redesigned Astro build lives here today.
+**`staging` leads `main`; it does not trail it.** Feature PRs target `staging`, land there,
+deploy to test.nemar.org against the nemar-cli `dev` backends, get QA'd, and only then does
+`staging` promote to `main` as a single merge. Do not merge feature PRs straight to `main`.
+
+This was the other way round until 2026-07-29 (`staging` was kept as a fast-forward mirror of
+`main`, refreshed after each production merge). That made staging incapable of catching
+anything: by the time it ran the code, the code was already in production.
+
+**Staging cannot exercise two-host routing.** `test.nemar.org` is in neither `APP_HOSTS` nor
+`MARKETING_HOSTS`, so `hostMode()` returns `"single"` and every cross-host redirect is inert
+there — as it is on `*.pages.dev` previews. Anything touching `src/lib/host.ts`,
+`src/middleware.ts` host dispatch, or canonical origins is therefore **not** covered by a
+staging soak and needs a deliberate check on the real hosts after promotion. Tracked in
+website#212 (staging needs an app-host counterpart).
+
+Promotion, once staging is verified:
+
+```bash
+git fetch origin
+git push origin origin/staging:main    # fast-forward; branch protection requires green checks
+```
+
+**Four custom domains on Pages, one build** (apex cutover done 2026-07-29, website#190):
+- `nemar.org` (apex) — the canonical marketing surface. Anonymous and edge-cacheable; skips `/auth/me`. `MARKETING_BASE_URL` points here.
+- `www.nemar.org` — CNAME to the apex, but attached to Pages in its own right because **Pages is Host-strict** and would not serve it otherwise.
+- `ww2.nemar.org` — the pre-cutover marketing host. **Still serving, deliberately.** The old apex→ww2 bridge was a bare 301 with no `Cache-Control`, so browsers cached it persistently; if ww2 redirected back to the apex those clients would loop forever and no server-side change could reach them. Leaving it up means a poisoned cache lands on a working page. Retire only once those entries age out. Its canonical tags already point at the apex, so it does not compete in search.
 - `app.nemar.org` — authenticated surface (cookie-scoped to this host, no edge cache).
-- `nemar.org` (apex) — **still on the legacy F5 origin**, NOT this Pages project. Classified as "marketing" in code so the eventual DNS cutover is a one-line constant flip (`MARKETING_BASE_URL` in `src/lib/host.ts`) plus a redeploy; nothing else changes.
 
-`src/middleware.ts` reads `Astro.url.hostname` and 301-redirects mismatches across known production hosts (e.g. `/dashboard` on `ww2.nemar.org` → `https://app.nemar.org/dashboard`). Anything else (localhost, `*.pages.dev` previews) runs in single-host mode with no redirects so QA stays cheap. Route classification lives in `src/lib/host.ts`. The session cookie is scoped to `app.nemar.org` so it never leaks to `data.nemar.org`, `api.nemar.org`, or `docs.nemar.org`. **Cloudflare Pages dashboard:** custom domains attached to the `nemar-website` Pages project are `ww2.nemar.org` and `app.nemar.org`; the apex `nemar.org` is not attached yet.
+The legacy HUBzero site moved to `ww1.nemar.org` (A → `132.249.225.118`, proxied). SDSC added a `ServerAlias` and made its `<base href>` follow the request host, without which ww1 would render but eject visitors to the apex on their first click.
+
+`src/middleware.ts` reads `Astro.url.hostname` and 301-redirects mismatches across known production hosts (e.g. `/dashboard` on `nemar.org` → `https://app.nemar.org/dashboard`). Anything else (localhost, `test.nemar.org`, `*.pages.dev` previews) runs in single-host mode with no redirects — cheap for QA, but see the staging caveat above: it also means staging cannot exercise any of this. Route classification lives in `src/lib/host.ts`. The session cookie is scoped to `app.nemar.org` so it never leaks to `data.nemar.org`, `api.nemar.org`, or `docs.nemar.org`.
+
+**Marketing routes render on the app host for signed-in users** (website#210). `getCrossHostRedirect` suppresses the marketing-bound redirect when a session cookie is present, so clicking Discover from the dashboard no longer bounces to a host the cookie cannot reach. The suppression is one-directional by design: marketing→app is never suppressed, because the marketing host's responses are shared edge-cache entries and must not vary per user. Canonical origin therefore follows the **route**, not the serving host — see `canonicalOriginFor`.
 
 **Architecture:** Server-rendered Astro pages at the Worker edge. Three backend services are reused, never reimplemented:
 - `api.nemar.org/datasets` — D1-backed catalog list + per-id catalog row
@@ -142,7 +169,13 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 
 - **Branch mapping:** the website `staging` branch is the counterpart of
   nemar-cli's `dev` branch (which deploys api-test/data-test/zarr-test).
-  Keep `staging` a fast-forward of `main`; never commit to it directly.
+  Feature PRs land here first and `staging` promotes to `main`; see
+  "Branch ↔ environment map" above. Land work via PR rather than pushing
+  commits straight onto the branch, so it stays reviewable.
+- **What staging cannot cover:** `test.nemar.org` resolves to single-host
+  mode, so cross-host redirects, the signed-in redirect suppression
+  (website#210), and app-vs-marketing canonical origins are all inert here.
+  Verify those on production after promotion. Tracked in website#212.
 - **Config:** `wrangler.test.toml` (separate from `wrangler.toml` so prod
   vars never sync onto the test project).
 - **Deploy:** `.github/workflows/deploy-test.yml`, triggered by pushing to
@@ -194,8 +227,13 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 3. **Code:** Follow patterns in this file + the rules. **Component styles are scoped per .astro file** — duplicated layout CSS in nested components is intentional, not DRY-violating (see BidsTree.astro / BidsDirChildren.astro).
 4. **Test:** real APIs only. Vitest covers pure helpers in `src/lib/*.test.ts`. Astro page rendering verified via `/browse` against the dev server or a Cloudflare Pages preview deploy.
 5. **Commit:** atomic, <50 chars, no emojis, no AI attribution.
-6. **PR:** target `main`. (The redesign epic branch is retired; the Phase 5 cutover is done.)
-7. **After merge:** prod deploys automatically from `main`. If the change should be QA'd against the staging backend, fast-forward `staging` (`git push origin origin/main:staging`) to redeploy test.nemar.org.
+6. **PR:** target `staging`, not `main`. See the branch map above — staging leads.
+7. **QA on test.nemar.org:** merging to `staging` auto-deploys there against the nemar-cli `dev`
+   backends. Verify the change on that deploy. Remember staging runs in single-host mode, so
+   host-routing and canonical-origin changes are not covered here (website#212).
+8. **Promote:** `git push origin origin/staging:main` once staging looks right. Production
+   deploys automatically from `main` via the Cloudflare GitHub integration.
+9. **Verify production**, especially for anything staging structurally could not cover.
 
 ## [CRITICAL] Core Principles
 
