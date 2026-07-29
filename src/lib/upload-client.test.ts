@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type DroppedFile,
+  UPLOAD_TIMEOUTS_MS,
   UploadError,
   type UploadEvent,
+  createDraftDataset,
   filesFromInput,
+  finalizeDataset,
   runUploadQueue,
   stripLeadingDirectory,
 } from "./upload-client";
@@ -206,5 +209,70 @@ describe("runUploadQueue", () => {
     // Worker should stop picking new files after the abort. With concurrency=1,
     // we expect at most one or two starts before the worker bails.
     expect(startedEvents).toBeLessThan(5);
+  });
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. These two calls are browser-side rather than SSR, so the failure
+// mode is a spinner that never resolves instead of a stalled render; the fix
+// is the same. The byte-transfer path is deliberately NOT covered here: its
+// signal is the user's cancel button and a multi-gigabyte PUT legitimately
+// runs for a long time, so it carries no deadline by design.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung create rather than spinning forever", async () => {
+    // createDraftDataset wraps every throw from fetch (including the deadline)
+    // in a contextual UploadError, so assert on that rather than TimeoutError.
+    await expect(
+      createDraftDataset({ name: "x", files: [] }, { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toBeInstanceOf(UploadError);
+  });
+
+  it("aborts a hung finalize with the orphaned-draft guidance", async () => {
+    await expect(finalizeDataset("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 })).rejects.toThrow(
+      /dashboard/i,
+    );
+  });
+
+  // Finalize runs after every byte is already in S3, so aborting it early is
+  // the expensive mistake in this file; it must stay strictly longer than create.
+  it("gives finalize a longer deadline than create", () => {
+    expect(UPLOAD_TIMEOUTS_MS.finalize).toBeGreaterThan(UPLOAD_TIMEOUTS_MS.create);
+  });
+});
+
+// The suite above proves a deadline EXISTS, not which constant a call site
+// passes — every case there supplies an explicit `timeoutMs`, which
+// `resolveSignal` always prefers over the fallback. Spy on the static instead,
+// with no override, so the fallback becomes observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the create deadline when creating a draft", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await createDraftDataset(
+      { name: "x", files: [] },
+      { fetch: okFetch({ dataset: { id: "nm-xyz", visibility: "private", upload_urls: {} } }) },
+    );
+    expect(spy).toHaveBeenCalledWith(UPLOAD_TIMEOUTS_MS.create);
+  });
+
+  // The regression this exists for: finalize runs after every byte is in S3,
+  // so inheriting the shorter create deadline would orphan drafts.
+  it("passes the finalize deadline when finalizing", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await finalizeDataset("nm-xyz", { fetch: okFetch({ dataset: { status: "ready" } }) });
+    expect(spy).toHaveBeenCalledWith(UPLOAD_TIMEOUTS_MS.finalize);
   });
 });

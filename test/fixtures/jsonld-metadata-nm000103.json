@@ -1,0 +1,253 @@
+{
+  "schema_version": "0.3.0",
+  "doc_type": "dataset",
+  "dataset_id": "nm000103",
+  "name": "Healthy Brain Network EEG - Not for Commercial Use",
+  "description": "The Healthy Brain Network EEG dataset comprises high-resolution electroencephalogram recordings and behavioral responses from child and adolescent participants collected during structured EEG tasks. The dataset includes hierarchical event descriptors for systematic meta-analysis, behavioral questionnaire-derived factors (P-factor, attention, internalizing/externalizing behaviors), and quality control metrics. This BIDS-formatted resource advances understanding of neurodevelopmental and mental health phenotypes through integrated neurophysiological and behavioral assessment. Additional funding sources are acknowledged at https://childmind.org/science/global-open-science/healthy-brain-network/#donors",
+  "source": "nemar",
+  "recording_modality": [
+    "EEG"
+  ],
+  "bids_version": null,
+  "license": "CC-BY-NC-SA 4.0",
+  "authors": [
+    {
+      "name": "Seyed Yahya Shirazi",
+      "name_type": "Personal",
+      "orcid": "0000-0001-5557-259X",
+      "affiliations": [
+        {
+          "name": "Swartz Center for Computational Neuroscience, Institute for Neural Computation, University of California San Diego",
+          "identifier": "https://ror.org/0168r3w48",
+          "scheme": "ROR"
+        }
+      ]
+    },
+    {
+      "name": "Alexandre Franco",
+      "name_type": "Personal",
+      "orcid": "0000-0002-1552-1090",
+      "affiliations": [
+        {
+          "name": "Child Mind Institute",
+          "identifier": null,
+          "scheme": null
+        },
+        {
+          "name": "Center for Brain Imaging and Neuromodulation, Nathan Kline Institute",
+          "identifier": null,
+          "scheme": null
+        },
+        {
+          "name": "Department of Psychiatry, NYU Grossman School of Medicine",
+          "identifier": null,
+          "scheme": null
+        }
+      ]
+    },
+    {
+      "name": "Maurício Scopel Hoffmann",
+      "name_type": "Personal",
+      "orcid": "0000-0003-4232-3169",
+      "affiliations": [
+        {
+          "name": "Department of Neuropsychiatry, Universidade Federal de Santa Maria",
+          "identifier": null,
+          "scheme": null
+        },
+        {
+          "name": "Graduate Program in Psychiatry and Behavioral Sciences, Universidade Federal do Rio Grande do Sul",
+          "identifier": null,
+          "scheme": null
+        },
+        {
+          "name": "Care Policy and Evaluation Centre, London School of Economics and Political Science",
+          "identifier": null,
+          "scheme": null
+        }
+      ]
+    },
+    {
+      "name": "Nathalia B. Esper",
+      "name_type": "Personal",
+      "orcid": "0000-0003-3218-9226",
+      "affiliations": [
+        {
+          "name": "Child Mind Institute",
+          "identifier": null,
+          "scheme": null
+        }
+      ]
+    },
+    {
+      "name": "Dung Truong",
+      "name_type": "Personal",
+      "orcid": "0000-0003-4540-3551",
+      "affiliations": [
+        {
+          "name": "Swartz Center for Computational Neuroscience, Institute for Neural Computation, University of California San Diego",
+          "identifier": "https://ror.org/0168r3w48",
+          "scheme": "ROR"
+        }
+      ]
+    },
+    {
+      "name": "Arnaud Delorme",
+      "name_type": "Personal",
+      "orcid": "0000-0002-0799-3557",
+      "affiliations": [
+        {
+          "name": "Swartz Center for Computational Neuroscience, Institute for Neural Computation, University of California San Diego",
+          "identifier": "https://ror.org/0168r3w48",
+          "scheme": "ROR"
+        }
+      ]
+    },
+    {
+      "name": "Michael Milham",
+      "name_type": "Personal",
+      "orcid": "0000-0003-3532-1210",
+      "affiliations": [
+        {
+          "name": "Child Mind Institute",
+          "identifier": null,
+          "scheme": null
+        },
+        {
+          "name": "Center for Brain Imaging and Neuromodulation, Nathan Kline Institute",
+          "identifier": null,
+          "scheme": null
+        }
+      ]
+    },
+    {
+      "name": "Scott Makeig",
+      "name_type": "Personal",
+      "orcid": "0000-0002-9048-8438",
+      "affiliations": [
+        {
+          "name": "Swartz Center for Computational Neuroscience, Institute for Neural Computation, University of California San Diego",
+          "identifier": "https://ror.org/0168r3w48",
+          "scheme": "ROR"
+        }
+      ]
+    }
+  ],
+  "keywords": [
+    {
+      "term": "EEG"
+    },
+    {
+      "term": "child and adolescent mental health"
+    },
+    {
+      "term": "neurodevelopment"
+    },
+    {
+      "term": "behavioral assessment"
+    },
+    {
+      "term": "hierarchical event descriptors"
+    },
+    {
+      "term": "internalizing and externalizing behaviors"
+    },
+    {
+      "term": "HED"
+    },
+    {
+      "term": "Healthy Brain Network"
+    }
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.1038/sdata.2017.181",
+      "identifier_type": "DOI",
+      "relation_type": "References"
+    },
+    {
+      "identifier": "10.1038/sdata.2017.40",
+      "identifier_type": "DOI",
+      "relation_type": "References"
+    },
+    {
+      "identifier": "https://github.com/nemarDatasets/nm000103",
+      "identifier_type": "URL",
+      "relation_type": "IsDescribedBy"
+    },
+    {
+      "identifier": "https://nemar.org/dataexplorer/detail?dataset_id=nm000103",
+      "identifier_type": "URL",
+      "relation_type": "IsDescribedBy"
+    },
+    {
+      "identifier": "10.5281/zenodo.17306881",
+      "identifier_type": "DOI",
+      "relation_type": "IsIdenticalTo"
+    }
+  ],
+  "contributors": [],
+  "dates": [],
+  "rights": [
+    {
+      "rights": "CC-BY-NC-SA 4.0",
+      "rights_uri": null,
+      "rights_identifier": "CC-BY-NC-SA 4.0",
+      "rights_identifier_scheme": "SPDX"
+    }
+  ],
+  "language": null,
+  "funding": [
+    {
+      "funder_name": "See https://childmind.org/science/global-open-science/healthy-brain-network/#donors",
+      "award_number": null,
+      "award_title": null,
+      "funder_identifier": null,
+      "funder_identifier_type": null,
+      "award_uri": null
+    },
+    {
+      "funder_name": "NIH",
+      "award_number": "R01MH125934",
+      "award_title": "BIDS data preparation",
+      "funder_identifier": null,
+      "funder_identifier_type": null,
+      "award_uri": null
+    }
+  ],
+  "tasks": [
+    "DespicableMe",
+    "DiaryOfAWimpyKid",
+    "FunwithFractals",
+    "RestingState",
+    "ThePresent",
+    "contrastChangeDetection",
+    "seqLearning6target",
+    "seqLearning8target",
+    "surroundSupp",
+    "symbolSearch"
+  ],
+  "datatypes": [
+    "eeg"
+  ],
+  "sessions": [],
+  "sessions_count": null,
+  "demographics": {
+    "subjects_count": 447,
+    "age_min": 5.0059,
+    "age_max": 21.8166
+  },
+  "data_summary": {
+    "total_files": 21142,
+    "size_bytes": 268698800306,
+    "size_human": "250 GB"
+  },
+  "provenance": {
+    "latest_snapshot": "v2.0.0",
+    "publish_date": "2026-02-23 07:49:00"
+  },
+  "external_links": {
+    "dataset_doi": "10.82901/nemar.nm000103",
+    "github_url": "https://github.com/nemarDatasets/nm000103"
+  }
+}

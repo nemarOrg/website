@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  ADMIN_TIMEOUTS_MS,
   type PublicationRequest,
   approvePublicationRequest,
   denyPublicationRequest,
@@ -180,5 +181,96 @@ describe("denyPublicationRequest", () => {
     }) as unknown as typeof fetch;
     await denyPublicationRequest("nm-xyz", "   no   ", { fetch: fakeFetch });
     expect(fakeFetch).toHaveBeenCalledOnce();
+  });
+});
+
+// A fetch that never settles on its own — it only rejects when its signal
+// aborts. This is the failure mode a plain try/catch cannot cover: a
+// connection that opens and then never writes a response. `/admin/publication-requests`
+// awaits listPublicationRequests during SSR, so without a deadline a hung
+// api.nemar.org stalls the render itself rather than surfacing an error.
+const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+  new Promise((_resolve, reject) => {
+    requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+  })) as unknown as typeof fetch;
+
+describe("request deadlines", () => {
+  it("aborts a hung list rather than stalling the SSR render", async () => {
+    await expect(
+      listPublicationRequests({}, { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung approve rather than leaving the button stuck", async () => {
+    await expect(
+      approvePublicationRequest("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  it("aborts a hung deny rather than leaving the button stuck", async () => {
+    await expect(
+      denyPublicationRequest("nm-xyz", "spam", { fetch: hangingFetch, timeoutMs: 10 }),
+    ).rejects.toMatchObject({ name: "TimeoutError" });
+  });
+
+  // A caller-supplied signal must still abort even though a deadline is also
+  // in play — AbortSignal.any() combines them, it doesn't replace one.
+  it("honours a caller-supplied signal alongside the deadline", async () => {
+    const controller = new AbortController();
+    const pending = listPublicationRequests({}, { fetch: hangingFetch, signal: controller.signal });
+    controller.abort(new Error("caller went away"));
+    await expect(pending).rejects.toThrow("caller went away");
+  });
+
+  // Both writes must stay strictly slower than a plain read, and approve —
+  // which fully awaits a sixteen-step orchestrator — strictly slower than deny,
+  // which is one update plus an email.
+  it("orders the deadlines list < deny < approve", () => {
+    expect(ADMIN_TIMEOUTS_MS.deny).toBeGreaterThan(ADMIN_TIMEOUTS_MS.list);
+    expect(ADMIN_TIMEOUTS_MS.approve).toBeGreaterThan(ADMIN_TIMEOUTS_MS.deny);
+  });
+});
+
+// The suite above proves a deadline EXISTS. It cannot prove which constant a
+// given call site passes, because every case supplies an explicit `timeoutMs`
+// and `resolveSignal` always prefers that over the fallback — so swapping
+// `approve`'s fallback to `list` leaves those tests green.
+//
+// `AbortSignal.timeout()` doesn't expose its duration on the returned signal,
+// but it is an ordinary spyable static, so assert on the argument instead.
+// These run with NO `timeoutMs` override, which is what makes the fallback
+// observable.
+describe("deadline wiring", () => {
+  function okFetch(body: unknown): typeof fetch {
+    return (async () =>
+      new Response(JSON.stringify(body), { status: 200 })) as unknown as typeof fetch;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("passes the list deadline when listing requests", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await listPublicationRequests({}, { fetch: okFetch({ requests: [], count: 0 }) });
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.list);
+  });
+
+  // The regression this exists for: approve silently inheriting a read-sized
+  // deadline would abort healthy publications partway through the orchestrator.
+  it("passes the approve deadline when approving", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await approvePublicationRequest("nm-xyz", {
+      fetch: okFetch({ status: { dataset_id: "nm-xyz", status: "none" } }),
+    });
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.approve);
+  });
+
+  it("passes the deny deadline when denying", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await denyPublicationRequest("nm-xyz", "spam", {
+      fetch: okFetch({ status: { dataset_id: "nm-xyz", status: "none" } }),
+    });
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.deny);
   });
 });

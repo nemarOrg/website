@@ -1,0 +1,51 @@
+{
+  "schema_version": "0.3.0",
+  "doc_type": "dataset",
+  "dataset_id": "nm000154",
+  "name": "on001787",
+  "description": null,
+  "source": "nemar",
+  "recording_modality": [
+    "EEG"
+  ],
+  "bids_version": null,
+  "license": null,
+  "authors": [],
+  "keywords": [],
+  "related_identifiers": [],
+  "contributors": [],
+  "dates": [],
+  "rights": [],
+  "language": null,
+  "funding": [],
+  "tasks": [
+    "meditation"
+  ],
+  "datatypes": [
+    "eeg"
+  ],
+  "sessions": [
+    "01",
+    "02",
+    "03"
+  ],
+  "sessions_count": 3,
+  "demographics": {
+    "subjects_count": 24,
+    "age_min": 29,
+    "age_max": 78
+  },
+  "data_summary": {
+    "total_files": 151,
+    "size_bytes": 6112549360,
+    "size_human": "5.69 GB"
+  },
+  "provenance": {
+    "latest_snapshot": "v1.0.0",
+    "publish_date": "2026-05-01 01:58:44"
+  },
+  "external_links": {
+    "dataset_doi": "10.82901/nemar.nm000154",
+    "github_url": "https://github.com/nemarDatasets/nm000154"
+  }
+}

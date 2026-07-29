@@ -6,7 +6,41 @@
  * automatically without broadening it to all `*.nemar.org` siblings.
  */
 import { dashboardApiBase, readError } from "./api-base";
+import {
+  DECORATIVE_TIMEOUT_MS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  resolveSignal,
+} from "./request-deadline";
 import type { Dataset, DatasetListResponse } from "./types";
+
+type Init = {
+  readonly signal?: AbortSignal;
+  readonly fetch?: typeof fetch;
+  readonly cookieHeader?: string;
+  /** Abort the request after this many ms. See {@link DASHBOARD_TIMEOUTS_MS}. */
+  readonly timeoutMs?: number;
+};
+
+/**
+ * Per-operation request deadlines, exported so the difference between them is
+ * a pinned contract rather than loose magic numbers.
+ *
+ * - `list` — the dashboard's primary content; base deadline.
+ * - `status` — `getPublishStatus`, fanned out one call per visible dataset
+ *   (up to the 50-per-page cap) to render a badge. `Promise.all` means the
+ *   fan-out costs one deadline rather than N, and each failure already
+ *   degrades to a "draft" badge, so this gets the decorative deadline: a
+ *   degraded backend should cost the dashboard its pills, not its render.
+ * - `mutate` — `requestPublication` and `deleteDraftDataset`. Both do real
+ *   backend work (handing off to the publish orchestrator; a cascade delete)
+ *   and both are user-initiated clicks with a spinner, so a longer wait
+ *   degrades one button rather than the whole page.
+ */
+export const DASHBOARD_TIMEOUTS_MS = {
+  list: DEFAULT_REQUEST_TIMEOUT_MS,
+  status: DECORATIVE_TIMEOUT_MS,
+  mutate: 15_000,
+} as const;
 
 /**
  * The DB-side status of a publication_request row. Mirrors the backend's
@@ -117,7 +151,7 @@ export class DashboardApiError extends Error {
 
 export async function listMyDatasets(
   query: { limit?: number; offset?: number } = {},
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<DatasetListResponse> {
   const params = new URLSearchParams({ mine: "true" });
   if (query.limit !== undefined) params.set("limit", String(query.limit));
@@ -130,7 +164,7 @@ export async function listMyDatasets(
     method: "GET",
     headers,
     credentials: "include",
-    signal: init.signal,
+    signal: resolveSignal(init, DASHBOARD_TIMEOUTS_MS.list),
   });
   if (!res.ok) {
     const detail = await readError(res);
@@ -145,14 +179,19 @@ export async function listMyDatasets(
 
 export async function getPublishStatus(
   datasetId: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
+  init: Init = {},
 ): Promise<PublicationStatus | null> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
     `${dashboardApiBase(init.cookieHeader)}/datasets/${encodeURIComponent(datasetId)}/publish/status`,
-    { method: "GET", headers, credentials: "include", signal: init.signal },
+    {
+      method: "GET",
+      headers,
+      credentials: "include",
+      signal: resolveSignal(init, DASHBOARD_TIMEOUTS_MS.status),
+    },
   );
   // 404 here means "no publication-request row yet"; that's a valid domain
   // default for fresh datasets and maps to the "draft" badge state.
@@ -168,10 +207,7 @@ export async function getPublishStatus(
   return (await res.json()) as PublicationStatus;
 }
 
-export async function requestPublication(
-  id: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
-): Promise<PublicationStatus> {
+export async function requestPublication(id: string, init: Init = {}): Promise<PublicationStatus> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -185,7 +221,7 @@ export async function requestPublication(
       headers,
       credentials: "include",
       body: "{}",
-      signal: init.signal,
+      signal: resolveSignal(init, DASHBOARD_TIMEOUTS_MS.mutate),
     },
   );
   if (!res.ok) {
@@ -199,10 +235,7 @@ export async function requestPublication(
   return (await res.json()) as PublicationStatus;
 }
 
-export async function deleteDraftDataset(
-  id: string,
-  init: { signal?: AbortSignal; fetch?: typeof fetch; cookieHeader?: string } = {},
-): Promise<{ ok: true }> {
+export async function deleteDraftDataset(id: string, init: Init = {}): Promise<{ ok: true }> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -216,7 +249,7 @@ export async function deleteDraftDataset(
       headers,
       credentials: "include",
       body: "{}",
-      signal: init.signal,
+      signal: resolveSignal(init, DASHBOARD_TIMEOUTS_MS.mutate),
     },
   );
   if (!res.ok) {
