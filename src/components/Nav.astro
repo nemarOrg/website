@@ -19,14 +19,28 @@ const marketingLinks = [
   { href: "/support", label: "Support" },
 ];
 
-// On the app host the primary nav collapses to a single cross-host link
-// back to the public surface so the authed shell stays focused. The
-// marketing host and single-host mode (dev, *.pages.dev previews) both
-// keep the full marketing nav so a QA against one URL still sees every
-// link.
+// On the app host the nav depends on whether we can keep the user here.
+//
+// Signed in: relative links, so the marketing routes render on the app host
+// and the session survives the click (website#210). The middleware stops
+// redirecting these away once a session cookie is present, so a relative href
+// resolves in place rather than bouncing cross-origin. This is the case that
+// used to sign people out for using the nav — the single "Explore datasets"
+// link below was absolute, so it left the app host by construction and the
+// cookie, scoped to `app.nemar.org`, did not follow.
+//
+// Signed out on the app host (e.g. sitting on /login): the middleware still
+// redirects marketing routes away, so relative hrefs would just produce a
+// pointless extra hop. Keep the single absolute link back to the public
+// surface, which is also the focused shell the authed pages want.
+//
+// Marketing host and single-host mode (dev, *.pages.dev previews) keep the
+// full marketing nav so QA against one URL still sees every link.
 const links =
   mode === "app"
-    ? [{ href: marketingUrl("/discover", url.hostname), label: "Explore datasets" }]
+    ? session
+      ? marketingLinks
+      : [{ href: marketingUrl("/discover", url.hostname), label: "Explore datasets" }]
     : marketingLinks;
 
 const showUserMenu = mode !== "marketing";

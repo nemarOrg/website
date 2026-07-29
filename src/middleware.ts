@@ -223,7 +223,13 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     });
   }
 
-  const redirectTarget = getCrossHostRedirect(url);
+  // Cookie *presence*, not a resolved session: the redirect decision happens
+  // before `applySession`, and resolving costs an `/auth/me` round-trip we
+  // would then throw away on every redirect. See `CrossHostOptions.hasSession`
+  // for why presence is a safe basis here.
+  const hasSessionCookie = Boolean(context.cookies.get(SESSION_COOKIE_NAME)?.value);
+
+  const redirectTarget = getCrossHostRedirect(url, { hasSession: hasSessionCookie });
   if (redirectTarget) {
     // 307 preserves method + body on POST/PUT/DELETE; 301 is fine for GET/HEAD
     // navigation.
@@ -243,7 +249,16 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 
   const request = context.request;
   if (request.method !== "GET") return withSecurityHeaders(await next(), url.pathname, noindex);
-  if (context.locals.session) return withSecurityHeaders(await next(), url.pathname, noindex);
+  // Skip the edge cache whenever a session cookie is present, not merely when
+  // it resolved to a user. Since website#210 the app host renders marketing
+  // routes for cookie-bearing requests, and a cookie that fails to resolve
+  // (expired, rotated secret) would otherwise produce a cacheable render of a
+  // page that only cookie-bearing requests can reach. Keying the skip on the
+  // resolved session would put that render in the shared cache; keying it on
+  // the cookie keeps every personalizable response out of it.
+  if (hasSessionCookie || context.locals.session) {
+    return withSecurityHeaders(await next(), url.pathname, noindex);
+  }
 
   type Runtime = { caches?: CacheStorage };
   const runtime = (context.locals as { runtime?: Runtime } | undefined)?.runtime;
