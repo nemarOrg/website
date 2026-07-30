@@ -1,0 +1,116 @@
+name: Auto Bump Staging
+
+# Increments the `-devN` suffix on `staging` after every push that adds real
+# code, so each commit on the staging branch carries a distinct pre-release
+# version and `x-nemar-version` on test.nemar.org identifies exactly what is
+# deployed. The clean version and its tag are owned by release.yml, once
+# staging promotes to main.
+#
+# Counterpart of nemar-cli's auto-bump-dev.yml (staging is this repo's `dev`).
+#
+# Skip conditions:
+#   - HEAD commit authored by nemar-bot (prevents a loop on our own push).
+#   - HEAD commit message starts with "chore: bump version to" (catches
+#     manual bumps and release.yml's sync bump).
+#   - HEAD commit message contains "[skip-bump]" (escape hatch).
+#
+# ---------------------------------------------------------------------------
+# Why this dispatches "Deploy staging" by hand
+#
+# Neither `main` nor `staging` is branch-protected in this repo, so unlike
+# nemar-cli we need no AUTO_TAG_PAT — the default GITHUB_TOKEN can push. But
+# GitHub deliberately does not start new workflow runs from pushes made with
+# GITHUB_TOKEN, to stop workflows triggering themselves forever. Left alone,
+# the bump commit would land on staging and deploy-test.yml would never fire,
+# so test.nemar.org would keep serving the version from *before* the bump —
+# precisely the drift this workflow exists to remove.
+#
+# An explicit `workflow_dispatch` through the API is the documented way out
+# and is not subject to that suppression, so we push and then dispatch.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [staging]
+
+permissions:
+  contents: write
+  actions: write # required to dispatch Deploy staging (see above)
+
+# Serialize: two pushes landing together must not both read the same version
+# and race to write dev(N+1). `cancel-in-progress: false` because a cancelled
+# bump would silently drop a version increment.
+concurrency:
+  group: auto-bump-staging
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    # Filter the bot's own commits and explicit opt-outs at the job level so no
+    # runner spins up for them.
+    if: |
+      github.event.head_commit.author.email != 'nemar-bot@users.noreply.github.com'
+      && !startsWith(github.event.head_commit.message, 'chore: bump version to')
+      && !contains(github.event.head_commit.message, '[skip-bump]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          fetch-depth: 2
+
+      - name: Compute next dev suffix
+        id: compute
+        run: |
+          CURRENT=$(jq -r '.version' package.json)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          # Expect a -devN suffix. Anything else is unexpected on staging: it
+          # means a release just promoted and release.yml has not finished its
+          # sync step yet, or someone is mid-release by hand. Log and exit
+          # success rather than guessing at a base version.
+          if [[ ! "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-dev([0-9]+)$ ]]; then
+            echo "::notice::No -devN suffix on $CURRENT — leaving staging as-is."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE="${BASH_REMATCH[1]}"
+          N="${BASH_REMATCH[2]}"
+          echo "arg=dev$((N + 1))" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "Will bump $CURRENT -> $BASE-dev$((N + 1))"
+
+      - name: Configure git identity
+        if: steps.compute.outputs.skip == 'false'
+        run: |
+          git config user.name "nemar-bot"
+          git config user.email "nemar-bot@users.noreply.github.com"
+
+      - name: Run bump script
+        if: steps.compute.outputs.skip == 'false'
+        run: ./scripts/bump-version.sh "${{ steps.compute.outputs.arg }}"
+
+      - name: Push bump commit
+        id: push
+        if: steps.compute.outputs.skip == 'false'
+        run: |
+          # bump-version.sh already created the commit; push it. If a parallel
+          # push raced us, back off: that push triggers this workflow again
+          # from the new HEAD, so the bump is not lost.
+          if git push origin staging; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::push to staging rejected (likely a concurrent push); skipping"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy the bumped commit to test.nemar.org
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # See the header comment: the push above cannot trigger
+          # deploy-test.yml on its own because it was made with GITHUB_TOKEN.
+          # Without this dispatch test.nemar.org serves the pre-bump build.
+          gh workflow run "Deploy staging" --ref staging

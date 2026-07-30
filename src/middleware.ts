@@ -2,6 +2,7 @@ import type { MiddlewareHandler } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
+import { BUILD_ID } from "./lib/build-info";
 import {
   getCrossHostRedirect,
   getLegacyRedirect,
@@ -141,12 +142,21 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * `noindex` (epic #923 Phase 6) additionally stamps `X-Robots-Tag` so
  * staging/preview hosts never get indexed; defaults false so callers on the
  * production hosts are unaffected.
+ *
+ * Also stamps `x-nemar-version` (website#214). That is not a security header,
+ * but this is the one function every real response path runs through — cache
+ * HIT, cache MISS, and passthrough alike — so putting it here is what keeps
+ * the three from drifting. The redirect paths above build their headers
+ * inline and are deliberately left out: they carry no body, and anyone
+ * checking which build is live follows the redirect to a real response
+ * anyway.
  */
 export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
+  headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
 }
 

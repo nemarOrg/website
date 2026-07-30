@@ -16,10 +16,10 @@
 
 **Branch ↔ environment map** (mirrors nemar-cli's `dev`/`main` split):
 
-| Website branch | Deploys to | Pages project | Backend it talks to | nemar-cli branch |
-|---|---|---|---|---|
-| `main` | nemar.org / www / ww2 / app.nemar.org | `nemar-website` (CF GitHub integration) | api/data/zarr.nemar.org | `main` |
-| `staging` | test.nemar.org | `nemar-website-test` (`.github/workflows/deploy-test.yml`) | api-test/data-test/zarr-test.nemar.org | `dev` |
+| Website branch | Deploys to | Pages project | Backend it talks to | nemar-cli branch | Version |
+|---|---|---|---|---|---|
+| `main` | nemar.org / www / ww2 / app.nemar.org | `nemar-website` (CF GitHub integration) | api/data/zarr.nemar.org | `main` | clean `X.Y.Z`, tagged |
+| `staging` | test.nemar.org | `nemar-website-test` (`.github/workflows/deploy-test.yml`) | api-test/data-test/zarr-test.nemar.org | `dev` | `X.Y.Z-devN` |
 
 There is deliberately no `dev` branch in this repo — `staging` is the website's counterpart to nemar-cli's `dev`.
 
@@ -42,8 +42,67 @@ Promotion, once staging is verified:
 
 ```bash
 git fetch origin
-git push origin origin/staging:main    # fast-forward; branch protection requires green checks
+git push origin origin/staging:main    # always a fast-forward; see Versioning below
 ```
+
+Neither `main` nor `staging` is branch-protected, so that push is not gated on checks —
+verifying staging first is a convention this file describes, not something the remote
+enforces. (An earlier version of this section claimed protection was in place. It is not.)
+
+## Versioning and releases
+
+`package.json` is the single source of truth for the deployed version, and two workflows
+keep it moving (website#214). This mirrors what `nemarOrg/nemar-cli` does, so the two repos
+read the same way.
+
+| | nemar-cli | website |
+|---|---|---|
+| Pre-release branch | `dev` carries `-devN` | `staging` carries `-devN` |
+| Per-push bump | `auto-bump-dev.yml` | `auto-bump-staging.yml` |
+| Tag + release + sync | `auto-tag.yml` → `npm-publish.yml` → `sync-dev.yml` | `release.yml`, one job |
+| Ships to | npm | Cloudflare Pages |
+
+The three-workflow chain collapses to one here because nothing is published between tagging
+and syncing; removing the `workflow_run` chaining also removes its most common failure mode,
+a stage that never fires and leaves the version half-advanced.
+
+The cycle:
+
+1. A PR merges to `staging`. `auto-bump-staging.yml` bumps `-dev(N+1)` and redeploys
+   test.nemar.org, so the version there always identifies the exact commit under QA.
+2. You promote (`git push origin origin/staging:main`). `main` briefly carries the `-devN`
+   version.
+3. `release.yml` strips the suffix, commits the clean `X.Y.Z` to `main`, tags `vX.Y.Z`, cuts
+   a GitHub Release, then merges `main` back into `staging` and bumps it to the next
+   patch's `-dev0`.
+
+Step 3 is what keeps promotion a fast-forward forever: `main` always ends up an ancestor of
+`staging`.
+
+**Checking what is actually deployed** — every SSR response carries `x-nemar-version:
+<version>+<commit>`, and `GET /version.json` returns the same as JSON. This is the reliable
+form of the asset-hash comparison described under Deploy below:
+
+```bash
+curl -s https://test.nemar.org/version.json     # staging, expect -devN
+curl -s https://nemar.org/version.json          # production, expect clean X.Y.Z
+curl -sD- -o/dev/null https://nemar.org/ | grep -i x-nemar-version
+```
+
+If staging and production report the same version, staging has nothing unpromoted.
+
+**Bumping by hand** is rarely needed, but `bun run bump <patch|minor|major|devN|X.Y.Z>`
+exists. Clean release versions are refused anywhere but `staging`/`main`, so a feature
+branch cannot claim a released number.
+
+**Why the workflows dispatch `Deploy staging` explicitly:** pushes authenticated with the
+default `GITHUB_TOKEN` deliberately do not trigger further workflow runs. A bump commit
+pushed to `staging` therefore cannot fire `deploy-test.yml` on its own, and test.nemar.org
+would keep serving the pre-bump build — the exact drift the version is meant to expose. An
+explicit `workflow_dispatch` is not subject to that suppression. Production is unaffected:
+Cloudflare Pages builds `main` through the GitHub *integration*, an App webhook, which does
+fire for `GITHUB_TOKEN` pushes. Because the branches are unprotected, no `AUTO_TAG_PAT` is
+needed here (nemar-cli needs one only because its branches are protected).
 
 **Four custom domains on Pages, one build** (apex cutover done 2026-07-29, website#190):
 - `nemar.org` (apex) — the canonical marketing surface. Anonymous and edge-cacheable; skips `/auth/me`. `MARKETING_BASE_URL` points here.
@@ -131,18 +190,28 @@ bug rather than a cache one. That is exactly how website#188 presented.
 
 The cache namespace is now derived from the build commit
 (`__EDGE_CACHE_NAMESPACE__` in `astro.config.mjs`), so a deploy invalidates
-by construction. To confirm a change is actually live, compare the **served
-asset hash** across hosts rather than trusting the deploy's green tick:
+by construction. To confirm a change is actually live, ask each host which
+build it is serving rather than trusting the deploy's green tick:
+
+```bash
+curl -sD- -o/dev/null https://nemar.org/     | grep -i 'x-nemar-version\|x-nemar-cache'
+curl -sD- -o/dev/null https://app.nemar.org/login | grep -i x-nemar-version
+```
+
+`x-nemar-version` (website#214) carries `<version>+<commit>`, so two hosts
+reporting different commits is unambiguous — no bundle grepping needed. A
+mismatch alongside `x-nemar-cache: HIT` means that host is still serving a
+previous build from cache.
+
+Before #214 the only way to tell was comparing served asset hashes:
 
 ```bash
 curl -s https://ww2.nemar.org/ | grep -o '_astro/index\.[A-Za-z0-9]*\.css'
-curl -s https://app.nemar.org/login | grep -o '_astro/index\.[A-Za-z0-9]*\.css'
-curl -sD- -o/dev/null https://ww2.nemar.org/ | grep -i x-nemar-cache
 ```
 
-Different hashes with `x-nemar-cache: HIT` means ww2 is still serving a
-previous build. Grep the bundle for a marker unique to your change — a
-generic declaration like `text-align:center` appears throughout and will
+That still works as a cross-check. If you fall back to grepping the bundle
+for a marker unique to your change, pick a distinctive one — a generic
+declaration like `text-align:center` appears throughout and will
 false-positive.
 
 ```bash
@@ -226,14 +295,19 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 2. **Branch:** `gh issue develop <issue>` for non-trivial work; epic-dev workflow for multi-phase features.
 3. **Code:** Follow patterns in this file + the rules. **Component styles are scoped per .astro file** — duplicated layout CSS in nested components is intentional, not DRY-violating (see BidsTree.astro / BidsDirChildren.astro).
 4. **Test:** real APIs only. Vitest covers pure helpers in `src/lib/*.test.ts`. Astro page rendering verified via `/browse` against the dev server or a Cloudflare Pages preview deploy.
-5. **Commit:** atomic, <50 chars, no emojis, no AI attribution.
+5. **Commit:** atomic, <50 chars, no emojis, no AI attribution. Never hand-edit the version
+   in `package.json` on a feature branch — the workflows own it (see Versioning above).
 6. **PR:** target `staging`, not `main`. See the branch map above — staging leads.
 7. **QA on test.nemar.org:** merging to `staging` auto-deploys there against the nemar-cli `dev`
-   backends. Verify the change on that deploy. Remember staging runs in single-host mode, so
-   host-routing and canonical-origin changes are not covered here (website#212).
+   backends, and auto-bumps `-devN`. Confirm you are looking at your build with
+   `curl -s https://test.nemar.org/version.json` before trusting what you see. Remember
+   staging runs in single-host mode, so host-routing and canonical-origin changes are not
+   covered here (website#212).
 8. **Promote:** `git push origin origin/staging:main` once staging looks right. Production
-   deploys automatically from `main` via the Cloudflare GitHub integration.
+   deploys automatically from `main` via the Cloudflare GitHub integration, and `release.yml`
+   tags `vX.Y.Z`, cuts the release, and reopens the next `-dev0` cycle on staging.
 9. **Verify production**, especially for anything staging structurally could not cover.
+   `curl -s https://nemar.org/version.json` should report the clean version just tagged.
 
 ## [CRITICAL] Core Principles
 
@@ -296,8 +370,9 @@ The frontend has fallbacks for all of these so the site ships standalone. When a
 bun run dev                   # http://localhost:4321
 bun run build && bun run preview
 bun run typecheck             # 0 errors required before commit
-bun run test                  # 87/87 unit tests at last count
+bun run test                  # 1011/1011 unit tests at last count
 bun run lint                  # biome check
+bun run bump <arg>            # version bump; workflows normally do this for you
 ```
 
 ## Project-Specific Guidelines

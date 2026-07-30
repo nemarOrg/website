@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import cloudflare from "@astrojs/cloudflare";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Short commit ref for the current build, or `"dev"` when there isn't one.
@@ -68,6 +69,21 @@ export default defineConfig({
       // `GITHUB_SHA` by Actions; local `astro dev` has neither and gets a
       // stable "dev" so repeated local runs share one namespace.
       __EDGE_CACHE_NAMESPACE__: JSON.stringify(`nemar-edge-${buildRef()}`),
+      // Deployed version, fixed at build time (website#214).
+      //
+      // `package.json` is the single source of truth: the release workflows
+      // bump it, tag from it, and every build reads it here. Surfaced at
+      // runtime as the `x-nemar-version` response header and `/version.json`
+      // so "what is actually live on this host" is a curl rather than a SHA
+      // comparison — the same reason `x-nemar-cache` exists.
+      //
+      // Version and ref are separate defines rather than one pre-joined
+      // string so `/version.json` can report them as distinct fields without
+      // re-splitting. The ref repeats `buildRef()`, which is also the cache
+      // namespace input; that coupling is intentional, since a build whose
+      // assets changed is exactly a build whose ref changed.
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __BUILD_REF__: JSON.stringify(buildRef()),
     },
     resolve: {
       // Workaround for Cloudflare Workers' lack of `Buffer` etc.

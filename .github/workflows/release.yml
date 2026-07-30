@@ -1,0 +1,243 @@
+name: Release
+
+# Fires when a version reaches `main` — i.e. right after a
+# `git push origin origin/staging:main` promotion. One run does all of:
+#
+#   1. Strip the `-devN` suffix that staging carried (0.1.0-dev4 -> 0.1.0).
+#   2. Tag `vX.Y.Z` and cut a GitHub Release.
+#   3. Merge main back into staging and bump it to <next-patch>-dev0, so
+#      staging never reuses a released version number.
+#
+# nemar-cli splits this across auto-tag.yml -> npm-publish.yml -> sync-dev.yml
+# because a package publish sits in the middle and the later stages must wait
+# on it. This repo publishes nothing; it deploys. So the three collapse into
+# one job, which removes the `workflow_run` chaining entirely — worth doing,
+# because that chaining is the part of the nemar-cli setup that most often
+# stalls silently.
+#
+# ---------------------------------------------------------------------------
+# Two consequences of pushing with the default GITHUB_TOKEN
+#
+# Neither branch is protected here, so GITHUB_TOKEN can push and no
+# AUTO_TAG_PAT is needed. But GitHub suppresses *workflow* triggers from
+# GITHUB_TOKEN pushes:
+#
+#   - Good: the strip-commit push to main cannot re-trigger this workflow, so
+#     the loop closes by construction. The author-email guard below is kept as
+#     a second line of defence in case a PAT is added later.
+#   - Bad: the staging sync-push cannot trigger deploy-test.yml, so we
+#     dispatch it explicitly at the end.
+#
+# Production deploys are unaffected: Cloudflare Pages builds main through the
+# GitHub *integration* (an App webhook), and App webhooks do fire for
+# GITHUB_TOKEN pushes. Only Actions suppresses them.
+#
+# ci.yml also will not run on the strip commit, by the same rule. That is
+# acceptable: the tree already passed CI on staging, and the strip commit
+# changes exactly one string in package.json.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write # dispatch Deploy staging after the sync push
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.head_commit.author.email != 'nemar-bot@users.noreply.github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          # A real branch, not detached HEAD, so `git push origin main`
+          # resolves. Full depth because the staging sync below needs both
+          # branches' history.
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch tags
+        # actions/checkout does not fetch tags; the "already exists" guards
+        # below depend on them.
+        run: git fetch --tags origin
+
+      - name: Configure git identity
+        run: |
+          git config user.name "nemar-bot"
+          git config user.email "nemar-bot@users.noreply.github.com"
+
+      - name: Detect and strip -dev suffix
+        id: strip
+        run: |
+          CURRENT=$(jq -r '.version' package.json)
+          echo "original=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          # Strip `-dev*` only. Other pre-releases (-rc*, -alpha*, -beta*) are
+          # deliberate on main and pass through to be tagged as prereleases.
+          STRIPPED="${CURRENT%-dev*}"
+          echo "stripped=$STRIPPED" >> "$GITHUB_OUTPUT"
+
+          if [ "$STRIPPED" != "$CURRENT" ]; then
+            echo "did_strip=true" >> "$GITHUB_OUTPUT"
+            echo "Will strip $CURRENT -> $STRIPPED"
+          else
+            echo "did_strip=false" >> "$GITHUB_OUTPUT"
+            echo "No -dev suffix; tagging $CURRENT as-is"
+          fi
+
+      - name: Apply strip and push
+        if: steps.strip.outputs.did_strip == 'true'
+        # Fail-fast throughout. A release job that silently degrades to
+        # "tag the -dev version" is worse than one that halts for a human.
+        run: |
+          STRIPPED="${{ steps.strip.outputs.stripped }}"
+
+          # Anomaly: the target tag exists but main still carries -dev. Refuse
+          # to tag a literal -dev version; a human needs to look.
+          if git rev-parse "v$STRIPPED" >/dev/null 2>&1; then
+            echo "::error::Tag v$STRIPPED already exists but package.json is still at ${{ steps.strip.outputs.original }}. Refusing to tag a -dev version."
+            exit 1
+          fi
+
+          BEFORE=$(git rev-parse HEAD)
+          ./scripts/bump-version.sh "$STRIPPED"
+          AFTER=$(git rev-parse HEAD)
+
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "::error::bump-version.sh created no commit despite did_strip=true; state raced between detect and apply."
+            exit 1
+          fi
+
+          # No `[skip ci]` marker: it is per-commit rather than per-event, so
+          # it would also suppress anything keyed on the tag push below.
+          git push origin main
+          echo "Pushed: $(git log -1 --format=%s)"
+
+      - name: Resolve final version
+        id: final
+        run: |
+          FINAL=$(jq -r '.version' package.json)
+          echo "version=$FINAL" >> "$GITHUB_OUTPUT"
+          echo "Releasing $FINAL"
+
+          # Anything still carrying a `-` after the strip step is an
+          # intentional pre-release (rc/alpha/beta) and is marked as such.
+          if [[ "$FINAL" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag
+        id: tag
+        run: |
+          TAG="v${{ steps.final.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::warning::Tag $TAG already exists (workflow re-run on an already-released commit). Skipping."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "Tagged $TAG"
+
+      - name: Create GitHub Release
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.final.outputs.version }}"
+          ARGS=("$TAG" --title "$TAG" --generate-notes)
+          if [ "${{ steps.final.outputs.prerelease }}" = "true" ]; then
+            ARGS+=(--prerelease)
+          else
+            ARGS+=(--latest)
+          fi
+          gh release create "${ARGS[@]}"
+          echo "Released $TAG"
+
+      # --- Sync staging (nemar-cli's sync-dev.yml, inlined) -----------------
+
+      - name: Merge main into staging and open the next dev cycle
+        id: sync
+        # Only after a tag was actually created. A re-run on an
+        # already-released commit would otherwise bump staging a second time
+        # and silently skip a version number.
+        #
+        # The inverse risk — a run that tags but then fails before syncing,
+        # where a re-run now declines to sync — is the safer failure: staging
+        # left unsynced stops being a fast-forward of main, so the next
+        # promotion fails loudly instead of quietly drifting.
+        #
+        # `did_strip == true` with a pre-existing tag cannot reach here; the
+        # strip step treats that as an anomaly and halts.
+        if: steps.tag.outputs.created == 'true'
+        run: |
+          # Explicit refspec rather than relying on checkout's default: this
+          # job checked out `main`, so `origin/staging` is only guaranteed to
+          # exist as a side effect of fetch-depth: 0. Fetching it by name
+          # makes the dependency visible and survives a future depth change.
+          git fetch origin +refs/heads/staging:refs/remotes/origin/staging
+          git checkout -B staging origin/staging
+
+          # After a fast-forward promotion staging is an ancestor of main, so
+          # this merge is itself a fast-forward and cannot conflict. It only
+          # gets interesting when a PR landed on staging *during* this run:
+          # then package.json diverges (staging back on -devN, main clean).
+          if ! git merge --no-ff origin/main -m "chore: sync staging with main after v${{ steps.final.outputs.version }}"; then
+            UNMERGED=$(git diff --name-only --diff-filter=U)
+            if [ "$UNMERGED" != "package.json" ]; then
+              git merge --abort
+              echo "::error::Merging main into staging conflicted outside package.json:"
+              echo "$UNMERGED"
+              echo "::error::Resolve by hand; staging was left untouched."
+              exit 1
+            fi
+            # Take main's released version as the base. This is not
+            # arbitrary: the bump below computes from whatever is here, and
+            # bumping dev0 from staging's stale -devN would regress the
+            # version (1.0.0-dev7 -> 1.0.0-dev0) instead of advancing it
+            # (1.0.0 -> 1.0.1-dev0).
+            git checkout --theirs package.json
+            git add package.json
+            git commit --no-edit
+            echo "::notice::Resolved a package.json conflict in favour of the released version."
+          fi
+
+          ./scripts/bump-version.sh dev0
+          git push origin staging
+          echo "version=$(jq -r '.version' package.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy the synced staging branch
+        if: steps.tag.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The push above was made with GITHUB_TOKEN and so cannot trigger
+          # deploy-test.yml by itself. Without this, test.nemar.org would keep
+          # reporting the pre-release version indefinitely.
+          gh workflow run "Deploy staging" --ref staging
+
+      - name: Summary
+        run: |
+          {
+            echo "### Released v${{ steps.final.outputs.version }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tag | \`v${{ steps.final.outputs.version }}\` |"
+            echo "| Prerelease | ${{ steps.final.outputs.prerelease }} |"
+            echo "| main | \`${{ steps.final.outputs.version }}\` |"
+            echo "| staging | \`${{ steps.sync.outputs.version }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

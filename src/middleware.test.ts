@@ -1,5 +1,6 @@
 import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
+import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import {
   SECURITY_HEADERS,
@@ -390,6 +391,21 @@ describe("security headers", () => {
     expect(headers.get("Content-Security-Policy")).toBe(
       SECURITY_HEADERS["Content-Security-Policy"],
     );
+  });
+
+  it("stamps x-nemar-version on real responses but not on redirects", async () => {
+    // The header is the primary way to answer "which build is live on this
+    // host" (website#214), so it has to survive the passthrough path, not
+    // just direct `applySecurityHeaders` calls.
+    const served = await onRequest(ctx(`https://${APP_HOST}/dashboard`), passthrough);
+    expect(served?.headers.get("x-nemar-version")).toBe(BUILD_ID);
+
+    // Redirects build their headers inline and are deliberately excluded —
+    // documented on applySecurityHeaders. Asserted so the exclusion stays a
+    // decision rather than becoming an accident.
+    const redirected = await onRequest(ctx(`https://${MARKETING_HOST}/dashboard`), passthrough);
+    expect(redirected?.status).toBe(301);
+    expect(redirected?.headers.get("x-nemar-version")).toBeNull();
   });
 
   it("applySecurityHeaders sets X-Robots-Tag only when noindex=true", () => {
