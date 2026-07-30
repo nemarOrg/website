@@ -105,12 +105,20 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Deploy the bumped commit to test.nemar.org
+      - name: Dispatch CI and deploy for the bumped commit
         if: steps.push.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # See the header comment: the push above cannot trigger
-          # deploy-test.yml on its own because it was made with GITHUB_TOKEN.
-          # Without this dispatch test.nemar.org serves the pre-bump build.
+          # See the header comment: the push above cannot trigger anything on
+          # its own because it was made with GITHUB_TOKEN.
+          #
+          # CI is the one that must not be skipped. The `keep-main` ruleset
+          # requires lint/typecheck/test/build on whatever commit is pushed to
+          # `main`, and promotion fast-forwards `main` to the tip of
+          # `staging` — which is this bump commit. Without these checks the
+          # next promotion is rejected.
+          gh workflow run "CI" --ref staging
+
+          # And without this, test.nemar.org keeps serving the pre-bump build.
           gh workflow run "Deploy staging" --ref staging

@@ -1,9 +1,31 @@
 name: CI
 
+# Runs on `staging` as well as `main`, and that is load-bearing rather than
+# nice-to-have. The `keep-main` repository ruleset requires lint/typecheck/
+# test/build to be green *on the commit being pushed* to `main`. Promotion is
+# a fast-forward of `staging`, so whatever sits at the tip of `staging` must
+# already carry those four checks or the promotion is rejected outright.
+#
+# Before website#214 this file only ran on `pull_request` and `push: main`,
+# which meant no commit on `staging` ever had them. Promotions still worked by
+# accident: pushing to `main` triggered this workflow, which attached the
+# checks retroactively, and the ruleset evidently evaluated the push before
+# they were required. The first bot-authored commit on `staging` broke that
+# accident and the promotion was rejected with "4 of 4 required status checks
+# are expected".
+#
+# Note the ruleset reports as 404 through the classic
+# `/branches/main/protection` API — check `/repos/{o}/{r}/rulesets` instead.
+
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
+  # Dispatchable so `auto-bump-staging.yml` can request a run on its own bump
+  # commit. That commit is pushed with GITHUB_TOKEN, and GitHub does not start
+  # workflow runs from such pushes — without an explicit dispatch the commit
+  # would carry no checks at all.
+  workflow_dispatch:
 
 # Cancel in-flight runs for the same ref so pushes get fast feedback.
 concurrency:
