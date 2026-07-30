@@ -45,39 +45,58 @@ git fetch origin
 git push origin origin/staging:main    # always a fast-forward; see Versioning below
 ```
 
-Neither `main` nor `staging` is branch-protected, so that push is not gated on checks —
-verifying staging first is a convention this file describes, not something the remote
-enforces. (An earlier version of this section claimed protection was in place. It is not.)
+**`main` is protected by a repository *ruleset*, not classic branch protection.** The
+`keep-main` ruleset (`~DEFAULT_BRANCH`, no bypass actors) blocks deletion and
+non-fast-forward pushes, and requires **lint, typecheck, test, and build to be green on the
+commit being pushed**. `staging` is unrestricted.
+
+This trips people up twice over. First, the classic API reports it as absent —
+`gh api repos/nemarOrg/website/branches/main/protection` returns 404, which reads like "not
+protected". Use `gh api repos/nemarOrg/website/rulesets` instead. Second, the requirement is
+on the *commit*, so a promotion is rejected whenever the tip of `staging` has not itself run
+CI. That is why `ci.yml` runs on `staging` and why the bot workflows dispatch it explicitly
+(see Versioning below).
 
 ## Versioning and releases
 
-`package.json` is the single source of truth for the deployed version, and two workflows
-keep it moving (website#214). This mirrors what `nemarOrg/nemar-cli` does, so the two repos
-read the same way.
+`package.json` is the single source of truth for the deployed version, and three workflows
+keep it moving (website#214). This mirrors what `nemarOrg/nemar-cli` does, with one forced
+divergence noted below.
 
 | | nemar-cli | website |
 |---|---|---|
 | Pre-release branch | `dev` carries `-devN` | `staging` carries `-devN` |
 | Per-push bump | `auto-bump-dev.yml` | `auto-bump-staging.yml` |
-| Tag + release + sync | `auto-tag.yml` → `npm-publish.yml` → `sync-dev.yml` | `release.yml`, one job |
+| Strip `-devN` | `auto-tag.yml`, on `main` | `prepare-release.yml`, on **`staging`** |
+| Tag + release + sync | `auto-tag.yml` → `npm-publish.yml` → `sync-dev.yml` | `release.yml` |
 | Ships to | npm | Cloudflare Pages |
-
-The three-workflow chain collapses to one here because nothing is published between tagging
-and syncing; removing the `workflow_run` chaining also removes its most common failure mode,
-a stage that never fires and leaves the version half-advanced.
 
 The cycle:
 
-1. A PR merges to `staging`. `auto-bump-staging.yml` bumps `-dev(N+1)` and redeploys
-   test.nemar.org, so the version there always identifies the exact commit under QA.
-2. You promote (`git push origin origin/staging:main`). `main` briefly carries the `-devN`
-   version.
-3. `release.yml` strips the suffix, commits the clean `X.Y.Z` to `main`, tags `vX.Y.Z`, cuts
-   a GitHub Release, then merges `main` back into `staging` and bumps it to the next
-   patch's `-dev0`.
+1. A PR merges to `staging`. `auto-bump-staging.yml` bumps `-dev(N+1)`, then dispatches CI
+   and a deploy, so test.nemar.org always identifies the exact commit under QA.
+2. When staging is ready, run **Prepare release** (`prepare-release.yml`, manual dispatch).
+   It strips the suffix on `staging` — `0.2.0-dev7` becomes `0.2.0` — and dispatches CI and
+   a deploy again.
+3. Promote: `git push origin origin/staging:main`. A fast-forward, and the required checks
+   are already green on that commit.
+4. `release.yml` tags `vX.Y.Z`, cuts a GitHub Release, then merges `main` back into
+   `staging` and bumps it to the next patch's `-dev0`.
 
-Step 3 is what keeps promotion a fast-forward forever: `main` always ends up an ancestor of
+Step 4 is what keeps promotion a fast-forward forever: `main` always ends up an ancestor of
 `staging`.
+
+**Why the strip happens on `staging` and not on `main`.** This is the one real divergence
+from nemar-cli, and it is forced rather than chosen. `auto-tag.yml` rewrites the version on
+`main` and pushes the result; that cannot work here, because `keep-main` requires four green
+checks on every commit pushed to `main` and a freshly created strip commit cannot have them.
+It would need to sit on a branch for CI to run, and pushing it to `main` is precisely what
+is blocked. Moving the strip to `staging` dissolves the deadlock: `main` then only ever
+receives fast-forwards of commits that already ran CI.
+
+It is also better on its own merits. Production never serves a `-devN` version even briefly,
+and step 2 redeploys test.nemar.org with the exact artifact that will become production, so
+the last QA look is at the real thing rather than at its predecessor.
 
 **Checking what is actually deployed** — every SSR response carries `x-nemar-version:
 <version>+<commit>`, and `GET /version.json` returns the same as JSON. This is the reliable
@@ -95,14 +114,24 @@ If staging and production report the same version, staging has nothing unpromote
 exists. Clean release versions are refused anywhere but `staging`/`main`, so a feature
 branch cannot claim a released number.
 
-**Why the workflows dispatch `Deploy staging` explicitly:** pushes authenticated with the
-default `GITHUB_TOKEN` deliberately do not trigger further workflow runs. A bump commit
-pushed to `staging` therefore cannot fire `deploy-test.yml` on its own, and test.nemar.org
-would keep serving the pre-bump build — the exact drift the version is meant to expose. An
-explicit `workflow_dispatch` is not subject to that suppression. Production is unaffected:
-Cloudflare Pages builds `main` through the GitHub *integration*, an App webhook, which does
-fire for `GITHUB_TOKEN` pushes. Because the branches are unprotected, no `AUTO_TAG_PAT` is
-needed here (nemar-cli needs one only because its branches are protected).
+**Why the workflows dispatch `CI` and `Deploy staging` explicitly:** pushes authenticated
+with the default `GITHUB_TOKEN` deliberately do not trigger further workflow runs. A bot
+bump commit on `staging` therefore fires nothing by itself, with two consequences:
+
+- **CI would not run**, so the tip of `staging` would carry none of the four checks
+  `keep-main` requires and the next promotion would be rejected outright. This is the one
+  that actually breaks the pipeline.
+- **test.nemar.org would keep serving the pre-bump build** — the exact drift the version
+  exists to expose.
+
+An explicit `workflow_dispatch` is not subject to the suppression, so every bot push is
+followed by dispatches for both. Production is unaffected either way: Cloudflare Pages
+builds `main` through the GitHub *integration*, an App webhook, which does fire for
+`GITHUB_TOKEN` pushes.
+
+No `AUTO_TAG_PAT` is needed. `GITHUB_TOKEN` can push to `staging` (unrestricted) and can
+create tags; it never needs to push a commit to `main`, which is the only thing the ruleset
+would stop it doing.
 
 **Four custom domains on Pages, one build** (apex cutover done 2026-07-29, website#190):
 - `nemar.org` (apex) — the canonical marketing surface. Anonymous and edge-cacheable; skips `/auth/me`. `MARKETING_BASE_URL` points here.
@@ -303,9 +332,11 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
    `curl -s https://test.nemar.org/version.json` before trusting what you see. Remember
    staging runs in single-host mode, so host-routing and canonical-origin changes are not
    covered here (website#212).
-8. **Promote:** `git push origin origin/staging:main` once staging looks right. Production
+8. **Promote:** run **Prepare release** on `staging` first (it strips `-devN` to the release
+   version and re-runs CI + deploy), then `git push origin origin/staging:main`. Production
    deploys automatically from `main` via the Cloudflare GitHub integration, and `release.yml`
-   tags `vX.Y.Z`, cuts the release, and reopens the next `-dev0` cycle on staging.
+   tags `vX.Y.Z`, cuts the release, and reopens the next `-dev0` cycle on staging. The push
+   is rejected if CI is not green on the tip of `staging` — see the ruleset note above.
 9. **Verify production**, especially for anything staging structurally could not cover.
    `curl -s https://nemar.org/version.json` should report the clean version just tagged.
 
