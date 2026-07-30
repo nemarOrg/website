@@ -1,9 +1,22 @@
 ---
+import { APP_VERSION, BUILD_REF } from "../lib/build-info";
 import { resolveDataBase } from "../lib/data-base";
 
 const year = new Date().getFullYear();
 const dataBase = resolveDataBase();
 const dataHost = new URL(dataBase).host;
+
+const REPO_URL = "https://github.com/nemarOrg/website";
+
+// `BUILD_REF` is "dev" for a local `astro dev` run, where there is no commit
+// to point at — link only when it is a real SHA (website#214).
+const hasCommit = BUILD_REF !== "dev";
+const commitUrl = `${REPO_URL}/commit/${BUILD_REF}`;
+
+// Clean versions have a matching `vX.Y.Z` tag and GitHub Release; `-devN`
+// pre-releases do not, so those link to the release list instead of a 404.
+const isRelease = !APP_VERSION.includes("-");
+const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${REPO_URL}/releases`;
 ---
 
 <footer class="site-footer">
@@ -43,6 +56,17 @@ const dataHost = new URL(dataBase).host;
           <li><a href={`${dataBase}/`}>{dataHost}</a></li>
           <li><a href="https://api.nemar.org/">api.nemar.org</a></li>
           <li><a href="https://docs.nemar.org/">docs.nemar.org</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Open source</h3>
+        <ul role="list">
+          {/* Two separate GitHub organizations, deliberately: nemarOrg holds
+              the code, nemarDatasets holds one repository per dataset. Both
+              are public and worth surfacing — people looking for the data
+              repos never find them under nemarOrg. */}
+          <li><a href="https://github.com/nemarOrg" rel="external">nemarOrg</a></li>
+          <li><a href="https://github.com/nemarDatasets" rel="external">nemarDatasets</a></li>
         </ul>
       </div>
     </nav>
@@ -115,6 +139,15 @@ const dataHost = new URL(dataBase).host;
 
   <div class="container site-footer__bottom">
     <p>&copy; {year} The Regents of the University of California</p>
+    <p class="site-footer__build">
+      <a href={versionUrl} rel="external">v{APP_VERSION}</a>
+      {hasCommit && (
+        <>
+          <span aria-hidden="true">&middot;</span>
+          <a href={commitUrl} rel="external"><code>{BUILD_REF}</code></a>
+        </>
+      )}
+    </p>
     <p>
       Built with <a href="https://astro.build">Astro</a> on
       <a href="https://pages.cloudflare.com">Cloudflare Pages</a>
@@ -151,9 +184,12 @@ const dataHost = new URL(dataBase).host;
     color: var(--color-fg-subtle);
     margin-block-start: var(--space-3);
   }
+  /* auto-fit rather than a fixed count: the fourth column (Open source,
+     website#214) makes four too tight to hardcode at every width, and
+     auto-fit reflows to 2x2 on narrow viewports without a extra breakpoint. */
   .site-footer__nav {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: var(--space-8);
   }
   .site-footer__nav h3 {
@@ -272,8 +308,21 @@ const dataHost = new URL(dataBase).host;
     margin-block-start: var(--space-12);
     display: flex;
     justify-content: space-between;
+    gap: var(--space-4);
     color: var(--color-fg-subtle);
     font-size: var(--fs-sm);
+  }
+  /* Deployed build identity. Same information as the `x-nemar-version`
+     header, put where someone reporting a bug can read it off the page
+     without opening devtools. */
+  .site-footer__build {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .site-footer__build code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
   }
   @media (max-width: 600px) {
     .site-footer__bottom {

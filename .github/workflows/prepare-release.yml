@@ -1,0 +1,135 @@
+name: Prepare release
+
+# Turns the current `staging` pre-release into the release version, on
+# `staging`, before it is promoted. Run this when staging has been QA'd and
+# you are ready to ship it.
+#
+#   staging 0.2.0-dev7  --[this workflow]-->  staging 0.2.0
+#   then: git push origin origin/staging:main
+#
+# ---------------------------------------------------------------------------
+# Why the strip happens here and not on main
+#
+# The obvious design — and the one nemar-cli uses — is to let `main` receive
+# the `-devN` version and have the release workflow rewrite it in place. That
+# cannot work in this repo. The `keep-main` ruleset requires lint, typecheck,
+# test, and build to be green *on the commit being pushed* to `main`, with no
+# bypass actors. A freshly-created strip commit has no checks and never can:
+# it would have to be on a branch for CI to run, and pushing it to `main` is
+# the thing being blocked. Chicken and egg.
+#
+# Doing it on `staging` dissolves the problem. `main` then only ever receives
+# fast-forwards of commits that already ran CI on `staging`, which is exactly
+# what the ruleset is asking for.
+#
+# It is also better on its own merits: production never serves a `-devN`
+# version even briefly, and test.nemar.org gets a deploy of the precise
+# artifact that will become production, so the final QA look is at the real
+# thing rather than at its predecessor.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: 'Release level. "auto" releases the version staging is already on (0.2.0-dev7 -> 0.2.0); minor/major re-target it first.'
+        required: true
+        default: auto
+        type: choice
+        options: [auto, minor, major]
+
+permissions:
+  contents: write
+  actions: write # dispatch CI + Deploy staging on the stripped commit
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags origin
+
+      - name: Configure git identity
+        run: |
+          git config user.name "nemar-bot"
+          git config user.email "nemar-bot@users.noreply.github.com"
+
+      - name: Compute the release version
+        id: plan
+        run: |
+          CURRENT=$(jq -r '.version' package.json)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+
+          case "${{ inputs.level }}" in
+            auto)
+              # Drop the -devN suffix and release the base it was building
+              # toward. Refuse a no-op rather than tagging something twice.
+              TARGET="${CURRENT%-dev*}"
+              if [ "$TARGET" = "$CURRENT" ]; then
+                echo "::error::staging is already on a clean version ($CURRENT). Nothing to prepare — promote it, or pick minor/major to start a new line."
+                exit 1
+              fi
+              ;;
+            minor|major)
+              BASE="${CURRENT%-dev*}"
+              IFS=. read -r MA MI _ <<< "$BASE"
+              if [ "${{ inputs.level }}" = "minor" ]; then
+                TARGET="$MA.$((MI + 1)).0"
+              else
+                TARGET="$((MA + 1)).0.0"
+              fi
+              ;;
+          esac
+
+          if git rev-parse "v$TARGET" >/dev/null 2>&1; then
+            echo "::error::Tag v$TARGET already exists. Pick a different level or investigate."
+            exit 1
+          fi
+
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Preparing $CURRENT -> $TARGET"
+
+      - name: Set the release version on staging
+        run: |
+          ./scripts/bump-version.sh "${{ steps.plan.outputs.target }}"
+          git push origin staging
+
+      - name: Dispatch CI and deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # CI is mandatory here, not cosmetic: this commit is the one that
+          # will be fast-forwarded onto `main`, and the ruleset will reject
+          # the promotion unless these four checks are green on it.
+          gh workflow run "CI" --ref staging
+          gh workflow run "Deploy staging" --ref staging
+
+      - name: Summary
+        run: |
+          {
+            echo "### Staging prepared for release"
+            echo ""
+            echo "\`${{ steps.plan.outputs.current }}\` -> \`${{ steps.plan.outputs.target }}\`"
+            echo ""
+            echo "Next steps:"
+            echo ""
+            echo "1. Wait for CI on \`staging\` to go green (the promotion is rejected without it)."
+            echo "2. Give test.nemar.org a last look — it now runs the exact artifact that will become production."
+            echo "3. Promote:"
+            echo ""
+            echo "   \`\`\`bash"
+            echo "   git push origin origin/staging:main"
+            echo "   \`\`\`"
+            echo ""
+            echo "\`release.yml\` then tags \`v${{ steps.plan.outputs.target }}\`, cuts the release, and reopens the next dev cycle on staging."
+          } >> "$GITHUB_STEP_SUMMARY"
