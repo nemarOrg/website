@@ -1,0 +1,85 @@
+---
+/**
+ * A link that leaves nemar.org, marked as such and opened in a new tab.
+ *
+ * The NEMAR surfaces a visitor can reach from the nav and footer are not all
+ * one site: the citation dashboard (`nemarOrg/nemar-citations`) and the
+ * documentation (`nemarOrg/docs`) are separately built and deployed, as are
+ * the data/api hosts. Navigating to one in place drops the visitor out of the
+ * site they were reading with only the back button to return, and the old
+ * markup gave no warning that was about to happen.
+ *
+ * Deliberately NOT applied to every `rel="external"` link in the codebase.
+ * Download anchors (`BidsTree.astro`'s per-file links, the archive action)
+ * also carry `rel="external"`, and neither the arrow nor `target="_blank"`
+ * belongs on those: they trigger a download rather than a navigation, so the
+ * arrow would promise a page that never appears. This component is for
+ * links that genuinely navigate somewhere else.
+ *
+ * `rel="noopener"` is what actually matters with `target="_blank"` — without
+ * it the opened page gets a live `window.opener` handle back to this one.
+ * `noreferrer` rides along; these are all first-party NEMAR destinations, but
+ * there is nothing here worth leaking a referrer for either.
+ */
+interface Props {
+  href: string;
+  /** Extra classes for the anchor, so callers keep their own layout styles. */
+  class?: string;
+  /** Set for links whose visible text is already a URL/host, where "opens in
+   *  a new tab" is the only thing the announcement needs to add. */
+  label?: string;
+}
+
+const { href, class: className, label } = Astro.props;
+---
+
+<a
+  href={href}
+  class:list={["external-link", className]}
+  target="_blank"
+  rel="noopener noreferrer external"
+>
+  <slot />
+  {label && <span class="visually-hidden">{label}</span>}
+  {/* Announced as "(opens in a new tab)" rather than left to the icon alone —
+      a decorative arrow tells a sighted user what is about to happen and a
+      screen-reader user nothing at all. */}
+  <span class="visually-hidden">(opens in a new tab)</span>
+  <svg
+    class="external-link__icon"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M7 17 17 7M9 7h8v8" />
+  </svg>
+</a>
+
+<style>
+  .external-link {
+    /* inline-flex, not inline: keeps the arrow on the same line as the last
+       word and vertically centred against it, without the baseline drift a
+       plain inline SVG gets. */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+  }
+  /* Sized in em so it tracks whatever type scale the caller is using — the
+     nav, the footer columns, and the footer's smaller build line all render
+     this at their own size without passing anything in. */
+  .external-link__icon {
+    inline-size: 0.75em;
+    block-size: 0.75em;
+    flex: none;
+    /* The arrow is supporting information, not part of the label. */
+    opacity: 0.7;
+  }
+  .external-link:hover .external-link__icon,
+  .external-link:focus-visible .external-link__icon {
+    opacity: 1;
+  }
+</style>
