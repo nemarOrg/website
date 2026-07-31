@@ -59,7 +59,12 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
         </ul>
       </div>
       <div>
-        <h3>Open source</h3>
+        {/* "GitHub", not "Open source": NEMAR's code is source-available, and
+            the two are not interchangeable — an open-source claim asserts an
+            OSI-style licence this project does not grant. The heading only
+            needs to say where the code is, which "GitHub" does without
+            claiming anything about its terms. */}
+        <h3>GitHub</h3>
         <ul role="list">
           {/* Two separate GitHub organizations, deliberately: nemarOrg holds
               the code, nemarDatasets holds one repository per dataset. Both
@@ -139,6 +144,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
 
   <div class="container site-footer__bottom">
     <p>&copy; {year} The Regents of the University of California</p>
+    <span class="site-footer__sep" aria-hidden="true">&middot;</span>
     <p class="site-footer__build">
       <a href={versionUrl} rel="external">v{APP_VERSION}</a>
       {hasCommit && (
@@ -148,6 +154,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
         </>
       )}
     </p>
+    <span class="site-footer__sep" aria-hidden="true">&middot;</span>
     <p>
       Built with <a href="https://astro.build">Astro</a> on
       <a href="https://pages.cloudflare.com">Cloudflare Pages</a>
@@ -184,7 +191,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     color: var(--color-fg-subtle);
     margin-block-start: var(--space-3);
   }
-  /* auto-fit rather than a fixed count: the fourth column (Open source,
+  /* auto-fit rather than a fixed count: the fourth column (GitHub,
      website#214) makes four too tight to hardcode at every width, and
      auto-fit reflows to 2x2 on narrow viewports without a extra breakpoint. */
   .site-footer__nav {
@@ -304,13 +311,26 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
       opacity: 1;
     }
   }
+  /* One continuous line reading left to right, flush with the left edge the
+     rest of the footer already uses ("A project of", the nav headings) —
+     rather than three items pushed to the far corners by space-between, which
+     stranded the build identity in the middle of an otherwise empty row and
+     left nothing sharing an alignment with anything above it. */
   .site-footer__bottom {
     margin-block-start: var(--space-12);
     display: flex;
-    justify-content: space-between;
-    gap: var(--space-4);
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
     color: var(--color-fg-subtle);
     font-size: var(--fs-sm);
+  }
+  /* Separators between the three groups, so the line reads as one statement
+     instead of three phrases that happen to be adjacent. Explicit elements
+     rather than ::before, to match how the version/commit separator above is
+     already done, and so they can be dropped outright in the stacked layout. */
+  .site-footer__sep {
+    color: var(--color-fg-subtle);
   }
   /* Deployed build identity. Same information as the `x-nemar-version`
      header, put where someone reporting a bug can read it off the page
@@ -327,7 +347,12 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   @media (max-width: 600px) {
     .site-footer__bottom {
       flex-direction: column;
+      align-items: flex-start;
       gap: var(--space-2);
+    }
+    /* Stacked, the separators would sit alone on their own rows. */
+    .site-footer__sep {
+      display: none;
     }
   }
 </style>
