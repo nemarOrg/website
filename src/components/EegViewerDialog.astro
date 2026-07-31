@@ -1,24 +1,26 @@
 ---
 /**
- * Full-screen modal host for the EEG/MEG/iEEG/EMG signal viewer
- * (website#199). Previously `mountEegViewer` mounted inline into a slot
- * inside the BIDS file tree row — cramped for a multi-channel scope with a
- * short time axis. This is a single, page-level dialog (one per dataset
- * page, sized ~70% of the viewport) that every "eeg" preview button opens;
- * the mount/teardown orchestration lives in dataset/[id].astro's script,
- * next to the click handler that already owns the rest of the file-preview
- * state machine.
+ * Enlarged host for the EEG/MEG/iEEG/EMG signal viewer.
+ *
+ * The viewer opens *inline*, in the clicked BIDS tree row's own preview
+ * panel; this dialog is where it goes when the user asks for more room via
+ * the panel's "Enlarge" control (website#217). Between #199 and #217 this
+ * was the entry point — every signal file opened straight into it — which
+ * turned a glance at a recording into a page takeover.
+ *
+ * It receives the *already-mounted* viewer host, moved here from the inline
+ * panel and moved back on close; it never hosts a mount of its own. See
+ * `enlargeEegViewer` in dataset/[id].astro, where the rest of the
+ * file-preview state machine already lives.
  *
  * Deliberately outside `BidsTree.astro`'s `<section data-tree-defer>` — that
- * section's innerHTML is fully replaced during hydration and again on every
- * "show more" / subdirectory expand, which would destroy a dialog nested
- * inside it.
+ * section's innerHTML is replaced wholesale during hydration, which would
+ * destroy a dialog nested inside it.
  *
- * No bottom "Close" button here (unlike ActionBar's dialogs): the viewer's
- * own toolbar already fills the available height, so a text button below it
- * would sit below the fold — exactly the discoverability problem the corner
- * X exists to fix. The corner X + Esc are the only exits, which is enough
- * for a full-viewport visualization surface.
+ * No bottom "Close" button here (unlike ActionBar's dialogs): the viewer
+ * fills the available height, so a text button below it would sit below the
+ * fold — exactly the discoverability problem the corner X exists to fix. The
+ * corner X and Esc are the only exits, and both return the viewer inline.
  */
 import DialogCloseButton from "./DialogCloseButton.astro";
 ---
@@ -27,7 +29,11 @@ import DialogCloseButton from "./DialogCloseButton.astro";
   <DialogCloseButton />
   <div class="eegv-dialog__scroll">
     <h2 class="eegv-dialog__title" data-eegv-title>Signal viewer</h2>
-    <div class="eegv-dialog__body" data-eegv-slot aria-live="polite"></div>
+    {/* No `aria-live` (dropped in website#217): this slot no longer receives
+        the loading/unavailable messages — those stay in the inline panel —
+        only an already-mounted viewer, whose cursor readout and legend update
+        continuously and would be announced on every pointer move. */}
+    <div class="eegv-dialog__body" data-eegv-slot></div>
   </div>
 </dialog>
 
@@ -35,22 +41,23 @@ import DialogCloseButton from "./DialogCloseButton.astro";
   .eegv-dialog {
     inset: 0;
     margin: auto;
-    /* "Roughly 70% of the viewport" (website#199), clamped so it never
-       overflows a small screen and never balloons past a useful size on a
-       huge one. Height is a cap, not a fixed size — a short "unavailable"
-       message shouldn't leave a mostly-empty modal. */
-    inline-size: min(70vw, 1400px);
+    /* Wider and taller than the ~70% of #199, because this is no longer the
+       default surface: the user got here by explicitly asking for more room
+       than the inline panel gives, so the jump should be worth the click.
+       Still clamped, so it never overflows a small screen and never balloons
+       past a useful size on a huge one. */
+    inline-size: min(92vw, 1800px);
     max-inline-size: calc(100vw - 2rem);
     min-inline-size: min(320px, calc(100vw - 2rem));
     /* `block-size: fit-content` is load-bearing, not decorative: a native
        <dialog> centered via `inset: 0` + `margin: auto` with `height: auto`
-       (the default) stretches to fill all the way to max-block-size instead
-       of shrinking to its content — confirmed by testing the "unavailable"
-       fallback, which is short and otherwise left a big empty box under a
-       two-line message. `fit-content` makes the box size to its content,
-       still capped by max-block-size once the viewer is tall enough to hit it. */
+       (the default) stretches all the way to max-block-size instead of
+       shrinking to its content. The viewer derives its height from its width,
+       so without this a wide-but-short scope would sit at the top of a mostly
+       empty box. `fit-content` sizes to the viewer, still capped by
+       max-block-size once it is tall enough to hit it. */
     block-size: fit-content;
-    max-block-size: min(70vh, 900px);
+    max-block-size: min(90vh, 1100px);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     background: var(--color-bg-elevated);
@@ -84,10 +91,10 @@ import DialogCloseButton from "./DialogCloseButton.astro";
     margin: 0 0 var(--space-4);
     padding-inline-end: var(--dialog-x-clearance);
   }
-  /* A small floor, not a target: enough that a one-line message doesn't
-     read as a rendering glitch, small enough that the "unavailable"
-     fallback (a couple of lines of text) doesn't leave a large dead area
-     now that .eegv-dialog sizes to fit-content (see the comment above). */
+  /* A floor, not a target: if the host arrives before its first paint (or a
+     move races a repaint) the box shouldn't collapse to nothing and read as
+     a rendering glitch. Small enough not to leave dead space now that
+     .eegv-dialog sizes to fit-content (see the comment above). */
   .eegv-dialog__body {
     min-block-size: 48px;
   }

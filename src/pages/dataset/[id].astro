@@ -339,20 +339,33 @@ Astro.response.headers.set(
     }
   >();
 
-  // EEG viewer modal state (website#199). Every "eeg" preview button mounts
-  // into the same page-level dialog/slot (EegViewerDialog.astro) rather than
-  // an inline per-row slot, so re-opens — same file or a different one —
-  // share one instance instead of accumulating one per row.
+  // Signal viewer state (website#217). The viewer opens inline, in the
+  // clicked row's own preview panel; the page-level dialog
+  // (EegViewerDialog.astro) is a second step behind that panel's "Enlarge"
+  // control, and it receives the already-mounted host rather than hosting a
+  // mount of its own.
   //
-  // `eegModalSeq` is bumped on every open *and* on close; a mount attempt
-  // whose captured `seq` no longer matches the live counter by the time it
-  // resolves was superseded (a newer open, or a close, happened first) and
-  // tears itself down instead of touching the DOM. `eegSlotDestroy` holds
-  // the teardown handle `mountEegViewer` returns for whatever is currently
-  // live in the slot, so both a new open and a dialog close can release it
-  // (ResizeObserver/MutationObserver/WebGL context) instead of orphaning it.
-  let eegModalSeq = 0;
-  let eegSlotDestroy: (() => void) | null = null;
+  // At most one viewer is live page-wide. That constraint arrived with the
+  // modal in website#199 but is not about the modal: each mount holds a WebGL
+  // context and browsers cap those (~16), so opening a second signal file
+  // releases the first instead of accumulating one per row.
+  //
+  // `eegSeq` is bumped on every open *and* every release; a mount attempt
+  // whose captured `seq` no longer matches by the time it resolves was
+  // superseded and tears itself down instead of touching the DOM. `eegLive`
+  // holds the row, the portable host element, and the teardown handle
+  // `mountEegViewer` returns, so a new open, a collapse, and a dialog close
+  // can each find the current instance and its DOM.
+  let eegSeq = 0;
+  let eegLive: {
+    btn: HTMLButtonElement;
+    /** The row's `[data-preview-slot]` — the viewer's home. */
+    slot: HTMLElement;
+    /** The element `mountEegViewer` owns; moves between `slot` and the dialog. */
+    host: HTMLElement;
+    fileName: string;
+    destroy: (() => void) | null;
+  } | null = null;
 
   /**
    * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
@@ -600,49 +613,88 @@ Astro.response.headers.set(
   document.addEventListener("mouseover", (event) => maybePrefetchZarrFromTarget(event.target));
   document.addEventListener("focusin", (event) => maybePrefetchZarrFromTarget(event.target));
 
-  // Open the EEG/MEG/iEEG/EMG signal viewer in the page-level modal
-  // (EegViewerDialog.astro) rather than expanding an inline row slot.
-  // Mirrors the failure paths the old inline branch had (zarrAvailable
-  // false with its recorded reason, mount-failure catch), the aria-busy /
-  // data-loaded state markers, and the code-split dynamic import — only the
-  // host (a shared dialog slot instead of a per-row slot) and the
-  // concurrency guard changed. A per-row slot only ever had to protect
-  // against re-clicking *itself* mid-fetch; a shared slot also has to
-  // protect against a second, different file being opened before the first
-  // finishes loading, so `eegModalSeq` supersedes-and-tears-down a stale
-  // attempt instead of just bailing on it.
-  async function openEegViewerModal(btn: HTMLButtonElement): Promise<void> {
+  // Four corner brackets pointing outward — the conventional "expand to a
+  // larger surface" glyph, and distinct from the download arrow the same row
+  // already carries.
+  const ENLARGE_ICON_SVG =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>' +
+    "</svg>";
+
+  /** Put a signal row back in its collapsed, empty state. Idempotent. */
+  function resetEegRow(btn: HTMLButtonElement, slot: HTMLElement): void {
+    slot.innerHTML = "";
+    slot.hidden = true;
+    delete slot.dataset.loaded;
+    slot.removeAttribute("aria-busy");
+    btn.setAttribute("aria-expanded", "false");
+  }
+
+  /**
+   * Tear down the live viewer (if any), return the dialog to a clean state,
+   * and collapse the row that owned it. Called when another signal file is
+   * opened, when the open one is collapsed, and on tree teardown.
+   */
+  function releaseEegViewer(): void {
+    eegSeq++; // invalidate any mount still in flight
+    const live = eegLive;
+    // Cleared *before* `dialog.close()`: the close handler's job is to hand a
+    // live viewer back to its row, and there is about to be no live viewer
+    // and no row to hand it to. Seeing null, it just empties the dialog.
+    eegLive = null;
+    live?.destroy?.();
     const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-    const slot = document.querySelector<HTMLElement>("[data-eegv-slot]");
-    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
-    if (!dialog || !slot) {
-      console.error("[eeg-viewer] modal dialog markup missing");
+    if (dialog?.open) dialog.close();
+    if (live) resetEegRow(live.btn, live.slot);
+  }
+
+  /**
+   * Open the EEG/MEG/iEEG/EMG signal viewer inline, in the clicked row's own
+   * preview panel (website#217). Keeps every failure path the modal version
+   * had — `zarrAvailable === "false"` with its recorded reason, the
+   * mount-failure catch, both with a download fallback — plus the aria-busy /
+   * data-loaded markers and the code-split dynamic import.
+   *
+   * `eegSeq` supersedes rather than merely bails: a second file opened before
+   * the first finishes loading must actively tear the first one down, since
+   * by then it may already hold a store and a GL context.
+   */
+  async function openEegViewerInline(btn: HTMLButtonElement): Promise<void> {
+    const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
+    const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
+    if (!wrap || !slot) {
+      console.error("[eeg-viewer] preview slot missing for row", btn);
       return;
     }
+
+    // Second click on the already-open row collapses it. `releaseEegViewer`
+    // covers the case where this row holds the live viewer; the unconditional
+    // reset also covers the rows that are expanded *without* one (a recorded
+    // "unavailable", or a mount that failed).
+    const wasExpanded = btn.getAttribute("aria-expanded") === "true";
+    releaseEegViewer();
+    resetEegRow(btn, slot);
+    if (wasExpanded) return;
 
     const fileName = btn.dataset.fileName ?? "";
     const filePath = btn.dataset.previewPath ?? "";
     const section = btn.closest<HTMLElement>("[data-tree-defer]");
     const treeId = section?.dataset.id;
     const treeVersion = section?.dataset.version;
+
+    btn.setAttribute("aria-expanded", "true");
+    slot.hidden = false;
+
     if (!treeId || !treeVersion || !filePath) {
+      // The button is somehow outside a `[data-tree-defer]` section. The panel
+      // is already open from the flip above — surface an error rather than
+      // leave the user staring at an empty box.
       console.warn("[eeg-viewer] missing dataset context on btn", btn);
+      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't load the viewer: missing dataset context. Try refreshing the page.</p>`;
+      slot.dataset.loaded = "true";
       return;
     }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
-
-    if (titleEl) titleEl.textContent = fileName || "Signal viewer";
-    dialog.showModal();
-
-    // Bump first so any in-flight attempt (including one this same call is
-    // about to supersede) can tell it's stale by the time it resolves.
-    const seq = ++eegModalSeq;
-
-    // Release whatever is currently live in the slot *before* touching it —
-    // covers both "reopen a different file" (must not show the previous
-    // recording) and "reopen the same file" (no point rendering twice).
-    eegSlotDestroy?.();
-    eegSlotDestroy = null;
 
     if (btn.dataset.zarrAvailable === "false") {
       // A recorded data failure has a specific, permanent reason; show it.
@@ -651,7 +703,7 @@ Astro.response.headers.set(
       const lead = reason
         ? escapeHtml(reason)
         : "No interactive viewer is available for this recording yet.";
-      slot.innerHTML = `<p class="preview__empty">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.innerHTML = `<p class="preview__empty" role="status">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
       slot.dataset.loaded = "true";
       return;
     }
@@ -659,71 +711,128 @@ Astro.response.headers.set(
     prefetchZarrButton(btn);
     slot.dataset.loaded = "loading";
     slot.setAttribute("aria-busy", "true");
-    slot.innerHTML = `<p class="preview__loading">Loading viewer…</p>`;
+    // The host is a dedicated child, not the slot itself, precisely so it can
+    // be moved into the dialog without taking the row's chrome with it.
+    slot.innerHTML = [
+      `<div class="eegv-inline__bar">`,
+      `<span class="eegv-inline__name" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</span>`,
+      `<button type="button" class="eegv-inline__btn" data-eegv-enlarge aria-haspopup="dialog">${ENLARGE_ICON_SVG}Enlarge</button>`,
+      `</div>`,
+      `<div data-eegv-host><p class="preview__loading" role="status">Loading viewer…</p></div>`,
+    ].join("");
+    const host = slot.querySelector<HTMLElement>("[data-eegv-host]");
+    if (!host) {
+      console.error("[eeg-viewer] host element missing after shell render");
+      return;
+    }
+
+    const seq = ++eegSeq;
+    eegLive = { btn, slot, host, fileName, destroy: null };
     try {
       const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
-      if (seq !== eegModalSeq) return; // a newer open (or a close) superseded this one
-      const destroy = await mountEegViewer(slot, {
+      if (seq !== eegSeq) return; // superseded by a newer open, or released
+      const destroy = await mountEegViewer(host, {
         datasetId: treeId,
         version: treeVersion,
         filePath,
         downloadUrl: fileUrl,
         // Checked *inside* the mount, right after its own async gap, so a
-        // superseded attempt returns before it clears the slot. The check
-        // below only runs once the mount has already written its DOM, which
-        // is too late to protect a newer mount that got there first.
-        isStale: () => seq !== eegModalSeq,
+        // superseded attempt returns before it writes into the host. The
+        // check below only runs once the mount has already written its DOM,
+        // too late to protect whatever got there first.
+        isStale: () => seq !== eegSeq,
       });
-      if (seq !== eegModalSeq) {
-        // Superseded while mounting (rapid reopen, or the dialog was closed
-        // before the store finished opening) — tear it down immediately
-        // rather than let it keep rendering/streaming unseen. `destroy()`
-        // only unwinds side effects (observers, listeners, GL context), not
-        // the DOM `mountEegViewer` already wrote into the slot — if a newer
-        // *open* superseded us, that attempt owns the slot and is left
-        // alone, but if a *close* superseded us the dialog is hidden and
-        // nothing should be sitting in the slot, so re-clear it defensively.
+      if (seq !== eegSeq) {
+        // Superseded while mounting. Tear it down rather than let it keep
+        // rendering and streaming unseen; whoever superseded us already owns
+        // the DOM (`releaseEegViewer` cleared this row, or a newer open
+        // rebuilt it), so there is nothing here to clean up beyond the
+        // instance's own side effects.
         destroy?.();
-        if (!dialog.open) {
-          slot.innerHTML = "";
-          delete slot.dataset.loaded;
-          slot.removeAttribute("aria-busy");
-        }
         return;
       }
-      eegSlotDestroy = destroy ?? null;
+      if (eegLive) eegLive.destroy = destroy ?? null;
     } catch (err) {
       console.error("[eeg-viewer] mount failed:", err);
-      if (seq !== eegModalSeq) return;
+      if (seq !== eegSeq) return;
+      eegLive = null;
       slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
     } finally {
-      if (seq === eegModalSeq) {
+      if (seq === eegSeq) {
         slot.removeAttribute("aria-busy");
         slot.dataset.loaded = "true";
       }
     }
   }
 
-  // Closing the modal (Esc, or the corner/bottom close controls, which both
-  // call the native `dialog.close()`) must not leave the viewer instance
-  // running behind a hidden dialog — release its observers/GL context and
-  // clear the slot so the next open never flashes stale content before the
-  // new mount finishes.
-  document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.addEventListener("close", () => {
-    eegModalSeq++; // invalidate any mount still in flight
-    eegSlotDestroy?.();
-    eegSlotDestroy = null;
-    const slot = document.querySelector<HTMLElement>("[data-eegv-slot]");
-    if (slot) {
-      slot.innerHTML = "";
-      delete slot.dataset.loaded;
-      slot.removeAttribute("aria-busy");
+  /**
+   * Promote the live inline viewer into the page-level dialog by *moving* its
+   * host element, leaving a marker behind in the inline panel.
+   *
+   * Moving rather than remounting is the point of the feature: the montage,
+   * filter, gain, channel page and time window are closure state inside one
+   * mount, and re-running `mountEegViewer` would reset exactly the state the
+   * user enlarged in order to see better. The move is safe because the
+   * instance's MutationObserver watches `document.documentElement` (theme
+   * flips) rather than its host, and its ResizeObserver watches the viewer
+   * root *inside* the moved subtree — so the relocation triggers a repaint at
+   * the new width and nothing else. It also works mid-mount: `mountEegViewer`
+   * holds a reference to the host element, which the move does not invalidate.
+   */
+  function enlargeEegViewer(): void {
+    const live = eegLive;
+    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+    const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
+    if (!dialog || !dialogSlot) {
+      console.error("[eeg-viewer] dialog markup missing");
+      return;
     }
+    if (!live || dialog.open) return;
+
+    const anchor = document.createElement("p");
+    anchor.className = "eegv-inline__moved";
+    anchor.dataset.eegvInlineAnchor = "";
+    anchor.textContent = "Showing in the enlarged viewer.";
+    live.host.replaceWith(anchor);
+    dialogSlot.replaceChildren(live.host);
+    if (titleEl) titleEl.textContent = live.fileName || "Signal viewer";
+    dialog.showModal();
+  }
+
+  // Closing the dialog (Esc or the corner X, both native `dialog.close()`)
+  // hands the viewer back to the inline panel it came from — the instance is
+  // never torn down by an enlarge/return round trip, so the user returns to
+  // the same montage and time window they left with.
+  document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.addEventListener("close", () => {
+    const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+    const live = eegLive;
+    if (!live) {
+      // Released while enlarged — the subtree sitting here is already torn
+      // down and has no row to go back to. Drop it so the next enlarge
+      // doesn't flash a dead viewer.
+      dialogSlot?.replaceChildren();
+      return;
+    }
+    const anchor = live.slot.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
+    // `append` rather than nothing when the anchor is gone: without it a lost
+    // anchor would strand the viewer inside a closed dialog, invisible and
+    // unreachable but still holding its GL context.
+    if (anchor) anchor.replaceWith(live.host);
+    else live.slot.append(live.host);
   });
 
   document.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+
+    // "Enlarge" inside an open signal preview. Handled before the
+    // preview-toggle branch below for the same reason as show-all: it lives
+    // inside a preview panel, and must not be read as a row click.
+    if (target.closest("[data-eegv-enlarge]")) {
+      enlargeEegViewer();
+      return;
+    }
 
     // "Show all N rows" inside an open TSV preview. Handled first so it
     // doesn't fall into the preview-toggle branch below.
@@ -749,11 +858,13 @@ Astro.response.headers.set(
     const btn = target.closest<HTMLButtonElement>("[data-preview-path]");
     if (!btn) return;
 
-    // EEG/MEG/iEEG/EMG: open the interactive Zarr signal viewer in the
-    // page-level modal (website#199) instead of the inline row-toggle path
-    // below — it never expands its own row's `data-preview-slot`.
+    // EEG/MEG/iEEG/EMG: the interactive Zarr signal viewer. Same expand /
+    // collapse gesture as the text previews below, but its own open path —
+    // it mounts a live instance rather than fetching and rendering once, so
+    // it owns teardown, the one-instance-page-wide rule, and the enlarge
+    // handoff (website#217).
     if (btn.dataset.previewType === "eeg") {
-      await openEegViewerModal(btn);
+      await openEegViewerInline(btn);
       return;
     }
 

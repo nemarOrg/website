@@ -70,22 +70,34 @@ describe("renderTopLevel", () => {
     expect(html).toContain(`data-preview-type="json"`);
     expect(html).toContain(`data-preview-type="eeg"`);
     expect(html).toContain(`data-preview-type="md"`);
-    // md/json/tsv each get exactly one inline preview slot; eeg opens the
-    // shared signal-viewer modal instead (website#199) and gets no per-row
-    // slot of its own.
+    // Every previewable type gets exactly one inline slot, eeg included
+    // (website#217 — between #199 and #217 eeg opened straight into a modal
+    // and had no per-row slot).
     const slots = html.match(/data-preview-slot/g) ?? [];
-    expect(slots.length).toBe(3);
+    expect(slots.length).toBe(4);
   });
 
-  it("marks the eeg preview button aria-haspopup=dialog, not aria-expanded", () => {
+  it("gives the eeg row an inline preview slot marked for signal sizing", () => {
     const html = renderTopLevel(
       listing({ children: [{ kind: "file", name: "sub-01_task-rest_eeg.set", size: 100000 }] }),
     );
     expect(html).toContain(`data-preview-type="eeg"`);
-    expect(html).toContain(`aria-haspopup="dialog"`);
-    // The eeg button doesn't toggle adjacent content, so it must not claim
-    // aria-expanded the way the md/json/tsv inline-preview buttons do.
-    expect(html).not.toMatch(/data-preview-type="eeg"[^>]*aria-expanded/);
+    expect(html).toContain(`class="tree__preview tree__preview--signal"`);
+    // The signal panel hosts a live viewer whose readouts update continuously;
+    // announcing each one is why it opts out of the aria-live the text
+    // previews use.
+    expect(html).not.toMatch(/tree__preview--signal[^>]*aria-live/);
+  });
+
+  it("marks the eeg preview button aria-expanded, not aria-haspopup=dialog", () => {
+    const html = renderTopLevel(
+      listing({ children: [{ kind: "file", name: "sub-01_task-rest_eeg.set", size: 100000 }] }),
+    );
+    // The button toggles its adjacent panel like every other preview type;
+    // the dialog is a second step behind the panel's Enlarge control, so
+    // claiming aria-haspopup="dialog" here would misdescribe the button.
+    expect(html).toMatch(/data-preview-type="eeg"[^>]*aria-expanded="false"/);
+    expect(html).not.toContain(`aria-haspopup="dialog"`);
   });
 
   it("omits the preview button + slot for unknown formats (CHANGES, .gitattributes)", () => {

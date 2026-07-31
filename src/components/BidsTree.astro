@@ -330,6 +330,80 @@ const dataHost = new URL(dataBase).host;
     overflow: auto;
   }
   .tree__preview[hidden] { display: none; }
+  /* The signal viewer is the one preview that needs vertical room. Its scope
+     height is derived from its width, so at any usable width the plot is
+     taller than the 480px cap above and would sit behind a scrollbar inside
+     an already-scrolling page. Let the panel grow to the viewer instead; the
+     Enlarge control below is the escape hatch when it still isn't enough. */
+  .tree__preview--signal {
+    max-block-size: none;
+    overflow: visible;
+    padding: 0;
+  }
+  /* Inline signal-viewer chrome (website#217): file name on the left, the
+     promote-to-dialog control on the right, viewer host underneath. */
+  .eegv-inline__bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-5);
+    border-block-end: 1px solid var(--color-border);
+  }
+  .eegv-inline__name {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .eegv-inline__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: none;
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+  .eegv-inline__btn:hover {
+    color: var(--color-fg);
+    border-color: var(--color-link);
+  }
+  .eegv-inline__btn:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .eegv-inline__btn svg {
+    inline-size: 12px;
+    block-size: 12px;
+  }
+  /* Stand-in left in the inline panel while the viewer is in the dialog, so
+     the panel doesn't read as an empty box and the return has an exact
+     position to restore the host into. */
+  .eegv-inline__moved {
+    margin: 0;
+    padding: var(--space-5);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  /* The signal panel has no padding of its own (the viewer is full-bleed
+     inside it), so the transient messages the page writes need their own.
+     Descendant, not child, selectors: the "unavailable" and error messages
+     are written straight into the panel, but the loading one goes inside
+     `[data-eegv-host]` — it is the placeholder the mount replaces. The
+     mounted viewer's own markup is `.eegv__*`, so nothing here collides. */
+  .tree__preview--signal .preview__empty,
+  .tree__preview--signal .preview__error,
+  .tree__preview--signal .preview__loading {
+    padding: var(--space-4) var(--space-5);
+  }
   /* Markdown preview prose. Distinct from .readme__ so the dataset-header
      README component's styles don't bleed in. */
   .preview__md {
