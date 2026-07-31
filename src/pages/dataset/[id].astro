@@ -639,13 +639,25 @@ Astro.response.headers.set(
   function releaseEegViewer(): void {
     eegSeq++; // invalidate any mount still in flight
     const live = eegLive;
-    // Cleared *before* `dialog.close()`: the close handler's job is to hand a
-    // live viewer back to its row, and there is about to be no live viewer
-    // and no row to hand it to. Seeing null, it just empties the dialog.
     eegLive = null;
     live?.destroy?.();
     const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-    if (dialog?.open) dialog.close();
+    if (dialog?.open) {
+      // Empty the dialog here rather than leaving it to the close handler.
+      // `close()` only *queues* the close event, and `openEegViewerInline`
+      // (this function's only caller) assigns a new `eegLive` synchronously
+      // before its first await — so by the time that handler runs it can
+      // already be looking at a different row, and would not recognise this
+      // host as something to clear. Doing it synchronously means a released
+      // host can never be stranded inside a closed dialog.
+      //
+      // Unreachable today: a modal <dialog> makes the rest of the document
+      // inert, so no tree row can be clicked while it is open. That is a
+      // guarantee about the dialog being modal, though, not about this
+      // function, and it costs one line not to depend on it.
+      document.querySelector<HTMLElement>("[data-eegv-slot]")?.replaceChildren();
+      dialog.close();
+    }
     if (live) resetEegRow(live.btn, live.slot);
   }
 
@@ -723,7 +735,18 @@ Astro.response.headers.set(
     ].join("");
     const host = slot.querySelector<HTMLElement>("[data-eegv-host]");
     if (!host) {
+      // Unreachable short of the shell markup above being edited out of sync
+      // with this query — there is no await between writing it and reading it
+      // back. Handled fully anyway, because this return sits *before*
+      // `eegSeq`/`eegLive` are assigned and so is the one path the try/finally
+      // below can never clean up: a bare return would leave the row spinning
+      // on "Loading viewer…" behind a stuck `aria-busy` forever, with an
+      // Enlarge control that silently no-ops (`enlargeEegViewer` would find no
+      // live viewer). Replacing the whole panel clears all three at once.
       console.error("[eeg-viewer] host element missing after shell render");
+      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't open the viewer. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.removeAttribute("aria-busy");
+      slot.dataset.loaded = "true";
       return;
     }
 
@@ -822,19 +845,26 @@ Astro.response.headers.set(
   document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.addEventListener("close", () => {
     const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
     const live = eegLive;
-    if (!live) {
-      // Released while enlarged — the subtree sitting here is already torn
-      // down and has no row to go back to. Drop it so the next enlarge
-      // doesn't flash a dead viewer.
-      dialogSlot?.replaceChildren();
+    const anchor = live?.slot.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
+    if (live && anchor) {
+      anchor.replaceWith(live.host);
       return;
     }
-    const anchor = live.slot.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
-    // `append` rather than nothing when the anchor is gone: without it a lost
-    // anchor would strand the viewer inside a closed dialog, invisible and
-    // unreachable but still holding its GL context.
-    if (anchor) anchor.replaceWith(live.host);
-    else live.slot.append(live.host);
+    if (live && dialogSlot?.contains(live.host)) {
+      // The live viewer is in the dialog but its row has no marker to put it
+      // back into, so something mutated that row while it was enlarged.
+      // Recover to the end of the panel rather than strand it in a closed
+      // dialog holding a GL context — but say so, because the recovery is
+      // patching over a broken invariant, not handling an expected state.
+      console.warn("[eeg-viewer] inline anchor missing; returning viewer to the end of its panel");
+      live.slot.append(live.host);
+      return;
+    }
+    // Nothing of ours is in the dialog: either it was released while enlarged
+    // (already torn down, no row to go back to) or `eegLive` has since moved
+    // on to a row that was never enlarged. Drop whatever is left so the next
+    // enlarge doesn't flash a dead viewer.
+    dialogSlot?.replaceChildren();
   });
 
   document.addEventListener("click", async (event) => {
