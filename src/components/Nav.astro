@@ -137,7 +137,13 @@ const signInHref = appUrl("/login", url.hostname);
     justify-content: center;
     align-items: center;
   }
-  .primary-nav__list a {
+  /* `:global(a)`, not a bare `a`: the external entries render their anchor
+     inside ExternalLink.astro, which carries that component's scope id rather
+     than this one's, so a scoped descendant selector would not reach them —
+     Citation Dashboard and Documentation fell back to the default link style
+     and sat in the nav at the wrong colour and size. The container class keeps
+     its own scope, so this stays confined to this nav. */
+  .primary-nav__list :global(a) {
     display: inline-flex;
     align-items: center;
     min-block-size: 44px;
@@ -149,10 +155,10 @@ const signInHref = appUrl("/login", url.hostname);
     text-decoration: none;
     transition: color 0.15s ease;
   }
-  .primary-nav__list a:hover {
+  .primary-nav__list :global(a:hover) {
     color: var(--color-fg);
   }
-  .primary-nav__list a[aria-current="page"] {
+  .primary-nav__list :global(a[aria-current="page"]) {
     color: var(--color-fg);
     box-shadow: inset 0 -2px 0 var(--brand-teal);
   }

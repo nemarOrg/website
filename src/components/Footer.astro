@@ -230,11 +230,15 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     flex-direction: column;
     gap: var(--space-2);
   }
-  .site-footer__nav a {
+  /* `:global(a)` for the same reason as Nav.astro: the outbound entries render
+     their anchor inside ExternalLink.astro, which carries that component's
+     scope id, so a scoped descendant selector misses them and they fall back
+     to the default link colour and size. Scoping stays on the container. */
+  .site-footer__nav :global(a) {
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
   }
-  .site-footer__nav a:hover {
+  .site-footer__nav :global(a:hover) {
     color: var(--color-fg);
   }
   /* Credits band: SCCN + SDSC as the makers, then sponsors and partners. Logos
