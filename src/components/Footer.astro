@@ -1,10 +1,20 @@
 ---
+import { apiBase } from "../lib/api-base";
 import { APP_VERSION, BUILD_REF } from "../lib/build-info";
 import { resolveDataBase } from "../lib/data-base";
+import { resolveDocsBase } from "../lib/docs-base";
 
 const year = new Date().getFullYear();
-const dataBase = resolveDataBase();
-const dataHost = new URL(dataBase).host;
+
+// All three Data-column hosts resolve through their own resolver rather than
+// being written out here (website#220). Before, only the data host did, so
+// staging advertised `data-test.nemar.org` alongside a production `api.nemar.org`
+// and `docs.nemar.org` — a footer describing two environments at once, and the
+// api link in particular pointed somewhere the rest of that page was not
+// talking to. The label is derived from the URL, so it can never drift from it.
+const dataHost = new URL(resolveDataBase()).host;
+const apiHost = new URL(apiBase()).host;
+const docsHost = new URL(resolveDocsBase()).host;
 
 const REPO_URL = "https://github.com/nemarOrg/website";
 
@@ -53,9 +63,9 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
       <div>
         <h3>Data</h3>
         <ul role="list">
-          <li><a href={`${dataBase}/`}>{dataHost}</a></li>
-          <li><a href="https://api.nemar.org/">api.nemar.org</a></li>
-          <li><a href="https://docs.nemar.org/">docs.nemar.org</a></li>
+          <li><a href={`https://${dataHost}/`}>{dataHost}</a></li>
+          <li><a href={`https://${apiHost}/`}>{apiHost}</a></li>
+          <li><a href={`https://${docsHost}/`}>{docsHost}</a></li>
         </ul>
       </div>
       <div>
