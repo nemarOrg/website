@@ -73,7 +73,6 @@ describe("isAppRoute", () => {
     "/discover",
     "/about",
     "/support",
-    "/community",
     "/citation-dashboard",
     "/docs",
     "/docs/getting-started",
@@ -193,7 +192,7 @@ describe("getRetiredRedirect", () => {
 
   it("redirects the retired citation dashboard to dashboard.nemar.org", () => {
     expect(getRetiredRedirect(u("/citation-dashboard"))).toBe(
-      "https://dashboard.nemar.org/citations",
+      "https://dashboard.nemar.org/citations/",
     );
   });
 
@@ -417,7 +416,7 @@ describe("getCrossHostRedirect with a session", () => {
   const url = (host: string, pathAndSearch: string) => new URL(`https://${host}${pathAndSearch}`);
 
   it("keeps marketing routes on the app host for a signed-in user", () => {
-    for (const path of ["/discover", "/about", "/support", "/community", "/"]) {
+    for (const path of ["/discover", "/about", "/support", "/"]) {
       expect(getCrossHostRedirect(url(APP_HOST, path), { hasSession: true })).toBeNull();
     }
   });

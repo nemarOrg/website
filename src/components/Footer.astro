@@ -3,6 +3,7 @@ import { apiBase } from "../lib/api-base";
 import { APP_VERSION, BUILD_REF } from "../lib/build-info";
 import { resolveDataBase } from "../lib/data-base";
 import { resolveDocsBase } from "../lib/docs-base";
+import ExternalLink from "./ExternalLink.astro";
 
 const year = new Date().getFullYear();
 
@@ -48,14 +49,18 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
         <h3>Explore</h3>
         <ul role="list">
           <li><a href="/discover">Discover</a></li>
-          <li><a href="https://dashboard.nemar.org/citations">Citations</a></li>
-          <li><a href="https://docs.nemar.org">Documentation</a></li>
+          <li><ExternalLink href="https://dashboard.nemar.org/citations/">Citations</ExternalLink></li>
+          <li><ExternalLink href="https://docs.nemar.org">Documentation</ExternalLink></li>
         </ul>
       </div>
       <div>
-        <h3>Community</h3>
+        {/* Was "Community", with a "Forum" link to a placeholder page
+            promising a forum that does not exist (website#222). Both are gone.
+            The heading is now "Project", which describes what is actually
+            under it — About and Support — rather than a community surface
+            NEMAR does not run. */}
+        <h3>Project</h3>
         <ul role="list">
-          <li><a href="/community">Forum</a></li>
           <li><a href="/about">About</a></li>
           <li><a href="/support">Support</a></li>
         </ul>
@@ -63,9 +68,9 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
       <div>
         <h3>Data</h3>
         <ul role="list">
-          <li><a href={`https://${dataHost}/`}>{dataHost}</a></li>
-          <li><a href={`https://${apiHost}/`}>{apiHost}</a></li>
-          <li><a href={`https://${docsHost}/`}>{docsHost}</a></li>
+          <li><ExternalLink href={`https://${dataHost}/`}>{dataHost}</ExternalLink></li>
+          <li><ExternalLink href={`https://${apiHost}/`}>{apiHost}</ExternalLink></li>
+          <li><ExternalLink href={`https://${docsHost}/`}>{docsHost}</ExternalLink></li>
         </ul>
       </div>
       <div>
@@ -80,8 +85,8 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
               the code, nemarDatasets holds one repository per dataset. Both
               are public and worth surfacing — people looking for the data
               repos never find them under nemarOrg. */}
-          <li><a href="https://github.com/nemarOrg" rel="external">nemarOrg</a></li>
-          <li><a href="https://github.com/nemarDatasets" rel="external">nemarDatasets</a></li>
+          <li><ExternalLink href="https://github.com/nemarOrg">nemarOrg</ExternalLink></li>
+          <li><ExternalLink href="https://github.com/nemarDatasets">nemarDatasets</ExternalLink></li>
         </ul>
       </div>
     </nav>
@@ -166,8 +171,11 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     </p>
     <span class="site-footer__sep" aria-hidden="true">&middot;</span>
     <p>
-      Built with <a href="https://astro.build">Astro</a> on
-      <a href="https://pages.cloudflare.com">Cloudflare Pages</a>
+      {/* Marked like every other outbound link. Two arrows in one short line
+          is busier than leaving them bare, but a marker applied only to the
+          links someone judged important stops being a reliable signal. */}
+      Built with <ExternalLink href="https://astro.build">Astro</ExternalLink> on
+      <ExternalLink href="https://pages.cloudflare.com">Cloudflare Pages</ExternalLink>
     </p>
   </div>
 </footer>
@@ -222,11 +230,15 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     flex-direction: column;
     gap: var(--space-2);
   }
-  .site-footer__nav a {
+  /* `:global(a)` for the same reason as Nav.astro: the outbound entries render
+     their anchor inside ExternalLink.astro, which carries that component's
+     scope id, so a scoped descendant selector misses them and they fall back
+     to the default link colour and size. Scoping stays on the container. */
+  .site-footer__nav :global(a) {
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
   }
-  .site-footer__nav a:hover {
+  .site-footer__nav :global(a:hover) {
     color: var(--color-fg);
   }
   /* Credits band: SCCN + SDSC as the makers, then sponsors and partners. Logos
