@@ -2,6 +2,7 @@
 import { getSession } from "../lib/auth";
 import { appUrl, hostMode, marketingUrl } from "../lib/host";
 import Brand from "./Brand.astro";
+import ExternalLink from "./ExternalLink.astro";
 import ThemeToggle from "./ThemeToggle.astro";
 import UserMenu from "./UserMenu.astro";
 
@@ -10,14 +11,25 @@ const pathname = url.pathname;
 const mode = hostMode(url.hostname);
 const session = getSession(Astro.locals);
 
+// "Community" is gone (website#222). It pointed at a placeholder page
+// promising a forum that does not exist and was not being built; a nav entry
+// for a surface with nothing behind it is worse than no entry. Per-dataset
+// discussion is the real need it was standing in for, and that is tracked
+// separately against the dataset repositories' GitHub issues.
+//
+// Citation Dashboard and Documentation are separate deployments
+// (`nemarOrg/nemar-citations`, `nemarOrg/docs`), not routes on this site —
+// hence the absolute URLs, and hence `isExternal` below.
 const marketingLinks = [
   { href: "/about", label: "About" },
   { href: "/discover", label: "Discover" },
-  { href: "https://dashboard.nemar.org/citations", label: "Citation Dashboard" },
-  { href: "/community", label: "Community" },
+  { href: "https://dashboard.nemar.org/citations/", label: "Citation Dashboard" },
   { href: "https://docs.nemar.org", label: "Documentation" },
   { href: "/support", label: "Support" },
 ];
+
+/** A nav target that leaves this site, and so opens in a new tab. */
+const isExternal = (href: string) => href.startsWith("http");
 
 // On the app host the nav depends on whether we can keep the user here.
 //
@@ -55,16 +67,16 @@ const signInHref = appUrl("/login", url.hostname);
         {
           links.map((link) => (
             <li>
-              <a
-                href={link.href}
-                aria-current={
-                  link.href.startsWith("/") && pathname.startsWith(link.href)
-                    ? "page"
-                    : undefined
-                }
-              >
-                {link.label}
-              </a>
+              {isExternal(link.href) ? (
+                <ExternalLink href={link.href}>{link.label}</ExternalLink>
+              ) : (
+                <a
+                  href={link.href}
+                  aria-current={pathname.startsWith(link.href) ? "page" : undefined}
+                >
+                  {link.label}
+                </a>
+              )}
             </li>
           ))
         }

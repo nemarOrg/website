@@ -357,7 +357,10 @@ export function getRetiredRedirect(url: URL): string | null {
   if (mapped) return mapped;
   if (path === "/docs" || path.startsWith("/docs/")) return "https://docs.nemar.org/";
   if (path === "/citation-dashboard" || path.startsWith("/citation-dashboard/")) {
-    return "https://dashboard.nemar.org/citations";
+    // Trailing slash is the canonical form — `/citations` 308s to `/citations/`,
+    // so omitting it costs every visitor an extra round trip on top of the
+    // redirect that got them here.
+    return "https://dashboard.nemar.org/citations/";
   }
   return null;
 }
