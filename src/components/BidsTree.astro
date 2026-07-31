@@ -398,7 +398,8 @@ const dataHost = new URL(dataBase).host;
      Descendant, not child, selectors: the "unavailable" and error messages
      are written straight into the panel, but the loading one goes inside
      `[data-eegv-host]` — it is the placeholder the mount replaces. The
-     mounted viewer's own markup is `.eegv__*`, so nothing here collides. */
+     mounted viewer's own markup is `.eegv` / `.eegv__*` throughout, so
+     nothing here collides. */
   .tree__preview--signal .preview__empty,
   .tree__preview--signal .preview__error,
   .tree__preview--signal .preview__loading {

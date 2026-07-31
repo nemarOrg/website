@@ -29,10 +29,13 @@ import DialogCloseButton from "./DialogCloseButton.astro";
   <DialogCloseButton />
   <div class="eegv-dialog__scroll">
     <h2 class="eegv-dialog__title" data-eegv-title>Signal viewer</h2>
-    {/* No `aria-live` (dropped in website#217): this slot no longer receives
-        the loading/unavailable messages — those stay in the inline panel —
-        only an already-mounted viewer, whose cursor readout and legend update
-        continuously and would be announced on every pointer move. */}
+    {/* No `aria-live` (dropped in website#217): what lands here is a live
+        viewer, whose cursor readout and legend update continuously and would
+        otherwise be announced on every pointer move. The "unavailable" and
+        mount-failure messages never reach this slot at all — neither path
+        renders an Enlarge control — though a mount still in flight when the
+        user enlarges does briefly carry its "Loading viewer…" placeholder in
+        with it. */}
     <div class="eegv-dialog__body" data-eegv-slot></div>
   </div>
 </dialog>

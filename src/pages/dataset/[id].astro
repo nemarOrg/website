@@ -633,7 +633,8 @@ Astro.response.headers.set(
   /**
    * Tear down the live viewer (if any), return the dialog to a clean state,
    * and collapse the row that owned it. Called when another signal file is
-   * opened, when the open one is collapsed, and on tree teardown.
+   * opened and when the open one is collapsed — both of which come through
+   * `openEegViewerInline`, its only call site.
    */
   function releaseEegViewer(): void {
     eegSeq++; // invalidate any mount still in flight
@@ -751,7 +752,21 @@ Astro.response.headers.set(
         destroy?.();
         return;
       }
-      if (eegLive) eegLive.destroy = destroy ?? null;
+      if (!destroy) {
+        // `mountEegViewer` returns no disposer precisely when it mounted no
+        // viewer — the store wouldn't open, it has no channel groups, or
+        // there is no canvas context — and left a static "unavailable"
+        // message in the host instead. Two consequences. There is nothing to
+        // enlarge, so drop the bar: otherwise the row offers a control that
+        // opens a full-screen modal onto a single line of text. And there is
+        // nothing to release (that path registers no observers and no GL
+        // context), so this row must stop counting as the live instance,
+        // or the next open would "release" a viewer that never existed.
+        slot.querySelector(".eegv-inline__bar")?.remove();
+        eegLive = null;
+        return;
+      }
+      if (eegLive) eegLive.destroy = destroy;
     } catch (err) {
       console.error("[eeg-viewer] mount failed:", err);
       if (seq !== eegSeq) return;

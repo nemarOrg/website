@@ -5,9 +5,12 @@ import { zarrStoreUrl } from "../zarr-base";
  * and drives the render loop: pick the pyramid level for the window, dequantize
  * only the visible channel rows, optional DC removal, overlay events, draw.
  *
- * The slot is a full-screen modal's body (EegViewerDialog.astro, website#199)
- * rather than an inline row in the BIDS tree — the caller owns showing/hiding
- * the dialog; this module only measures and fills whatever slot it's given.
+ * The slot is normally a per-row host inside the BIDS file tree, and the
+ * caller may reparent it into the page-level dialog when the user asks to
+ * enlarge (website#217). Neither is this module's concern: it measures and
+ * fills whatever slot it is given, and keeps working across a move because it
+ * holds the element itself rather than re-querying for it. Between #199 and
+ * #217 the slot was the dialog's body and nothing else.
  *
  * Design intent:
  * - The scope has a FIXED height. Channels share it, so "show all" squeezes the
@@ -136,9 +139,12 @@ function windowChannelMagnitudes(channels: ChannelWindow[]): Float32Array[] {
  * previously mounted there first (so re-opening on a new file, or on a
  * failed re-open, never leaves the prior instance's ResizeObserver /
  * MutationObserver / WebGL context running under replaced DOM). Returns a
- * disposer the caller should invoke when the host UI (e.g. a modal) closes,
- * so the instance doesn't keep rendering — and its listeners/GL context
- * don't keep living — once nothing is visible. Returns `undefined` when
+ * disposer the caller should invoke once the instance is genuinely finished
+ * with — its preview collapsed, or another recording opened — so it stops
+ * rendering and releases its listeners and GL context. Note that merely
+ * moving the slot (inline panel to dialog and back, website#217) is not
+ * that: the instance survives a move and must not be disposed on one.
+ * Returns `undefined` when
  * nothing was actually mounted (the store failed to open, has no channel
  * groups, or the canvas context is unavailable) — those paths already
  * degrade to a static "unavailable" message with no listeners to tear down.
