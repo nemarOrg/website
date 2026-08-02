@@ -16,7 +16,7 @@ Read `.context/handoff.md` before anything else — it has the most recent sessi
 
 `main` is the production branch on Cloudflare Pages, serving `nemar.org`, `www`, `ww2`, and `app.nemar.org` since the apex cutover (website#190). The redesign epic branch `feature/issue-1-epic-nemar-redesign` is retired.
 
-**Open PRs against `staging`, not `main`.** `staging` leads: work lands there, deploys to test.nemar.org against the nemar-cli `dev` backends for QA, and then promotes to `main` (`git push origin origin/staging:main`). This inverted on 2026-07-29 — staging used to be a fast-forward mirror refreshed *after* each production merge, which meant it could never catch anything. See AGENTS.md "Branch ↔ environment map".
+**Open PRs against `staging`, not `main`.** `staging` leads: work lands there, deploys to test.nemar.org against the nemar-cli `dev` backends for QA, and then promotes to `main` via a release PR (`staging` → `main`, regular merge commit; a direct push is rejected by the ruleset — see AGENTS.md). This inverted on 2026-07-29 — staging used to be a fast-forward mirror refreshed *after* each production merge, which meant it could never catch anything. See AGENTS.md "Branch ↔ environment map".
 
 Caveat worth knowing before you rely on a staging soak: `test.nemar.org` resolves to single-host mode, so cross-host redirects, the signed-in redirect suppression, and app-vs-marketing canonical origins are all inert there. Those need checking on production after promotion (website#212).
 
