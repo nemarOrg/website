@@ -19,8 +19,16 @@ const ERROR_MESSAGES: Record<string, string> = {
   orcid_already_have: "Your account already has a different ORCID iD linked.",
   orcid_account: "We couldn't find an active account for that ORCID iD.",
   orcid_pending_expired: "Your ORCID sign-in session expired. Please sign in with ORCID again.",
+  orcid_relink_session:
+    "Your session expired during the ORCID re-link. Sign in, then try again from Settings.",
+  session_required: "Sign in to continue.",
 };
-const errorMessage = errorParam ? (ERROR_MESSAGES[errorParam] ?? ERROR_MESSAGES.unknown) : null;
+// Object.hasOwn: same prototype-key guard as settings' ORCID map.
+const errorMessage = errorParam
+  ? Object.hasOwn(ERROR_MESSAGES, errorParam)
+    ? ERROR_MESSAGES[errorParam]
+    : ERROR_MESSAGES.unknown
+  : null;
 
 const orcidHref = `/auth/orcid/start${next && next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`;
 const isDev = import.meta.env.DEV;
