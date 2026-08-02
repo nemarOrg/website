@@ -1,7 +1,7 @@
 {
   "name": "nemar-website",
   "type": "module",
-  "version": "0.2.3-dev0",
+  "version": "0.2.3-dev1",
   "private": true,
   "license": "CC-BY-NC-ND-4.0",
   "description": "nemar.org redesign on Astro + Cloudflare Pages",
