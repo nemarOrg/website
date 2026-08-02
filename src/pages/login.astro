@@ -23,7 +23,12 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Your session expired during the ORCID re-link. Sign in, then try again from Settings.",
   session_required: "Sign in to continue.",
 };
-const errorMessage = errorParam ? (ERROR_MESSAGES[errorParam] ?? ERROR_MESSAGES.unknown) : null;
+// Object.hasOwn: same prototype-key guard as settings' ORCID map.
+const errorMessage = errorParam
+  ? Object.hasOwn(ERROR_MESSAGES, errorParam)
+    ? ERROR_MESSAGES[errorParam]
+    : ERROR_MESSAGES.unknown
+  : null;
 
 const orcidHref = `/auth/orcid/start${next && next !== "/" ? `?next=${encodeURIComponent(next)}` : ""}`;
 const isDev = import.meta.env.DEV;

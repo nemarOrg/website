@@ -21,7 +21,12 @@ const ORCID_ERROR_MESSAGES: Record<string, string> = {
   orcid_unavailable: "ORCID is temporarily unavailable. Try again shortly.",
 };
 const orcidErrorParam = new URL(Astro.request.url).searchParams.get("error");
-const orcidError = orcidErrorParam ? (ORCID_ERROR_MESSAGES[orcidErrorParam] ?? null) : null;
+// Object.hasOwn: a plain-object lookup would resolve prototype keys
+// (?error=constructor) to a function and render "[object Object]".
+const orcidError =
+  orcidErrorParam && Object.hasOwn(ORCID_ERROR_MESSAGES, orcidErrorParam)
+    ? ORCID_ERROR_MESSAGES[orcidErrorParam]
+    : null;
 
 const { email, role, status } = session.user;
 const name = fullName(session.user);
