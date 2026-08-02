@@ -1,6 +1,32 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-08-02.
+**Last session:** 2026-08-02 (second session that day: production promotion).
+
+## Promotion session addendum (2026-08-02, later)
+
+Everything below shipped to **production** the same day:
+
+- nemar-cli `dev` → `main` promoted (v0.9.7, separate session). Deploy Backend green;
+  migration 0066 (`auth_codes.user_id`) verified present on prod D1 via read-only
+  `pragma_table_info`. The deploy log said "No migrations to apply" because the
+  promotion prep had already applied it.
+- Website `staging` → `main` promoted as **v0.2.3** via release PR #228. Key discovery:
+  the documented `git push origin origin/staging:main` is REJECTED by the `keep-main`
+  ruleset even with all four checks green on the commit (checks evaluate as "expected"
+  on a bare push). Promotion is a `staging` → `main` PR with a regular merge commit —
+  v0.2.2 (PR #225) went the same way. AGENTS.md/CLAUDE.md now say so.
+- Verified live on production (app.nemar.org, 0.2.3+298df492):
+  - `POST /auth/orcid/start?mode=relink` with correct Origin, no session → 302
+    `/login?error=session_required`; forged Origin → 403.
+  - GET with `mode=relink` mints a state cookie whose decoded `mode` is `"login"`
+    (ADR 0022 coercion live).
+  - `/login?error=session_required` and `?error=orcid_relink_session` render their copy.
+  - New API routes live on api.nemar.org (403/400 refusals, not 404).
+- `release.yml` worked end-to-end: tag v0.2.3, GitHub Release, back-merge, staging now
+  0.2.4-dev0.
+
+Remaining (needs a human): **ORCID relink end-to-end on production Settings with a real
+ORCID iD** — the only path no curl can walk. Then website#226.
 
 ## TL;DR — where we are right now
 
@@ -50,10 +76,11 @@ never auto-close issues (default branch is `main`); close them by hand.
 
 ## Immediate pick-ups
 
-- **Promote nemar-cli `dev` → `main`.** Everything above reaches production only
-  then. After promotion, **verify ORCID relink on production Settings** — staging
-  structurally cannot complete ORCID OAuth (test.nemar.org callback not registered
-  with ORCID; epic #923 known limitation).
+- ~~Promote nemar-cli `dev` → `main`.~~ DONE (v0.9.7 + website v0.2.3, see addendum).
+  Still open from it: **verify ORCID relink on production Settings with a real ORCID
+  iD** — staging structurally cannot complete ORCID OAuth (test.nemar.org callback
+  not registered with ORCID; epic #923 known limitation), and curl cannot walk the
+  OAuth consent step.
 - **website#226 — profile-completeness push** (filed this session, decisions
   locked: dismissible dashboard nudge + hard city/country gate at /upload; GitHub
   required only at publish, matching #129). Frontend-only; backend dependency
@@ -92,9 +119,10 @@ never auto-close issues (default branch is `main`); close them by hand.
 
 ## Standing gotchas (still true)
 
-- `staging` leads; feature PRs target `staging`; promotion is
-  `git push origin origin/staging:main` after Prepare release. `keep-main`
-  ruleset requires green lint/typecheck/test/build on the exact commit.
+- `staging` leads; feature PRs target `staging`; promotion is a `staging` → `main`
+  **release PR with a regular merge commit** after Prepare release (a direct push is
+  rejected by the ruleset even with green checks — see AGENTS.md). `keep-main`
+  requires green lint/typecheck/test/build.
 - test.nemar.org runs single-host mode — cross-host redirects, signed-in redirect
   suppression, canonical origins are all inert there (website#212).
 - Staging D1 (`nemar-db-dev`) holds ~600 real user emails + a live RESEND key.
@@ -106,7 +134,7 @@ never auto-close issues (default branch is `main`); close them by hand.
 
 ## Epic backlog
 
-- **Settings self-service — DONE on dev** (this session). Prod = next promotion.
+- **Settings self-service — DONE, live on prod** (v0.9.7 backend + v0.2.3 website).
 - **Profile completeness — website#226** (nudge + upload gate), then the
   service-access grant queue once nemar-cli#1023 lands.
 - **Contribute / upload — website#164** (#161 in-browser BIDS validation).
