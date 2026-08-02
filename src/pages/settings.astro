@@ -7,6 +7,27 @@ if (!session) {
   return Astro.redirect("/login?next=%2Fsettings");
 }
 
+// ORCID flow errors bounce back here as ?error=<code> (the backend callback
+// carries state.next=/settings). Only known ORCID codes render; anything else
+// is ignored rather than shown as a generic scare banner.
+const ORCID_ERROR_MESSAGES: Record<string, string> = {
+  orcid_linked_other: "That ORCID iD is already linked to a different NEMAR account.",
+  orcid_already_have:
+    "Your account already has a different ORCID iD linked. Use Change / re-link to replace it.",
+  orcid_denied: "The ORCID sign-in was cancelled. Nothing was changed.",
+  orcid_state: "The ORCID session expired. Try again.",
+  orcid_exchange: "We couldn't complete the ORCID flow. Try again.",
+  orcid_error: "Something went wrong during the ORCID flow. Try again.",
+  orcid_unavailable: "ORCID is temporarily unavailable. Try again shortly.",
+};
+const orcidErrorParam = new URL(Astro.request.url).searchParams.get("error");
+// Object.hasOwn: a plain-object lookup would resolve prototype keys
+// (?error=constructor) to a function and render "[object Object]".
+const orcidError =
+  orcidErrorParam && Object.hasOwn(ORCID_ERROR_MESSAGES, orcidErrorParam)
+    ? ORCID_ERROR_MESSAGES[orcidErrorParam]
+    : null;
+
 const { email, role, status } = session.user;
 const name = fullName(session.user);
 const orcid = session.user.orcid;
@@ -138,6 +159,10 @@ const roleLabel: Record<typeof role, string> = {
           <p class="card__lede">Your persistent researcher identifier.</p>
         </header>
 
+        {orcidError && (
+          <p class="flow__msg" role="alert" data-tone="error">{orcidError}</p>
+        )}
+
         {orcid && isValidOrcid(orcid) ? (
           <>
             <div class="orcid">
@@ -165,7 +190,9 @@ const roleLabel: Record<typeof role, string> = {
               <p class="confirm__text">Re-linking starts an ORCID sign-in and replaces the iD above with the one you authenticate. Continue?</p>
               <div class="flow__actions">
                 <button type="button" class="btn btn--ghost" data-confirm-cancel>Cancel</button>
-                <a class="btn btn--primary" href="/auth/orcid/start?mode=relink&next=%2Fsettings">Continue to ORCID</a>
+                <form class="confirm__form" method="post" action="/auth/orcid/start?mode=relink&next=%2Fsettings">
+                  <button type="submit" class="btn btn--primary">Continue to ORCID</button>
+                </form>
               </div>
             </div>
 
@@ -656,6 +683,12 @@ const roleLabel: Record<typeof role, string> = {
   }
   .flow__msg[data-tone="success"] {
     color: var(--color-success);
+  }
+  /* Relink confirm submits a real form POST (nemar-cli ADR 0022: relink
+     intent must be minted by an Origin-carrying POST, not a link). Keep the
+     button participating in .flow__actions' layout as before. */
+  .confirm__form {
+    display: contents;
   }
   .confirm {
     margin-block-start: var(--space-4);
