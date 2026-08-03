@@ -14,6 +14,24 @@ describe("buildDevUser", () => {
     expect(u.role).toBe("admin");
   });
 
+  it("populates the profile fields by default", () => {
+    const u = buildDevUser("alice@example.com");
+    expect(u.city).toBe("London");
+    expect(u.country).toBe("United Kingdom");
+    expect(u.github_username).toBe("ada");
+  });
+
+  it("blanks the profile for @nemar.blank so the #226 nudge and gate are reachable", () => {
+    const u = buildDevUser("someone@nemar.blank");
+    expect(u.city).toBe("");
+    expect(u.country).toBe("");
+    expect(u.github_username).toBe("");
+    expect(u.affiliation).toBe("");
+    // ORCID identity is unaffected: it comes from the login, not self-service.
+    expect(u.orcid_verified).toBe(true);
+    expect(u.role).toBe("user");
+  });
+
   it("derives a stable id from the lowercased email", () => {
     const a = buildDevUser("Alice@Example.com");
     const b = buildDevUser("alice@example.com");

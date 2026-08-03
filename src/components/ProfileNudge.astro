@@ -1,0 +1,140 @@
+---
+/**
+ * Dismissible dashboard banner for an incomplete profile (#226).
+ *
+ * A nudge, not a gate — it never blocks anything on this page. The one hard
+ * requirement (city + country before upload) is enforced on /upload itself,
+ * server-side, so dismissing this cannot buy anyone past it.
+ *
+ * Dismissal is client-side and per-browser on purpose: it is a UI
+ * preference, not account state, and storing it server-side would mean a
+ * write endpoint and a migration for something a user can undo by filling
+ * in the form. It re-appears if the set of missing fields changes, because
+ * the storage key is derived from that set.
+ */
+import { type ProfileField, formatFieldList } from "../lib/profile";
+
+interface Props {
+  /** Missing fields, in prompt order. Renders nothing when empty. */
+  missing: readonly ProfileField[];
+}
+
+const { missing } = Astro.props;
+// Key on the actual missing set so filling in one field re-surfaces the
+// banner for whatever is still outstanding rather than staying dismissed.
+const dismissKey = `nemar:profile-nudge:${[...missing].sort().join(",")}`;
+---
+
+{missing.length > 0 && (
+  <aside
+    class="nudge"
+    role="status"
+    data-profile-nudge
+    data-dismiss-key={dismissKey}
+    hidden
+  >
+    <div class="nudge__body">
+      <p class="nudge__text">
+        Your profile is missing your {formatFieldList(missing)}.
+        {missing.includes("city") || missing.includes("country") ? (
+          <> City and country are required before you can upload a dataset.</>
+        ) : (
+          <> A GitHub handle is required when you publish.</>
+        )}
+      </p>
+      <a class="nudge__link" href="/settings">Complete your profile</a>
+    </div>
+    <button type="button" class="nudge__dismiss" data-profile-nudge-dismiss aria-label="Dismiss">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+        <path
+          d="M4 4l8 8M12 4l-8 8"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+  </aside>
+)}
+
+<style>
+  .nudge {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .nudge[hidden] {
+    display: none;
+  }
+  .nudge__body {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-3);
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .nudge__text {
+    margin: 0;
+  }
+  .nudge__link {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+    white-space: nowrap;
+  }
+  .nudge__dismiss {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: 1.75rem;
+    block-size: 1.75rem;
+    padding: 0;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    cursor: pointer;
+  }
+  .nudge__dismiss:hover {
+    color: var(--color-fg);
+    background: color-mix(in srgb, var(--color-fg) 8%, transparent);
+  }
+  .nudge__dismiss:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+</style>
+
+<script>
+  // Rendered hidden and revealed here, so a previously-dismissed banner
+  // never flashes before the script runs.
+  for (const el of document.querySelectorAll<HTMLElement>("[data-profile-nudge]")) {
+    const key = el.dataset.dismissKey;
+    if (!key) continue;
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem(key) === "1";
+    } catch {
+      // Private mode / storage disabled: show the banner. Failing open is
+      // right for a nudge — the worst case is it reappears next visit.
+    }
+    if (dismissed) continue;
+    el.hidden = false;
+    el.querySelector("[data-profile-nudge-dismiss]")?.addEventListener("click", () => {
+      el.hidden = true;
+      try {
+        localStorage.setItem(key, "1");
+      } catch {
+        // Nothing to do: the banner is closed for this page view either way.
+      }
+    });
+  }
+</script>

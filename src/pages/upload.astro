@@ -3,6 +3,7 @@ import UploadDropzone from "../components/UploadDropzone.astro";
 import UploadProgress from "../components/UploadProgress.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
+import { UPLOAD_REQUIRED_FIELDS, formatFieldList, missingProfileFields } from "../lib/profile";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -13,6 +14,16 @@ const pendingNotice =
   session.user.status === "pending"
     ? "Your account is still under admin review. Uploads will start working as soon as you're approved."
     : null;
+
+// #226: city and country are the export-control screening inputs for the
+// service-access tier (ADR 0010), so an upload must not start without them.
+// Checked here rather than in the client because the form is the thing being
+// withheld — a client-side check would ship the dropzone and hide it.
+// Deliberately not a redirect: landing on /settings with no explanation
+// reads as a bug. The backend enforces its own gate regardless
+// (nemar-cli#1013 Phase 1), this stops the wasted trip.
+const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIELDS);
+const uploadBlocked = missingForUpload.length > 0;
 ---
 
 <Base title="Upload a dataset" description="Upload your BIDS dataset to NEMAR.">
@@ -30,6 +41,19 @@ const pendingNotice =
       <p class="upload-pending" role="status">{pendingNotice}</p>
     )}
 
+    {uploadBlocked && (
+      <div class="upload-gate" role="alert">
+        <h2 class="upload-gate__title">Add your {formatFieldList(missingForUpload)} first</h2>
+        <p class="upload-gate__text">
+          NEMAR screens where contributed data comes from before accepting an upload,
+          so your {formatFieldList(missingForUpload)} {missingForUpload.length === 1 ? "is" : "are"}
+          {" "}required on your profile. It takes a moment, and you only do it once.
+        </p>
+        <a class="upload-gate__cta" href="/settings">Go to Settings</a>
+      </div>
+    )}
+
+    {!uploadBlocked && (
     <form class="upload-form" data-upload-form>
       <div class="field">
         <label for="dataset-name" class="field__label">Dataset name</label>
@@ -87,6 +111,7 @@ const pendingNotice =
 
       <UploadProgress />
     </form>
+    )}
   </section>
 </Base>
 
@@ -107,6 +132,42 @@ const pendingNotice =
     color: var(--color-fg-muted);
     line-height: var(--lh-normal);
     max-inline-size: 42rem;
+  }
+  .upload-gate {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+  }
+  .upload-gate__title {
+    margin: 0;
+    font-size: var(--fs-lg);
+  }
+  .upload-gate__text {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    max-inline-size: 60ch;
+  }
+  /* Matches .dashboard-header__cta -- the same "primary action" pill. */
+  .upload-gate__cta {
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+  }
+  .upload-gate__cta:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
   }
   .upload-pending {
     background: color-mix(in srgb, var(--color-warning) 14%, transparent);
