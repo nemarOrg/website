@@ -2,6 +2,7 @@
 import ConfirmDialog from "../components/ConfirmDialog.astro";
 import DashboardTour from "../components/DashboardTour.astro";
 import MyDatasetCard from "../components/MyDatasetCard.astro";
+import ProfileNudge from "../components/ProfileNudge.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
 import { isCollaboratorManager } from "../lib/collaborators-api";
@@ -11,6 +12,7 @@ import {
   getPublishStatus,
   listMyDatasets,
 } from "../lib/dashboard-api";
+import { missingProfileFields } from "../lib/profile";
 import type { Dataset } from "../lib/types";
 
 const session = getSession(Astro.locals);
@@ -68,6 +70,10 @@ const pendingNotice =
   session.user.status === "pending"
     ? "Your account is still under admin review. Most actions are locked until you're approved."
     : null;
+
+// #226: nudge, never a gate. The hard city/country requirement is enforced
+// on /upload itself, so dismissing the banner cannot get anyone past it.
+const missingProfile = missingProfileFields(session.user);
 ---
 
 <Base
@@ -90,6 +96,8 @@ const pendingNotice =
     {pendingNotice && (
       <p class="dashboard-notice" role="status">{pendingNotice}</p>
     )}
+
+    <ProfileNudge missing={missingProfile} userId={session.user.id} />
 
     {listError && (
       <p class="dashboard-error" role="alert">{listError}</p>
@@ -172,6 +180,13 @@ const pendingNotice =
     font-family: var(--font-display);
     font-size: var(--fs-3xl);
     margin: 0 0 var(--space-1);
+  }
+  /* ProfileNudge parks focus here when its banner is dismissed (the button
+     the user activated disappears). Programmatic focus only, so no ring:
+     a visible outline on a heading nobody tabbed to reads as a rendering
+     glitch. Screen readers still announce it. */
+  .dashboard-header__title:focus {
+    outline: none;
   }
   .dashboard-header__lede {
     margin: 0;
