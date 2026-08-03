@@ -25,8 +25,15 @@ const pendingNotice =
 // Checked here rather than in the client because the form is the thing being
 // withheld — a client-side check would ship the dropzone and hide it.
 // Deliberately not a redirect: landing on /settings with no explanation
-// reads as a bug. The backend enforces its own gate regardless
-// (nemar-cli#1013 Phase 1), this stops the wasted trip.
+// reads as a bug.
+//
+// This gate is NOT a mirror of a server-side one. The backend gates real
+// uploads on `service_access` + `sandbox_completed`
+// (`backend/src/services/upload-gate.ts`, nemar-cli#1013 Phase 1); city and
+// country are the inputs an admin *reviews* before granting service access,
+// and nothing rejects an upload for missing them. So this is the only place
+// the requirement is enforced, and softening it silently drops the
+// export-control prompt rather than falling back to a backend check.
 // `canUpload` is the decision; `missingForUpload` only names the fields for
 // the copy. Deriving the boolean from the helper rather than re-deriving it
 // from the list length is the point of the module — an inline
