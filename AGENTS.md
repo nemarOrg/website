@@ -337,6 +337,13 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 5. **Commit:** atomic, <50 chars, no emojis, no AI attribution. Never hand-edit the version
    in `package.json` on a feature branch — the workflows own it (see Versioning above).
 6. **PR:** target `staging`, not `main`. See the branch map above — staging leads.
+   **`Closes #N` will not close anything.** GitHub only honours closing keywords for PRs
+   merged into the *default* branch, which here is `main`; every feature PR merges into
+   `staging`. So close the issue by hand after merging, with a comment naming the PR and
+   the merge commit. nemar-cli has the identical gap with `dev` — it is how nemar-cli#910
+   sat open for a week after shipping, and how #984 and #985 sat open for eleven days after
+   being fixed. Do not assume an open issue means unshipped work; check for a merged PR
+   that references it.
 7. **QA on test.nemar.org:** merging to `staging` auto-deploys there against the nemar-cli `dev`
    backends, and auto-bumps `-devN`. Confirm you are looking at your build with
    `curl -s https://test.nemar.org/version.json` before trusting what you see. Remember
