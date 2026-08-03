@@ -63,6 +63,13 @@ describe("canUpload", () => {
   it("does NOT require a GitHub handle -- that is a publish-time requirement (#129)", () => {
     expect(canUpload({ city: "San Diego", country: "USA", github_username: "" })).toBe(true);
   });
+
+  it("rejects whitespace-only values, not just empty ones", () => {
+    // The page derives its gate from canUpload directly, so the trimming has
+    // to hold here and not only in missingProfileFields.
+    expect(canUpload({ city: "   ", country: "USA" })).toBe(false);
+    expect(canUpload({ city: "San Diego", country: "\t\n" })).toBe(false);
+  });
 });
 
 describe("formatFieldList", () => {

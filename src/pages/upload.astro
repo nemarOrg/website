@@ -3,7 +3,12 @@ import UploadDropzone from "../components/UploadDropzone.astro";
 import UploadProgress from "../components/UploadProgress.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
-import { UPLOAD_REQUIRED_FIELDS, formatFieldList, missingProfileFields } from "../lib/profile";
+import {
+  UPLOAD_REQUIRED_FIELDS,
+  canUpload,
+  formatFieldList,
+  missingProfileFields,
+} from "../lib/profile";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -22,8 +27,12 @@ const pendingNotice =
 // Deliberately not a redirect: landing on /settings with no explanation
 // reads as a bug. The backend enforces its own gate regardless
 // (nemar-cli#1013 Phase 1), this stops the wasted trip.
+// `canUpload` is the decision; `missingForUpload` only names the fields for
+// the copy. Deriving the boolean from the helper rather than re-deriving it
+// from the list length is the point of the module — an inline
+// `.length > 0` here would be a second definition free to drift from it.
+const uploadBlocked = !canUpload(session.user);
 const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIELDS);
-const uploadBlocked = missingForUpload.length > 0;
 ---
 
 <Base title="Upload a dataset" description="Upload your BIDS dataset to NEMAR.">

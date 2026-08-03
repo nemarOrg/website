@@ -97,7 +97,7 @@ const missingProfile = missingProfileFields(session.user);
       <p class="dashboard-notice" role="status">{pendingNotice}</p>
     )}
 
-    <ProfileNudge missing={missingProfile} />
+    <ProfileNudge missing={missingProfile} userId={session.user.id} />
 
     {listError && (
       <p class="dashboard-error" role="alert">{listError}</p>

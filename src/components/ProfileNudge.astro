@@ -17,12 +17,21 @@ import { type ProfileField, formatFieldList } from "../lib/profile";
 interface Props {
   /** Missing fields, in prompt order. Renders nothing when empty. */
   missing: readonly ProfileField[];
+  /**
+   * Session user id. Scopes the dismissal so one account's choice cannot
+   * suppress another's on a shared browser — reachable on test.nemar.org,
+   * where QA switches between the shared `test@nemar.org` account and the
+   * `@nemar.test` fixtures without clearing storage (nothing clears it on
+   * logout).
+   */
+  userId: string;
 }
 
-const { missing } = Astro.props;
-// Key on the actual missing set so filling in one field re-surfaces the
-// banner for whatever is still outstanding rather than staying dismissed.
-const dismissKey = `nemar:profile-nudge:${[...missing].sort().join(",")}`;
+const { missing, userId } = Astro.props;
+// Keyed on the user AND on the actual missing set, so filling in one field
+// re-surfaces the banner for whatever is still outstanding rather than
+// staying dismissed.
+const dismissKey = `nemar:profile-nudge:${userId}:${[...missing].sort().join(",")}`;
 ---
 
 {missing.length > 0 && (
@@ -44,7 +53,12 @@ const dismissKey = `nemar:profile-nudge:${[...missing].sort().join(",")}`;
       </p>
       <a class="nudge__link" href="/settings">Complete your profile</a>
     </div>
-    <button type="button" class="nudge__dismiss" data-profile-nudge-dismiss aria-label="Dismiss">
+    <button
+      type="button"
+      class="nudge__dismiss"
+      data-profile-nudge-dismiss
+      aria-label="Dismiss this notice"
+    >
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
         <path
           d="M4 4l8 8M12 4l-8 8"
