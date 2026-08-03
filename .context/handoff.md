@@ -1,6 +1,46 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-08-02 (second session that day: production promotion).
+**Last session:** 2026-08-03.
+
+## 2026-08-03 — funder fix + profile completeness (v0.2.4)
+
+Two features landed on `staging` and a stale-docs trap got closed.
+
+- **#204 (PR #230)** — `Funding.funder` never existed; the API sends `funder_name`, so
+  every dataset page rendered blank funder chips. Renamed the field, added the two the
+  type omitted (`award_uri`, `funder_identifier_type`), and added
+  `displayableFunding()` in `format.ts` which trims and drops nameless entries so a null
+  cannot recreate the blank chip. A reviewer surveyed the whole catalog to settle whether
+  dropping nameless entries hides data: **1080 funding entries across 408 datasets**, all
+  with `funder_name`, none with `funder`, none with award data and no funder name. So no
+  compatibility branch was needed and nothing is hidden.
+- **#226 (PR #231)** — dismissible dashboard nudge + server-side city/country gate on
+  `/upload`. `src/lib/profile.ts` is the single definition of "complete". The gate
+  **withholds** the form rather than hiding it. Review caught two things worth
+  remembering: `canUpload()` was dead code while `upload.astro` re-derived the same
+  decision inline (two definitions free to drift — now the page calls the helper), and the
+  nudge's dismissal key was not scoped per user, so on a shared browser one account's
+  dismissal suppressed the banner for the next. The key now includes `session.user.id`.
+- **`@nemar.blank` dev persona** (`auth-dev.ts`) — the dev mock always issued a complete
+  profile, so neither new state was reachable locally. Verified the DEV gate holds: a
+  production build contains zero occurrences of `nemar.blank`, `buildDevUser`, or the
+  persona strings.
+- **#232** — `Closes #N` does nothing here. GitHub honours closing keywords only on PRs
+  merged to the *default* branch (`main`), and every feature PR targets `staging`.
+  nemar-cli has the same gap with `dev`. Now in AGENTS.md. **When auditing, cross-check
+  open issues against merged PRs before calling anything unshipped** — that mistake made
+  nemar-cli#984/#985 look open eleven days after they were fixed.
+
+Verified end-to-end on the deployed `test.nemar.org` with a real backend session
+(`pl-webqa@nemar.test`): nudge copy renders, `/upload` shows the gate with **zero**
+`data-upload-form` in the HTML, dismissal key is `nemar:profile-nudge:951:...`, and
+dataset pages render real funder names.
+
+Gotcha worth keeping: `POST /api/auth/code/verify` on staging requires `remember` in the
+body (zod-validated); omitting it 400s with a confusing ZodError. The per-email code
+request is rate-limited to 1/min, so a retry loop silently returns no `dev_code`.
+
+## Earlier: promotion session addendum (2026-08-02)
 
 ## Promotion session addendum (2026-08-02, later)
 
@@ -26,7 +66,8 @@ Everything below shipped to **production** the same day:
   0.2.4-dev0.
 
 Remaining (needs a human): **ORCID relink end-to-end on production Settings with a real
-ORCID iD** — the only path no curl can walk. Then website#226.
+ORCID iD** — the only path no curl can walk. (website#226 is done, see the 2026-08-03
+section above.)
 
 ## TL;DR — where we are right now
 
@@ -81,10 +122,16 @@ never auto-close issues (default branch is `main`); close them by hand.
   iD** — staging structurally cannot complete ORCID OAuth (test.nemar.org callback
   not registered with ORCID; epic #923 known limitation), and curl cannot walk the
   OAuth consent step.
-- **website#226 — profile-completeness push** (filed this session, decisions
-  locked: dismissible dashboard nudge + hard city/country gate at /upload; GitHub
-  required only at publish, matching #129). Frontend-only; backend dependency
-  (#912) is on dev now.
+- ~~website#226 — profile-completeness push.~~ DONE 2026-08-03 (PR #231).
+- **Next candidates, in the order I'd take them:** #209 (JSON-LD share-alike
+  `conditionsOfAccess`, small and self-contained), #201 (upload retry re-runs
+  `createDraftDataset` instead of retrying finalize — a real bug), #208
+  (eeg-viewer leaves zarr fetches in flight on unmount; no `AbortController`
+  in `store.ts` at all). #4 (Phase 3 data quality) is blocked on **coverage**,
+  not code: the components and the client-side walker already exist but only
+  31 of 754 managed datasets have QA artifacts in S3, and the hallu sync
+  cannot run unattended until nemar-cli#522/#526 land. See the status comment
+  on #4.
 - **Browser QA of signed-in Settings on test.nemar.org** was cut short (Chrome
   extension disconnected; Playwright download was mid-flight at session end). The
   API + HTTP layers are verified; a human click-through of profile save + email
