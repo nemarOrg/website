@@ -98,9 +98,14 @@ export async function verifyDevSession(token: string): Promise<AuthSession | nul
 }
 
 /**
- * Build the AuthUser shape the dev mock issues. Emails ending in
- * `@nemar.admin` (or matching `NEMAR_DEV_ADMIN_EMAIL` if set) get
- * `role: "admin"` so the admin surfaces are exercisable in dev.
+ * Build the AuthUser shape the dev mock issues.
+ *
+ * Two personas, both selected by email domain so no config is needed:
+ * - `@nemar.admin` (or `NEMAR_DEV_ADMIN_EMAIL`) gets `role: "admin"`, so the
+ *   admin surfaces are exercisable in dev.
+ * - `@nemar.blank` gets an empty profile, so the profile-completeness nudge
+ *   and the /upload city+country gate (#226) are exercisable. Without it the
+ *   mock always looks complete and neither state can be reached locally.
  */
 export function buildDevUser(email: string): AuthUser {
   const lower = email.trim().toLowerCase();
@@ -110,6 +115,7 @@ export function buildDevUser(email: string): AuthUser {
     .toLowerCase();
   const isAdmin =
     lower.endsWith("@nemar.admin") || (adminOverride.length > 0 && lower === adminOverride);
+  const blankProfile = lower.endsWith("@nemar.blank");
   return {
     id: `dev-${lower.replace(/[^a-z0-9]/g, "_")}`,
     email: lower,
@@ -122,10 +128,13 @@ export function buildDevUser(email: string): AuthUser {
     family_name: "Lovelace",
     orcid: "0000-0002-1825-0097",
     orcid_verified: true,
-    github_username: "ada",
-    city: "London",
-    country: "United Kingdom",
-    affiliation: "Analytical Engine Lab",
+    // The self-service fields, blank for the incomplete-profile persona.
+    // Empty string rather than undefined mirrors what the backend returns
+    // for a column that exists but was never filled in.
+    github_username: blankProfile ? "" : "ada",
+    city: blankProfile ? "" : "London",
+    country: blankProfile ? "" : "United Kingdom",
+    affiliation: blankProfile ? "" : "Analytical Engine Lab",
   };
 }
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import fundingNm000103 from "../../test/fixtures/funding-nm000103.json";
 import {
+  displayableFunding,
   formatAuthorByline,
   formatBytes,
   formatChannels,
@@ -9,6 +11,7 @@ import {
   safeSnippet,
   splitModalities,
 } from "./format";
+import type { Funding } from "./neuroschema";
 
 describe("formatAuthorByline", () => {
   it("returns empty for nullish or whitespace-only input", () => {
@@ -163,5 +166,48 @@ describe("formatChannels", () => {
     expect(formatChannels(0, "10-10")).toBeNull();
     expect(formatChannels(-4, "10-10")).toBeNull();
     expect(formatChannels(Number.NaN, "10-10")).toBeNull();
+  });
+});
+
+describe("displayableFunding", () => {
+  it("returns empty for nullish input", () => {
+    expect(displayableFunding(null)).toEqual([]);
+    expect(displayableFunding(undefined)).toEqual([]);
+    expect(displayableFunding([])).toEqual([]);
+  });
+
+  it("resolves funder_name from the real nm000103 funding block (#204)", () => {
+    // Captured from data.nemar.org/nm000103/metadata.json. The field is
+    // funder_name; the rail used to read `funder` and rendered two blank
+    // spans on this exact dataset.
+    const funding = fundingNm000103 as Funding[];
+    const shown = displayableFunding(funding);
+    expect(shown).toHaveLength(2);
+    expect(shown.map((f) => f.funderName)).toEqual([
+      "See https://childmind.org/science/global-open-science/healthy-brain-network/#donors",
+      "NIH",
+    ]);
+    expect(shown[1].award_number).toBe("R01MH125934");
+  });
+
+  it("drops entries with no usable funder name rather than rendering a blank chip", () => {
+    const shown = displayableFunding([
+      { funder_name: null, award_number: "A-1" },
+      { funder_name: "   ", award_number: "A-2" },
+      { funder_name: "NSF", award_number: "A-3" },
+    ]);
+    expect(shown.map((f) => f.funderName)).toEqual(["NSF"]);
+  });
+
+  it("trims surrounding whitespace on the resolved name", () => {
+    expect(displayableFunding([{ funder_name: "  NIH  " }])[0].funderName).toBe("NIH");
+  });
+
+  it("preserves the other fields on each entry", () => {
+    const [entry] = displayableFunding([
+      { funder_name: "NIH", award_number: "R01", award_title: "T", award_uri: null },
+    ]);
+    expect(entry.award_title).toBe("T");
+    expect(entry.award_uri).toBeNull();
   });
 });

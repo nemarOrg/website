@@ -38,12 +38,19 @@ there — as it is on `*.pages.dev` previews. Anything touching `src/lib/host.ts
 staging soak and needs a deliberate check on the real hosts after promotion. Tracked in
 website#212 (staging needs an app-host counterpart).
 
-Promotion, once staging is verified:
+Promotion, once staging is verified, is a **PR from `staging` to `main`**, merged with a
+regular merge commit:
 
 ```bash
-git fetch origin
-git push origin origin/staging:main    # always a fast-forward; see Versioning below
+gh pr create --base main --head staging --title "Release vX.Y.Z: <summary>"
+gh pr merge <n> --merge    # once the four required checks are green on the PR
 ```
+
+A direct `git push origin origin/staging:main` does **not** work, even though the docs long
+said it did: the `keep-main` ruleset evaluates required checks on a bare push as "expected"
+and rejects it — even when lint/typecheck/test/build are all green on that exact commit and
+`main` is an ancestor (observed on v0.2.3 after eight retries; v0.2.2 also went through a
+PR, #225). The PR path evaluates the same four checks and merges cleanly.
 
 **`main` is protected by a repository *ruleset*, not classic branch protection.** The
 `keep-main` ruleset (`~DEFAULT_BRANCH`, no bypass actors) blocks deletion and
@@ -78,13 +85,16 @@ The cycle:
 2. When staging is ready, run **Prepare release** (`prepare-release.yml`, manual dispatch).
    It strips the suffix on `staging` — `0.2.0-dev7` becomes `0.2.0` — and dispatches CI and
    a deploy again.
-3. Promote: `git push origin origin/staging:main`. A fast-forward, and the required checks
-   are already green on that commit.
+3. Promote: open a PR `staging` → `main` and merge it with a regular merge commit
+   (`gh pr merge --merge`). The required checks are already green on the staging tip, so
+   the PR is mergeable as soon as its own CI run finishes. (Not a direct push — see the
+   promotion note above.)
 4. `release.yml` tags `vX.Y.Z`, cuts a GitHub Release, then merges `main` back into
    `staging` and bumps it to the next patch's `-dev0`.
 
-Step 4 is what keeps promotion a fast-forward forever: `main` always ends up an ancestor of
-`staging`.
+Step 4 is what keeps `main` an ancestor of `staging` forever, so the next release PR always
+merges cleanly and `git log origin/main..origin/staging` stays an accurate list of
+unpromoted work.
 
 **Why the strip happens on `staging` and not on `main`.** This is the one real divergence
 from nemar-cli, and it is forced rather than chosen. `auto-tag.yml` rewrites the version on
@@ -92,7 +102,7 @@ from nemar-cli, and it is forced rather than chosen. `auto-tag.yml` rewrites the
 checks on every commit pushed to `main` and a freshly created strip commit cannot have them.
 It would need to sit on a branch for CI to run, and pushing it to `main` is precisely what
 is blocked. Moving the strip to `staging` dissolves the deadlock: `main` then only ever
-receives fast-forwards of commits that already ran CI.
+receives merges of commits that already ran CI.
 
 It is also better on its own merits. Production never serves a `-devN` version even briefly,
 and step 2 redeploys test.nemar.org with the exact artifact that will become production, so
@@ -327,16 +337,24 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 5. **Commit:** atomic, <50 chars, no emojis, no AI attribution. Never hand-edit the version
    in `package.json` on a feature branch — the workflows own it (see Versioning above).
 6. **PR:** target `staging`, not `main`. See the branch map above — staging leads.
+   **`Closes #N` will not close anything.** GitHub only honours closing keywords for PRs
+   merged into the *default* branch, which here is `main`; every feature PR merges into
+   `staging`. So close the issue by hand after merging, with a comment naming the PR and
+   the merge commit. nemar-cli has the identical gap with `dev` — it is how nemar-cli#910
+   sat open for a week after shipping, and how #984 and #985 sat open for eleven days after
+   being fixed. Do not assume an open issue means unshipped work; check for a merged PR
+   that references it.
 7. **QA on test.nemar.org:** merging to `staging` auto-deploys there against the nemar-cli `dev`
    backends, and auto-bumps `-devN`. Confirm you are looking at your build with
    `curl -s https://test.nemar.org/version.json` before trusting what you see. Remember
    staging runs in single-host mode, so host-routing and canonical-origin changes are not
    covered here (website#212).
 8. **Promote:** run **Prepare release** on `staging` first (it strips `-devN` to the release
-   version and re-runs CI + deploy), then `git push origin origin/staging:main`. Production
-   deploys automatically from `main` via the Cloudflare GitHub integration, and `release.yml`
-   tags `vX.Y.Z`, cuts the release, and reopens the next `-dev0` cycle on staging. The push
-   is rejected if CI is not green on the tip of `staging` — see the ruleset note above.
+   version and re-runs CI + deploy), then open and merge a `staging` → `main` PR with a
+   regular merge commit (direct pushes to `main` are rejected — see the promotion note
+   above). Production deploys automatically from `main` via the Cloudflare GitHub
+   integration, and `release.yml` tags `vX.Y.Z`, cuts the release, and reopens the next
+   `-dev0` cycle on staging.
 9. **Verify production**, especially for anything staging structurally could not cover.
    `curl -s https://nemar.org/version.json` should report the clean version just tagged.
 

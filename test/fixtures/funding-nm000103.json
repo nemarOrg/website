@@ -1,0 +1,18 @@
+[
+  {
+    "funder_name": "See https://childmind.org/science/global-open-science/healthy-brain-network/#donors",
+    "award_number": null,
+    "award_title": null,
+    "funder_identifier": null,
+    "funder_identifier_type": null,
+    "award_uri": null
+  },
+  {
+    "funder_name": "NIH",
+    "award_number": "R01MH125934",
+    "award_title": "BIDS data preparation",
+    "funder_identifier": null,
+    "funder_identifier_type": null,
+    "award_uri": null
+  }
+]

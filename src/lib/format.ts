@@ -141,3 +141,22 @@ export function formatDate(value: string | Date | null | undefined): string {
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
+
+/**
+ * Funding entries worth rendering, with their display name resolved.
+ *
+ * Drops entries with no usable funder name so the rail can never emit an
+ * empty chip — the #204 symptom, where a wrong field name rendered two
+ * blank `<span>`s on every nm000103 page rather than failing visibly.
+ */
+export function displayableFunding<T extends { funder_name?: string | null }>(
+  entries: readonly T[] | null | undefined,
+): Array<T & { funderName: string }> {
+  if (!entries) return [];
+  const out: Array<T & { funderName: string }> = [];
+  for (const entry of entries) {
+    const funderName = entry.funder_name?.trim();
+    if (funderName) out.push({ ...entry, funderName });
+  }
+  return out;
+}
