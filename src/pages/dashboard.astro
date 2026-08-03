@@ -181,6 +181,13 @@ const missingProfile = missingProfileFields(session.user);
     font-size: var(--fs-3xl);
     margin: 0 0 var(--space-1);
   }
+  /* ProfileNudge parks focus here when its banner is dismissed (the button
+     the user activated disappears). Programmatic focus only, so no ring:
+     a visible outline on a heading nobody tabbed to reads as a rendering
+     glitch. Screen readers still announce it. */
+  .dashboard-header__title:focus {
+    outline: none;
+  }
   .dashboard-header__lede {
     margin: 0;
     color: var(--color-fg-muted);

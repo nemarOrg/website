@@ -41,8 +41,12 @@ const uploadBlocked = missingForUpload.length > 0;
       <p class="upload-pending" role="status">{pendingNotice}</p>
     )}
 
+    {/* No live-region role: this is server-rendered and present on load, so
+        role="alert" would interrupt a screen reader the moment the page
+        opens. The h2 is the first thing after the page title, which is where
+        someone expecting an upload form will land anyway. */}
     {uploadBlocked && (
-      <div class="upload-gate" role="alert">
+      <div class="upload-gate">
         <h2 class="upload-gate__title">Add your {formatFieldList(missingForUpload)} first</h2>
         <p class="upload-gate__text">
           NEMAR screens where contributed data comes from before accepting an upload,

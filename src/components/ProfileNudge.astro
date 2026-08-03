@@ -129,6 +129,14 @@ const dismissKey = `nemar:profile-nudge:${[...missing].sort().join(",")}`;
     if (dismissed) continue;
     el.hidden = false;
     el.querySelector("[data-profile-nudge-dismiss]")?.addEventListener("click", () => {
+      // Hiding the element the user just activated strands keyboard focus on
+      // a hidden node, which drops it to <body> and loses the reader's place.
+      // Hand focus to the page heading before removing the banner.
+      const heading = document.querySelector<HTMLElement>("h1");
+      if (heading) {
+        if (!heading.hasAttribute("tabindex")) heading.setAttribute("tabindex", "-1");
+        heading.focus();
+      }
       el.hidden = true;
       try {
         localStorage.setItem(key, "1");
