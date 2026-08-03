@@ -41,11 +41,21 @@ export interface Rights {
   rights_identifier_scheme: string | null;
 }
 
+/**
+ * One funding entry. The field is `funder_name`, not `funder` — verified
+ * against every `funding[]` entry served by data.nemar.org (11 entries
+ * across 10 datasets, 2026-08-02; zero carry a `funder` key). It is
+ * declared nullable for the same reason the rest of this file is: a
+ * catalog row that violates the shape must render an incomplete rail,
+ * never throw and drop the whole page.
+ */
 export interface Funding {
-  funder: string;
+  funder_name: string | null;
   award_number?: string | null;
   award_title?: string | null;
+  award_uri?: string | null;
   funder_identifier?: string | null;
+  funder_identifier_type?: string | null;
 }
 
 export interface ExternalLinks {

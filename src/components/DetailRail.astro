@@ -1,5 +1,5 @@
 ---
-import { formatChannels, formatDate, formatRelativeTime } from "../lib/format";
+import { displayableFunding, formatChannels, formatDate, formatRelativeTime } from "../lib/format";
 import type { NeuroschemaDataset } from "../lib/neuroschema";
 import {
   LICENSE_TIER_BLURB,
@@ -37,7 +37,7 @@ const urls = rids.filter((r) => r.identifier_type === "URL");
 const modalitiesList = metadata.recording_modality ?? [];
 const tasksList = metadata.tasks ?? [];
 const datatypesList = metadata.datatypes ?? [];
-const fundingList = metadata.funding ?? [];
+const fundingList = displayableFunding(metadata.funding);
 // Keywords are object-shaped in neuroschema 0.3.0 ({term, subject_scheme?,
 // value_uri?}) but older docs may serialize them as plain strings. We only
 // need the term — the tag links to a Discover search, not the value_uri.
@@ -126,7 +126,7 @@ const licenseTitle = license
       <ul role="list">
         {fundingList.map((f) => (
           <li>
-            <span class="rail__funder">{f.funder}</span>
+            <span class="rail__funder">{f.funderName}</span>
             {f.award_number && <span class="rail__award">{f.award_number}</span>}
           </li>
         ))}
