@@ -287,6 +287,11 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     border: none;
     cursor: pointer;
   }
+  /* Matches .upload-form__submit[disabled] -- same disabled treatment. */
+  .precheck__reset[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
   .precheck__summary {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
@@ -392,6 +397,11 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
   // which would duplicate the draft and re-upload every byte (#201). Cleared
   // only by resetPrecheck; a successful finalize navigates away.
   let pendingFinalizeId: string | null = null;
+  // Bumped by resetPrecheck. Each submit/retry captures the current value and
+  // bails after every await if it no longer matches, so a stale closure that
+  // outlives a reset can't navigate away or write over the new flow's UI —
+  // even if aborting its in-flight finalize somehow didn't throw.
+  let submitGeneration = 0;
 
   function showError(msg: string) {
     if (!errorEl) return;
@@ -472,6 +482,9 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
   }
 
   function resetPrecheck() {
+    // Invalidate any in-flight submit/retry closure before anything else, so
+    // whatever the abort below wakes up sees a stale generation and bails.
+    submitGeneration += 1;
     if (uploadAbort) {
       uploadAbort.abort();
       uploadAbort = null;
@@ -481,6 +494,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     // Submit goes back to the full create + upload flow and its label.
     pendingFinalizeId = null;
     if (submitBtn) submitBtn.textContent = "Create dataset and upload";
+    if (precheckReset) precheckReset.disabled = false;
     if (precheckEl) precheckEl.hidden = true;
     if (submitBtn) submitBtn.disabled = true;
     if (progressEl) progressEl.hidden = true;
@@ -609,6 +623,13 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     progressText.textContent = `${completed} of ${total} files`;
   }
 
+  // The bar sits at 100% while finalize runs (every byte is already up), and
+  // finalize can take up to 60s before its deadline trips — name the wait so
+  // that window doesn't read as a stall.
+  function setPhaseFinalizing() {
+    if (progressText) progressText.textContent = "Finalizing...";
+  }
+
   let lastAggregateRender = 0;
   let pendingRaf = false;
   let pendingArgs: [number, number, number, number] | null = null;
@@ -651,15 +672,28 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
       submitBtn.textContent = "Retry finalizing";
       submitBtn.disabled = false;
     }
+    // "Drop something else" is the escape hatch back to the full flow, so it
+    // comes back once the failed finalize has settled.
+    if (precheckReset) precheckReset.disabled = false;
   }
 
   async function retryFinalize(draftId: string): Promise<void> {
+    const generation = submitGeneration;
     if (submitBtn) submitBtn.disabled = true;
+    if (precheckReset) precheckReset.disabled = true;
     clearError();
+    setPhaseFinalizing();
+    // resetPrecheck aborts this controller, cancelling the in-flight finalize
+    // (safe: finalize is idempotent, and the draft stays on the dashboard).
+    uploadAbort = new AbortController();
     try {
-      await finalizeDataset(draftId);
+      await finalizeDataset(draftId, { signal: uploadAbort.signal });
+      if (generation !== submitGeneration) return;
       location.href = `/upload/success?id=${encodeURIComponent(draftId)}`;
     } catch (err) {
+      // A reset superseded this retry: the new flow owns the UI now.
+      if (generation !== submitGeneration) return;
+      uploadAbort = null;
       // pendingFinalizeId is still set, so the next click retries again.
       enterFinalizeRetry(err);
     }
@@ -682,6 +716,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     }
     const description = descEl?.value.trim() ?? "";
 
+    const generation = submitGeneration;
     if (submitBtn) submitBtn.disabled = true;
     if (nameEl) nameEl.disabled = true;
     if (descEl) descEl.disabled = true;
@@ -689,6 +724,9 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     // UploadDropzone component to ignore drop/click events; we toggle it
     // around any operation that owns the DOM (upload, precheck).
     if (dropzone) dropzone.dataset.dropzoneDisabled = "true";
+    // "Drop something else" would reset state under this run; keep it out of
+    // reach until the run settles (failure paths re-enable it).
+    if (precheckReset) precheckReset.disabled = true;
     clearError();
     uploadAbort = new AbortController();
 
@@ -698,6 +736,8 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         description,
         files: state.files.map((f) => ({ path: f.path, size: f.size })),
       });
+
+      if (generation !== submitGeneration) return;
 
       const plan = state.files
         .map((file) => ({ file, url: draft.upload_urls[file.path] }))
@@ -734,13 +774,25 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         { signal: uploadAbort.signal },
       );
 
+      // An aborted queue can resolve without throwing (workers return early),
+      // so re-check before writing pendingFinalizeId: a stale write here
+      // would point the next submit's finalize-only retry at the old draft.
+      if (generation !== submitGeneration) return;
+
       // From here the upload is complete; the only recovery a failure below
       // needs is finalize itself. Remember the draft so the catch offers a
       // finalize-only retry instead of the full re-run.
       pendingFinalizeId = draft.id;
-      await finalizeDataset(draft.id);
+      setPhaseFinalizing();
+      // The signal lets resetPrecheck cancel a finalize left hanging (up to
+      // 60s); an aborted finalize is safe because the route is idempotent.
+      await finalizeDataset(draft.id, { signal: uploadAbort.signal });
+      if (generation !== submitGeneration) return;
       location.href = `/upload/success?id=${encodeURIComponent(draft.id)}`;
     } catch (err) {
+      // A reset superseded this run while an await was pending: the new flow
+      // owns uploadAbort and the UI now, so this closure touches nothing.
+      if (generation !== submitGeneration) return;
       uploadAbort = null;
       if (pendingFinalizeId) {
         enterFinalizeRetry(err);
@@ -752,6 +804,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
       if (nameEl) nameEl.disabled = false;
       if (descEl) descEl.disabled = false;
       if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
+      if (precheckReset) precheckReset.disabled = false;
     }
   });
 </script>
