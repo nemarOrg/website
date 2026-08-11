@@ -90,9 +90,9 @@ describe("parseAuthMeResponse", () => {
       service_access: false,
     });
     // Truthy non-booleans must not unlock the softened gate.
-    expect(parseAuthMeResponse({ user: { ...base, service_access: "granted" } })?.user).not.toHaveProperty(
-      "service_access",
-    );
+    expect(
+      parseAuthMeResponse({ user: { ...base, service_access: "granted" } })?.user,
+    ).not.toHaveProperty("service_access");
     expect(parseAuthMeResponse({ user: { ...base, service_access: 1 } })?.user).not.toHaveProperty(
       "service_access",
     );
