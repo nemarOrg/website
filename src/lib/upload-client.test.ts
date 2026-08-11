@@ -7,6 +7,7 @@ import {
   createDraftDataset,
   filesFromInput,
   finalizeDataset,
+  resolveSubmitAction,
   runUploadQueue,
   stripLeadingDirectory,
 } from "./upload-client";
@@ -274,5 +275,28 @@ describe("deadline wiring", () => {
     const spy = vi.spyOn(AbortSignal, "timeout");
     await finalizeDataset("nm-xyz", { fetch: okFetch({ dataset: { status: "ready" } }) });
     expect(spy).toHaveBeenCalledWith(UPLOAD_TIMEOUTS_MS.finalize);
+  });
+});
+
+describe("resolveSubmitAction", () => {
+  it("runs the full create + upload flow when no draft is pending finalize", () => {
+    expect(resolveSubmitAction(null)).toEqual({ kind: "create-and-upload" });
+  });
+
+  it("retries finalize alone when an uploaded draft is pending finalize", () => {
+    expect(resolveSubmitAction("nm-abc123")).toEqual({
+      kind: "finalize-only",
+      draftId: "nm-abc123",
+    });
+  });
+
+  // Repeat failures keep the id set, so the decision must be stable across
+  // retries: same input, same finalize-only answer (finalize is idempotent).
+  it("keeps answering finalize-only for the same pending draft", () => {
+    expect(resolveSubmitAction("nm-abc123")).toEqual(resolveSubmitAction("nm-abc123"));
+  });
+
+  it("falls back to the full flow for an empty id", () => {
+    expect(resolveSubmitAction("")).toEqual({ kind: "create-and-upload" });
   });
 });

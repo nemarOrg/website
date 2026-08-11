@@ -350,6 +350,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     createDraftDataset,
     type DroppedFile,
     finalizeDataset,
+    resolveSubmitAction,
     runUploadQueue,
     stripLeadingDirectory,
     UploadError,
@@ -385,6 +386,12 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
   // Controller for the in-flight upload's PUT queue, so resetPrecheck or a
   // second submit can cancel cleanly instead of writing into the same DOM.
   let uploadAbort: AbortController | null = null;
+  // Draft whose files are all uploaded but whose finalize failed (or timed
+  // out — #198 gave finalize a 60s deadline). While set, Submit retries
+  // finalize alone against this draft instead of re-running create + upload,
+  // which would duplicate the draft and re-upload every byte (#201). Cleared
+  // only by resetPrecheck; a successful finalize navigates away.
+  let pendingFinalizeId: string | null = null;
 
   function showError(msg: string) {
     if (!errorEl) return;
@@ -470,6 +477,10 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
       uploadAbort = null;
     }
     state = { rawFiles: [], files: [], scan: null };
+    // Abandon any finalize-retry state: a fresh drop means a fresh draft, so
+    // Submit goes back to the full create + upload flow and its label.
+    pendingFinalizeId = null;
+    if (submitBtn) submitBtn.textContent = "Create dataset and upload";
     if (precheckEl) precheckEl.hidden = true;
     if (submitBtn) submitBtn.disabled = true;
     if (progressEl) progressEl.hidden = true;
@@ -627,8 +638,42 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     setAggregateProgress(bytesUploaded, totalBytes, completed, total);
   }
 
+  // Finalize failed after a complete upload: keep the form locked (the files
+  // are already in storage; editing them or the name would change nothing),
+  // re-enable Submit as a finalize-only retry, and say so — repeat failures
+  // land back here, so the retry is repeatable.
+  function enterFinalizeRetry(err: unknown) {
+    const msg = err instanceof Error ? err.message : "Finalizing failed.";
+    showError(
+      `${msg} Your files are already uploaded — retrying only re-runs the finalize step, nothing is re-uploaded.`,
+    );
+    if (submitBtn) {
+      submitBtn.textContent = "Retry finalizing";
+      submitBtn.disabled = false;
+    }
+  }
+
+  async function retryFinalize(draftId: string): Promise<void> {
+    if (submitBtn) submitBtn.disabled = true;
+    clearError();
+    try {
+      await finalizeDataset(draftId);
+      location.href = `/upload/success?id=${encodeURIComponent(draftId)}`;
+    } catch (err) {
+      // pendingFinalizeId is still set, so the next click retries again.
+      enterFinalizeRetry(err);
+    }
+  }
+
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const action = resolveSubmitAction(pendingFinalizeId);
+    if (action.kind === "finalize-only") {
+      // Every byte of this draft is already uploaded; finalize is idempotent
+      // on the backend, so retry it alone rather than re-running the flow.
+      await retryFinalize(action.draftId);
+      return;
+    }
     if (!state.scan || state.scan.errors.length > 0 || state.files.length === 0) return;
     const name = nameEl?.value.trim() ?? "";
     if (!name) {
@@ -689,16 +734,24 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         { signal: uploadAbort.signal },
       );
 
+      // From here the upload is complete; the only recovery a failure below
+      // needs is finalize itself. Remember the draft so the catch offers a
+      // finalize-only retry instead of the full re-run.
+      pendingFinalizeId = draft.id;
       await finalizeDataset(draft.id);
       location.href = `/upload/success?id=${encodeURIComponent(draft.id)}`;
     } catch (err) {
+      uploadAbort = null;
+      if (pendingFinalizeId) {
+        enterFinalizeRetry(err);
+        return;
+      }
       const msg = err instanceof Error ? err.message : "Upload failed.";
       showError(msg);
       if (submitBtn) submitBtn.disabled = false;
       if (nameEl) nameEl.disabled = false;
       if (descEl) descEl.disabled = false;
       if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
-      uploadAbort = null;
     }
   });
 </script>

@@ -135,6 +135,25 @@ export async function createDraftDataset(
   };
 }
 
+export type SubmitAction =
+  | { readonly kind: "create-and-upload" }
+  | { readonly kind: "finalize-only"; readonly draftId: string };
+
+/**
+ * Decide what the upload page's Submit does. Once every byte is uploaded, the
+ * page keeps the draft's id; a failed (or timed-out) finalize then retries
+ * {@link finalizeDataset} alone — the backend finalize route is explicitly
+ * idempotent (nemar-cli `routes/datasets/upload.ts`), so repeating it is safe
+ * and cheap. Re-running the whole flow instead would create a duplicate draft
+ * and re-upload every file (#201). The full create + upload run is only for a
+ * fresh submit, when no uploaded draft is waiting on finalize.
+ */
+export function resolveSubmitAction(pendingFinalizeId: string | null): SubmitAction {
+  return pendingFinalizeId
+    ? { kind: "finalize-only", draftId: pendingFinalizeId }
+    : { kind: "create-and-upload" };
+}
+
 export async function finalizeDataset(
   id: string,
   init: Init = {},
