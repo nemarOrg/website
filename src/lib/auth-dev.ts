@@ -100,12 +100,18 @@ export async function verifyDevSession(token: string): Promise<AuthSession | nul
 /**
  * Build the AuthUser shape the dev mock issues.
  *
- * Two personas, both selected by email domain so no config is needed:
+ * Three personas, all selected by email domain so no config is needed:
  * - `@nemar.admin` (or `NEMAR_DEV_ADMIN_EMAIL`) gets `role: "admin"`, so the
  *   admin surfaces are exercisable in dev.
- * - `@nemar.blank` gets an empty profile, so the profile-completeness nudge
- *   and the /upload city+country gate (#226) are exercisable. Without it the
- *   mock always looks complete and neither state can be reached locally.
+ * - `@nemar.blank` gets an empty profile WITH service access, so the
+ *   profile-completeness nudge (#226) and the softened /upload warning
+ *   banner (#236) are exercisable. This mirrors the real grandfathered
+ *   population: every production service-access account predates the
+ *   profile columns.
+ * - `@nemar.base` gets an empty profile WITHOUT service access, so the hard
+ *   /upload gate (the "block" branch of `uploadGate`) stays reachable
+ *   locally. Without it the mock always looks either complete or
+ *   grandfathered and the block state could not be reached.
  */
 export function buildDevUser(email: string): AuthUser {
   const lower = email.trim().toLowerCase();
@@ -115,7 +121,8 @@ export function buildDevUser(email: string): AuthUser {
     .toLowerCase();
   const isAdmin =
     lower.endsWith("@nemar.admin") || (adminOverride.length > 0 && lower === adminOverride);
-  const blankProfile = lower.endsWith("@nemar.blank");
+  const baseTier = lower.endsWith("@nemar.base");
+  const blankProfile = lower.endsWith("@nemar.blank") || baseTier;
   return {
     id: `dev-${lower.replace(/[^a-z0-9]/g, "_")}`,
     email: lower,
@@ -135,6 +142,9 @@ export function buildDevUser(email: string): AuthUser {
     city: blankProfile ? "" : "London",
     country: blankProfile ? "" : "United Kingdom",
     affiliation: blankProfile ? "" : "Analytical Engine Lab",
+    // Tiered access (ADR 0010): granted for every persona except
+    // `@nemar.base`, whose whole purpose is exercising the ungranted state.
+    service_access: !baseTier,
   };
 }
 

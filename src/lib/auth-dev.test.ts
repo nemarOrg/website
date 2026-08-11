@@ -30,6 +30,23 @@ describe("buildDevUser", () => {
     // ORCID identity is unaffected: it comes from the login, not self-service.
     expect(u.orcid_verified).toBe(true);
     expect(u.role).toBe("user");
+    // Keeps service access, mirroring the grandfathered production
+    // population, so /upload shows the softened warning banner (#236).
+    expect(u.service_access).toBe(true);
+  });
+
+  it("withholds service access for @nemar.base so the hard gate is reachable", () => {
+    const u = buildDevUser("someone@nemar.base");
+    expect(u.service_access).toBe(false);
+    // Blank profile too: the hard gate only renders when the profile is
+    // incomplete AND there is no grant.
+    expect(u.city).toBe("");
+    expect(u.country).toBe("");
+    expect(u.role).toBe("user");
+  });
+
+  it("grants service access to the default persona", () => {
+    expect(buildDevUser("alice@example.com").service_access).toBe(true);
   });
 
   it("derives a stable id from the lowercased email", () => {
