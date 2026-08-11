@@ -5,6 +5,7 @@ import {
   canUpload,
   formatFieldList,
   missingProfileFields,
+  uploadGate,
 } from "./profile";
 
 // Shaped like the /auth/me payload: the profile fields are optional there
@@ -69,6 +70,45 @@ describe("canUpload", () => {
     // to hold here and not only in missingProfileFields.
     expect(canUpload({ city: "   ", country: "USA" })).toBe(false);
     expect(canUpload({ city: "San Diego", country: "\t\n" })).toBe(false);
+  });
+});
+
+describe("uploadGate", () => {
+  // Real /auth/me shapes: profile columns come back as empty strings for the
+  // pre-migration accounts (#236 measured all 10 service-access users this
+  // way), and service_access is a boolean since nemar-cli#1013 Phase 1.
+  const grandfathered = {
+    github_username: "octocat",
+    city: "",
+    country: "",
+    service_access: true,
+  };
+
+  it("opens for a complete profile regardless of tier", () => {
+    expect(uploadGate({ ...complete, service_access: true })).toBe("open");
+    expect(uploadGate({ ...complete, service_access: false })).toBe("open");
+    expect(uploadGate(complete)).toBe("open");
+  });
+
+  it("warns instead of blocking for service-access holders (#236)", () => {
+    expect(uploadGate(grandfathered)).toBe("warn");
+    expect(uploadGate({ city: "San Diego", country: "", service_access: true })).toBe("warn");
+  });
+
+  it("keeps the hard block for users without a service-access grant", () => {
+    expect(uploadGate({ ...grandfathered, service_access: false })).toBe("block");
+    expect(uploadGate({ city: "", country: "" })).toBe("block");
+  });
+
+  it("fails closed when the flag is absent or the session is null", () => {
+    // A backend that predates the flag must not soften the gate.
+    expect(uploadGate({ city: "", country: "", service_access: undefined })).toBe("block");
+    expect(uploadGate(null)).toBe("block");
+    expect(uploadGate(undefined)).toBe("block");
+  });
+
+  it("derives incompleteness from canUpload, whitespace included", () => {
+    expect(uploadGate({ city: "   ", country: "USA", service_access: true })).toBe("warn");
   });
 });
 

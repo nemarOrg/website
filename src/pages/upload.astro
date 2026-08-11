@@ -5,9 +5,9 @@ import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
 import {
   UPLOAD_REQUIRED_FIELDS,
-  canUpload,
   formatFieldList,
   missingProfileFields,
+  uploadGate,
 } from "../lib/profile";
 
 const session = getSession(Astro.locals);
@@ -21,24 +21,31 @@ const pendingNotice =
     : null;
 
 // #226: city and country are the export-control screening inputs for the
-// service-access tier (ADR 0010), so an upload must not start without them.
-// Checked here rather than in the client because the form is the thing being
-// withheld — a client-side check would ship the dropzone and hide it.
-// Deliberately not a redirect: landing on /settings with no explanation
-// reads as a bug.
+// service-access tier (ADR 0010). Checked here rather than in the client
+// because when the form is withheld it must not ship at all — a client-side
+// check would ship the dropzone and hide it. Deliberately not a redirect:
+// landing on /settings with no explanation reads as a bug.
+//
+// The gate lands in two strengths (#236, ADR 0011). Users WITHOUT a
+// service-access grant get the hard gate: the form is withheld until the
+// export-control prompt is answered. Users an admin already granted service
+// access get the form plus a prominent, non-blocking warning — every
+// existing uploader predates the profile columns, so the hard gate would
+// have blocked 100% of the accounts actually authorized to upload.
 //
 // This gate is NOT a mirror of a server-side one. The backend gates real
 // uploads on `service_access` + `sandbox_completed`
 // (`backend/src/services/upload-gate.ts`, nemar-cli#1013 Phase 1); city and
 // country are the inputs an admin *reviews* before granting service access,
-// and nothing rejects an upload for missing them. So this is the only place
-// the requirement is enforced, and softening it silently drops the
-// export-control prompt rather than falling back to a backend check.
-// `canUpload` is the decision; `missingForUpload` only names the fields for
-// the copy. Deriving the boolean from the helper rather than re-deriving it
-// from the list length is the point of the module — an inline
-// `.length > 0` here would be a second definition free to drift from it.
-const uploadBlocked = !canUpload(session.user);
+// and nothing rejects an upload for missing them. So this page is the only
+// place the profile requirement is surfaced — which is also why the "warn"
+// branch never weakens access control: an unauthorized upload still dies at
+// the backend gate regardless of what renders here.
+// `uploadGate` is the decision; `missingForUpload` only names the fields
+// for the copy. Deriving the state from the helper rather than re-deriving
+// it inline is the point of the module — a second definition here would be
+// free to drift from it.
+const gate = uploadGate(session.user);
 const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIELDS);
 ---
 
@@ -61,7 +68,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         role="alert" would interrupt a screen reader the moment the page
         opens. The h2 is the first thing after the page title, which is where
         someone expecting an upload form will land anyway. */}
-    {uploadBlocked && (
+    {gate === "block" && (
       <div class="upload-gate">
         <h2 class="upload-gate__title">Add your {formatFieldList(missingForUpload)} first</h2>
         <p class="upload-gate__text">
@@ -73,7 +80,25 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
       </div>
     )}
 
-    {!uploadBlocked && (
+    {/* Softened landing for existing service-access holders (#236, ADR
+        0011): same fields, same Settings link, but the form stays usable.
+        Same no-live-region reasoning as the hard gate above. */}
+    {gate === "warn" && (
+      <div class="upload-warn">
+        <h2 class="upload-warn__title">
+          Please add your {formatFieldList(missingForUpload)} to your profile
+        </h2>
+        <p class="upload-warn__text">
+          NEMAR screens where contributed data comes from, so your
+          {" "}{formatFieldList(missingForUpload)} {missingForUpload.length === 1 ? "is" : "are"}
+          {" "}required on your profile. You can still upload today, but this will become
+          required soon — it takes a moment, and you only do it once.
+        </p>
+        <a class="upload-warn__cta" href="/settings">Go to Settings</a>
+      </div>
+    )}
+
+    {gate !== "block" && (
     <form class="upload-form" data-upload-form>
       <div class="field">
         <label for="dataset-name" class="field__label">Dataset name</label>
@@ -186,6 +211,44 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     text-decoration: none;
   }
   .upload-gate__cta:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  /* Non-blocking sibling of .upload-gate (#236): same structure, but amber
+     like .upload-pending / the dashboard ProfileNudge, because the form
+     below it stays live. --color-warning is theme-tuned in tokens.css, so
+     the color-mix tints track light and dark automatically. */
+  .upload-warn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+  }
+  .upload-warn__title {
+    margin: 0;
+    font-size: var(--fs-lg);
+    color: var(--color-fg);
+  }
+  .upload-warn__text {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    max-inline-size: 60ch;
+  }
+  .upload-warn__cta {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+  }
+  .upload-warn__cta:hover {
+    color: var(--color-link-hover);
+    text-decoration: underline;
+  }
+  .upload-warn__cta:focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
