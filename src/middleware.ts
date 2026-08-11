@@ -465,6 +465,12 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   withOptional.city = str(user.city);
   withOptional.country = str(user.country);
   withOptional.affiliation = str(user.affiliation);
+  // Tiered-access flag (ADR 0010). Boolean-only, like orcid_verified: a
+  // truthy string ("granted", "1") must not unlock the softened upload
+  // gate (#236), so anything non-boolean is dropped rather than coerced.
+  if (typeof user.service_access === "boolean") {
+    withOptional.service_access = user.service_access;
+  }
   // Drop keys that resolved to undefined so the object stays clean (and the
   // existing `toEqual` assertions on the minimal shape keep passing).
   for (const k of Object.keys(withOptional) as (keyof AuthUser)[]) {

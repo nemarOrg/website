@@ -66,6 +66,7 @@ describe("parseAuthMeResponse", () => {
         city: "London",
         country: "United Kingdom",
         affiliation: "Analytical Engine Lab",
+        service_access: true,
       },
     });
     expect(out?.user).toMatchObject({
@@ -77,7 +78,26 @@ describe("parseAuthMeResponse", () => {
       city: "London",
       country: "United Kingdom",
       affiliation: "Analytical Engine Lab",
+      service_access: true,
     });
+  });
+
+  it("keeps service_access only when it is a real boolean", () => {
+    const base = { id: "u_7", email: "svc@example.com", role: "member", status: "active" };
+    // false must survive — it drives the hard upload gate (#236), so
+    // dropping it would be indistinguishable from "granted-unknown".
+    expect(parseAuthMeResponse({ user: { ...base, service_access: false } })?.user).toMatchObject({
+      service_access: false,
+    });
+    // Truthy non-booleans must not unlock the softened gate.
+    expect(parseAuthMeResponse({ user: { ...base, service_access: "granted" } })?.user).not.toHaveProperty(
+      "service_access",
+    );
+    expect(parseAuthMeResponse({ user: { ...base, service_access: 1 } })?.user).not.toHaveProperty(
+      "service_access",
+    );
+    // Absent stays absent (pre-tiering backend shape).
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("service_access");
   });
 
   it("omits blank / wrong-typed optional fields (sparse /auth/me)", () => {
