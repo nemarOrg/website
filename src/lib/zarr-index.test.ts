@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   parseZarrIndex,
+  prefetchZarrStoreMetadata,
   zarrAvailablePaths,
   zarrFailureReasonByPath,
   zarrStoreByPath,
@@ -109,5 +110,104 @@ describe("zarrStoreByPath", () => {
 
     expect(index).not.toBeNull();
     expect(zarrStoreByPath(index!).get("sub-01/eeg/a.set")?.groups?.[0]?.name).toBe("eeg_250hz");
+  });
+});
+
+describe("parseZarrIndex updated_utc (the cache-busting token, #240)", () => {
+  const MINIMAL = { dataset_id: "nm000132", format: "nemar-zarr-index", stores: [] };
+
+  it("keeps the producer's conversion stamp", () => {
+    expect(parseZarrIndex({ ...MINIMAL, updated_utc: "2026-08-11T23:38:13Z" })?.updated_utc).toBe(
+      "2026-08-11T23:38:13Z",
+    );
+  });
+
+  it("defaults to '' for an index that predates the field", () => {
+    expect(parseZarrIndex(MINIMAL)?.updated_utc).toBe("");
+  });
+
+  it("degrades a non-string stamp to '' instead of letting it reach the URL", () => {
+    // A producer regression (serializing a datetime or epoch) must not put a
+    // number/object into the query string.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(parseZarrIndex({ ...MINIMAL, updated_utc: 1786558143 })?.updated_utc).toBe("");
+      expect(parseZarrIndex({ ...MINIMAL, updated_utc: null })?.updated_utc).toBe("");
+      // ...and says so, so "cache-busting silently off" is traceable.
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns when a present stamp sanitizes away entirely", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      parseZarrIndex({ ...MINIMAL, updated_utc: ":::" });
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays silent for the ordinary stamp and the legitimately-absent case", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      parseZarrIndex({ ...MINIMAL, updated_utc: "2026-08-11T23:38:13Z" });
+      parseZarrIndex(MINIMAL);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("prefetchZarrStoreMetadata token threading (#240)", () => {
+  const CALLS: string[] = [];
+  const realFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    CALLS.length = 0;
+    // Transport boundary only: the real URL-building code under test still runs;
+    // we just capture what it asked the network for.
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      CALLS.push(String(input));
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as typeof fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const STORE = {
+    path: "sub-01/eeg/sub-01_task-rest_eeg.set",
+    zarr: "x",
+    groups: [{ name: "eeg_250hz" }],
+  };
+
+  it("carries the token onto every warmed URL, so the prefetch matches the real open", () => {
+    prefetchZarrStoreMetadata("nm000132", STORE.path, STORE, "2026-08-11T23:38:13Z");
+    expect(CALLS.length).toBe(3);
+    for (const url of CALLS) {
+      expect(new URL(url).searchParams.get("v")).toBe("2026-08-11T233813Z");
+    }
+  });
+
+  it("puts the key on the path, not spliced into the query", () => {
+    prefetchZarrStoreMetadata("nm000132", STORE.path, STORE, "abc123");
+    expect(new URL(CALLS[0]).pathname).toBe(
+      "/nm000132/zarr/sub-01/eeg/sub-01_task-rest_eeg.zarr/zarr.json",
+    );
+    expect(new URL(CALLS[1]).pathname).toBe(
+      "/nm000132/zarr/sub-01/eeg/sub-01_task-rest_eeg.zarr/eeg_250hz/zarr.json",
+    );
+    expect(new URL(CALLS[2]).pathname).toBe(
+      "/nm000132/zarr/sub-01/eeg/sub-01_task-rest_eeg.zarr/eeg_250hz/0/zarr.json",
+    );
+  });
+
+  it("emits query-free URLs without a token, matching pre-#240 behaviour", () => {
+    prefetchZarrStoreMetadata("nm000132", STORE.path, STORE);
+    for (const url of CALLS) expect(url).not.toContain("?");
   });
 });

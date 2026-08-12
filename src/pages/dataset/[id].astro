@@ -327,6 +327,14 @@ Astro.response.headers.set(
   // the entry is garbage-collected when the section detaches (SPA-style
   // navigation isn't used here today, but it's the cheap-correct default).
   const listingBySection = new WeakMap<HTMLElement, DirListing>();
+  /**
+   * Settles when a section's Zarr index has been fetched AND applied to its rows
+   * (#240). Never rejects — `fetchZarrIndex` resolves null on failure — so an
+   * awaiting opener always proceeds.
+   */
+  const zarrReadyBySection = new WeakMap<HTMLElement, Promise<void>>();
+  /** Longest a viewer open will wait on the Zarr index before opening without it. */
+  const ZARR_INDEX_WAIT_MS = 3000;
   const zarrBySection = new WeakMap<
     HTMLElement,
     {
@@ -443,18 +451,31 @@ Astro.response.headers.set(
     const datasetId = section.dataset.id;
     const version = section.dataset.version;
     if (!datasetId || !version) return;
-    void fetchZarrIndex(datasetId).then((index) => {
-      if (!index) return;
-      zarrBySection.set(section, {
-        paths: zarrAvailablePaths(index),
-        stores: zarrStoreByPath(index),
-        failureReasons: zarrFailureReasonByPath(index),
-        token: index.updated_utc,
-        prefetched: new Set<string>(),
-        firstPrefetched: false,
+    // Registered BEFORE the await below, so a row rendered by the dir listing can
+    // never be clicked without an index promise to wait on (#240).
+    const zarrReady = fetchZarrIndex(datasetId)
+      .then((index) => {
+        if (!index) {
+          // Parity with the dir-listing paths below, which both log. Now that the
+          // cache-busting token rides on this index, a silent failure also means
+          // stale chunks can be served for this whole page view -- worth a trail.
+          console.warn(`[zarr/${datasetId}] index unavailable; viewer cache-busting disabled`);
+          return;
+        }
+        zarrBySection.set(section, {
+          paths: zarrAvailablePaths(index),
+          stores: zarrStoreByPath(index),
+          failureReasons: zarrFailureReasonByPath(index),
+          token: index.updated_utc,
+          prefetched: new Set<string>(),
+          firstPrefetched: false,
+        });
+        annotateZarrRows(section);
+      })
+      .catch((err) => {
+        console.warn(`[zarr/${datasetId}] index fetch threw:`, err);
       });
-      annotateZarrRows(section);
-    });
+    zarrReadyBySection.set(section, zarrReady);
     const listing = await fetchDirListing(datasetId, version, "");
     section.removeAttribute("aria-busy");
     if (!listing) {
@@ -530,14 +551,32 @@ Astro.response.headers.set(
   }
 
   /**
-   * Cache-busting token for the section owning `btn` (#240). "" until the Zarr
-   * index resolves, which only degrades to the previous un-busted URL — and a
-   * row is not normally openable before then anyway, since `annotateZarrRows`
-   * (the same index) is what marks it viewable.
+   * Cache-busting token for the section owning `btn` (#240). Callers must
+   * `await zarrIndexReady(btn)` first; without that this returns "" whenever the
+   * index is still in flight, silently restoring the pre-#240 un-busted URL.
    */
   function zarrTokenForButton(btn: HTMLElement): string {
     const section = btn.closest<HTMLElement>("[data-tree-defer]");
     return (section ? zarrBySection.get(section)?.token : undefined) ?? "";
+  }
+
+  /**
+   * Settle once the section's Zarr index has been applied to its rows, so
+   * availability and the cache-busting token are both readable. Resolves
+   * immediately when the index already landed (the common case: the user has to
+   * expand directories and click, which takes far longer than the fetch).
+   *
+   * Capped by `ZARR_INDEX_WAIT_MS` so this can only ever delay opening a viewer,
+   * never prevent it — a hung index fetch costs the token, not the feature.
+   */
+  function zarrIndexReady(btn: HTMLElement): Promise<void> {
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    const ready = section ? zarrReadyBySection.get(section) : undefined;
+    if (!ready) return Promise.resolve();
+    return Promise.race([
+      ready,
+      new Promise<void>((resolve) => setTimeout(resolve, ZARR_INDEX_WAIT_MS)),
+    ]);
   }
 
   // Delegated click for the "Show next N" footer. Single document-level
@@ -723,6 +762,26 @@ Astro.response.headers.set(
       return;
     }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
+
+    // The Zarr index races the dir listing, and the listing usually wins: it is
+    // the smaller payload off the already-warm data plane. Until the index lands,
+    // `annotateZarrRows` has not run, so `data-zarr-available` is UNSET — which
+    // the gate below reads as "available" — and `zarrTokenForButton` returns "",
+    // i.e. the un-busted URL #240 exists to avoid. Waiting here makes both reads
+    // meaningful. Bounded, so a wedged index fetch degrades to opening without a
+    // token rather than a row that never opens.
+    //
+    // This is the first await in the function, and it lands BEFORE the mount
+    // registers this row in `eegLive` — so a second click during the wait cannot
+    // be collapsed by `releaseEegViewer` (it sees no live viewer yet). Claim a
+    // sequence number up front and stand down if a newer open took it, undoing
+    // the row expansion above rather than leaving a row stuck on "Loading".
+    const openSeq = ++eegSeq;
+    await zarrIndexReady(btn);
+    if (openSeq !== eegSeq) {
+      resetEegRow(btn, slot);
+      return;
+    }
 
     if (btn.dataset.zarrAvailable === "false") {
       // A recorded data failure has a specific, permanent reason; show it.

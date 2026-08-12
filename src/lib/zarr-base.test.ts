@@ -117,3 +117,19 @@ describe("zarrKeyUrl", () => {
     );
   });
 });
+
+describe("zarrKeyUrl reuse safety", () => {
+  it("descends into a store URL that is missing its trailing slash", () => {
+    // zarrStoreUrl always appends one; this guards a future caller that doesn't,
+    // where `new URL` would otherwise REPLACE the last segment instead.
+    expect(zarrKeyUrl("https://zarr.nemar.org/nm000132/zarr/sub-01_eeg.zarr", "zarr.json")).toBe(
+      "https://zarr.nemar.org/nm000132/zarr/sub-01_eeg.zarr/zarr.json",
+    );
+  });
+
+  it("preserves the token when the trailing slash has to be added", () => {
+    expect(
+      zarrKeyUrl("https://zarr.nemar.org/nm000132/zarr/sub-01_eeg.zarr?v=abc", "zarr.json"),
+    ).toBe("https://zarr.nemar.org/nm000132/zarr/sub-01_eeg.zarr/zarr.json?v=abc");
+  });
+});

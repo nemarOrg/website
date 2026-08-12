@@ -1,4 +1,4 @@
-import { zarrIndexUrl, zarrKeyUrl, zarrStoreUrl } from "./zarr-base";
+import { zarrCacheToken, zarrIndexUrl, zarrKeyUrl, zarrStoreUrl } from "./zarr-base";
 
 export interface ZarrIndexStore {
   path: string;
@@ -32,7 +32,7 @@ export interface ZarrIndex {
    * `source_commit` does NOT: a re-conversion at the same dataset commit (the
    * nemarOrg/nemar-cli#1068 fidelity rebuild, exactly) would reuse the commit
    * and bust nothing. Empty for an older index that predates the field, which
-   * degrades to today's behaviour (no token) rather than breaking.
+   * degrades to the pre-#240 URL (no token) rather than breaking.
    */
   updated_utc: string;
 }
@@ -70,13 +70,27 @@ export function parseZarrIndex(raw: unknown): ZarrIndex | null {
       });
     }
   }
-  return {
-    dataset_id: o.dataset_id,
-    format: o.format,
-    stores,
-    failures,
-    updated_utc: typeof o.updated_utc === "string" ? o.updated_utc : "",
-  };
+  // An index that simply predates the field is expected and silent. A field that
+  // is PRESENT but unusable -- wrong type, or punctuation-only so it sanitizes to
+  // nothing -- means the producer regressed, and would disable cache-busting for
+  // this dataset with no other symptom than the #240 bug quietly coming back. The
+  // producer has emitted `updated_utc` since the pipeline's first commit, so in
+  // practice this branch IS the regression detector, not the legacy path.
+  let updated_utc = "";
+  if (typeof o.updated_utc === "string") {
+    updated_utc = o.updated_utc;
+    if (o.updated_utc !== "" && zarrCacheToken(o.updated_utc) === "") {
+      console.warn(
+        `[zarr-index] ${o.dataset_id}: updated_utc "${o.updated_utc}" sanitizes to empty; viewer cache-busting disabled for this dataset`,
+      );
+    }
+  } else if (o.updated_utc !== undefined) {
+    console.warn(
+      `[zarr-index] ${o.dataset_id}: updated_utc has type ${typeof o.updated_utc}, expected string; viewer cache-busting disabled for this dataset`,
+    );
+  }
+
+  return { dataset_id: o.dataset_id, format: o.format, stores, failures, updated_utc };
 }
 
 export function zarrAvailablePaths(index: ZarrIndex): Set<string> {
