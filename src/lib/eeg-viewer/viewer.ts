@@ -60,6 +60,12 @@ export interface ViewerOptions {
   datasetId: string;
   version: string | null;
   filePath: string;
+  /**
+   * Per-conversion cache-busting token for the store URL (the Zarr index's
+   * `updated_utc`; #240). Omit for a store whose index predates the field —
+   * that just restores the previous, un-busted URL.
+   */
+  zarrToken?: string;
   /** Data-plane URL for the "download instead" fallback when no store exists. */
   downloadUrl?: string;
   /**
@@ -162,7 +168,7 @@ export async function mountEegViewer(
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = undefined;
 
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">Loading viewer…</p></div>`;
-  const url = zarrStoreUrl(opts.datasetId, opts.filePath);
+  const url = zarrStoreUrl(opts.datasetId, opts.filePath, { token: opts.zarrToken });
 
   let store: RecordingStore;
   try {
