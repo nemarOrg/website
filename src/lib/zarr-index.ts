@@ -1,4 +1,4 @@
-import { zarrIndexUrl, zarrStoreUrl } from "./zarr-base";
+import { zarrIndexUrl, zarrKeyUrl, zarrStoreUrl } from "./zarr-base";
 
 export interface ZarrIndexStore {
   path: string;
@@ -26,6 +26,15 @@ export interface ZarrIndex {
   format: string;
   stores: ZarrIndexStore[];
   failures: ZarrIndexFailure[];
+  /**
+   * When the producer last wrote this index — the cache-busting token for every
+   * store URL under it (#240). It changes on every conversion run, which
+   * `source_commit` does NOT: a re-conversion at the same dataset commit (the
+   * nemarOrg/nemar-cli#1068 fidelity rebuild, exactly) would reuse the commit
+   * and bust nothing. Empty for an older index that predates the field, which
+   * degrades to today's behaviour (no token) rather than breaking.
+   */
+  updated_utc: string;
 }
 
 export function parseZarrIndex(raw: unknown): ZarrIndex | null {
@@ -61,7 +70,13 @@ export function parseZarrIndex(raw: unknown): ZarrIndex | null {
       });
     }
   }
-  return { dataset_id: o.dataset_id, format: o.format, stores, failures };
+  return {
+    dataset_id: o.dataset_id,
+    format: o.format,
+    stores,
+    failures,
+    updated_utc: typeof o.updated_utc === "string" ? o.updated_utc : "",
+  };
 }
 
 export function zarrAvailablePaths(index: ZarrIndex): Set<string> {
@@ -103,14 +118,17 @@ export function prefetchZarrStoreMetadata(
   datasetId: string,
   bidsPath: string,
   store?: ZarrIndexStore,
+  token = "",
 ): void {
-  const url = `${zarrStoreUrl(datasetId, bidsPath)}zarr.json`;
-  const urls = [url];
+  // Must carry the same token the viewer will use, or the warmup primes URLs
+  // the real open never requests -- and `zarrKeyUrl`, not concatenation, because
+  // a tokened store URL ends in `?v=...` (#240).
+  const base = zarrStoreUrl(datasetId, bidsPath, { token });
+  const urls = [zarrKeyUrl(base, "zarr.json")];
   for (const group of store?.groups ?? []) {
     if (!group.name) continue;
-    const base = zarrStoreUrl(datasetId, bidsPath);
-    urls.push(`${base}${encodeURIComponent(group.name)}/zarr.json`);
-    urls.push(`${base}${encodeURIComponent(group.name)}/0/zarr.json`);
+    urls.push(zarrKeyUrl(base, `${encodeURIComponent(group.name)}/zarr.json`));
+    urls.push(zarrKeyUrl(base, `${encodeURIComponent(group.name)}/0/zarr.json`));
   }
   for (const u of urls) {
     void fetch(u, { headers: { Accept: "application/json" } }).catch(() => {

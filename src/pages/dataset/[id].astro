@@ -334,6 +334,8 @@ Astro.response.headers.set(
       stores: Map<string, ZarrIndexStore>;
       /** BIDS path (or store-rel path) -> reason it has no viewer, when known. */
       failureReasons: Map<string, string>;
+      /** Cache-busting token for this conversion (index `updated_utc`; #240). */
+      token: string;
       prefetched: Set<string>;
       firstPrefetched: boolean;
     }
@@ -447,6 +449,7 @@ Astro.response.headers.set(
         paths: zarrAvailablePaths(index),
         stores: zarrStoreByPath(index),
         failureReasons: zarrFailureReasonByPath(index),
+        token: index.updated_utc,
         prefetched: new Set<string>(),
         firstPrefetched: false,
       });
@@ -512,6 +515,7 @@ Astro.response.headers.set(
     state?: {
       paths: Set<string>;
       stores: Map<string, ZarrIndexStore>;
+      token: string;
       prefetched: Set<string>;
       firstPrefetched: boolean;
     },
@@ -522,7 +526,18 @@ Astro.response.headers.set(
     const path = btn.dataset.previewPath ?? "";
     if (!state || !datasetId || !path || state.prefetched.has(path)) return;
     state.prefetched.add(path);
-    prefetchZarrStoreMetadata(datasetId, path, state.stores.get(path));
+    prefetchZarrStoreMetadata(datasetId, path, state.stores.get(path), state.token);
+  }
+
+  /**
+   * Cache-busting token for the section owning `btn` (#240). "" until the Zarr
+   * index resolves, which only degrades to the previous un-busted URL — and a
+   * row is not normally openable before then anyway, since `annotateZarrRows`
+   * (the same index) is what marks it viewable.
+   */
+  function zarrTokenForButton(btn: HTMLElement): string {
+    const section = btn.closest<HTMLElement>("[data-tree-defer]");
+    return (section ? zarrBySection.get(section)?.token : undefined) ?? "";
   }
 
   // Delegated click for the "Show next N" footer. Single document-level
@@ -759,6 +774,7 @@ Astro.response.headers.set(
         datasetId: treeId,
         version: treeVersion,
         filePath,
+        zarrToken: zarrTokenForButton(btn),
         downloadUrl: fileUrl,
         // Checked *inside* the mount, right after its own async gap, so a
         // superseded attempt returns before it writes into the host. The
