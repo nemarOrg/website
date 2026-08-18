@@ -269,6 +269,31 @@ describe("createDraftDataset error surfacing", () => {
     ).rejects.toThrow(/files\.0\.type: Required/);
   });
 
+  it("caps the rendered issues at three and skips malformed entries", async () => {
+    const zodBody = {
+      success: false,
+      error: {
+        issues: [
+          null,
+          { path: "not-an-array", message: "first" },
+          { path: ["files", 1], message: "" },
+          { path: ["files", 2], message: 42 },
+          { path: ["files", 3], message: "second" },
+          { path: ["files", 4], message: "third" },
+          { path: ["files", 5], message: "fourth" },
+        ],
+      },
+    };
+    const err = await createDraftDataset(
+      { name: "x", files: [] },
+      { fetch: failingFetch(400, zodBody) },
+    ).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(UploadError);
+    expect((err as Error).message).toBe(
+      "Could not create dataset: first; files.3: second; files.4: third",
+    );
+  });
+
   it("falls back to the HTTP status when the body is unreadable and statusText is empty", async () => {
     // HTTP/2 responses have empty statusText, so a non-JSON error body used to
     // yield a blank message.

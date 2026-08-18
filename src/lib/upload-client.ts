@@ -468,8 +468,9 @@ function extractZodIssues(error: unknown): string | undefined {
   const parts = issues
     .filter((i): i is { path?: unknown[]; message?: unknown } => !!i && typeof i === "object")
     .map((i) => {
+      if (typeof i.message !== "string" || i.message.length === 0) return undefined;
       const path = Array.isArray(i.path) && i.path.length > 0 ? `${i.path.join(".")}: ` : "";
-      return typeof i.message === "string" ? `${path}${i.message}` : undefined;
+      return `${path}${i.message}`;
     })
     .filter((s): s is string => !!s);
   return parts.length > 0 ? parts.slice(0, 3).join("; ") : undefined;
