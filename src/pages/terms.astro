@@ -1,0 +1,8 @@
+---
+// Stable local route for the NEMAR policies (website#242). Points at the
+// policies index rather than one page: "terms" for an account spans the
+// contributor terms, takedown procedure, and GDPR position together.
+import { resolveDocsBase } from "../lib/docs-base";
+
+return Astro.redirect(`${resolveDocsBase()}/policies/`, 301);
+---

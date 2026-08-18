@@ -13,6 +13,7 @@
     <p class="cookie-notice__copy">
       We use a strictly-necessary cookie to keep you signed in. Optional analytics cookies help
       us understand which datasets researchers find. Your choice is remembered on this device.
+      <a class="cookie-notice__link" href="/privacy">Privacy policy</a>
     </p>
     <div class="cookie-notice__actions">
       <button class="cookie-notice__btn cookie-notice__btn--ghost" type="button" data-cookie-strict>
@@ -59,6 +60,11 @@
     font-size: var(--fs-sm);
     color: var(--color-fg-muted);
     line-height: var(--lh-normal);
+  }
+  .cookie-notice__link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
   .cookie-notice__actions {
     display: inline-flex;
