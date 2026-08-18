@@ -213,6 +213,105 @@ describe("runUploadQueue", () => {
   });
 });
 
+describe("createDraftDataset request contract", () => {
+  it("declares every file as type=data (backend only issues URLs for data files)", async () => {
+    let body: string | undefined;
+    const capturingFetch = (async (_url: string, requestInit: RequestInit) => {
+      body = requestInit.body as string;
+      return new Response(
+        JSON.stringify({ dataset: { id: "xx90001", visibility: "private", upload_urls: {} } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    await createDraftDataset(
+      {
+        name: "test",
+        files: [
+          { path: "dataset_description.json", size: 120 },
+          { path: "sub-01/eeg/x.set", size: 4096 },
+        ],
+      },
+      { fetch: capturingFetch },
+    );
+    const parsed = JSON.parse(body ?? "{}");
+    expect(parsed.files).toEqual([
+      { path: "dataset_description.json", size: 120, type: "data" },
+      { path: "sub-01/eeg/x.set", size: 4096, type: "data" },
+    ]);
+  });
+});
+
+describe("createDraftDataset error surfacing", () => {
+  function failingFetch(status: number, body: unknown, statusText = ""): typeof fetch {
+    return (async () =>
+      new Response(body === undefined ? null : JSON.stringify(body), {
+        status,
+        statusText,
+      })) as unknown as typeof fetch;
+  }
+
+  it("flattens a zValidator rejection into readable issue text", async () => {
+    // Shape produced by Hono's zValidator: { success: false, error: ZodError },
+    // whose serialized form carries `issues`. Before this handling, the page
+    // showed "Could not create dataset: " with nothing after the colon.
+    const zodBody = {
+      success: false,
+      error: {
+        name: "ZodError",
+        issues: [
+          { code: "invalid_type", path: ["files", 0, "type"], message: "Required" },
+          { code: "invalid_type", path: ["files", 1, "type"], message: "Required" },
+        ],
+      },
+    };
+    await expect(
+      createDraftDataset({ name: "x", files: [] }, { fetch: failingFetch(400, zodBody) }),
+    ).rejects.toThrow(/files\.0\.type: Required/);
+  });
+
+  it("caps the rendered issues at three and skips malformed entries", async () => {
+    const zodBody = {
+      success: false,
+      error: {
+        issues: [
+          null,
+          { path: "not-an-array", message: "first" },
+          { path: ["files", 1], message: "" },
+          { path: ["files", 2], message: 42 },
+          { path: ["files", 3], message: "second" },
+          { path: ["files", 4], message: "third" },
+          { path: ["files", 5], message: "fourth" },
+        ],
+      },
+    };
+    const err = await createDraftDataset(
+      { name: "x", files: [] },
+      { fetch: failingFetch(400, zodBody) },
+    ).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(UploadError);
+    expect((err as Error).message).toBe(
+      "Could not create dataset: first; files.3: second; files.4: third",
+    );
+  });
+
+  it("falls back to the HTTP status when the body is unreadable and statusText is empty", async () => {
+    // HTTP/2 responses have empty statusText, so a non-JSON error body used to
+    // yield a blank message.
+    await expect(
+      createDraftDataset({ name: "x", files: [] }, { fetch: failingFetch(500, undefined) }),
+    ).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("still prefers a string error field when the backend provides one", async () => {
+    await expect(
+      createDraftDataset(
+        { name: "x", files: [] },
+        { fetch: failingFetch(400, { error: "Sandbox file size limit exceeded" }) },
+      ),
+    ).rejects.toThrow(/Sandbox file size limit exceeded/);
+  });
+});
+
 // A fetch that never settles on its own — it only rejects when its signal
 // aborts. These two calls are browser-side rather than SSR, so the failure
 // mode is a spinner that never resolves instead of a stalled render; the fix
