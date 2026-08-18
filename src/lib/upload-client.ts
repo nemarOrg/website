@@ -99,13 +99,22 @@ export async function createDraftDataset(
   init: Init = {},
 ): Promise<DraftDataset> {
   const fetchImpl = init.fetch ?? fetch;
+  // The backend's create schema requires a `type` on every file and only
+  // issues presigned upload URLs for `"data"` files ("metadata" files are the
+  // CLI's git-tracked ones). The browser flow has no git path — every byte
+  // goes straight to storage — so all files are declared "data" here;
+  // anything else would be silently dropped from `upload_urls`.
+  const payload = {
+    ...input,
+    files: input.files.map((f) => ({ ...f, type: "data" as const })),
+  };
   let res: Response;
   try {
     res = await fetchImpl(`${dashboardApiBase()}/datasets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
       signal: resolveSignal(init, UPLOAD_TIMEOUTS_MS.create),
     });
   } catch (err) {
@@ -121,7 +130,7 @@ export async function createDraftDataset(
   if (!res.ok) {
     const detail = await safeJson(res);
     throw new UploadError(
-      `Could not create dataset: ${extractErrorMessage(detail) ?? res.statusText}`,
+      `Could not create dataset: ${extractErrorMessage(detail) ?? fallbackStatusLabel(res)}`,
       res.status,
     );
   }
@@ -181,7 +190,7 @@ export async function finalizeDataset(
   if (!res.ok) {
     const detail = await safeJson(res);
     throw new UploadError(
-      `Finalize failed: ${extractErrorMessage(detail) ?? res.statusText}`,
+      `Finalize failed: ${extractErrorMessage(detail) ?? fallbackStatusLabel(res)}`,
       res.status,
     );
   }
@@ -444,5 +453,30 @@ function extractErrorMessage(detail: unknown): string | undefined {
   const d = detail as Record<string, unknown>;
   if (typeof d.error === "string" && d.error.length > 0) return d.error;
   if (typeof d.message === "string" && d.message.length > 0) return d.message;
+  // Hono's zValidator rejects with { success: false, error: ZodError }, where
+  // the serialized ZodError is { issues: [{ path, message }, ...] }. Flatten
+  // it so a request-shape mismatch reads as text instead of a blank message.
+  const issues = extractZodIssues(d.error);
+  if (issues) return issues;
   return undefined;
+}
+
+function extractZodIssues(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const issues = (error as { issues?: unknown }).issues;
+  if (!Array.isArray(issues) || issues.length === 0) return undefined;
+  const parts = issues
+    .filter((i): i is { path?: unknown[]; message?: unknown } => !!i && typeof i === "object")
+    .map((i) => {
+      const path = Array.isArray(i.path) && i.path.length > 0 ? `${i.path.join(".")}: ` : "";
+      return typeof i.message === "string" ? `${path}${i.message}` : undefined;
+    })
+    .filter((s): s is string => !!s);
+  return parts.length > 0 ? parts.slice(0, 3).join("; ") : undefined;
+}
+
+// HTTP/2 responses carry an empty statusText, which used to leave errors
+// reading as "Could not create dataset: " with nothing after the colon.
+function fallbackStatusLabel(res: Response): string {
+  return res.statusText || `HTTP ${res.status}`;
 }
