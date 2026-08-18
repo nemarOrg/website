@@ -1,0 +1,9 @@
+---
+// Stable local route for the privacy policy (website#242). The canonical
+// document lives on the docs site so there is a single source of truth;
+// this route exists so on-site links (footer, cookie notice, signup) never
+// hardcode the docs host and keep working if the policy URL moves.
+import { resolveDocsBase } from "../lib/docs-base";
+
+return Astro.redirect(`${resolveDocsBase()}/policies/privacy/`, 301);
+---
