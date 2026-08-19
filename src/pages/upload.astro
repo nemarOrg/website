@@ -695,6 +695,12 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
   function hideConfirm(): void {
     if (confirmEl) confirmEl.hidden = true;
     if (submitBtn) submitBtn.hidden = false;
+    // Unconditionally undo showConfirm's freeze: every close path (Cancel, a
+    // second drop tearing the panel down) must unfreeze, and the confirm-yes
+    // path re-locks everything synchronously right after, so this is safe.
+    if (nameEl) nameEl.disabled = false;
+    if (descEl) descEl.disabled = false;
+    setAttestLocked(false);
   }
   confirmYes?.addEventListener("click", () => {
     if (confirmEl?.hidden) return;
@@ -704,10 +710,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
   });
   confirmNo?.addEventListener("click", () => {
     hideConfirm();
-    // Unfreeze for editing and put focus back where the flow paused.
-    if (nameEl) nameEl.disabled = false;
-    if (descEl) descEl.disabled = false;
-    setAttestLocked(false);
+    // Put focus back where the flow paused.
     submitBtn?.focus();
   });
   const progressEl = document.querySelector<HTMLElement>("[data-upload-progress]");
