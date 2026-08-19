@@ -474,6 +474,23 @@ describe("security headers", () => {
     expect(SECURITY_HEADERS["Content-Security-Policy"]).not.toContain("'unsafe-eval'");
   });
 
+  it("widens connect-src with the S3 hosts only on the upload route", () => {
+    // Presigned PUTs go browser -> bucket directly; without these hosts in
+    // connect-src the browser kills every PUT (the 2026-08-18 all-files
+    // failure — bucket CORS alone was not enough).
+    const uploadCsp = contentSecurityPolicy("/upload");
+    expect(uploadCsp).toContain("https://nemar.s3.us-east-2.amazonaws.com");
+    expect(uploadCsp).toContain("https://nemar-dev.s3.us-east-2.amazonaws.com");
+    expect(contentSecurityPolicy("/upload/success")).toContain(
+      "https://nemar.s3.us-east-2.amazonaws.com",
+    );
+    // Lookalike prefix and every other route stay strict.
+    expect(contentSecurityPolicy("/uploads")).not.toContain("amazonaws.com");
+    expect(contentSecurityPolicy("/discover")).not.toContain("amazonaws.com");
+    expect(contentSecurityPolicy("/dataset/nm000232")).not.toContain("amazonaws.com");
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).not.toContain("amazonaws.com");
+  });
+
   it("stamps the viewer CSP (with 'unsafe-eval') on a /dataset/* response", async () => {
     const res = await onRequest(ctx(`https://${MARKETING_HOST}/dataset/nm000232`), passthrough);
     expect(res?.status).toBe(200);
