@@ -81,3 +81,9 @@ public/         static assets (logos, favicons)
 ```
 
 See `CLAUDE.md` (when present) for dev conventions and the project epic.
+
+## Community and policies
+
+- [NEMAR policies](https://docs.nemar.org/policies/): privacy policy, data contributor terms, GDPR position statement, takedown procedure
+- [Code of Conduct](https://github.com/nemarOrg/.github/blob/main/CODE_OF_CONDUCT.md), [Contributing](https://github.com/nemarOrg/.github/blob/main/CONTRIBUTING.md), and [Security policy](https://github.com/nemarOrg/.github/blob/main/SECURITY.md) apply org-wide from [nemarOrg/.github](https://github.com/nemarOrg/.github).
+- Help using NEMAR: support@nemar.org. Bugs and feature requests: open an issue on this repository.

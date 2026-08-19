@@ -63,6 +63,11 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
         <ul role="list">
           <li><a href="/about">About</a></li>
           <li><a href="/support">Support</a></li>
+          {/* Local routes that 301 to the canonical policy pages on the docs
+              site (website#242): the footer never hardcodes the docs host,
+              and the policy URLs can move without touching this file. */}
+          <li><a href="/privacy">Privacy Policy</a></li>
+          <li><a href="/terms">Terms &amp; Policies</a></li>
         </ul>
       </div>
       <div>

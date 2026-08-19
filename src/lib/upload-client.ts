@@ -90,22 +90,47 @@ export class UploadError extends Error {
   }
 }
 
+/**
+ * Deposit attestation sent with the create request (#245; companion to
+ * nemar-cli #1079 / migration 0067). Mirrors the backend's attestationSchema,
+ * which rejects with a 400 unless: `deidentified` is literally true, and
+ * `no_duplicate` is true for redistribution deposits and ABSENT for owner
+ * deposits — hence the `true` literal types rather than boolean.
+ */
+export interface DepositAttestation {
+  readonly deposit_type: "owner" | "redistribution";
+  readonly key_status: "destroyed" | "retained";
+  readonly deidentified: true;
+  readonly no_duplicate?: true;
+  readonly upstream_source?: string;
+}
+
 export async function createDraftDataset(
   input: {
     name: string;
     description?: string;
     files: { path: string; size: number }[];
+    attestation?: DepositAttestation;
   },
   init: Init = {},
 ): Promise<DraftDataset> {
   const fetchImpl = init.fetch ?? fetch;
+  // The backend's create schema requires a `type` on every file and only
+  // issues presigned upload URLs for `"data"` files ("metadata" files are the
+  // CLI's git-tracked ones). The browser flow has no git path — every byte
+  // goes straight to storage — so all files are declared "data" here;
+  // anything else would be silently dropped from `upload_urls`.
+  const payload = {
+    ...input,
+    files: input.files.map((f) => ({ ...f, type: "data" as const })),
+  };
   let res: Response;
   try {
     res = await fetchImpl(`${dashboardApiBase()}/datasets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(input),
+      body: JSON.stringify(payload),
       signal: resolveSignal(init, UPLOAD_TIMEOUTS_MS.create),
     });
   } catch (err) {
@@ -121,7 +146,7 @@ export async function createDraftDataset(
   if (!res.ok) {
     const detail = await safeJson(res);
     throw new UploadError(
-      `Could not create dataset: ${extractErrorMessage(detail) ?? res.statusText}`,
+      `Could not create dataset: ${extractErrorMessage(detail) ?? fallbackStatusLabel(res)}`,
       res.status,
     );
   }
@@ -133,6 +158,25 @@ export async function createDraftDataset(
     ...data.dataset,
     upload_urls: data.upload_urls ?? data.dataset.upload_urls ?? {},
   };
+}
+
+export type SubmitAction =
+  | { readonly kind: "create-and-upload" }
+  | { readonly kind: "finalize-only"; readonly draftId: string };
+
+/**
+ * Decide what the upload page's Submit does. Once every byte is uploaded, the
+ * page keeps the draft's id; a failed (or timed-out) finalize then retries
+ * {@link finalizeDataset} alone — the backend finalize route is explicitly
+ * idempotent (nemar-cli `routes/datasets/upload.ts`), so repeating it is safe
+ * and cheap. Re-running the whole flow instead would create a duplicate draft
+ * and re-upload every file (#201). The full create + upload run is only for a
+ * fresh submit, when no uploaded draft is waiting on finalize.
+ */
+export function resolveSubmitAction(pendingFinalizeId: string | null): SubmitAction {
+  return pendingFinalizeId
+    ? { kind: "finalize-only", draftId: pendingFinalizeId }
+    : { kind: "create-and-upload" };
 }
 
 export async function finalizeDataset(
@@ -162,7 +206,7 @@ export async function finalizeDataset(
   if (!res.ok) {
     const detail = await safeJson(res);
     throw new UploadError(
-      `Finalize failed: ${extractErrorMessage(detail) ?? res.statusText}`,
+      `Finalize failed: ${extractErrorMessage(detail) ?? fallbackStatusLabel(res)}`,
       res.status,
     );
   }
@@ -302,7 +346,7 @@ export async function runUploadQueue(
 
   let bytesUploaded = 0;
   let nextIndex = 0;
-  const failures: string[] = [];
+  const failures: { path: string; error: string }[] = [];
   const perFileBytes = new Map<string, number>();
 
   for (const p of plan) onEvent({ type: "queued", file: p.file.path });
@@ -351,7 +395,7 @@ export async function runUploadQueue(
           attempt += 1;
           lastError = err instanceof Error ? err.message : String(err);
           if (attempt > retries) {
-            failures.push(`${file.path}: ${lastError}`);
+            failures.push({ path: file.path, error: lastError });
             onEvent({ type: "failed", file: file.path, error: lastError });
             break;
           }
@@ -365,9 +409,40 @@ export async function runUploadQueue(
   await Promise.all(workers);
 
   if (failures.length > 0) {
-    throw new UploadError(`${failures.length} file(s) failed to upload: ${failures.join("; ")}`);
+    throw new UploadError(summarizeUploadFailures(failures, plan.length));
   }
   onEvent({ type: "all_done", bytesUploaded, totalBytes });
+}
+
+/**
+ * One readable sentence instead of a per-file wall (#245 test feedback). A
+ * total-loss run has one shared cause (a dropped connection, or the storage
+ * service refusing browser uploads), so name the dominant cause once, show a
+ * few example paths only for partial failures (the per-file list below the
+ * progress bar already has the rest), and say what to do next.
+ */
+export function summarizeUploadFailures(
+  failures: { path: string; error: string }[],
+  total: number,
+): string {
+  const counts = new Map<string, number>();
+  for (const f of failures) counts.set(f.error, (counts.get(f.error) ?? 0) + 1);
+  const dominant = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const retryHint =
+    "Your file selection is intact, so you can retry the upload as-is; if it keeps failing, email support@nemar.org.";
+  if (failures.length === total) {
+    const scope =
+      total === 1
+        ? "Your file could not be uploaded"
+        : `None of your ${total} files could be uploaded`;
+    return `${scope}. Reason: ${dominant}. ${retryHint}`;
+  }
+  const examples = failures
+    .slice(0, 3)
+    .map((f) => f.path)
+    .join(", ");
+  const more = failures.length > 3 ? ` and ${failures.length - 3} more` : "";
+  return `${failures.length} of ${total} files failed to upload, including ${examples}${more}. Most common reason: ${dominant}. ${retryHint}`;
 }
 
 export function putToPresignedUrl(
@@ -400,7 +475,7 @@ export function putToPresignedUrl(
     });
     xhr.addEventListener("error", () => {
       cleanup();
-      reject(new UploadError("Network error during PUT"));
+      reject(new UploadError("Could not reach the storage service"));
     });
     xhr.addEventListener("abort", () => {
       cleanup();
@@ -425,5 +500,31 @@ function extractErrorMessage(detail: unknown): string | undefined {
   const d = detail as Record<string, unknown>;
   if (typeof d.error === "string" && d.error.length > 0) return d.error;
   if (typeof d.message === "string" && d.message.length > 0) return d.message;
+  // Hono's zValidator rejects with { success: false, error: ZodError }, where
+  // the serialized ZodError is { issues: [{ path, message }, ...] }. Flatten
+  // it so a request-shape mismatch reads as text instead of a blank message.
+  const issues = extractZodIssues(d.error);
+  if (issues) return issues;
   return undefined;
+}
+
+function extractZodIssues(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const issues = (error as { issues?: unknown }).issues;
+  if (!Array.isArray(issues) || issues.length === 0) return undefined;
+  const parts = issues
+    .filter((i): i is { path?: unknown[]; message?: unknown } => !!i && typeof i === "object")
+    .map((i) => {
+      if (typeof i.message !== "string" || i.message.length === 0) return undefined;
+      const path = Array.isArray(i.path) && i.path.length > 0 ? `${i.path.join(".")}: ` : "";
+      return `${path}${i.message}`;
+    })
+    .filter((s): s is string => !!s);
+  return parts.length > 0 ? parts.slice(0, 3).join("; ") : undefined;
+}
+
+// HTTP/2 responses carry an empty statusText, which used to leave errors
+// reading as "Could not create dataset: " with nothing after the colon.
+function fallbackStatusLabel(res: Response): string {
+  return res.statusText || `HTTP ${res.status}`;
 }

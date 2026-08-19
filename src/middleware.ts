@@ -39,6 +39,8 @@ import {
  *   - connect-src *.nemar.org       — api/data/dashboard/zarr client fetches.
  *   - connect-src raw.githubusercontent.com — dataset/[id].astro fetches the
  *     per-version README.md straight from the GitHub raw host client-side.
+ *   - connect-src S3 upload hosts (only on /upload — see routeNeedsS3Upload):
+ *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
  *
  * README-borne script injection is already blocked at the markdown sanitizer
@@ -62,11 +64,35 @@ export function routeNeedsUnsafeEval(pathname: string): boolean {
   return pathname.startsWith("/dataset/");
 }
 
+/** Base connect-src for every route: same-site APIs plus the raw README host. */
+const CONNECT_SRC_BASE = "connect-src 'self' https://*.nemar.org https://raw.githubusercontent.com";
+
+/**
+ * The upload page PUTs file bytes straight to S3 via presigned URLs
+ * (upload-client.ts) — a deliberate single client → S3 hop that never
+ * transits our origin. Those hosts must be in connect-src or the browser
+ * kills every PUT with a network-indistinguishable error (the exact
+ * all-117-files failure of 2026-08-18: bucket CORS was only half the fix).
+ * Scoped to /upload so every other page keeps the strict policy. Both
+ * buckets are listed because staging pages presign against nemar-dev.
+ *
+ * Exported for the middleware unit tests.
+ */
+export function routeNeedsS3Upload(pathname: string): boolean {
+  return pathname === "/upload" || pathname.startsWith("/upload/");
+}
+
+const S3_UPLOAD_HOSTS =
+  "https://nemar.s3.us-east-2.amazonaws.com https://nemar-dev.s3.us-east-2.amazonaws.com";
+
 /** Build the Content-Security-Policy for a given request path. */
 export function contentSecurityPolicy(pathname: string): string {
   const scriptSrc = routeNeedsUnsafeEval(pathname)
     ? `${SCRIPT_SRC_BASE} 'unsafe-eval'`
     : SCRIPT_SRC_BASE;
+  const connectSrc = routeNeedsS3Upload(pathname)
+    ? `${CONNECT_SRC_BASE} ${S3_UPLOAD_HOSTS}`
+    : CONNECT_SRC_BASE;
   return [
     "default-src 'self'",
     "base-uri 'self'",
@@ -76,7 +102,7 @@ export function contentSecurityPolicy(pathname: string): string {
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     scriptSrc,
-    "connect-src 'self' https://*.nemar.org https://raw.githubusercontent.com",
+    connectSrc,
     "form-action 'self'",
   ].join("; ");
 }
@@ -465,6 +491,12 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   withOptional.city = str(user.city);
   withOptional.country = str(user.country);
   withOptional.affiliation = str(user.affiliation);
+  // Tiered-access flag (ADR 0010). Boolean-only, like orcid_verified: a
+  // truthy string ("granted", "1") must not unlock the softened upload
+  // gate (#236), so anything non-boolean is dropped rather than coerced.
+  if (typeof user.service_access === "boolean") {
+    withOptional.service_access = user.service_access;
+  }
   // Drop keys that resolved to undefined so the object stays clean (and the
   // existing `toEqual` assertions on the minimal shape keep passing).
   for (const k of Object.keys(withOptional) as (keyof AuthUser)[]) {

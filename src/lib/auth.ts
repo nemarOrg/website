@@ -30,6 +30,13 @@ export interface AuthUser {
   readonly city?: string;
   readonly country?: string;
   readonly affiliation?: string;
+  // Tiered access (ADR 0010): true once an admin has granted the
+  // upload/compute tier. The backend enforces it on every real upload
+  // (nemar-cli backend/src/services/upload-gate.ts); the website reads it
+  // only to choose UI posture (#236: soften the profile gate for users who
+  // are already authorized to upload). Absent when the backend predates the
+  // field — treat undefined as "not granted", never as "granted".
+  readonly service_access?: boolean;
 }
 
 /**

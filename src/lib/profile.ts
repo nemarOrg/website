@@ -8,8 +8,12 @@
  * The two tiers are deliberately different in strength:
  *
  * - **city + country are required to upload.** They are the export-control
- *   screening inputs for the service-access tier (ADR 0010); a real upload
- *   must not start without them.
+ *   screening inputs for the service-access tier (ADR 0010). For users who
+ *   do NOT yet hold a service-access grant this is a hard gate; for users
+ *   an admin already granted service access it is a prominent warning
+ *   instead (#236, ADR 0011) — every existing uploader predates the profile
+ *   columns, so a hard block would lock out 100% of the people actually
+ *   authorized to upload. See {@link uploadGate}.
  * - **the GitHub handle is a nudge only.** It is required at *publish*, not
  *   before, matching the locked decision in #129. Gating upload on it would
  *   block people who have nothing to publish yet.
@@ -60,6 +64,37 @@ export function canUpload(
   user: Pick<AuthUser, "github_username" | "city" | "country"> | null | undefined,
 ): boolean {
   return missingProfileFields(user, UPLOAD_REQUIRED_FIELDS).length === 0;
+}
+
+/**
+ * What /upload should render (#236, ADR 0011):
+ *
+ * - `"open"`  — profile complete; render the form, no gate copy.
+ * - `"warn"`  — profile incomplete, but an admin already granted the user
+ *   service access (ADR 0010). Render the form with a prominent,
+ *   non-blocking prompt to finish the profile. These users were authorized
+ *   before the city/country columns existed; blocking them on two empty
+ *   fields punishes exactly the population the tier was built to admit.
+ * - `"block"` — profile incomplete and no service-access grant (or the
+ *   backend did not send the flag — fail closed). Withhold the form; this
+ *   is where the export-control prompt must be answered before anything
+ *   else, since these users have no prior admin review on record.
+ *
+ * Access control does not live here either way: the backend rejects real
+ * uploads without `service_access` + `sandbox_completed`
+ * (nemar-cli backend/src/services/upload-gate.ts), so "warn" never lets an
+ * unauthorized upload through — it only stops blocking authorized ones.
+ */
+export type UploadGate = "open" | "warn" | "block";
+
+export function uploadGate(
+  user:
+    | Pick<AuthUser, "github_username" | "city" | "country" | "service_access">
+    | null
+    | undefined,
+): UploadGate {
+  if (canUpload(user)) return "open";
+  return user?.service_access === true ? "warn" : "block";
 }
 
 /**

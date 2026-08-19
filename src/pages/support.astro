@@ -1,4 +1,5 @@
 ---
+import ExternalLink from "../components/ExternalLink.astro";
 import Base from "../layouts/Base.astro";
 ---
 
@@ -6,10 +7,19 @@ import Base from "../layouts/Base.astro";
   <section class="container page">
     <h1>Support</h1>
     <p>
-      For questions, file an issue on the dataset's GitHub repository
-      (linked from each <a href="/discover">dataset detail page</a>) or open a
-      ticket on the
-      <a href="https://nemar.org/feedback/report_problems">legacy support form</a>.
+      NEMAR does not run a forum. For help using NEMAR, email
+      <a href="mailto:support@nemar.org">support@nemar.org</a>.
+    </p>
+    <p>
+      To report a bug or request a feature in the CLI, API, or backend, open
+      an issue on <ExternalLink href="https://github.com/nemarOrg/nemar-cli/issues">nemarOrg/nemar-cli</ExternalLink>.
+      For a problem with this site, open one on
+      <ExternalLink href="https://github.com/nemarOrg/website/issues">nemarOrg/website</ExternalLink>.
+    </p>
+    <p>
+      For a dataset-specific question, file an issue on that dataset's
+      GitHub repository, linked from its
+      <a href="/discover">dataset detail page</a>.
     </p>
   </section>
 </Base>
@@ -26,5 +36,9 @@ import Base from "../layouts/Base.astro";
   .page p {
     color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
+    margin-block-end: var(--space-4);
+  }
+  .page p:last-child {
+    margin-block-end: 0;
   }
 </style>

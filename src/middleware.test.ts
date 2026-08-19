@@ -66,6 +66,7 @@ describe("parseAuthMeResponse", () => {
         city: "London",
         country: "United Kingdom",
         affiliation: "Analytical Engine Lab",
+        service_access: true,
       },
     });
     expect(out?.user).toMatchObject({
@@ -77,7 +78,26 @@ describe("parseAuthMeResponse", () => {
       city: "London",
       country: "United Kingdom",
       affiliation: "Analytical Engine Lab",
+      service_access: true,
     });
+  });
+
+  it("keeps service_access only when it is a real boolean", () => {
+    const base = { id: "u_7", email: "svc@example.com", role: "member", status: "active" };
+    // false must survive — it drives the hard upload gate (#236), so
+    // dropping it would be indistinguishable from "granted-unknown".
+    expect(parseAuthMeResponse({ user: { ...base, service_access: false } })?.user).toMatchObject({
+      service_access: false,
+    });
+    // Truthy non-booleans must not unlock the softened gate.
+    expect(
+      parseAuthMeResponse({ user: { ...base, service_access: "granted" } })?.user,
+    ).not.toHaveProperty("service_access");
+    expect(parseAuthMeResponse({ user: { ...base, service_access: 1 } })?.user).not.toHaveProperty(
+      "service_access",
+    );
+    // Absent stays absent (pre-tiering backend shape).
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("service_access");
   });
 
   it("omits blank / wrong-typed optional fields (sparse /auth/me)", () => {
@@ -452,6 +472,23 @@ describe("security headers", () => {
     expect(strictCsp).not.toContain("'unsafe-eval'");
     // The base export is the strict policy (used for every non-viewer route).
     expect(SECURITY_HEADERS["Content-Security-Policy"]).not.toContain("'unsafe-eval'");
+  });
+
+  it("widens connect-src with the S3 hosts only on the upload route", () => {
+    // Presigned PUTs go browser -> bucket directly; without these hosts in
+    // connect-src the browser kills every PUT (the 2026-08-18 all-files
+    // failure — bucket CORS alone was not enough).
+    const uploadCsp = contentSecurityPolicy("/upload");
+    expect(uploadCsp).toContain("https://nemar.s3.us-east-2.amazonaws.com");
+    expect(uploadCsp).toContain("https://nemar-dev.s3.us-east-2.amazonaws.com");
+    expect(contentSecurityPolicy("/upload/success")).toContain(
+      "https://nemar.s3.us-east-2.amazonaws.com",
+    );
+    // Lookalike prefix and every other route stay strict.
+    expect(contentSecurityPolicy("/uploads")).not.toContain("amazonaws.com");
+    expect(contentSecurityPolicy("/discover")).not.toContain("amazonaws.com");
+    expect(contentSecurityPolicy("/dataset/nm000232")).not.toContain("amazonaws.com");
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).not.toContain("amazonaws.com");
   });
 
   it("stamps the viewer CSP (with 'unsafe-eval') on a /dataset/* response", async () => {

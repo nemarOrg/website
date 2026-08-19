@@ -7,8 +7,10 @@ import {
   createDraftDataset,
   filesFromInput,
   finalizeDataset,
+  resolveSubmitAction,
   runUploadQueue,
   stripLeadingDirectory,
+  summarizeUploadFailures,
 } from "./upload-client";
 
 function df(path: string, size = 100): DroppedFile {
@@ -212,6 +214,105 @@ describe("runUploadQueue", () => {
   });
 });
 
+describe("createDraftDataset request contract", () => {
+  it("declares every file as type=data (backend only issues URLs for data files)", async () => {
+    let body: string | undefined;
+    const capturingFetch = (async (_url: string, requestInit: RequestInit) => {
+      body = requestInit.body as string;
+      return new Response(
+        JSON.stringify({ dataset: { id: "xx90001", visibility: "private", upload_urls: {} } }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+    await createDraftDataset(
+      {
+        name: "test",
+        files: [
+          { path: "dataset_description.json", size: 120 },
+          { path: "sub-01/eeg/x.set", size: 4096 },
+        ],
+      },
+      { fetch: capturingFetch },
+    );
+    const parsed = JSON.parse(body ?? "{}");
+    expect(parsed.files).toEqual([
+      { path: "dataset_description.json", size: 120, type: "data" },
+      { path: "sub-01/eeg/x.set", size: 4096, type: "data" },
+    ]);
+  });
+});
+
+describe("createDraftDataset error surfacing", () => {
+  function failingFetch(status: number, body: unknown, statusText = ""): typeof fetch {
+    return (async () =>
+      new Response(body === undefined ? null : JSON.stringify(body), {
+        status,
+        statusText,
+      })) as unknown as typeof fetch;
+  }
+
+  it("flattens a zValidator rejection into readable issue text", async () => {
+    // Shape produced by Hono's zValidator: { success: false, error: ZodError },
+    // whose serialized form carries `issues`. Before this handling, the page
+    // showed "Could not create dataset: " with nothing after the colon.
+    const zodBody = {
+      success: false,
+      error: {
+        name: "ZodError",
+        issues: [
+          { code: "invalid_type", path: ["files", 0, "type"], message: "Required" },
+          { code: "invalid_type", path: ["files", 1, "type"], message: "Required" },
+        ],
+      },
+    };
+    await expect(
+      createDraftDataset({ name: "x", files: [] }, { fetch: failingFetch(400, zodBody) }),
+    ).rejects.toThrow(/files\.0\.type: Required/);
+  });
+
+  it("caps the rendered issues at three and skips malformed entries", async () => {
+    const zodBody = {
+      success: false,
+      error: {
+        issues: [
+          null,
+          { path: "not-an-array", message: "first" },
+          { path: ["files", 1], message: "" },
+          { path: ["files", 2], message: 42 },
+          { path: ["files", 3], message: "second" },
+          { path: ["files", 4], message: "third" },
+          { path: ["files", 5], message: "fourth" },
+        ],
+      },
+    };
+    const err = await createDraftDataset(
+      { name: "x", files: [] },
+      { fetch: failingFetch(400, zodBody) },
+    ).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(UploadError);
+    expect((err as Error).message).toBe(
+      "Could not create dataset: first; files.3: second; files.4: third",
+    );
+  });
+
+  it("falls back to the HTTP status when the body is unreadable and statusText is empty", async () => {
+    // HTTP/2 responses have empty statusText, so a non-JSON error body used to
+    // yield a blank message.
+    await expect(
+      createDraftDataset({ name: "x", files: [] }, { fetch: failingFetch(500, undefined) }),
+    ).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("still prefers a string error field when the backend provides one", async () => {
+    await expect(
+      createDraftDataset(
+        { name: "x", files: [] },
+        { fetch: failingFetch(400, { error: "Sandbox file size limit exceeded" }) },
+      ),
+    ).rejects.toThrow(/Sandbox file size limit exceeded/);
+  });
+});
+
 // A fetch that never settles on its own — it only rejects when its signal
 // aborts. These two calls are browser-side rather than SSR, so the failure
 // mode is a spinner that never resolves instead of a stalled render; the fix
@@ -274,5 +375,75 @@ describe("deadline wiring", () => {
     const spy = vi.spyOn(AbortSignal, "timeout");
     await finalizeDataset("nm-xyz", { fetch: okFetch({ dataset: { status: "ready" } }) });
     expect(spy).toHaveBeenCalledWith(UPLOAD_TIMEOUTS_MS.finalize);
+  });
+});
+
+describe("resolveSubmitAction", () => {
+  it("runs the full create + upload flow when no draft is pending finalize", () => {
+    expect(resolveSubmitAction(null)).toEqual({ kind: "create-and-upload" });
+  });
+
+  it("retries finalize alone when an uploaded draft is pending finalize", () => {
+    expect(resolveSubmitAction("nm-abc123")).toEqual({
+      kind: "finalize-only",
+      draftId: "nm-abc123",
+    });
+  });
+
+  // Repeat failures keep the id set, so the decision must be stable across
+  // retries: same input, same finalize-only answer (finalize is idempotent).
+  it("keeps answering finalize-only for the same pending draft", () => {
+    expect(resolveSubmitAction("nm-abc123")).toEqual(resolveSubmitAction("nm-abc123"));
+  });
+
+  it("falls back to the full flow for an empty id", () => {
+    expect(resolveSubmitAction("")).toEqual({ kind: "create-and-upload" });
+  });
+});
+
+describe("summarizeUploadFailures", () => {
+  const F = (path: string, error = "Could not reach the storage service") => ({ path, error });
+
+  it("total loss names the shared reason once with no per-file wall", () => {
+    const msg = summarizeUploadFailures(
+      Array.from({ length: 117 }, (_, i) => F(`sub-001/file${i}.tsv`)),
+      117,
+    );
+    expect(msg).toContain("None of your 117 files could be uploaded");
+    expect(msg).toContain("Reason: Could not reach the storage service");
+    expect(msg).toContain("support@nemar.org");
+    expect(msg).not.toContain("file1.tsv"); // no path listing on total loss
+  });
+
+  it("uses singular phrasing for a one-file total loss", () => {
+    const msg = summarizeUploadFailures([F("README.md")], 1);
+    expect(msg).toContain("Your file could not be uploaded");
+    expect(msg).not.toContain("None of your");
+  });
+
+  it("partial failure lists up to three examples and the overflow count", () => {
+    const msg = summarizeUploadFailures(
+      [F("a.tsv"), F("b.tsv"), F("c.tsv"), F("d.tsv"), F("e.tsv")],
+      10,
+    );
+    expect(msg).toContain("5 of 10 files failed to upload");
+    expect(msg).toContain("a.tsv, b.tsv, c.tsv and 2 more");
+  });
+
+  it("picks the dominant reason among mixed errors, keeping its casing", () => {
+    const msg = summarizeUploadFailures(
+      [
+        F("a.tsv", "PUT returned 500"),
+        F("b.tsv", "PUT returned 500"),
+        F("c.tsv", "Upload aborted"),
+      ],
+      10,
+    );
+    expect(msg).toContain("Most common reason: PUT returned 500");
+  });
+
+  it("breaks reason ties deterministically by first occurrence", () => {
+    const msg = summarizeUploadFailures([F("a.tsv", "First error"), F("b.tsv", "Second error")], 5);
+    expect(msg).toContain("Most common reason: First error");
   });
 });
