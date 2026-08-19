@@ -9,7 +9,7 @@
 ---
 
 <div class="dropzone" data-dropzone tabindex="0">
-  <div class="dropzone__inner">
+  <div class="dropzone__inner" data-dropzone-empty-view>
     <svg class="dropzone__icon" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M12 3v12" />
       <path d="m7 8 5-5 5 5" />
@@ -30,6 +30,16 @@
       </label>
     </div>
     <div class="dropzone__cap">Up to 5 GB per file and 50 GB per dataset</div>
+  </div>
+  <!-- Shown after a folder lands (the page script owns the toggle): the zone
+       must visibly acknowledge the selection instead of still inviting a
+       first drop (owner test feedback, 2026-08-18). -->
+  <div class="dropzone__inner" data-dropzone-selected-view hidden>
+    <svg class="dropzone__icon dropzone__icon--selected" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+    <div class="dropzone__title" data-dropzone-selected-title>Folder selected</div>
+    <div class="dropzone__hint">Drop a different folder here, or click to browse again — either replaces this selection.</div>
   </div>
 </div>
 
@@ -57,13 +67,24 @@
     opacity: 0.55;
     cursor: not-allowed;
   }
-  .dropzone__inner {
+  /* Solid teal border once a selection is held: the dashed "waiting" look is
+     the empty state's, not this one's. */
+  .dropzone[data-dropzone-has-selection="true"] {
+    border-style: solid;
+    border-color: var(--brand-teal);
+  }
+  /* :not([hidden]): the author display would otherwise beat the UA's
+     [hidden]{display:none} and render both views at once. */
+  .dropzone__inner:not([hidden]) {
     display: grid;
     gap: var(--space-3);
     justify-items: center;
   }
   .dropzone__icon {
     color: var(--color-fg-subtle);
+  }
+  .dropzone__icon--selected {
+    color: var(--brand-teal);
   }
   .dropzone__title {
     font-family: var(--font-display);

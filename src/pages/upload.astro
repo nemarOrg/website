@@ -664,8 +664,29 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
   const confirmYes = document.querySelector<HTMLButtonElement>("[data-confirm-yes]");
   const confirmNo = document.querySelector<HTMLButtonElement>("[data-confirm-no]");
   const statusEl = document.querySelector<HTMLElement>("[data-upload-status]");
+  const dropEmptyView = document.querySelector<HTMLElement>("[data-dropzone-empty-view]");
+  const dropSelectedView = document.querySelector<HTMLElement>("[data-dropzone-selected-view]");
+  const dropSelectedTitle = document.querySelector<HTMLElement>("[data-dropzone-selected-title]");
   let pendingRaw: DroppedFile[] | null = null;
   let confirmedUpload = false;
+
+  /** Flip the dropzone between its empty invitation and the selected
+   *  acknowledgment (folder name + file count). null reverts to empty. */
+  function setDropzoneSelection(files: DroppedFile[] | null): void {
+    const selected = files !== null && files.length > 0;
+    if (dropEmptyView) dropEmptyView.hidden = selected;
+    if (dropSelectedView) dropSelectedView.hidden = !selected;
+    if (dropzone) dropzone.dataset.dropzoneHasSelection = selected ? "true" : "false";
+    if (selected && dropSelectedTitle) {
+      // The common top-level directory is the folder the user picked (it is
+      // what stripLeadingDirectory removes before upload).
+      const first = files[0].path;
+      const top = first.includes("/") ? first.split("/")[0] : "";
+      const sameTop = top !== "" && files.every((f) => f.path.startsWith(`${top}/`));
+      const total = files.reduce((sum, f) => sum + f.size, 0);
+      dropSelectedTitle.textContent = `${sameTop ? `"${top}" — ` : ""}${files.length} files (${formatBytes(total)}) selected`;
+    }
+  }
 
   function setStatus(message: string | null): void {
     if (!statusEl) return;
@@ -845,6 +866,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
     // Back to step zero of the drop -> validate -> confirm -> upload flow.
     pendingRaw = null;
+    setDropzoneSelection(null);
     confirmedUpload = false;
     hideConfirm();
     if (validateBtn) validateBtn.hidden = true;
@@ -924,6 +946,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     // A fresh drop resets the step machine: validation is an explicit click,
     // and the upload button stays hidden until validation has run clean.
     pendingRaw = e.detail?.files ?? [];
+    setDropzoneSelection(pendingRaw);
     if (precheckEl) precheckEl.hidden = true;
     hideConfirm(); // un-hides the submit button, so hide it after
     if (submitBtn) {
