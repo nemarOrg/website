@@ -3,6 +3,7 @@ import UploadDropzone from "../components/UploadDropzone.astro";
 import UploadProgress from "../components/UploadProgress.astro";
 import Base from "../layouts/Base.astro";
 import { getSession } from "../lib/auth";
+import { resolveDocsBase } from "../lib/docs-base";
 import {
   UPLOAD_REQUIRED_FIELDS,
   formatFieldList,
@@ -47,6 +48,7 @@ const pendingNotice =
 // free to drift from it.
 const gate = uploadGate(session.user);
 const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIELDS);
+const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
 ---
 
 <Base title="Upload a dataset" description="Upload your BIDS dataset to NEMAR.">
@@ -142,15 +144,88 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         <ul class="precheck__messages precheck__messages--warn" data-precheck-warnings></ul>
       </section>
 
+      <fieldset class="attest" data-attest>
+        <legend class="attest__legend">Deposit attestation</legend>
+        <p class="attest__lede">
+          Every deposit carries the warranties in the
+          <a href={contributorTermsUrl} target="_blank" rel="noopener noreferrer">Data Contributor Terms</a>.
+          Your answers are recorded with the dataset.
+        </p>
+
+        <div class="attest__q">
+          <span class="field__label">Which describes this deposit?</span>
+          <label class="attest__option">
+            <input type="radio" name="attest-deposit-type" value="owner" required data-attest-deposit-type />
+            <span><strong>Owner deposit</strong> — I own this dataset (or am authorized by the owner) and hold ethics permissions for public sharing.</span>
+          </label>
+          <label class="attest__option">
+            <input type="radio" name="attest-deposit-type" value="redistribution" required data-attest-deposit-type />
+            <span><strong>Licensed redistribution</strong> — I am redistributing a publicly released dataset whose license permits it.</span>
+          </label>
+        </div>
+
+        <div class="attest__redist" data-attest-redist hidden>
+          <label class="attest__option">
+            <input type="checkbox" disabled data-attest-no-duplicate />
+            <span>I affirm this dataset is <strong>not</strong> already available on NEMAR or an upstream archive (e.g. OpenNeuro) in BIDS format.</span>
+          </label>
+          <div class="field">
+            <label class="field__label" for="attest-upstream">
+              Upstream source in its original form <span class="field__optional">(URL or accession; optional)</span>
+            </label>
+            <input
+              id="attest-upstream"
+              class="field__input"
+              type="text"
+              maxlength="500"
+              disabled
+              placeholder="https://... or accession ID"
+              data-attest-upstream
+            />
+          </div>
+        </div>
+
+        <div class="attest__q">
+          <span class="field__label">The key linking subject codes to participant identities:</span>
+          <label class="attest__option">
+            <input type="radio" name="attest-key-status" value="destroyed" required data-attest-key-status />
+            <span><strong>Has been destroyed</strong> — the dataset is anonymous.</span>
+          </label>
+          <label class="attest__option">
+            <input type="radio" name="attest-key-status" value="retained" required data-attest-key-status />
+            <span><strong>Is retained by the owning institution</strong> — and is never transmitted to NEMAR.</span>
+          </label>
+        </div>
+
+        <label class="attest__option">
+          <input type="checkbox" required data-attest-deidentified />
+          <span>I confirm the dataset contains no identifiable personal information (HIPAA Safe Harbor identifiers removed, anatomical images defaced, headers scrubbed).</span>
+        </label>
+      </fieldset>
+
       <div class="upload-actions">
+        <button type="button" class="upload-form__submit" data-validate-btn hidden>
+          Validate dataset
+        </button>
         <button
           type="submit"
           class="upload-form__submit"
           data-upload-submit
           disabled
+          hidden
         >
           Create dataset and upload
         </button>
+        <div class="confirm" data-confirm hidden>
+          <p class="confirm__text" data-confirm-text></p>
+          <div class="confirm__actions">
+            <button type="button" class="upload-form__submit confirm__yes" data-confirm-yes>
+              Yes, create and upload
+            </button>
+            <button type="button" class="confirm__cancel" data-confirm-no>Cancel</button>
+          </div>
+        </div>
+        <p class="upload-status" role="status" data-upload-status hidden></p>
         <p class="upload-error" role="alert" data-upload-error hidden></p>
       </div>
 
@@ -300,6 +375,93 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     display: grid;
     gap: var(--space-3);
   }
+  .attest {
+    display: grid;
+    gap: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    margin: 0;
+  }
+  .attest__legend {
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    color: var(--color-fg);
+    padding-inline: var(--space-2);
+  }
+  .attest__lede {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    margin: 0;
+  }
+  .attest__lede a {
+    color: var(--color-link);
+    text-decoration: underline;
+  }
+  .attest__q {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .attest__option {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-3);
+    align-items: start;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    cursor: pointer;
+  }
+  .attest__option input {
+    margin-block-start: 3px;
+    accent-color: var(--brand-teal);
+  }
+  .attest__option strong {
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+  }
+  .attest__redist {
+    display: grid;
+    gap: var(--space-3);
+    padding-inline-start: var(--space-5);
+    border-inline-start: 2px solid var(--color-border);
+  }
+  .confirm {
+    display: grid;
+    gap: var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    background: var(--color-bg-elevated);
+  }
+  .confirm__text {
+    margin: 0;
+    font-size: var(--fs-base);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+  }
+  .confirm__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .confirm__cancel {
+    min-block-size: 48px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .confirm__cancel:hover {
+    background: var(--color-bg-subtle, var(--color-bg-elevated));
+  }
+  .upload-status {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
   .upload-form__submit {
     min-block-size: 48px;
     padding: 0 var(--space-6);
@@ -423,6 +585,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     stripLeadingDirectory,
     UploadError,
   } from "../lib/upload-client";
+  import type { DepositAttestation } from "../lib/upload-client";
 
   const form = document.querySelector<HTMLFormElement>("[data-upload-form]");
   const nameEl = document.querySelector<HTMLInputElement>("[data-upload-name]");
@@ -435,6 +598,95 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
   const precheckErrors = document.querySelector<HTMLElement>("[data-precheck-errors]");
   const precheckWarnings = document.querySelector<HTMLElement>("[data-precheck-warnings]");
   const precheckReset = document.querySelector<HTMLButtonElement>("[data-precheck-reset]");
+  const attestEl = document.querySelector<HTMLFieldSetElement>("[data-attest]");
+  const attestInputs = attestEl ? Array.from(attestEl.querySelectorAll("input")) : [];
+  const attestRedistEl = document.querySelector<HTMLElement>("[data-attest-redist]");
+  const attestNoDupEl = document.querySelector<HTMLInputElement>("[data-attest-no-duplicate]");
+  const attestUpstreamEl = document.querySelector<HTMLInputElement>("[data-attest-upstream]");
+  const attestDeidentifiedEl = document.querySelector<HTMLInputElement>(
+    "[data-attest-deidentified]",
+  );
+
+  // Deposit attestation (#245). The redistribution-only controls are disabled
+  // while hidden so native `required` validation skips them AND an owner
+  // deposit can never leak a `no_duplicate` field (the API 400s on that).
+  let attestLocked = false; // true while an upload run owns the form
+  function attestDepositType(): "owner" | "redistribution" | null {
+    const checked = document.querySelector<HTMLInputElement>("[data-attest-deposit-type]:checked");
+    return checked ? (checked.value as "owner" | "redistribution") : null;
+  }
+  function syncAttestRedist(): void {
+    const isRedist = attestDepositType() === "redistribution";
+    if (attestRedistEl) attestRedistEl.hidden = !isRedist;
+    if (attestNoDupEl) {
+      attestNoDupEl.disabled = attestLocked || !isRedist;
+      attestNoDupEl.required = isRedist;
+    }
+    if (attestUpstreamEl) attestUpstreamEl.disabled = attestLocked || !isRedist;
+  }
+  function setAttestLocked(locked: boolean): void {
+    attestLocked = locked;
+    for (const el of attestInputs) el.disabled = locked;
+    syncAttestRedist();
+  }
+  function readAttestation(): DepositAttestation | null {
+    const depositType = attestDepositType();
+    const keyChecked = document.querySelector<HTMLInputElement>("[data-attest-key-status]:checked");
+    if (!depositType || !keyChecked || !attestDeidentifiedEl?.checked) return null;
+    if (depositType === "redistribution" && !attestNoDupEl?.checked) return null;
+    const attestation: DepositAttestation = {
+      deposit_type: depositType,
+      key_status: keyChecked.value as "destroyed" | "retained",
+      deidentified: true,
+      ...(depositType === "redistribution" ? { no_duplicate: true as const } : {}),
+    };
+    const upstream = depositType === "redistribution" ? attestUpstreamEl?.value.trim() : "";
+    return upstream ? { ...attestation, upstream_source: upstream } : attestation;
+  }
+  attestEl?.addEventListener("change", (e) => {
+    if ((e.target as HTMLElement).matches("[data-attest-deposit-type]")) syncAttestRedist();
+  });
+
+  // Two-step flow (#245 test feedback): dropping files shows an explicit
+  // "Validate dataset" button; only a clean validation reveals the upload
+  // button, and the upload button opens an inline confirmation before any
+  // request is made. `pendingRaw` holds the drop until the user validates.
+  const validateBtn = document.querySelector<HTMLButtonElement>("[data-validate-btn]");
+  const confirmEl = document.querySelector<HTMLElement>("[data-confirm]");
+  const confirmText = document.querySelector<HTMLElement>("[data-confirm-text]");
+  const confirmYes = document.querySelector<HTMLButtonElement>("[data-confirm-yes]");
+  const confirmNo = document.querySelector<HTMLButtonElement>("[data-confirm-no]");
+  const statusEl = document.querySelector<HTMLElement>("[data-upload-status]");
+  let pendingRaw: DroppedFile[] | null = null;
+  let confirmedUpload = false;
+
+  function setStatus(message: string | null): void {
+    if (!statusEl) return;
+    statusEl.hidden = message === null;
+    statusEl.textContent = message ?? "";
+  }
+  function showConfirm(name: string): void {
+    if (confirmText) {
+      confirmText.textContent =
+        `Create dataset "${name}" and upload ${state.files.length} files ` +
+        `(${formatBytes(state.scan?.totalBytes ?? 0)})? ` +
+        "Your deposit attestation is recorded with the dataset.";
+    }
+    if (confirmEl) confirmEl.hidden = false;
+    if (submitBtn) submitBtn.hidden = true;
+  }
+  function hideConfirm(): void {
+    if (confirmEl) confirmEl.hidden = true;
+    if (submitBtn) submitBtn.hidden = false;
+  }
+  confirmYes?.addEventListener("click", () => {
+    confirmedUpload = true;
+    hideConfirm();
+    form?.requestSubmit();
+  });
+  confirmNo?.addEventListener("click", () => {
+    hideConfirm();
+  });
   const progressEl = document.querySelector<HTMLElement>("[data-upload-progress]");
   const progressList = document.querySelector<HTMLElement>("[data-upload-progress-list]");
   const progressFill = document.querySelector<HTMLElement>("[data-upload-progress-fill]");
@@ -563,7 +815,15 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     if (progressEl) progressEl.hidden = true;
     if (nameEl) nameEl.disabled = false;
     if (descEl) descEl.disabled = false;
+    setAttestLocked(false);
     if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
+    // Back to step zero of the drop -> validate -> confirm -> upload flow.
+    pendingRaw = null;
+    confirmedUpload = false;
+    hideConfirm();
+    if (validateBtn) validateBtn.hidden = true;
+    if (submitBtn) submitBtn.hidden = true;
+    setStatus(null);
     clearError();
   }
 
@@ -635,8 +895,36 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
 
   document.addEventListener("nemar:files-dropped", ((evt: Event) => {
     const e = evt as CustomEvent<{ files: DroppedFile[] }>;
-    void runPrecheck(e.detail?.files ?? []);
+    // A fresh drop resets the step machine: validation is an explicit click,
+    // and the upload button stays hidden until validation has run clean.
+    pendingRaw = e.detail?.files ?? [];
+    if (precheckEl) precheckEl.hidden = true;
+    hideConfirm(); // un-hides the submit button, so hide it after
+    if (submitBtn) {
+      submitBtn.hidden = true;
+      submitBtn.disabled = true;
+    }
+    setStatus(null);
+    clearError();
+    if (validateBtn) {
+      validateBtn.hidden = false;
+      validateBtn.disabled = false;
+    }
   }) as EventListener);
+
+  validateBtn?.addEventListener("click", async () => {
+    if (!pendingRaw || scanInProgress) return;
+    validateBtn.disabled = true;
+    validateBtn.textContent = "Validating...";
+    try {
+      await runPrecheck(pendingRaw);
+    } finally {
+      validateBtn.textContent = "Validate dataset";
+      validateBtn.hidden = true;
+      // renderPrecheck decided disabled; only reveal the button here.
+      if (submitBtn) submitBtn.hidden = false;
+    }
+  });
 
   document.addEventListener("nemar:drop-error", ((evt: Event) => {
     const e = evt as CustomEvent<{ message: string }>;
@@ -779,10 +1067,28 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
     }
     const description = descEl?.value.trim() ?? "";
 
+    // Native `required` validation normally guarantees these; this guard
+    // covers browsers/extensions that bypass it, since the API would 400.
+    const attestation = readAttestation();
+    if (!attestation) {
+      showError("Complete the deposit attestation before uploading.");
+      return;
+    }
+
+    // Confirmation step (#245 test feedback): the first submit shows an
+    // inline are-you-sure panel; only its "Yes" button re-submits with the
+    // flag set. No request leaves the page before that.
+    if (!confirmedUpload) {
+      showConfirm(name);
+      return;
+    }
+    confirmedUpload = false;
+
     const generation = submitGeneration;
     if (submitBtn) submitBtn.disabled = true;
     if (nameEl) nameEl.disabled = true;
     if (descEl) descEl.disabled = true;
+    setAttestLocked(true);
     // data-dropzone-disabled is the cross-script signal that tells the
     // UploadDropzone component to ignore drop/click events; we toggle it
     // around any operation that owns the DOM (upload, precheck).
@@ -798,6 +1104,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         name,
         description,
         files: state.files.map((f) => ({ path: f.path, size: f.size })),
+        attestation,
       });
 
       if (generation !== submitGeneration) return;
@@ -807,6 +1114,12 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
         .filter((p): p is { file: DroppedFile; url: string } => Boolean(p.url));
 
       if (plan.length === 0) throw new UploadError("Backend did not return any upload URLs.");
+
+      // CLI-style running status: the dataset exists from here on, so say so
+      // by ID even if the byte transfer below fails and needs a retry.
+      setStatus(
+        `Dataset ${draft.id} created. Uploading ${plan.length} files (${formatBytes(state.scan?.totalBytes ?? 0)})...`,
+      );
 
       renderProgressInit(state.files);
       let completed = 0;
@@ -846,6 +1159,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
       // needs is finalize itself. Remember the draft so the catch offers a
       // finalize-only retry instead of the full re-run.
       pendingFinalizeId = draft.id;
+      setStatus(`Dataset ${draft.id}: all files uploaded. Finalizing...`);
       setPhaseFinalizing();
       // The signal lets resetPrecheck cancel a finalize left hanging (up to
       // 60s); an aborted finalize is safe because the route is idempotent.
@@ -866,6 +1180,7 @@ const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIEL
       if (submitBtn) submitBtn.disabled = false;
       if (nameEl) nameEl.disabled = false;
       if (descEl) descEl.disabled = false;
+      setAttestLocked(false);
       if (dropzone) dropzone.dataset.dropzoneDisabled = "false";
       if (precheckReset) precheckReset.disabled = false;
     }
