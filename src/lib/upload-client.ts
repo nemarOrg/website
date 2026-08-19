@@ -421,7 +421,7 @@ export async function runUploadQueue(
  * few example paths only for partial failures (the per-file list below the
  * progress bar already has the rest), and say what to do next.
  */
-function summarizeUploadFailures(
+export function summarizeUploadFailures(
   failures: { path: string; error: string }[],
   total: number,
 ): string {
@@ -431,14 +431,18 @@ function summarizeUploadFailures(
   const retryHint =
     "Your file selection is intact, so you can retry the upload as-is; if it keeps failing, email support@nemar.org.";
   if (failures.length === total) {
-    return `None of your ${total} files could be uploaded (${dominant.toLowerCase()} for every file). ${retryHint}`;
+    const scope =
+      total === 1
+        ? "Your file could not be uploaded"
+        : `None of your ${total} files could be uploaded`;
+    return `${scope}. Reason: ${dominant}. ${retryHint}`;
   }
   const examples = failures
     .slice(0, 3)
     .map((f) => f.path)
     .join(", ");
   const more = failures.length > 3 ? ` and ${failures.length - 3} more` : "";
-  return `${failures.length} of ${total} files failed to upload (most often: ${dominant.toLowerCase()}), including ${examples}${more}. ${retryHint}`;
+  return `${failures.length} of ${total} files failed to upload, including ${examples}${more}. Most common reason: ${dominant}. ${retryHint}`;
 }
 
 export function putToPresignedUrl(

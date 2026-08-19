@@ -199,7 +199,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
 
         <label class="attest__option">
           <input type="checkbox" required data-attest-deidentified />
-          <span>I confirm the dataset contains no identifiable personal information (HIPAA Safe Harbor identifiers removed, anatomical images defaced, headers scrubbed).</span>
+          <span>I confirm the dataset contains no identifiable personal information (HIPAA Safe Harbor identifiers removed; anatomical images defaced and file headers scrubbed where applicable).</span>
         </label>
       </fieldset>
 
@@ -419,13 +419,16 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     color: var(--color-fg);
     font-weight: var(--fw-medium);
   }
-  .attest__redist {
+  /* :not([hidden]) on these grid containers: an author `display` beats the
+     UA's [hidden]{display:none}, so an unqualified rule would render them
+     even while hidden. */
+  .attest__redist:not([hidden]) {
     display: grid;
     gap: var(--space-3);
     padding-inline-start: var(--space-5);
     border-inline-start: 2px solid var(--color-border);
   }
-  .confirm {
+  .confirm:not([hidden]) {
     display: grid;
     gap: var(--space-3);
     border: 1px solid var(--color-border-strong);
@@ -455,7 +458,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     cursor: pointer;
   }
   .confirm__cancel:hover {
-    background: var(--color-bg-subtle, var(--color-bg-elevated));
+    background: var(--color-bg-subtle);
   }
   .upload-status {
     margin: 0;
@@ -486,7 +489,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     font-size: var(--fs-sm);
   }
 
-  .precheck {
+  .precheck:not([hidden]) {
     padding: var(--space-5);
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border);
@@ -640,7 +643,11 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
       deidentified: true,
       ...(depositType === "redistribution" ? { no_duplicate: true as const } : {}),
     };
-    const upstream = depositType === "redistribution" ? attestUpstreamEl?.value.trim() : "";
+    // maxlength=500 already bounds typing/paste; slice is the belt-and-braces
+    // mirror of the server's .max(500) for anything that bypasses the input.
+    const upstream = (
+      depositType === "redistribution" ? (attestUpstreamEl?.value.trim() ?? "") : ""
+    ).slice(0, 500);
     return upstream ? { ...attestation, upstream_source: upstream } : attestation;
   }
   attestEl?.addEventListener("change", (e) => {
@@ -666,6 +673,13 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     statusEl.textContent = message ?? "";
   }
   function showConfirm(name: string): void {
+    // Freeze the inputs the confirmation describes: nothing can change
+    // between showing the summary and "Yes", so a stale confirmation for a
+    // since-edited form is impossible.
+    confirmedUpload = false;
+    if (nameEl) nameEl.disabled = true;
+    if (descEl) descEl.disabled = true;
+    setAttestLocked(true);
     if (confirmText) {
       confirmText.textContent =
         `Create dataset "${name}" and upload ${state.files.length} files ` +
@@ -674,18 +688,27 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     }
     if (confirmEl) confirmEl.hidden = false;
     if (submitBtn) submitBtn.hidden = true;
+    // Hiding the focused submit button drops focus to <body>; hand it to the
+    // panel so keyboard and screen-reader users land on the decision.
+    confirmYes?.focus();
   }
   function hideConfirm(): void {
     if (confirmEl) confirmEl.hidden = true;
     if (submitBtn) submitBtn.hidden = false;
   }
   confirmYes?.addEventListener("click", () => {
+    if (confirmEl?.hidden) return;
     confirmedUpload = true;
     hideConfirm();
     form?.requestSubmit();
   });
   confirmNo?.addEventListener("click", () => {
     hideConfirm();
+    // Unfreeze for editing and put focus back where the flow paused.
+    if (nameEl) nameEl.disabled = false;
+    if (descEl) descEl.disabled = false;
+    setAttestLocked(false);
+    submitBtn?.focus();
   });
   const progressEl = document.querySelector<HTMLElement>("[data-upload-progress]");
   const progressList = document.querySelector<HTMLElement>("[data-upload-progress-list]");
@@ -1083,6 +1106,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
       return;
     }
     confirmedUpload = false;
+    setStatus(null); // a retry must not show the previous attempt's status
 
     const generation = submitGeneration;
     if (submitBtn) submitBtn.disabled = true;

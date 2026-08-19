@@ -10,6 +10,7 @@ import {
   resolveSubmitAction,
   runUploadQueue,
   stripLeadingDirectory,
+  summarizeUploadFailures,
 } from "./upload-client";
 
 function df(path: string, size = 100): DroppedFile {
@@ -397,5 +398,52 @@ describe("resolveSubmitAction", () => {
 
   it("falls back to the full flow for an empty id", () => {
     expect(resolveSubmitAction("")).toEqual({ kind: "create-and-upload" });
+  });
+});
+
+describe("summarizeUploadFailures", () => {
+  const F = (path: string, error = "Could not reach the storage service") => ({ path, error });
+
+  it("total loss names the shared reason once with no per-file wall", () => {
+    const msg = summarizeUploadFailures(
+      Array.from({ length: 117 }, (_, i) => F(`sub-001/file${i}.tsv`)),
+      117,
+    );
+    expect(msg).toContain("None of your 117 files could be uploaded");
+    expect(msg).toContain("Reason: Could not reach the storage service");
+    expect(msg).toContain("support@nemar.org");
+    expect(msg).not.toContain("file1.tsv"); // no path listing on total loss
+  });
+
+  it("uses singular phrasing for a one-file total loss", () => {
+    const msg = summarizeUploadFailures([F("README.md")], 1);
+    expect(msg).toContain("Your file could not be uploaded");
+    expect(msg).not.toContain("None of your");
+  });
+
+  it("partial failure lists up to three examples and the overflow count", () => {
+    const msg = summarizeUploadFailures(
+      [F("a.tsv"), F("b.tsv"), F("c.tsv"), F("d.tsv"), F("e.tsv")],
+      10,
+    );
+    expect(msg).toContain("5 of 10 files failed to upload");
+    expect(msg).toContain("a.tsv, b.tsv, c.tsv and 2 more");
+  });
+
+  it("picks the dominant reason among mixed errors, keeping its casing", () => {
+    const msg = summarizeUploadFailures(
+      [
+        F("a.tsv", "PUT returned 500"),
+        F("b.tsv", "PUT returned 500"),
+        F("c.tsv", "Upload aborted"),
+      ],
+      10,
+    );
+    expect(msg).toContain("Most common reason: PUT returned 500");
+  });
+
+  it("breaks reason ties deterministically by first occurrence", () => {
+    const msg = summarizeUploadFailures([F("a.tsv", "First error"), F("b.tsv", "Second error")], 5);
+    expect(msg).toContain("Most common reason: First error");
   });
 });
