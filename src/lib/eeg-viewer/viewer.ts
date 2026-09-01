@@ -1458,7 +1458,14 @@ export async function mountEegViewer(
   // the page can re-label its controls without polling storage.
   ui.navOrder.addEventListener("change", () => {
     const order = normalizeNavOrder(ui.navOrder.value) ?? DEFAULT_NAV_ORDER;
-    writeNavOrder(order);
+    if (!writeNavOrder(order)) {
+      // The return value exists precisely to say "localStorage refused"
+      // (privacy mode, a blocked third-party context). The choice still applies
+      // to this page via the event below, so this is a note, not a failure.
+      console.warn(
+        "[eeg-viewer] nav order not persisted (storage unavailable); the choice applies to this page only",
+      );
+    }
     ui.root.dispatchEvent(
       new CustomEvent(NAV_ORDER_CHANGED_EVENT, { bubbles: true, detail: { order } }),
     );
