@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateOverview,
   chooseWindowLevel,
+  dedupingFetch,
   parseChannels,
+  predictedViewLevelCount,
   retryingFetch,
   windowDataBytes,
 } from "./store";
@@ -208,6 +210,172 @@ describe("retryingFetch", () => {
         expect(calls).toBe(2); // confirms the abort check didn't disable retrying altogether
       },
     );
+  });
+});
+
+describe("predictedViewLevelCount", () => {
+  it("matches the real 172s/250Hz store on zarr.nemar.org (4 levels, coarsest 168)", () => {
+    expect(predictedViewLevelCount(43096)).toBe(4);
+  });
+
+  it("matches the real 2430s/250Hz store on zarr.nemar.org (6 levels, coarsest 148)", () => {
+    expect(predictedViewLevelCount(607585)).toBe(6);
+  });
+
+  it("predicts a single level for a recording under the producer's floor", () => {
+    expect(predictedViewLevelCount(100)).toBe(1);
+    expect(predictedViewLevelCount(999)).toBe(1); // 999/4 < 250: nothing past view/1
+    expect(predictedViewLevelCount(1000)).toBe(2); // 1000/4 = 250: view/2 exists
+  });
+
+  it("falls back to the probe maximum for missing/garbage n_samples", () => {
+    expect(predictedViewLevelCount(Number.NaN)).toBe(12);
+    expect(predictedViewLevelCount(0)).toBe(12);
+    expect(predictedViewLevelCount(-5)).toBe(12);
+  });
+
+  it("clamps an absurdly long recording to the probe maximum", () => {
+    expect(predictedViewLevelCount(Number.MAX_SAFE_INTEGER)).toBe(12);
+  });
+});
+
+describe("dedupingFetch", () => {
+  const bodyOf = (res: Response) => res.text();
+
+  it("shares one inner fetch across concurrent GETs of the same URL+Range", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 5));
+      return new Response("chunk-bytes", { status: 206 });
+    });
+    const req = () =>
+      new Request("https://zarr.nemar.org/x/0/c/0/0", { headers: { Range: "bytes=0-99" } });
+    const [a, b] = await Promise.all([handler(req()), handler(req())]);
+    expect(calls).toBe(1);
+    // Each caller must get an independently consumable body (clones).
+    expect(await bodyOf(a)).toBe("chunk-bytes");
+    expect(await bodyOf(b)).toBe("chunk-bytes");
+  });
+
+  it("does not merge requests for different byte ranges of the same URL", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      return new Response("ok");
+    });
+    await Promise.all([
+      handler(new Request("https://zarr.nemar.org/x", { headers: { Range: "bytes=0-9" } })),
+      handler(new Request("https://zarr.nemar.org/x", { headers: { Range: "bytes=10-19" } })),
+    ]);
+    expect(calls).toBe(2);
+  });
+
+  it("issues a fresh inner fetch once the shared request has settled", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      return new Response("ok");
+    });
+    await handler(new Request("https://zarr.nemar.org/x"));
+    await handler(new Request("https://zarr.nemar.org/x"));
+    expect(calls).toBe(2); // in-flight dedup only; never a byte cache
+  });
+
+  it("keeps the shared fetch alive when only one of two subscribers aborts", async () => {
+    let innerAborted = false;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const handler = dedupingFetch(async (request) => {
+      request.signal.addEventListener("abort", () => {
+        innerAborted = true;
+      });
+      await gate;
+      return new Response("survived");
+    });
+    const aborter = new AbortController();
+    const p1 = handler(new Request("https://zarr.nemar.org/x", { signal: aborter.signal }));
+    const p2 = handler(new Request("https://zarr.nemar.org/x"));
+    aborter.abort();
+    await expect(p1).rejects.toThrow();
+    release();
+    expect(await bodyOf(await p2)).toBe("survived");
+    expect(innerAborted).toBe(false);
+  });
+
+  it("aborts the shared fetch once every subscriber has aborted", async () => {
+    let innerAborted = false;
+    const handler = dedupingFetch(async (request) => {
+      return new Promise<Response>((_, reject) => {
+        request.signal.addEventListener("abort", () => {
+          innerAborted = true;
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      });
+    });
+    const a1 = new AbortController();
+    const a2 = new AbortController();
+    const p1 = handler(new Request("https://zarr.nemar.org/x", { signal: a1.signal }));
+    const p2 = handler(new Request("https://zarr.nemar.org/x", { signal: a2.signal }));
+    a1.abort();
+    await expect(p1).rejects.toThrow();
+    expect(innerAborted).toBe(false); // one subscriber still waiting
+    a2.abort();
+    await expect(p2).rejects.toThrow();
+    expect(innerAborted).toBe(true); // nobody left: the network request stops
+  });
+
+  it("a caller arriving after all prior subscribers aborted gets a fresh fetch", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async (request) => {
+      calls++;
+      if (calls === 1) {
+        // First shared request: hang until aborted.
+        return new Promise<Response>((_, reject) => {
+          request.signal.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError")),
+          );
+        });
+      }
+      return new Response("fresh");
+    });
+    const a1 = new AbortController();
+    const p1 = handler(new Request("https://zarr.nemar.org/x", { signal: a1.signal }));
+    a1.abort();
+    await expect(p1).rejects.toThrow();
+    // The dying entry may still be settling; a new caller must not join it.
+    const res = await handler(new Request("https://zarr.nemar.org/x"));
+    expect(await bodyOf(res)).toBe("fresh");
+    expect(calls).toBe(2);
+  });
+
+  it("propagates a rejection of the shared fetch to every subscriber", async () => {
+    const handler = dedupingFetch(async () => {
+      throw new Error("upstream exploded");
+    });
+    const p1 = handler(new Request("https://zarr.nemar.org/x"));
+    const p2 = handler(new Request("https://zarr.nemar.org/x"));
+    await expect(p1).rejects.toThrow("upstream exploded");
+    await expect(p2).rejects.toThrow("upstream exploded");
+  });
+
+  it("rejects an already-aborted caller without touching the network", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      return new Response("ok");
+    });
+    const aborter = new AbortController();
+    aborter.abort();
+    await expect(
+      handler(new Request("https://zarr.nemar.org/x", { signal: aborter.signal })),
+    ).rejects.toThrow();
+    expect(calls).toBe(0); // rejected before any inner fetch started
+    const res = await handler(new Request("https://zarr.nemar.org/x"));
+    expect(await bodyOf(res)).toBe("ok");
+    expect(calls).toBe(1);
   });
 });
 

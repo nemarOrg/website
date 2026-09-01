@@ -183,6 +183,107 @@ export function retryingFetch(retries = 6, baseMs = 250) {
   };
 }
 
+/**
+ * Share one in-flight fetch per (URL, Range) among concurrent callers, so the
+ * interactive read path and the background preloader (website#254) racing for
+ * the same chunk cost one HTTP request instead of two. Level-0 chunk reads are
+ * Range requests, which the browser HTTP cache does not store (206 responses),
+ * so without this every overlapping read re-transfers ~140 KB per chunk
+ * (measured on a 129-channel store).
+ *
+ * Abort semantics: the shared request runs on its own controller and is only
+ * aborted once EVERY subscriber has aborted — one caller tearing down must not
+ * kill bytes another caller is still waiting for. Each subscriber that aborts
+ * gets its own rejection immediately. Subscribers receive `response.clone()`
+ * so each can consume the body independently.
+ *
+ * Only GETs dedupe (the reader issues nothing else); entries drop out of the
+ * map as soon as the shared request settles, so this never caches bytes — the
+ * decoded-window cache in prefetch.ts and the browser HTTP cache own that.
+ */
+export function dedupingFetch(
+  inner: (request: Request) => Promise<Response>,
+): (request: Request) => Promise<Response> {
+  interface Entry {
+    promise: Promise<Response>;
+    subscribers: number;
+    controller: AbortController;
+  }
+  const inflight = new Map<string, Entry>();
+
+  const createEntry = (key: string, request: Request): Entry => {
+    const controller = new AbortController();
+    const shared = new Request(request, { signal: controller.signal });
+    const entry: Entry = {
+      controller,
+      subscribers: 0,
+      promise: inner(shared).finally(() => {
+        if (inflight.get(key) === entry) inflight.delete(key);
+      }),
+    };
+    // Every subscriber may abort before the shared promise settles; without a
+    // standing handler its rejection would surface as an unhandled rejection.
+    entry.promise.catch(() => {});
+    inflight.set(key, entry);
+    return entry;
+  };
+
+  return (request: Request): Promise<Response> => {
+    if (request.method !== "GET") return inner(request);
+    if (request.signal?.aborted) {
+      // A caller that is already torn down must neither start nor join a
+      // request; nothing would consume the response.
+      return Promise.reject(
+        request.signal.reason ?? new DOMException("The operation was aborted.", "AbortError"),
+      );
+    }
+    const key = `${request.url}|${request.headers.get("range") ?? ""}`;
+    let entry = inflight.get(key);
+    // A dying entry (all subscribers aborted, shared fetch abort still
+    // settling) must not adopt a fresh caller — it would reject them with an
+    // abort they never asked for. Replace it.
+    if (!entry || entry.controller.signal.aborted) {
+      entry = createEntry(key, request);
+    }
+    const e = entry;
+    e.subscribers++;
+    return new Promise<Response>((resolve, reject) => {
+      let settled = false;
+      const signal = request.signal;
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        e.subscribers--;
+        if (e.subscribers <= 0) e.controller.abort(signal?.reason);
+        reject(signal?.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+      };
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+      e.promise.then(
+        (res) => {
+          if (settled) return;
+          settled = true;
+          e.subscribers--;
+          signal?.removeEventListener("abort", onAbort);
+          resolve(res.clone());
+        },
+        (err) => {
+          if (settled) return;
+          settled = true;
+          e.subscribers--;
+          signal?.removeEventListener("abort", onAbort);
+          reject(err);
+        },
+      );
+    });
+  };
+}
+
 /** A FetchStore that retries transient 5xx/429 for resilient streaming. */
 export function makeStore(url: string): zarr.FetchStore {
   // useSuffixRequest: read the sharded level-0 index with a native `Range:
@@ -190,7 +291,12 @@ export function makeStore(url: string): zarr.FetchStore {
   // zarrita fetches the entire ~3 MB shard for any level-0 access; with it a
   // windowed level-0 read is just the index + the window's inner chunks (~127 KB
   // for a 10 s window), which makes full-rate lines + client filters affordable.
-  return new zarr.FetchStore(url, { fetch: retryingFetch(), useSuffixRequest: true });
+  // dedupingFetch wraps OUTSIDE the retry handler so concurrent callers share
+  // one whole retrying operation, not one attempt.
+  return new zarr.FetchStore(url, {
+    fetch: dedupingFetch(retryingFetch()),
+    useSuffixRequest: true,
+  });
 }
 
 /**
@@ -201,7 +307,14 @@ export function makeStore(url: string): zarr.FetchStore {
  */
 export async function openRecording(url: string): Promise<RecordingStore> {
   const store = makeStore(url);
-  const root = await zarr.open(store, { kind: "group" });
+  // open.v3, not the version-sniffing zarr.open: the producer only ever writes
+  // Zarr v3 (see the module header contract). Generic open tries v2 FIRST on a
+  // fresh store (its per-store version counter starts tied), which put two
+  // serial 404 round-trips (`.zattrs`, then `.zgroup`) in front of the real
+  // `zarr.json` on every viewer open — measured at ~1.9 s of the open's wall
+  // time against zarr.nemar.org — and tripled the cost of every miss below
+  // (a missing view level or events group 404s three times instead of once).
+  const root = await zarr.open.v3(store, { kind: "group" });
   const attrs = root.attrs as Record<string, unknown>;
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const plf = attrs.power_line_frequency;
@@ -256,8 +369,8 @@ export async function openRecording(url: string): Promise<RecordingStore> {
 async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
   try {
     const [grp, rawLevel0] = await Promise.all([
-      zarr.open(root.resolve(name), { kind: "group" }),
-      zarr.open(root.resolve(`${name}/0`), { kind: "array" }),
+      zarr.open.v3(root.resolve(name), { kind: "group" }),
+      zarr.open.v3(root.resolve(`${name}/0`), { kind: "array" }),
     ]);
     if (rawLevel0.dtype !== "int16") {
       throw new Error(`unexpected dtype ${rawLevel0.dtype} at ${name}/0; expected int16`);
@@ -309,17 +422,48 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
   }
 }
 
-const VIEW_PROBE_BATCH = 6;
 const VIEW_PROBE_MAX = 12;
+/** Follow-up batch size once the predicted first batch was fully present —
+ *  only reached when the store has MORE levels than predicted, so keep it
+ *  small: each extra probe past the real end is a wasted 404. */
+const VIEW_PROBE_FOLLOWUP = 2;
+/** The producer keeps emitting view levels while the previous level still has
+ *  at least this many time samples (observed across zarr.nemar.org stores:
+ *  every pyramid's coarsest level is the first one under 250). Used only to
+ *  SIZE the first probe batch — discovery still verifies every level, so a
+ *  producer change degrades to a couple of extra probes, never a wrong list. */
+const VIEW_LEVEL_MIN_SAMPLES = 250;
+const VIEW_LEVEL_RATIO = 4;
+
+/**
+ * Predict how many view-pyramid levels the producer wrote for a recording of
+ * `nSamples` full-rate samples: it decimates by VIEW_LEVEL_RATIO per level and
+ * stops once a level drops under VIEW_LEVEL_MIN_SAMPLES (that level is still
+ * written; nothing coarser is). Pure; exported for unit tests. Returns a value
+ * clamped to [1, VIEW_PROBE_MAX] so it is always a usable batch size, even
+ * when `nSamples` is missing/garbage (falls back to the max).
+ */
+export function predictedViewLevelCount(nSamples: number): number {
+  if (!Number.isFinite(nSamples) || nSamples <= 0) return VIEW_PROBE_MAX;
+  let count = 1;
+  let samples = nSamples / VIEW_LEVEL_RATIO;
+  while (samples >= VIEW_LEVEL_MIN_SAMPLES && count < VIEW_PROBE_MAX) {
+    count++;
+    samples /= VIEW_LEVEL_RATIO;
+  }
+  return count;
+}
 
 /**
  * Discover the view-pyramid levels (view/1, view/2, ...). The store has no level
- * count attribute, so we probe — but in batches with early stop, so a typical
- * pyramid resolves in one round-trip with only a couple of 404s rather than
- * blindly firing a dozen misses (each doubled by zarrita's v2 `.zattrs`
- * fallback). Levels are contiguous from view/1.
+ * count attribute, so we probe — with the first batch sized by
+ * `predictedViewLevelCount`, so a typical pyramid resolves in one round-trip
+ * with at most a couple of 404s (each a single request now that probes pin
+ * open.v3) rather than blindly firing fixed-size batches past the real end.
+ * Levels are contiguous from view/1.
  */
 function isNotFound(err: unknown): boolean {
+  if (zarr.isZarritaError(err, "NotFoundError")) return true;
   const msg = err instanceof Error ? err.message : String(err);
   return /404|not[ _]?found/i.test(msg);
 }
@@ -336,9 +480,12 @@ async function discoverViewLevels(
   }
 
   const levels: ViewLevel[] = [];
-  for (let base = 1; base <= VIEW_PROBE_MAX; base += VIEW_PROBE_BATCH) {
+  let base = 1;
+  let batch = predictedViewLevelCount(num(attrs.n_samples, Number.NaN));
+  while (base <= VIEW_PROBE_MAX) {
+    const size = Math.min(batch, VIEW_PROBE_MAX - base + 1);
     const probes = await Promise.allSettled(
-      Array.from({ length: VIEW_PROBE_BATCH }, (_, i) => base + i).map(async (level) => {
+      Array.from({ length: size }, (_, i) => base + i).map(async (level) => {
         const view = await openViewLevel(root, group, level);
         if (!view) throw new Error(`unexpected missing view/${level}`);
         return view;
@@ -355,7 +502,9 @@ async function discoverViewLevels(
       levels.push(p.value);
       added++;
     }
-    if (added < VIEW_PROBE_BATCH) break; // hit the end within this batch
+    if (added < size) break; // hit the end within this batch
+    base += size;
+    batch = VIEW_PROBE_FOLLOWUP; // prediction undershot; creep past it cheaply
   }
   return levels;
 }
@@ -387,7 +536,7 @@ async function openViewLevel(
   group: string,
   level: number,
 ): Promise<ViewLevel | null> {
-  const rawArray = await zarr.open(root.resolve(`${group}/view/${level}`), {
+  const rawArray = await zarr.open.v3(root.resolve(`${group}/view/${level}`), {
     kind: "array",
   });
   if (rawArray.dtype !== "int16") {
@@ -399,11 +548,11 @@ async function openViewLevel(
 
 async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable | null> {
   try {
-    const grp = await zarr.open(root.resolve("events"), { kind: "group" });
+    const grp = await zarr.open.v3(root.resolve("events"), { kind: "group" });
     const [onset, duration, code] = await Promise.all([
-      zarr.open(root.resolve("events/onset"), { kind: "array" }),
-      zarr.open(root.resolve("events/duration"), { kind: "array" }),
-      zarr.open(root.resolve("events/code"), { kind: "array" }),
+      zarr.open.v3(root.resolve("events/onset"), { kind: "array" }),
+      zarr.open.v3(root.resolve("events/duration"), { kind: "array" }),
+      zarr.open.v3(root.resolve("events/code"), { kind: "array" }),
     ]);
     const [on, du, co] = await Promise.all([
       zarr.get(onset, null),
