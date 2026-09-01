@@ -37,3 +37,4 @@ Add new entries here as you create ADRs:
 - ADR 0010 - [Tiered access: base (auto) vs service (admin-gated)](0010-tiered-access-base-service.md) (accepted)
 - ADR 0011 - [Soften the upload profile gate for existing service-access users](0011-soften-upload-profile-gate.md) (accepted)
 - ADR 0012 - [Recording navigation detaches the viewer from its inline row](0012-viewer-navigation-detaches-inline-row.md) (accepted)
+- ADR 0013 - [Viewer annotations are two BIDS kinds, stored locally only](0013-viewer-annotations-two-kinds-local-only.md) (accepted)
