@@ -1173,8 +1173,14 @@ Astro.response.headers.set(
     pos.textContent = at >= 0 ? `${at + 1} of ${ordered.length}` : `${ordered.length} recordings`;
     const before = at > 0 ? ordered[at - 1] : null;
     const after = at >= 0 ? (ordered[at + 1] ?? null) : null;
+    // Stepping onto the last recording disables the button the user is holding
+    // focus on, which would drop focus to the document body mid-task. Hand it
+    // to the opposite button instead, which by construction is now enabled.
+    const focused = document.activeElement;
     prev.disabled = !before;
     next.disabled = !after;
+    if (focused === next && next.disabled && !prev.disabled) prev.focus();
+    else if (focused === prev && prev.disabled && !next.disabled) next.focus();
     prev.title = before ? `Previous recording: ${before.name}` : "No previous recording";
     next.title = after ? `Next recording: ${after.name}` : "No next recording";
     nav.hidden = false;
