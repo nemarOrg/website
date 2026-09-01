@@ -1756,7 +1756,15 @@ export async function mountEegViewer(
   // against a viewer nobody is looking at any more.
   cleanups.push(() => prefetchController.stop());
   cleanups.push(() => glRenderer?.dispose());
+  // Idempotent. The page holds up to three handles on this one function — the
+  // disposer returned below, `slot._eegvCleanup`, and `eegLive.destroy` — and a
+  // dialog close landing during a navigate mount genuinely fires two of them.
+  // Running the cleanups twice is not harmless: it double-disposes the GL
+  // context and takes the annotation layer down in the middle of its own final
+  // flush. The guard lives here, the one place all three handles converge,
+  // rather than at each call site.
   const destroy = () => {
+    if (disposed) return;
     disposed = true;
     for (const c of cleanups) c();
   };

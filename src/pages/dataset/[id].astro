@@ -1692,8 +1692,11 @@ Astro.response.headers.set(
       // has no handle to call — the instance would keep its observers, GL
       // context and background reads alive until the post-await staleness check
       // happened to run. The host's own cleanup is the backstop for exactly
-      // that window; taking it first (and clearing it) means one teardown
-      // whichever handle exists, never two.
+      // that window; taking whichever handle exists (and clearing the host's)
+      // keeps this call site down to one teardown. What makes "never twice"
+      // true overall is `mountEegViewer`'s own `disposed` guard, though — the
+      // superseded branch of `navigateEegViewer` can still call the same
+      // disposer after we have, and only the closure can see that.
       const host = live.host as HTMLElement & { _eegvCleanup?: () => void };
       const cleanup = live.destroy ?? host._eegvCleanup;
       host._eegvCleanup = undefined;
