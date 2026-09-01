@@ -148,6 +148,30 @@ const dataHost = new URL(dataBase).host;
   details[open] > summary > .tree__chevron {
     transform: rotate(90deg);
   }
+  /* Expand toggle on hybrid signal-recording dir rows (website#252). A real
+     sibling <button> rather than a <summary> wrapping the viewer button —
+     nested interactive content in <summary> is inconsistently exposed to
+     assistive technology. Mirrors the summary chevron's look + rotation. */
+  .tree__dir-toggle {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .tree__dir-toggle[aria-expanded="true"] > .tree__chevron {
+    transform: rotate(90deg);
+  }
+  .tree__dir-toggle:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
   .tree__icon {
     flex-shrink: 0;
     color: var(--color-fg-subtle);

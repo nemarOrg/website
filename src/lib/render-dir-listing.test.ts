@@ -317,7 +317,7 @@ describe("renderSubdir", () => {
 describe("directory-keyed signal recordings (website#252)", () => {
   const mefd = "sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd";
 
-  it("renders a .mefd dir as a hybrid row: viewer button + badge + expandable details", () => {
+  it("renders a .mefd dir as a hybrid row: sibling toggle + viewer buttons", () => {
     const html = renderSubdir(
       listing({ path: "sub-01/ses-ieeg01/ieeg", children: [{ kind: "dir", name: mefd }] }),
       3,
@@ -329,12 +329,42 @@ describe("directory-keyed signal recordings (website#252)", () => {
     expect(html).toContain(`data-dir-recording="true"`);
     expect(html).toContain(`data-file-name="${mefd}"`);
     expect(html).toContain(`class="tree__tag tree__tag--signal">MEFD</span>`);
-    // Expansion is preserved: same lazy <details> the toggle handler drives.
+    // Expansion via a dedicated sibling button, NOT a <summary> wrapping the
+    // viewer button (nested interactive content in <summary> is inconsistently
+    // exposed to assistive technology).
+    expect(html).not.toContain("<details");
+    expect(html).toContain("data-dir-toggle");
     expect(html).toContain(`data-dir-path="sub-01/ses-ieeg01/ieeg/${mefd}"`);
-    expect(html).toContain("data-dir-target");
+    expect(html).toContain(`aria-label="Browse files in ${mefd}"`);
+    expect(html).toContain("data-dir-target hidden");
     // The wrap + slot the inline viewer mounts into.
     expect(html).toContain(`<li class="tree__file-wrap" data-preview-wrap>`);
     expect(html).toContain(`class="tree__preview tree__preview--signal" data-preview-slot hidden`);
+  });
+
+  it("ordinary dirs keep the native <details> structure", () => {
+    const html = renderSubdir(
+      listing({ path: "sub-01", children: [{ kind: "dir", name: "ieeg" }] }),
+      1,
+    );
+    expect(html).toContain("<details");
+    expect(html).not.toContain("data-dir-toggle");
+  });
+
+  it("renders .mefd dirs revealed by Show-next chunks as hybrid rows too", () => {
+    const { html } = renderDirChunkRows(
+      listing({
+        children: [
+          { kind: "dir", name: mefd },
+          { kind: "dir", name: "sub-02" },
+        ],
+      }),
+      0,
+      2,
+    );
+    expect(html).toContain(`data-preview-type="eeg"`);
+    expect(html).toContain(`data-dir-recording="true"`);
+    expect(html).toContain("data-dir-toggle");
   });
 
   it("renders a .ds dir with a DS badge", () => {
