@@ -279,6 +279,35 @@ export function saveDataRequested(): boolean {
   }
 }
 
+/**
+ * Whether a manually-set gain may travel from one recording to the next
+ * (website#253's transfer, narrowed).
+ *
+ * `gain` multiplies the modality's own `DEFAULT_SCALINGS`, so it is a physical
+ * scale — µV/div for EEG, fT/div for MEG — not a dimensionless zoom. Carrying
+ * one across a modality change is wrong by orders of magnitude and shows up as
+ * a flat line or a wall of clipping, with no control on screen explaining why.
+ * Within a modality it is exactly the preference the user set and must survive.
+ *
+ * An absent or empty modality on either side counts as a match, per the repo's
+ * null-safety convention for backend-shaped data (`splitModalities("") === []`
+ * and friends): the store's `modality` is a free-text attr that can be missing,
+ * and a missing value is not evidence of a mismatch. The comparison is
+ * case-insensitive because the same attr arrives as both "EEG" and "eeg".
+ *
+ * Pure and exported so the failure mode above is covered by a test rather than
+ * living unexercised inside the mount closure.
+ */
+export function gainCarriesOver(
+  previousModality: string | undefined,
+  nextModality: string | undefined,
+): boolean {
+  const from = (previousModality ?? "").trim().toUpperCase();
+  const to = (nextModality ?? "").trim().toUpperCase();
+  if (from === "" || to === "") return true;
+  return from === to;
+}
+
 /** Exported for unit tests (Save-Data precedence over the stored opt-in). */
 export function loadPreloadEnabled(): boolean {
   // A browser-level "reduce data" preference outranks a stored opt-in from a
@@ -709,13 +738,10 @@ export async function mountEegViewer(
     }
     // The user overrode auto-scale on the previous recording; respect that here
     // too rather than re-estimating and appearing to undo their work — but only
-    // within one modality. `gain` multiplies a modality's own DEFAULT_SCALINGS,
-    // so an EEG gain on an MEG recording is not "the same zoom", it is a
-    // different physical scale off by orders of magnitude. Across modalities,
-    // drop it and let auto-scale measure the new recording instead.
-    const sameModality =
-      !t.modality || t.modality.toUpperCase() === (store.groups[0].modality || "").toUpperCase();
-    if (t.gainManuallySet && sameModality && Number.isFinite(t.gain) && t.gain > 0) {
+    // within one modality (see `gainCarriesOver`). Across modalities, drop it
+    // and let auto-scale measure the new recording instead.
+    const carries = gainCarriesOver(t.modality, store.groups[0].modality);
+    if (t.gainManuallySet && carries && Number.isFinite(t.gain) && t.gain > 0) {
       gain = t.gain;
       gainManuallySet = true;
       autoscalePending = false;
