@@ -188,7 +188,16 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
    */
   async function restore(): Promise<void> {
     try {
-      store = await openAnnotationStore();
+      const opened = await openAnnotationStore();
+      // The mount can be torn down while the open is in flight (a recording
+      // swap, a dialog close). Nothing else will ever see this connection —
+      // `flush` reads `store`, which is still null — so close it here or the
+      // IndexedDB handle leaks for the life of the page.
+      if (destroyed) {
+        opened.close();
+        return;
+      }
+      store = opened;
       const loaded = await store.load(opts.key);
       if (destroyed) return;
       set = loaded;
