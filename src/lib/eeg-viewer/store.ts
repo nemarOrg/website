@@ -54,6 +54,11 @@ export interface GroupHandle {
   /** Resolves when lazy view-pyramid discovery has finished. First paint does
    *  not wait for this; wide-window reads and the overview minimap do. */
   viewLevelsReady: Promise<ViewLevel[]>;
+  /** True when view-pyramid discovery hit a real failure (not a clean 404
+   *  end): `viewLevels` may then be a truncated pyramid, not the recording's
+   *  actual shape. Lets a caller distinguish "discovery broke" from "short
+   *  recording with a genuinely small pyramid". */
+  viewLevelsDegraded: boolean;
 }
 
 export interface EventTable {
@@ -156,9 +161,15 @@ export function retryingFetch(retries = 6, baseMs = 250) {
         if (transient) {
           // A caller (the background preloader's AbortController on stop/teardown,
           // website#254) aborted this request out from under a transient status; do
-          // not schedule another attempt for work nobody wants any more.
+          // not schedule another attempt for work nobody wants any more. The abort
+          // can also be dedupingFetch's last-subscriber-left refcount firing right
+          // as a real 429/5xx lands, so the error message must carry BOTH facts —
+          // logging only "aborted" would make a backend incident read as clean
+          // cancellations.
           if (request.signal?.aborted) {
-            throw new Error(`zarr.nemar.org returned ${res.status} (request aborted)`);
+            throw new Error(
+              `zarr.nemar.org returned ${res.status}; aborted before retry (the status may be a real backend error, not an effect of the cancellation)`,
+            );
           }
           if (attempt < retries) {
             await delay(attempt);
@@ -197,9 +208,13 @@ export function retryingFetch(retries = 6, baseMs = 250) {
  * gets its own rejection immediately. Subscribers receive `response.clone()`
  * so each can consume the body independently.
  *
- * Only GETs dedupe (the reader issues nothing else); entries drop out of the
- * map as soon as the shared request settles, so this never caches bytes — the
- * decoded-window cache in prefetch.ts and the browser HTTP cache own that.
+ * Only GETs dedupe; entries drop out of the map as soon as the shared request
+ * settles, so this never caches bytes — the decoded-window cache in
+ * prefetch.ts and the browser HTTP cache own that. "The reader issues nothing
+ * but GETs" is guaranteed by `makeStore` passing `useSuffixRequest: true`:
+ * without it, zarrita's suffix-length reads (the sharded level-0 index) become
+ * a HEAD + ranged GET pair, and the HEAD would bypass dedup (harmlessly — it
+ * just would not be shared). Keep the two options together.
  */
 export function dedupingFetch(
   inner: (request: Request) => Promise<Response>,
@@ -299,6 +314,50 @@ export function makeStore(url: string): zarr.FetchStore {
   });
 }
 
+/** Stores whose Zarr v3 metadata has already been read successfully. A store
+ *  is entirely one format, so after the first v3 success a NotFound from a
+ *  later open on the same store is a genuinely missing node — taking the v2
+ *  escape hatch there would just re-add the two 404s per miss (`.zattrs`,
+ *  `.zarray`/`.zgroup`) that pinning v3 removed. */
+const confirmedV3Stores = new WeakSet<object>();
+
+/**
+ * v3-first node open with a v2 escape hatch. The fast path is `open.v3`: the
+ * producer only ever writes Zarr v3 (see the module header contract), and
+ * zarrita's version-sniffing `open` tries v2 FIRST on a fresh store (its
+ * per-store version counter starts tied), which put two serial 404 round-trips
+ * in front of the real `zarr.json` on every viewer open — measured at ~1.9 s
+ * of the open's wall time against zarr.nemar.org — and tripled the cost of
+ * every miss (view-level probes, a store without events). The v2 fallback
+ * exists purely as a legacy safety net for a store this contract has never
+ * seen; on such a store every node open costs v3-miss + v2 (the generic-open
+ * price), which is fine for an escape hatch.
+ */
+function openNode(
+  location: zarr.Location<zarr.FetchStore> | zarr.FetchStore,
+  options: { kind: "group" },
+): Promise<zarr.Group<zarr.FetchStore>>;
+function openNode(
+  location: zarr.Location<zarr.FetchStore> | zarr.FetchStore,
+  options: { kind: "array" },
+): Promise<zarr.Array<zarr.DataType, zarr.FetchStore>>;
+async function openNode(
+  location: zarr.Location<zarr.FetchStore> | zarr.FetchStore,
+  options: { kind: "group" | "array" },
+): Promise<zarr.Group<zarr.FetchStore> | zarr.Array<zarr.DataType, zarr.FetchStore>> {
+  const store = location instanceof zarr.Location ? location.store : location;
+  try {
+    const node = await zarr.open.v3(location, options);
+    confirmedV3Stores.add(store);
+    return node;
+  } catch (err) {
+    if (zarr.isZarritaError(err, "NotFoundError") && !confirmedV3Stores.has(store)) {
+      return zarr.open.v2(location, options);
+    }
+    throw err;
+  }
+}
+
 /**
  * Open a recording store and read all group + event metadata (no signal yet).
  * The per-group reads (attrs, level-0, view-level probes) and the events read run
@@ -307,14 +366,7 @@ export function makeStore(url: string): zarr.FetchStore {
  */
 export async function openRecording(url: string): Promise<RecordingStore> {
   const store = makeStore(url);
-  // open.v3, not the version-sniffing zarr.open: the producer only ever writes
-  // Zarr v3 (see the module header contract). Generic open tries v2 FIRST on a
-  // fresh store (its per-store version counter starts tied), which put two
-  // serial 404 round-trips (`.zattrs`, then `.zgroup`) in front of the real
-  // `zarr.json` on every viewer open — measured at ~1.9 s of the open's wall
-  // time against zarr.nemar.org — and tripled the cost of every miss below
-  // (a missing view level or events group 404s three times instead of once).
-  const root = await zarr.open.v3(store, { kind: "group" });
+  const root = await openNode(store, { kind: "group" });
   const attrs = root.attrs as Record<string, unknown>;
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const plf = attrs.power_line_frequency;
@@ -369,8 +421,8 @@ export async function openRecording(url: string): Promise<RecordingStore> {
 async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
   try {
     const [grp, rawLevel0] = await Promise.all([
-      zarr.open.v3(root.resolve(name), { kind: "group" }),
-      zarr.open.v3(root.resolve(`${name}/0`), { kind: "array" }),
+      openNode(root.resolve(name), { kind: "group" }),
+      openNode(root.resolve(`${name}/0`), { kind: "array" }),
     ]);
     if (rawLevel0.dtype !== "int16") {
       throw new Error(`unexpected dtype ${rawLevel0.dtype} at ${name}/0; expected int16`);
@@ -403,15 +455,25 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
       level0,
       viewLevels: [],
       viewLevelsReady: Promise.resolve([]),
+      viewLevelsDegraded: false,
     };
-    handle.viewLevelsReady = discoverViewLevels(root, name, ga)
+    handle.viewLevelsReady = discoverViewLevels(root, name, ga, nSamples)
       .then((levels) => {
         handle.viewLevels = levels;
         return levels;
       })
       .catch((err) => {
-        console.warn(`[eeg-viewer] view-level discovery failed for ${name}:`, err);
-        return [];
+        // Degraded, not absent: keep whatever levels DID open so wide windows
+        // still get a pyramid, and flag the handle so callers can tell this
+        // apart from a recording whose pyramid is genuinely this small.
+        const partial = err instanceof ViewLevelDiscoveryError ? err.partialLevels : [];
+        console.warn(
+          `[eeg-viewer] view-level discovery degraded for ${name} (${partial.length} level(s) kept):`,
+          err instanceof Error ? (err.cause ?? err) : err,
+        );
+        handle.viewLevels = partial;
+        handle.viewLevelsDegraded = true;
+        return partial;
       });
     return handle;
   } catch (err) {
@@ -423,9 +485,12 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
 }
 
 const VIEW_PROBE_MAX = 12;
-/** Follow-up batch size once the predicted first batch was fully present —
- *  only reached when the store has MORE levels than predicted, so keep it
- *  small: each extra probe past the real end is a wasted 404. */
+/** Follow-up batch size, used whenever the previous batch came back fully
+ *  present. Its job is confirming where the pyramid really ends: an exact
+ *  prediction still pays one follow-up batch of 404s (probing cannot know the
+ *  last level is the last without looking past it), and an undershot
+ *  prediction creeps forward in these steps until it finds the end. Small on
+ *  purpose — each probe past the real end is a wasted 404. */
 const VIEW_PROBE_FOLLOWUP = 2;
 /** The producer keeps emitting view levels while the previous level still has
  *  at least this many time samples (observed across zarr.nemar.org stores:
@@ -454,24 +519,50 @@ export function predictedViewLevelCount(nSamples: number): number {
   return count;
 }
 
-/**
- * Discover the view-pyramid levels (view/1, view/2, ...). The store has no level
- * count attribute, so we probe — with the first batch sized by
- * `predictedViewLevelCount`, so a typical pyramid resolves in one round-trip
- * with at most a couple of 404s (each a single request now that probes pin
- * open.v3) rather than blindly firing fixed-size batches past the real end.
- * Levels are contiguous from view/1.
- */
+/** True for "this node does not exist": zarrita's tagged NotFoundError when
+ *  the error came from zarrita, with a message-pattern fallback for anything
+ *  else (a proxy rewriting the failure, a non-zarrita wrapper). */
 function isNotFound(err: unknown): boolean {
   if (zarr.isZarritaError(err, "NotFoundError")) return true;
   const msg = err instanceof Error ? err.message : String(err);
   return /404|not[ _]?found/i.test(msg);
 }
 
+/**
+ * Thrown by `discoverViewLevels` when a probe fails for a reason that is NOT a
+ * clean "level does not exist" 404 — a retry-exhausted 5xx, a 403 from an
+ * expired token, a decode error. Distinguishes "discovery broke" from "this
+ * recording genuinely has a short pyramid": a caller must not present a
+ * truncated pyramid as the recording's real shape. Carries the levels that DID
+ * open (`partialLevels`) so the caller can still render with them while
+ * surfacing the degradation; the original failure rides on `cause`.
+ */
+export class ViewLevelDiscoveryError extends Error {
+  readonly partialLevels: ViewLevel[];
+  constructor(message: string, partialLevels: ViewLevel[], options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "ViewLevelDiscoveryError";
+    this.partialLevels = partialLevels;
+  }
+}
+
+/**
+ * Discover the view-pyramid levels (view/1, view/2, ...). The store has no
+ * level count attribute, so we probe — with the first batch sized by
+ * `predictedViewLevelCount(nSamples)`. `nSamples` comes from the group handle
+ * (attrs.n_samples with the level-0 shape as fallback), so it is always a real
+ * number and a typical pyramid resolves in one round-trip plus one
+ * VIEW_PROBE_FOLLOWUP batch of 404s confirming the end (each miss a single
+ * request via the v3-pinned open). Levels are contiguous from view/1 in a
+ * well-formed store; every fulfilled probe is kept regardless (an anomalous
+ * gap degrades to a usable, sorted list rather than discarding data). A
+ * non-404 probe failure throws `ViewLevelDiscoveryError` — see its doc.
+ */
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
   attrs: Record<string, unknown> = {},
+  nSamples = Number.NaN,
 ): Promise<ViewLevel[]> {
   const declared = declaredViewLevels(attrs);
   if (declared) {
@@ -481,7 +572,7 @@ async function discoverViewLevels(
 
   const levels: ViewLevel[] = [];
   let base = 1;
-  let batch = predictedViewLevelCount(num(attrs.n_samples, Number.NaN));
+  let batch = predictedViewLevelCount(nSamples);
   while (base <= VIEW_PROBE_MAX) {
     const size = Math.min(batch, VIEW_PROBE_MAX - base + 1);
     const probes = await Promise.allSettled(
@@ -491,20 +582,29 @@ async function discoverViewLevels(
         return view;
       }),
     );
-    let added = 0;
+    // Collect every fulfilled probe first — a failure must not discard sibling
+    // levels that already opened successfully in the same batch.
+    let ended = false;
+    let failure: unknown;
     for (const p of probes) {
-      if (p.status !== "fulfilled") {
-        if (!isNotFound(p.reason)) {
-          console.warn("[eeg-viewer] view-level probe failed (non-404):", p.reason);
-        }
-        break; // contiguous from view/1
+      if (p.status === "fulfilled") {
+        levels.push(p.value);
+      } else {
+        ended = true;
+        if (failure === undefined && !isNotFound(p.reason)) failure = p.reason;
       }
-      levels.push(p.value);
-      added++;
     }
-    if (added < size) break; // hit the end within this batch
+    levels.sort((a, b) => a.level - b.level);
+    if (failure !== undefined) {
+      throw new ViewLevelDiscoveryError(
+        `view-level probing for "${group}" failed with a non-404 error; pyramid may be incomplete`,
+        levels,
+        { cause: failure },
+      );
+    }
+    if (ended) break; // clean 404: the pyramid ends within this batch
     base += size;
-    batch = VIEW_PROBE_FOLLOWUP; // prediction undershot; creep past it cheaply
+    batch = VIEW_PROBE_FOLLOWUP; // fully present so far; confirm (or find) the end
   }
   return levels;
 }
@@ -536,7 +636,7 @@ async function openViewLevel(
   group: string,
   level: number,
 ): Promise<ViewLevel | null> {
-  const rawArray = await zarr.open.v3(root.resolve(`${group}/view/${level}`), {
+  const rawArray = await openNode(root.resolve(`${group}/view/${level}`), {
     kind: "array",
   });
   if (rawArray.dtype !== "int16") {
@@ -548,11 +648,11 @@ async function openViewLevel(
 
 async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable | null> {
   try {
-    const grp = await zarr.open.v3(root.resolve("events"), { kind: "group" });
+    const grp = await openNode(root.resolve("events"), { kind: "group" });
     const [onset, duration, code] = await Promise.all([
-      zarr.open.v3(root.resolve("events/onset"), { kind: "array" }),
-      zarr.open.v3(root.resolve("events/duration"), { kind: "array" }),
-      zarr.open.v3(root.resolve("events/code"), { kind: "array" }),
+      openNode(root.resolve("events/onset"), { kind: "array" }),
+      openNode(root.resolve("events/duration"), { kind: "array" }),
+      openNode(root.resolve("events/code"), { kind: "array" }),
     ]);
     const [on, du, co] = await Promise.all([
       zarr.get(onset, null),
