@@ -1648,7 +1648,18 @@ Astro.response.headers.set(
       // is about to be discarded.
       eegSeq++;
       eegLive = null;
-      live.destroy?.();
+      // `navigateEegViewer` nulls `live.destroy` before awaiting the new mount,
+      // so between the mount publishing its own `_eegvCleanup` on the host and
+      // returning the disposer to us there is a window where closing the dialog
+      // has no handle to call — the instance would keep its observers, GL
+      // context and background reads alive until the post-await staleness check
+      // happened to run. The host's own cleanup is the backstop for exactly
+      // that window; taking it first (and clearing it) means one teardown
+      // whichever handle exists, never two.
+      const host = live.host as HTMLElement & { _eegvCleanup?: () => void };
+      const cleanup = live.destroy ?? host._eegvCleanup;
+      host._eegvCleanup = undefined;
+      cleanup?.();
       dialogSlot?.replaceChildren();
       return;
     }
