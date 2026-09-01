@@ -47,6 +47,12 @@ import DialogCloseButton from "./DialogCloseButton.astro";
           <span class="eegv-nav__label">Task</span>
           <select class="eegv-nav__sel" data-eegv-nav-task></select>
         </label>
+        {/* The `title`/`aria-label` pair here is only the pre-population
+            state; `syncEegNavControls` rewrites BOTH on every navigation so
+            they name the actual target ("Next recording: sub-02_…"). They have
+            to move together: an element with an aria-label takes its
+            accessible name from that label, so leaving this one static would
+            hide every update from a screen reader. */}
         <div class="eegv-nav__steps">
           <button
             type="button"

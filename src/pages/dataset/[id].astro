@@ -302,6 +302,7 @@ Astro.response.headers.set(
 
 <script>
   import { renderMarkdown } from "../../lib/markdown";
+  import { isDirRecordingName } from "../../lib/bids-tree";
   import type { DirListing } from "../../lib/dir-listing";
   import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
   import { formatBytes } from "../../lib/format";
@@ -999,6 +1000,10 @@ Astro.response.headers.set(
         filePath,
         zarrToken: zarrTokenForButton(btn),
         downloadUrl: fileUrl,
+        // So the mount's own "unavailable" message offers the same fallback
+        // this function does for a directory recording (website#252), instead
+        // of a download link onto raw directory listing JSON.
+        dirRecording: isDirRecording,
         // Checked *inside* the mount, right after its own async gap, so a
         // superseded attempt returns before it writes into the host. The
         // check below only runs once the mount has already written its DOM,
@@ -1063,7 +1068,6 @@ Astro.response.headers.set(
     const live = eegLive;
     const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
     const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
-    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
     if (!dialog || !dialogSlot) {
       console.error("[eeg-viewer] dialog markup missing");
       return;
@@ -1076,7 +1080,7 @@ Astro.response.headers.set(
     anchor.textContent = "Showing in the enlarged viewer.";
     live.host.replaceWith(anchor);
     dialogSlot.replaceChildren(live.host);
-    if (titleEl) titleEl.textContent = live.fileName || "Signal viewer";
+    setEegDialogTitle(live.fileName);
     dialog.showModal();
     // Recording navigation is a dialog-only affordance (website#253) — the
     // controls only exist here, so they are populated on the way in.
@@ -1181,8 +1185,15 @@ Astro.response.headers.set(
     next.disabled = !after;
     if (focused === next && next.disabled && !prev.disabled) prev.focus();
     else if (focused === prev && prev.disabled && !next.disabled) next.focus();
-    prev.title = before ? `Previous recording: ${before.name}` : "No previous recording";
-    next.title = after ? `Next recording: ${after.name}` : "No next recording";
+    // `aria-label`, not just `title`: an element with both takes its accessible
+    // name from the label, so a screen reader would otherwise be stuck with the
+    // markup's generic "Next recording" and never hear which recording that is.
+    const prevLabel = before ? `Previous recording: ${before.name}` : "No previous recording";
+    const nextLabel = after ? `Next recording: ${after.name}` : "No next recording";
+    prev.title = prevLabel;
+    next.title = nextLabel;
+    prev.setAttribute("aria-label", prevLabel);
+    next.setAttribute("aria-label", nextLabel);
     nav.hidden = false;
   }
 
@@ -1238,13 +1249,16 @@ Astro.response.headers.set(
     // there is no later chance to ask.
     const transfer = live.snapshot?.();
     const seq = ++eegSeq;
+    // Kept for the failure path below, which puts the chrome back rather than
+    // leaving it naming a recording that never opened.
+    const fromPath = live.path;
+    const fromName = live.fileName;
     live.path = target.path;
     live.fileName = target.name;
     live.snapshot = null;
     // The title and controls move immediately: the mount can take a moment,
     // and chrome that still names the previous recording reads as a no-op.
-    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
-    if (titleEl) titleEl.textContent = target.name || "Signal viewer";
+    setEegDialogTitle(target.name);
     syncEegNavControls();
     const host = live.host;
     host.setAttribute("aria-busy", "true");
@@ -1263,6 +1277,10 @@ Astro.response.headers.set(
         filePath: target.path,
         zarrToken: live.zarrToken,
         downloadUrl: fileDownloadUrl(live.datasetId, live.version, target.path),
+        // The target may be a `.mefd`/`.ds`/BTi directory recording
+        // (website#252) with no row in the tree to read `data-dir-recording`
+        // from, so it is decided from the name — see `isDirRecordingName`.
+        dirRecording: isDirRecordingName(target.name),
         isStale: () => seq !== eegSeq,
         transfer,
         onTransfer: (snapshot) => {
@@ -1278,12 +1296,34 @@ Astro.response.headers.set(
       if (eegLive) eegLive.destroy = destroy ?? null;
       prefetchAdjacentRecordings();
     } catch (err) {
-      // `mountEegViewer` handles its own failures by rendering an "unavailable"
-      // message into the host; reaching here means the import itself failed.
+      // Reaching here means the mount threw somewhere its own try/catch does
+      // not cover — that only wraps `openRecording`, so a failure in the DOM
+      // build, the WebGL setup or the transfer lands here. By then the previous
+      // instance has already been torn down (the mount's first act), so there
+      // is nothing on screen to keep: without this branch the dialog would name
+      // the target while the host held a half-built viewer and no explanation.
       console.error("[eeg-viewer] navigation failed:", err);
+      if (seq !== eegSeq || !eegLive) return;
+      const fallback = isDirRecordingName(target.name)
+        ? "Use the expand arrow next to its name to browse the recording's files"
+        : `<a href="${escapeHtml(fileDownloadUrl(live.datasetId, live.version, target.path))}" rel="external" download="${escapeHtml(target.name)}">Download the file</a>`;
+      host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${fallback} instead.</p>`;
+      // Put the chrome back on the recording the user came from: it is the one
+      // they can still navigate relative to, and the message above already
+      // names the one that failed.
+      eegLive.path = fromPath;
+      eegLive.fileName = fromName;
+      setEegDialogTitle(fromName);
+      syncEegNavControls();
     } finally {
       if (seq === eegSeq) host.removeAttribute("aria-busy");
     }
+  }
+
+  /** The dialog heading, which follows the recording the chrome is describing. */
+  function setEegDialogTitle(name: string): void {
+    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
+    if (titleEl) titleEl.textContent = name || "Signal viewer";
   }
 
   function stepEegViewer(delta: number): void {
