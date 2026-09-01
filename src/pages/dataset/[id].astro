@@ -334,7 +334,10 @@ Astro.response.headers.set(
   } from "../../lib/eeg-viewer/recording-nav";
   // Type-only, so this does not pull the (WebGL-carrying) viewer module into
   // the page bundle; the mount itself stays behind the dynamic import below.
-  import type { ViewerTransferState } from "../../lib/eeg-viewer/viewer";
+  import type {
+    ViewerAnnotationHandle,
+    ViewerTransferState,
+  } from "../../lib/eeg-viewer/viewer";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
   // doesn't pay for parsing the TSV renderer's bundle.
@@ -425,6 +428,12 @@ Astro.response.headers.set(
     detached: boolean;
     /** Settings to carry into the next recording (website#253). */
     snapshot: (() => ViewerTransferState) | null;
+    /**
+     * The instance's annotation layer, for asking whether an unsaved draft is
+     * open before a navigation destroys it. Null until the mount reports one
+     * (and for a mount that produced no viewer, which has no drafts to lose).
+     */
+    annotations: ViewerAnnotationHandle | null;
   } | null = null;
 
   /**
@@ -1009,6 +1018,7 @@ Astro.response.headers.set(
       zarr,
       detached: false,
       snapshot: null,
+      annotations: null,
     };
     try {
       const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
@@ -1030,6 +1040,9 @@ Astro.response.headers.set(
         isStale: () => seq !== eegSeq,
         onTransfer: (snapshot) => {
           if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+        onAnnotations: (handle) => {
+          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
         },
       });
       if (seq !== eegSeq) {
@@ -1176,6 +1189,7 @@ Astro.response.headers.set(
       zarr: ctx.zarr,
       detached: true,
       snapshot: null,
+      annotations: null,
     };
     // The target itself has had no chance to warm (unlike a tree-row open,
     // which prefetches on hover/focus before the click) — mirror what
@@ -1209,6 +1223,9 @@ Astro.response.headers.set(
         isStale: () => seq !== eegSeq,
         onTransfer: (snapshot) => {
           if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+        onAnnotations: (handle) => {
+          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
         },
       });
       if (seq !== eegSeq) {
@@ -1278,6 +1295,29 @@ Astro.response.headers.set(
 
   function eegNavEl<T extends HTMLElement>(selector: string): T | null {
     return document.querySelector<T>(selector);
+  }
+
+  /**
+   * Refuse a recording swap while the live viewer holds an unsaved annotation
+   * draft, and point at the thing doing the refusing.
+   *
+   * Deliberately NOT a `window.confirm`. A confirm blocks the whole page on a
+   * dialog that cannot be styled or dismissed by Escape-then-save, and it asks
+   * a question ("discard your half-written annotation?") whose answer is almost
+   * always no — so it costs every annotator a modal in exchange for a mistake
+   * they were not going to make. Refusing the navigation and flashing the
+   * popover already on screen says the same thing without stealing control:
+   * Escape or Save, then the same click works.
+   *
+   * Every caller returns on true; each is responsible for re-syncing its own
+   * chrome (the dropdowns in particular, which have already moved to the value
+   * the user picked).
+   */
+  function eegDraftBlocksNavigation(): boolean {
+    const handle = eegLive?.annotations;
+    if (!handle?.isPopoverOpen()) return false;
+    handle.focusPopover();
+    return true;
   }
 
   /** The entry for the recording currently on screen, if it parsed. */
@@ -1419,6 +1459,9 @@ Astro.response.headers.set(
       syncEegNavControls();
       return;
     }
+    // The swap destroys this instance, and an open annotation popover holds a
+    // draft that exists nowhere else yet. Refuse rather than discard it.
+    if (eegDraftBlocksNavigation()) return;
 
     if (!live.detached) {
       resetEegRow(live.btn, live.slot);
@@ -1437,6 +1480,7 @@ Astro.response.headers.set(
     live.path = target.path;
     live.fileName = target.name;
     live.snapshot = null;
+    live.annotations = null; // belongs to the instance the mount below replaces
     // The title and controls move immediately: the mount can take a moment,
     // and chrome that still names the previous recording reads as a no-op.
     setEegDialogTitle(target.name);
@@ -1466,6 +1510,9 @@ Astro.response.headers.set(
         transfer,
         onTransfer: (snapshot) => {
           if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+        onAnnotations: (handle) => {
+          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
         },
       });
       if (seq !== eegSeq) {
@@ -1522,6 +1569,9 @@ Astro.response.headers.set(
   function stepEegViewer(delta: number): void {
     const live = eegLive;
     if (!live) return;
+    // Checked here as well as inside `navigateEegViewer` so prev/next refuses
+    // without any of the chrome having moved first.
+    if (eegDraftBlocksNavigation()) return;
     const target = stepRecording(live.recordings, live.path, readNavOrder(), delta);
     if (target) void navigateEegViewer(target);
     else syncEegNavControls(); // at an end; make sure the button reads disabled
@@ -1539,6 +1589,12 @@ Astro.response.headers.set(
     const live = eegLive;
     const sel = event.currentTarget as HTMLSelectElement;
     if (!live) return;
+    // The `<select>` has already moved to the picked value, so a refusal has to
+    // put it back — otherwise the dropdown names a subject the viewer is not on.
+    if (eegDraftBlocksNavigation()) {
+      syncEegNavControls();
+      return;
+    }
     // `prefer: "sub"` keeps the subject the user just picked when it has no
     // recording of the current task.
     const target = selectRecording(
@@ -1557,6 +1613,11 @@ Astro.response.headers.set(
     const live = eegLive;
     const sel = event.currentTarget as HTMLSelectElement;
     if (!live) return;
+    // As above: the dropdown has moved, so a refusal has to move it back.
+    if (eegDraftBlocksNavigation()) {
+      syncEegNavControls();
+      return;
+    }
     const target = selectRecording(
       live.recordings,
       { sub: currentEegRecording()?.sub ?? null, task: sel.value || null },

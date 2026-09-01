@@ -132,6 +132,28 @@ export interface ViewerOptions {
    * and never for a mount that produced no viewer.
    */
   onTransfer?: (snapshot: () => ViewerTransferState) => void;
+  /**
+   * Receives a handle on the instance's annotation state, on the same terms as
+   * `onTransfer` (once, only for a mount that produced a viewer).
+   *
+   * The page needs it because a recording swap destroys this instance, and an
+   * annotation popover holds an unsaved draft that lives nowhere else — so the
+   * chrome around the viewer has to be able to ask before it navigates.
+   */
+  onAnnotations?: (handle: ViewerAnnotationHandle) => void;
+}
+
+/**
+ * What the page may ask (and tell) the mounted instance's annotation layer.
+ * Deliberately the two questions the surrounding chrome actually has, not a
+ * pass-through of the whole layer: everything else about annotations is the
+ * viewer's own business.
+ */
+export interface ViewerAnnotationHandle {
+  /** True while a popover is open, i.e. a draft exists only in that popover. */
+  isPopoverOpen(): boolean;
+  /** Flash and focus the open popover; no-op when none is open. */
+  focusPopover(): void;
 }
 
 /**
@@ -1698,6 +1720,11 @@ export async function mountEegViewer(
   // Hand the caller a live snapshot getter, not a snapshot: it is read at the
   // moment the user navigates away, which is arbitrarily long after this.
   opts.onTransfer?.(snapshotTransfer);
+  // Same seam, same reason: the page asks these at click time, not now.
+  opts.onAnnotations?.({
+    isPopoverOpen: () => annotations.isPopoverOpen(),
+    focusPopover: () => annotations.focusPopover(),
+  });
 
   await render();
   void store.eventsReady.then((events) => {

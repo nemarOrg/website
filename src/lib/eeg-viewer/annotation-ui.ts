@@ -79,6 +79,10 @@ const POPOVER_MIN_HEIGHT_PX = 180;
  * Escape still closes the dialog.
  */
 const ESCAPE_GUARD_MS = 200;
+/** Marks the popover while it is being flashed at a blocked navigation. */
+const FLASH_CLASS = "eegv__annot-pop--flash";
+/** Must outlast the `eegv-annot-flash` keyframes in `BidsTree.astro`. */
+const FLASH_DURATION_MS = 950;
 
 export interface AnnotationGeometry {
   cssWidth: number;
@@ -266,9 +270,17 @@ export interface AnnotationLayer {
   isActive(): boolean;
   /**
    * Whether the annotation popover is open. The surrounding `<dialog>` needs
-   * this to tell an Escape aimed at the popover from one aimed at itself.
+   * this to tell an Escape aimed at the popover from one aimed at itself, and
+   * the page uses it to refuse a recording swap that would silently discard
+   * the draft inside it.
    */
   isPopoverOpen(): boolean;
+  /**
+   * Draw attention to the open popover and put focus back in it. No-op when
+   * closed. Called when something outside the viewer refuses to act because
+   * the draft is open — the refusal has to point at what is blocking it.
+   */
+  focusPopover(): void;
   /** Draw annotation ticks onto the overview minimap's context. */
   drawOverview(
     ctx: CanvasRenderingContext2D,
@@ -882,9 +894,40 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     renderPopover();
   }
 
+  /**
+   * Make the open popover findable when something outside the viewer refused
+   * to act because of it: two pulses of its own accent ring, then focus into
+   * it so Enter (save) or Escape (cancel) works straight away.
+   *
+   * The class is taken off again on a timer rather than left on the element —
+   * under `prefers-reduced-motion` the rule is a static ring with no animation
+   * to end, and a permanent ring would read as a state rather than a cue.
+   */
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  function clearFlash(): void {
+    if (flashTimer !== null) clearTimeout(flashTimer);
+    flashTimer = null;
+    popover.classList.remove(FLASH_CLASS);
+  }
+  function focusPopover(): void {
+    if (!popState || popover.hidden) return;
+    // Removed and re-added even when it is already on, so a second blocked
+    // click is as visible as the first; reading `offsetWidth` forces the
+    // reflow that makes the browser treat it as a new animation.
+    clearFlash();
+    void popover.offsetWidth;
+    popover.classList.add(FLASH_CLASS);
+    flashTimer = setTimeout(clearFlash, FLASH_DURATION_MS);
+    // The first real control, not the popover box: the point is to let the
+    // annotator finish or abandon the draft immediately, and both keys are
+    // bound on the popover's own keydown.
+    popover.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+  }
+
   function closePopover(): void {
     popState = null;
     submitPopover = null;
+    clearFlash();
     popover.hidden = true;
     popover.replaceChildren();
     dragStartS = null;
@@ -1649,10 +1692,12 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     isPopoverOpen() {
       return popState !== null;
     },
+    focusPopover,
     drawOverview,
     flush,
     destroy() {
       destroyed = true;
+      clearFlash();
       cancelOverlayDraw();
       if (resizeRaf !== 0) cancelAnimationFrame(resizeRaf);
       resizeRaf = 0;

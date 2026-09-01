@@ -1103,6 +1103,33 @@ const dataHost = new URL(dataBase).host;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
     font-size: var(--fs-xs);
   }
+  /* The refusal cue when something outside the viewer (a recording swap) is
+     blocked by this open draft. Two pulses of the popover's own accent border
+     — enough to find it on a busy page, over before it becomes a nuisance, and
+     honoured as a plain colour change for anyone who asked for less motion. */
+  .eegv__annot-pop--flash {
+    animation: eegv-annot-flash 0.9s ease-out 1;
+  }
+  @keyframes eegv-annot-flash {
+    0%,
+    100% {
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    }
+    25%,
+    75% {
+      box-shadow:
+        0 6px 24px rgba(0, 0, 0, 0.18),
+        0 0 0 4px color-mix(in srgb, var(--eegv-annot) 45%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .eegv__annot-pop--flash {
+      animation: none;
+      box-shadow:
+        0 6px 24px rgba(0, 0, 0, 0.18),
+        0 0 0 4px color-mix(in srgb, var(--eegv-annot) 45%, transparent);
+    }
+  }
   .eegv__annot-pop-title {
     flex: 0 0 auto;
     font-weight: var(--fw-semibold, 600);
