@@ -1157,6 +1157,7 @@ Astro.response.headers.set(
     host.setAttribute("data-eegv-host", "");
     host.innerHTML = `<p class="preview__loading" role="status">Loading viewer…</p>`;
     dialogSlot.replaceChildren(host);
+    host.setAttribute("aria-busy", "true");
     setEegDialogTitle(target.name);
     dialog.showModal();
 
@@ -1176,6 +1177,19 @@ Astro.response.headers.set(
       detached: true,
       snapshot: null,
     };
+    // The target itself has had no chance to warm (unlike a tree-row open,
+    // which prefetches on hover/focus before the click) — mirror what
+    // `prefetchZarrButton` does for a row, so the mount below hits a warm
+    // cache the same as every other entry point does.
+    if (ctx.zarr && !ctx.zarr.prefetched.has(target.path)) {
+      ctx.zarr.prefetched.add(target.path);
+      prefetchZarrStoreMetadata(
+        ctx.datasetId,
+        target.path,
+        ctx.zarr.stores.get(target.path),
+        ctx.zarrToken,
+      );
+    }
     // Nav controls and neighbour prefetch depend only on `recordings`/`path`,
     // both already final — populate them now rather than waiting on the
     // mount, the same as `navigateEegViewer` does for an in-dialog swap.
@@ -1219,6 +1233,8 @@ Astro.response.headers.set(
       eegLive = null;
       host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${fallbackActionHtml} instead.</p>`;
       syncEegNavControls(); // nothing to navigate from; hide the now-dead controls
+    } finally {
+      if (seq === eegSeq) host.removeAttribute("aria-busy");
     }
   }
 
@@ -1485,10 +1501,22 @@ Astro.response.headers.set(
     }
   }
 
-  /** The dialog heading, which follows the recording the chrome is describing. */
+  /**
+   * The dialog heading, which follows the recording the chrome is describing.
+   *
+   * Also updates the dialog's own `aria-label`, which otherwise stays the
+   * static "Signal viewer" from `EegViewerDialog.astro` markup — a screen
+   * reader never hears which recording is open (a pre-existing gap across
+   * every entry point, fixed here in the one place all three converge).
+   */
   function setEegDialogTitle(name: string): void {
     const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
-    if (titleEl) titleEl.textContent = name || "Signal viewer";
+    if (!titleEl) return;
+    titleEl.textContent = name || "Signal viewer";
+    const dialog = titleEl.closest<HTMLDialogElement>("[data-eeg-dialog]");
+    if (dialog) {
+      dialog.setAttribute("aria-label", name ? `Signal viewer: ${name}` : "Signal viewer");
+    }
   }
 
   function stepEegViewer(delta: number): void {
