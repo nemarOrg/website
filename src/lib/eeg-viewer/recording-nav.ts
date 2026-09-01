@@ -175,8 +175,12 @@ const KEYS_BY_ORDER: Record<Exclude<NavOrder, "file">, ReadonlyArray<keyof Recor
   // Sorting by these keys means a sequential walk advances the LAST key
   // fastest: runs inside a task, tasks inside a subject.
   runs: ["sub", "ses", "task", "acq", "run", "recording"],
-  // Subject last => next moves to the same task/run in the next subject.
-  subjects: ["task", "acq", "run", "recording", "sub", "ses"],
+  // Subject LAST, and session before it, because this setting promises the
+  // SUBJECT is what moves fastest: a sessioned dataset walks sub-01/ses-01 →
+  // sub-02/ses-01 → … and only comes back for ses-02. Ordering `ses` after
+  // `sub` would walk one subject's sessions before reaching the next subject,
+  // which is what "runs, then tasks, then subjects" already does.
+  subjects: ["task", "acq", "run", "recording", "ses", "sub"],
 };
 
 /**

@@ -191,6 +191,18 @@ describe("orderedRecordings", () => {
     ]);
   });
 
+  // What "subjects first" means once sessions exist: the subject moves
+  // fastest, so ses-01 is walked across the cohort before ses-02 starts.
+  it("holds the session while walking subjects in subjects-first order", () => {
+    const list = buildRecordingList(SESSIONED);
+    expect(paths(orderedRecordings(list, "subjects"))).toEqual([
+      "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_run-01_eeg.bdf",
+      "sub-02/ses-01/eeg/sub-02_ses-01_task-oddball_run-01_eeg.bdf",
+      "sub-01/ses-02/eeg/sub-01_ses-02_task-oddball_run-01_eeg.bdf",
+      "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_run-02_eeg.bdf",
+    ]);
+  });
+
   it("sorts runs numerically past 9", () => {
     const list = buildRecordingList([
       "sub-01/eeg/sub-01_task-rest_run-10_eeg.set",
@@ -367,6 +379,42 @@ describe("selectRecording", () => {
 
   it("returns null for an empty list", () => {
     expect(selectRecording([], { sub: "01" })).toBeNull();
+  });
+});
+
+// Split recordings are the real case where two entries tie on every tracked
+// entity: BIDS splits an oversized recording into `_split-01`, `_split-02`,
+// and `split` is not one of the six entities this module orders by. The
+// dropdowns can only ever land on the first of such a group; prev/next is what
+// reaches the rest, so both halves of that contract are pinned here.
+describe("recordings that tie on every tracked entity", () => {
+  const SPLIT = [
+    "sub-01/eeg/sub-01_task-rest_split-01_eeg.set",
+    "sub-01/eeg/sub-01_task-rest_split-02_eeg.set",
+    "sub-01/eeg/sub-01_task-rest_split-03_eeg.set",
+  ];
+  const list = buildRecordingList(SPLIT);
+
+  it("keeps them in source order under every entity order", () => {
+    expect(paths(orderedRecordings(list, "runs"))).toEqual(SPLIT);
+    expect(paths(orderedRecordings(list, "subjects"))).toEqual(SPLIT);
+    expect(paths(orderedRecordings(list, "file"))).toEqual(SPLIT);
+  });
+
+  it("resolves a dropdown pick to the first of the group", () => {
+    expect(selectRecording(list, { sub: "01", task: "rest" })?.path).toBe(SPLIT[0]);
+  });
+
+  it("reaches the rest of the group with prev/next", () => {
+    expect(stepRecording(list, SPLIT[0], "runs", 1)?.path).toBe(SPLIT[1]);
+    expect(stepRecording(list, SPLIT[1], "runs", 1)?.path).toBe(SPLIT[2]);
+    expect(stepRecording(list, SPLIT[2], "runs", -1)?.path).toBe(SPLIT[1]);
+  });
+
+  it("counts every split as its own position", () => {
+    const ordered = orderedRecordings(list, "runs");
+    expect(ordered).toHaveLength(3);
+    expect(recordingPosition(ordered, SPLIT[2])).toBe(2);
   });
 });
 
