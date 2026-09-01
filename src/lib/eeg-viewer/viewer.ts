@@ -175,11 +175,22 @@ export interface ViewerAnnotationHandle {
  */
 export interface ViewerTransferState {
   windowLengthS: number;
-  /** Only honoured when `gainManuallySet`; otherwise auto-scale (website#109)
-   *  runs against the new recording's own amplitude, a better estimate than
-   *  whatever suited the previous one. */
+  /** Only honoured when `gainManuallySet` AND the new recording's first group
+   *  is the same modality; otherwise auto-scale (website#109) runs against the
+   *  new recording's own amplitude, a better estimate than whatever suited the
+   *  previous one. */
   gain: number;
   gainManuallySet: boolean;
+  /**
+   * The modality `gain` was chosen against. Gain is a physical scale (µV/div
+   * for EEG, fT/div for MEG), so carrying a manual one across modalities is
+   * wrong by orders of magnitude — a flat line or a wall of clipping.
+   *
+   * Optional so a transfer record written before this field existed still type
+   * checks; absent means "unknown", which is treated as a match, i.e. the
+   * behaviour this field was added to narrow.
+   */
+  modality?: string;
   /** Visible channel count, or null for "the whole montage" — the default,
    *  which must not travel as a literal number or a 64-channel view would clip
    *  a 128-channel recording to its first half. */
@@ -686,9 +697,15 @@ export async function mountEegViewer(
       windowLengthS = t.windowLengthS;
       ui.win.value = String(t.windowLengthS);
     }
-    if (t.gainManuallySet && Number.isFinite(t.gain) && t.gain > 0) {
-      // The user overrode auto-scale on the previous recording; respect that
-      // here too rather than re-estimating and appearing to undo their work.
+    // The user overrode auto-scale on the previous recording; respect that here
+    // too rather than re-estimating and appearing to undo their work — but only
+    // within one modality. `gain` multiplies a modality's own DEFAULT_SCALINGS,
+    // so an EEG gain on an MEG recording is not "the same zoom", it is a
+    // different physical scale off by orders of magnitude. Across modalities,
+    // drop it and let auto-scale measure the new recording instead.
+    const sameModality =
+      !t.modality || t.modality.toUpperCase() === (store.groups[0].modality || "").toUpperCase();
+    if (t.gainManuallySet && sameModality && Number.isFinite(t.gain) && t.gain > 0) {
       gain = t.gain;
       gainManuallySet = true;
       autoscalePending = false;
@@ -734,6 +751,9 @@ export async function mountEegViewer(
       windowLengthS,
       gain,
       gainManuallySet,
+      // What `gain` is a scale *of*; the next mount refuses it across a
+      // modality change (see applyTransfer).
+      modality: group().modality,
       // Normalize "the whole montage" to null so it stays whole-montage on a
       // recording with a different channel count.
       chanCount: chanCount >= group().nChannels ? null : chanCount,
