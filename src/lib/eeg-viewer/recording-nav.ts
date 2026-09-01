@@ -276,22 +276,9 @@ export function selectRecording(
   const ordered = orderedRecordings(list, order);
   const exact = ordered.find((e) => matches(e, sub, task));
   if (exact) return exact;
-  const first = prefer === "sub" ? sub : task;
-  const second = prefer === "sub" ? task : sub;
-  const firstKey = prefer === "sub" ? "sub" : "task";
-  if (first !== null) {
-    const hit = ordered.find((e) =>
-      firstKey === "sub" ? matches(e, first, null) : matches(e, null, first),
-    );
-    if (hit) return hit;
-  }
-  if (second !== null) {
-    const hit = ordered.find((e) =>
-      firstKey === "sub" ? matches(e, null, second) : matches(e, second, null),
-    );
-    if (hit) return hit;
-  }
-  return null;
+  const bySub = sub === null ? null : (ordered.find((e) => matches(e, sub, null)) ?? null);
+  const byTask = task === null ? null : (ordered.find((e) => matches(e, null, task)) ?? null);
+  return (prefer === "sub" ? (bySub ?? byTask) : (byTask ?? bySub)) ?? null;
 }
 
 /** A stored value, or null when it is not one of the known orders. */
