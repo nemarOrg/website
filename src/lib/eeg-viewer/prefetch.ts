@@ -372,6 +372,12 @@ export class PrefetchController<T> {
   stop(): void {
     this.generation++;
     this.runningFlag = false;
+    // A stopped walk is not a stalled one. Leaving the flag set would let a
+    // caller keep saying "preload paused, network trouble" about a walk that
+    // is no longer running for an entirely different reason — preload switched
+    // off, or a group switch that has not picked a view level yet.
+    this.consecutiveFailures = 0;
+    this.stalledFlag = false;
     this.abortController?.abort();
     this.abortController = null;
   }

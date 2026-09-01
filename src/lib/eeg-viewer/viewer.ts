@@ -443,11 +443,6 @@ export async function mountEegViewer(
   let bufferedSegments = new Set<number>();
   let bufferedSegmentS = 0; // segment width the current bufferedSegments indices are relative to
   let prefetchSignature = "";
-  // Set when the walk's circuit breaker trips (a run of segment failures, i.e.
-  // an outage rather than one bad chunk). Surfaced as a note beside the preload
-  // toggle so the buffered bar's silence has a stated cause; cleared when the
-  // user re-arms preload, which is also what restarts the walk.
-  let preloadStalled = false;
   const prefetchController = new PrefetchController<WindowData>({
     cache: prefetchCache,
     transport: { fetchSegment: () => Promise.reject(new Error("prefetch not targeted yet")) },
@@ -456,15 +451,28 @@ export async function mountEegViewer(
       bufferedSegments = new Set(covered);
       drawOverview();
     },
-    onStalled: () => {
-      preloadStalled = true;
-      syncPreloadNote();
-    },
+    onStalled: () => syncPreloadNote(),
   });
 
+  /**
+   * The "preload paused" note, DERIVED rather than latched.
+   *
+   * `PrefetchController.stalled` is the single source of truth: the breaker
+   * sets it, and both `start()` and `stop()` clear it, so it can never say
+   * "stalled" about a walk that is running, or about no walk at all. A local
+   * mirror of the flag could — and did: the recovery this note advertises
+   * (toggle off and on) goes through `updatePrefetchTarget`, which returns
+   * early when no view level is known yet, so a latched copy survived its own
+   * cure and the note stuck permanently. The outage that trips the breaker is
+   * the same one that fails the interactive read which would have supplied a
+   * level, so that was the common case rather than the corner.
+   *
+   * Re-derived on every render for the same reason `syncDegradedNote` is: a
+   * note that only updates on the paths that set it is a note that gets stuck.
+   */
   function syncPreloadNote(): void {
     if (disposed) return;
-    const show = preloadStalled && preloadEnabled;
+    const show = preloadEnabled && prefetchController.stalled;
     ui.preloadNote.hidden = !show;
     ui.preloadNote.textContent = show
       ? "Preload paused — network trouble. Turn it off and on again to retry."
@@ -478,6 +486,9 @@ export async function mountEegViewer(
     if (!preloadEnabled || lastWinLevel === null) {
       prefetchController.stop();
       prefetchSignature = ""; // force a real restart next time preload is enabled
+      // `stop()` retires the stall along with the walk, so the note goes too.
+      // This is the toggle-off half of the recovery, and the group-switch path.
+      syncPreloadNote();
       return;
     }
     const g = group();
@@ -507,12 +518,11 @@ export async function mountEegViewer(
     bufferedSegmentS = segS;
     const total = Math.max(1, Math.ceil(g.durationS / segS));
     const center = Math.max(0, Math.min(total - 1, Math.floor(windowStartS / segS)));
-    // A restart is a fresh look at the network, so retire any stall notice
-    // here rather than in each of the handlers that can cause one (the preload
-    // toggle, the cache cap, a group switch).
-    preloadStalled = false;
-    syncPreloadNote();
     prefetchController.start(total, center);
+    // `start()` clears the breaker, so a restart retires the notice — here
+    // rather than in each of the handlers that can cause one (the preload
+    // toggle, the cache cap, a group switch).
+    syncPreloadNote();
   }
   // Topomap state. The projection is computed once (positions are fixed per
   // recording); topoTime tracks the cursor (null -> window center).
@@ -1015,6 +1025,10 @@ export async function mountEegViewer(
         renderMessage(ctx, w, h, tc, `Signal unavailable: ${msg}`);
         statusBase = ""; // a late `watchViewLevels` must not overwrite this
         ui.status.textContent = `signal unavailable: ${msg}`;
+        // This branch returns before `updatePrefetchTarget()` below, and it is
+        // the SAME outage that trips the preloader's breaker — so without this
+        // the note would be latched by a path that never re-evaluates it.
+        syncPreloadNote();
       }
       return;
     } finally {
@@ -1118,6 +1132,9 @@ export async function mountEegViewer(
     // second.
     syncDegradedNote();
     watchViewLevels(g);
+    // Re-derived every frame, same as the note above: both are about a
+    // background failure that can start and end with no handler firing.
+    syncPreloadNote();
 
     // Hand the annotation layer this frame's geometry so its overlay lines up
     // with the traces (website#255). Read-only: it never writes back here.
@@ -1433,12 +1450,12 @@ export async function mountEegViewer(
     preloadEnabled = ui.preloadCheck.checked;
     savePreloadEnabled(preloadEnabled);
     ui.preloadCap.disabled = !preloadEnabled;
-    // Toggling off and on is the documented retry after a stall:
-    // `updatePrefetchTarget` clears the signature on the way out and clears the
-    // stall on the way back in. The extra sync covers the off half, where the
-    // walk never restarts but the note must still go.
+    // Toggling off and on is the retry the stall note advertises, and both
+    // halves land in `updatePrefetchTarget`: off stops the walk (retiring the
+    // breaker) and clears the signature, on starts a fresh one. Each exit syncs
+    // the note, so the advertised cure works even when no view level is known
+    // yet and the walk cannot restart at all.
     updatePrefetchTarget();
-    syncPreloadNote();
   });
   ui.preloadCap.addEventListener("change", () => {
     preloadCapMB = Number(ui.preloadCap.value) || DEFAULT_PRELOAD_CAP_MB;

@@ -586,6 +586,28 @@ describe("PrefetchController circuit breaker", () => {
     expect(controller.stalled).toBe(false);
   });
 
+  it("stop() retires the stall along with the walk", async () => {
+    // A stopped walk is not a stalled one, and the viewer derives its "preload
+    // paused" note straight from this flag. Leaving it set after stop() is how
+    // that note got stuck: the toggle-off half of its own advertised recovery
+    // goes through stop(), and a walk that cannot restart (no view level known
+    // yet, e.g. right after a group switch) never reaches start() to clear it.
+    const { transport } = failingTransport(() => true);
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+    });
+    controller.start(20, 0);
+    await flush(200);
+    expect(controller.stalled).toBe(true);
+
+    controller.stop();
+    expect(controller.stalled).toBe(false);
+    expect(controller.running).toBe(false);
+  });
+
   it("a fresh start() re-arms the breaker (the preload toggle's retry)", async () => {
     const state = { failing: true };
     const { transport, calls } = failingTransport(() => state.failing);
