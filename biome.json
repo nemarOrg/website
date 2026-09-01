@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["dist", ".astro", "node_modules", ".wrangler"]
+    "ignore": [
+      "dist",
+      ".astro",
+      "node_modules",
+      ".wrangler",
+      "src/lib/eeg-viewer/hed-vocab.json"
+    ]
   },
   "formatter": {
     "enabled": true,
