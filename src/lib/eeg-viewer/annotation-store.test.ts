@@ -1,3 +1,4 @@
+import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, it } from "vitest";
 import {
   createMemoryAnnotationStore,
@@ -192,5 +193,77 @@ describe("openAnnotationStore", () => {
 
   it("never rejects, so a mount cannot be taken down by storage", async () => {
     await expect(openAnnotationStore(undefined)).resolves.toBeDefined();
+  });
+});
+
+/**
+ * The persistent path, against a real IndexedDB implementation.
+ *
+ * `fake-indexeddb` is a platform shim, not a mock of anything this repo owns:
+ * it is the actual W3C IndexedDB algorithms (upgrade transactions, structured
+ * clone, request queueing) running under Node, the same way `jsdom` is a real
+ * DOM. Nothing in `annotation-store.ts` is stubbed — these drive the genuine
+ * open-and-upgrade, the genuine `put`/`get`, and a genuine write failure.
+ *
+ * A fresh `IDBFactory` per test keeps them independent: the shim keeps its
+ * databases inside the factory instance rather than in a global.
+ */
+describe("openAnnotationStore against a real IndexedDB", () => {
+  const setOf = (onsetS: number) => ({
+    time: [
+      createTimeAnnotation({ onsetS, durationS: 1.5, hedTags: ["Property/Data-property"] }, AT),
+    ],
+    channels: [createChannelAnnotation({ channel: "Cz", status: "bad" as const }, AT)],
+  });
+
+  it("opens, creating its object store on first use", async () => {
+    const store = await openAnnotationStore(new IDBFactory());
+    expect(store.persistent).toBe(true);
+    // An empty database reads back as an empty set rather than throwing.
+    expect(await store.load(KEY)).toEqual({ time: [], channels: [] });
+    store.close();
+  });
+
+  it("round-trips a set through storage, not just through memory", async () => {
+    const factory = new IDBFactory();
+    const first = await openAnnotationStore(factory);
+    await first.save(KEY, setOf(3));
+    first.close();
+
+    // A second connection shares nothing with the first but the database on
+    // disk, so what comes back has genuinely been through IndexedDB.
+    const second = await openAnnotationStore(factory);
+    const loaded = await second.load(KEY);
+    expect(loaded.time).toHaveLength(1);
+    expect(loaded.time[0].onsetS).toBe(3);
+    expect(loaded.time[0].hedTags).toEqual(["Property/Data-property"]);
+    expect(loaded.channels.map((c) => c.channel)).toEqual(["Cz"]);
+    second.close();
+  });
+
+  it("keeps two versions of one recording apart in the same database", async () => {
+    const factory = new IDBFactory();
+    const store = await openAnnotationStore(factory);
+    await store.save(KEY, setOf(3));
+    await store.save({ ...KEY, version: "2.0.0" }, setOf(9));
+    expect((await store.load(KEY)).time[0].onsetS).toBe(3);
+    expect((await store.load({ ...KEY, version: "2.0.0" })).time[0].onsetS).toBe(9);
+    store.close();
+  });
+
+  it("stops claiming persistence once a write fails, and still serves reads", async () => {
+    const store = await openAnnotationStore(new IDBFactory());
+    await store.save(KEY, setOf(3));
+    expect(store.persistent).toBe(true);
+
+    // A dead connection is the real failure this degrades for: the browser can
+    // drop one under storage pressure, and every later transaction then throws.
+    store.close();
+    await store.save(KEY, setOf(7));
+    expect(store.persistent).toBe(false);
+
+    // The point of degrading rather than throwing: what the annotator has on
+    // screen is still readable afterwards.
+    expect((await store.load(KEY)).time[0].onsetS).toBe(7);
   });
 });
