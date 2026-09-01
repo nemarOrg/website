@@ -98,6 +98,20 @@ export interface WindowData {
   channels: ChannelWindow[];
 }
 
+/**
+ * Approximate resident size of a decoded window, for the background preloader's
+ * byte-accounted cache (website#254). Counts the `Float32Array` payloads only
+ * (a line channel's samples, or a band channel's min+max pair) -- close enough
+ * for a soft cap; it does not need to match the JS engine's actual allocation.
+ */
+export function windowDataBytes(win: WindowData): number {
+  let bytes = 0;
+  for (const ch of win.channels) {
+    bytes += ch.kind === "line" ? ch.line.byteLength : ch.min.byteLength + ch.max.byteLength;
+  }
+  return bytes;
+}
+
 function num(v: unknown, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
@@ -482,6 +496,7 @@ export async function readWindow(
   rowStart = 0,
   rowCount = group.nChannels,
   forceLevel0 = false,
+  signal?: AbortSignal,
 ): Promise<WindowData> {
   const dur = group.durationS;
   const start = Math.max(0, Math.min(startS, dur));
@@ -502,14 +517,14 @@ export async function readWindow(
   // we fall back to the finest view level.
   const windowSamples = Math.ceil((end - start) * group.rate);
   let useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
-  if (useLevel0) return readLevel0(group, start, end, r0, r1);
+  if (useLevel0) return readLevel0(group, start, end, r0, r1, signal);
 
   if (viewLevels.length === 0) {
     viewLevels = await group.viewLevelsReady;
     levelSamples = [group.nSamples, ...viewLevels.map((v) => v.nTime)];
     chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
     useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
-    if (useLevel0) return readLevel0(group, start, end, r0, r1);
+    if (useLevel0) return readLevel0(group, start, end, r0, r1, signal);
   }
 
   // A view level: either pickViewLevel chose level-0 but it is too wide for the
@@ -517,20 +532,33 @@ export async function readWindow(
   // way fall back to the finest pyramid level (or level-0 itself if no pyramid
   // exists, which only happens for short recordings).
   const view = viewLevels[Math.max(1, chosen) - 1];
-  if (!view) return readLevel0(group, start, end, r0, r1); // no pyramid -> level-0 anyway
-  return readViewLevel(group, view, start, end, r0, r1);
+  if (!view) return readLevel0(group, start, end, r0, r1, signal); // no pyramid -> level-0 anyway
+  return readViewLevel(group, view, start, end, r0, r1, signal);
 }
 
-async function readLevel0(
+/**
+ * Read a `[startS, endS)` window from level-0 (full-rate samples) explicitly,
+ * bypassing the `readWindow` level-selection heuristic. Exported so the
+ * background preloader (prefetch.ts, website#254) can target a specific,
+ * already-chosen pyramid level while walking the recording, rather than
+ * re-deriving `pickViewLevel`'s pixel-width heuristic for a window that is not
+ * actually on screen. `signal` aborts the underlying zarr chunk fetch (wired
+ * to the preloader's own AbortController; website#208 covers threading this
+ * through the interactive path too).
+ */
+export async function readLevel0(
   group: GroupHandle,
   startS: number,
   endS: number,
   r0: number,
   r1: number,
+  signal?: AbortSignal,
 ): Promise<WindowData> {
   const c0 = Math.floor(startS * group.rate);
   const c1 = Math.min(group.nSamples, Math.max(c0 + 1, Math.ceil(endS * group.rate)));
-  const region = await zarr.get(group.level0, [zarr.slice(r0, r1), zarr.slice(c0, c1)]);
+  const region = await zarr.get(group.level0, [zarr.slice(r0, r1), zarr.slice(c0, c1)], {
+    signal,
+  });
   const cols = region.shape[1];
   const data = region.data as Int16Array;
   const channels: ChannelWindow[] = group.channelsByRow.slice(r0, r1).map((ch, i) => {
@@ -542,18 +570,25 @@ async function readLevel0(
   return { level: 0, nCols: cols, channels };
 }
 
-async function readViewLevel(
+/**
+ * Read a `[startS, endS)` window from a specific view-pyramid level explicitly.
+ * See `readLevel0` above for why this is exported (website#254's preloader).
+ */
+export async function readViewLevel(
   group: GroupHandle,
   view: ViewLevel,
   startS: number,
   endS: number,
   r0: number,
   r1: number,
+  signal?: AbortSignal,
 ): Promise<WindowData> {
   const dur = group.durationS || 1;
   const c0 = Math.floor((startS / dur) * view.nTime);
   const c1 = Math.min(view.nTime, Math.max(c0 + 1, Math.ceil((endS / dur) * view.nTime)));
-  const region = await zarr.get(view.array, [null, zarr.slice(r0, r1), zarr.slice(c0, c1)]);
+  const region = await zarr.get(view.array, [null, zarr.slice(r0, r1), zarr.slice(c0, c1)], {
+    signal,
+  });
   const cols = region.shape[2];
   const data = region.data as Int16Array;
   const nCh = region.shape[1]; // = r1 - r0
