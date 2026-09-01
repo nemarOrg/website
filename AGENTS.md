@@ -419,7 +419,7 @@ The frontend has fallbacks for all of these so the site ships standalone. When a
 bun run dev                   # http://localhost:4321
 bun run build && bun run preview
 bun run typecheck             # 0 errors required before commit
-bun run test                  # 1395/1395 unit tests at last count
+bun run test                  # 1402/1402 unit tests at last count
 bun run lint                  # biome check
 bun run bump <arg>            # version bump; workflows normally do this for you
 ```

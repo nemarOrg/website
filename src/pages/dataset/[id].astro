@@ -865,12 +865,12 @@ Astro.response.headers.set(
     const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
     if (dialog?.open) {
       // Empty the dialog here rather than leaving it to the close handler.
-      // `close()` only *queues* the close event, and `openEegViewerInline`
-      // (this function's only caller) assigns a new `eegLive` synchronously
-      // before its first await — so by the time that handler runs it can
-      // already be looking at a different row, and would not recognise this
-      // host as something to clear. Doing it synchronously means a released
-      // host can never be stranded inside a closed dialog.
+      // `close()` only *queues* the close event, and both callers assign a new
+      // `eegLive` synchronously before their first await — so by the time that
+      // handler runs it can already be looking at a different recording, and
+      // would not recognise this host as something to clear. Doing it
+      // synchronously means a released host can never be stranded inside a
+      // closed dialog.
       //
       // Unreachable today: a modal <dialog> makes the rest of the document
       // inert, so no tree row can be clicked while it is open. That is a
