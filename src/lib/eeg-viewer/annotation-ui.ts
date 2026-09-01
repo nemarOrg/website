@@ -35,6 +35,7 @@ import {
   emptyAnnotationSet,
   eventsTsvFilename,
   formatSeconds,
+  hedShortForm,
   isAnnotationSetEmpty,
   normalizeRange,
   removeChannelAnnotation,
@@ -480,7 +481,10 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
    * so a restored annotation is always legible even if it is verbose.
    */
   function labelForPath(path: HedPath): string {
-    return vocabIndex?.get(path)?.tag ?? path;
+    // Falls back to the derived short form, NOT the raw path: the vocab chunk
+    // loads lazily with the popover, and restored annotations render in the
+    // panel before anyone opens it (how long-form paths leaked into the UI).
+    return vocabIndex?.get(path)?.tag ?? hedShortForm(path);
   }
 
   // --- derived state --------------------------------------------------------
@@ -1086,6 +1090,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       for (const path of popState.tags) {
         const chip = el("span", "eegv__annot-tag");
         chip.append(doc.createTextNode(labelForPath(path)));
+        chip.title = path;
         const remove = doc.createElement("button");
         remove.type = "button";
         remove.className = "eegv__annot-tag-x";
@@ -1477,6 +1482,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
               : `${formatSeconds(a.onsetS)} s`,
             annotationLabel(a),
             () => openTimePopover(a, false),
+            a.hedTags.join(", "),
           ),
         );
       }
@@ -1488,6 +1494,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
               ? `${c.status} · ${c.hedTags.map(labelForPath).join(", ")}`
               : c.status,
             () => openChannelPopover([c.channel], c),
+            c.hedTags.join(", "),
           ),
         );
       }
@@ -1515,12 +1522,19 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     }
   }
 
-  function listRow(primary: string, secondary: string, onEdit: () => void): HTMLElement {
+  function listRow(
+    primary: string,
+    secondary: string,
+    onEdit: () => void,
+    titleText = "",
+  ): HTMLElement {
     const row = doc.createElement("li");
     row.className = "eegv__annot-item";
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "eegv__annot-item-btn";
+    // Short form in the row, long form on hover (HED's default reading order).
+    if (titleText) button.title = titleText;
     const when = el("span", "eegv__annot-item-when");
     when.textContent = primary;
     const what = el("span", "eegv__annot-item-what");
