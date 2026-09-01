@@ -333,6 +333,9 @@ describe("firstRecording", () => {
       "sub-01/eeg/sub-01_task-oddball_run-01_eeg.set",
     );
     expect(firstRecording(list, "file")?.path).toBe(TWO_TASKS[0]);
+    expect(firstRecording(list, "subjects")?.path).toBe(
+      "sub-01/eeg/sub-01_task-oddball_run-01_eeg.set",
+    );
   });
 
   it("picks a directory (.mefd) recording when it sorts first", () => {
