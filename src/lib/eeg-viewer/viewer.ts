@@ -36,6 +36,12 @@ import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
 import { type GlTraceRenderer, createGlTraceRenderer } from "./gl-trace";
 import {
+  ByteCappedLRUCache,
+  PrefetchController,
+  type PrefetchTransport,
+  segmentIndexForTime,
+} from "./prefetch";
+import {
   DEFAULT_RENDER,
   type FrameChannel,
   type ViewerFrame,
@@ -50,9 +56,13 @@ import {
   type GroupHandle,
   type RecordingStore,
   type WindowData,
+  chooseWindowLevel,
   openRecording,
+  readLevel0,
   readOverview,
+  readViewLevel,
   readWindow,
+  windowDataBytes,
 } from "./store";
 import { type TopoChannel, VIRIDIS_CSS, type Vec3, projectPositions, renderTopomap } from "./topo";
 
@@ -120,6 +130,68 @@ const MIN_VISIBLE_CHANNELS = 4;
 /** Fraction of a channel slot's half-height the auto-scale estimator targets
  *  (website#109) -- the midpoint of the issue's "60-80% of the slot" goal. */
 const AUTOSCALE_TARGET_FRACTION = 0.7;
+
+// --- Background preload (website#254) --------------------------------------
+// Off by default; a gear toggle persists the choice client-side (localStorage
+// alongside the viewer's other set-once preferences -- no server state, and a
+// cookie would needlessly ride every request per the issue).
+const PRELOAD_ENABLED_KEY = "nemar:eeg-preload";
+const PRELOAD_CAP_KEY = "nemar:eeg-preload-cap-mb";
+const DEFAULT_PRELOAD_CAP_MB = 500;
+const PRELOAD_CAP_CHOICES: Array<[string, string]> = [
+  ["250", "250 MB"],
+  ["500", "500 MB"],
+  ["1000", "1 GB"],
+];
+
+function loadPreloadEnabled(): boolean {
+  try {
+    return localStorage.getItem(PRELOAD_ENABLED_KEY) === "1";
+  } catch {
+    return false; // localStorage unavailable (privacy mode, SSR); default off is safe
+  }
+}
+
+function savePreloadEnabled(enabled: boolean): void {
+  try {
+    if (enabled) localStorage.setItem(PRELOAD_ENABLED_KEY, "1");
+    else localStorage.removeItem(PRELOAD_ENABLED_KEY);
+  } catch {
+    /* localStorage unavailable; the choice applies this session only */
+  }
+}
+
+function loadPreloadCapMB(): number {
+  try {
+    const raw = Number(localStorage.getItem(PRELOAD_CAP_KEY));
+    return PRELOAD_CAP_CHOICES.some(([v]) => Number(v) === raw) ? raw : DEFAULT_PRELOAD_CAP_MB;
+  } catch {
+    return DEFAULT_PRELOAD_CAP_MB;
+  }
+}
+
+function savePreloadCapMB(mb: number): void {
+  try {
+    localStorage.setItem(PRELOAD_CAP_KEY, String(mb));
+  } catch {
+    /* localStorage unavailable; the choice applies this session only */
+  }
+}
+
+/** Cache key for one background-preloaded segment: unique to the group, the
+ *  pyramid level it was read at, the visible channel-row range, and the
+ *  segment width (tied to the current window length -- see updatePrefetchTarget
+ *  below) so a retarget never collides with a stale entry from a prior one. */
+function prefetchCacheKey(
+  groupName: string,
+  level: number,
+  r0: number,
+  r1: number,
+  segS: number,
+  seg: number,
+): string {
+  return `${groupName}|L${level}|R${r0}-${r1}|W${segS}|S${seg}`;
+}
 
 /**
  * Per-channel magnitude arrays for the auto-scale amplitude estimate, built
@@ -219,6 +291,72 @@ export async function mountEegViewer(
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+
+  // Background preload (website#254): a byte-capped cache of decoded windows
+  // ("segments" -- fixed-width slices of the recording, currently the window
+  // length) fed by a low-priority scheduler that walks outward from the
+  // playhead. `lastWinLevel` mirrors the pyramid level the interactive path
+  // actually rendered last, which is what the preloader targets ("the current
+  // view level", per the issue) instead of re-deriving the pixel-width
+  // heuristic for windows that are not on screen. `prefetchSignature` guards
+  // against restarting the walk on every render tick -- only an actual change
+  // to (group, level, channel rows, segment width) or enabling the feature
+  // should reset it.
+  let preloadEnabled = loadPreloadEnabled();
+  let preloadCapMB = loadPreloadCapMB();
+  const prefetchCache = new ByteCappedLRUCache<WindowData>(preloadCapMB * 1024 * 1024);
+  let lastWinLevel: number | null = null;
+  let bufferedSegments = new Set<number>();
+  let bufferedSegmentS = 0; // segment width the current bufferedSegments indices are relative to
+  let prefetchSignature = "";
+  const prefetchController = new PrefetchController<WindowData>({
+    cache: prefetchCache,
+    transport: { fetchSegment: () => Promise.reject(new Error("prefetch not targeted yet")) },
+    keyFor: () => "",
+    onProgress: (covered) => {
+      bufferedSegments = new Set(covered);
+      drawOverview();
+    },
+  });
+
+  /** (Re)targets and, when the target actually changed, restarts the
+   *  background walk. Called after every render (cheap no-op when nothing
+   *  about the target changed) and from the gear controls that affect it. */
+  function updatePrefetchTarget(): void {
+    if (!preloadEnabled || lastWinLevel === null) {
+      prefetchController.stop();
+      prefetchSignature = ""; // force a real restart next time preload is enabled
+      return;
+    }
+    const g = group();
+    const level = lastWinLevel;
+    const r0 = chanStart;
+    const r1 = Math.min(g.nChannels, chanStart + chanCount);
+    const segS = Math.max(0.5, windowLengthS);
+    const signature = `${groupIndex}|${level}|${r0}-${r1}|${segS}`;
+    if (signature === prefetchSignature) return;
+    prefetchSignature = signature;
+    const transport: PrefetchTransport<WindowData> = {
+      async fetchSegment(seg, signal) {
+        const start = seg * segS;
+        const end = Math.min(g.durationS, start + segS);
+        const view = level > 0 ? g.viewLevels[level - 1] : undefined;
+        const win = view
+          ? await readViewLevel(g, view, start, end, r0, r1, signal)
+          : await readLevel0(g, start, end, r0, r1, signal);
+        return { value: win, bytes: windowDataBytes(win) };
+      },
+    };
+    prefetchController.retarget({
+      transport,
+      keyFor: (seg) => prefetchCacheKey(g.name, level, r0, r1, segS, seg),
+    });
+    bufferedSegments = new Set();
+    bufferedSegmentS = segS;
+    const total = Math.max(1, Math.ceil(g.durationS / segS));
+    const center = Math.max(0, Math.min(total - 1, Math.floor(windowStartS / segS)));
+    prefetchController.start(total, center);
+  }
   // Topomap state. The projection is computed once (positions are fixed per
   // recording); topoTime tracks the cursor (null -> window center).
   let showTopo = false;
@@ -260,7 +398,7 @@ export async function mountEegViewer(
   // this function, and the `isStale` check after the await ruled out a newer
   // mount having taken ownership in the meantime.
   slot.innerHTML = "";
-  const ui = buildDom(slot, store, eventTypes);
+  const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB);
   const cleanups: Array<() => void> = [];
   // Default the notch filter from the recording's PowerLineFrequency (the converter
   // embeds it in the store attrs; the Notch select already reflects it). Datasets
@@ -344,6 +482,39 @@ export async function mountEegViewer(
     plotWidth: number,
   ): Promise<{ win: WindowData; filtered: boolean }> {
     if (!hasFilters(filters)) {
+      // Opportunistic cache hit (website#254): when this window falls exactly
+      // on the preloader's segment grid at the level it last rendered, serve
+      // it from the cache instead of a network read. This is what makes
+      // "paging" (Page back/forward, Home/End) instant once the background
+      // walk has reached that segment -- an arbitrary scrub position rarely
+      // lands on a grid line, so it falls through to the normal read below,
+      // same as preload being off.
+      //
+      // `lastWinLevel` is the level the *previous* frame rendered, not
+      // necessarily what this frame's own geometry calls for -- an Enlarge
+      // resize (or any other plotWidth change without a remount) can move
+      // the two out of sync. Re-derive the level readWindow would actually
+      // choose for the CURRENT plotWidth and only trust the cache when it
+      // agrees; otherwise fall through to a real read (which also corrects
+      // lastWinLevel for next time, so this is self-healing, not a permanent
+      // miss). This guard only applies to this unfiltered branch -- the
+      // filtered path below always calls readWindow directly and never
+      // consults the cache, since preload only ever stores unfiltered
+      // windows.
+      if (preloadEnabled && lastWinLevel !== null) {
+        const seg = segmentIndexForTime(start, windowLengthS);
+        const expectedLevel = chooseWindowLevel(g, start, end, plotWidth, false);
+        if (
+          seg !== null &&
+          Math.abs(end - start - windowLengthS) < 1e-6 &&
+          expectedLevel === lastWinLevel
+        ) {
+          const r1 = Math.min(g.nChannels, chanStart + chanCount);
+          const key = prefetchCacheKey(g.name, lastWinLevel, chanStart, r1, windowLengthS, seg);
+          const cached = prefetchCache.get(key);
+          if (cached) return { win: cached, filtered: false };
+        }
+      }
       return {
         win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false),
         filtered: false,
@@ -447,6 +618,11 @@ export async function mountEegViewer(
 
     let win: WindowData;
     let filtered = false;
+    // The background walk yields for the duration of every interactive read
+    // (website#254 "always yields priority to interactive fetches"), not just
+    // while one happens to be in flight when the walk checks -- depth-counted
+    // so back-to-back renders (a fast scrub) keep it held the whole time.
+    prefetchController.notifyInteractiveStart();
     try {
       ({ win, filtered } = await readFrame(g, start, end, plotWidth));
     } catch (err) {
@@ -459,9 +635,15 @@ export async function mountEegViewer(
         ui.status.textContent = `signal unavailable: ${msg}`;
       }
       return;
+    } finally {
+      prefetchController.notifyInteractiveEnd();
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
     firstPaint = false;
+    // Track the level actually rendered and (re)target the preloader at it --
+    // a no-op when nothing about the target changed (see updatePrefetchTarget).
+    lastWinLevel = win.level;
+    updatePrefetchTarget();
     const modality = (g.modality as Modality) ?? "MISC";
 
     // Auto-scale (website#109): set the INITIAL gain from this recording's own
@@ -620,6 +802,25 @@ export async function mountEegViewer(
 
     // The whole-recording time axis, shared by the event ticks and the window box.
     const dur = g.durationS || 1;
+
+    // Buffered-region indicator (website#254): a thin strip along the very
+    // bottom, like a video player's buffered bar, shading the segments the
+    // background preloader has already cached at the current view level.
+    // `bufferedSegmentS` is the segment width those indices are relative to
+    // (reset together whenever the preloader retargets), so this always
+    // matches what `bufferedSegments` actually means even if the window
+    // length changed since the last progress update.
+    if (preloadEnabled && bufferedSegments.size > 0 && bufferedSegmentS > 0) {
+      const total = Math.max(1, Math.ceil(dur / bufferedSegmentS));
+      const barH = 3;
+      const barY = cssH - barH;
+      mctx.fillStyle = "rgba(0,114,178,0.35)";
+      for (const seg of bufferedSegments) {
+        const bx1 = (seg / total) * cssW;
+        const bx2 = ((seg + 1) / total) * cssW;
+        mctx.fillRect(bx1, barY, Math.max(1, bx2 - bx1), barH);
+      }
+    }
 
     // Prominent event ticks spanning the upper band; some alpha so dense clusters
     // read as density rather than a solid wall.
@@ -819,6 +1020,24 @@ export async function mountEegViewer(
     syncGear();
     render();
   });
+  ui.preloadCheck.addEventListener("change", () => {
+    preloadEnabled = ui.preloadCheck.checked;
+    savePreloadEnabled(preloadEnabled);
+    ui.preloadCap.disabled = !preloadEnabled;
+    updatePrefetchTarget();
+  });
+  ui.preloadCap.addEventListener("change", () => {
+    preloadCapMB = Number(ui.preloadCap.value) || DEFAULT_PRELOAD_CAP_MB;
+    savePreloadCapMB(preloadCapMB);
+    prefetchCache.setCapacity(preloadCapMB * 1024 * 1024);
+    // A larger cap may let a walk that had halted (cache full) continue; force
+    // a restart even though the target signature itself did not change. A
+    // smaller cap just evicts down in setCapacity above -- no restart needed,
+    // but forcing one is harmless (the walk quickly re-marks resident segments
+    // as covered via the cache.has() short-circuit and resumes from there).
+    prefetchSignature = "";
+    updatePrefetchTarget();
+  });
   ui.hscroll.addEventListener("input", () => {
     windowStartS = Number(ui.hscroll.value);
     render();
@@ -836,6 +1055,13 @@ export async function mountEegViewer(
       overviewLoaded = false;
       overviewData = null;
       overviewSeq++; // invalidate any in-flight overview load from the prior group
+      // Stop the background walk immediately rather than let it keep fetching
+      // the prior group in the background until the next render's level is
+      // known; updatePrefetchTarget() re-starts it against the new group as
+      // soon as renderImpl below picks a level for it.
+      lastWinLevel = null;
+      bufferedSegments = new Set();
+      updatePrefetchTarget();
       // Re-arm auto-scale for the new group's own amplitude/modality (website#109).
       // The `gainManuallySet` guard inside renderImpl still wins if the user has
       // already touched Scale +/-, so this cannot stomp a manual adjustment.
@@ -1057,6 +1283,19 @@ export async function mountEegViewer(
     });
     cleanups.push(() => mo.disconnect());
   }
+  // Background preload pauses while the tab is hidden (website#254) -- no point
+  // spending bandwidth/CPU on a recording nobody can see mid-scrub.
+  if (typeof document !== "undefined") {
+    prefetchController.setHidden(document.hidden);
+    const onVisibility = () => prefetchController.setHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+    cleanups.push(() => document.removeEventListener("visibilitychange", onVisibility));
+  }
+  // Clean abort on teardown (website#208's discipline, applied to this mount's
+  // own background reads): stop() invalidates the walk and aborts whatever
+  // segment fetch is in flight rather than letting it run to completion
+  // against a viewer nobody is looking at any more.
+  cleanups.push(() => prefetchController.stop());
   cleanups.push(() => glRenderer?.dispose());
   const destroy = () => {
     for (const c of cleanups) c();
@@ -1124,6 +1363,8 @@ interface ViewerUi {
   menu: HTMLElement;
   helpOverlay: HTMLElement;
   legend: HTMLElement;
+  preloadCheck: HTMLInputElement;
+  preloadCap: HTMLSelectElement;
   on(action: string, fn: () => void): void;
 }
 
@@ -1137,7 +1378,13 @@ function navBtn(action: string, label: string, title: string): HTMLButtonElement
   return b;
 }
 
-function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventType[]): ViewerUi {
+function buildDom(
+  slot: HTMLElement,
+  store: RecordingStore,
+  eventTypes: EventType[],
+  preloadEnabled: boolean,
+  preloadCapMB: number,
+): ViewerUi {
   const root = el("div", "eegv");
   root.tabIndex = 0;
 
@@ -1229,6 +1476,16 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   const clockLc = labeledCheck("Clock", false);
   const hideBadLc = labeledCheck("Hide bad", false);
 
+  // Background preload (website#254): off by default, its own self-contained
+  // group appended at the end of the menu so it stays out of the way of any
+  // other gear-menu section (see website#253, in flight concurrently).
+  const preloadLc = labeledCheck("Preload full recording", preloadEnabled);
+  preloadLc.wrap.title =
+    "Stream the rest of the recording into memory in the background, at the current zoom level, so paging and scrubbing elsewhere become instant. Off by default; capped in-memory cache.";
+  const preloadCap = compactSelect(PRELOAD_CAP_CHOICES, String(preloadCapMB));
+  preloadCap.title = "Background preload memory cap";
+  preloadCap.disabled = !preloadEnabled;
+
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
   gearBtn.className = "eegv__gear";
@@ -1242,6 +1499,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   menu.append(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
     grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
+    grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap)),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -1343,6 +1601,8 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     butterflyCheck: butterflyLc.input,
     clockCheck: clockLc.input,
     hideBadCheck: hideBadLc.input,
+    preloadCheck: preloadLc.input,
+    preloadCap,
     topoBtn,
     topo,
     topoCanvas,

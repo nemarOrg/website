@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { aggregateOverview, parseChannels } from "./store";
+import {
+  aggregateOverview,
+  chooseWindowLevel,
+  parseChannels,
+  retryingFetch,
+  windowDataBytes,
+} from "./store";
 
 describe("parseChannels", () => {
   it("falls back scale to 1 when scale is null", () => {
@@ -133,5 +139,177 @@ describe("aggregateOverview", () => {
   it("returns empty array when nTime=0", () => {
     const out = aggregateOverview(new Int16Array([]), 0, 0, []);
     expect(out).toHaveLength(0);
+  });
+});
+
+/** Swaps the global fetch for the duration of one test, restoring it after --
+ *  the HTTP layer is the transport boundary being exercised here (retry
+ *  logic against real-shape Response objects), not business logic, matching
+ *  the repo's fixture policy for testing retry/error paths. */
+function withFetch(handler: typeof fetch, run: () => Promise<void>): Promise<void> {
+  const original = globalThis.fetch;
+  globalThis.fetch = handler;
+  return run().finally(() => {
+    globalThis.fetch = original;
+  });
+}
+
+describe("retryingFetch", () => {
+  it("does not retry a transient 5xx once the request's own signal is aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const request = new Request("https://zarr.nemar.org/x", { signal: controller.signal });
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls++;
+        return new Response("gateway timeout", { status: 503 });
+      },
+      async () => {
+        const handler = retryingFetch(6, 250);
+        await expect(handler(request)).rejects.toThrow();
+        expect(calls).toBe(1); // no retry attempts after the abort
+      },
+    );
+  });
+
+  it("propagates an AbortError immediately instead of retrying it as transient", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const request = new Request("https://zarr.nemar.org/x", { signal: controller.signal });
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls++;
+        throw new DOMException("The operation was aborted.", "AbortError");
+      },
+      async () => {
+        const handler = retryingFetch(6, 250);
+        await expect(handler(request)).rejects.toThrow();
+        expect(calls).toBe(1); // no retry: an aborted fetch is not a transient failure
+      },
+    );
+  });
+
+  it("still retries a transient 5xx to a successful response when not aborted", async () => {
+    const request = new Request("https://zarr.nemar.org/x");
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls++;
+        return calls < 2
+          ? new Response("gateway timeout", { status: 503 })
+          : new Response("ok", { status: 200 });
+      },
+      async () => {
+        const handler = retryingFetch(6, 1); // tiny baseMs: the one retry stays fast
+        const res = await handler(request);
+        expect(res.status).toBe(200);
+        expect(calls).toBe(2); // confirms the abort check didn't disable retrying altogether
+      },
+    );
+  });
+});
+
+describe("windowDataBytes", () => {
+  it("sums Float32Array byteLength across line channels", () => {
+    const win = {
+      level: 0,
+      nCols: 4,
+      channels: [
+        { kind: "line" as const, line: new Float32Array(4) },
+        { kind: "line" as const, line: new Float32Array(4) },
+      ],
+    };
+    expect(windowDataBytes(win)).toBe(4 * 4 + 4 * 4); // 4 bytes/sample * 4 samples * 2 channels
+  });
+
+  it("sums min+max byteLength across band (view-level) channels", () => {
+    const win = {
+      level: 1,
+      nCols: 3,
+      channels: [{ kind: "band" as const, min: new Float32Array(3), max: new Float32Array(3) }],
+    };
+    expect(windowDataBytes(win)).toBe(3 * 4 * 2); // min + max, 4 bytes/sample
+  });
+
+  it("handles a mix of line and band channels", () => {
+    const win = {
+      level: 0,
+      nCols: 5,
+      channels: [
+        { kind: "line" as const, line: new Float32Array(5) },
+        { kind: "band" as const, min: new Float32Array(5), max: new Float32Array(5) },
+      ],
+    };
+    expect(windowDataBytes(win)).toBe(5 * 4 + 5 * 4 * 2);
+  });
+
+  it("returns 0 for a window with no channels", () => {
+    const win = { level: 0, nCols: 0, channels: [] };
+    expect(windowDataBytes(win)).toBe(0);
+  });
+});
+
+/** Minimal GroupHandle-shaped fixture: only the fields chooseWindowLevel
+ *  reads (durationS, nSamples, rate, viewLevels). Cast rather than satisfying
+ *  the full interface (channels, level0 zarr.Array, etc.) since those are
+ *  never touched by this pure function. */
+function fakeGroup(over: {
+  durationS?: number;
+  nSamples?: number;
+  rate?: number;
+  viewLevels?: Array<{ level: number; nTime: number }>;
+}): Parameters<typeof chooseWindowLevel>[0] {
+  return {
+    durationS: 100,
+    nSamples: 25000,
+    rate: 250,
+    viewLevels: [],
+    ...over,
+  } as unknown as Parameters<typeof chooseWindowLevel>[0];
+}
+
+describe("chooseWindowLevel", () => {
+  it("picks level 0 for a narrow window well within the level-0 sample cap", () => {
+    const g = fakeGroup({});
+    expect(chooseWindowLevel(g, 0, 2, 800)).toBe(0); // 2s * 250Hz = 500 samples
+  });
+
+  it("falls back to the finest view level once natural selection prefers it", () => {
+    const g = fakeGroup({
+      durationS: 3600,
+      nSamples: 3600 * 250,
+      viewLevels: [{ level: 1, nTime: 36000 }],
+    });
+    // The whole (1-hour) recording is visible: the pyramid alone already
+    // covers the requested pixel width, and the window is also far past the
+    // level-0 sample cap either way.
+    expect(chooseWindowLevel(g, 0, 3600, 800)).toBe(1);
+  });
+
+  it("forceLevel0 overrides a natural pyramid pick when the sample cap allows it", () => {
+    const g = fakeGroup({
+      durationS: 10,
+      nSamples: 2500,
+      viewLevels: [{ level: 1, nTime: 5000 }],
+    });
+    expect(chooseWindowLevel(g, 0, 10, 800, false)).toBe(1); // natural pick: the pyramid
+    expect(chooseWindowLevel(g, 0, 10, 800, true)).toBe(0); // forced: still within the cap
+  });
+
+  it("matches readWindow's own LEVEL0_MAX_SAMPLES boundary (20000 samples)", () => {
+    const g = fakeGroup({
+      durationS: 200,
+      nSamples: 200 * 250,
+      viewLevels: [{ level: 1, nTime: 2000 }],
+    });
+    expect(chooseWindowLevel(g, 0, 80, 4000)).toBe(0); // 80s * 250Hz = 20000, at the cap
+    expect(chooseWindowLevel(g, 0, 81, 4000)).toBe(1); // 81s * 250Hz = 20250, over the cap
+  });
+
+  it("returns level 0 when the group has no view pyramid at all", () => {
+    const g = fakeGroup({ durationS: 5000, nSamples: 5000 * 250, viewLevels: [] });
+    expect(chooseWindowLevel(g, 0, 5000, 800)).toBe(0);
   });
 });
