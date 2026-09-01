@@ -50,6 +50,21 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     </svg>
     Download
   </button>
+  {/* Hidden by default (website#260): whether this dataset has any viewable
+      recording is only known once the client fetches the Zarr index, and
+      that fetch (and the recording-nav state it needs to pick a "first"
+      recording) lives in the dataset page's own hydration script, not here
+      — see `hydrateTree`/`annotateZarrRows` and the click handling in
+      dataset/[id].astro. Revealed there once the index resolves with at
+      least one store; stays hidden for a dataset with none (pre-backfill,
+      e.g. on004696) so it never advertises a dead button. */}
+  <button class="action action--ghost" type="button" data-view-data-btn aria-haspopup="dialog" hidden>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    View data
+  </button>
   <button class="action action--ghost" type="button" data-compute-stub>
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 4h16v16H4zM9 9h6v6H9z"/>

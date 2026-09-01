@@ -21,6 +21,14 @@
  * fills the available height, so a text button below it would sit below the
  * fold — exactly the discoverability problem the corner X exists to fix. The
  * corner X and Esc are the only exits, and both return the viewer inline.
+ *
+ * The header row also carries the recording-navigation controls (website#253)
+ * — subject and task dropdowns plus prev/next. They live here, and only here,
+ * because this is the surface with room for them: the inline panel sits under
+ * one specific tree row, where controls that swap the recording would leave
+ * the row's own label describing something else. The markup is static (and
+ * hidden until populated) so Astro's scoped styles apply to it; the page
+ * script fills the options and drives the swap.
  */
 import DialogCloseButton from "./DialogCloseButton.astro";
 ---
@@ -28,7 +36,40 @@ import DialogCloseButton from "./DialogCloseButton.astro";
 <dialog class="eegv-dialog" data-eeg-dialog aria-label="Signal viewer">
   <DialogCloseButton />
   <div class="eegv-dialog__scroll">
-    <h2 class="eegv-dialog__title" data-eegv-title>Signal viewer</h2>
+    <div class="eegv-dialog__head">
+      <h2 class="eegv-dialog__title" data-eegv-title>Signal viewer</h2>
+      <div class="eegv-nav" data-eegv-nav hidden>
+        <label class="eegv-nav__field" data-eegv-nav-sub-field>
+          <span class="eegv-nav__label">Subject</span>
+          <select class="eegv-nav__sel" data-eegv-nav-sub></select>
+        </label>
+        <label class="eegv-nav__field" data-eegv-nav-task-field>
+          <span class="eegv-nav__label">Task</span>
+          <select class="eegv-nav__sel" data-eegv-nav-task></select>
+        </label>
+        {/* The `title`/`aria-label` pair here is only the pre-population
+            state; `syncEegNavControls` rewrites BOTH on every navigation so
+            they name the actual target ("Next recording: sub-02_…"). They have
+            to move together: an element with an aria-label takes its
+            accessible name from that label, so leaving this one static would
+            hide every update from a screen reader. */}
+        <div class="eegv-nav__steps">
+          <button
+            type="button"
+            class="eegv-nav__btn"
+            data-eegv-nav-prev
+            title="Previous recording"
+            aria-label="Previous recording">&lsaquo;</button>
+          <span class="eegv-nav__pos" data-eegv-nav-pos aria-live="polite"></span>
+          <button
+            type="button"
+            class="eegv-nav__btn"
+            data-eegv-nav-next
+            title="Next recording"
+            aria-label="Next recording">&rsaquo;</button>
+        </div>
+      </div>
+    </div>
     {/* No `aria-live` (dropped in website#217): what lands here is a live
         viewer, whose cursor readout and legend update continuously and would
         otherwise be announced on every pointer move. The "unavailable" and
@@ -89,10 +130,100 @@ import DialogCloseButton from "./DialogCloseButton.astro";
     overflow-y: auto;
     padding: var(--space-6);
   }
+  /* Title left, navigation right, wrapping to two rows on a narrow dialog so
+     the controls never squeeze the recording name to an ellipsis. The X
+     clearance moves here from the title: the nav controls are now what sits
+     closest to the corner button. */
+  .eegv-dialog__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-block-end: var(--space-4);
+    padding-inline-end: var(--dialog-x-clearance);
+  }
   .eegv-dialog__title {
     font-size: var(--fs-xl);
-    margin: 0 0 var(--space-4);
-    padding-inline-end: var(--dialog-x-clearance);
+    margin: 0;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  /* Recording navigation (website#253). Sized down from the title so it reads
+     as chrome, not as a second heading. */
+  .eegv-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: var(--fs-xs);
+  }
+  /* `display: flex` above outranks the `hidden` attribute's UA rule, so both
+     the group and the per-entity fields need it restated. */
+  .eegv-nav[hidden],
+  .eegv-nav__field[hidden] {
+    display: none;
+  }
+  .eegv-nav__field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-fg-muted);
+  }
+  .eegv-nav__label {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .eegv-nav__sel {
+    max-inline-size: 12rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-xs);
+  }
+  .eegv-nav__steps {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .eegv-nav__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-inline-size: 1.75rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .eegv-nav__btn:hover:not(:disabled) {
+    color: var(--color-fg);
+    border-color: var(--color-link);
+  }
+  .eegv-nav__btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .eegv-nav__sel:focus-visible,
+  .eegv-nav__btn:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  /* Fixed-ish width so the buttons don't shuffle sideways as the counter goes
+     from "9 of 12" to "10 of 12" during a fast next/next/next. */
+  .eegv-nav__pos {
+    min-inline-size: 5.5rem;
+    text-align: center;
+    color: var(--color-fg-muted);
+    font-variant-numeric: tabular-nums;
   }
   /* A floor, not a target: if the host arrives before its first paint (or a
      move races a repaint) the box shouldn't collapse to nothing and read as

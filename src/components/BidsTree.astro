@@ -148,6 +148,30 @@ const dataHost = new URL(dataBase).host;
   details[open] > summary > .tree__chevron {
     transform: rotate(90deg);
   }
+  /* Expand toggle on hybrid signal-recording dir rows (website#252). A real
+     sibling <button> rather than a <summary> wrapping the viewer button —
+     nested interactive content in <summary> is inconsistently exposed to
+     assistive technology. Mirrors the summary chevron's look + rotation. */
+  .tree__dir-toggle {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .tree__dir-toggle[aria-expanded="true"] > .tree__chevron {
+    transform: rotate(90deg);
+  }
+  .tree__dir-toggle:focus-visible {
+    outline: 2px solid var(--color-link);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
   .tree__icon {
     flex-shrink: 0;
     color: var(--color-fg-subtle);
@@ -852,6 +876,381 @@ const dataHost = new URL(dataBase).host;
     border-radius: var(--radius-sm);
     margin-block-start: 2px;
   }
+  /* --- HED annotation layer (website#255) ---------------------------------
+     Mounted by `annotation-ui.ts` into the viewer's own JS-built DOM, so it
+     lives in this global block alongside the rest of `.eegv__*`.
+
+     The violet accent is its own token because the overlay canvas has to read
+     it with getComputedStyle the way `themeColors` reads --color-bg: canvas
+     paint cannot take a CSS variable, but the annotation colour still has to
+     flip with the theme. Deliberately not --eegv-accent (the link blue) —
+     annotations must be distinguishable at a glance from the dataset's own
+     events, which are drawn in the Okabe-Ito palette. */
+  .eegv {
+    --eegv-annot: #6d28d9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .eegv {
+      --eegv-annot: #b79bff;
+    }
+  }
+  :root[data-theme="dark"] .eegv {
+    --eegv-annot: #b79bff;
+  }
+  /* Above the 2D chrome canvas (z-index 1). Never takes pointer events: the
+     gestures are bound on the scope in the capture phase, so the gutter's
+     channel-marking click still reaches the chrome canvas underneath. */
+  .eegv__annot-canvas {
+    position: absolute;
+    inset: 0;
+    inline-size: 100%;
+    block-size: 100%;
+    display: block;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .eegv--annotating .eegv__scope {
+    cursor: crosshair;
+  }
+  /* A ring round the scope while the tool is armed: a click on the trace does
+     something different now, and that must be visible without reading the
+     toolbar. */
+  .eegv--annotating .eegv__scope::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    border: 1px solid var(--eegv-annot);
+    border-radius: var(--radius-sm);
+  }
+  .eegv__annot-btn-toggle[aria-pressed="true"] {
+    color: var(--eegv-annot);
+    border-color: var(--eegv-annot);
+    background: color-mix(in srgb, var(--eegv-annot) 12%, var(--color-bg));
+  }
+  /* `display: flex` below is an author rule and so beats the UA stylesheet's
+     `[hidden] { display: none }` outright — specificity does not come into it.
+     Both of these elements are toggled with the `hidden` property, so each
+     needs its own explicit hidden rule or it stays on screen. */
+  .eegv__annot-panel[hidden],
+  .eegv__annot-pop[hidden] {
+    display: none;
+  }
+  .eegv__annot-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-inline-start: 3px solid var(--eegv-annot);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    font-size: var(--fs-xs);
+  }
+  .eegv__annot-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .eegv__annot-count {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-muted);
+    margin-inline-end: auto;
+  }
+  .eegv__annot-btn {
+    padding: 3px 10px;
+    border: 1px solid var(--color-border-strong, var(--color-border));
+    border-radius: var(--radius-pill, 999px);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+    /* The popover footer is a flex row: without these, a narrow popover
+       shrinks the pills until "Save"/"Delete"/"Cancel" wrap mid-word into
+       circles. Labels stay on one line; the row wraps instead if it must. */
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .eegv__annot-btn:hover:not(:disabled) {
+    border-color: var(--eegv-annot);
+    color: var(--eegv-annot);
+  }
+  .eegv__annot-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .eegv__annot-primary {
+    background: var(--eegv-annot);
+    border-color: var(--eegv-annot);
+    color: var(--color-bg);
+  }
+  .eegv__annot-primary:hover:not(:disabled) {
+    color: var(--color-bg);
+    filter: brightness(1.1);
+  }
+  .eegv__annot-danger:hover:not(:disabled) {
+    border-color: var(--color-danger, #d55e00);
+    color: var(--color-danger, #d55e00);
+  }
+  .eegv__annot-list {
+    /* Short-form tags make rows narrow enough for columns: auto-fill packs
+       2-3 across on a wide panel and collapses to one when space runs out,
+       row-major (left to right, then the next row). */
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2px 12px;
+    align-content: start;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    /* A working session can produce a hundred-plus annotations (sleep
+       scoring); the list scrolls rather than growing the panel. Tall enough
+       to show a real slice of the session, short enough that the exports and
+       the sign-in notice stay on screen. */
+    max-block-size: 260px;
+    overflow-y: auto;
+  }
+  .eegv__annot-item-btn {
+    display: flex;
+    gap: var(--space-2);
+    inline-size: 100%;
+    padding: 2px 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-xs);
+    text-align: start;
+    cursor: pointer;
+  }
+  .eegv__annot-item-btn:hover,
+  .eegv__annot-item-btn:focus-visible {
+    border-color: var(--eegv-annot);
+    outline: none;
+  }
+  .eegv__annot-item-when {
+    flex: 0 0 auto;
+    min-inline-size: 8.5em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+    color: var(--eegv-annot);
+  }
+  .eegv__annot-item-what {
+    color: var(--color-fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .eegv__annot-hint {
+    margin: 0;
+    color: var(--color-fg-subtle);
+  }
+  .eegv__annot-warn {
+    margin: 0;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--eegv-annot) 10%, var(--color-bg));
+    color: var(--color-fg-muted);
+  }
+  /* Popover: positioned inside the viewer root (position:relative) rather than
+     inside the scope, so it is never clipped by the scope's overflow:hidden.
+     JS sets left/top — beside the selection, never over it — and caps
+     max-block-size to the viewer's own height; the values here are the floor
+     for a viewer that has not laid out yet. */
+  .eegv__annot-pop {
+    position: absolute;
+    z-index: 20;
+    inline-size: 320px;
+    max-inline-size: calc(100% - 16px);
+    /* Capped in absolute terms as well as viewport terms: the popover is
+       positioned inside the viewer, and the viewer often sits low on a long
+       dataset page, where a 70vh box would still run off the bottom. */
+    max-block-size: min(70vh, 440px);
+    /* The popover itself never scrolls — its body does, below. That is what
+       keeps Save and Cancel on screen however long the vocabulary list is. */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-bg-elevated, var(--color-bg));
+    border: 1px solid var(--eegv-annot);
+    border-radius: var(--radius-md, 8px);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+    font-size: var(--fs-xs);
+  }
+  .eegv__annot-pop-title {
+    flex: 0 0 auto;
+    font-weight: var(--fw-semibold, 600);
+    color: var(--color-fg);
+  }
+  /* The one scrolling region. `min-block-size: 0` is load-bearing: a flex item
+     will not shrink below its content without it, so the footer would be
+     pushed out of the popover instead of the body scrolling. */
+  .eegv__annot-pop-body {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    /* Keeps a focus ring inside the scroll box clear of the scrollbar. */
+    padding-inline-end: 2px;
+  }
+  .eegv__annot-pop-foot {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    padding-block-start: var(--space-2);
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated, var(--color-bg));
+  }
+  .eegv__annot-foot-hint {
+    margin-inline-end: auto;
+    color: var(--color-fg-subtle);
+    font-size: 0.9em;
+  }
+  .eegv__annot-row {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .eegv__annot-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    color: var(--color-fg-muted);
+  }
+  .eegv__annot-num,
+  .eegv__annot-search,
+  .eegv__annot-comment {
+    inline-size: 100%;
+    padding: 4px 6px;
+    border: 1px solid var(--color-border-strong, var(--color-border));
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-xs);
+  }
+  .eegv__annot-comment {
+    resize: vertical;
+  }
+  .eegv__annot-chanlist {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break: break-word;
+  }
+  .eegv__annot-chosen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    min-block-size: 1.6em;
+  }
+  .eegv__annot-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 4px 1px 8px;
+    border-radius: var(--radius-pill, 999px);
+    background: color-mix(in srgb, var(--eegv-annot) 16%, var(--color-bg));
+    color: var(--color-fg);
+  }
+  .eegv__annot-tag-x {
+    border: 0;
+    background: transparent;
+    color: var(--color-fg-muted);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    padding: 0 3px;
+  }
+  .eegv__annot-tag-x:hover {
+    color: var(--color-fg);
+  }
+  .eegv__annot-results {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-block-size: 168px;
+    overflow-y: auto;
+  }
+  .eegv__annot-results:empty {
+    display: none;
+  }
+  .eegv__annot-result {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0 6px;
+    padding: 3px 6px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-xs);
+    text-align: start;
+    cursor: pointer;
+  }
+  .eegv__annot-result:hover,
+  .eegv__annot-result:focus-visible {
+    border-color: var(--eegv-annot);
+    outline: none;
+  }
+  .eegv__annot-result-tag {
+    font-weight: var(--fw-medium, 500);
+  }
+  .eegv__annot-result-schema {
+    color: var(--color-fg-subtle);
+    font-size: 0.9em;
+  }
+  .eegv__annot-result-desc {
+    grid-column: 1 / -1;
+    color: var(--color-fg-subtle);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .eegv__annot-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    align-items: center;
+  }
+  .eegv__annot-quick-label {
+    flex: 0 0 100%;
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 0.9em;
+  }
+  .eegv__annot-pick {
+    padding: 1px 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill, 999px);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+  }
+  .eegv__annot-pick:hover,
+  .eegv__annot-pick:focus-visible {
+    border-color: var(--eegv-annot);
+    color: var(--eegv-annot);
+    outline: none;
+  }
+
   .eegv__help {
     position: absolute;
     inset-inline-end: var(--space-3);
