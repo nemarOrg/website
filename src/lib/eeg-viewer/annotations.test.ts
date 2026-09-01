@@ -475,7 +475,9 @@ describe("recordingStem and filenames", () => {
   it("builds both download filenames", () => {
     const path = "sub-01/eeg/sub-01_task-rest_eeg.edf";
     expect(eventsTsvFilename(path)).toBe("sub-01_task-rest_events.tsv");
-    expect(channelsTsvFilename(path)).toBe("sub-01_task-rest_channels.tsv");
+    // Not `_channels.tsv`: the file is a partial one to merge, and a name that
+    // claims to be the recording's channels table invites replacing it.
+    expect(channelsTsvFilename(path)).toBe("sub-01_task-rest_channels-annotations.tsv");
   });
 });
 

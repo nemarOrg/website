@@ -423,6 +423,14 @@ export function eventsTsvFilename(filePath: string): string {
   return `${recordingStem(filePath)}_events.tsv`;
 }
 
+/**
+ * Deliberately **not** `<stem>_channels.tsv`. That name says "this is the
+ * recording's channels table", and this file is not one: it lists only the
+ * channels somebody annotated and omits the `type`/`units` columns BIDS
+ * requires. A file named like the real thing invites being dropped into a
+ * dataset as-is, which would silently delete every unannotated channel's row.
+ * The suffix keeps it obviously a thing to merge.
+ */
 export function channelsTsvFilename(filePath: string): string {
-  return `${recordingStem(filePath)}_channels.tsv`;
+  return `${recordingStem(filePath)}_channels-annotations.tsv`;
 }
