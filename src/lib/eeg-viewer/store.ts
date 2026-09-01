@@ -144,7 +144,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * edge; each request retries independently so the bursts spread out and the
  * signal still loads. GETs carry no body, so reissuing the request is safe.
  */
-function retryingFetch(retries = 6, baseMs = 250) {
+export function retryingFetch(retries = 6, baseMs = 250) {
   const delay = (attempt: number) =>
     sleep(Math.min(baseMs * 2 ** attempt, 3000) + Math.floor(Math.random() * 200));
   return async (request: Request): Promise<Response> => {
@@ -154,6 +154,12 @@ function retryingFetch(retries = 6, baseMs = 250) {
         const res = await fetch(request);
         const transient = res.status === 429 || (res.status >= 500 && res.status < 600);
         if (transient) {
+          // A caller (the background preloader's AbortController on stop/teardown,
+          // website#254) aborted this request out from under a transient status; do
+          // not schedule another attempt for work nobody wants any more.
+          if (request.signal?.aborted) {
+            throw new Error(`zarr.nemar.org returned ${res.status} (request aborted)`);
+          }
           if (attempt < retries) {
             await delay(attempt);
             continue;
@@ -163,6 +169,12 @@ function retryingFetch(retries = 6, baseMs = 250) {
         return res;
       } catch (err) {
         lastErr = err;
+        // An aborted request (destroy()/stop() firing mid-fetch) is not a
+        // transient failure to retry -- retrying it would keep the delay loop
+        // (up to ~10s of backoff) and this fetch's AbortController alive well
+        // past teardown, for a response nothing will ever use. Propagate
+        // immediately instead.
+        if (request.signal?.aborted) throw err;
         if (attempt >= retries) throw err;
         await delay(attempt);
       }
@@ -479,6 +491,41 @@ export async function readOverview(group: GroupHandle): Promise<Float32Array | n
     console.warn("[eeg-viewer] readOverview failed:", err);
     return null;
   }
+}
+
+/**
+ * The pyramid level `readWindow` would choose for `[startS, endS)` at
+ * `pixelWidth`, without fetching anything. Pure, so a caller can verify a
+ * previously-cached window still matches the CURRENT viewport geometry
+ * before trusting it (website#254's background preloader keys its cache by
+ * the level it fetched at; the interactive path must not serve a stale-level
+ * hit after e.g. an Enlarge resize changes `pixelWidth` out from under it).
+ * Mirrors readWindow's own level-selection logic exactly -- keep the two in
+ * sync if that logic changes. Uses whatever `group.viewLevels` holds right
+ * now rather than awaiting `viewLevelsReady`; if discovery has not finished
+ * yet this may under-select relative to what `readWindow` would eventually
+ * pick once it resolves, which only means a spurious cache miss (falls
+ * through to a real read), never an incorrect hit.
+ */
+export function chooseWindowLevel(
+  group: GroupHandle,
+  startS: number,
+  endS: number,
+  pixelWidth: number,
+  forceLevel0 = false,
+): number {
+  const dur = group.durationS;
+  const start = Math.max(0, Math.min(startS, dur));
+  const end = Math.max(start, Math.min(endS, dur));
+  const visibleFraction = dur > 0 ? (end - start) / dur : 1;
+  const viewLevels = group.viewLevels;
+  const levelSamples = [group.nSamples, ...viewLevels.map((v) => v.nTime)];
+  const chosen = pickViewLevel(levelSamples, visibleFraction, pixelWidth);
+  const windowSamples = Math.ceil((end - start) * group.rate);
+  const useLevel0 = (chosen === 0 || forceLevel0) && windowSamples <= LEVEL0_MAX_SAMPLES;
+  if (useLevel0) return 0;
+  const view = viewLevels[Math.max(1, chosen) - 1];
+  return view ? view.level : 0;
 }
 
 /**

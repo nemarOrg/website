@@ -56,6 +56,7 @@ import {
   type GroupHandle,
   type RecordingStore,
   type WindowData,
+  chooseWindowLevel,
   openRecording,
   readLevel0,
   readOverview,
@@ -488,9 +489,26 @@ export async function mountEegViewer(
       // walk has reached that segment -- an arbitrary scrub position rarely
       // lands on a grid line, so it falls through to the normal read below,
       // same as preload being off.
+      //
+      // `lastWinLevel` is the level the *previous* frame rendered, not
+      // necessarily what this frame's own geometry calls for -- an Enlarge
+      // resize (or any other plotWidth change without a remount) can move
+      // the two out of sync. Re-derive the level readWindow would actually
+      // choose for the CURRENT plotWidth and only trust the cache when it
+      // agrees; otherwise fall through to a real read (which also corrects
+      // lastWinLevel for next time, so this is self-healing, not a permanent
+      // miss). This guard only applies to this unfiltered branch -- the
+      // filtered path below always calls readWindow directly and never
+      // consults the cache, since preload only ever stores unfiltered
+      // windows.
       if (preloadEnabled && lastWinLevel !== null) {
         const seg = segmentIndexForTime(start, windowLengthS);
-        if (seg !== null && Math.abs(end - start - windowLengthS) < 1e-6) {
+        const expectedLevel = chooseWindowLevel(g, start, end, plotWidth, false);
+        if (
+          seg !== null &&
+          Math.abs(end - start - windowLengthS) < 1e-6 &&
+          expectedLevel === lastWinLevel
+        ) {
           const r1 = Math.min(g.nChannels, chanStart + chanCount);
           const key = prefetchCacheKey(g.name, lastWinLevel, chanStart, r1, windowLengthS, seg);
           const cached = prefetchCache.get(key);
