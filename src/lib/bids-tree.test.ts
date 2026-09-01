@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyFile } from "./bids-tree";
+import { classifyFile, signalDirExt } from "./bids-tree";
 
 describe("classifyFile", () => {
   it("flags EEG raw formats", () => {
@@ -39,5 +39,34 @@ describe("classifyFile", () => {
   it("handles files with no extension", () => {
     expect(classifyFile(".gitattributes").ext).toBe("gitattributes");
     expect(classifyFile("LICENSE").ext).toBe("");
+  });
+});
+
+describe("signalDirExt", () => {
+  it("flags MEF3 and CTF recording directories", () => {
+    expect(signalDirExt("sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd")).toBe("mefd");
+    expect(signalDirExt("sub-01_task-rest_meg.ds")).toBe("ds");
+  });
+
+  it("is case-insensitive", () => {
+    expect(signalDirExt("SUB-01_IEEG.MEFD")).toBe("mefd");
+    expect(signalDirExt("sub-01_meg.DS")).toBe("ds");
+  });
+
+  it("returns null for ordinary directories", () => {
+    expect(signalDirExt("sub-01")).toBeNull();
+    expect(signalDirExt("ses-ieeg01")).toBeNull();
+    expect(signalDirExt("ieeg")).toBeNull();
+    expect(signalDirExt("derivatives")).toBeNull();
+  });
+
+  it("returns null for a bare dot-name with no stem", () => {
+    expect(signalDirExt(".mefd")).toBeNull();
+    expect(signalDirExt(".ds")).toBeNull();
+  });
+
+  it("does not match the extension mid-name", () => {
+    expect(signalDirExt("sub-01_ieeg.mefd.bak")).toBeNull();
+    expect(signalDirExt("dsstore")).toBeNull();
   });
 });

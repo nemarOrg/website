@@ -10,7 +10,7 @@
  * Per-file sizes come straight from the listing entry — no synthesis.
  */
 
-import { type FileClassification, classifyFile } from "./bids-tree";
+import { type FileClassification, classifyFile, signalDirExt } from "./bids-tree";
 import type { DirListing, DirListingEntry } from "./dir-listing";
 import { fileDownloadUrl } from "./dir-listing";
 import { formatBytes } from "./format";
@@ -173,20 +173,35 @@ function renderDirRow(
     depth === 0
       ? ""
       : ` style="padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5))"`;
+  // Directory-keyed signal recordings (website#252): a `.mefd`/`.ds` directory
+  // IS the recording, so its row is a hybrid — the chevron/icon (and any blank
+  // summary area) still expands the member files, while the name becomes the
+  // same `data-preview-type="eeg"` button a signal FILE row gets, wired to the
+  // same click delegate, zarr annotate pass, and preview slot. The delegate
+  // calls `preventDefault()` on the eeg branch so a name click opens the
+  // viewer without also toggling the `<details>`.
+  const sigExt = signalDirExt(entry.name);
+  const nameHtml = sigExt
+    ? `<button class="tree__preview-btn" type="button" data-preview-path="${esc(fullPath)}" data-preview-type="eeg" data-dir-recording="true" data-file-name="${esc(entry.name)}" aria-expanded="false" title="Open signal viewer for ${esc(entry.name)}"><span class="tree__name">${esc(entry.name)}/</span></button><span class="tree__tag tree__tag--signal">${esc(sigExt.toUpperCase())}</span>`
+    : `<span class="tree__name">${esc(entry.name)}/</span>`;
   // Every directory is lazy. The `<details data-dir-path="...">` carries the
   // path the client toggle handler will fetch + render into the empty
   // `[data-dir-target]` slot. data-loaded guards against re-fetches on
   // subsequent collapse/expand cycles.
   return [
-    "<li>",
+    sigExt ? `<li class="tree__file-wrap" data-preview-wrap>` : "<li>",
     `<details class="tree__dir" data-dir-path="${esc(fullPath)}" data-depth="${depth}">`,
     `<summary class="tree__row tree__row--dir"${indentStyle}>`,
     `<svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`,
     `<span class="tree__icon" aria-hidden="true">▸</span>`,
-    `<span class="tree__name">${esc(entry.name)}/</span>`,
+    nameHtml,
     "</summary>",
     `<div class="tree__lazy" data-dir-target></div>`,
-    "</details></li>",
+    "</details>",
+    sigExt
+      ? `<div class="tree__preview tree__preview--signal" data-preview-slot hidden></div>`
+      : "",
+    "</li>",
   ].join("");
 }
 

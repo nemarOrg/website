@@ -313,3 +313,52 @@ describe("renderSubdir", () => {
     expect(html).toContain("48.8 KB");
   });
 });
+
+describe("directory-keyed signal recordings (website#252)", () => {
+  const mefd = "sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd";
+
+  it("renders a .mefd dir as a hybrid row: viewer button + badge + expandable details", () => {
+    const html = renderSubdir(
+      listing({ path: "sub-01/ses-ieeg01/ieeg", children: [{ kind: "dir", name: mefd }] }),
+      3,
+    );
+    // Viewer affordance mirrors signal file rows so the click delegate,
+    // zarr annotate pass, and prefetch flow apply unchanged.
+    expect(html).toContain(`data-preview-type="eeg"`);
+    expect(html).toContain(`data-preview-path="sub-01/ses-ieeg01/ieeg/${mefd}"`);
+    expect(html).toContain(`data-dir-recording="true"`);
+    expect(html).toContain(`data-file-name="${mefd}"`);
+    expect(html).toContain(`class="tree__tag tree__tag--signal">MEFD</span>`);
+    // Expansion is preserved: same lazy <details> the toggle handler drives.
+    expect(html).toContain(`data-dir-path="sub-01/ses-ieeg01/ieeg/${mefd}"`);
+    expect(html).toContain("data-dir-target");
+    // The wrap + slot the inline viewer mounts into.
+    expect(html).toContain(`<li class="tree__file-wrap" data-preview-wrap>`);
+    expect(html).toContain(`class="tree__preview tree__preview--signal" data-preview-slot hidden`);
+  });
+
+  it("renders a .ds dir with a DS badge", () => {
+    const html = renderSubdir(
+      listing({ path: "sub-01/meg", children: [{ kind: "dir", name: "sub-01_task-rest_meg.ds" }] }),
+      2,
+    );
+    expect(html).toContain(`data-dir-recording="true"`);
+    expect(html).toContain(`class="tree__tag tree__tag--signal">DS</span>`);
+  });
+
+  it("leaves ordinary dirs untouched (no preview affordance)", () => {
+    const html = renderSubdir(
+      listing({ path: "sub-01", children: [{ kind: "dir", name: "ieeg" }] }),
+      1,
+    );
+    expect(html).not.toContain("data-preview-type");
+    expect(html).not.toContain("data-preview-wrap");
+    expect(html.startsWith(`<ul class="tree__children"`)).toBe(true);
+  });
+
+  it("recognizes .mefd dirs at the top level too", () => {
+    const html = renderTopLevel(listing({ children: [{ kind: "dir", name: mefd }] }));
+    expect(html).toContain(`data-preview-type="eeg"`);
+    expect(html).toContain(`data-dir-recording="true"`);
+  });
+});

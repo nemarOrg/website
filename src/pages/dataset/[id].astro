@@ -491,9 +491,51 @@ Astro.response.headers.set(
     annotateZarrRows(section);
   }
 
+  /**
+   * Give a directory row the same viewer affordance a signal file row has
+   * (website#252). `.mefd`/`.ds` rows come out of the renderer already shaped
+   * this way; this covers directory recordings the renderer cannot recognize
+   * by name — 4D/BTi carries no extension at all — using the zarr index as
+   * the authority (its `stores` are keyed by the recording DIRECTORY path,
+   * mirroring the producer's content-keyed detection). Idempotent per row.
+   */
+  function upgradeDirRecordingRow(details: HTMLDetailsElement): void {
+    const summary = details.querySelector<HTMLElement>(":scope > summary");
+    const nameSpan = summary?.querySelector<HTMLElement>(".tree__name");
+    const li = details.parentElement;
+    if (!summary || !nameSpan || li?.tagName !== "LI") return;
+    const path = details.dataset.dirPath ?? "";
+    const name = path.split("/").pop() ?? path;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "tree__preview-btn";
+    btn.dataset.previewPath = path;
+    btn.dataset.previewType = "eeg";
+    btn.dataset.dirRecording = "true";
+    btn.dataset.fileName = name;
+    btn.setAttribute("aria-expanded", "false");
+    nameSpan.replaceWith(btn);
+    btn.appendChild(nameSpan);
+    li.classList.add("tree__file-wrap");
+    li.setAttribute("data-preview-wrap", "");
+    const slot = document.createElement("div");
+    slot.className = "tree__preview tree__preview--signal";
+    slot.setAttribute("data-preview-slot", "");
+    slot.hidden = true;
+    li.appendChild(slot);
+  }
+
   function annotateZarrRows(section: HTMLElement): void {
     const state = zarrBySection.get(section);
     if (!state) return;
+    // Upgrade index-listed directory recordings BEFORE the availability loop,
+    // so the buttons this creates are annotated by the same pass.
+    for (const details of section.querySelectorAll<HTMLDetailsElement>("details[data-dir-path]")) {
+      const path = details.dataset.dirPath ?? "";
+      if (!path || !state.paths.has(path)) continue;
+      if (details.querySelector(":scope > summary .tree__preview-btn")) continue;
+      upgradeDirRecordingRow(details);
+    }
     for (const btn of section.querySelectorAll<HTMLButtonElement>(
       '[data-preview-type="eeg"][data-preview-path]',
     )) {
@@ -762,6 +804,14 @@ Astro.response.headers.set(
       return;
     }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
+    // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single
+    // file to download; its fallback is browsing the member files on the
+    // data host instead. Same URL shape — data.nemar.org serves a listing
+    // for a directory path — but no `download` attribute and honest copy.
+    const isDirRecording = btn.dataset.dirRecording === "true";
+    const fallbackLinkHtml = isDirRecording
+      ? `<a href="${escapeHtml(fileUrl)}" rel="external">Browse the recording's files</a>`
+      : `<a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a>`;
 
     // The Zarr index races the dir listing, and the listing usually wins: it is
     // the smaller payload off the already-warm data plane. Until the index lands,
@@ -790,7 +840,7 @@ Astro.response.headers.set(
       const lead = reason
         ? escapeHtml(reason)
         : "No interactive viewer is available for this recording yet.";
-      slot.innerHTML = `<p class="preview__empty" role="status">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.innerHTML = `<p class="preview__empty" role="status">${lead} ${fallbackLinkHtml} instead.</p>`;
       slot.dataset.loaded = "true";
       return;
     }
@@ -818,7 +868,7 @@ Astro.response.headers.set(
       // Enlarge control that silently no-ops (`enlargeEegViewer` would find no
       // live viewer). Replacing the whole panel clears all three at once.
       console.error("[eeg-viewer] host element missing after shell render");
-      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't open the viewer. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't open the viewer. ${fallbackLinkHtml} instead.</p>`;
       slot.removeAttribute("aria-busy");
       slot.dataset.loaded = "true";
       return;
@@ -869,7 +919,7 @@ Astro.response.headers.set(
       console.error("[eeg-viewer] mount failed:", err);
       if (seq !== eegSeq) return;
       eegLive = null;
-      slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. ${fallbackLinkHtml} instead.</p>`;
     } finally {
       if (seq === eegSeq) {
         slot.removeAttribute("aria-busy");
@@ -984,6 +1034,11 @@ Astro.response.headers.set(
     // it owns teardown, the one-instance-page-wide rule, and the enlarge
     // handoff (website#217).
     if (btn.dataset.previewType === "eeg") {
+      // A directory recording's button lives inside a <details>/<summary>
+      // (website#252); without this the same click would also toggle the
+      // member-file expansion. Inert for plain file rows (buttons have no
+      // click default to cancel).
+      event.preventDefault();
       await openEegViewerInline(btn);
       return;
     }
