@@ -355,6 +355,17 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
         return;
       }
       store = opened;
+      // Subscribed before the first read, so a degrade during `load` is caught
+      // too. `mutate` runs `syncAll()` synchronously and only *then* schedules
+      // the debounced write, so by the time a write fails the UI has already
+      // decided there is nothing to warn about — this is the only thing that
+      // re-arms the unload guard and repaints the "not being saved" notice for
+      // the annotation that actually broke persistence.
+      opened.onPersistenceChange(() => {
+        if (destroyed) return;
+        syncBeforeUnload();
+        renderPanel();
+      });
       const loaded = await store.load(opts.key);
       if (destroyed) return;
       set = loaded;
