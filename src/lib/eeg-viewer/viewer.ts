@@ -651,14 +651,22 @@ export async function mountEegViewer(
   // `GroupHandle.viewLevelsDegraded` is the store's way of saying "the pyramid
   // in `viewLevels` is truncated because discovery hit a real failure", as
   // opposed to "this recording genuinely has that few levels". Only the first
-  // is worth telling anyone about, and only the first is actionable (retry the
-  // connection), so it gets a standing note rather than a console warning
-  // nobody reads. Without this the overview minimap and wide windows silently
-  // draw from a partial pyramid and look like a short recording.
+  // is worth telling anyone about, and only the first is actionable (reload),
+  // so it gets a standing note rather than a console warning nobody reads.
+  // Without this the overview minimap and wide windows silently draw from a
+  // partial pyramid and look like a short recording.
 
-  /** Status-line suffix for a degraded group; "" when the pyramid is intact. */
+  /**
+   * Status-line suffix for a degraded group; "" when the pyramid is intact.
+   *
+   * Deliberately does not name a cause. `ViewLevelDiscoveryError` covers a
+   * retry-exhausted 5xx, a 403 from an expired token and a decode error alike,
+   * and the flag does not say which — so "connection problem" would be a guess
+   * presented as a diagnosis. What the reader can act on is the same either
+   * way: reload.
+   */
   function degradedNote(g: GroupHandle): string {
-    return g.viewLevelsDegraded ? " · overview incomplete (connection problem)" : "";
+    return g.viewLevelsDegraded ? " · overview incomplete" : "";
   }
 
   /**
@@ -678,7 +686,7 @@ export async function mountEegViewer(
     const degraded = group().viewLevelsDegraded;
     ui.overviewNote.hidden = !degraded;
     ui.overviewNote.textContent = degraded
-      ? "Overview incomplete — some zoom levels failed to load. That is a connection problem, not a short recording; reload to try again."
+      ? "Overview incomplete — some zoom levels failed to load. Reload to try again."
       : "";
   }
 
