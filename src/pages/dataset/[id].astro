@@ -1323,9 +1323,20 @@ Astro.response.headers.set(
    */
   function eegDraftBlocksNavigation(): boolean {
     const handle = eegLive?.annotations;
-    if (!handle?.isPopoverOpen()) return false;
-    handle.focusPopover();
-    return true;
+    if (!handle) return false;
+    try {
+      if (!handle.isPopoverOpen()) return false;
+      handle.focusPopover();
+      return true;
+    } catch (err) {
+      // Fail OPEN, deliberately. A guard that throws while answering "is there
+      // a draft?" would otherwise refuse every prev/next and every dropdown
+      // for the rest of the session, with the selects re-syncing away from
+      // whatever the user picked and no gesture that recovers. Losing at most
+      // one unsaved draft is much the smaller failure.
+      console.error("[eeg-viewer] annotation draft guard failed; allowing navigation:", err);
+      return false;
+    }
   }
 
   /**
