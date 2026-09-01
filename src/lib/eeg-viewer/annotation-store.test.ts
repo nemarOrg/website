@@ -306,6 +306,24 @@ describe("openAnnotationStore against a real IndexedDB", () => {
     expect(warns()).toBe(true);
   });
 
+  it("announces a degrade on load(), before anything has been saved", async () => {
+    // The realistic first contact: the annotation layer mounts, subscribes and
+    // LOADS. If the connection is already unusable, the failure surfaces there
+    // with no prior save() to have caught it -- and that is exactly the visit
+    // where the annotator would otherwise be told their marks are safe.
+    const store = await openAnnotationStore(new IDBFactory());
+    const seen: boolean[] = [];
+    store.onPersistenceChange((persistent) => seen.push(persistent));
+
+    store.close();
+    const loaded = await store.load(KEY);
+
+    expect(seen).toEqual([false]);
+    expect(store.persistent).toBe(false);
+    // Degraded, not broken: the read still answers, out of memory.
+    expect(loaded).toEqual({ time: [], channels: [] });
+  });
+
   it("tells a late subscriber it has already degraded", async () => {
     const store = await openAnnotationStore(new IDBFactory());
     store.close();
