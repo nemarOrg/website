@@ -876,6 +876,16 @@ const dataHost = new URL(dataBase).host;
     border-radius: var(--radius-sm);
     margin-block-start: 2px;
   }
+  /* Shown only when view-pyramid discovery failed, so the minimap and every
+     wide window are drawn from a truncated pyramid. The reader can act on that
+     (reload / check the connection), which is why it is a line on the page and
+     not just a console warning. Hidden via the `hidden` property; `p` carries
+     no author `display`, so the UA rule handles it. */
+  .eegv__overview-note {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
   /* --- HED annotation layer (website#255) ---------------------------------
      Mounted by `annotation-ui.ts` into the viewer's own JS-built DOM, so it
      lives in this global block alongside the rest of `.eegv__*`.

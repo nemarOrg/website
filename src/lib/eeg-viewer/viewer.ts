@@ -491,6 +491,10 @@ export async function mountEegViewer(
   let overviewLoaded = false;
   let overviewSeq = 0; // guards a fire-and-forget overview load against group switches
 
+  // True once this mount's destroy() has run, so the fire-and-forget callbacks
+  // below (view-level discovery settling) stop touching DOM they no longer own.
+  let disposed = false;
+
   // Safe to claim the slot: the previous instance was torn down at the top of
   // this function, and the `isStale` check after the await ruled out a newer
   // mount having taken ownership in the meantime.
@@ -546,6 +550,61 @@ export async function mountEegViewer(
 
   function group(): GroupHandle {
     return store.groups[groupIndex];
+  }
+
+  // --- degraded view pyramid ------------------------------------------------
+  // `GroupHandle.viewLevelsDegraded` is the store's way of saying "the pyramid
+  // in `viewLevels` is truncated because discovery hit a real failure", as
+  // opposed to "this recording genuinely has that few levels". Only the first
+  // is worth telling anyone about, and only the first is actionable (retry the
+  // connection), so it gets a standing note rather than a console warning
+  // nobody reads. Without this the overview minimap and wide windows silently
+  // draw from a partial pyramid and look like a short recording.
+
+  /** Status-line suffix for a degraded group; "" when the pyramid is intact. */
+  function degradedNote(g: GroupHandle): string {
+    return g.viewLevelsDegraded ? " · overview incomplete (connection problem)" : "";
+  }
+
+  /**
+   * The composed status line. Held as a base string so the degradation suffix
+   * can be re-applied when discovery settles *after* the frame that wrote it —
+   * see `watchViewLevels`. Empty base means the line currently carries a
+   * transient message (loading, or a read failure) that must not be rewritten.
+   */
+  let statusBase = "";
+  function renderStatus(): void {
+    if (!statusBase) return;
+    ui.status.textContent = statusBase + degradedNote(group());
+  }
+
+  function syncDegradedNote(): void {
+    if (disposed) return;
+    const degraded = group().viewLevelsDegraded;
+    ui.overviewNote.hidden = !degraded;
+    ui.overviewNote.textContent = degraded
+      ? "Overview incomplete — some zoom levels failed to load. That is a connection problem, not a short recording; reload to try again."
+      : "";
+  }
+
+  /**
+   * Re-check a group once its view-level discovery settles. First paint
+   * deliberately does not wait for `viewLevelsReady`, so a group can flip to
+   * degraded well after a frame is already on screen; without this hook the
+   * note would only appear on the user's next interaction, if ever. Attached
+   * once per group (a group switch brings its own handle).
+   */
+  const degradeWatched = new Set<GroupHandle>();
+  function watchViewLevels(g: GroupHandle): void {
+    if (degradeWatched.has(g)) return;
+    degradeWatched.add(g);
+    // `viewLevelsReady` never rejects — discovery failures resolve to the
+    // partial level list and set the flag — so there is nothing to catch.
+    void g.viewLevelsReady.then(() => {
+      if (disposed || group() !== g) return;
+      syncDegradedNote();
+      renderStatus();
+    });
   }
 
   function clamp(): void {
@@ -889,6 +948,7 @@ export async function mountEegViewer(
         const tc = themeColors(ui.root);
         glRenderer?.clear(tc.background); // wipe any stale GL frame under the overlay
         renderMessage(ctx, w, h, tc, `Signal unavailable: ${msg}`);
+        statusBase = ""; // a late `watchViewLevels` must not overwrite this
         ui.status.textContent = `signal unavailable: ${msg}`;
       }
       return;
@@ -983,10 +1043,16 @@ export async function mountEegViewer(
         ? " · filtered"
         : " · filters need zoom-in"
       : "";
-    ui.status.textContent =
+    statusBase =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
       `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
       `${eventTypes.length} event type(s)`;
+    renderStatus();
+    // Discovery may already have failed (a fast failure beats first paint) or
+    // may still be running; the note covers the first case and the watcher the
+    // second.
+    syncDegradedNote();
+    watchViewLevels(g);
 
     // Hand the annotation layer this frame's geometry so its overlay lines up
     // with the traces (website#255). Read-only: it never writes back here.
@@ -1597,6 +1663,7 @@ export async function mountEegViewer(
   cleanups.push(() => prefetchController.stop());
   cleanups.push(() => glRenderer?.dispose());
   const destroy = () => {
+    disposed = true;
     for (const c of cleanups) c();
   };
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = destroy;
@@ -1639,6 +1706,8 @@ interface ViewerUi {
   canvas: HTMLCanvasElement;
   glCanvas: HTMLCanvasElement;
   minimap: HTMLCanvasElement;
+  /** Standing note under the minimap for a degraded view pyramid; normally hidden. */
+  overviewNote: HTMLElement;
   time: HTMLElement;
   chanInfo: HTMLElement;
   cursor: HTMLElement;
@@ -1905,6 +1974,13 @@ function buildDom(
   minimap.style.display = "none";
   minimap.title = "Overview — click to jump";
 
+  // Sits directly under the minimap because that is the affordance a truncated
+  // view pyramid actually damages: the envelope it draws covers less of the
+  // recording than it appears to.
+  const overviewNote = el("p", "eegv__overview-note");
+  overviewNote.setAttribute("role", "status");
+  overviewNote.hidden = true;
+
   // Event legend: a compact scrollable table. Show the human description from the
   // events.json Levels when present (the raw code is meaningless on its own); the
   // chip's title carries the code for reference. All types listed (scroll, not grow).
@@ -1917,7 +1993,7 @@ function buildDom(
   annotPanel.hidden = true;
 
   const status = el("div", "eegv__status");
-  root.append(bar, plot, hscroll, minimap, legend, annotPanel, status, helpOverlay);
+  root.append(bar, plot, hscroll, minimap, overviewNote, legend, annotPanel, status, helpOverlay);
   slot.append(root);
 
   return {
@@ -1927,6 +2003,7 @@ function buildDom(
     canvas,
     glCanvas,
     minimap,
+    overviewNote,
     time,
     chanInfo,
     cursor,
