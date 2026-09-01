@@ -227,7 +227,22 @@ const PRELOAD_CAP_CHOICES: Array<[string, string]> = [
   ["1000", "1 GB"],
 ];
 
+/** True when the browser signals the user wants reduced data usage
+ *  (`Save-Data: on` / Chromium's Data Saver). Progressive enhancement:
+ *  `navigator.connection` is Chromium-only, so absence just means "no
+ *  signal" and changes nothing. */
+function saveDataRequested(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  return conn?.saveData === true;
+}
+
 function loadPreloadEnabled(): boolean {
+  // A browser-level "reduce data" preference outranks a stored opt-in from a
+  // previous session: background-preloading a whole recording (potentially
+  // hundreds of MB) is exactly what Save-Data asks sites not to do. The gear
+  // toggle still works for the current mount if the user insists.
+  if (saveDataRequested()) return false;
   try {
     return localStorage.getItem(PRELOAD_ENABLED_KEY) === "1";
   } catch {
