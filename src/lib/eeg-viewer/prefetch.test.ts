@@ -466,6 +466,175 @@ describe("PrefetchController", () => {
   });
 });
 
+/**
+ * The circuit breaker. Each of these failures stands for a segment that has
+ * ALREADY exhausted store.ts's own retry ladder, so a run of them is an outage
+ * and every further segment is just more retry traffic against a dead backend.
+ * The controller must stop and say so rather than walk the whole recording
+ * failing silently behind a buffered bar that never grows.
+ */
+describe("PrefetchController circuit breaker", () => {
+  /** A transport that fails for the segments named, and succeeds otherwise. */
+  function failingTransport(
+    shouldFail: (segment: number) => boolean,
+    error: () => Error = () => new Error("zarr.nemar.org returned 503 after 7 attempts"),
+  ): { transport: PrefetchTransport<number>; calls: number[] } {
+    const calls: number[] = [];
+    return {
+      calls,
+      transport: {
+        async fetchSegment(segment) {
+          calls.push(segment);
+          if (shouldFail(segment)) throw error();
+          return { value: segment, bytes: 100 };
+        },
+      },
+    };
+  }
+
+  it("keeps walking while failures stay below the threshold", async () => {
+    // Segments 0..2 fail (3 in a row, one short of the limit), then 3 succeeds.
+    const { transport, calls } = failingTransport((seg) => seg < 3);
+    let stalled = 0;
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+      onStalled: () => stalled++,
+    });
+    controller.start(6, 0);
+    await flush(80);
+    expect(calls).toEqual([0, 1, 2, 3, 4, 5]); // never gave up
+    expect(stalled).toBe(0);
+    expect(controller.stalled).toBe(false);
+  });
+
+  it("a success resets the run, so an intermittent connection still progresses", async () => {
+    // fail, fail, fail, SUCCEED, fail, fail, fail, ... -- never 4 consecutive.
+    const { transport, calls } = failingTransport((seg) => seg % 4 !== 3);
+    let stalled = 0;
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+      onStalled: () => stalled++,
+    });
+    controller.start(12, 0);
+    await flush(200);
+    expect(calls).toHaveLength(12);
+    expect(stalled).toBe(0);
+    expect(controller.coveredSegments.size).toBe(3); // segments 3, 7, 11
+  });
+
+  it("stops after four consecutive failures and fires onStalled exactly once", async () => {
+    const { transport, calls } = failingTransport(() => true);
+    let stalled = 0;
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+      onStalled: () => stalled++,
+    });
+    controller.start(50, 0);
+    await flush(200);
+    expect(calls).toEqual([0, 1, 2, 3]); // gave up rather than walk all 50
+    expect(stalled).toBe(1);
+    expect(controller.stalled).toBe(true);
+    expect(controller.running).toBe(false);
+  });
+
+  it("reports the segments it did cache before giving up", async () => {
+    // 0 succeeds, then 1..4 fail: the breaker trips but coverage is not lost.
+    const { transport } = failingTransport((seg) => seg !== 0);
+    const progress: number[][] = [];
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+      onProgress: (covered) => progress.push([...covered]),
+    });
+    controller.start(20, 0);
+    await flush(200);
+    expect(controller.stalled).toBe(true);
+    expect([...controller.coveredSegments]).toEqual([0]);
+    expect(progress.at(-1)).toEqual([0]);
+  });
+
+  it("does not count aborts as failures", async () => {
+    // Every segment aborts. An abort is a cancellation, not an outage -- the
+    // walk runs to the end of the recording without tripping the breaker.
+    const { transport, calls } = failingTransport(
+      () => true,
+      () => new DOMException("The operation was aborted.", "AbortError"),
+    );
+    let stalled = 0;
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+      onStalled: () => stalled++,
+    });
+    controller.start(8, 0);
+    await flush(200);
+    expect(calls).toHaveLength(8);
+    expect(stalled).toBe(0);
+    expect(controller.stalled).toBe(false);
+  });
+
+  it("stop() retires the stall along with the walk", async () => {
+    // A stopped walk is not a stalled one, and the viewer derives its "preload
+    // paused" note straight from this flag. Leaving it set after stop() is how
+    // that note got stuck: the toggle-off half of its own advertised recovery
+    // goes through stop(), and a walk that cannot restart (no view level known
+    // yet, e.g. right after a group switch) never reaches start() to clear it.
+    const { transport } = failingTransport(() => true);
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+    });
+    controller.start(20, 0);
+    await flush(200);
+    expect(controller.stalled).toBe(true);
+
+    controller.stop();
+    expect(controller.stalled).toBe(false);
+    expect(controller.running).toBe(false);
+  });
+
+  it("a fresh start() re-arms the breaker (the preload toggle's retry)", async () => {
+    const state = { failing: true };
+    const { transport, calls } = failingTransport(() => state.failing);
+    let stalled = 0;
+    const controller = new PrefetchController<number>({
+      cache: new ByteCappedLRUCache<number>(10_000),
+      transport,
+      keyFor: (seg) => `s${seg}`,
+      idle: () => Promise.resolve(),
+      onStalled: () => stalled++,
+    });
+    controller.start(6, 0);
+    await flush(200);
+    expect(controller.stalled).toBe(true);
+    expect(stalled).toBe(1);
+
+    // The network came back and the user toggled preload off and on.
+    state.failing = false;
+    calls.length = 0;
+    controller.start(6, 0);
+    await flush(200);
+    expect(controller.stalled).toBe(false);
+    expect(stalled).toBe(1); // not re-fired
+    expect(calls).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+});
+
 describe("writeThroughKey", () => {
   const base = {
     enabled: true,

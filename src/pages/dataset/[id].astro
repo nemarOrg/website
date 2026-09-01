@@ -332,9 +332,13 @@ Astro.response.headers.set(
     subjectValues,
     taskValues,
   } from "../../lib/eeg-viewer/recording-nav";
+  import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
   // Type-only, so this does not pull the (WebGL-carrying) viewer module into
   // the page bundle; the mount itself stays behind the dynamic import below.
-  import type { ViewerTransferState } from "../../lib/eeg-viewer/viewer";
+  import type {
+    ViewerAnnotationHandle,
+    ViewerTransferState,
+  } from "../../lib/eeg-viewer/viewer";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
   // doesn't pay for parsing the TSV renderer's bundle.
@@ -425,6 +429,12 @@ Astro.response.headers.set(
     detached: boolean;
     /** Settings to carry into the next recording (website#253). */
     snapshot: (() => ViewerTransferState) | null;
+    /**
+     * The instance's annotation layer, for asking whether an unsaved draft is
+     * open before a navigation destroys it. Null until the mount reports one
+     * (and for a mount that produced no viewer, which has no drafts to lose).
+     */
+    annotations: ViewerAnnotationHandle | null;
   } | null = null;
 
   /**
@@ -841,9 +851,11 @@ Astro.response.headers.set(
 
   /**
    * Tear down the live viewer (if any), return the dialog to a clean state,
-   * and collapse the row that owned it. Called when another signal file is
-   * opened and when the open one is collapsed — both of which come through
-   * `openEegViewerInline`, its only call site.
+   * and collapse the row that owned it. Two call sites, both of which are
+   * about to make some other recording the single live instance:
+   * `openEegViewerInline` (another signal row opened, or the open one
+   * collapsed) and `openRecordingInDialog` (the action bar's "View data",
+   * website#260).
    */
   function releaseEegViewer(): void {
     eegSeq++; // invalidate any mount still in flight
@@ -853,12 +865,12 @@ Astro.response.headers.set(
     const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
     if (dialog?.open) {
       // Empty the dialog here rather than leaving it to the close handler.
-      // `close()` only *queues* the close event, and `openEegViewerInline`
-      // (this function's only caller) assigns a new `eegLive` synchronously
-      // before its first await — so by the time that handler runs it can
-      // already be looking at a different row, and would not recognise this
-      // host as something to clear. Doing it synchronously means a released
-      // host can never be stranded inside a closed dialog.
+      // `close()` only *queues* the close event, and both callers assign a new
+      // `eegLive` synchronously before their first await — so by the time that
+      // handler runs it can already be looking at a different recording, and
+      // would not recognise this host as something to clear. Doing it
+      // synchronously means a released host can never be stranded inside a
+      // closed dialog.
       //
       // Unreachable today: a modal <dialog> makes the rest of the document
       // inert, so no tree row can be clicked while it is open. That is a
@@ -1009,6 +1021,7 @@ Astro.response.headers.set(
       zarr,
       detached: false,
       snapshot: null,
+      annotations: null,
     };
     try {
       const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
@@ -1030,6 +1043,9 @@ Astro.response.headers.set(
         isStale: () => seq !== eegSeq,
         onTransfer: (snapshot) => {
           if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+        onAnnotations: (handle) => {
+          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
         },
       });
       if (seq !== eegSeq) {
@@ -1143,8 +1159,13 @@ Astro.response.headers.set(
       console.error("[eeg-viewer] dialog markup missing");
       return;
     }
-    // At most one viewer instance is ever live page-wide (website#199); a
-    // no-op when nothing is open yet, which is the only way this is reached.
+    // At most one viewer instance is ever live page-wide (website#199). Not a
+    // no-op: the action bar sits outside the dialog and outside the tree, so
+    // "View data" is perfectly clickable while an INLINE viewer is open in a
+    // row below. That instance is released (and its row collapsed) here.
+    // `releaseEegViewer`'s `dialog.close()` branch is what cannot be reached
+    // from here — every dialog on this page is modal, so the button could not
+    // have been clicked with one open.
     releaseEegViewer();
 
     const fileUrl = fileDownloadUrl(ctx.datasetId, ctx.version, target.path);
@@ -1176,6 +1197,7 @@ Astro.response.headers.set(
       zarr: ctx.zarr,
       detached: true,
       snapshot: null,
+      annotations: null,
     };
     // The target itself has had no chance to warm (unlike a tree-row open,
     // which prefetches on hover/focus before the click) — mirror what
@@ -1209,6 +1231,9 @@ Astro.response.headers.set(
         isStale: () => seq !== eegSeq,
         onTransfer: (snapshot) => {
           if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+        onAnnotations: (handle) => {
+          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
         },
       });
       if (seq !== eegSeq) {
@@ -1278,6 +1303,59 @@ Astro.response.headers.set(
 
   function eegNavEl<T extends HTMLElement>(selector: string): T | null {
     return document.querySelector<T>(selector);
+  }
+
+  /**
+   * Refuse a recording swap while the live viewer holds an unsaved annotation
+   * draft, and point at the thing doing the refusing.
+   *
+   * Deliberately NOT a `window.confirm`. A confirm blocks the whole page on a
+   * dialog that cannot be styled or dismissed by Escape-then-save, and it asks
+   * a question ("discard your half-written annotation?") whose answer is almost
+   * always no — so it costs every annotator a modal in exchange for a mistake
+   * they were not going to make. Refusing the navigation and flashing the
+   * popover already on screen says the same thing without stealing control:
+   * Escape or Save, then the same click works.
+   *
+   * Every caller returns on true; each is responsible for re-syncing its own
+   * chrome (the dropdowns in particular, which have already moved to the value
+   * the user picked).
+   */
+  function eegDraftBlocksNavigation(): boolean {
+    const handle = eegLive?.annotations;
+    if (!handle) return false;
+    try {
+      if (!handle.isPopoverOpen()) return false;
+      handle.focusPopover();
+      return true;
+    } catch (err) {
+      // Fail OPEN, deliberately. A guard that throws while answering "is there
+      // a draft?" would otherwise refuse every prev/next and every dropdown
+      // for the rest of the session, with the selects re-syncing away from
+      // whatever the user picked and no gesture that recovers. Losing at most
+      // one unsaved draft is much the smaller failure.
+      console.error("[eeg-viewer] annotation draft guard failed; allowing navigation:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Whether closing the enlarge dialog right now would destroy an unsaved
+   * annotation draft — the pre-check behind the corner X's veto.
+   *
+   * Only a *detached* viewer is at risk. A non-detached close moves the host
+   * back into its inline row with the popover still inside it, so the draft
+   * survives the trip and refusing would be over-strict. A detached close is
+   * the end of that instance (see the `close` handler below) and takes the
+   * popover's draft with it.
+   *
+   * This has to run before `.close()` rather than on the `close` event, which
+   * is not cancelable and arrives once the decision is already made. Escape is
+   * covered separately, by the annotation layer's own `cancel` guard.
+   */
+  function eegDraftBlocksDialogClose(): boolean {
+    if (!eegLive?.detached) return false;
+    return eegDraftBlocksNavigation();
   }
 
   /** The entry for the recording currently on screen, if it parsed. */
@@ -1419,6 +1497,9 @@ Astro.response.headers.set(
       syncEegNavControls();
       return;
     }
+    // The swap destroys this instance, and an open annotation popover holds a
+    // draft that exists nowhere else yet. Refuse rather than discard it.
+    if (eegDraftBlocksNavigation()) return;
 
     if (!live.detached) {
       resetEegRow(live.btn, live.slot);
@@ -1437,6 +1518,7 @@ Astro.response.headers.set(
     live.path = target.path;
     live.fileName = target.name;
     live.snapshot = null;
+    live.annotations = null; // belongs to the instance the mount below replaces
     // The title and controls move immediately: the mount can take a moment,
     // and chrome that still names the previous recording reads as a no-op.
     setEegDialogTitle(target.name);
@@ -1466,6 +1548,9 @@ Astro.response.headers.set(
         transfer,
         onTransfer: (snapshot) => {
           if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+        onAnnotations: (handle) => {
+          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
         },
       });
       if (seq !== eegSeq) {
@@ -1522,6 +1607,9 @@ Astro.response.headers.set(
   function stepEegViewer(delta: number): void {
     const live = eegLive;
     if (!live) return;
+    // Checked here as well as inside `navigateEegViewer` so prev/next refuses
+    // without any of the chrome having moved first.
+    if (eegDraftBlocksNavigation()) return;
     const target = stepRecording(live.recordings, live.path, readNavOrder(), delta);
     if (target) void navigateEegViewer(target);
     else syncEegNavControls(); // at an end; make sure the button reads disabled
@@ -1539,6 +1627,12 @@ Astro.response.headers.set(
     const live = eegLive;
     const sel = event.currentTarget as HTMLSelectElement;
     if (!live) return;
+    // The `<select>` has already moved to the picked value, so a refusal has to
+    // put it back — otherwise the dropdown names a subject the viewer is not on.
+    if (eegDraftBlocksNavigation()) {
+      syncEegNavControls();
+      return;
+    }
     // `prefer: "sub"` keeps the subject the user just picked when it has no
     // recording of the current task.
     const target = selectRecording(
@@ -1557,6 +1651,11 @@ Astro.response.headers.set(
     const live = eegLive;
     const sel = event.currentTarget as HTMLSelectElement;
     if (!live) return;
+    // As above: the dropdown has moved, so a refusal has to move it back.
+    if (eegDraftBlocksNavigation()) {
+      syncEegNavControls();
+      return;
+    }
     const target = selectRecording(
       live.recordings,
       { sub: currentEegRecording()?.sub ?? null, task: sel.value || null },
@@ -1569,6 +1668,17 @@ Astro.response.headers.set(
   // The gear setting lives inside the viewer instance; it announces a change
   // rather than reaching into this chrome (the two are separately mounted).
   document.addEventListener(NAV_ORDER_CHANGED_EVENT, () => syncEegNavControls());
+
+  // The corner X's pre-close veto (see `lib/dialog-close.ts`). The X reaches
+  // `.close()` directly, whose `close` event is not cancelable — so without
+  // this the more natural exit from the dialog walked straight past the draft
+  // guard that Escape already respects, and the branch below destroyed the
+  // annotation with no trace.
+  document
+    .querySelector<HTMLDialogElement>("[data-eeg-dialog]")
+    ?.addEventListener(DIALOG_CLOSE_REQUEST_EVENT, (event) => {
+      if (eegDraftBlocksDialogClose()) event.preventDefault();
+    });
 
   // Closing the dialog (Esc or the corner X, both native `dialog.close()`)
   // hands the viewer back to the inline panel it came from — the instance is
@@ -1587,7 +1697,21 @@ Astro.response.headers.set(
       // is about to be discarded.
       eegSeq++;
       eegLive = null;
-      live.destroy?.();
+      // `navigateEegViewer` nulls `live.destroy` before awaiting the new mount,
+      // so between the mount publishing its own `_eegvCleanup` on the host and
+      // returning the disposer to us there is a window where closing the dialog
+      // has no handle to call — the instance would keep its observers, GL
+      // context and background reads alive until the post-await staleness check
+      // happened to run. The host's own cleanup is the backstop for exactly
+      // that window; taking whichever handle exists (and clearing the host's)
+      // keeps this call site down to one teardown. What makes "never twice"
+      // true overall is `mountEegViewer`'s own `disposed` guard, though — the
+      // superseded branch of `navigateEegViewer` can still call the same
+      // disposer after we have, and only the closure can see that.
+      const host = live.host as HTMLElement & { _eegvCleanup?: () => void };
+      const cleanup = live.destroy ?? host._eegvCleanup;
+      host._eegvCleanup = undefined;
+      cleanup?.();
       dialogSlot?.replaceChildren();
       return;
     }

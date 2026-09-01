@@ -132,6 +132,28 @@ export interface ViewerOptions {
    * and never for a mount that produced no viewer.
    */
   onTransfer?: (snapshot: () => ViewerTransferState) => void;
+  /**
+   * Receives a handle on the instance's annotation state, on the same terms as
+   * `onTransfer` (once, only for a mount that produced a viewer).
+   *
+   * The page needs it because a recording swap destroys this instance, and an
+   * annotation popover holds an unsaved draft that lives nowhere else — so the
+   * chrome around the viewer has to be able to ask before it navigates.
+   */
+  onAnnotations?: (handle: ViewerAnnotationHandle) => void;
+}
+
+/**
+ * What the page may ask (and tell) the mounted instance's annotation layer.
+ * Deliberately the two questions the surrounding chrome actually has, not a
+ * pass-through of the whole layer: everything else about annotations is the
+ * viewer's own business.
+ */
+export interface ViewerAnnotationHandle {
+  /** True while a popover is open, i.e. a draft exists only in that popover. */
+  isPopoverOpen(): boolean;
+  /** Flash and focus the open popover; no-op when none is open. */
+  focusPopover(): void;
 }
 
 /**
@@ -153,11 +175,22 @@ export interface ViewerOptions {
  */
 export interface ViewerTransferState {
   windowLengthS: number;
-  /** Only honoured when `gainManuallySet`; otherwise auto-scale (website#109)
-   *  runs against the new recording's own amplitude, a better estimate than
-   *  whatever suited the previous one. */
+  /** Only honoured when `gainManuallySet` AND the new recording's first group
+   *  is the same modality; otherwise auto-scale (website#109) runs against the
+   *  new recording's own amplitude, a better estimate than whatever suited the
+   *  previous one. */
   gain: number;
   gainManuallySet: boolean;
+  /**
+   * The modality `gain` was chosen against. Gain is a physical scale (µV/div
+   * for EEG, fT/div for MEG), so carrying a manual one across modalities is
+   * wrong by orders of magnitude — a flat line or a wall of clipping.
+   *
+   * Optional so a transfer record written before this field existed still type
+   * checks; absent means "unknown", which is treated as a match, i.e. the
+   * behaviour this field was added to narrow.
+   */
+  modality?: string;
   /** Visible channel count, or null for "the whole montage" — the default,
    *  which must not travel as a literal number or a 64-channel view would clip
    *  a 128-channel recording to its first half. */
@@ -244,6 +277,35 @@ export function saveDataRequested(): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a manually-set gain may travel from one recording to the next
+ * (website#253's transfer, narrowed).
+ *
+ * `gain` multiplies the modality's own `DEFAULT_SCALINGS`, so it is a physical
+ * scale — µV/div for EEG, fT/div for MEG — not a dimensionless zoom. Carrying
+ * one across a modality change is wrong by orders of magnitude and shows up as
+ * a flat line or a wall of clipping, with no control on screen explaining why.
+ * Within a modality it is exactly the preference the user set and must survive.
+ *
+ * An absent or empty modality on either side counts as a match, per the repo's
+ * null-safety convention for backend-shaped data (`splitModalities("") === []`
+ * and friends): the store's `modality` is a free-text attr that can be missing,
+ * and a missing value is not evidence of a mismatch. The comparison is
+ * case-insensitive because the same attr arrives as both "EEG" and "eeg".
+ *
+ * Pure and exported so the failure mode above is covered by a test rather than
+ * living unexercised inside the mount closure.
+ */
+export function gainCarriesOver(
+  previousModality: string | undefined,
+  nextModality: string | undefined,
+): boolean {
+  const from = (previousModality ?? "").trim().toUpperCase();
+  const to = (nextModality ?? "").trim().toUpperCase();
+  if (from === "" || to === "") return true;
+  return from === to;
 }
 
 /** Exported for unit tests (Save-Data precedence over the stored opt-in). */
@@ -358,6 +420,10 @@ export async function mountEegViewer(
   let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
+  // True once this mount's destroy() has run, so the fire-and-forget callbacks
+  // below (view-level discovery settling, the preloader's stall notice) stop
+  // touching DOM they no longer own.
+  let disposed = false;
   let groupIndex = 0;
   let windowStartS = 0;
   let windowLengthS = 10;
@@ -414,7 +480,33 @@ export async function mountEegViewer(
       bufferedSegments = new Set(covered);
       drawOverview();
     },
+    onStalled: () => syncPreloadNote(),
   });
+
+  /**
+   * The "preload paused" note, DERIVED rather than latched.
+   *
+   * `PrefetchController.stalled` is the single source of truth: the breaker
+   * sets it, and both `start()` and `stop()` clear it, so it can never say
+   * "stalled" about a walk that is running, or about no walk at all. A local
+   * mirror of the flag could — and did: the recovery this note advertises
+   * (toggle off and on) goes through `updatePrefetchTarget`, which returns
+   * early when no view level is known yet, so a latched copy survived its own
+   * cure and the note stuck permanently. The outage that trips the breaker is
+   * the same one that fails the interactive read which would have supplied a
+   * level, so that was the common case rather than the corner.
+   *
+   * Re-derived on every render for the same reason `syncDegradedNote` is: a
+   * note that only updates on the paths that set it is a note that gets stuck.
+   */
+  function syncPreloadNote(): void {
+    if (disposed) return;
+    const show = preloadEnabled && prefetchController.stalled;
+    ui.preloadNote.hidden = !show;
+    ui.preloadNote.textContent = show
+      ? "Preload paused — network trouble. Turn it off and on again to retry."
+      : "";
+  }
 
   /** (Re)targets and, when the target actually changed, restarts the
    *  background walk. Called after every render (cheap no-op when nothing
@@ -423,6 +515,9 @@ export async function mountEegViewer(
     if (!preloadEnabled || lastWinLevel === null) {
       prefetchController.stop();
       prefetchSignature = ""; // force a real restart next time preload is enabled
+      // `stop()` retires the stall along with the walk, so the note goes too.
+      // This is the toggle-off half of the recovery, and the group-switch path.
+      syncPreloadNote();
       return;
     }
     const g = group();
@@ -453,6 +548,10 @@ export async function mountEegViewer(
     const total = Math.max(1, Math.ceil(g.durationS / segS));
     const center = Math.max(0, Math.min(total - 1, Math.floor(windowStartS / segS)));
     prefetchController.start(total, center);
+    // `start()` clears the breaker, so a restart retires the notice — here
+    // rather than in each of the handlers that can cause one (the preload
+    // toggle, the cache cap, a group switch).
+    syncPreloadNote();
   }
   // Topomap state. The projection is computed once (positions are fixed per
   // recording); topoTime tracks the cursor (null -> window center).
@@ -548,6 +647,69 @@ export async function mountEegViewer(
     return store.groups[groupIndex];
   }
 
+  // --- degraded view pyramid ------------------------------------------------
+  // `GroupHandle.viewLevelsDegraded` is the store's way of saying "the pyramid
+  // in `viewLevels` is truncated because discovery hit a real failure", as
+  // opposed to "this recording genuinely has that few levels". Only the first
+  // is worth telling anyone about, and only the first is actionable (reload),
+  // so it gets a standing note rather than a console warning nobody reads.
+  // Without this the overview minimap and wide windows silently draw from a
+  // partial pyramid and look like a short recording.
+
+  /**
+   * Status-line suffix for a degraded group; "" when the pyramid is intact.
+   *
+   * Deliberately does not name a cause. `ViewLevelDiscoveryError` covers a
+   * retry-exhausted 5xx, a 403 from an expired token and a decode error alike,
+   * and the flag does not say which — so "connection problem" would be a guess
+   * presented as a diagnosis. What the reader can act on is the same either
+   * way: reload.
+   */
+  function degradedNote(g: GroupHandle): string {
+    return g.viewLevelsDegraded ? " · overview incomplete" : "";
+  }
+
+  /**
+   * The composed status line. Held as a base string so the degradation suffix
+   * can be re-applied when discovery settles *after* the frame that wrote it —
+   * see `watchViewLevels`. Empty base means the line currently carries a
+   * transient message (loading, or a read failure) that must not be rewritten.
+   */
+  let statusBase = "";
+  function renderStatus(): void {
+    if (!statusBase) return;
+    ui.status.textContent = statusBase + degradedNote(group());
+  }
+
+  function syncDegradedNote(): void {
+    if (disposed) return;
+    const degraded = group().viewLevelsDegraded;
+    ui.overviewNote.hidden = !degraded;
+    ui.overviewNote.textContent = degraded
+      ? "Overview incomplete — some zoom levels failed to load. Reload to try again."
+      : "";
+  }
+
+  /**
+   * Re-check a group once its view-level discovery settles. First paint
+   * deliberately does not wait for `viewLevelsReady`, so a group can flip to
+   * degraded well after a frame is already on screen; without this hook the
+   * note would only appear on the user's next interaction, if ever. Attached
+   * once per group (a group switch brings its own handle).
+   */
+  const degradeWatched = new Set<GroupHandle>();
+  function watchViewLevels(g: GroupHandle): void {
+    if (degradeWatched.has(g)) return;
+    degradeWatched.add(g);
+    // `viewLevelsReady` never rejects — discovery failures resolve to the
+    // partial level list and set the flag — so there is nothing to catch.
+    void g.viewLevelsReady.then(() => {
+      if (disposed || group() !== g) return;
+      syncDegradedNote();
+      renderStatus();
+    });
+  }
+
   function clamp(): void {
     const g = group();
     chanCount = Math.min(Math.max(MIN_VISIBLE_CHANNELS, chanCount), g.nChannels);
@@ -582,9 +744,12 @@ export async function mountEegViewer(
       windowLengthS = t.windowLengthS;
       ui.win.value = String(t.windowLengthS);
     }
-    if (t.gainManuallySet && Number.isFinite(t.gain) && t.gain > 0) {
-      // The user overrode auto-scale on the previous recording; respect that
-      // here too rather than re-estimating and appearing to undo their work.
+    // The user overrode auto-scale on the previous recording; respect that here
+    // too rather than re-estimating and appearing to undo their work — but only
+    // within one modality (see `gainCarriesOver`). Across modalities, drop it
+    // and let auto-scale measure the new recording instead.
+    const carries = gainCarriesOver(t.modality, store.groups[0].modality);
+    if (t.gainManuallySet && carries && Number.isFinite(t.gain) && t.gain > 0) {
       gain = t.gain;
       gainManuallySet = true;
       autoscalePending = false;
@@ -630,6 +795,9 @@ export async function mountEegViewer(
       windowLengthS,
       gain,
       gainManuallySet,
+      // What `gain` is a scale *of*; the next mount refuses it across a
+      // modality change (see applyTransfer).
+      modality: group().modality,
       // Normalize "the whole montage" to null so it stays whole-montage on a
       // recording with a different channel count.
       chanCount: chanCount >= group().nChannels ? null : chanCount,
@@ -889,7 +1057,12 @@ export async function mountEegViewer(
         const tc = themeColors(ui.root);
         glRenderer?.clear(tc.background); // wipe any stale GL frame under the overlay
         renderMessage(ctx, w, h, tc, `Signal unavailable: ${msg}`);
+        statusBase = ""; // a late `watchViewLevels` must not overwrite this
         ui.status.textContent = `signal unavailable: ${msg}`;
+        // This branch returns before `updatePrefetchTarget()` below, and it is
+        // the SAME outage that trips the preloader's breaker — so without this
+        // the note would be latched by a path that never re-evaluates it.
+        syncPreloadNote();
       }
       return;
     } finally {
@@ -983,10 +1156,19 @@ export async function mountEegViewer(
         ? " · filtered"
         : " · filters need zoom-in"
       : "";
-    ui.status.textContent =
+    statusBase =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
       `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
       `${eventTypes.length} event type(s)`;
+    renderStatus();
+    // Discovery may already have failed (a fast failure beats first paint) or
+    // may still be running; the note covers the first case and the watcher the
+    // second.
+    syncDegradedNote();
+    watchViewLevels(g);
+    // Re-derived every frame, same as the note above: both are about a
+    // background failure that can start and end with no handler firing.
+    syncPreloadNote();
 
     // Hand the annotation layer this frame's geometry so its overlay lines up
     // with the traces (website#255). Read-only: it never writes back here.
@@ -1302,6 +1484,11 @@ export async function mountEegViewer(
     preloadEnabled = ui.preloadCheck.checked;
     savePreloadEnabled(preloadEnabled);
     ui.preloadCap.disabled = !preloadEnabled;
+    // Toggling off and on is the retry the stall note advertises, and both
+    // halves land in `updatePrefetchTarget`: off stops the walk (retiring the
+    // breaker) and clears the signature, on starts a fresh one. Each exit syncs
+    // the note, so the advertised cure works even when no view level is known
+    // yet and the walk cannot restart at all.
     updatePrefetchTarget();
   });
   ui.preloadCap.addEventListener("change", () => {
@@ -1322,7 +1509,14 @@ export async function mountEegViewer(
   // the page can re-label its controls without polling storage.
   ui.navOrder.addEventListener("change", () => {
     const order = normalizeNavOrder(ui.navOrder.value) ?? DEFAULT_NAV_ORDER;
-    writeNavOrder(order);
+    if (!writeNavOrder(order)) {
+      // The return value exists precisely to say "localStorage refused"
+      // (privacy mode, a blocked third-party context). The choice still applies
+      // to this page via the event below, so this is a note, not a failure.
+      console.warn(
+        "[eeg-viewer] nav order not persisted (storage unavailable); the choice applies to this page only",
+      );
+    }
     ui.root.dispatchEvent(
       new CustomEvent(NAV_ORDER_CHANGED_EVENT, { bubbles: true, detail: { order } }),
     );
@@ -1596,13 +1790,27 @@ export async function mountEegViewer(
   // against a viewer nobody is looking at any more.
   cleanups.push(() => prefetchController.stop());
   cleanups.push(() => glRenderer?.dispose());
+  // Idempotent. The page holds up to three handles on this one function — the
+  // disposer returned below, `slot._eegvCleanup`, and `eegLive.destroy` — and a
+  // dialog close landing during a navigate mount genuinely fires two of them.
+  // Running the cleanups twice is not harmless: it double-disposes the GL
+  // context and takes the annotation layer down in the middle of its own final
+  // flush. The guard lives here, the one place all three handles converge,
+  // rather than at each call site.
   const destroy = () => {
+    if (disposed) return;
+    disposed = true;
     for (const c of cleanups) c();
   };
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = destroy;
   // Hand the caller a live snapshot getter, not a snapshot: it is read at the
   // moment the user navigates away, which is arbitrarily long after this.
   opts.onTransfer?.(snapshotTransfer);
+  // Same seam, same reason: the page asks these at click time, not now.
+  opts.onAnnotations?.({
+    isPopoverOpen: () => annotations.isPopoverOpen(),
+    focusPopover: () => annotations.focusPopover(),
+  });
 
   await render();
   void store.eventsReady.then((events) => {
@@ -1639,6 +1847,8 @@ interface ViewerUi {
   canvas: HTMLCanvasElement;
   glCanvas: HTMLCanvasElement;
   minimap: HTMLCanvasElement;
+  /** Standing note under the minimap for a degraded view pyramid; normally hidden. */
+  overviewNote: HTMLElement;
   time: HTMLElement;
   chanInfo: HTMLElement;
   cursor: HTMLElement;
@@ -1668,6 +1878,8 @@ interface ViewerUi {
   legend: HTMLElement;
   preloadCheck: HTMLInputElement;
   preloadCap: HTMLSelectElement;
+  /** Note beside the preload toggle when the walk stalled; normally hidden. */
+  preloadNote: HTMLElement;
   annotateBtn: HTMLButtonElement;
   annotPanel: HTMLElement;
   on(action: string, fn: () => void): void;
@@ -1802,6 +2014,12 @@ function buildDom(
   const preloadCap = compactSelect(PRELOAD_CAP_CHOICES, String(preloadCapMB));
   preloadCap.title = "Background preload memory cap";
   preloadCap.disabled = !preloadEnabled;
+  // Only ever filled in when the walk's circuit breaker trips, so the buffered
+  // bar going quiet has a stated cause instead of reading as a finished
+  // preload.
+  const preloadNote = el("p", "eegv__preload-note");
+  preloadNote.setAttribute("role", "status");
+  preloadNote.hidden = true;
 
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
@@ -1829,7 +2047,7 @@ function buildDom(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
     grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
     grouped("Next moves through", navOrder),
-    grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap)),
+    grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap), preloadNote),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -1905,6 +2123,13 @@ function buildDom(
   minimap.style.display = "none";
   minimap.title = "Overview — click to jump";
 
+  // Sits directly under the minimap because that is the affordance a truncated
+  // view pyramid actually damages: the envelope it draws covers less of the
+  // recording than it appears to.
+  const overviewNote = el("p", "eegv__overview-note");
+  overviewNote.setAttribute("role", "status");
+  overviewNote.hidden = true;
+
   // Event legend: a compact scrollable table. Show the human description from the
   // events.json Levels when present (the raw code is meaningless on its own); the
   // chip's title carries the code for reference. All types listed (scroll, not grow).
@@ -1917,7 +2142,7 @@ function buildDom(
   annotPanel.hidden = true;
 
   const status = el("div", "eegv__status");
-  root.append(bar, plot, hscroll, minimap, legend, annotPanel, status, helpOverlay);
+  root.append(bar, plot, hscroll, minimap, overviewNote, legend, annotPanel, status, helpOverlay);
   slot.append(root);
 
   return {
@@ -1927,6 +2152,7 @@ function buildDom(
     canvas,
     glCanvas,
     minimap,
+    overviewNote,
     time,
     chanInfo,
     cursor,
@@ -1939,6 +2165,7 @@ function buildDom(
     hideBadCheck: hideBadLc.input,
     preloadCheck: preloadLc.input,
     preloadCap,
+    preloadNote,
     topoBtn,
     topo,
     topoCanvas,

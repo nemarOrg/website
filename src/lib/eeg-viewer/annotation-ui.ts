@@ -79,6 +79,10 @@ const POPOVER_MIN_HEIGHT_PX = 180;
  * Escape still closes the dialog.
  */
 const ESCAPE_GUARD_MS = 200;
+/** Marks the popover while it is being flashed at a blocked navigation. */
+const FLASH_CLASS = "eegv__annot-pop--flash";
+/** Must outlast the `eegv-annot-flash` keyframes in `BidsTree.astro`. */
+const FLASH_DURATION_MS = 950;
 
 export interface AnnotationGeometry {
   cssWidth: number;
@@ -266,9 +270,17 @@ export interface AnnotationLayer {
   isActive(): boolean;
   /**
    * Whether the annotation popover is open. The surrounding `<dialog>` needs
-   * this to tell an Escape aimed at the popover from one aimed at itself.
+   * this to tell an Escape aimed at the popover from one aimed at itself, and
+   * the page uses it to refuse a recording swap that would silently discard
+   * the draft inside it.
    */
   isPopoverOpen(): boolean;
+  /**
+   * Draw attention to the open popover and put focus back in it. No-op when
+   * closed. Called when something outside the viewer refuses to act because
+   * the draft is open — the refusal has to point at what is blocking it.
+   */
+  focusPopover(): void;
   /** Draw annotation ticks onto the overview minimap's context. */
   drawOverview(
     ctx: CanvasRenderingContext2D,
@@ -308,6 +320,8 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
   let vocabIndex: Map<string, HedVocabEntry> | null = null;
   let vocabLoading: Promise<HedVocab> | null = null;
   let vocabError = "";
+  /** Set when an export download failed; shown beside the export buttons. */
+  let exportError = "";
 
   // Live drag state, in seconds. `dragStartS` non-null means a press is down.
   let dragStartS: number | null = null;
@@ -355,6 +369,17 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
         return;
       }
       store = opened;
+      // Subscribed before the first read, so a degrade during `load` is caught
+      // too. `mutate` runs `syncAll()` synchronously and only *then* schedules
+      // the debounced write, so by the time a write fails the UI has already
+      // decided there is nothing to warn about — this is the only thing that
+      // re-arms the unload guard and repaints the "not being saved" notice for
+      // the annotation that actually broke persistence.
+      opened.onPersistenceChange(() => {
+        if (destroyed) return;
+        syncBeforeUnload();
+        renderPanel();
+      });
       const loaded = await store.load(opts.key);
       if (destroyed) return;
       set = loaded;
@@ -446,7 +471,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
 
   /**
    * Fetch the vocabulary bundle. Called on the first popover open, never on
-   * mount: it is ~140 KB in its own chunk, and a reader who never annotates
+   * mount: it is ~341 KB in its own chunk, and a reader who never annotates
    * must not pay for it.
    */
   function ensureVocab(): Promise<HedVocab | null> {
@@ -459,8 +484,9 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       (v) => {
         vocab = v;
         // Built once, not per lookup: `labelForPath` runs for every visible
-        // annotation on every overlay repaint, and rebuilding a 500-entry Map
-        // each time would put that on the render path.
+        // annotation on every overlay repaint, and rebuilding a Map over the
+        // whole bundle (1525 entries) each time would put that on the render
+        // path.
         vocabIndex = entriesByPath(v);
         vocabError = "";
         return v;
@@ -476,9 +502,9 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
   }
 
   /**
-   * The short tag for a stored long-form path. Falls back to the path itself
-   * before the vocabulary has loaded (and for a tag a newer bundle dropped),
-   * so a restored annotation is always legible even if it is verbose.
+   * The short tag for a stored long-form path. Falls back to the short form
+   * derived from the path before the vocabulary has loaded (and for a tag a
+   * newer bundle dropped), so a restored annotation is always legible.
    */
   function labelForPath(path: HedPath): string {
     // Falls back to the derived short form, NOT the raw path: the vocab chunk
@@ -871,9 +897,40 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     renderPopover();
   }
 
+  /**
+   * Make the open popover findable when something outside the viewer refused
+   * to act because of it: two pulses of its own accent ring, then focus into
+   * it so Enter (save) or Escape (cancel) works straight away.
+   *
+   * The class is taken off again on a timer rather than left on the element —
+   * under `prefers-reduced-motion` the rule is a static ring with no animation
+   * to end, and a permanent ring would read as a state rather than a cue.
+   */
+  let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  function clearFlash(): void {
+    if (flashTimer !== null) clearTimeout(flashTimer);
+    flashTimer = null;
+    popover.classList.remove(FLASH_CLASS);
+  }
+  function focusPopover(): void {
+    if (!popState || popover.hidden) return;
+    // Removed and re-added even when it is already on, so a second blocked
+    // click is as visible as the first; reading `offsetWidth` forces the
+    // reflow that makes the browser treat it as a new animation.
+    clearFlash();
+    void popover.offsetWidth;
+    popover.classList.add(FLASH_CLASS);
+    flashTimer = setTimeout(clearFlash, FLASH_DURATION_MS);
+    // The first real control, not the popover box: the point is to let the
+    // annotator finish or abandon the draft immediately, and both keys are
+    // bound on the popover's own keydown.
+    popover.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+  }
+
   function closePopover(): void {
     popState = null;
     submitPopover = null;
+    clearFlash();
     popover.hidden = true;
     popover.replaceChildren();
     dragStartS = null;
@@ -1460,6 +1517,16 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     }
     opts.panel.append(bar);
 
+    // Immediately under the export buttons, because that is the control it is
+    // about. `role="alert"` rather than the notice's "status": this one is the
+    // result of something the annotator just did.
+    if (exportError !== "") {
+      const failed = el("p", "eegv__annot-warn");
+      failed.setAttribute("role", "alert");
+      failed.textContent = exportError;
+      opts.panel.append(failed);
+    }
+
     // The channels file is deliberately partial: it names only what somebody
     // marked and omits the type/units columns that belong to the dataset. Say
     // so beside the button rather than only in the serializer's docstring —
@@ -1551,17 +1618,34 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     return row;
   }
 
+  /**
+   * Wrapped because the download IS the escape hatch. Annotations live only in
+   * this browser, and the panel's own notice tells the annotator to get the
+   * file out before they leave — so a `createObjectURL`/`click` that throws (a
+   * sandboxed frame, an exhausted blob-URL budget, a policy blocking
+   * programmatic downloads) must not look like a button that does nothing.
+   */
   function download(filename: string, text: string): void {
-    const blob = new Blob([text], { type: "text/tab-separated-values;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = doc.createElement("a");
-    link.href = url;
-    link.download = filename;
-    doc.body.append(link);
-    link.click();
-    link.remove();
-    // Give the navigation a tick to start before the blob goes away.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    try {
+      const blob = new Blob([text], { type: "text/tab-separated-values;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = doc.createElement("a");
+      link.href = url;
+      link.download = filename;
+      doc.body.append(link);
+      link.click();
+      link.remove();
+      // Give the navigation a tick to start before the blob goes away.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (exportError !== "") {
+        exportError = "";
+        renderPanel();
+      }
+    } catch (err) {
+      console.error("[eeg-viewer] annotations: export download failed:", err);
+      exportError = `Couldn't start the download of ${filename}. Check that this browser allows downloads from this page, then try again.`;
+      renderPanel();
+    }
   }
 
   // --- mode toggle ----------------------------------------------------------
@@ -1638,10 +1722,12 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     isPopoverOpen() {
       return popState !== null;
     },
+    focusPopover,
     drawOverview,
     flush,
     destroy() {
       destroyed = true;
+      clearFlash();
       cancelOverlayDraw();
       if (resizeRaf !== 0) cancelAnimationFrame(resizeRaf);
       resizeRaf = 0;

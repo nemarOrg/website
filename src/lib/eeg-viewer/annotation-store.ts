@@ -65,6 +65,19 @@ export interface AnnotationStore {
   readonly persistent: boolean;
   load(key: RecordingKey): Promise<AnnotationSet>;
   save(key: RecordingKey, set: AnnotationSet): Promise<void>;
+  /**
+   * Register a listener for `persistent` going false.
+   *
+   * Without it the degrade is invisible until the *next* edit: the UI reads
+   * `persistent` while handling an edit, and the write that fails is the
+   * debounced one that runs afterwards. So the last annotation before a tab
+   * close is exactly the one whose loss is never announced — no "not being
+   * saved" banner, no re-armed unload guard. A push here closes that window.
+   *
+   * Fires at most once (the store only ever degrades, never recovers), and
+   * never for a store that was non-persistent from the start.
+   */
+  onPersistenceChange(listener: (persistent: boolean) => void): void;
   close(): void;
 }
 
@@ -145,6 +158,11 @@ export function createMemoryAnnotationStore(): AnnotationStore {
     async save(key, set) {
       map.set(recordingKeyString(key), set);
     },
+    onPersistenceChange() {
+      // Already non-persistent and can never become so; there is no change to
+      // report. Present so callers do not have to branch on which store they
+      // were handed.
+    },
     close() {
       map.clear();
     },
@@ -205,16 +223,35 @@ export async function openAnnotationStore(
   // persistent so the viewer can tell the user to download, but keep serving
   // reads and writes from memory so nothing they have already marked is lost.
   let persistent = true;
+  const listeners = new Set<(persistent: boolean) => void>();
   const degrade = (err: unknown): void => {
-    if (persistent) {
-      console.warn("[eeg-viewer] annotations: persistence failed, keeping them in memory:", err);
-      persistent = false;
+    if (!persistent) return;
+    console.warn("[eeg-viewer] annotations: persistence failed, keeping them in memory:", err);
+    persistent = false;
+    for (const listener of listeners) {
+      // A listener that throws must not swallow the degrade for the ones after
+      // it, nor surface as an unhandled rejection out of `save`.
+      try {
+        listener(false);
+      } catch (listenerErr) {
+        console.error("[eeg-viewer] annotations: persistence listener failed:", listenerErr);
+      }
     }
   };
 
   return {
     get persistent() {
       return persistent;
+    },
+    onPersistenceChange(listener) {
+      // Subscribing after the degrade already happened still gets told, so a
+      // caller never has to check `persistent` as well as subscribe to know
+      // where it stands.
+      if (!persistent) {
+        listener(false);
+        return;
+      }
+      listeners.add(listener);
     },
     async load(key) {
       if (!persistent) return memory.load(key);

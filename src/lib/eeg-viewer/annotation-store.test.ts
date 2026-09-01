@@ -6,6 +6,7 @@ import {
   recordingKeyString,
   reviveAnnotationSet,
 } from "./annotation-store";
+import { shouldWarnBeforeUnload } from "./annotation-ui";
 import { createChannelAnnotation, createTimeAnnotation } from "./annotations";
 
 const AT = 1_750_000_000_000;
@@ -265,5 +266,85 @@ describe("openAnnotationStore against a real IndexedDB", () => {
     // The point of degrading rather than throwing: what the annotator has on
     // screen is still readable afterwards.
     expect((await store.load(KEY)).time[0].onsetS).toBe(7);
+  });
+
+  it("pushes the degrade to a subscriber, so the UI does not have to poll", async () => {
+    const store = await openAnnotationStore(new IDBFactory());
+    const seen: boolean[] = [];
+    store.onPersistenceChange((persistent) => seen.push(persistent));
+    await store.save(KEY, setOf(3));
+    expect(seen).toEqual([]); // a successful write announces nothing
+
+    store.close();
+    await store.save(KEY, setOf(7));
+    expect(seen).toEqual([false]);
+
+    // Only ever once: the store degrades, it does not oscillate.
+    await store.save(KEY, setOf(9));
+    expect(seen).toEqual([false]);
+  });
+
+  it("flips shouldWarnBeforeUnload's answer for a signed-in annotator", async () => {
+    const store = await openAnnotationStore(new IDBFactory());
+    const warns = () =>
+      shouldWarnBeforeUnload({
+        hasWork: true,
+        signedIn: true,
+        storePersistent: store.persistent,
+      });
+    // Signed in and persisting: the work is safe, so no confirm.
+    expect(warns()).toBe(false);
+
+    let notified = false;
+    store.onPersistenceChange(() => {
+      notified = true;
+    });
+    store.close();
+    await store.save(KEY, setOf(7));
+
+    expect(notified).toBe(true);
+    expect(warns()).toBe(true);
+  });
+
+  it("announces a degrade on load(), before anything has been saved", async () => {
+    // The realistic first contact: the annotation layer mounts, subscribes and
+    // LOADS. If the connection is already unusable, the failure surfaces there
+    // with no prior save() to have caught it -- and that is exactly the visit
+    // where the annotator would otherwise be told their marks are safe.
+    const store = await openAnnotationStore(new IDBFactory());
+    const seen: boolean[] = [];
+    store.onPersistenceChange((persistent) => seen.push(persistent));
+
+    store.close();
+    const loaded = await store.load(KEY);
+
+    expect(seen).toEqual([false]);
+    expect(store.persistent).toBe(false);
+    // Degraded, not broken: the read still answers, out of memory.
+    expect(loaded).toEqual({ time: [], channels: [] });
+  });
+
+  it("tells a late subscriber it has already degraded", async () => {
+    const store = await openAnnotationStore(new IDBFactory());
+    store.close();
+    await store.save(KEY, setOf(7));
+    expect(store.persistent).toBe(false);
+
+    const seen: boolean[] = [];
+    store.onPersistenceChange((persistent) => seen.push(persistent));
+    expect(seen).toEqual([false]);
+  });
+
+  it("keeps degrading even when a listener throws", async () => {
+    const store = await openAnnotationStore(new IDBFactory());
+    const seen: boolean[] = [];
+    store.onPersistenceChange(() => {
+      throw new Error("listener blew up");
+    });
+    store.onPersistenceChange((persistent) => seen.push(persistent));
+    store.close();
+    await store.save(KEY, setOf(7));
+    expect(store.persistent).toBe(false);
+    expect(seen).toEqual([false]);
   });
 });
