@@ -491,9 +491,102 @@ Astro.response.headers.set(
     annotateZarrRows(section);
   }
 
+  // Mirrors the renderer's CHEVRON_SVG in `render-dir-listing.ts` (sync
+  // comment there) — the upgraded row must look identical to an SSR'd one.
+  const DIR_CHEVRON_SVG = `<svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
+
+  /**
+   * Rebuild an ordinary `<details>` directory row into the hybrid
+   * signal-recording row shape `renderSignalDirRow` emits (website#252):
+   * sibling expand-toggle + viewer buttons instead of a button nested in
+   * `<summary>` (inconsistent AT exposure). `.mefd`/`.ds` rows come out of
+   * the renderer already shaped this way; this covers directory recordings
+   * the renderer cannot recognize by name — 4D/BTi carries no extension at
+   * all — using the zarr index as the authority (its `stores`/`failures` are
+   * keyed by the recording DIRECTORY path, mirroring the producer's
+   * content-keyed detection). Preserves already-fetched children and the
+   * open/closed state. Idempotent per row.
+   */
+  function upgradeDirRecordingRow(details: HTMLElement): void {
+    const summary = details.querySelector<HTMLElement>(":scope > summary");
+    const target = details.querySelector<HTMLElement>(":scope > [data-dir-target]");
+    const li = details.parentElement;
+    const path = details.dataset.dirPath ?? "";
+    if (!summary || !target || li?.tagName !== "LI" || !path) {
+      // Matches this file's idiom elsewhere: a structural-assumption break
+      // must leave a console trail, or BTi recognition silently dies the
+      // next time the tree markup changes shape.
+      console.warn("[tree] can't upgrade dir row to recording (markup changed?)", details);
+      return;
+    }
+    const name = path.split("/").pop() ?? path;
+    const depth = details.dataset.depth ?? "0";
+    const wasOpen = (details as HTMLDetailsElement).open === true;
+
+    const row = document.createElement("div");
+    row.className = "tree__row tree__row--dir";
+    // Carry the renderer-computed indent over from the summary it replaces.
+    const indent = summary.getAttribute("style");
+    if (indent) row.setAttribute("style", indent);
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "tree__dir-toggle";
+    toggle.setAttribute("data-dir-toggle", "");
+    toggle.dataset.dirPath = path;
+    toggle.dataset.depth = depth;
+    toggle.setAttribute("aria-expanded", wasOpen ? "true" : "false");
+    toggle.setAttribute("aria-label", `Browse files in ${name}`);
+    toggle.innerHTML = DIR_CHEVRON_SVG;
+
+    const icon = document.createElement("span");
+    icon.className = "tree__icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "▸";
+
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.className = "tree__preview-btn";
+    viewBtn.dataset.previewPath = path;
+    viewBtn.dataset.previewType = "eeg";
+    viewBtn.dataset.dirRecording = "true";
+    viewBtn.dataset.fileName = name;
+    viewBtn.setAttribute("aria-expanded", "false");
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "tree__name";
+    nameSpan.textContent = `${name}/`;
+    viewBtn.appendChild(nameSpan);
+    // No format badge here, deliberately: unlike `.mefd`/`.ds` there is no
+    // name-derived format string for a content-keyed (BTi) recording, and
+    // the index doesn't carry one either.
+
+    row.append(toggle, icon, viewBtn);
+    target.hidden = !wasOpen;
+
+    const slot = document.createElement("div");
+    slot.className = "tree__preview tree__preview--signal";
+    slot.setAttribute("data-preview-slot", "");
+    slot.hidden = true;
+
+    li.classList.add("tree__file-wrap");
+    li.setAttribute("data-preview-wrap", "");
+    li.replaceChildren(row, target, slot);
+  }
+
   function annotateZarrRows(section: HTMLElement): void {
     const state = zarrBySection.get(section);
     if (!state) return;
+    // Upgrade index-listed directory recordings BEFORE the availability loop,
+    // so the buttons this creates are annotated by the same pass. A path in
+    // `failureReasons` is upgraded too: the recording exists but can't be
+    // converted, and the row must be able to SAY that (disabled-with-reason,
+    // like a `.mefd` row) rather than pose as an ordinary folder.
+    for (const details of section.querySelectorAll<HTMLElement>("details[data-dir-path]")) {
+      const path = details.dataset.dirPath ?? "";
+      if (!path) continue;
+      if (!state.paths.has(path) && !state.failureReasons.has(path)) continue;
+      upgradeDirRecordingRow(details);
+    }
     for (const btn of section.querySelectorAll<HTMLButtonElement>(
       '[data-preview-type="eeg"][data-preview-path]',
     )) {
@@ -762,6 +855,14 @@ Astro.response.headers.set(
       return;
     }
     const fileUrl = fileDownloadUrl(treeId, treeVersion, filePath);
+    // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single
+    // file to download, and linking its data.nemar.org path would land the
+    // user on raw listing JSON — so point at the row's own expand arrow,
+    // which browses the member files right here in the tree.
+    const isDirRecording = btn.dataset.dirRecording === "true";
+    const fallbackActionHtml = isDirRecording
+      ? "Use the expand arrow next to its name to browse the recording's files"
+      : `<a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a>`;
 
     // The Zarr index races the dir listing, and the listing usually wins: it is
     // the smaller payload off the already-warm data plane. Until the index lands,
@@ -790,7 +891,7 @@ Astro.response.headers.set(
       const lead = reason
         ? escapeHtml(reason)
         : "No interactive viewer is available for this recording yet.";
-      slot.innerHTML = `<p class="preview__empty" role="status">${lead} <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.innerHTML = `<p class="preview__empty" role="status">${lead} ${fallbackActionHtml} instead.</p>`;
       slot.dataset.loaded = "true";
       return;
     }
@@ -818,7 +919,7 @@ Astro.response.headers.set(
       // Enlarge control that silently no-ops (`enlargeEegViewer` would find no
       // live viewer). Replacing the whole panel clears all three at once.
       console.error("[eeg-viewer] host element missing after shell render");
-      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't open the viewer. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download the file</a> instead.</p>`;
+      slot.innerHTML = `<p class="preview__error" role="alert">Couldn't open the viewer. ${fallbackActionHtml} instead.</p>`;
       slot.removeAttribute("aria-busy");
       slot.dataset.loaded = "true";
       return;
@@ -869,7 +970,7 @@ Astro.response.headers.set(
       console.error("[eeg-viewer] mount failed:", err);
       if (seq !== eegSeq) return;
       eegLive = null;
-      slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. <a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(fileName)}">Download instead</a>.</p>`;
+      slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. ${fallbackActionHtml} instead.</p>`;
     } finally {
       if (seq === eegSeq) {
         slot.removeAttribute("aria-busy");
@@ -984,6 +1085,11 @@ Astro.response.headers.set(
     // it owns teardown, the one-instance-page-wide rule, and the enlarge
     // handoff (website#217).
     if (btn.dataset.previewType === "eeg") {
+      // A directory recording's button lives inside a <details>/<summary>
+      // (website#252); without this the same click would also toggle the
+      // member-file expansion. Inert for plain file rows (buttons have no
+      // click default to cancel).
+      event.preventDefault();
       await openEegViewerInline(btn);
       return;
     }
@@ -1085,6 +1191,39 @@ Astro.response.headers.set(
       .replace(/"/g, "&quot;");
   }
 
+  /**
+   * Fetch + render a directory's children into its lazy slot. Shared by the
+   * native `<details>` toggle path (ordinary dirs) and the `[data-dir-toggle]`
+   * button path (hybrid signal-recording rows, website#252). `data-loaded`
+   * guards against re-fetches across collapse/expand cycles.
+   */
+  function loadDirChildren(slot: HTMLElement, dirPath: string, depthRaw: string | undefined): void {
+    if (slot.dataset.loaded === "true") return;
+    const section = slot.closest<HTMLElement>("[data-tree-defer]");
+    const treeId = section?.dataset.id;
+    const treeVersion = section?.dataset.version;
+    if (!treeId || !treeVersion) return;
+    const depthAttr = Number(depthRaw ?? "0");
+    const childDepth = Number.isFinite(depthAttr) ? depthAttr + 1 : 1;
+    slot.setAttribute("aria-busy", "true");
+    fetchDirListing(treeId, treeVersion, dirPath)
+      .then((listing) => {
+        slot.removeAttribute("aria-busy");
+        if (!listing) {
+          slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
+          return;
+        }
+        slot.innerHTML = renderSubdir(listing, childDepth);
+        slot.dataset.loaded = "true";
+        if (section) annotateZarrRows(section);
+      })
+      .catch((err) => {
+        console.warn(`[tree/${treeId}] dir expand failed:`, err);
+        slot.removeAttribute("aria-busy");
+        slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
+      });
+  }
+
   // Capture-phase toggle listener for lazy per-directory expansion. The
   // toggle event on <details> does NOT bubble (HTML spec), so capture is
   // the only way to delegate. Matches the pre-#76 Phase 3 pattern but for
@@ -1098,33 +1237,32 @@ Astro.response.headers.set(
       const dirPath = details.dataset.dirPath;
       if (!dirPath) return;
       const slot = details.querySelector<HTMLElement>("[data-dir-target]");
-      if (!slot || slot.dataset.loaded === "true") return;
-      const section = details.closest<HTMLElement>("[data-tree-defer]");
-      const treeId = section?.dataset.id;
-      const treeVersion = section?.dataset.version;
-      if (!treeId || !treeVersion) return;
-      const depthAttr = Number(details.dataset.depth ?? "0");
-      const childDepth = Number.isFinite(depthAttr) ? depthAttr + 1 : 1;
-      slot.setAttribute("aria-busy", "true");
-      fetchDirListing(treeId, treeVersion, dirPath)
-        .then((listing) => {
-          slot.removeAttribute("aria-busy");
-          if (!listing) {
-            slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
-            return;
-          }
-          slot.innerHTML = renderSubdir(listing, childDepth);
-          slot.dataset.loaded = "true";
-          if (section) annotateZarrRows(section);
-        })
-        .catch((err) => {
-          console.warn(`[tree/${treeId}] dir expand failed:`, err);
-          slot.removeAttribute("aria-busy");
-          slot.innerHTML = `<p class="tree__error" role="alert">Couldn't load files. Collapse and re-open to retry.</p>`;
-        });
+      if (!slot) return;
+      loadDirChildren(slot, dirPath, details.dataset.depth);
     },
     true,
   );
+
+  // Expand/collapse for hybrid signal-recording dir rows (website#252). Their
+  // chevron is a real sibling <button> (not a <summary>), so expansion is
+  // delegated here: flip the adjacent lazy container, then lazy-load once.
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const toggle = target.closest<HTMLButtonElement>("[data-dir-toggle]");
+    if (!toggle) return;
+    const li = toggle.closest<HTMLElement>("li");
+    const slot = li?.querySelector<HTMLElement>(":scope > [data-dir-target]");
+    const dirPath = toggle.dataset.dirPath;
+    if (!li || !slot || !dirPath) {
+      console.warn("[tree] dir-toggle clicked but row shape unexpected", toggle);
+      return;
+    }
+    const expand = toggle.getAttribute("aria-expanded") !== "true";
+    toggle.setAttribute("aria-expanded", expand ? "true" : "false");
+    slot.hidden = !expand;
+    if (expand) loadDirChildren(slot, dirPath, toggle.dataset.depth);
+  });
 
   // Kick off hydration on every defer slot present at first paint.
   document

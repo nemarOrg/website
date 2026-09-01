@@ -10,7 +10,7 @@
  * Per-file sizes come straight from the listing entry — no synthesis.
  */
 
-import { type FileClassification, classifyFile } from "./bids-tree";
+import { type FileClassification, classifyFile, signalDirExt } from "./bids-tree";
 import type { DirListing, DirListingEntry } from "./dir-listing";
 import { fileDownloadUrl } from "./dir-listing";
 import { formatBytes } from "./format";
@@ -163,6 +163,44 @@ function appendTags(out: string[], cls: FileClassification, isRoot: boolean): vo
     out.push(`<span class="tree__tag tree__tag--signal">${esc(cls.ext.toUpperCase())}</span>`);
 }
 
+const CHEVRON_SVG = `<svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
+
+/**
+ * Hybrid row for a directory-keyed signal recording (website#252): a
+ * `.mefd`/`.ds` directory IS the recording, so the name is the same
+ * `data-preview-type="eeg"` button a signal FILE row gets (same click
+ * delegate, zarr annotate pass, prefetch, preview slot), while a separate
+ * chevron button expands the member files.
+ *
+ * Deliberately NOT `<details>`/`<summary>`: nesting an interactive button
+ * inside `<summary>` is inconsistently exposed to assistive technology (some
+ * browsers assign `<summary>` a button role that strips roles from its
+ * children — MDN documents this), which could make the viewer button
+ * unreachable for screen-reader users. Two proper sibling buttons instead;
+ * the lazy-children container is driven by the `[data-dir-toggle]` click
+ * delegate in `[id].astro` rather than the native details toggle event.
+ */
+function renderSignalDirRow(
+  name: string,
+  fullPath: string,
+  depth: number,
+  indentStyle: string,
+  sigExt: string,
+): string {
+  return [
+    `<li class="tree__file-wrap" data-preview-wrap>`,
+    `<div class="tree__row tree__row--dir"${indentStyle}>`,
+    `<button class="tree__dir-toggle" type="button" data-dir-toggle data-dir-path="${esc(fullPath)}" data-depth="${depth}" aria-expanded="false" aria-label="Browse files in ${esc(name)}">${CHEVRON_SVG}</button>`,
+    `<span class="tree__icon" aria-hidden="true">▸</span>`,
+    `<button class="tree__preview-btn" type="button" data-preview-path="${esc(fullPath)}" data-preview-type="eeg" data-dir-recording="true" data-file-name="${esc(name)}" aria-expanded="false" title="Open signal viewer for ${esc(name)}"><span class="tree__name">${esc(name)}/</span></button>`,
+    `<span class="tree__tag tree__tag--signal">${esc(sigExt.toUpperCase())}</span>`,
+    "</div>",
+    `<div class="tree__lazy" data-dir-target hidden></div>`,
+    `<div class="tree__preview tree__preview--signal" data-preview-slot hidden></div>`,
+    "</li>",
+  ].join("");
+}
+
 function renderDirRow(
   entry: DirListingEntry & { kind: "dir" },
   parentPath: string,
@@ -173,6 +211,8 @@ function renderDirRow(
     depth === 0
       ? ""
       : ` style="padding-inline-start: calc(var(--space-5) + ${depth} * var(--space-5))"`;
+  const sigExt = signalDirExt(entry.name);
+  if (sigExt) return renderSignalDirRow(entry.name, fullPath, depth, indentStyle, sigExt);
   // Every directory is lazy. The `<details data-dir-path="...">` carries the
   // path the client toggle handler will fetch + render into the empty
   // `[data-dir-target]` slot. data-loaded guards against re-fetches on
@@ -181,7 +221,7 @@ function renderDirRow(
     "<li>",
     `<details class="tree__dir" data-dir-path="${esc(fullPath)}" data-depth="${depth}">`,
     `<summary class="tree__row tree__row--dir"${indentStyle}>`,
-    `<svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`,
+    CHEVRON_SVG,
     `<span class="tree__icon" aria-hidden="true">▸</span>`,
     `<span class="tree__name">${esc(entry.name)}/</span>`,
     "</summary>",

@@ -31,3 +31,18 @@ export function classifyFile(filename: string): FileClassification {
     ext,
   };
 }
+
+/**
+ * Directory-keyed signal recordings (website#252). A MEF3 iEEG recording is a
+ * DIRECTORY (`..._ieeg.mefd/`), as is a CTF MEG recording (`..._meg.ds/`), so
+ * `classifyFile` never sees them; the dir-row renderer asks this instead.
+ * 4D/BTi directory recordings carry no extension at all and are recognized at
+ * annotate time from the zarr index (mirroring the producer's content-keyed
+ * detection in nemar-cli's `generate_zarr.py`), not here. Returns the
+ * lowercase extension or null for an ordinary directory. A bare `.mefd`/`.ds`
+ * (no stem) is not a recording name and returns null.
+ */
+export function signalDirExt(dirname: string): "mefd" | "ds" | null {
+  const m = /^(.+)\.(mefd|ds)$/.exec(dirname.toLowerCase());
+  return m ? (m[2] as "mefd" | "ds") : null;
+}
