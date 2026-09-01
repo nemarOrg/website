@@ -21,6 +21,7 @@ import { zarrStoreUrl } from "../zarr-base";
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
+import { type AnnotationLayer, annotateGlyph, createAnnotationLayer } from "./annotation-ui";
 import {
   type Modality,
   autoscaleGain,
@@ -171,6 +172,17 @@ export interface ViewerTransferState {
   timeClock: boolean;
   hideBad: boolean;
   showTopo: boolean;
+  /**
+   * Whether annotation mode was on (website#255). Optional so a transfer
+   * record written before this field existed still type-checks; absent means
+   * "off", which is also the default for a fresh open.
+   *
+   * The annotations themselves never travel — they are per-recording, keyed in
+   * IndexedDB, and the new mount loads the target's own. Only the *mode*
+   * carries, so someone stepping through twenty runs marking artifacts does
+   * not re-arm the tool twenty times.
+   */
+  annotating?: boolean;
 }
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
@@ -497,6 +509,31 @@ export async function mountEegViewer(
   const glRenderer: GlTraceRenderer | null = createGlTraceRenderer(ui.glCanvas);
   if (!glRenderer) ui.glCanvas.style.display = "none";
 
+  // HED annotation layer (website#255). Self-contained: it owns an overlay
+  // canvas above the chrome canvas, a popover and the panel under the scope,
+  // and reads this instance's geometry rather than reaching into its render
+  // loop. Created here (not on first use) because annotations already made for
+  // this recording have to be restored and drawn even when the tool is off.
+  const annotations: AnnotationLayer = createAnnotationLayer({
+    root: ui.root,
+    scope: ui.scope,
+    panel: ui.annotPanel,
+    toggleBtn: ui.annotateBtn,
+    key: { datasetId: opts.datasetId, version: opts.version, filePath: opts.filePath },
+    getSelectedChannels: () => [...badChannels],
+    setChannelMarks: (bad, good) => {
+      for (const label of bad) badChannels.add(label);
+      for (const label of good) badChannels.delete(label);
+      render();
+    },
+    // Only the minimap needs redrawing when an annotation changes; the trace
+    // overlay is the layer's own canvas and it repaints that itself. A full
+    // render() here would re-read the window from the store for nothing.
+    requestOverviewRedraw: () => drawOverview(),
+  });
+  cleanups.push(() => annotations.destroy());
+  if (opts.transfer?.annotating) annotations.setActive(true);
+
   function group(): GroupHandle {
     return store.groups[groupIndex];
   }
@@ -598,6 +635,7 @@ export async function mountEegViewer(
       timeClock,
       hideBad,
       showTopo,
+      annotating: annotations.isActive(),
     };
   }
 
@@ -903,6 +941,22 @@ export async function mountEegViewer(
       `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
       `${eventTypes.length} event type(s)`;
 
+    // Hand the annotation layer this frame's geometry so its overlay lines up
+    // with the traces (website#255). Read-only: it never writes back here.
+    annotations.onFrame({
+      cssWidth: w,
+      cssHeight: h,
+      plotLeft: lastPlotLeft,
+      plotTop: lastPlotTop,
+      plotWidth: lastPlotWidth,
+      plotHeight: lastPlotHeight,
+      windowStartS: start,
+      windowEndS: end,
+      channelLabels: frame.channels.map((c) => c.label),
+      slots: lastSlots,
+      butterfly,
+    });
+
     // Load and draw the overview minimap once.
     if (!overviewLoaded) {
       overviewLoaded = true;
@@ -1010,6 +1064,10 @@ export async function mountEegViewer(
       }
       mctx.globalAlpha = 1;
     }
+
+    // The user's own annotations (website#255), in a dedicated strip along the
+    // top edge so they are never mistaken for the dataset's event ticks below.
+    annotations.drawOverview(mctx, cssW, cssH, dur);
 
     // Current window box.
     const wStart = windowStartS;
@@ -1302,6 +1360,10 @@ export async function mountEegViewer(
         const label = lastFrame.channels[i].label;
         if (badChannels.has(label)) badChannels.delete(label);
         else badChannels.add(label);
+        // Channel marking IS the selection the annotation tool acts on
+        // (website#255), so tell it the set changed rather than giving it a
+        // second, competing gesture of its own.
+        annotations.onSelectionChanged();
         render();
         break;
       }
@@ -1553,6 +1615,8 @@ interface ViewerUi {
   legend: HTMLElement;
   preloadCheck: HTMLInputElement;
   preloadCap: HTMLSelectElement;
+  annotateBtn: HTMLButtonElement;
+  annotPanel: HTMLElement;
   on(action: string, fn: () => void): void;
 }
 
@@ -1652,6 +1716,18 @@ function buildDom(
   }
   bar.append(grouped("Topo", topoBtn));
 
+  // Annotation-mode toggle (website#255). A primary view control like the
+  // topomap, not a gear setting: it changes what a click on the trace *does*,
+  // which has to be visible at a glance rather than buried behind a popover.
+  const annotateBtn = document.createElement("button");
+  annotateBtn.type = "button";
+  annotateBtn.className = "eegv__btn eegv__annot-btn-toggle";
+  annotateBtn.title = "Annotate — click the trace for a marker, drag for a span";
+  annotateBtn.setAttribute("aria-label", "Annotation mode");
+  annotateBtn.setAttribute("aria-pressed", "false");
+  annotateBtn.innerHTML = annotateGlyph();
+  bar.append(grouped("Annotate", annotateBtn));
+
   // Set-once controls (zero-phase filters + display toggles) live behind a gear
   // popover so the primary bar stays uncluttered -- these are typically configured
   // once per dataset and forgotten.
@@ -1730,6 +1806,7 @@ function buildDom(
         <li><kbd>?</kbd> &mdash; toggle this help</li>
       </ul>
       <p style="margin:0;font-size:10px;color:var(--color-fg-subtle)">Click a channel label to mark it bad (dim; <kbd>h</kbd> hides them)</p>
+      <p style="margin:4px 0 0;font-size:10px;color:var(--color-fg-subtle)">Annotate mode (pencil): click the trace for an event marker, drag for a span. Marked channels can be annotated as a set.</p>
     </div>
   `.trim();
 
@@ -1781,8 +1858,13 @@ function buildDom(
   const legend = el("div", "eegv__legend");
   fillEventLegend(legend, eventTypes);
 
+  // Annotation panel container (website#255). Built empty and hidden here so
+  // its position in the stack is fixed; the annotation layer fills it.
+  const annotPanel = el("div", "eegv__annot-panel");
+  annotPanel.hidden = true;
+
   const status = el("div", "eegv__status");
-  root.append(bar, plot, hscroll, minimap, legend, status, helpOverlay);
+  root.append(bar, plot, hscroll, minimap, legend, annotPanel, status, helpOverlay);
   slot.append(root);
 
   return {
@@ -1821,6 +1903,8 @@ function buildDom(
     menu,
     helpOverlay,
     legend,
+    annotateBtn,
+    annotPanel,
     on(action, fn) {
       root
         .querySelector<HTMLButtonElement>(`[data-act="${action}"]`)
