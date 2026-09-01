@@ -424,4 +424,42 @@ describe("PrefetchController", () => {
     expect(cache.has("b-1")).toBe(true);
     expect(cache.has("b-2")).toBe(true);
   });
+
+  it("yields periodically through a fully cache-warm restart instead of one synchronous burst", async () => {
+    // Simulates restarting the walk over a target that is already entirely
+    // resident -- a cache-cap change (forces a restart) or switching back to
+    // a previously-visited group/level. Every segment is a `cache.has()` hit
+    // with nothing to await, which is exactly the shape that used to run the
+    // whole walk in one synchronous burst.
+    const total = 300;
+    const cache = new ByteCappedLRUCache<number>(1_000_000);
+    for (let i = 0; i < total; i++) cache.put(`w-${i}`, i, 10);
+    const { transport, calls } = fakeTransport(); // must stay empty: everything is a hit
+
+    let idleCalls = 0;
+    const progressBatchSizes: number[] = [];
+    const controller = new PrefetchController<number>({
+      cache,
+      transport,
+      keyFor: (seg) => `w-${seg}`,
+      idle: () => {
+        idleCalls++;
+        return Promise.resolve();
+      },
+      onProgress: (covered) => progressBatchSizes.push(covered.size),
+    });
+
+    controller.start(total, 0);
+    await flush(400);
+
+    expect(calls).toEqual([]); // pure cache hits -- the transport is never touched
+    expect(controller.coveredSegments.size).toBe(total);
+    // Must yield repeatedly across 300 hits (batched every ~32), not once.
+    expect(idleCalls).toBeGreaterThan(5);
+    // Progress arrives in batches -- far fewer calls than segments, not one
+    // onProgress (and downstream canvas redraw) per segment.
+    expect(progressBatchSizes.length).toBeGreaterThan(0);
+    expect(progressBatchSizes.length).toBeLessThan(total / 4);
+    expect(progressBatchSizes.at(-1)).toBe(total); // the final flush reports full coverage
+  });
 });

@@ -198,6 +198,21 @@ export interface PrefetchControllerOptions<T> {
   idle?: () => Promise<void>;
 }
 
+/**
+ * How many already-resident segments the walk may confirm in a row before it
+ * must yield. A restart over an already-warm cache (a cache-cap change, or
+ * switching back to a previously-visited group/level) hits `cache.has(key)`
+ * for every segment with no `await` in between -- left unchecked, a
+ * multi-hour recording's worth of segments confirms in one synchronous
+ * microtask, and firing `onProgress` on every single one of them (the caller
+ * redraws a canvas from it) turns that into a real main-thread freeze rather
+ * than a fast no-op. Batching progress to this cadence, with a real
+ * `await this.idle()` between batches, keeps a fully-warm restart cheap
+ * without losing the affordance -- it just updates in strides instead of
+ * continuously.
+ */
+const PROGRESS_BATCH_SIZE = 32;
+
 function defaultIdle(): Promise<void> {
   return new Promise((resolve) => {
     const ric = (globalThis as { requestIdleCallback?: (cb: () => void) => number })
@@ -292,6 +307,17 @@ export class PrefetchController<T> {
 
   private async loop(gen: number): Promise<void> {
     const order = outwardOrder(this.totalSegments, this.center);
+    // Counts already-resident hits confirmed since the last progress flush --
+    // see PROGRESS_BATCH_SIZE. Only the cache-hit path needs this: the fetch
+    // path below already awaits a real network call (and `this.idle()`
+    // afterward) every iteration, so it never runs long enough synchronously
+    // to need batching.
+    let hitsSinceFlush = 0;
+    const flushProgress = (): void => {
+      if (hitsSinceFlush === 0) return;
+      hitsSinceFlush = 0;
+      this.opts.onProgress?.(new Set(this.covered));
+    };
     for (const seg of order) {
       // Yield to interactive reads and to a hidden tab. Re-checked every idle
       // tick rather than just once, so a long interactive session (or the tab
@@ -306,7 +332,12 @@ export class PrefetchController<T> {
       const key = this.opts.keyFor(seg);
       if (this.opts.cache.has(key)) {
         this.covered.add(seg);
-        this.opts.onProgress?.(new Set(this.covered));
+        hitsSinceFlush++;
+        if (hitsSinceFlush >= PROGRESS_BATCH_SIZE) {
+          flushProgress();
+          await this.idle(); // cooperative yield -- see PROGRESS_BATCH_SIZE
+          if (gen !== this.generation) return;
+        }
         continue;
       }
       if (this.opts.cache.remainingBytes <= 0) {
@@ -314,6 +345,7 @@ export class PrefetchController<T> {
         // we cannot keep (website#254 "stop rather than evict"). A segment
         // that turns out larger than the remaining headroom is still caught
         // after the fact below, since sizes are not known until fetched.
+        flushProgress();
         this.runningFlag = false;
         return;
       }
@@ -331,10 +363,16 @@ export class PrefetchController<T> {
           // (website#254). A later cap increase or a viewport move that frees
           // room does not auto-resume; the caller re-issues start()/retarget()
           // on the next targeting change, which is the existing trigger path.
+          flushProgress();
           this.runningFlag = false;
           return;
         }
         this.covered.add(seg);
+        // A real fetch is already rate-limited by the network + the idle await
+        // below, so it always reports -- this also subsumes (rather than
+        // duplicates) any batched-but-unflushed hits, since `this.covered`
+        // already reflects them and the counter just needs resetting.
+        hitsSinceFlush = 0;
         this.opts.onProgress?.(new Set(this.covered));
       } catch (err) {
         if (gen !== this.generation) return; // stop()'s abort landing here is expected
@@ -344,6 +382,7 @@ export class PrefetchController<T> {
       }
       await this.idle();
     }
+    flushProgress(); // report a final partial batch (< PROGRESS_BATCH_SIZE leftover hits)
     if (gen === this.generation) this.runningFlag = false;
   }
 }
