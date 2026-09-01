@@ -344,9 +344,22 @@ export function formatSeconds(seconds: number): string {
   return rounded.toFixed(4).replace(/\.?0+$/, "") || "0";
 }
 
-/** A HED string: the annotation's tags, comma-separated as HED specifies. */
+/**
+ * The short-form tag for a long-form HED path: the leaf node, carrying over a
+ * library prefix (`sc:`) from the path's first segment. Short form is the HED
+ * annotation default — leaf names are unique within a schema and validators
+ * expand them via the dataset's HEDVersion — so exports and the UI both use
+ * it; the long form stays in storage and appears on hover.
+ */
+export function hedShortForm(path: string): string {
+  const prefix = /^[A-Za-z][A-Za-z0-9]*:/.exec(path)?.[0] ?? "";
+  const leaf = path.slice(path.lastIndexOf("/") + 1);
+  return leaf.startsWith(prefix) ? leaf : prefix + leaf;
+}
+
+/** A HED string: short-form tags, comma-separated as HED specifies. */
 export function formatHed(tags: HedPath[]): string {
-  return tags.length > 0 ? tags.join(", ") : NA;
+  return tags.length > 0 ? tags.map(hedShortForm).join(", ") : NA;
 }
 
 function cell(text: string): string {

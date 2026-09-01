@@ -997,9 +997,13 @@ const dataHost = new URL(dataBase).host;
     color: var(--color-danger, #d55e00);
   }
   .eegv__annot-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    /* Short-form tags make rows narrow enough for columns: auto-fill packs
+       2-3 across on a wide panel and collapses to one when space runs out,
+       row-major (left to right, then the next row). */
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2px 12px;
+    align-content: start;
     margin: 0;
     padding: 0;
     list-style: none;

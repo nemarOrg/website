@@ -11,6 +11,7 @@ import {
   findTimeOverlaps,
   formatHed,
   formatSeconds,
+  hedShortForm,
   isAnnotationSetEmpty,
   newAnnotationId,
   normalizeRange,
@@ -351,12 +352,32 @@ describe("formatSeconds", () => {
 });
 
 describe("formatHed", () => {
-  it("joins tags with the comma HED specifies", () => {
-    expect(formatHed([SEIZURE, SPIKE])).toBe(`${SEIZURE}, ${SPIKE}`);
+  it("joins SHORT-FORM tags with the comma HED specifies", () => {
+    expect(formatHed([SEIZURE, SPIKE])).toBe("sc:Epileptic-seizure, sc:Spike");
   });
 
   it("writes n/a when there are none", () => {
     expect(formatHed([])).toBe("n/a");
+  });
+});
+
+describe("hedShortForm", () => {
+  it("keeps the library prefix on the leaf", () => {
+    expect(hedShortForm("sc:Episode/Epileptic-seizure")).toBe("sc:Epileptic-seizure");
+    expect(hedShortForm("sc:Sleep-and-drowsiness/Sleep-spindles")).toBe("sc:Sleep-spindles");
+  });
+
+  it("reduces a base-HED path to its bare leaf", () => {
+    expect(
+      hedShortForm(
+        "Property/Data-property/Data-artifact/Biological-artifact/Eye-artifact/Eye-blink-artifact",
+      ),
+    ).toBe("Eye-blink-artifact");
+  });
+
+  it("leaves an already-short tag alone", () => {
+    expect(hedShortForm("Spike")).toBe("Spike");
+    expect(hedShortForm("sc:Spike")).toBe("sc:Spike");
   });
 });
 
@@ -377,8 +398,8 @@ describe("serializeEventsTsv", () => {
     ]);
     expect(text.split("\n")).toEqual([
       "onset\tduration\tHED\tdescription",
-      `12.5\t0\t${SPIKE}\tn/a`,
-      `40\t12.25\t${SEIZURE}\tleft temporal onset`,
+      "12.5\t0\tsc:Spike\tn/a",
+      "40\t12.25\tsc:Epileptic-seizure\tleft temporal onset",
       "",
     ]);
   });
@@ -430,8 +451,9 @@ describe("serializeChannelsTsv", () => {
     );
     expect(serializeChannelsTsv(list).split("\n")).toEqual([
       "name\tstatus\tstatus_description\tHED",
-      `Fp1\tbad\t50 Hz pickup\t${LINE_NOISE}`,
-      `T8\tbad\t50 Hz pickup\t${LINE_NOISE}`,
+      // Short form in the file; the long form stays in the stored annotation.
+      "Fp1\tbad\t50 Hz pickup\tLine-noise-artifact",
+      "T8\tbad\t50 Hz pickup\tLine-noise-artifact",
       "",
     ]);
   });
