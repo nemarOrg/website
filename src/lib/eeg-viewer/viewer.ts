@@ -42,6 +42,15 @@ import {
   segmentIndexForTime,
 } from "./prefetch";
 import {
+  DEFAULT_NAV_ORDER,
+  NAV_ORDERS,
+  NAV_ORDER_CHANGED_EVENT,
+  NAV_ORDER_LABELS,
+  normalizeNavOrder,
+  readNavOrder,
+  writeNavOrder,
+} from "./recording-nav";
+import {
   DEFAULT_RENDER,
   type FrameChannel,
   type ViewerFrame,
@@ -100,6 +109,61 @@ export interface ViewerOptions {
    * toggle. The caller owns the sequencing, so it supplies the check.
    */
   isStale?: () => boolean;
+  /**
+   * View settings carried over from the recording the user just navigated away
+   * from (website#253). Absent for a fresh open, and every field is applied
+   * defensively — a seeded value is a preference, not a guarantee the new
+   * recording can honour it.
+   */
+  transfer?: ViewerTransferState;
+  /**
+   * Receives a snapshot getter once the instance is live, so the caller can
+   * carry the current settings into the next recording. Called at most once,
+   * and never for a mount that produced no viewer.
+   */
+  onTransfer?: (snapshot: () => ViewerTransferState) => void;
+}
+
+/**
+ * The slice of viewer state that survives a recording swap (website#253).
+ *
+ * Deliberately a flat, plain-data record rather than a handle on the live
+ * instance: the snapshot is read just before the old instance is destroyed and
+ * applied to a new one, so sharing a mutable object (the `FilterSpec`, in
+ * particular) would let the new mount write back into the old mount's closure.
+ *
+ * What is left out is as considered as what is in:
+ * - **Window position** resets to the start of the new recording. Second 400
+ *   of a 10-minute rest run is not second 400 of a 90-second oddball run, and
+ *   landing past the end of a shorter recording reads as a broken viewer.
+ * - **Bad channels** are per-recording labels. Carrying "T7 is bad" from one
+ *   subject to another asserts something about data nobody has looked at.
+ * - **Group index** — channel groups differ per recording, so the new store's
+ *   first group is the only safe default.
+ */
+export interface ViewerTransferState {
+  windowLengthS: number;
+  /** Only honoured when `gainManuallySet`; otherwise auto-scale (website#109)
+   *  runs against the new recording's own amplitude, a better estimate than
+   *  whatever suited the previous one. */
+  gain: number;
+  gainManuallySet: boolean;
+  /** Visible channel count, or null for "the whole montage" — the default,
+   *  which must not travel as a literal number or a 64-channel view would clip
+   *  a 128-channel recording to its first half. */
+  chanCount: number | null;
+  hp: number | null;
+  lp: number | null;
+  notch: number | null;
+  /** Whether the user chose the notch themselves. When false, the new
+   *  recording's own PowerLineFrequency default wins. */
+  notchUserSet: boolean;
+  dcRemove: boolean;
+  showEvents: boolean;
+  butterfly: boolean;
+  timeClock: boolean;
+  hideBad: boolean;
+  showTopo: boolean;
 }
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
@@ -283,6 +347,10 @@ export async function mountEegViewer(
   let chanStart = 0;
   let chanCount = store.groups[0].nChannels; // default: whole montage (overview)
   const filters: FilterSpec = { hp: null, lp: null, notch: null };
+  // Tracks whether the notch came from the user or from the recording's own
+  // PowerLineFrequency, so a recording swap re-defaults it only in the latter
+  // case (website#253).
+  let notchUserSet = false;
   let renderSeq = 0;
   let renderInFlight = false;
   let renderQueued = false;
@@ -404,6 +472,7 @@ export async function mountEegViewer(
   // embeds it in the store attrs; the Notch select already reflects it). Datasets
   // without the sidecar field stay unfiltered.
   filters.notch = Number(ui.notch.value) || null;
+  applyTransfer(opts.transfer);
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -427,6 +496,83 @@ export async function mountEegViewer(
     chanCount = Math.min(Math.max(MIN_VISIBLE_CHANNELS, chanCount), g.nChannels);
     chanStart = Math.max(0, Math.min(chanStart, g.nChannels - chanCount));
     windowStartS = Math.min(Math.max(0, windowStartS), Math.max(0, g.durationS - windowLengthS));
+  }
+
+  /**
+   * Seed this instance from the settings the user had on the previous
+   * recording (website#253). Every field is optional in effect: a value the
+   * new recording cannot honour (a channel count it does not have, a window
+   * length that is not one of the choices) is dropped or clamped rather than
+   * forced, because the alternative is a viewer that opens in a state its own
+   * controls could not have produced.
+   */
+  function applyTransfer(t: ViewerTransferState | undefined): void {
+    if (!t) return;
+    if (WINDOW_CHOICES.includes(t.windowLengthS)) {
+      windowLengthS = t.windowLengthS;
+      ui.win.value = String(t.windowLengthS);
+    }
+    if (t.gainManuallySet && Number.isFinite(t.gain) && t.gain > 0) {
+      // The user overrode auto-scale on the previous recording; respect that
+      // here too rather than re-estimating and appearing to undo their work.
+      gain = t.gain;
+      gainManuallySet = true;
+      autoscalePending = false;
+    }
+    // `clamp()` bounds this against the new montage on the first render, so a
+    // 32-channel zoom into a 16-channel recording simply shows all 16.
+    if (t.chanCount !== null && t.chanCount > 0) chanCount = t.chanCount;
+    filters.hp = t.hp;
+    filters.lp = t.lp;
+    ui.hp.value = String(t.hp ?? 0);
+    ui.lp.value = String(t.lp ?? 0);
+    if (t.notchUserSet) {
+      filters.notch = t.notch;
+      ui.notch.value = String(t.notch ?? 0);
+      notchUserSet = true;
+    }
+    dcRemove = t.dcRemove;
+    showEvents = t.showEvents;
+    butterfly = t.butterfly;
+    timeClock = t.timeClock;
+    hideBad = t.hideBad;
+    ui.dc.checked = dcRemove;
+    ui.events.checked = showEvents;
+    ui.butterflyCheck.checked = butterfly;
+    ui.clockCheck.checked = timeClock;
+    ui.hideBadCheck.checked = hideBad;
+    // Only reopen the topomap when this recording actually has a scalp layout;
+    // a montage-less or intracranial recording keeps the panel closed.
+    if (t.showTopo && topoLayout && !ui.topoBtn.disabled) {
+      showTopo = true;
+      ui.topo.style.display = "flex";
+      ui.topoBtn.setAttribute("aria-pressed", "true");
+      ui.topoBtn.classList.add("eegv__btn--active");
+    }
+  }
+
+  /** Current transferable settings, read at swap time (website#253). */
+  function snapshotTransfer(): ViewerTransferState {
+    return {
+      windowLengthS,
+      gain,
+      gainManuallySet,
+      // Normalize "the whole montage" to null so it stays whole-montage on a
+      // recording with a different channel count.
+      chanCount: chanCount >= group().nChannels ? null : chanCount,
+      // `FilterSpec`'s fields are optional; the transfer record is not, so
+      // normalize "unset" to the null the selects already use for "off".
+      hp: filters.hp ?? null,
+      lp: filters.lp ?? null,
+      notch: filters.notch ?? null,
+      notchUserSet,
+      dcRemove,
+      showEvents,
+      butterfly,
+      timeClock,
+      hideBad,
+      showTopo,
+    };
   }
 
   function sizeCanvas(): { w: number; h: number } {
@@ -1017,6 +1163,7 @@ export async function mountEegViewer(
   });
   ui.notch.addEventListener("change", () => {
     filters.notch = Number(ui.notch.value) || null;
+    notchUserSet = true;
     syncGear();
     render();
   });
@@ -1037,6 +1184,17 @@ export async function mountEegViewer(
     // as covered via the cache.has() short-circuit and resumes from there).
     prefetchSignature = "";
     updatePrefetchTarget();
+  });
+  // "Next moves through" (website#253). The prev/next controls it governs live
+  // in the page's dialog chrome, not in this instance, so the choice is
+  // persisted and announced rather than applied here. Announced on the root so
+  // the page can re-label its controls without polling storage.
+  ui.navOrder.addEventListener("change", () => {
+    const order = normalizeNavOrder(ui.navOrder.value) ?? DEFAULT_NAV_ORDER;
+    writeNavOrder(order);
+    ui.root.dispatchEvent(
+      new CustomEvent(NAV_ORDER_CHANGED_EVENT, { bubbles: true, detail: { order } }),
+    );
   });
   ui.hscroll.addEventListener("input", () => {
     windowStartS = Number(ui.hscroll.value);
@@ -1301,6 +1459,9 @@ export async function mountEegViewer(
     for (const c of cleanups) c();
   };
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = destroy;
+  // Hand the caller a live snapshot getter, not a snapshot: it is read at the
+  // moment the user navigates away, which is arbitrarily long after this.
+  opts.onTransfer?.(snapshotTransfer);
 
   await render();
   void store.eventsReady.then((events) => {
@@ -1356,6 +1517,7 @@ interface ViewerUi {
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
+  navOrder: HTMLSelectElement;
   hscroll: HTMLInputElement;
   vscroll: HTMLInputElement;
   groupSel: HTMLSelectElement | null;
@@ -1494,11 +1656,24 @@ function buildDom(
   gearBtn.setAttribute("aria-expanded", "false");
   gearBtn.innerHTML = gearGlyph();
 
+  // Iteration order for the enlarged viewer's prev/next controls (website#253).
+  // It lives here, with the other set-once preferences, and is shown even in
+  // the inline panel where there are no prev/next controls to govern: the
+  // instance moves between the panel and the dialog without remounting, so a
+  // gear that gains and loses an item on a move would be worse than one that
+  // always offers the preference.
+  const navOrder = compactSelect(
+    NAV_ORDERS.map((o) => [o, NAV_ORDER_LABELS[o]] as [string, string]),
+    readNavOrder(),
+  );
+  navOrder.title = "Which entity the enlarged viewer's Next button advances first";
+
   const menu = el("div", "eegv__menu");
   menu.style.display = "none";
   menu.append(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
     grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
+    grouped("Next moves through", navOrder),
     grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap)),
   );
   const settings = el("div", "eegv__settings");
@@ -1612,6 +1787,7 @@ function buildDom(
     hp,
     lp,
     notch,
+    navOrder,
     hscroll,
     vscroll,
     groupSel,
