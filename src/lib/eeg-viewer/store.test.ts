@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateOverview,
   chooseWindowLevel,
+  dedupingFetch,
+  openRecording,
   parseChannels,
+  predictedViewLevelCount,
   retryingFetch,
   windowDataBytes,
 } from "./store";
@@ -211,6 +214,212 @@ describe("retryingFetch", () => {
   });
 });
 
+describe("predictedViewLevelCount", () => {
+  it("matches the real 172s/250Hz store on zarr.nemar.org (4 levels, coarsest 168)", () => {
+    expect(predictedViewLevelCount(43096)).toBe(4);
+  });
+
+  it("matches the real 2430s/250Hz store on zarr.nemar.org (6 levels, coarsest 148)", () => {
+    expect(predictedViewLevelCount(607585)).toBe(6);
+  });
+
+  it("predicts a single level for a recording under the producer's floor", () => {
+    expect(predictedViewLevelCount(100)).toBe(1);
+    expect(predictedViewLevelCount(999)).toBe(1); // 999/4 < 250: nothing past view/1
+    expect(predictedViewLevelCount(1000)).toBe(2); // 1000/4 = 250: view/2 exists
+  });
+
+  it("falls back to the probe maximum for missing/garbage n_samples", () => {
+    expect(predictedViewLevelCount(Number.NaN)).toBe(12);
+    expect(predictedViewLevelCount(0)).toBe(12);
+    expect(predictedViewLevelCount(-5)).toBe(12);
+  });
+
+  it("clamps an absurdly long recording to the probe maximum", () => {
+    expect(predictedViewLevelCount(Number.MAX_SAFE_INTEGER)).toBe(12);
+  });
+});
+
+describe("dedupingFetch", () => {
+  const bodyOf = (res: Response) => res.text();
+
+  it("shares one inner fetch across concurrent GETs of the same URL+Range", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      await new Promise((r) => setTimeout(r, 5));
+      return new Response("chunk-bytes", { status: 206 });
+    });
+    const req = () =>
+      new Request("https://zarr.nemar.org/x/0/c/0/0", { headers: { Range: "bytes=0-99" } });
+    const [a, b] = await Promise.all([handler(req()), handler(req())]);
+    expect(calls).toBe(1);
+    // Each caller must get an independently consumable body (clones).
+    expect(await bodyOf(a)).toBe("chunk-bytes");
+    expect(await bodyOf(b)).toBe("chunk-bytes");
+  });
+
+  it("does not merge requests for different byte ranges of the same URL", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      return new Response("ok");
+    });
+    await Promise.all([
+      handler(new Request("https://zarr.nemar.org/x", { headers: { Range: "bytes=0-9" } })),
+      handler(new Request("https://zarr.nemar.org/x", { headers: { Range: "bytes=10-19" } })),
+    ]);
+    expect(calls).toBe(2);
+  });
+
+  it("issues a fresh inner fetch once the shared request has settled", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      return new Response("ok");
+    });
+    await handler(new Request("https://zarr.nemar.org/x"));
+    await handler(new Request("https://zarr.nemar.org/x"));
+    expect(calls).toBe(2); // in-flight dedup only; never a byte cache
+  });
+
+  it("keeps the shared fetch alive when only one of two subscribers aborts", async () => {
+    let innerAborted = false;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const handler = dedupingFetch(async (request) => {
+      request.signal.addEventListener("abort", () => {
+        innerAborted = true;
+      });
+      await gate;
+      return new Response("survived");
+    });
+    const aborter = new AbortController();
+    const p1 = handler(new Request("https://zarr.nemar.org/x", { signal: aborter.signal }));
+    const p2 = handler(new Request("https://zarr.nemar.org/x"));
+    aborter.abort();
+    await expect(p1).rejects.toThrow();
+    release();
+    expect(await bodyOf(await p2)).toBe("survived");
+    expect(innerAborted).toBe(false);
+  });
+
+  it("aborts the shared fetch once every subscriber has aborted", async () => {
+    let innerAborted = false;
+    const handler = dedupingFetch(async (request) => {
+      return new Promise<Response>((_, reject) => {
+        request.signal.addEventListener("abort", () => {
+          innerAborted = true;
+          reject(new DOMException("The operation was aborted.", "AbortError"));
+        });
+      });
+    });
+    const a1 = new AbortController();
+    const a2 = new AbortController();
+    const p1 = handler(new Request("https://zarr.nemar.org/x", { signal: a1.signal }));
+    const p2 = handler(new Request("https://zarr.nemar.org/x", { signal: a2.signal }));
+    a1.abort();
+    await expect(p1).rejects.toThrow();
+    expect(innerAborted).toBe(false); // one subscriber still waiting
+    a2.abort();
+    await expect(p2).rejects.toThrow();
+    expect(innerAborted).toBe(true); // nobody left: the network request stops
+  });
+
+  it("a caller arriving after all prior subscribers aborted gets a fresh fetch", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async (request) => {
+      calls++;
+      if (calls === 1) {
+        // First shared request: hang until aborted.
+        return new Promise<Response>((_, reject) => {
+          request.signal.addEventListener("abort", () =>
+            reject(new DOMException("The operation was aborted.", "AbortError")),
+          );
+        });
+      }
+      return new Response("fresh");
+    });
+    const a1 = new AbortController();
+    const p1 = handler(new Request("https://zarr.nemar.org/x", { signal: a1.signal }));
+    a1.abort();
+    await expect(p1).rejects.toThrow();
+    // The dying entry may still be settling; a new caller must not join it.
+    const res = await handler(new Request("https://zarr.nemar.org/x"));
+    expect(await bodyOf(res)).toBe("fresh");
+    expect(calls).toBe(2);
+  });
+
+  it("propagates a rejection of the shared fetch to every subscriber", async () => {
+    const handler = dedupingFetch(async () => {
+      throw new Error("upstream exploded");
+    });
+    const p1 = handler(new Request("https://zarr.nemar.org/x"));
+    const p2 = handler(new Request("https://zarr.nemar.org/x"));
+    await expect(p1).rejects.toThrow("upstream exploded");
+    await expect(p2).rejects.toThrow("upstream exploded");
+  });
+
+  it("rejects an already-aborted caller without touching the network", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      return new Response("ok");
+    });
+    const aborter = new AbortController();
+    aborter.abort();
+    await expect(
+      handler(new Request("https://zarr.nemar.org/x", { signal: aborter.signal })),
+    ).rejects.toThrow();
+    expect(calls).toBe(0); // rejected before any inner fetch started
+    const res = await handler(new Request("https://zarr.nemar.org/x"));
+    expect(await bodyOf(res)).toBe("ok");
+    expect(calls).toBe(1);
+  });
+
+  it("issues a fresh inner fetch for a key whose previous request rejected", async () => {
+    let calls = 0;
+    const handler = dedupingFetch(async () => {
+      calls++;
+      if (calls === 1) throw new Error("first attempt fails");
+      return new Response("recovered");
+    });
+    await expect(handler(new Request("https://zarr.nemar.org/x"))).rejects.toThrow(
+      "first attempt fails",
+    );
+    // The failed entry must have left the in-flight map; the next caller for
+    // the SAME key gets a fresh request, not the settled rejection.
+    const res = await handler(new Request("https://zarr.nemar.org/x"));
+    expect(await bodyOf(res)).toBe("recovered");
+    expect(calls).toBe(2);
+  });
+
+  it("shares one whole retry cycle between concurrent callers (dedup wraps retry)", async () => {
+    // makeStore composes dedupingFetch(retryingFetch()): two concurrent callers
+    // must share ONE retrying operation -- a 503 then its retry (2 inner
+    // fetches total), not each caller running its own retry cycle (4).
+    let calls = 0;
+    await withFetch(
+      async () => {
+        calls++;
+        return calls === 1
+          ? new Response("gateway timeout", { status: 503 })
+          : new Response("ok", { status: 200 });
+      },
+      async () => {
+        const handler = dedupingFetch(retryingFetch(6, 1));
+        const req = () => new Request("https://zarr.nemar.org/x");
+        const [a, b] = await Promise.all([handler(req()), handler(req())]);
+        expect(a.status).toBe(200);
+        expect(b.status).toBe(200);
+        expect(calls).toBe(2);
+      },
+    );
+  });
+});
+
 describe("windowDataBytes", () => {
   it("sums Float32Array byteLength across line channels", () => {
     const win = {
@@ -311,5 +520,133 @@ describe("chooseWindowLevel", () => {
   it("returns level 0 when the group has no view pyramid at all", () => {
     const g = fakeGroup({ durationS: 5000, nSamples: 5000 * 250, viewLevels: [] });
     expect(chooseWindowLevel(g, 0, 5000, 800)).toBe(0);
+  });
+});
+
+/**
+ * A minimal but real-shape Zarr v3 store served from memory: valid zarr.json
+ * documents that zarrita itself parses, plus 404s (and optionally one 403) for
+ * everything else. This is the transport boundary, not mocked business logic --
+ * the whole reader stack (makeStore's dedup+retry pipeline, openNode's
+ * v3-pinned opens, probe batching) runs for real against it.
+ */
+function fakeZarrV3Store(opts: {
+  /** attrs.n_samples on the channel group (drives probe-batch prediction). */
+  nSamples: number;
+  /** nTime per view level; index 0 = view/1. */
+  viewLevels: number[];
+  /** This view level responds 403 instead of metadata (expired-token shape). */
+  failLevel?: number;
+}) {
+  const requests: string[] = [];
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+  const group = (attributes: Record<string, unknown>) =>
+    json({ zarr_format: 3, node_type: "group", attributes });
+  const array = (shape: number[], chunk: number[]) =>
+    json({
+      zarr_format: 3,
+      node_type: "array",
+      shape,
+      data_type: "int16",
+      chunk_grid: { name: "regular", configuration: { chunk_shape: chunk } },
+      chunk_key_encoding: { name: "default", configuration: { separator: "/" } },
+      fill_value: 0,
+      codecs: [{ name: "bytes", configuration: { endian: "little" } }],
+      attributes: {},
+    });
+  const handler = (async (input: RequestInfo | URL) => {
+    const url =
+      typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const path = new URL(url).pathname.replace(/^\/store\//, "");
+    requests.push(path);
+    if (path === "zarr.json") return group({ format: "test", channel_groups: ["eeg"] });
+    if (path === "eeg/zarr.json") {
+      return group({
+        rate: 250,
+        n_samples: opts.nSamples,
+        channels: [{ label: "Cz", unit: "uV", row_index: 0 }],
+      });
+    }
+    if (path === "eeg/0/zarr.json") return array([1, opts.nSamples], [1, 1000]);
+    const m = path.match(/^eeg\/view\/(\d+)\/zarr\.json$/);
+    if (m) {
+      const level = Number(m[1]);
+      if (level === opts.failLevel) return new Response("forbidden", { status: 403 });
+      const nTime = opts.viewLevels[level - 1];
+      if (nTime !== undefined) return array([2, 1, nTime], [2, 1, 250]);
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  return { handler, requests };
+}
+
+describe("view-level discovery against a fake v3 store", () => {
+  const viewProbes = (requests: string[]) => requests.filter((p) => p.includes("/view/")).sort();
+
+  it("exact prediction probes the predicted levels plus one follow-up confirm batch", async () => {
+    // n_samples=8000 predicts 3 levels; the store has exactly 3.
+    const { handler, requests } = fakeZarrV3Store({ nSamples: 8000, viewLevels: [2000, 500, 125] });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const g = store.groups[0];
+      const levels = await g.viewLevelsReady;
+      await store.eventsReady; // let the parallel events read finish before asserting requests
+      expect(levels.map((l) => l.level)).toEqual([1, 2, 3]);
+      expect(g.viewLevelsDegraded).toBe(false);
+      // Levels 1-3 in the predicted batch, 4-5 as the follow-up confirming the
+      // end -- and nothing past that.
+      expect(viewProbes(requests)).toEqual([
+        "eeg/view/1/zarr.json",
+        "eeg/view/2/zarr.json",
+        "eeg/view/3/zarr.json",
+        "eeg/view/4/zarr.json",
+        "eeg/view/5/zarr.json",
+      ]);
+      // v3-pinned opens: the v2 fallback must never fire on a working v3 store,
+      // not even for genuinely missing nodes (view/4-5, the absent events group).
+      expect(requests.some((p) => /\.zattrs|\.zarray|\.zgroup/.test(p))).toBe(false);
+    });
+  });
+
+  it("creeps past an undershot prediction in follow-up batches until the real end", async () => {
+    // n_samples=8000 still predicts 3, but the store has 5 levels.
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125, 31, 7],
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels.map((l) => l.level)).toEqual([1, 2, 3, 4, 5]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      // 1-3 predicted, 4-5 follow-up (all present), 6-7 follow-up finds the end.
+      expect(viewProbes(requests)).toEqual([
+        "eeg/view/1/zarr.json",
+        "eeg/view/2/zarr.json",
+        "eeg/view/3/zarr.json",
+        "eeg/view/4/zarr.json",
+        "eeg/view/5/zarr.json",
+        "eeg/view/6/zarr.json",
+        "eeg/view/7/zarr.json",
+      ]);
+    });
+  });
+
+  it("keeps fulfilled sibling levels and flags degradation on a non-404 probe failure", async () => {
+    // view/2 responds 403 (an expired token, not a missing level): the levels
+    // that DID open must survive, and the handle must say discovery broke.
+    const { handler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      failLevel: 2,
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const g = store.groups[0];
+      const levels = await g.viewLevelsReady;
+      expect(levels.map((l) => l.level)).toEqual([1, 3]); // siblings kept, not discarded
+      expect(g.viewLevels.map((l) => l.level)).toEqual([1, 3]);
+      expect(g.viewLevelsDegraded).toBe(true); // "discovery broke", not "1-level recording"
+    });
   });
 });

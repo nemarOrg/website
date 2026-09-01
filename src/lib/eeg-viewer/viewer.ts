@@ -40,7 +40,9 @@ import {
   ByteCappedLRUCache,
   PrefetchController,
   type PrefetchTransport,
+  prefetchCacheKey,
   segmentIndexForTime,
+  writeThroughKey,
 } from "./prefetch";
 import {
   DEFAULT_NAV_ORDER,
@@ -227,7 +229,30 @@ const PRELOAD_CAP_CHOICES: Array<[string, string]> = [
   ["1000", "1 GB"],
 ];
 
-function loadPreloadEnabled(): boolean {
+/** True when the browser signals the user wants reduced data usage
+ *  (`Save-Data: on` / Chromium's Data Saver). Progressive enhancement:
+ *  `navigator.connection` is Chromium-only, so absence just means "no
+ *  signal" and changes nothing. Exported for unit tests. */
+export function saveDataRequested(): boolean {
+  try {
+    // Hardened/privacy browsers can make the `navigator.connection` accessor
+    // itself throw (fingerprinting countermeasures). That must degrade to
+    // "no signal", not take down the whole viewer mount.
+    if (typeof navigator === "undefined") return false;
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    return conn?.saveData === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Exported for unit tests (Save-Data precedence over the stored opt-in). */
+export function loadPreloadEnabled(): boolean {
+  // A browser-level "reduce data" preference outranks a stored opt-in from a
+  // previous session: background-preloading a whole recording (potentially
+  // hundreds of MB) is exactly what Save-Data asks sites not to do. The gear
+  // toggle still works for the current mount if the user insists.
+  if (saveDataRequested()) return false;
   try {
     return localStorage.getItem(PRELOAD_ENABLED_KEY) === "1";
   } catch {
@@ -259,21 +284,6 @@ function savePreloadCapMB(mb: number): void {
   } catch {
     /* localStorage unavailable; the choice applies this session only */
   }
-}
-
-/** Cache key for one background-preloaded segment: unique to the group, the
- *  pyramid level it was read at, the visible channel-row range, and the
- *  segment width (tied to the current window length -- see updatePrefetchTarget
- *  below) so a retarget never collides with a stale entry from a prior one. */
-function prefetchCacheKey(
-  groupName: string,
-  level: number,
-  r0: number,
-  r1: number,
-  segS: number,
-  seg: number,
-): string {
-  return `${groupName}|L${level}|R${r0}-${r1}|W${segS}|S${seg}`;
 }
 
 /**
@@ -725,10 +735,47 @@ export async function mountEegViewer(
           if (cached) return { win: cached, filtered: false };
         }
       }
-      return {
-        win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false),
-        filtered: false,
-      };
+      // Capture every geometry input BEFORE the await: chanStart/chanCount/
+      // windowLengthS are live closure state that user input (the channel
+      // scrollbar, a window-length change) can mutate while the read is in
+      // flight. The write-through key below must describe the read that
+      // actually happened, not the state at completion time -- keying by the
+      // live values would store this window's data under the new state's key,
+      // and a later cache hit would render the wrong traces.
+      const readChanStart = chanStart;
+      const readChanCount = chanCount;
+      const readWindowLengthS = windowLengthS;
+      const readPreloadEnabled = preloadEnabled;
+      const win = await readWindow(g, start, end, plotWidth, readChanStart, readChanCount, false);
+      // Write-through: an interactive read that landed on the segment grid IS
+      // the segment the background walk would fetch for that index -- store it
+      // under the walk's own key (writeThroughKey shares prefetchCacheKey with
+      // the controller's keyFor) so the walk's `cache.has` skips it instead of
+      // re-transferring the identical bytes. Without this, enabling preload
+      // re-fetched the window the user was already looking at on every
+      // (re)target (~430 KB per 10 s level-0 page on a 129-channel store).
+      // `put` (evicting), not `putIfRoom`: the user has actively looked at this
+      // window, which is exactly the recency signal the LRU exists to keep.
+      const wtKey = writeThroughKey({
+        enabled: readPreloadEnabled,
+        groupName: g.name,
+        level: win.level,
+        startS: start,
+        endS: end,
+        segmentSeconds: readWindowLengthS,
+        rowStart: readChanStart,
+        rowEnd: Math.min(g.nChannels, readChanStart + readChanCount),
+      });
+      if (wtKey !== null && !prefetchCache.put(wtKey, win, windowDataBytes(win))) {
+        // put() only refuses when this single window exceeds the whole cache
+        // cap -- that means the write-through (and the preloader itself) can
+        // no longer cache anything at this geometry. Say so instead of letting
+        // the optimization die silently under a future geometry change.
+        console.warn(
+          `[eeg-viewer] preload write-through skipped: window (${windowDataBytes(win)} bytes) exceeds the cache cap (${prefetchCache.capacityBytes} bytes)`,
+        );
+      }
+      return { win, filtered: false };
     }
     const padS = Math.min(2, (end - start) * 0.5);
     const pStart = Math.max(0, start - padS);

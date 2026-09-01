@@ -174,6 +174,63 @@ export function segmentIndexForTime(
   return Math.max(0, rounded);
 }
 
+/** Cache key for one background-preloaded segment: unique to the group, the
+ *  pyramid level it was read at, the visible channel-row range, and the
+ *  segment width (tied to the viewer's current window length) so a retarget
+ *  never collides with a stale entry from a prior one. Lives here (not
+ *  viewer.ts) so the interactive write-through gate below and the
+ *  controller's `keyFor` provably share one key scheme. */
+export function prefetchCacheKey(
+  groupName: string,
+  level: number,
+  r0: number,
+  r1: number,
+  segS: number,
+  seg: number,
+): string {
+  return `${groupName}|L${level}|R${r0}-${r1}|W${segS}|S${seg}`;
+}
+
+export interface WriteThroughParams {
+  /** The viewer's preload toggle at the time the read STARTED. */
+  enabled: boolean;
+  groupName: string;
+  /** Pyramid level the window was actually read at (`WindowData.level`). */
+  level: number;
+  /** The read's own time window, seconds. */
+  startS: number;
+  endS: number;
+  /** Segment width of the preloader's grid (the window length the read used). */
+  segmentSeconds: number;
+  /** The read's own channel-row range [rowStart, rowEnd). */
+  rowStart: number;
+  rowEnd: number;
+}
+
+/**
+ * Decide whether an interactive window read is exactly one of the background
+ * preloader's segments, and return that segment's cache key (else null). Pure
+ * gate for the viewer's write-through: a grid-aligned interactive read IS the
+ * segment the walk would fetch, so storing it under the walk's own key saves
+ * the walk re-transferring identical bytes.
+ *
+ * Every geometry input is an explicit parameter deliberately: the caller must
+ * capture them BEFORE awaiting the network read and pass the captured values,
+ * because the viewer's live closure state (channel scroll position, window
+ * length) can change while the read is in flight — keying by the live values
+ * would store the OLD window's data under the NEW state's key, and a later
+ * cache hit would render the wrong traces.
+ */
+export function writeThroughKey(p: WriteThroughParams): string | null {
+  if (!p.enabled) return null;
+  const seg = segmentIndexForTime(p.startS, p.segmentSeconds);
+  if (seg === null) return null;
+  // Only a full-width segment qualifies; a clamped trailing window (or any
+  // other partial span) holds different data than the grid segment would.
+  if (Math.abs(p.endS - p.startS - p.segmentSeconds) > 1e-6) return null;
+  return prefetchCacheKey(p.groupName, p.level, p.rowStart, p.rowEnd, p.segmentSeconds, seg);
+}
+
 export interface PrefetchTransport<T> {
   /** Fetch one segment. Must observe `signal` (reject/throw once it fires, or
    *  at least return promptly) so `PrefetchController.stop()` is a clean
