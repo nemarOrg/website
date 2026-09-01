@@ -4,7 +4,9 @@ import {
   PrefetchController,
   type PrefetchTransport,
   outwardOrder,
+  prefetchCacheKey,
   segmentIndexForTime,
+  writeThroughKey,
 } from "./prefetch";
 
 // Realistic chunk size: a 10 s window at 250 Hz across a 32-channel montage,
@@ -461,5 +463,57 @@ describe("PrefetchController", () => {
     expect(progressBatchSizes.length).toBeGreaterThan(0);
     expect(progressBatchSizes.length).toBeLessThan(total / 4);
     expect(progressBatchSizes.at(-1)).toBe(total); // the final flush reports full coverage
+  });
+});
+
+describe("writeThroughKey", () => {
+  const base = {
+    enabled: true,
+    groupName: "eeg_250hz",
+    level: 2,
+    segmentSeconds: 10,
+    rowStart: 0,
+    rowEnd: 129,
+  };
+
+  it("returns the walk's own key for an exact-boundary window", () => {
+    // The invariant the write-through depends on: for a grid-aligned window,
+    // the key equals what a PrefetchController keyed by prefetchCacheKey would
+    // use for that segment index -- so the walk's cache.has() sees the entry.
+    const key = writeThroughKey({ ...base, startS: 30, endS: 40 });
+    expect(key).toBe(prefetchCacheKey("eeg_250hz", 2, 0, 129, 10, 3));
+  });
+
+  it("keys segment 0 for a window starting at t=0", () => {
+    expect(writeThroughKey({ ...base, startS: 0, endS: 10 })).toBe(
+      prefetchCacheKey("eeg_250hz", 2, 0, 129, 10, 0),
+    );
+  });
+
+  it("returns null for an arbitrary scrub position off the segment grid", () => {
+    expect(writeThroughKey({ ...base, startS: 31.4, endS: 41.4 })).toBeNull();
+  });
+
+  it("returns null for a clamped trailing window narrower than a segment", () => {
+    // Last page of a recording: end clamps to durationS, so the span is short
+    // of a full segment -- its data differs from what the walk would store.
+    expect(writeThroughKey({ ...base, startS: 30, endS: 37.2 })).toBeNull();
+  });
+
+  it("returns null when preload is disabled", () => {
+    expect(writeThroughKey({ ...base, enabled: false, startS: 30, endS: 40 })).toBeNull();
+  });
+
+  it("an oversized window refused by put() leaves the cache intact", () => {
+    // The viewer pairs writeThroughKey with cache.put and put() refuses an
+    // entry larger than the whole cap -- resident entries must survive that.
+    const cache = new ByteCappedLRUCache<string>(1000);
+    expect(cache.put("resident", "a", 400)).toBe(true);
+    const key = writeThroughKey({ ...base, startS: 30, endS: 40 });
+    expect(key).not.toBeNull();
+    expect(cache.put(key as string, "huge", 5000)).toBe(false);
+    expect(cache.has("resident")).toBe(true);
+    expect(cache.usedBytes).toBe(400);
+    expect(cache.has(key as string)).toBe(false);
   });
 });
