@@ -8,6 +8,13 @@ Architecture Decision Records (ADRs) capture significant decisions that shape th
 - `0000-template.md` is the template; copy it to start a new ADR. Do not edit `0000-template.md` itself.
 - Number sequentially. The next ADR after `0007-...` is `0008-...`.
 - Status flows `proposed` -> `accepted` -> (later) `superseded by ADR-NNNN`. Never delete an ADR; supersede it.
+- **Amendments.** When the world moves under an accepted ADR but the Decision itself still
+  holds — a factual correction, a narrowed or widened scope, a number that changed — append
+  a section headed `## Update — YYYY-MM-DD` saying what changed and stating plainly that the
+  decision stands. Do not edit the original Context, Decision or Alternatives sections: an
+  ADR is worth keeping because it records what was decided *and on what basis*, and quietly
+  rewriting either destroys the audit trail a reader came for. A change to the Decision is
+  not an amendment; that needs a superseding ADR. See ADR 0013 for the shape.
 - Keep each ADR short. If it grows past two screens, you are probably writing a design doc, not a decision.
 
 ## When to write an ADR
@@ -36,3 +43,5 @@ Add new entries here as you create ADRs:
 - ADR 0009 - [Route-scoped CSP `'unsafe-eval'` for the zarr signal-viewer codecs](0009-route-scoped-csp-unsafe-eval-zarr-viewer.md) (accepted)
 - ADR 0010 - [Tiered access: base (auto) vs service (admin-gated)](0010-tiered-access-base-service.md) (accepted)
 - ADR 0011 - [Soften the upload profile gate for existing service-access users](0011-soften-upload-profile-gate.md) (accepted)
+- ADR 0012 - [Recording navigation detaches the viewer from its inline row](0012-viewer-navigation-detaches-inline-row.md) (accepted)
+- ADR 0013 - [Viewer annotations are two BIDS kinds, stored locally only](0013-viewer-annotations-two-kinds-local-only.md) (accepted)

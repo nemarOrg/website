@@ -31,3 +31,35 @@ export function classifyFile(filename: string): FileClassification {
     ext,
   };
 }
+
+/**
+ * Directory-keyed signal recordings (website#252). A MEF3 iEEG recording is a
+ * DIRECTORY (`..._ieeg.mefd/`), as is a CTF MEG recording (`..._meg.ds/`), so
+ * `classifyFile` never sees them; the dir-row renderer asks this instead.
+ * 4D/BTi directory recordings carry no extension at all and are recognized at
+ * annotate time from the zarr index (mirroring the producer's content-keyed
+ * detection in nemar-cli's `generate_zarr.py`), not here. Returns the
+ * lowercase extension or null for an ordinary directory. A bare `.mefd`/`.ds`
+ * (no stem) is not a recording name and returns null.
+ */
+export function signalDirExt(dirname: string): "mefd" | "ds" | null {
+  const m = /^(.+)\.(mefd|ds)$/.exec(dirname.toLowerCase());
+  return m ? (m[2] as "mefd" | "ds") : null;
+}
+
+/**
+ * True when a recording named by the Zarr index is a DIRECTORY rather than a
+ * single file (website#252), decided from the name alone.
+ *
+ * Asked by callers that have a recording path but no tree row to read
+ * `data-dir-recording` off — the viewer's recording navigation (website#253)
+ * can reach a recording in a directory the tree never rendered. It is the
+ * complement of `classifyFile().isEEG` rather than `signalDirExt() !== null`
+ * on purpose: that covers `.mefd`/`.ds` AND the extensionless 4D/BTi case,
+ * which has no name-derived marker at all. Safe as a complement only because
+ * every path it is asked about came from the index, which lists recordings
+ * and nothing else.
+ */
+export function isDirRecordingName(name: string): boolean {
+  return !classifyFile(name).isEEG;
+}

@@ -21,6 +21,7 @@ import { zarrStoreUrl } from "../zarr-base";
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
+import { type AnnotationLayer, annotateGlyph, createAnnotationLayer } from "./annotation-ui";
 import {
   type Modality,
   autoscaleGain,
@@ -36,6 +37,23 @@ import { type EventType, buildEventTypes, eventsInWindow } from "./events";
 import { type FilterSpec, designFilters, filtfilt, hasFilters } from "./filters";
 import { type GlTraceRenderer, createGlTraceRenderer } from "./gl-trace";
 import {
+  ByteCappedLRUCache,
+  PrefetchController,
+  type PrefetchTransport,
+  prefetchCacheKey,
+  segmentIndexForTime,
+  writeThroughKey,
+} from "./prefetch";
+import {
+  DEFAULT_NAV_ORDER,
+  NAV_ORDERS,
+  NAV_ORDER_CHANGED_EVENT,
+  NAV_ORDER_LABELS,
+  normalizeNavOrder,
+  readNavOrder,
+  writeNavOrder,
+} from "./recording-nav";
+import {
   DEFAULT_RENDER,
   type FrameChannel,
   type ViewerFrame,
@@ -50,9 +68,13 @@ import {
   type GroupHandle,
   type RecordingStore,
   type WindowData,
+  chooseWindowLevel,
   openRecording,
+  readLevel0,
   readOverview,
+  readViewLevel,
   readWindow,
+  windowDataBytes,
 } from "./store";
 import { type TopoChannel, VIRIDIS_CSS, type Vec3, projectPositions, renderTopomap } from "./topo";
 
@@ -68,6 +90,13 @@ export interface ViewerOptions {
   zarrToken?: string;
   /** Data-plane URL for the "download instead" fallback when no store exists. */
   downloadUrl?: string;
+  /**
+   * True when this recording is a DIRECTORY (`.mefd`/`.ds`/BTi, website#252).
+   * Such a recording has no single file to offer, so the "unavailable"
+   * fallback points at the tree row's expand arrow instead of a download link
+   * that would resolve to raw directory listing JSON.
+   */
+  dirRecording?: boolean;
   /**
    * Producer-supplied reason this recording has no viewer (from the Zarr index
    * `failures`): a trial-averaged/epoched derivative, a corrupt file, etc. When
@@ -90,6 +119,105 @@ export interface ViewerOptions {
    * toggle. The caller owns the sequencing, so it supplies the check.
    */
   isStale?: () => boolean;
+  /**
+   * View settings carried over from the recording the user just navigated away
+   * from (website#253). Absent for a fresh open, and every field is applied
+   * defensively — a seeded value is a preference, not a guarantee the new
+   * recording can honour it.
+   */
+  transfer?: ViewerTransferState;
+  /**
+   * Receives a snapshot getter once the instance is live, so the caller can
+   * carry the current settings into the next recording. Called at most once,
+   * and never for a mount that produced no viewer.
+   */
+  onTransfer?: (snapshot: () => ViewerTransferState) => void;
+  /**
+   * Receives a handle on the instance's annotation state, on the same terms as
+   * `onTransfer` (once, only for a mount that produced a viewer).
+   *
+   * The page needs it because a recording swap destroys this instance, and an
+   * annotation popover holds an unsaved draft that lives nowhere else — so the
+   * chrome around the viewer has to be able to ask before it navigates.
+   */
+  onAnnotations?: (handle: ViewerAnnotationHandle) => void;
+}
+
+/**
+ * What the page may ask (and tell) the mounted instance's annotation layer.
+ * Deliberately the two questions the surrounding chrome actually has, not a
+ * pass-through of the whole layer: everything else about annotations is the
+ * viewer's own business.
+ */
+export interface ViewerAnnotationHandle {
+  /** True while a popover is open, i.e. a draft exists only in that popover. */
+  isPopoverOpen(): boolean;
+  /** Flash and focus the open popover; no-op when none is open. */
+  focusPopover(): void;
+}
+
+/**
+ * The slice of viewer state that survives a recording swap (website#253).
+ *
+ * Deliberately a flat, plain-data record rather than a handle on the live
+ * instance: the snapshot is read just before the old instance is destroyed and
+ * applied to a new one, so sharing a mutable object (the `FilterSpec`, in
+ * particular) would let the new mount write back into the old mount's closure.
+ *
+ * What is left out is as considered as what is in:
+ * - **Window position** resets to the start of the new recording. Second 400
+ *   of a 10-minute rest run is not second 400 of a 90-second oddball run, and
+ *   landing past the end of a shorter recording reads as a broken viewer.
+ * - **Bad channels** are per-recording labels. Carrying "T7 is bad" from one
+ *   subject to another asserts something about data nobody has looked at.
+ * - **Group index** — channel groups differ per recording, so the new store's
+ *   first group is the only safe default.
+ */
+export interface ViewerTransferState {
+  windowLengthS: number;
+  /** Only honoured when `gainManuallySet` AND the new recording's first group
+   *  is the same modality; otherwise auto-scale (website#109) runs against the
+   *  new recording's own amplitude, a better estimate than whatever suited the
+   *  previous one. */
+  gain: number;
+  gainManuallySet: boolean;
+  /**
+   * The modality `gain` was chosen against. Gain is a physical scale (µV/div
+   * for EEG, fT/div for MEG), so carrying a manual one across modalities is
+   * wrong by orders of magnitude — a flat line or a wall of clipping.
+   *
+   * Optional so a transfer record written before this field existed still type
+   * checks; absent means "unknown", which is treated as a match, i.e. the
+   * behaviour this field was added to narrow.
+   */
+  modality?: string;
+  /** Visible channel count, or null for "the whole montage" — the default,
+   *  which must not travel as a literal number or a 64-channel view would clip
+   *  a 128-channel recording to its first half. */
+  chanCount: number | null;
+  hp: number | null;
+  lp: number | null;
+  notch: number | null;
+  /** Whether the user chose the notch themselves. When false, the new
+   *  recording's own PowerLineFrequency default wins. */
+  notchUserSet: boolean;
+  dcRemove: boolean;
+  showEvents: boolean;
+  butterfly: boolean;
+  timeClock: boolean;
+  hideBad: boolean;
+  showTopo: boolean;
+  /**
+   * Whether annotation mode was on (website#255). Optional so a transfer
+   * record written before this field existed still type-checks; absent means
+   * "off", which is also the default for a fresh open.
+   *
+   * The annotations themselves never travel — they are per-recording, keyed in
+   * IndexedDB, and the new mount loads the target's own. Only the *mode*
+   * carries, so someone stepping through twenty runs marking artifacts does
+   * not re-arm the tool twenty times.
+   */
+  annotating?: boolean;
 }
 
 const WINDOW_CHOICES = [2, 5, 10, 20, 30];
@@ -120,6 +248,105 @@ const MIN_VISIBLE_CHANNELS = 4;
 /** Fraction of a channel slot's half-height the auto-scale estimator targets
  *  (website#109) -- the midpoint of the issue's "60-80% of the slot" goal. */
 const AUTOSCALE_TARGET_FRACTION = 0.7;
+
+// --- Background preload (website#254) --------------------------------------
+// Off by default; a gear toggle persists the choice client-side (localStorage
+// alongside the viewer's other set-once preferences -- no server state, and a
+// cookie would needlessly ride every request per the issue).
+const PRELOAD_ENABLED_KEY = "nemar:eeg-preload";
+const PRELOAD_CAP_KEY = "nemar:eeg-preload-cap-mb";
+const DEFAULT_PRELOAD_CAP_MB = 500;
+const PRELOAD_CAP_CHOICES: Array<[string, string]> = [
+  ["250", "250 MB"],
+  ["500", "500 MB"],
+  ["1000", "1 GB"],
+];
+
+/** True when the browser signals the user wants reduced data usage
+ *  (`Save-Data: on` / Chromium's Data Saver). Progressive enhancement:
+ *  `navigator.connection` is Chromium-only, so absence just means "no
+ *  signal" and changes nothing. Exported for unit tests. */
+export function saveDataRequested(): boolean {
+  try {
+    // Hardened/privacy browsers can make the `navigator.connection` accessor
+    // itself throw (fingerprinting countermeasures). That must degrade to
+    // "no signal", not take down the whole viewer mount.
+    if (typeof navigator === "undefined") return false;
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    return conn?.saveData === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a manually-set gain may travel from one recording to the next
+ * (website#253's transfer, narrowed).
+ *
+ * `gain` multiplies the modality's own `DEFAULT_SCALINGS`, so it is a physical
+ * scale — µV/div for EEG, fT/div for MEG — not a dimensionless zoom. Carrying
+ * one across a modality change is wrong by orders of magnitude and shows up as
+ * a flat line or a wall of clipping, with no control on screen explaining why.
+ * Within a modality it is exactly the preference the user set and must survive.
+ *
+ * An absent or empty modality on either side counts as a match, per the repo's
+ * null-safety convention for backend-shaped data (`splitModalities("") === []`
+ * and friends): the store's `modality` is a free-text attr that can be missing,
+ * and a missing value is not evidence of a mismatch. The comparison is
+ * case-insensitive because the same attr arrives as both "EEG" and "eeg".
+ *
+ * Pure and exported so the failure mode above is covered by a test rather than
+ * living unexercised inside the mount closure.
+ */
+export function gainCarriesOver(
+  previousModality: string | undefined,
+  nextModality: string | undefined,
+): boolean {
+  const from = (previousModality ?? "").trim().toUpperCase();
+  const to = (nextModality ?? "").trim().toUpperCase();
+  if (from === "" || to === "") return true;
+  return from === to;
+}
+
+/** Exported for unit tests (Save-Data precedence over the stored opt-in). */
+export function loadPreloadEnabled(): boolean {
+  // A browser-level "reduce data" preference outranks a stored opt-in from a
+  // previous session: background-preloading a whole recording (potentially
+  // hundreds of MB) is exactly what Save-Data asks sites not to do. The gear
+  // toggle still works for the current mount if the user insists.
+  if (saveDataRequested()) return false;
+  try {
+    return localStorage.getItem(PRELOAD_ENABLED_KEY) === "1";
+  } catch {
+    return false; // localStorage unavailable (privacy mode, SSR); default off is safe
+  }
+}
+
+function savePreloadEnabled(enabled: boolean): void {
+  try {
+    if (enabled) localStorage.setItem(PRELOAD_ENABLED_KEY, "1");
+    else localStorage.removeItem(PRELOAD_ENABLED_KEY);
+  } catch {
+    /* localStorage unavailable; the choice applies this session only */
+  }
+}
+
+function loadPreloadCapMB(): number {
+  try {
+    const raw = Number(localStorage.getItem(PRELOAD_CAP_KEY));
+    return PRELOAD_CAP_CHOICES.some(([v]) => Number(v) === raw) ? raw : DEFAULT_PRELOAD_CAP_MB;
+  } catch {
+    return DEFAULT_PRELOAD_CAP_MB;
+  }
+}
+
+function savePreloadCapMB(mb: number): void {
+  try {
+    localStorage.setItem(PRELOAD_CAP_KEY, String(mb));
+  } catch {
+    /* localStorage unavailable; the choice applies this session only */
+  }
+}
 
 /**
  * Per-channel magnitude arrays for the auto-scale amplitude estimate, built
@@ -193,6 +420,10 @@ export async function mountEegViewer(
   let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
+  // True once this mount's destroy() has run, so the fire-and-forget callbacks
+  // below (view-level discovery settling, the preloader's stall notice) stop
+  // touching DOM they no longer own.
+  let disposed = false;
   let groupIndex = 0;
   let windowStartS = 0;
   let windowLengthS = 10;
@@ -211,6 +442,10 @@ export async function mountEegViewer(
   let chanStart = 0;
   let chanCount = store.groups[0].nChannels; // default: whole montage (overview)
   const filters: FilterSpec = { hp: null, lp: null, notch: null };
+  // Tracks whether the notch came from the user or from the recording's own
+  // PowerLineFrequency, so a recording swap re-defaults it only in the latter
+  // case (website#253).
+  let notchUserSet = false;
   let renderSeq = 0;
   let renderInFlight = false;
   let renderQueued = false;
@@ -219,6 +454,105 @@ export async function mountEegViewer(
   let butterfly = false;
   let hideBad = false;
   const badChannels = new Set<string>();
+
+  // Background preload (website#254): a byte-capped cache of decoded windows
+  // ("segments" -- fixed-width slices of the recording, currently the window
+  // length) fed by a low-priority scheduler that walks outward from the
+  // playhead. `lastWinLevel` mirrors the pyramid level the interactive path
+  // actually rendered last, which is what the preloader targets ("the current
+  // view level", per the issue) instead of re-deriving the pixel-width
+  // heuristic for windows that are not on screen. `prefetchSignature` guards
+  // against restarting the walk on every render tick -- only an actual change
+  // to (group, level, channel rows, segment width) or enabling the feature
+  // should reset it.
+  let preloadEnabled = loadPreloadEnabled();
+  let preloadCapMB = loadPreloadCapMB();
+  const prefetchCache = new ByteCappedLRUCache<WindowData>(preloadCapMB * 1024 * 1024);
+  let lastWinLevel: number | null = null;
+  let bufferedSegments = new Set<number>();
+  let bufferedSegmentS = 0; // segment width the current bufferedSegments indices are relative to
+  let prefetchSignature = "";
+  const prefetchController = new PrefetchController<WindowData>({
+    cache: prefetchCache,
+    transport: { fetchSegment: () => Promise.reject(new Error("prefetch not targeted yet")) },
+    keyFor: () => "",
+    onProgress: (covered) => {
+      bufferedSegments = new Set(covered);
+      drawOverview();
+    },
+    onStalled: () => syncPreloadNote(),
+  });
+
+  /**
+   * The "preload paused" note, DERIVED rather than latched.
+   *
+   * `PrefetchController.stalled` is the single source of truth: the breaker
+   * sets it, and both `start()` and `stop()` clear it, so it can never say
+   * "stalled" about a walk that is running, or about no walk at all. A local
+   * mirror of the flag could — and did: the recovery this note advertises
+   * (toggle off and on) goes through `updatePrefetchTarget`, which returns
+   * early when no view level is known yet, so a latched copy survived its own
+   * cure and the note stuck permanently. The outage that trips the breaker is
+   * the same one that fails the interactive read which would have supplied a
+   * level, so that was the common case rather than the corner.
+   *
+   * Re-derived on every render for the same reason `syncDegradedNote` is: a
+   * note that only updates on the paths that set it is a note that gets stuck.
+   */
+  function syncPreloadNote(): void {
+    if (disposed) return;
+    const show = preloadEnabled && prefetchController.stalled;
+    ui.preloadNote.hidden = !show;
+    ui.preloadNote.textContent = show
+      ? "Preload paused — network trouble. Turn it off and on again to retry."
+      : "";
+  }
+
+  /** (Re)targets and, when the target actually changed, restarts the
+   *  background walk. Called after every render (cheap no-op when nothing
+   *  about the target changed) and from the gear controls that affect it. */
+  function updatePrefetchTarget(): void {
+    if (!preloadEnabled || lastWinLevel === null) {
+      prefetchController.stop();
+      prefetchSignature = ""; // force a real restart next time preload is enabled
+      // `stop()` retires the stall along with the walk, so the note goes too.
+      // This is the toggle-off half of the recovery, and the group-switch path.
+      syncPreloadNote();
+      return;
+    }
+    const g = group();
+    const level = lastWinLevel;
+    const r0 = chanStart;
+    const r1 = Math.min(g.nChannels, chanStart + chanCount);
+    const segS = Math.max(0.5, windowLengthS);
+    const signature = `${groupIndex}|${level}|${r0}-${r1}|${segS}`;
+    if (signature === prefetchSignature) return;
+    prefetchSignature = signature;
+    const transport: PrefetchTransport<WindowData> = {
+      async fetchSegment(seg, signal) {
+        const start = seg * segS;
+        const end = Math.min(g.durationS, start + segS);
+        const view = level > 0 ? g.viewLevels[level - 1] : undefined;
+        const win = view
+          ? await readViewLevel(g, view, start, end, r0, r1, signal)
+          : await readLevel0(g, start, end, r0, r1, signal);
+        return { value: win, bytes: windowDataBytes(win) };
+      },
+    };
+    prefetchController.retarget({
+      transport,
+      keyFor: (seg) => prefetchCacheKey(g.name, level, r0, r1, segS, seg),
+    });
+    bufferedSegments = new Set();
+    bufferedSegmentS = segS;
+    const total = Math.max(1, Math.ceil(g.durationS / segS));
+    const center = Math.max(0, Math.min(total - 1, Math.floor(windowStartS / segS)));
+    prefetchController.start(total, center);
+    // `start()` clears the breaker, so a restart retires the notice — here
+    // rather than in each of the handlers that can cause one (the preload
+    // toggle, the cache cap, a group switch).
+    syncPreloadNote();
+  }
   // Topomap state. The projection is computed once (positions are fixed per
   // recording); topoTime tracks the cursor (null -> window center).
   let showTopo = false;
@@ -260,12 +594,16 @@ export async function mountEegViewer(
   // this function, and the `isStale` check after the await ruled out a newer
   // mount having taken ownership in the meantime.
   slot.innerHTML = "";
-  const ui = buildDom(slot, store, eventTypes);
+  const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB);
   const cleanups: Array<() => void> = [];
   // Default the notch filter from the recording's PowerLineFrequency (the converter
   // embeds it in the store attrs; the Notch select already reflects it). Datasets
-  // without the sidecar field stay unfiltered.
-  filters.notch = Number(ui.notch.value) || null;
+  // without the sidecar field stay unfiltered. The declared line frequency can
+  // still sit above this recording's Nyquist (60 Hz on a 100 Hz store), so it
+  // goes through the same honesty check a transferred cutoff does.
+  filters.notch = usableCutoff(Number(ui.notch.value) || null);
+  ui.notch.value = String(filters.notch ?? 0);
+  applyTransfer(opts.transfer);
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
     renderUnavailable(slot, opts, new Error("canvas 2D unavailable"));
@@ -280,8 +618,96 @@ export async function mountEegViewer(
   const glRenderer: GlTraceRenderer | null = createGlTraceRenderer(ui.glCanvas);
   if (!glRenderer) ui.glCanvas.style.display = "none";
 
+  // HED annotation layer (website#255). Self-contained: it owns an overlay
+  // canvas above the chrome canvas, a popover and the panel under the scope,
+  // and reads this instance's geometry rather than reaching into its render
+  // loop. Created here (not on first use) because annotations already made for
+  // this recording have to be restored and drawn even when the tool is off.
+  const annotations: AnnotationLayer = createAnnotationLayer({
+    root: ui.root,
+    scope: ui.scope,
+    panel: ui.annotPanel,
+    toggleBtn: ui.annotateBtn,
+    key: { datasetId: opts.datasetId, version: opts.version, filePath: opts.filePath },
+    getSelectedChannels: () => [...badChannels],
+    setChannelMarks: (bad, good) => {
+      for (const label of bad) badChannels.add(label);
+      for (const label of good) badChannels.delete(label);
+      render();
+    },
+    // Only the minimap needs redrawing when an annotation changes; the trace
+    // overlay is the layer's own canvas and it repaints that itself. A full
+    // render() here would re-read the window from the store for nothing.
+    requestOverviewRedraw: () => drawOverview(),
+  });
+  cleanups.push(() => annotations.destroy());
+  if (opts.transfer?.annotating) annotations.setActive(true);
+
   function group(): GroupHandle {
     return store.groups[groupIndex];
+  }
+
+  // --- degraded view pyramid ------------------------------------------------
+  // `GroupHandle.viewLevelsDegraded` is the store's way of saying "the pyramid
+  // in `viewLevels` is truncated because discovery hit a real failure", as
+  // opposed to "this recording genuinely has that few levels". Only the first
+  // is worth telling anyone about, and only the first is actionable (reload),
+  // so it gets a standing note rather than a console warning nobody reads.
+  // Without this the overview minimap and wide windows silently draw from a
+  // partial pyramid and look like a short recording.
+
+  /**
+   * Status-line suffix for a degraded group; "" when the pyramid is intact.
+   *
+   * Deliberately does not name a cause. `ViewLevelDiscoveryError` covers a
+   * retry-exhausted 5xx, a 403 from an expired token and a decode error alike,
+   * and the flag does not say which — so "connection problem" would be a guess
+   * presented as a diagnosis. What the reader can act on is the same either
+   * way: reload.
+   */
+  function degradedNote(g: GroupHandle): string {
+    return g.viewLevelsDegraded ? " · overview incomplete" : "";
+  }
+
+  /**
+   * The composed status line. Held as a base string so the degradation suffix
+   * can be re-applied when discovery settles *after* the frame that wrote it —
+   * see `watchViewLevels`. Empty base means the line currently carries a
+   * transient message (loading, or a read failure) that must not be rewritten.
+   */
+  let statusBase = "";
+  function renderStatus(): void {
+    if (!statusBase) return;
+    ui.status.textContent = statusBase + degradedNote(group());
+  }
+
+  function syncDegradedNote(): void {
+    if (disposed) return;
+    const degraded = group().viewLevelsDegraded;
+    ui.overviewNote.hidden = !degraded;
+    ui.overviewNote.textContent = degraded
+      ? "Overview incomplete — some zoom levels failed to load. Reload to try again."
+      : "";
+  }
+
+  /**
+   * Re-check a group once its view-level discovery settles. First paint
+   * deliberately does not wait for `viewLevelsReady`, so a group can flip to
+   * degraded well after a frame is already on screen; without this hook the
+   * note would only appear on the user's next interaction, if ever. Attached
+   * once per group (a group switch brings its own handle).
+   */
+  const degradeWatched = new Set<GroupHandle>();
+  function watchViewLevels(g: GroupHandle): void {
+    if (degradeWatched.has(g)) return;
+    degradeWatched.add(g);
+    // `viewLevelsReady` never rejects — discovery failures resolve to the
+    // partial level list and set the flag — so there is nothing to catch.
+    void g.viewLevelsReady.then(() => {
+      if (disposed || group() !== g) return;
+      syncDegradedNote();
+      renderStatus();
+    });
   }
 
   function clamp(): void {
@@ -289,6 +715,106 @@ export async function mountEegViewer(
     chanCount = Math.min(Math.max(MIN_VISIBLE_CHANNELS, chanCount), g.nChannels);
     chanStart = Math.max(0, Math.min(chanStart, g.nChannels - chanCount));
     windowStartS = Math.min(Math.max(0, windowStartS), Math.max(0, g.durationS - windowLengthS));
+  }
+
+  /**
+   * A cutoff this recording can actually apply, or null.
+   *
+   * `designFilters` drops anything at or above the Nyquist, which is correct
+   * signal processing and a terrible UI on its own: the select would still
+   * read "30" while nothing filtered. Every cutoff that reaches `filters`
+   * passes through here, so what the gear shows is what runs — a 30 Hz
+   * low-pass on a 40 Hz recording becomes an honest "off" instead.
+   */
+  function usableCutoff(hz: number | null): number | null {
+    return hz !== null && hz > 0 && hz < store.groups[0].rate / 2 ? hz : null;
+  }
+
+  /**
+   * Seed this instance from the settings the user had on the previous
+   * recording (website#253). Every field is optional in effect: a value the
+   * new recording cannot honour (a channel count it does not have, a window
+   * length that is not one of the choices) is dropped or clamped rather than
+   * forced, because the alternative is a viewer that opens in a state its own
+   * controls could not have produced.
+   */
+  function applyTransfer(t: ViewerTransferState | undefined): void {
+    if (!t) return;
+    if (WINDOW_CHOICES.includes(t.windowLengthS)) {
+      windowLengthS = t.windowLengthS;
+      ui.win.value = String(t.windowLengthS);
+    }
+    // The user overrode auto-scale on the previous recording; respect that here
+    // too rather than re-estimating and appearing to undo their work — but only
+    // within one modality (see `gainCarriesOver`). Across modalities, drop it
+    // and let auto-scale measure the new recording instead.
+    const carries = gainCarriesOver(t.modality, store.groups[0].modality);
+    if (t.gainManuallySet && carries && Number.isFinite(t.gain) && t.gain > 0) {
+      gain = t.gain;
+      gainManuallySet = true;
+      autoscalePending = false;
+    }
+    // `clamp()` bounds this against the new montage on the first render, so a
+    // 32-channel zoom into a 16-channel recording simply shows all 16.
+    if (t.chanCount !== null && t.chanCount > 0) chanCount = t.chanCount;
+    // Cutoffs go through `usableCutoff`: one the new recording cannot apply is
+    // carried over as "off" rather than as a setting the gear shows active and
+    // `designFilters` silently drops.
+    filters.hp = usableCutoff(t.hp);
+    filters.lp = usableCutoff(t.lp);
+    ui.hp.value = String(filters.hp ?? 0);
+    ui.lp.value = String(filters.lp ?? 0);
+    if (t.notchUserSet) {
+      filters.notch = usableCutoff(t.notch);
+      ui.notch.value = String(filters.notch ?? 0);
+      notchUserSet = true;
+    }
+    dcRemove = t.dcRemove;
+    showEvents = t.showEvents;
+    butterfly = t.butterfly;
+    timeClock = t.timeClock;
+    hideBad = t.hideBad;
+    ui.dc.checked = dcRemove;
+    ui.events.checked = showEvents;
+    ui.butterflyCheck.checked = butterfly;
+    ui.clockCheck.checked = timeClock;
+    ui.hideBadCheck.checked = hideBad;
+    // Only reopen the topomap when this recording actually has a scalp layout;
+    // a montage-less or intracranial recording keeps the panel closed.
+    if (t.showTopo && topoLayout && !ui.topoBtn.disabled) {
+      showTopo = true;
+      ui.topo.style.display = "flex";
+      ui.topoBtn.setAttribute("aria-pressed", "true");
+      ui.topoBtn.classList.add("eegv__btn--active");
+    }
+  }
+
+  /** Current transferable settings, read at swap time (website#253). */
+  function snapshotTransfer(): ViewerTransferState {
+    return {
+      windowLengthS,
+      gain,
+      gainManuallySet,
+      // What `gain` is a scale *of*; the next mount refuses it across a
+      // modality change (see applyTransfer).
+      modality: group().modality,
+      // Normalize "the whole montage" to null so it stays whole-montage on a
+      // recording with a different channel count.
+      chanCount: chanCount >= group().nChannels ? null : chanCount,
+      // `FilterSpec`'s fields are optional; the transfer record is not, so
+      // normalize "unset" to the null the selects already use for "off".
+      hp: filters.hp ?? null,
+      lp: filters.lp ?? null,
+      notch: filters.notch ?? null,
+      notchUserSet,
+      dcRemove,
+      showEvents,
+      butterfly,
+      timeClock,
+      hideBad,
+      showTopo,
+      annotating: annotations.isActive(),
+    };
   }
 
   function sizeCanvas(): { w: number; h: number } {
@@ -344,10 +870,80 @@ export async function mountEegViewer(
     plotWidth: number,
   ): Promise<{ win: WindowData; filtered: boolean }> {
     if (!hasFilters(filters)) {
-      return {
-        win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false),
-        filtered: false,
-      };
+      // Opportunistic cache hit (website#254): when this window falls exactly
+      // on the preloader's segment grid at the level it last rendered, serve
+      // it from the cache instead of a network read. This is what makes
+      // "paging" (Page back/forward, Home/End) instant once the background
+      // walk has reached that segment -- an arbitrary scrub position rarely
+      // lands on a grid line, so it falls through to the normal read below,
+      // same as preload being off.
+      //
+      // `lastWinLevel` is the level the *previous* frame rendered, not
+      // necessarily what this frame's own geometry calls for -- an Enlarge
+      // resize (or any other plotWidth change without a remount) can move
+      // the two out of sync. Re-derive the level readWindow would actually
+      // choose for the CURRENT plotWidth and only trust the cache when it
+      // agrees; otherwise fall through to a real read (which also corrects
+      // lastWinLevel for next time, so this is self-healing, not a permanent
+      // miss). This guard only applies to this unfiltered branch -- the
+      // filtered path below always calls readWindow directly and never
+      // consults the cache, since preload only ever stores unfiltered
+      // windows.
+      if (preloadEnabled && lastWinLevel !== null) {
+        const seg = segmentIndexForTime(start, windowLengthS);
+        const expectedLevel = chooseWindowLevel(g, start, end, plotWidth, false);
+        if (
+          seg !== null &&
+          Math.abs(end - start - windowLengthS) < 1e-6 &&
+          expectedLevel === lastWinLevel
+        ) {
+          const r1 = Math.min(g.nChannels, chanStart + chanCount);
+          const key = prefetchCacheKey(g.name, lastWinLevel, chanStart, r1, windowLengthS, seg);
+          const cached = prefetchCache.get(key);
+          if (cached) return { win: cached, filtered: false };
+        }
+      }
+      // Capture every geometry input BEFORE the await: chanStart/chanCount/
+      // windowLengthS are live closure state that user input (the channel
+      // scrollbar, a window-length change) can mutate while the read is in
+      // flight. The write-through key below must describe the read that
+      // actually happened, not the state at completion time -- keying by the
+      // live values would store this window's data under the new state's key,
+      // and a later cache hit would render the wrong traces.
+      const readChanStart = chanStart;
+      const readChanCount = chanCount;
+      const readWindowLengthS = windowLengthS;
+      const readPreloadEnabled = preloadEnabled;
+      const win = await readWindow(g, start, end, plotWidth, readChanStart, readChanCount, false);
+      // Write-through: an interactive read that landed on the segment grid IS
+      // the segment the background walk would fetch for that index -- store it
+      // under the walk's own key (writeThroughKey shares prefetchCacheKey with
+      // the controller's keyFor) so the walk's `cache.has` skips it instead of
+      // re-transferring the identical bytes. Without this, enabling preload
+      // re-fetched the window the user was already looking at on every
+      // (re)target (~430 KB per 10 s level-0 page on a 129-channel store).
+      // `put` (evicting), not `putIfRoom`: the user has actively looked at this
+      // window, which is exactly the recency signal the LRU exists to keep.
+      const wtKey = writeThroughKey({
+        enabled: readPreloadEnabled,
+        groupName: g.name,
+        level: win.level,
+        startS: start,
+        endS: end,
+        segmentSeconds: readWindowLengthS,
+        rowStart: readChanStart,
+        rowEnd: Math.min(g.nChannels, readChanStart + readChanCount),
+      });
+      if (wtKey !== null && !prefetchCache.put(wtKey, win, windowDataBytes(win))) {
+        // put() only refuses when this single window exceeds the whole cache
+        // cap -- that means the write-through (and the preloader itself) can
+        // no longer cache anything at this geometry. Say so instead of letting
+        // the optimization die silently under a future geometry change.
+        console.warn(
+          `[eeg-viewer] preload write-through skipped: window (${windowDataBytes(win)} bytes) exceeds the cache cap (${prefetchCache.capacityBytes} bytes)`,
+        );
+      }
+      return { win, filtered: false };
     }
     const padS = Math.min(2, (end - start) * 0.5);
     const pStart = Math.max(0, start - padS);
@@ -447,6 +1043,11 @@ export async function mountEegViewer(
 
     let win: WindowData;
     let filtered = false;
+    // The background walk yields for the duration of every interactive read
+    // (website#254 "always yields priority to interactive fetches"), not just
+    // while one happens to be in flight when the walk checks -- depth-counted
+    // so back-to-back renders (a fast scrub) keep it held the whole time.
+    prefetchController.notifyInteractiveStart();
     try {
       ({ win, filtered } = await readFrame(g, start, end, plotWidth));
     } catch (err) {
@@ -456,12 +1057,23 @@ export async function mountEegViewer(
         const tc = themeColors(ui.root);
         glRenderer?.clear(tc.background); // wipe any stale GL frame under the overlay
         renderMessage(ctx, w, h, tc, `Signal unavailable: ${msg}`);
+        statusBase = ""; // a late `watchViewLevels` must not overwrite this
         ui.status.textContent = `signal unavailable: ${msg}`;
+        // This branch returns before `updatePrefetchTarget()` below, and it is
+        // the SAME outage that trips the preloader's breaker — so without this
+        // the note would be latched by a path that never re-evaluates it.
+        syncPreloadNote();
       }
       return;
+    } finally {
+      prefetchController.notifyInteractiveEnd();
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
     firstPaint = false;
+    // Track the level actually rendered and (re)target the preloader at it --
+    // a no-op when nothing about the target changed (see updatePrefetchTarget).
+    lastWinLevel = win.level;
+    updatePrefetchTarget();
     const modality = (g.modality as Modality) ?? "MISC";
 
     // Auto-scale (website#109): set the INITIAL gain from this recording's own
@@ -544,10 +1156,35 @@ export async function mountEegViewer(
         ? " · filtered"
         : " · filters need zoom-in"
       : "";
-    ui.status.textContent =
+    statusBase =
       `${g.name} · ${g.nChannels} ch @ ${g.rate} Hz (orig ${g.originalRate}) · ` +
       `${g.durationS.toFixed(0)} s · level ${win.level === 0 ? "0 (full)" : `view/${win.level}`}${filterNote} · ` +
       `${eventTypes.length} event type(s)`;
+    renderStatus();
+    // Discovery may already have failed (a fast failure beats first paint) or
+    // may still be running; the note covers the first case and the watcher the
+    // second.
+    syncDegradedNote();
+    watchViewLevels(g);
+    // Re-derived every frame, same as the note above: both are about a
+    // background failure that can start and end with no handler firing.
+    syncPreloadNote();
+
+    // Hand the annotation layer this frame's geometry so its overlay lines up
+    // with the traces (website#255). Read-only: it never writes back here.
+    annotations.onFrame({
+      cssWidth: w,
+      cssHeight: h,
+      plotLeft: lastPlotLeft,
+      plotTop: lastPlotTop,
+      plotWidth: lastPlotWidth,
+      plotHeight: lastPlotHeight,
+      windowStartS: start,
+      windowEndS: end,
+      channelLabels: frame.channels.map((c) => c.label),
+      slots: lastSlots,
+      butterfly,
+    });
 
     // Load and draw the overview minimap once.
     if (!overviewLoaded) {
@@ -621,6 +1258,25 @@ export async function mountEegViewer(
     // The whole-recording time axis, shared by the event ticks and the window box.
     const dur = g.durationS || 1;
 
+    // Buffered-region indicator (website#254): a thin strip along the very
+    // bottom, like a video player's buffered bar, shading the segments the
+    // background preloader has already cached at the current view level.
+    // `bufferedSegmentS` is the segment width those indices are relative to
+    // (reset together whenever the preloader retargets), so this always
+    // matches what `bufferedSegments` actually means even if the window
+    // length changed since the last progress update.
+    if (preloadEnabled && bufferedSegments.size > 0 && bufferedSegmentS > 0) {
+      const total = Math.max(1, Math.ceil(dur / bufferedSegmentS));
+      const barH = 3;
+      const barY = cssH - barH;
+      mctx.fillStyle = "rgba(0,114,178,0.35)";
+      for (const seg of bufferedSegments) {
+        const bx1 = (seg / total) * cssW;
+        const bx2 = ((seg + 1) / total) * cssW;
+        mctx.fillRect(bx1, barY, Math.max(1, bx2 - bx1), barH);
+      }
+    }
+
     // Prominent event ticks spanning the upper band; some alpha so dense clusters
     // read as density rather than a solid wall.
     if (store.events && eventTypes.length > 0) {
@@ -637,6 +1293,10 @@ export async function mountEegViewer(
       }
       mctx.globalAlpha = 1;
     }
+
+    // The user's own annotations (website#255), in a dedicated strip along the
+    // top edge so they are never mistaken for the dataset's event ticks below.
+    annotations.drawOverview(mctx, cssW, cssH, dur);
 
     // Current window box.
     const wStart = windowStartS;
@@ -816,8 +1476,50 @@ export async function mountEegViewer(
   });
   ui.notch.addEventListener("change", () => {
     filters.notch = Number(ui.notch.value) || null;
+    notchUserSet = true;
     syncGear();
     render();
+  });
+  ui.preloadCheck.addEventListener("change", () => {
+    preloadEnabled = ui.preloadCheck.checked;
+    savePreloadEnabled(preloadEnabled);
+    ui.preloadCap.disabled = !preloadEnabled;
+    // Toggling off and on is the retry the stall note advertises, and both
+    // halves land in `updatePrefetchTarget`: off stops the walk (retiring the
+    // breaker) and clears the signature, on starts a fresh one. Each exit syncs
+    // the note, so the advertised cure works even when no view level is known
+    // yet and the walk cannot restart at all.
+    updatePrefetchTarget();
+  });
+  ui.preloadCap.addEventListener("change", () => {
+    preloadCapMB = Number(ui.preloadCap.value) || DEFAULT_PRELOAD_CAP_MB;
+    savePreloadCapMB(preloadCapMB);
+    prefetchCache.setCapacity(preloadCapMB * 1024 * 1024);
+    // A larger cap may let a walk that had halted (cache full) continue; force
+    // a restart even though the target signature itself did not change. A
+    // smaller cap just evicts down in setCapacity above -- no restart needed,
+    // but forcing one is harmless (the walk quickly re-marks resident segments
+    // as covered via the cache.has() short-circuit and resumes from there).
+    prefetchSignature = "";
+    updatePrefetchTarget();
+  });
+  // "Next moves through" (website#253). The prev/next controls it governs live
+  // in the page's dialog chrome, not in this instance, so the choice is
+  // persisted and announced rather than applied here. Announced on the root so
+  // the page can re-label its controls without polling storage.
+  ui.navOrder.addEventListener("change", () => {
+    const order = normalizeNavOrder(ui.navOrder.value) ?? DEFAULT_NAV_ORDER;
+    if (!writeNavOrder(order)) {
+      // The return value exists precisely to say "localStorage refused"
+      // (privacy mode, a blocked third-party context). The choice still applies
+      // to this page via the event below, so this is a note, not a failure.
+      console.warn(
+        "[eeg-viewer] nav order not persisted (storage unavailable); the choice applies to this page only",
+      );
+    }
+    ui.root.dispatchEvent(
+      new CustomEvent(NAV_ORDER_CHANGED_EVENT, { bubbles: true, detail: { order } }),
+    );
   });
   ui.hscroll.addEventListener("input", () => {
     windowStartS = Number(ui.hscroll.value);
@@ -836,6 +1538,13 @@ export async function mountEegViewer(
       overviewLoaded = false;
       overviewData = null;
       overviewSeq++; // invalidate any in-flight overview load from the prior group
+      // Stop the background walk immediately rather than let it keep fetching
+      // the prior group in the background until the next render's level is
+      // known; updatePrefetchTarget() re-starts it against the new group as
+      // soon as renderImpl below picks a level for it.
+      lastWinLevel = null;
+      bufferedSegments = new Set();
+      updatePrefetchTarget();
       // Re-arm auto-scale for the new group's own amplitude/modality (website#109).
       // The `gainManuallySet` guard inside renderImpl still wins if the user has
       // already touched Scale +/-, so this cannot stomp a manual adjustment.
@@ -890,8 +1599,18 @@ export async function mountEegViewer(
       const bot = slot.baseline + slot.halfHeight;
       if (y >= top && y < bot) {
         const label = lastFrame.channels[i].label;
+        // With the pencil armed a channel click is an annotation gesture: it
+        // opens the popover for that channel, and the popover's status field
+        // then decides the mark. Toggling here as well would fight it — the
+        // annotator would land in a "bad" popover for a channel the same click
+        // had just made good. With the pencil off nothing changes.
+        if (annotations.onChannelClick(label)) break;
         if (badChannels.has(label)) badChannels.delete(label);
         else badChannels.add(label);
+        // Channel marking IS the selection the annotation tool acts on
+        // (website#255), so tell it the set changed rather than giving it a
+        // second, competing gesture of its own.
+        annotations.onSelectionChanged();
         render();
         break;
       }
@@ -1057,11 +1776,41 @@ export async function mountEegViewer(
     });
     cleanups.push(() => mo.disconnect());
   }
+  // Background preload pauses while the tab is hidden (website#254) -- no point
+  // spending bandwidth/CPU on a recording nobody can see mid-scrub.
+  if (typeof document !== "undefined") {
+    prefetchController.setHidden(document.hidden);
+    const onVisibility = () => prefetchController.setHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+    cleanups.push(() => document.removeEventListener("visibilitychange", onVisibility));
+  }
+  // Clean abort on teardown (website#208's discipline, applied to this mount's
+  // own background reads): stop() invalidates the walk and aborts whatever
+  // segment fetch is in flight rather than letting it run to completion
+  // against a viewer nobody is looking at any more.
+  cleanups.push(() => prefetchController.stop());
   cleanups.push(() => glRenderer?.dispose());
+  // Idempotent. The page holds up to three handles on this one function — the
+  // disposer returned below, `slot._eegvCleanup`, and `eegLive.destroy` — and a
+  // dialog close landing during a navigate mount genuinely fires two of them.
+  // Running the cleanups twice is not harmless: it double-disposes the GL
+  // context and takes the annotation layer down in the middle of its own final
+  // flush. The guard lives here, the one place all three handles converge,
+  // rather than at each call site.
   const destroy = () => {
+    if (disposed) return;
+    disposed = true;
     for (const c of cleanups) c();
   };
   (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = destroy;
+  // Hand the caller a live snapshot getter, not a snapshot: it is read at the
+  // moment the user navigates away, which is arbitrarily long after this.
+  opts.onTransfer?.(snapshotTransfer);
+  // Same seam, same reason: the page asks these at click time, not now.
+  opts.onAnnotations?.({
+    isPopoverOpen: () => annotations.isPopoverOpen(),
+    focusPopover: () => annotations.focusPopover(),
+  });
 
   await render();
   void store.eventsReady.then((events) => {
@@ -1098,6 +1847,8 @@ interface ViewerUi {
   canvas: HTMLCanvasElement;
   glCanvas: HTMLCanvasElement;
   minimap: HTMLCanvasElement;
+  /** Standing note under the minimap for a degraded view pyramid; normally hidden. */
+  overviewNote: HTMLElement;
   time: HTMLElement;
   chanInfo: HTMLElement;
   cursor: HTMLElement;
@@ -1117,6 +1868,7 @@ interface ViewerUi {
   hp: HTMLSelectElement;
   lp: HTMLSelectElement;
   notch: HTMLSelectElement;
+  navOrder: HTMLSelectElement;
   hscroll: HTMLInputElement;
   vscroll: HTMLInputElement;
   groupSel: HTMLSelectElement | null;
@@ -1124,6 +1876,12 @@ interface ViewerUi {
   menu: HTMLElement;
   helpOverlay: HTMLElement;
   legend: HTMLElement;
+  preloadCheck: HTMLInputElement;
+  preloadCap: HTMLSelectElement;
+  /** Note beside the preload toggle when the walk stalled; normally hidden. */
+  preloadNote: HTMLElement;
+  annotateBtn: HTMLButtonElement;
+  annotPanel: HTMLElement;
   on(action: string, fn: () => void): void;
 }
 
@@ -1137,7 +1895,13 @@ function navBtn(action: string, label: string, title: string): HTMLButtonElement
   return b;
 }
 
-function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventType[]): ViewerUi {
+function buildDom(
+  slot: HTMLElement,
+  store: RecordingStore,
+  eventTypes: EventType[],
+  preloadEnabled: boolean,
+  preloadCapMB: number,
+): ViewerUi {
   const root = el("div", "eegv");
   root.tabIndex = 0;
 
@@ -1217,6 +1981,18 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   }
   bar.append(grouped("Topo", topoBtn));
 
+  // Annotation-mode toggle (website#255). A primary view control like the
+  // topomap, not a gear setting: it changes what a click on the trace *does*,
+  // which has to be visible at a glance rather than buried behind a popover.
+  const annotateBtn = document.createElement("button");
+  annotateBtn.type = "button";
+  annotateBtn.className = "eegv__btn eegv__annot-btn-toggle";
+  annotateBtn.title = "Annotate — click the trace for a marker, drag for a span";
+  annotateBtn.setAttribute("aria-label", "Annotation mode");
+  annotateBtn.setAttribute("aria-pressed", "false");
+  annotateBtn.innerHTML = annotateGlyph();
+  bar.append(grouped("Annotate", annotateBtn));
+
   // Set-once controls (zero-phase filters + display toggles) live behind a gear
   // popover so the primary bar stays uncluttered -- these are typically configured
   // once per dataset and forgotten.
@@ -1229,6 +2005,22 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   const clockLc = labeledCheck("Clock", false);
   const hideBadLc = labeledCheck("Hide bad", false);
 
+  // Background preload (website#254): off by default, its own self-contained
+  // group appended at the end of the menu so it stays out of the way of any
+  // other gear-menu section (see website#253, in flight concurrently).
+  const preloadLc = labeledCheck("Preload full recording", preloadEnabled);
+  preloadLc.wrap.title =
+    "Stream the rest of the recording into memory in the background, at the current zoom level, so paging and scrubbing elsewhere become instant. Off by default; capped in-memory cache.";
+  const preloadCap = compactSelect(PRELOAD_CAP_CHOICES, String(preloadCapMB));
+  preloadCap.title = "Background preload memory cap";
+  preloadCap.disabled = !preloadEnabled;
+  // Only ever filled in when the walk's circuit breaker trips, so the buffered
+  // bar going quiet has a stated cause instead of reading as a finished
+  // preload.
+  const preloadNote = el("p", "eegv__preload-note");
+  preloadNote.setAttribute("role", "status");
+  preloadNote.hidden = true;
+
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
   gearBtn.className = "eegv__gear";
@@ -1237,11 +2029,25 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   gearBtn.setAttribute("aria-expanded", "false");
   gearBtn.innerHTML = gearGlyph();
 
+  // Iteration order for the enlarged viewer's prev/next controls (website#253).
+  // It lives here, with the other set-once preferences, and is shown even in
+  // the inline panel where there are no prev/next controls to govern: the
+  // instance moves between the panel and the dialog without remounting, so a
+  // gear that gains and loses an item on a move would be worse than one that
+  // always offers the preference.
+  const navOrder = compactSelect(
+    NAV_ORDERS.map((o) => [o, NAV_ORDER_LABELS[o]] as [string, string]),
+    readNavOrder(),
+  );
+  navOrder.title = "Which entity the enlarged viewer's Next button advances first";
+
   const menu = el("div", "eegv__menu");
   menu.style.display = "none";
   menu.append(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
     grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
+    grouped("Next moves through", navOrder),
+    grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap), preloadNote),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -1271,6 +2077,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
         <li><kbd>?</kbd> &mdash; toggle this help</li>
       </ul>
       <p style="margin:0;font-size:10px;color:var(--color-fg-subtle)">Click a channel label to mark it bad (dim; <kbd>h</kbd> hides them)</p>
+      <p style="margin:4px 0 0;font-size:10px;color:var(--color-fg-subtle)">Annotate mode (pencil): click the trace for an event marker, drag for a span. Marked channels can be annotated as a set.</p>
     </div>
   `.trim();
 
@@ -1316,14 +2123,26 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
   minimap.style.display = "none";
   minimap.title = "Overview — click to jump";
 
+  // Sits directly under the minimap because that is the affordance a truncated
+  // view pyramid actually damages: the envelope it draws covers less of the
+  // recording than it appears to.
+  const overviewNote = el("p", "eegv__overview-note");
+  overviewNote.setAttribute("role", "status");
+  overviewNote.hidden = true;
+
   // Event legend: a compact scrollable table. Show the human description from the
   // events.json Levels when present (the raw code is meaningless on its own); the
   // chip's title carries the code for reference. All types listed (scroll, not grow).
   const legend = el("div", "eegv__legend");
   fillEventLegend(legend, eventTypes);
 
+  // Annotation panel container (website#255). Built empty and hidden here so
+  // its position in the stack is fixed; the annotation layer fills it.
+  const annotPanel = el("div", "eegv__annot-panel");
+  annotPanel.hidden = true;
+
   const status = el("div", "eegv__status");
-  root.append(bar, plot, hscroll, minimap, legend, status, helpOverlay);
+  root.append(bar, plot, hscroll, minimap, overviewNote, legend, annotPanel, status, helpOverlay);
   slot.append(root);
 
   return {
@@ -1333,6 +2152,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     canvas,
     glCanvas,
     minimap,
+    overviewNote,
     time,
     chanInfo,
     cursor,
@@ -1343,6 +2163,9 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     butterflyCheck: butterflyLc.input,
     clockCheck: clockLc.input,
     hideBadCheck: hideBadLc.input,
+    preloadCheck: preloadLc.input,
+    preloadCap,
+    preloadNote,
     topoBtn,
     topo,
     topoCanvas,
@@ -1352,6 +2175,7 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     hp,
     lp,
     notch,
+    navOrder,
     hscroll,
     vscroll,
     groupSel,
@@ -1359,6 +2183,8 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
     menu,
     helpOverlay,
     legend,
+    annotateBtn,
+    annotPanel,
     on(action, fn) {
       root
         .querySelector<HTMLButtonElement>(`[data-act="${action}"]`)
@@ -1368,9 +2194,16 @@ function buildDom(slot: HTMLElement, store: RecordingStore, eventTypes: EventTyp
 }
 
 function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
-  const dl = opts.downloadUrl
-    ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
-    : "";
+  // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
+  // to download: `downloadUrl` names a data.nemar.org directory, which answers
+  // with raw listing JSON. Point at the row's expand arrow instead, in the same
+  // words `fallbackActionHtml` uses in dataset/[id].astro — the two are one
+  // sentence on two surfaces, so keep them in sync.
+  const dl = opts.dirRecording
+    ? " Use the expand arrow next to its name to browse the recording's files instead."
+    : opts.downloadUrl
+      ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
+      : "";
   // A recorded data failure (derivative, corrupt, unsupported) has a specific,
   // permanent reason -> show it. Otherwise the store is just missing: still
   // generating, or a transient failure that will retry.
