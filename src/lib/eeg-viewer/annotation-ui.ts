@@ -1133,7 +1133,15 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
         results.append(none);
         return;
       }
-      for (const { entry } of hits) results.append(resultButton(entry, addTag));
+      for (const { entry } of hits)
+        results.append(
+          resultButton(entry, (path, viaMouse) => {
+            addTag(path);
+            // Same focus hand-back as the quick-pick chips: a mouse pick must
+            // not leave Enter meaning "re-pick this result".
+            if (viaMouse) search.focus();
+          }),
+        );
     }
     body.append(search, results);
     if (vocabError) {
@@ -1161,7 +1169,15 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
           chip.className = "eegv__annot-pick";
           chip.textContent = entry.tag;
           chip.title = entry.description || entry.path;
-          chip.addEventListener("click", () => addTag(path));
+          chip.addEventListener("click", (ev) => {
+            addTag(path);
+            // A mouse click (detail > 0) leaves focus stranded on the chip,
+            // where Enter re-activates the chip instead of saving (BUTTON is
+            // in ENTER_OWNING_TAGS, deliberately, for keyboard users — whose
+            // activation arrives with detail 0 and must keep focus). Hand
+            // focus back to the search box so Return means save again.
+            if (ev.detail > 0) search.focus();
+          });
           wrap.append(chip);
         }
         body.append(wrap);
@@ -1264,7 +1280,10 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     (vocab ? search : (onsetInput ?? save)).focus({ preventScroll: true });
   }
 
-  function resultButton(entry: HedVocabEntry, onPick: (path: HedPath) => void): HTMLElement {
+  function resultButton(
+    entry: HedVocabEntry,
+    onPick: (path: HedPath, viaMouse: boolean) => void,
+  ): HTMLElement {
     const button = doc.createElement("button");
     button.type = "button";
     button.className = "eegv__annot-result";
@@ -1280,7 +1299,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       button.append(desc);
     }
     button.title = entry.path;
-    button.addEventListener("click", () => onPick(entry.path));
+    button.addEventListener("click", (ev) => onPick(entry.path, ev.detail > 0));
     return button;
   }
 
