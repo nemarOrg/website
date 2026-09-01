@@ -332,6 +332,7 @@ Astro.response.headers.set(
     subjectValues,
     taskValues,
   } from "../../lib/eeg-viewer/recording-nav";
+  import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
   // Type-only, so this does not pull the (WebGL-carrying) viewer module into
   // the page bundle; the mount itself stays behind the dynamic import below.
   import type {
@@ -1327,6 +1328,25 @@ Astro.response.headers.set(
     return true;
   }
 
+  /**
+   * Whether closing the enlarge dialog right now would destroy an unsaved
+   * annotation draft — the pre-check behind the corner X's veto.
+   *
+   * Only a *detached* viewer is at risk. A non-detached close moves the host
+   * back into its inline row with the popover still inside it, so the draft
+   * survives the trip and refusing would be over-strict. A detached close is
+   * the end of that instance (see the `close` handler below) and takes the
+   * popover's draft with it.
+   *
+   * This has to run before `.close()` rather than on the `close` event, which
+   * is not cancelable and arrives once the decision is already made. Escape is
+   * covered separately, by the annotation layer's own `cancel` guard.
+   */
+  function eegDraftBlocksDialogClose(): boolean {
+    if (!eegLive?.detached) return false;
+    return eegDraftBlocksNavigation();
+  }
+
   /** The entry for the recording currently on screen, if it parsed. */
   function currentEegRecording(): RecordingEntry | null {
     const live = eegLive;
@@ -1637,6 +1657,17 @@ Astro.response.headers.set(
   // The gear setting lives inside the viewer instance; it announces a change
   // rather than reaching into this chrome (the two are separately mounted).
   document.addEventListener(NAV_ORDER_CHANGED_EVENT, () => syncEegNavControls());
+
+  // The corner X's pre-close veto (see `lib/dialog-close.ts`). The X reaches
+  // `.close()` directly, whose `close` event is not cancelable — so without
+  // this the more natural exit from the dialog walked straight past the draft
+  // guard that Escape already respects, and the branch below destroyed the
+  // annotation with no trace.
+  document
+    .querySelector<HTMLDialogElement>("[data-eeg-dialog]")
+    ?.addEventListener(DIALOG_CLOSE_REQUEST_EVENT, (event) => {
+      if (eegDraftBlocksDialogClose()) event.preventDefault();
+    });
 
   // Closing the dialog (Esc or the corner X, both native `dialog.close()`)
   // hands the viewer back to the inline panel it came from — the instance is

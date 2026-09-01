@@ -20,6 +20,12 @@
  * button already fire, so e.g. ConfirmDialog's existing close listener
  * keeps working unmodified — or, when there is no ancestor <dialog>, the
  * nearest ancestor <details> (ProvenanceToggle's popover).
+ *
+ * One thing happens *before* that `.close()`: a cancelable
+ * `DIALOG_CLOSE_REQUEST_EVENT` on the dialog, so a page with unsaved state
+ * inside it can refuse the X the way it can already refuse Escape. Opt-in
+ * and inert without a listener — see `lib/dialog-close.ts` for why `.close()`
+ * alone leaves no room to say no.
  */
 ---
 
@@ -61,6 +67,8 @@
 </style>
 
 <script>
+  import { DIALOG_CLOSE_REQUEST_EVENT } from "../lib/dialog-close";
+
   document.addEventListener("click", (e) => {
     const target = e.target;
     if (!(target instanceof Element)) return;
@@ -68,6 +76,17 @@
     if (!btn) return;
     const dialog = btn.closest("dialog");
     if (dialog) {
+      // Ask before closing. `.close()` fires only the non-cancelable `close`
+      // event, which reports a decision already taken — so a page holding
+      // unsaved state in the dialog (the signal viewer's annotation draft)
+      // cannot refuse the X the way it can already refuse Escape's `cancel`.
+      // This gives it the same veto. A dialog nobody listens on cannot cancel
+      // the dispatch, so every other dialog behaves exactly as before. See
+      // `lib/dialog-close.ts`.
+      const proceed = dialog.dispatchEvent(
+        new CustomEvent(DIALOG_CLOSE_REQUEST_EVENT, { cancelable: true, bubbles: false }),
+      );
+      if (!proceed) return;
       dialog.close();
       return;
     }
