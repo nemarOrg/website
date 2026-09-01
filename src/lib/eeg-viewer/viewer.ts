@@ -232,14 +232,22 @@ const PRELOAD_CAP_CHOICES: Array<[string, string]> = [
 /** True when the browser signals the user wants reduced data usage
  *  (`Save-Data: on` / Chromium's Data Saver). Progressive enhancement:
  *  `navigator.connection` is Chromium-only, so absence just means "no
- *  signal" and changes nothing. */
-function saveDataRequested(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
-  return conn?.saveData === true;
+ *  signal" and changes nothing. Exported for unit tests. */
+export function saveDataRequested(): boolean {
+  try {
+    // Hardened/privacy browsers can make the `navigator.connection` accessor
+    // itself throw (fingerprinting countermeasures). That must degrade to
+    // "no signal", not take down the whole viewer mount.
+    if (typeof navigator === "undefined") return false;
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    return conn?.saveData === true;
+  } catch {
+    return false;
+  }
 }
 
-function loadPreloadEnabled(): boolean {
+/** Exported for unit tests (Save-Data precedence over the stored opt-in). */
+export function loadPreloadEnabled(): boolean {
   // A browser-level "reduce data" preference outranks a stored opt-in from a
   // previous session: background-preloading a whole recording (potentially
   // hundreds of MB) is exactly what Save-Data asks sites not to do. The gear
