@@ -471,7 +471,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
 
   /**
    * Fetch the vocabulary bundle. Called on the first popover open, never on
-   * mount: it is ~140 KB in its own chunk, and a reader who never annotates
+   * mount: it is ~341 KB in its own chunk, and a reader who never annotates
    * must not pay for it.
    */
   function ensureVocab(): Promise<HedVocab | null> {
@@ -484,8 +484,9 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       (v) => {
         vocab = v;
         // Built once, not per lookup: `labelForPath` runs for every visible
-        // annotation on every overlay repaint, and rebuilding a 500-entry Map
-        // each time would put that on the render path.
+        // annotation on every overlay repaint, and rebuilding a Map over the
+        // whole bundle (1525 entries) each time would put that on the render
+        // path.
         vocabIndex = entriesByPath(v);
         vocabError = "";
         return v;
@@ -501,9 +502,9 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
   }
 
   /**
-   * The short tag for a stored long-form path. Falls back to the path itself
-   * before the vocabulary has loaded (and for a tag a newer bundle dropped),
-   * so a restored annotation is always legible even if it is verbose.
+   * The short tag for a stored long-form path. Falls back to the short form
+   * derived from the path before the vocabulary has loaded (and for a tag a
+   * newer bundle dropped), so a restored annotation is always legible.
    */
   function labelForPath(path: HedPath): string {
     // Falls back to the derived short form, NOT the raw path: the vocab chunk

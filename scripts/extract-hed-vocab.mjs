@@ -3,7 +3,7 @@
  * Build the viewer's HED annotation vocabulary bundle (website#255).
  *
  * Reads the two HED schema XML files from a local `hed-standard/hed-schemas`
- * checkout and writes a curated, versioned JSON bundle to
+ * checkout and writes a versioned JSON bundle to
  * `src/lib/eeg-viewer/hed-vocab.json`. The bundle is committed, so the site
  * never fetches a schema at runtime and the annotation UI works offline.
  *
@@ -36,8 +36,11 @@
  * the conventional namespace in the HED-SCORE examples. A dataset consuming
  * the exported `events.tsv` therefore needs
  * `"HEDVersion": ["8.4.0", "sc:score_2.1.0"]` in its sidecar. Emitting the
- * prefix here rather than at export time keeps the serializer dumb: an
- * annotation stores the tag string that belongs in the file, verbatim.
+ * prefix here rather than at export time means a path carries its own library
+ * namespace, so nothing downstream has to know which schema a tag came from.
+ * The long path is the storage and lookup key, not the exported text: the
+ * viewer writes the SHORT form into `events.tsv` / `channels.tsv`
+ * (`hedShortForm` in `annotations.ts`, website#268), prefix included.
  *
  * No XML dependency on purpose — hedxml is regular enough (nested `<node>`
  * with `<name>`/`<description>`/`<attribute>` children, no attributes on the
@@ -193,7 +196,6 @@ function extract(standardPath, scorePath) {
 
   const standard = [];
   for (const root of parseSchema(standardPath)) flatten(root, "", standard);
-  const byPath = new Map(standard.map((n) => [n.path, n]));
   for (const node of standard) {
     // Deprecated tags stay out: offering one would write a tag the schema
     // itself tells validators to reject.

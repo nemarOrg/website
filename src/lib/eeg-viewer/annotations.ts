@@ -25,7 +25,12 @@
  * unscoped annotation for a scoped one that lost its scope.
  */
 
-/** A HED tag as it belongs in a file: long form, library prefix included. */
+/**
+ * A HED tag in long form, library prefix included — the storage and lookup
+ * key: what the vocabulary bundle is indexed by and what an annotation holds.
+ * The SHORT form is what belongs in an exported file; `hedShortForm` derives it
+ * at serialization time (website#268).
+ */
 export type HedPath = string;
 
 export interface TimeAnnotation {

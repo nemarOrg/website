@@ -850,9 +850,11 @@ Astro.response.headers.set(
 
   /**
    * Tear down the live viewer (if any), return the dialog to a clean state,
-   * and collapse the row that owned it. Called when another signal file is
-   * opened and when the open one is collapsed — both of which come through
-   * `openEegViewerInline`, its only call site.
+   * and collapse the row that owned it. Two call sites, both of which are
+   * about to make some other recording the single live instance:
+   * `openEegViewerInline` (another signal row opened, or the open one
+   * collapsed) and `openRecordingInDialog` (the action bar's "View data",
+   * website#260).
    */
   function releaseEegViewer(): void {
     eegSeq++; // invalidate any mount still in flight
@@ -1156,8 +1158,13 @@ Astro.response.headers.set(
       console.error("[eeg-viewer] dialog markup missing");
       return;
     }
-    // At most one viewer instance is ever live page-wide (website#199); a
-    // no-op when nothing is open yet, which is the only way this is reached.
+    // At most one viewer instance is ever live page-wide (website#199). Not a
+    // no-op: the action bar sits outside the dialog and outside the tree, so
+    // "View data" is perfectly clickable while an INLINE viewer is open in a
+    // row below. That instance is released (and its row collapsed) here.
+    // `releaseEegViewer`'s `dialog.close()` branch is what cannot be reached
+    // from here — every dialog on this page is modal, so the button could not
+    // have been clicked with one open.
     releaseEegViewer();
 
     const fileUrl = fileDownloadUrl(ctx.datasetId, ctx.version, target.path);

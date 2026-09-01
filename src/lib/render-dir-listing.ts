@@ -163,6 +163,10 @@ function appendTags(out: string[], cls: FileClassification, isRoot: boolean): vo
     out.push(`<span class="tree__tag tree__tag--signal">${esc(cls.ext.toUpperCase())}</span>`);
 }
 
+// Duplicated as DIR_CHEVRON_SVG in `pages/dataset/[id].astro`, which rebuilds
+// this row client-side when a plain directory turns out to be a directory
+// recording (website#252). Keep the two identical — an upgraded row has to be
+// indistinguishable from an SSR'd one. (That side already points back here.)
 const CHEVRON_SVG = `<svg class="tree__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>`;
 
 /**

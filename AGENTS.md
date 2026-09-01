@@ -198,7 +198,7 @@ src/
     bids-tree.ts                      manifest paths → nested TreeNode
     neuroschema.ts                    types mirroring data.nemar.org/<id>/metadata.json
     markdown.ts                       zero-dep CommonMark subset
-    eeg-viewer/                       WebGL EEG viewer (traces, topo, montages)
+    eeg-viewer/                       WebGL EEG viewer (traces, topo, montages, recording nav, background preload, HED/SCORE annotation authoring)
   styles/
     tokens.css                        CSS variables; light + dark themes
     reset.css global.css
@@ -419,7 +419,7 @@ The frontend has fallbacks for all of these so the site ships standalone. When a
 bun run dev                   # http://localhost:4321
 bun run build && bun run preview
 bun run typecheck             # 0 errors required before commit
-bun run test                  # 1011/1011 unit tests at last count
+bun run test                  # 1395/1395 unit tests at last count
 bun run lint                  # biome check
 bun run bump <arg>            # version bump; workflows normally do this for you
 ```

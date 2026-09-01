@@ -79,3 +79,15 @@ permanent for as long as storage stays local.
 - website#256 (viewer workbench epic), ADR 0012 (recording navigation)
 - BIDS spec: task events (`events.tsv`) and channels description (`channels.tsv`)
 - HED-SCORE library schema 2.1.0, base HED 8.4.0 (`hed-standard/hed-schemas`)
+
+## Update — 2026-09-01
+
+The vocabulary that ships with the bundle is no longer curated. Search now reaches the
+full non-deprecated tag set of both schemas (1525 entries, ~341 KB; website#269) after an
+earlier curated subset was found to hide most of base HED — asking for "Building", "Left"
+or "Sleep" returned nothing. Curation survives only in the quick picks, which decide what
+the popover *offers* before anyone types, not what the search can *find*.
+
+The decision above is unchanged: the alternative it rejected was fetching the schemas at
+runtime, and the bundle is still a generated, committed, lazily loaded chunk. Only its
+contents grew.
