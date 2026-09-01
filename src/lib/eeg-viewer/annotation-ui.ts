@@ -320,6 +320,8 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
   let vocabIndex: Map<string, HedVocabEntry> | null = null;
   let vocabLoading: Promise<HedVocab> | null = null;
   let vocabError = "";
+  /** Set when an export download failed; shown beside the export buttons. */
+  let exportError = "";
 
   // Live drag state, in seconds. `dragStartS` non-null means a press is down.
   let dragStartS: number | null = null;
@@ -1514,6 +1516,16 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     }
     opts.panel.append(bar);
 
+    // Immediately under the export buttons, because that is the control it is
+    // about. `role="alert"` rather than the notice's "status": this one is the
+    // result of something the annotator just did.
+    if (exportError !== "") {
+      const failed = el("p", "eegv__annot-warn");
+      failed.setAttribute("role", "alert");
+      failed.textContent = exportError;
+      opts.panel.append(failed);
+    }
+
     // The channels file is deliberately partial: it names only what somebody
     // marked and omits the type/units columns that belong to the dataset. Say
     // so beside the button rather than only in the serializer's docstring —
@@ -1605,17 +1617,34 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     return row;
   }
 
+  /**
+   * Wrapped because the download IS the escape hatch. Annotations live only in
+   * this browser, and the panel's own notice tells the annotator to get the
+   * file out before they leave — so a `createObjectURL`/`click` that throws (a
+   * sandboxed frame, an exhausted blob-URL budget, a policy blocking
+   * programmatic downloads) must not look like a button that does nothing.
+   */
   function download(filename: string, text: string): void {
-    const blob = new Blob([text], { type: "text/tab-separated-values;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = doc.createElement("a");
-    link.href = url;
-    link.download = filename;
-    doc.body.append(link);
-    link.click();
-    link.remove();
-    // Give the navigation a tick to start before the blob goes away.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    try {
+      const blob = new Blob([text], { type: "text/tab-separated-values;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = doc.createElement("a");
+      link.href = url;
+      link.download = filename;
+      doc.body.append(link);
+      link.click();
+      link.remove();
+      // Give the navigation a tick to start before the blob goes away.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (exportError !== "") {
+        exportError = "";
+        renderPanel();
+      }
+    } catch (err) {
+      console.error("[eeg-viewer] annotations: export download failed:", err);
+      exportError = `Couldn't start the download of ${filename}. Check that this browser allows downloads from this page, then try again.`;
+      renderPanel();
+    }
   }
 
   // --- mode toggle ----------------------------------------------------------
