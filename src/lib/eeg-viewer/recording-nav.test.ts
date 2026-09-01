@@ -4,6 +4,7 @@ import {
   NAV_ORDER_STORAGE_KEY,
   type RecordingEntry,
   buildRecordingList,
+  firstRecording,
   naturalCompare,
   normalizeNavOrder,
   orderedRecordings,
@@ -310,6 +311,54 @@ describe("recordingPosition", () => {
     const ordered = orderedRecordings(buildRecordingList(TWO_TASKS), "runs");
     expect(recordingPosition(ordered, "sub-01/eeg/sub-01_task-rest_eeg.set")).toBe(2);
     expect(recordingPosition(ordered, "nope")).toBe(-1);
+  });
+});
+
+describe("firstRecording", () => {
+  it("returns null for an empty list", () => {
+    expect(firstRecording([])).toBeNull();
+  });
+
+  it("picks the first recording in the default (runs) order", () => {
+    // sub-01/ses-01/run-01 sorts before sub-01/ses-02 and sub-02, regardless
+    // of the source (index) order.
+    const list = buildRecordingList([...SESSIONED].reverse());
+    const first = firstRecording(list);
+    expect(first?.path).toBe(SESSIONED[0]);
+  });
+
+  it("follows the requested nav order, not always the default", () => {
+    const list = buildRecordingList(TWO_TASKS);
+    expect(firstRecording(list, "runs")?.path).toBe(
+      "sub-01/eeg/sub-01_task-oddball_run-01_eeg.set",
+    );
+    expect(firstRecording(list, "file")?.path).toBe(TWO_TASKS[0]);
+    expect(firstRecording(list, "subjects")?.path).toBe(
+      "sub-01/eeg/sub-01_task-oddball_run-01_eeg.set",
+    );
+  });
+
+  it("picks a directory (.mefd) recording when it sorts first", () => {
+    const list = buildRecordingList([
+      "sub-04/ieeg/sub-04_task-rest_run-02_ieeg.mefd",
+      "sub-04/ieeg/sub-04_task-rest_run-01_ieeg.mefd",
+    ]);
+    const first = firstRecording(list, "runs");
+    expect(first?.path).toBe("sub-04/ieeg/sub-04_task-rest_run-01_ieeg.mefd");
+    expect(first?.name).toBe("sub-04_task-rest_run-01_ieeg.mefd");
+  });
+
+  it("mixes directory and file recordings, ordering by entities not shape", () => {
+    const list = buildRecordingList([
+      "sub-02/meg/sub-02_task-rest_meg.ds",
+      "sub-01/ieeg/sub-01_task-rest_ieeg.mefd",
+    ]);
+    expect(firstRecording(list, "runs")?.path).toBe("sub-01/ieeg/sub-01_task-rest_ieeg.mefd");
+  });
+
+  it("still returns an entry when nothing parses (degrades to source order)", () => {
+    const list = buildRecordingList(["derivatives/summary.json", "code/convert.py"]);
+    expect(firstRecording(list)?.path).toBe("derivatives/summary.json");
   });
 });
 

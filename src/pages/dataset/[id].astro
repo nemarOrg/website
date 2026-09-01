@@ -323,6 +323,7 @@ Astro.response.headers.set(
     NAV_ORDER_CHANGED_EVENT,
     type RecordingEntry,
     buildRecordingList,
+    firstRecording,
     orderedRecordings,
     readNavOrder,
     recordingPosition,
@@ -384,9 +385,15 @@ Astro.response.headers.set(
   // can each find the current instance and its DOM.
   let eegSeq = 0;
   let eegLive: {
-    btn: HTMLButtonElement;
-    /** The row's `[data-preview-slot]` — the viewer's home. */
-    slot: HTMLElement;
+    /**
+     * Null when the viewer was opened directly into the dialog with no
+     * originating tree row (the "View data" action-bar button, website#260)
+     * — `detached` is always true in that case, so nothing here ever reads
+     * `btn`/`slot` for it. Non-null for every row-opened viewer.
+     */
+    btn: HTMLButtonElement | null;
+    /** The row's `[data-preview-slot]` — the viewer's home. Null; see `btn`. */
+    slot: HTMLElement | null;
     /** The element `mountEegViewer` owns; moves between `slot` and the dialog. */
     host: HTMLElement;
     fileName: string;
@@ -505,15 +512,23 @@ Astro.response.headers.set(
           console.warn(`[zarr/${datasetId}] index unavailable; viewer cache-busting disabled`);
           return;
         }
-        zarrBySection.set(section, {
+        const state = {
           paths: zarrAvailablePaths(index),
           stores: zarrStoreByPath(index),
           failureReasons: zarrFailureReasonByPath(index),
           token: index.updated_utc,
           prefetched: new Set<string>(),
           firstPrefetched: false,
-        });
+        };
+        zarrBySection.set(section, state);
         annotateZarrRows(section);
+        // "View data" action-bar button (website#260): revealed only once the
+        // index resolves with at least one store, so a dataset with none
+        // (pre-backfill, e.g. on004696) never advertises a dead button. Left
+        // hidden (its SSR default) when the index fetch fails or throws —
+        // neither of those runs this callback.
+        const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
+        if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
       })
       .catch((err) => {
         console.warn(`[zarr/${datasetId}] index fetch threw:`, err);
@@ -811,8 +826,12 @@ Astro.response.headers.set(
     '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>' +
     "</svg>";
 
-  /** Put a signal row back in its collapsed, empty state. Idempotent. */
-  function resetEegRow(btn: HTMLButtonElement, slot: HTMLElement): void {
+  /**
+   * Put a signal row back in its collapsed, empty state. Idempotent. A no-op
+   * for a detached-from-birth viewer (website#260), which has no row.
+   */
+  function resetEegRow(btn: HTMLButtonElement | null, slot: HTMLElement | null): void {
+    if (!btn || !slot) return;
     slot.innerHTML = "";
     slot.hidden = true;
     delete slot.dataset.loaded;
@@ -1088,6 +1107,168 @@ Astro.response.headers.set(
     prefetchAdjacentRecordings();
   }
 
+  /**
+   * Open a recording straight into the enlarge dialog, with no originating
+   * tree row — the "View data" action-bar button (website#260), which
+   * reaches a recording through the Zarr index rather than a tree click.
+   *
+   * Starts `detached: true` from birth (ADR 0012): there is no inline row to
+   * hand the viewer back to, so closing the dialog always destroys the
+   * instance, the same as navigating away from a row-opened viewer already
+   * does. Reuses the same `eegLive`/`eegSeq` machinery as
+   * `openEegViewerInline`/`navigateEegViewer` — the single-live-viewer
+   * invariant, the recording-nav dropdowns, prev/next — so nothing else in
+   * this file has to special-case a button-opened viewer.
+   *
+   * Callable only while the eeg dialog is closed: every dialog on this page
+   * is modal, which makes the rest of the document (the action bar
+   * included) inert while one is open, so the button this calls from can
+   * never be clicked mid-dialog. `releaseEegViewer`'s `dialog.close()` path
+   * is therefore unreachable here, same as the "Unreachable today" case it
+   * already documents for the row-open path.
+   */
+  async function openRecordingInDialog(
+    target: RecordingEntry,
+    ctx: {
+      datasetId: string;
+      version: string;
+      recordings: RecordingEntry[];
+      zarrToken: string;
+      zarr: { stores: Map<string, ZarrIndexStore>; prefetched: Set<string>; token: string } | null;
+    },
+  ): Promise<void> {
+    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+    const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+    if (!dialog || !dialogSlot) {
+      console.error("[eeg-viewer] dialog markup missing");
+      return;
+    }
+    // At most one viewer instance is ever live page-wide (website#199); a
+    // no-op when nothing is open yet, which is the only way this is reached.
+    releaseEegViewer();
+
+    const fileUrl = fileDownloadUrl(ctx.datasetId, ctx.version, target.path);
+    const isDirRecording = isDirRecordingName(target.name);
+    const fallbackActionHtml = isDirRecording
+      ? "Use the file tree's expand arrow to browse the recording's files"
+      : `<a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(target.name)}">Download the file</a>`;
+
+    const host = document.createElement("div");
+    host.setAttribute("data-eegv-host", "");
+    host.innerHTML = `<p class="preview__loading" role="status">Loading viewer…</p>`;
+    dialogSlot.replaceChildren(host);
+    host.setAttribute("aria-busy", "true");
+    setEegDialogTitle(target.name);
+    dialog.showModal();
+
+    const seq = ++eegSeq;
+    eegLive = {
+      btn: null,
+      slot: null,
+      host,
+      fileName: target.name,
+      destroy: null,
+      datasetId: ctx.datasetId,
+      version: ctx.version,
+      zarrToken: ctx.zarrToken,
+      path: target.path,
+      recordings: ctx.recordings,
+      zarr: ctx.zarr,
+      detached: true,
+      snapshot: null,
+    };
+    // The target itself has had no chance to warm (unlike a tree-row open,
+    // which prefetches on hover/focus before the click) — mirror what
+    // `prefetchZarrButton` does for a row, so the mount below hits a warm
+    // cache the same as every other entry point does.
+    if (ctx.zarr && !ctx.zarr.prefetched.has(target.path)) {
+      ctx.zarr.prefetched.add(target.path);
+      prefetchZarrStoreMetadata(
+        ctx.datasetId,
+        target.path,
+        ctx.zarr.stores.get(target.path),
+        ctx.zarrToken,
+      );
+    }
+    // Nav controls and neighbour prefetch depend only on `recordings`/`path`,
+    // both already final — populate them now rather than waiting on the
+    // mount, the same as `navigateEegViewer` does for an in-dialog swap.
+    syncEegNavControls();
+    prefetchAdjacentRecordings();
+
+    try {
+      const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
+      if (seq !== eegSeq || !eegLive) return; // superseded while importing
+      const destroy = await mountEegViewer(host, {
+        datasetId: ctx.datasetId,
+        version: ctx.version,
+        filePath: target.path,
+        zarrToken: ctx.zarrToken,
+        downloadUrl: fileUrl,
+        dirRecording: isDirRecording,
+        isStale: () => seq !== eegSeq,
+        onTransfer: (snapshot) => {
+          if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+      });
+      if (seq !== eegSeq) {
+        // Superseded mid-mount by a faster click elsewhere; whoever
+        // superseded us owns the dialog now.
+        destroy?.();
+        return;
+      }
+      if (!destroy) {
+        // Mount rendered its own explanation (unavailable / no channel
+        // groups) — nothing to release and nothing to navigate from.
+        eegLive = null;
+        syncEegNavControls();
+        return;
+      }
+      if (eegLive) eegLive.destroy = destroy;
+    } catch (err) {
+      // Mirrors `navigateEegViewer`'s failure state: an explicit error in
+      // the dialog, never a blank one (website#260).
+      console.error("[eeg-viewer] view-data open failed:", err);
+      if (seq !== eegSeq) return;
+      eegLive = null;
+      host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${fallbackActionHtml} instead.</p>`;
+      syncEegNavControls(); // nothing to navigate from; hide the now-dead controls
+    } finally {
+      if (seq === eegSeq) host.removeAttribute("aria-busy");
+    }
+  }
+
+  /**
+   * Click handler for the action bar's "View data" button (website#260).
+   * Picks the first recording in the user's current nav order from the same
+   * Zarr-index state the tree rows use, then hands it to
+   * `openRecordingInDialog`. There is exactly one `[data-tree-defer]`
+   * section per dataset page.
+   */
+  async function openViewDataButton(): Promise<void> {
+    const section = document.querySelector<HTMLElement>("[data-tree-defer]");
+    const state = section ? zarrBySection.get(section) : undefined;
+    const datasetId = section?.dataset.id;
+    const version = section?.dataset.version;
+    if (!state || !datasetId || !version || state.paths.size === 0) {
+      // The button is only ever revealed once `hydrateTree` has recorded at
+      // least one store for this section (see below); reaching here means
+      // that state was since cleared, which should not happen.
+      console.warn("[eeg-viewer] view-data button clicked with no viewable recordings");
+      return;
+    }
+    const recordings = buildRecordingList(state.paths);
+    const target = firstRecording(recordings, readNavOrder());
+    if (!target) return;
+    await openRecordingInDialog(target, {
+      datasetId,
+      version,
+      recordings,
+      zarrToken: state.token,
+      zarr: state,
+    });
+  }
+
   // --- Recording navigation (website#253) ----------------------------------
   // The dialog's subject/task dropdowns and prev/next buttons swap the mounted
   // recording in place. The list comes from the Zarr index (every viewable
@@ -1320,10 +1501,22 @@ Astro.response.headers.set(
     }
   }
 
-  /** The dialog heading, which follows the recording the chrome is describing. */
+  /**
+   * The dialog heading, which follows the recording the chrome is describing.
+   *
+   * Also updates the dialog's own `aria-label`, which otherwise stays the
+   * static "Signal viewer" from `EegViewerDialog.astro` markup — a screen
+   * reader never hears which recording is open (a pre-existing gap across
+   * every entry point, fixed here in the one place all three converge).
+   */
   function setEegDialogTitle(name: string): void {
     const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
-    if (titleEl) titleEl.textContent = name || "Signal viewer";
+    if (!titleEl) return;
+    titleEl.textContent = name || "Signal viewer";
+    const dialog = titleEl.closest<HTMLDialogElement>("[data-eeg-dialog]");
+    if (dialog) {
+      dialog.setAttribute("aria-label", name ? `Signal viewer: ${name}` : "Signal viewer");
+    }
   }
 
   function stepEegViewer(delta: number): void {
@@ -1398,7 +1591,7 @@ Astro.response.headers.set(
       dialogSlot?.replaceChildren();
       return;
     }
-    const anchor = live?.slot.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
+    const anchor = live?.slot?.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
     if (live && anchor) {
       anchor.replaceWith(live.host);
       return;
@@ -1409,8 +1602,12 @@ Astro.response.headers.set(
       // Recover to the end of the panel rather than strand it in a closed
       // dialog holding a GL context — but say so, because the recovery is
       // patching over a broken invariant, not handling an expected state.
+      // (Unreachable for a detached-from-birth viewer, website#260: that
+      // branch above always returns first since `detached` is true from
+      // the start, so `live.slot` here is only ever null in a case this
+      // code never actually reaches.)
       console.warn("[eeg-viewer] inline anchor missing; returning viewer to the end of its panel");
-      live.slot.append(live.host);
+      live.slot?.append(live.host);
       return;
     }
     // Nothing of ours is in the dialog: either it was released while enlarged
@@ -1429,6 +1626,15 @@ Astro.response.headers.set(
     // inside a preview panel, and must not be read as a row click.
     if (target.closest("[data-eegv-enlarge]")) {
       enlargeEegViewer();
+      return;
+    }
+
+    // Action-bar "View data" button (website#260): opens the enlarge dialog
+    // directly on the dataset's first viewable recording. Lives outside the
+    // tree section entirely, so it is not reachable through any of the
+    // branches below.
+    if (target.closest("[data-view-data-btn]")) {
+      await openViewDataButton();
       return;
     }
 
