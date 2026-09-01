@@ -19,21 +19,16 @@
  * version strings are written into the bundle and shown in the annotation UI,
  * and they are what a downstream `HEDVersion` sidecar entry has to match.
  *
- * WHY A CURATED SUBSET
- * --------------------
- * The merged schemas carry ~1500 tags, most of them about experiment design
- * (stimulus properties, task structure, sensory attributes) that nobody marks
- * on a raw EEG trace. Shipping all of them would triple the bundle for tags
- * the fuzzy search would only ever get in the way. So:
- *
- * - SCORE contributes its whole library-specific vocabulary. Every one of its
- *   roots is clinical EEG reporting by construction (epileptiform activity,
- *   seizures, sleep, artifacts, critically-ill patterns), which is exactly the
- *   annotator's language.
- * - Base HED contributes only the subtrees listed in `HED_SUBTREES` — the
- *   artifact tree, the event categories every BIDS `events.tsv` HED string
- *   starts from, temporal markers, and the agent state terms (Awake, Drowsy,
- *   Asleep, Eyes-closed) a recording-level annotation needs.
+ * WHOLE-SCHEMA SEARCH, CURATED QUICK-PICKS
+ * ----------------------------------------
+ * The bundle carries EVERY tag of both schemas (minus deprecated ones), so
+ * the in-browser search reaches the whole vocabulary — an annotator asking
+ * for "Building", "Left" or "Sleep" must find every tag that carries it
+ * (Yahya, 2026-09-01; an earlier curated subset silently hid most of base
+ * HED). Curation now lives only in `QUICK_PICKS`, which decides what the
+ * popover OFFERS before anyone types, not what the search can FIND. The full
+ * bundle stays a lazy chunk that loads with the popover, never with the
+ * viewer.
  *
  * LIBRARY PREFIX
  * --------------
@@ -65,34 +60,6 @@ const SCHEMA_VERSIONS = {
   standard: { id: "HED8.4.0", name: "HED", version: "8.4.0", prefix: "" },
   score: { id: "SCORE2.1.0", name: "score", version: "2.1.0", prefix: "sc" },
 };
-
-/**
- * Base-HED subtrees worth offering an EEG/iEEG annotator. Each entry is a
- * long-form path; the whole subtree under it is included.
- */
-const HED_SUBTREES = [
-  // Every BIDS HED string starts from an event category.
-  "Event",
-  // The artifact vocabulary proper: biological (eye, EMG, ECG, movement,
-  // sweat, chewing) and non-biological (line noise, electrode pops, salt
-  // bridge, ventilation).
-  "Property/Data-property/Data-artifact",
-  // Onset/Offset/Inset/Pause and the break marker: how an annotation says it
-  // marks a boundary rather than a span.
-  "Property/Data-property/Data-marker",
-  // Expert-annotation / Computed-feature / Observation - provenance for the
-  // annotation itself, which is what a hand-marked span is.
-  "Property/Data-property/Data-source-type",
-  // Awake / Drowsy / Asleep / Comatose - the vigilance context SCORE's
-  // Sleep-modulator expects to be paired with.
-  "Property/Agent-property/Agent-state/Agent-cognitive-state",
-  // Eyes-open / Eyes-closed, the two most-annotated states in resting EEG.
-  "Property/Agent-property/Agent-state/Agent-postural-state",
-  // Blink / Saccade / Chew as *behaviour* (the artifact tree covers them as
-  // signal contamination; both readings get annotated in practice).
-  "Action/Move/Move-body-part/Move-eyes",
-  "Action/Move/Move-body-part/Move-face",
-];
 
 /**
  * The quick-pick chips the annotation popover offers before anyone types.
@@ -227,20 +194,16 @@ function extract(standardPath, scorePath) {
   const standard = [];
   for (const root of parseSchema(standardPath)) flatten(root, "", standard);
   const byPath = new Map(standard.map((n) => [n.path, n]));
-  for (const subtree of HED_SUBTREES) {
-    if (!byPath.has(subtree)) {
-      throw new Error(`base HED subtree "${subtree}" not found in ${standardPath}`);
-    }
-    for (const node of standard) {
-      if (node.path === subtree || node.path.startsWith(`${subtree}/`)) {
-        entries.push({
-          tag: node.name,
-          path: node.path,
-          description: node.description,
-          schema: SCHEMA_VERSIONS.standard.id,
-        });
-      }
-    }
+  for (const node of standard) {
+    // Deprecated tags stay out: offering one would write a tag the schema
+    // itself tells validators to reject.
+    if (node.attributes.includes("deprecatedFrom")) continue;
+    entries.push({
+      tag: node.name,
+      path: node.path,
+      description: node.description,
+      schema: SCHEMA_VERSIONS.standard.id,
+    });
   }
 
   // The SCORE hedxml is the *merged* schema (`withStandard="8.4.0"`), so it
@@ -251,6 +214,7 @@ function extract(standardPath, scorePath) {
   const prefix = SCHEMA_VERSIONS.score.prefix;
   for (const node of score) {
     if (!node.attributes.includes("inLibrary")) continue;
+    if (node.attributes.includes("deprecatedFrom")) continue;
     entries.push({
       tag: node.name,
       path: `${prefix}:${node.path}`,
@@ -327,6 +291,8 @@ const bytes = JSON.stringify(bundle).length;
 const perSchema = new Map();
 for (const entry of entries) perSchema.set(entry.schema, (perSchema.get(entry.schema) ?? 0) + 1);
 console.log(`wrote ${OUT_PATH}`);
-console.log(`  ${entries.length} tags (${[...perSchema].map(([k, v]) => `${k}: ${v}`).join(", ")})`);
+console.log(
+  `  ${entries.length} tags (${[...perSchema].map(([k, v]) => `${k}: ${v}`).join(", ")})`,
+);
 console.log(`  ${quickPicks.reduce((n, g) => n + g.paths.length, 0)} quick picks`);
 console.log(`  ${(bytes / 1024).toFixed(1)} KB raw`);

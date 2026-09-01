@@ -1130,6 +1130,10 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     search.addEventListener("input", () => renderResults(search.value));
     function renderResults(query: string): void {
       results.replaceChildren();
+      // While a query is live the results ARE the vocabulary view; leaving
+      // the quick-pick groups stacked under them reads as more results and
+      // buries the real ones (Yahya's QA). Clearing the box brings them back.
+      quickBox.hidden = !!vocab && query.trim() !== "";
       if (!vocab || query.trim() === "") return;
       const hits = searchVocab(vocab.entries, query, SEARCH_RESULT_LIMIT);
       if (hits.length === 0) {
@@ -1158,6 +1162,7 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     // Quick picks. A channel annotation gets the artifact vocabulary instead of
     // the general one: the flow the pencil now offers is click a channel, pick
     // the noise it carries, save.
+    const quickBox = el("div", "eegv__annot-quickbox");
     if (vocab && vocabIndex) {
       const byPath = vocabIndex;
       const picks = state.kind === "channels" ? artifactQuickPicks(vocab) : vocab.quickPicks;
@@ -1185,9 +1190,10 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
           });
           wrap.append(chip);
         }
-        body.append(wrap);
+        quickBox.append(wrap);
       }
     }
+    body.append(quickBox);
 
     // Free text. Written back into the draft on every keystroke, so the
     // re-render that follows the vocabulary chunk landing cannot discard it.
