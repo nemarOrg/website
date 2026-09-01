@@ -318,6 +318,21 @@ Astro.response.headers.set(
     zarrFailureReasonByPath,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
+  import {
+    NAV_ORDER_CHANGED_EVENT,
+    type RecordingEntry,
+    buildRecordingList,
+    orderedRecordings,
+    readNavOrder,
+    recordingPosition,
+    selectRecording,
+    stepRecording,
+    subjectValues,
+    taskValues,
+  } from "../../lib/eeg-viewer/recording-nav";
+  // Type-only, so this does not pull the (WebGL-carrying) viewer module into
+  // the page bundle; the mount itself stays behind the dynamic import below.
+  import type { ViewerTransferState } from "../../lib/eeg-viewer/viewer";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
   // doesn't pay for parsing the TSV renderer's bundle.
@@ -375,6 +390,33 @@ Astro.response.headers.set(
     host: HTMLElement;
     fileName: string;
     destroy: (() => void) | null;
+    /**
+     * Dataset context (website#253). Held here rather than re-read from the
+     * row, because a navigation remounts the viewer after the row it came from
+     * has been collapsed — and the recording it swaps to may have no row in the
+     * tree at all, since directories load lazily.
+     */
+    datasetId: string;
+    version: string;
+    zarrToken: string;
+    /** BIDS path of the recording on screen; changes on every navigation. */
+    path: string;
+    /** Every viewable recording in this dataset, in Zarr index order. */
+    recordings: RecordingEntry[];
+    /** The section's Zarr state, for warming the next recording's metadata. */
+    zarr: {
+      stores: Map<string, ZarrIndexStore>;
+      prefetched: Set<string>;
+      token: string;
+    } | null;
+    /**
+     * True once the user has navigated within the dialog. The viewer then no
+     * longer shows the row it was opened from, so that row has been collapsed
+     * and the dialog owns the instance outright.
+     */
+    detached: boolean;
+    /** Settings to carry into the next recording (website#253). */
+    snapshot: (() => ViewerTransferState) | null;
   } | null = null;
 
   /**
@@ -805,7 +847,10 @@ Astro.response.headers.set(
       document.querySelector<HTMLElement>("[data-eegv-slot]")?.replaceChildren();
       dialog.close();
     }
-    if (live) resetEegRow(live.btn, live.slot);
+    // A detached viewer's row was already collapsed when the user navigated
+    // away from it (see `navigateEegViewer`); resetting it again could clobber
+    // a panel the user has since reopened.
+    if (live && !live.detached) resetEegRow(live.btn, live.slot);
   }
 
   /**
@@ -926,7 +971,25 @@ Astro.response.headers.set(
     }
 
     const seq = ++eegSeq;
-    eegLive = { btn, slot, host, fileName, destroy: null };
+    const zarr = section ? (zarrBySection.get(section) ?? null) : null;
+    eegLive = {
+      btn,
+      slot,
+      host,
+      fileName,
+      destroy: null,
+      datasetId: treeId,
+      version: treeVersion,
+      zarrToken: zarrTokenForButton(btn),
+      path: filePath,
+      // Built from the index, not from the DOM: the tree only holds the
+      // directories the user has expanded, while the index lists every
+      // viewable recording in the dataset (website#253).
+      recordings: zarr ? buildRecordingList(zarr.paths) : [],
+      zarr,
+      detached: false,
+      snapshot: null,
+    };
     try {
       const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
       if (seq !== eegSeq) return; // superseded by a newer open, or released
@@ -941,6 +1004,9 @@ Astro.response.headers.set(
         // check below only runs once the mount has already written its DOM,
         // too late to protect whatever got there first.
         isStale: () => seq !== eegSeq,
+        onTransfer: (snapshot) => {
+          if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
       });
       if (seq !== eegSeq) {
         // Superseded while mounting. Tear it down rather than let it keep
@@ -1012,7 +1078,258 @@ Astro.response.headers.set(
     dialogSlot.replaceChildren(live.host);
     if (titleEl) titleEl.textContent = live.fileName || "Signal viewer";
     dialog.showModal();
+    // Recording navigation is a dialog-only affordance (website#253) — the
+    // controls only exist here, so they are populated on the way in.
+    syncEegNavControls();
+    prefetchAdjacentRecordings();
   }
+
+  // --- Recording navigation (website#253) ----------------------------------
+  // The dialog's subject/task dropdowns and prev/next buttons swap the mounted
+  // recording in place. The list comes from the Zarr index (every viewable
+  // recording), the order from the gear setting, and the swap reuses the same
+  // `eegSeq` supersession the tree-click path uses, so a fast next/next/next
+  // cannot strand a mount, a store fetch, or a WebGL context (website#208).
+
+  function eegNavEl<T extends HTMLElement>(selector: string): T | null {
+    return document.querySelector<T>(selector);
+  }
+
+  /** The entry for the recording currently on screen, if it parsed. */
+  function currentEegRecording(): RecordingEntry | null {
+    const live = eegLive;
+    if (!live) return null;
+    return live.recordings.find((e) => e.path === live.path) ?? null;
+  }
+
+  /**
+   * Fill one of the entity dropdowns. A current value that is not among the
+   * options — the recording on screen has no `task` while its siblings do —
+   * gets a leading placeholder entry rather than silently displaying some
+   * other recording's label.
+   */
+  function fillEegNavSelect(
+    sel: HTMLSelectElement,
+    values: string[],
+    prefix: string,
+    current: string | null,
+  ): void {
+    sel.replaceChildren();
+    if (current === null) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "—";
+      sel.append(none);
+    }
+    for (const value of values) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = `${prefix}${value}`;
+      sel.append(option);
+    }
+    sel.value = current ?? "";
+  }
+
+  /**
+   * Reflect the live viewer's position in the dialog's navigation controls.
+   * Safe to call at any time: with no live viewer, fewer than two recordings,
+   * or a dataset whose paths do not parse into entities, it just hides what
+   * cannot be driven.
+   */
+  function syncEegNavControls(): void {
+    const nav = eegNavEl("[data-eegv-nav]");
+    const subSel = eegNavEl<HTMLSelectElement>("[data-eegv-nav-sub]");
+    const taskSel = eegNavEl<HTMLSelectElement>("[data-eegv-nav-task]");
+    const subField = eegNavEl("[data-eegv-nav-sub-field]");
+    const taskField = eegNavEl("[data-eegv-nav-task-field]");
+    const pos = eegNavEl("[data-eegv-nav-pos]");
+    const prev = eegNavEl<HTMLButtonElement>("[data-eegv-nav-prev]");
+    const next = eegNavEl<HTMLButtonElement>("[data-eegv-nav-next]");
+    if (!nav || !subSel || !taskSel || !subField || !taskField || !pos || !prev || !next) {
+      // The dialog markup and this script ship together; a mismatch means the
+      // component was edited without its driver.
+      console.warn("[eeg-viewer] navigation controls missing from the dialog");
+      return;
+    }
+    const live = eegLive;
+    if (!live || live.recordings.length < 2) {
+      nav.hidden = true;
+      return;
+    }
+    const current = currentEegRecording();
+    const subs = subjectValues(live.recordings);
+    // Tasks are scoped to the subject on screen, so every option the dropdown
+    // offers resolves to a real recording for that subject.
+    const tasks = taskValues(live.recordings, current?.sub ?? null);
+    fillEegNavSelect(subSel, subs, "sub-", current?.sub ?? null);
+    fillEegNavSelect(taskSel, tasks, "task-", current?.task ?? null);
+    // A dataset that names no subjects (or no tasks) gets no dropdown for them
+    // rather than an empty one; prev/next still walks every recording.
+    subField.hidden = subs.length === 0;
+    taskField.hidden = tasks.length === 0;
+
+    const ordered = orderedRecordings(live.recordings, readNavOrder());
+    const at = recordingPosition(ordered, live.path);
+    pos.textContent = at >= 0 ? `${at + 1} of ${ordered.length}` : `${ordered.length} recordings`;
+    const before = at > 0 ? ordered[at - 1] : null;
+    const after = at >= 0 ? (ordered[at + 1] ?? null) : null;
+    prev.disabled = !before;
+    next.disabled = !after;
+    prev.title = before ? `Previous recording: ${before.name}` : "No previous recording";
+    next.title = after ? `Next recording: ${after.name}` : "No next recording";
+    nav.hidden = false;
+  }
+
+  /** Warm the neighbours' store metadata, the same warmup a hovered tree row
+   *  gets. Best-effort: a miss costs one extra request at navigation time. */
+  function prefetchAdjacentRecordings(): void {
+    const live = eegLive;
+    if (!live?.zarr) return;
+    const order = readNavOrder();
+    for (const delta of [1, -1]) {
+      const target = stepRecording(live.recordings, live.path, order, delta);
+      if (!target || live.zarr.prefetched.has(target.path)) continue;
+      live.zarr.prefetched.add(target.path);
+      prefetchZarrStoreMetadata(
+        live.datasetId,
+        target.path,
+        live.zarr.stores.get(target.path),
+        live.zarr.token,
+      );
+    }
+  }
+
+  /**
+   * Swap the enlarged viewer to another recording, in place.
+   *
+   * The first navigation **collapses the tree row the viewer was opened from**
+   * and hands ownership to the dialog. The alternative — re-anchoring the
+   * viewer under the new recording's row — cannot be done honestly: the
+   * recording list comes from the Zarr index, so the target may sit in a
+   * directory the user never expanded and therefore have no row to anchor to.
+   * Leaving the viewer anchored under a row that names a different file would
+   * be worse still. Closing the dialog therefore ends a navigated viewer's
+   * life instead of returning it inline (see the `close` handler).
+   */
+  async function navigateEegViewer(target: RecordingEntry): Promise<void> {
+    const live = eegLive;
+    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+    if (!live || !dialog?.open) return;
+    if (target.path === live.path) {
+      // The pick resolved to what is already on screen; nothing to swap, but
+      // the dropdowns may be showing the request rather than the reality.
+      syncEegNavControls();
+      return;
+    }
+
+    if (!live.detached) {
+      resetEegRow(live.btn, live.slot);
+      live.detached = true;
+    }
+
+    // Read the outgoing instance's settings BEFORE anything supersedes it;
+    // `mountEegViewer` tears down whatever is in the host as its first act, so
+    // there is no later chance to ask.
+    const transfer = live.snapshot?.();
+    const seq = ++eegSeq;
+    live.path = target.path;
+    live.fileName = target.name;
+    live.snapshot = null;
+    // The title and controls move immediately: the mount can take a moment,
+    // and chrome that still names the previous recording reads as a no-op.
+    const titleEl = document.querySelector<HTMLElement>("[data-eegv-title]");
+    if (titleEl) titleEl.textContent = target.name || "Signal viewer";
+    syncEegNavControls();
+    const host = live.host;
+    host.setAttribute("aria-busy", "true");
+    try {
+      const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
+      if (seq !== eegSeq || !eegLive) return;
+      // The mount disposes the instance currently in this host, so drop our
+      // handle to it rather than risk destroying it twice. Done here and not
+      // before the await: until the mount actually starts, the old instance is
+      // still the one on screen and a dialog close must still be able to
+      // release it.
+      eegLive.destroy = null;
+      const destroy = await mountEegViewer(host, {
+        datasetId: live.datasetId,
+        version: live.version,
+        filePath: target.path,
+        zarrToken: live.zarrToken,
+        downloadUrl: fileDownloadUrl(live.datasetId, live.version, target.path),
+        isStale: () => seq !== eegSeq,
+        transfer,
+        onTransfer: (snapshot) => {
+          if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
+        },
+      });
+      if (seq !== eegSeq) {
+        // Superseded mid-mount by a faster click: whoever superseded us owns
+        // the host now, so this instance only has itself to clean up.
+        destroy?.();
+        return;
+      }
+      if (eegLive) eegLive.destroy = destroy ?? null;
+      prefetchAdjacentRecordings();
+    } catch (err) {
+      // `mountEegViewer` handles its own failures by rendering an "unavailable"
+      // message into the host; reaching here means the import itself failed.
+      console.error("[eeg-viewer] navigation failed:", err);
+    } finally {
+      if (seq === eegSeq) host.removeAttribute("aria-busy");
+    }
+  }
+
+  function stepEegViewer(delta: number): void {
+    const live = eegLive;
+    if (!live) return;
+    const target = stepRecording(live.recordings, live.path, readNavOrder(), delta);
+    if (target) void navigateEegViewer(target);
+    else syncEegNavControls(); // at an end; make sure the button reads disabled
+  }
+
+  // Wired once — the dialog markup is static and outside the tree section that
+  // hydration replaces.
+  eegNavEl<HTMLButtonElement>("[data-eegv-nav-prev]")?.addEventListener("click", () =>
+    stepEegViewer(-1),
+  );
+  eegNavEl<HTMLButtonElement>("[data-eegv-nav-next]")?.addEventListener("click", () =>
+    stepEegViewer(1),
+  );
+  eegNavEl<HTMLSelectElement>("[data-eegv-nav-sub]")?.addEventListener("change", (event) => {
+    const live = eegLive;
+    const sel = event.currentTarget as HTMLSelectElement;
+    if (!live) return;
+    // `prefer: "sub"` keeps the subject the user just picked when it has no
+    // recording of the current task.
+    const target = selectRecording(
+      live.recordings,
+      { sub: sel.value || null, task: currentEegRecording()?.task ?? null },
+      readNavOrder(),
+      "sub",
+    );
+    // `navigateEegViewer` re-syncs the controls itself; the else branch covers
+    // a pick that resolved to nothing, which must not leave the dropdown
+    // displaying a subject the viewer is not on.
+    if (target) void navigateEegViewer(target);
+    else syncEegNavControls();
+  });
+  eegNavEl<HTMLSelectElement>("[data-eegv-nav-task]")?.addEventListener("change", (event) => {
+    const live = eegLive;
+    const sel = event.currentTarget as HTMLSelectElement;
+    if (!live) return;
+    const target = selectRecording(
+      live.recordings,
+      { sub: currentEegRecording()?.sub ?? null, task: sel.value || null },
+      readNavOrder(),
+      "task",
+    );
+    if (target) void navigateEegViewer(target);
+    else syncEegNavControls();
+  });
+  // The gear setting lives inside the viewer instance; it announces a change
+  // rather than reaching into this chrome (the two are separately mounted).
+  document.addEventListener(NAV_ORDER_CHANGED_EVENT, () => syncEegNavControls());
 
   // Closing the dialog (Esc or the corner X, both native `dialog.close()`)
   // hands the viewer back to the inline panel it came from — the instance is
@@ -1021,6 +1338,20 @@ Astro.response.headers.set(
   document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.addEventListener("close", () => {
     const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
     const live = eegLive;
+    const nav = document.querySelector<HTMLElement>("[data-eegv-nav]");
+    if (nav) nav.hidden = true; // the controls only make sense in the dialog
+    if (live?.detached) {
+      // The user navigated away from the row this viewer came from, so there
+      // is nothing to hand back to (see `navigateEegViewer`): closing the
+      // dialog is the end of this instance. Bump the sequence first so any
+      // mount still in flight stands down instead of writing into a host that
+      // is about to be discarded.
+      eegSeq++;
+      eegLive = null;
+      live.destroy?.();
+      dialogSlot?.replaceChildren();
+      return;
+    }
     const anchor = live?.slot.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
     if (live && anchor) {
       anchor.replaceWith(live.host);
