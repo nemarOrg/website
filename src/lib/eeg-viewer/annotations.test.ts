@@ -341,6 +341,13 @@ describe("formatSeconds", () => {
     expect(formatSeconds(Number.NaN)).toBe("0");
     expect(formatSeconds(Number.POSITIVE_INFINITY)).toBe("0");
   });
+
+  it("never writes a negative zero into a cell", () => {
+    // A value just below zero rounds to -0, which stringifies as "-0" — a cell
+    // no reader expects in an onset column.
+    expect(formatSeconds(-0.00001)).toBe("0");
+    expect(formatSeconds(-0)).toBe("0");
+  });
 });
 
 describe("formatHed", () => {

@@ -336,6 +336,9 @@ const NA = "n/a";
 export function formatSeconds(seconds: number): string {
   if (!Number.isFinite(seconds)) return "0";
   const rounded = Math.round(seconds * 1e4) / 1e4;
+  // `-0 === 0`, so this also catches the negative zero a value just below zero
+  // rounds to, which would otherwise serialize as the cell "-0".
+  if (rounded === 0) return "0";
   // toFixed then strip: String() on a rounded float can still print an
   // exponent or a long binary tail (0.1 + 0.2), which toFixed(4) will not.
   return rounded.toFixed(4).replace(/\.?0+$/, "") || "0";
