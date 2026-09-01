@@ -969,6 +969,11 @@ const dataHost = new URL(dataBase).host;
     font: inherit;
     font-size: var(--fs-xs);
     cursor: pointer;
+    /* The popover footer is a flex row: without these, a narrow popover
+       shrinks the pills until "Save"/"Delete"/"Cancel" wrap mid-word into
+       circles. Labels stay on one line; the row wraps instead if it must. */
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .eegv__annot-btn:hover:not(:disabled) {
     border-color: var(--eegv-annot);
@@ -998,7 +1003,11 @@ const dataHost = new URL(dataBase).host;
     margin: 0;
     padding: 0;
     list-style: none;
-    max-block-size: 132px;
+    /* A working session can produce a hundred-plus annotations (sleep
+       scoring); the list scrolls rather than growing the panel. Tall enough
+       to show a real slice of the session, short enough that the exports and
+       the sign-in notice stay on screen. */
+    max-block-size: 260px;
     overflow-y: auto;
   }
   .eegv__annot-item-btn {

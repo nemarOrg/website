@@ -1433,7 +1433,18 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
         "",
       );
       button.title = "Describe the channels currently marked in the montage as one set";
-      button.addEventListener("click", () => openChannelPopover(selected, null));
+      button.addEventListener("click", () => {
+        // Mirror the gutter click's edit-not-replace behavior: a single marked
+        // channel that already carries an annotation opens prefilled (tags,
+        // status, comment) instead of a blank draft that would silently
+        // overwrite it on save. A multi-channel set stays a fresh draft — its
+        // save intentionally describes the whole set as one.
+        const existing =
+          selected.length === 1
+            ? (set.channels.find((c) => c.channel === selected[0]) ?? null)
+            : null;
+        openChannelPopover(selected, existing);
+      });
       bar.append(button);
     }
     opts.panel.append(bar);
