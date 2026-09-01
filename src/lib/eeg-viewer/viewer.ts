@@ -1358,6 +1358,12 @@ export async function mountEegViewer(
       const bot = slot.baseline + slot.halfHeight;
       if (y >= top && y < bot) {
         const label = lastFrame.channels[i].label;
+        // With the pencil armed a channel click is an annotation gesture: it
+        // opens the popover for that channel, and the popover's status field
+        // then decides the mark. Toggling here as well would fight it — the
+        // annotator would land in a "bad" popover for a channel the same click
+        // had just made good. With the pencil off nothing changes.
+        if (annotations.onChannelClick(label)) break;
         if (badChannels.has(label)) badChannels.delete(label);
         else badChannels.add(label);
         // Channel marking IS the selection the annotation tool acts on

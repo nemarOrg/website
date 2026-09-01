@@ -70,6 +70,52 @@ export function entriesByPath(vocab: HedVocab): Map<string, HedVocabEntry> {
   return new Map(vocab.entries.map((e) => [e.path, e]));
 }
 
+/**
+ * Quick picks for a *channel* annotation: the noise and artifact vocabulary,
+ * and only that.
+ *
+ * A channel-scoped statement is almost never "this electrode had a seizure" —
+ * it is "this electrode was noisy, flat, popping, drifting". So the bundle's
+ * general quick picks (epileptiform, sleep) are the wrong offer here, and the
+ * annotator would have to search past them every time. These groups are
+ * derived from the bundle rather than curated separately, so a regenerated
+ * bundle keeps them in step with no second list to maintain.
+ *
+ * Base HED's artifact tree carries the causes (`Eye-blink-artifact`,
+ * `Line-noise-artifact`); SCORE contributes how much the artifact cost the
+ * recording. Groups come out in that order, and an empty one is dropped.
+ */
+export function artifactQuickPicks(vocab: HedVocab): HedQuickPickGroup[] {
+  const isArtifact = (e: HedVocabEntry): boolean => e.path.toLowerCase().includes("artifact");
+  const base = vocab.entries.filter((e) => isArtifact(e) && !e.path.startsWith("sc:"));
+  const groups: HedQuickPickGroup[] = [
+    {
+      group: "Artifact",
+      paths: base
+        .filter(
+          (e) =>
+            !e.path.includes("/Biological-artifact") && !e.path.includes("/Nonbiological-artifact"),
+        )
+        .map((e) => e.path),
+    },
+    {
+      group: "Biological",
+      paths: base.filter((e) => e.path.includes("/Biological-artifact")).map((e) => e.path),
+    },
+    {
+      group: "Non-biological",
+      paths: base.filter((e) => e.path.includes("/Nonbiological-artifact")).map((e) => e.path),
+    },
+    {
+      group: "Effect on the recording",
+      paths: vocab.entries
+        .filter((e) => isArtifact(e) && e.path.startsWith("sc:"))
+        .map((e) => e.path),
+    },
+  ];
+  return groups.filter((g) => g.paths.length > 0);
+}
+
 // --- search ----------------------------------------------------------------
 
 export interface HedSearchResult {

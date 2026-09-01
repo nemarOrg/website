@@ -48,6 +48,7 @@ import {
 import {
   type HedVocab,
   type HedVocabEntry,
+  artifactQuickPicks,
   entriesByPath,
   hedVersionSpec,
   loadHedVocab,
@@ -62,6 +63,21 @@ const MARKER_HIT_PX = 4;
 const SEARCH_RESULT_LIMIT = 30;
 /** How long after the last edit the set is written to IndexedDB. */
 const SAVE_DEBOUNCE_MS = 400;
+/** Breathing room between the popover and the selection, and the viewer edge. */
+const POPOVER_GAP_PX = 8;
+/** The popover never shrinks below this, even in a very short viewer. */
+const POPOVER_MIN_HEIGHT_PX = 180;
+/**
+ * How long after the popover has swallowed an Escape a `cancel` on the
+ * surrounding dialog is still assumed to belong to that same keypress.
+ *
+ * Whether `preventDefault()` on the popover's keydown suppresses the dialog's
+ * own close request is engine-dependent (the Close Watcher spec leaves the
+ * ordering to the user agent), so the guard cannot rely on the popover still
+ * being open when `cancel` arrives. Short enough that a deliberate second
+ * Escape still closes the dialog.
+ */
+const ESCAPE_GUARD_MS = 200;
 
 export interface AnnotationGeometry {
   cssWidth: number;
@@ -76,6 +92,135 @@ export interface AnnotationGeometry {
   channelLabels: string[];
   slots: TraceSlot[];
   butterfly: boolean;
+}
+
+/** A box in viewer-root coordinates. */
+export interface AnnotationRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+// --- pure geometry ---------------------------------------------------------
+// Module level rather than closed over a layer instance so they can be unit
+// tested without a DOM; the layer passes its current frame geometry in.
+
+/** The time under an x offset inside the scope. */
+export function timeAtX(x: number, g: AnnotationGeometry): number {
+  const span = g.windowEndS - g.windowStartS;
+  if (g.plotWidth <= 0 || span <= 0) return g.windowStartS;
+  return g.windowStartS + ((x - g.plotLeft) / g.plotWidth) * span;
+}
+
+/** The x offset inside the scope at which a time is drawn. */
+export function xAtTime(t: number, g: AnnotationGeometry): number {
+  const span = g.windowEndS - g.windowStartS;
+  if (span <= 0) return g.plotLeft;
+  return g.plotLeft + ((t - g.windowStartS) / span) * g.plotWidth;
+}
+
+/** A time confined to the window currently on screen. */
+export function clampTime(t: number, g: AnnotationGeometry): number {
+  return Math.max(g.windowStartS, Math.min(g.windowEndS, t));
+}
+
+export interface PopoverPlacementInput {
+  /** What is being annotated: the span, the marker, or the channel rows. */
+  selection: AnnotationRect;
+  /** The popover's measured box. */
+  popover: { width: number; height: number };
+  /**
+   * The area the popover may occupy: the *visible* part of the viewer, which
+   * inside the enlarge dialog is smaller than the viewer root itself.
+   */
+  bounds: AnnotationRect;
+  /** The trace area, for the last-resort placement. */
+  plot: AnnotationRect;
+  gap: number;
+}
+
+export interface PopoverPlacement {
+  left: number;
+  top: number;
+  /** Which candidate won; "fallback" is the only one that may overlap. */
+  side: "right" | "left" | "below" | "above" | "fallback";
+}
+
+/**
+ * Place the popover **beside the thing it is about**, never over it.
+ *
+ * The first version parked it under the toolbar at a fixed offset, which put
+ * it on top of the very span the annotator had just dragged out — they were
+ * describing a piece of signal they could no longer see. So the candidates are
+ * tried in the order that keeps the selection visible and the popover whole:
+ *
+ *  1. right of the selection, then left of it, vertically centred on it;
+ *  2. below it, then above it, horizontally centred on it — for a selection so
+ *     wide that neither flank has room;
+ *  3. right-centre of the trace area, which may overlap. Only reached when the
+ *     selection is wider *and* taller than everything around it, i.e. when
+ *     there is nowhere left that does not overlap something.
+ *
+ * Coordinates are relative to the viewer root, which is the popover's
+ * containing block, so this is the same arithmetic inline and enlarged — only
+ * the numbers differ.
+ */
+export function placeAnnotationPopover(input: PopoverPlacementInput): PopoverPlacement {
+  const { selection: sel, popover: pop, bounds, plot, gap } = input;
+  const minLeft = bounds.left + gap;
+  const minTop = bounds.top + gap;
+  const limitRight = bounds.left + bounds.width;
+  const limitBottom = bounds.top + bounds.height;
+  const clampLeft = (x: number): number =>
+    Math.max(minLeft, Math.min(x, Math.max(minLeft, limitRight - pop.width - gap)));
+  const clampTop = (y: number): number =>
+    Math.max(minTop, Math.min(y, Math.max(minTop, limitBottom - pop.height - gap)));
+
+  // Beside: vertically centred on the selection, clamped into the viewer. The
+  // clamp cannot cause an overlap — the popover is off to one side either way.
+  const besideTop = clampTop(sel.top + sel.height / 2 - pop.height / 2);
+  const rightLeft = sel.left + sel.width + gap;
+  if (rightLeft + pop.width + gap <= limitRight) {
+    return { left: rightLeft, top: besideTop, side: "right" };
+  }
+  const leftLeft = sel.left - gap - pop.width;
+  if (leftLeft >= minLeft) return { left: leftLeft, top: besideTop, side: "left" };
+
+  // Stacked: horizontally centred on the selection, fully clear of its band.
+  const stackedLeft = clampLeft(sel.left + sel.width / 2 - pop.width / 2);
+  const belowTop = sel.top + sel.height + gap;
+  if (belowTop + pop.height + gap <= limitBottom) {
+    return { left: stackedLeft, top: belowTop, side: "below" };
+  }
+  const aboveTop = sel.top - gap - pop.height;
+  if (aboveTop >= minTop) return { left: stackedLeft, top: aboveTop, side: "above" };
+
+  return {
+    left: clampLeft(plot.left + plot.width - pop.width - gap),
+    top: clampTop(plot.top + plot.height / 2 - pop.height / 2),
+    side: "fallback",
+  };
+}
+
+/** Whether a draft carries anything worth storing (Enter-to-save's gate). */
+export function hasAnnotationContent(draft: { tags: string[]; comment: string }): boolean {
+  return draft.tags.length > 0 || draft.comment.trim() !== "";
+}
+
+/**
+ * Whether leaving the page should be confirmed: there is work, and it lives
+ * only in this browser — either because nobody is signed in to claim it, or
+ * because persistence itself has failed. `storePersistent` is null while the
+ * store is still opening, which is not yet a known failure.
+ */
+export function shouldWarnBeforeUnload(input: {
+  hasWork: boolean;
+  signedIn: boolean;
+  storePersistent: boolean | null;
+}): boolean {
+  if (!input.hasWork) return false;
+  return !input.signedIn || input.storePersistent === false;
 }
 
 export interface AnnotationLayerOptions {
@@ -109,9 +254,20 @@ export interface AnnotationLayer {
   onFrame(geometry: AnnotationGeometry): void;
   /** Called when the viewer's channel marking changed. */
   onSelectionChanged(): void;
+  /**
+   * Offer a channel-label click to annotation mode. Returns true when the tool
+   * took it — the caller must then leave its own bad-channel toggle alone,
+   * because the popover's status field is about to decide that channel's mark.
+   */
+  onChannelClick(label: string): boolean;
   /** Turn annotation mode on/off (also driven by the toolbar toggle). */
   setActive(active: boolean): void;
   isActive(): boolean;
+  /**
+   * Whether the annotation popover is open. The surrounding `<dialog>` needs
+   * this to tell an Escape aimed at the popover from one aimed at itself.
+   */
+  isPopoverOpen(): boolean;
   /** Draw annotation ticks onto the overview minimap's context. */
   drawOverview(
     ctx: CanvasRenderingContext2D,
@@ -274,8 +430,11 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
    * same exposure for a different reason.
    */
   function syncBeforeUnload(): void {
-    const atRisk =
-      !isAnnotationSetEmpty(set) && (!hasSession() || (store !== null && !store.persistent));
+    const atRisk = shouldWarnBeforeUnload({
+      hasWork: !isAnnotationSetEmpty(set),
+      signedIn: hasSession(),
+      storePersistent: store ? store.persistent : null,
+    });
     if (atRisk === warningArmed) return;
     warningArmed = atRisk;
     if (atRisk) globalThis.addEventListener("beforeunload", onBeforeUnload);
@@ -324,23 +483,65 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     return vocabIndex?.get(path)?.tag ?? path;
   }
 
+  // --- derived state --------------------------------------------------------
+
+  /**
+   * Everything the overlay needs that is a function of the *set* rather than
+   * of the frame, cached on the set's identity. `drawOverlay` runs on every
+   * pointer move of a drag; rebuilding the lane assignment (a sort plus a
+   * first-fit pass) and the channel index there would put an O(n log n) walk of
+   * every annotation in the recording on the drag path.
+   *
+   * Keyed on the reference, not invalidated by hand: `set` is only ever
+   * replaced, never mutated in place, so a stale cache is impossible.
+   */
+  let derivedCache: {
+    source: AnnotationSet;
+    lanes: Map<string, number>;
+    byChannel: Map<string, ChannelAnnotation>;
+  } | null = null;
+
+  function derived(): { lanes: Map<string, number>; byChannel: Map<string, ChannelAnnotation> } {
+    if (!derivedCache || derivedCache.source !== set) {
+      derivedCache = {
+        source: set,
+        lanes: assignOverlapLanes(set.time),
+        byChannel: new Map(set.channels.map((c) => [c.channel, c])),
+      };
+    }
+    return derivedCache;
+  }
+
+  /** The visible-window filter, shared by the draw pass and the hit test. */
+  let visibleCache: {
+    source: AnnotationSet;
+    startS: number;
+    endS: number;
+    list: TimeAnnotation[];
+  } | null = null;
+
+  function visibleAnnotations(g: AnnotationGeometry): TimeAnnotation[] {
+    if (
+      !visibleCache ||
+      visibleCache.source !== set ||
+      visibleCache.startS !== g.windowStartS ||
+      visibleCache.endS !== g.windowEndS
+    ) {
+      visibleCache = {
+        source: set,
+        startS: g.windowStartS,
+        endS: g.windowEndS,
+        list: timeAnnotationsInWindow(set.time, g.windowStartS, g.windowEndS),
+      };
+    }
+    return visibleCache.list;
+  }
+
   // --- geometry helpers -----------------------------------------------------
-
-  function timeAtX(x: number, g: AnnotationGeometry): number {
-    const span = g.windowEndS - g.windowStartS;
-    if (g.plotWidth <= 0 || span <= 0) return g.windowStartS;
-    return g.windowStartS + ((x - g.plotLeft) / g.plotWidth) * span;
-  }
-
-  function xAtTime(t: number, g: AnnotationGeometry): number {
-    const span = g.windowEndS - g.windowStartS;
-    if (span <= 0) return g.plotLeft;
-    return g.plotLeft + ((t - g.windowStartS) / span) * g.plotWidth;
-  }
 
   /** The topmost annotation whose drawn extent contains `x`, or null. */
   function annotationAtX(x: number, g: AnnotationGeometry): TimeAnnotation | null {
-    const visible = timeAnnotationsInWindow(set.time, g.windowStartS, g.windowEndS);
+    const visible = visibleAnnotations(g);
     let best: TimeAnnotation | null = null;
     let bestWidth = Number.POSITIVE_INFINITY;
     for (const a of visible) {
@@ -385,8 +586,8 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     const bottom = g.plotTop + g.plotHeight;
 
     // Committed annotations first, so the live drag paints over them.
-    const visible = timeAnnotationsInWindow(set.time, g.windowStartS, g.windowEndS);
-    const lanes = assignOverlapLanes(set.time);
+    const visible = visibleAnnotations(g);
+    const { lanes, byChannel } = derived();
     ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
     ctx.textBaseline = "top";
     ctx.textAlign = "left";
@@ -438,7 +639,6 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     // Channel marks: a small square in the gutter beside each annotated
     // channel's label. Stacked mode only — butterfly has no per-slot geometry.
     if (!g.butterfly && set.channels.length > 0) {
-      const byChannel = new Map(set.channels.map((c) => [c.channel, c]));
       for (let i = 0; i < g.slots.length; i++) {
         const annotation = byChannel.get(g.channelLabels[i] ?? "");
         if (!annotation) continue;
@@ -538,7 +738,26 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     if (Math.abs(x - dragStartX) > DRAG_THRESHOLD_PX) dragMoved = true;
     dragCurrentS = clampTime(timeAtX(x, g), g);
     event.stopPropagation();
-    drawOverlay();
+    // Coalesced to one repaint per frame: a pointer can deliver moves faster
+    // than the display refreshes, and each one repaints the whole overlay.
+    requestOverlayDraw();
+  }
+
+  let drawRaf = 0;
+  function requestOverlayDraw(): void {
+    if (drawRaf !== 0 || typeof requestAnimationFrame !== "function") {
+      if (drawRaf === 0) drawOverlay();
+      return;
+    }
+    drawRaf = requestAnimationFrame(() => {
+      drawRaf = 0;
+      drawOverlay();
+    });
+  }
+
+  function cancelOverlayDraw(): void {
+    if (drawRaf !== 0) cancelAnimationFrame(drawRaf);
+    drawRaf = 0;
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -583,10 +802,6 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     event.stopPropagation();
   }
 
-  function clampTime(t: number, g: AnnotationGeometry): number {
-    return Math.max(g.windowStartS, Math.min(g.windowEndS, t));
-  }
-
   opts.scope.addEventListener("pointerdown", onPointerDown, true);
   opts.scope.addEventListener("pointermove", onPointerMove, true);
   opts.scope.addEventListener("pointerup", onPointerUp, true);
@@ -610,6 +825,8 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     | ({ kind: "channels"; channels: string[]; existing: ChannelAnnotation | null } & PopoverDraft);
   let popState: PopoverState | null = null;
   let restoreFocusTo: HTMLElement | null = null;
+  /** Commit the popover as it currently stands; set by `renderPopover`. */
+  let submitPopover: (() => void) | null = null;
 
   function openTimePopover(annotation: TimeAnnotation, isNew: boolean): void {
     popState = {
@@ -620,15 +837,16 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       comment: annotation.description,
     };
     restoreFocusTo = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
+    syncDialogGuard();
     void ensureVocab().then(() => {
       if (popState?.kind === "time") renderPopover();
     });
-    renderPopover();
-    positionPopover(annotation.onsetS);
     // The live preview of an unconfirmed annotation: draw it as if it existed
-    // so the popover is visibly about a specific piece of the trace.
+    // so the popover is visibly about a specific piece of the trace. Set before
+    // the render so the placement below measures against the drawn selection.
     dragStartS = annotation.onsetS;
     dragCurrentS = annotation.onsetS + annotation.durationS;
+    renderPopover();
     drawOverlay();
   }
 
@@ -642,15 +860,16 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       comment: existing?.description ?? "",
     };
     restoreFocusTo = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
+    syncDialogGuard();
     void ensureVocab().then(() => {
       if (popState?.kind === "channels") renderPopover();
     });
     renderPopover();
-    positionPopover(null);
   }
 
   function closePopover(): void {
     popState = null;
+    submitPopover = null;
     popover.hidden = true;
     popover.replaceChildren();
     dragStartS = null;
@@ -665,27 +884,151 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
   }
 
   /**
-   * Park the popover under the toolbar, horizontally near the annotation it is
-   * about. Offsets are measured against the viewer root's own box rather than
+   * The scope's offset inside the viewer root. Measured rather than read off
    * `offsetLeft`, because the scope's offset parent is the plot wrapper (also
    * positioned), not the root the popover is absolutely placed in.
    */
-  const POPOVER_WIDTH_PX = 320;
+  function scopeOffset(): { x: number; y: number } {
+    const scope = opts.scope.getBoundingClientRect();
+    const root = opts.root.getBoundingClientRect();
+    return { x: scope.left - root.left, y: scope.top - root.top };
+  }
 
-  function positionPopover(atTimeS: number | null): void {
+  /**
+   * The box the open popover is about, in viewer-root coordinates: the span or
+   * marker on the trace, or the marked channels' rows in the gutter. Null when
+   * there is no frame yet, or in butterfly mode for a channel annotation
+   * (no per-slot geometry to point at).
+   */
+  function selectionRect(): AnnotationRect | null {
     const g = geometry;
-    popover.style.insetBlockStart = `${(g?.plotTop ?? 4) + 44}px`;
-    if (!g || atTimeS === null) {
-      popover.style.insetInlineStart = "";
-      popover.style.insetInlineEnd = "12px";
-      return;
+    const state = popState;
+    if (!g || !state) return null;
+    const { x, y } = scopeOffset();
+    if (state.kind === "time") {
+      const a = state.annotation;
+      const x1 = xAtTime(a.onsetS, g);
+      const x2 = xAtTime(a.onsetS + a.durationS, g);
+      return {
+        left: x + Math.min(x1, x2),
+        top: y + g.plotTop,
+        // A zero-duration marker is drawn as a line; give it a couple of pixels
+        // so "beside it" means beside the line, not exactly on it.
+        width: Math.max(2, Math.abs(x2 - x1)),
+        height: g.plotHeight,
+      };
     }
-    const scopeLeft =
-      opts.scope.getBoundingClientRect().left - opts.root.getBoundingClientRect().left;
-    const raw = scopeLeft + xAtTime(atTimeS, g) - POPOVER_WIDTH_PX / 2;
-    const maxLeft = Math.max(8, opts.root.clientWidth - POPOVER_WIDTH_PX - 8);
-    popover.style.insetInlineEnd = "";
-    popover.style.insetInlineStart = `${Math.max(8, Math.min(raw, maxLeft))}px`;
+    if (g.butterfly) return null;
+    const wanted = new Set(state.channels);
+    let top = Number.POSITIVE_INFINITY;
+    let bottom = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < g.slots.length; i++) {
+      if (!wanted.has(g.channelLabels[i] ?? "")) continue;
+      const slot = g.slots[i];
+      top = Math.min(top, slot.baseline - slot.halfHeight);
+      bottom = Math.max(bottom, slot.baseline + slot.halfHeight);
+    }
+    if (!Number.isFinite(top)) return null;
+    // The gutter strip carrying those labels: the popover goes beside it, so
+    // the channel names it is about stay readable.
+    return { left: x, top: y + top, width: g.plotLeft, height: Math.max(2, bottom - top) };
+  }
+
+  /**
+   * The part of the viewer that is actually on screen, in root coordinates:
+   * the root's own box, intersected with the viewport and with every clipping
+   * ancestor.
+   *
+   * The enlarge dialog is why this is load-bearing rather than defensive. The
+   * viewer root inside it is *taller than the dialog*, which clips it, so
+   * "inside the root" and "visible" are different boxes — placing against the
+   * root's own height puts the popover's footer below the dialog's edge, which
+   * is precisely what pinning the footer is meant to prevent.
+   */
+  function visibleBounds(): AnnotationRect {
+    const rootBox = opts.root.getBoundingClientRect();
+    let left = rootBox.left;
+    let top = rootBox.top;
+    let right = rootBox.right;
+    let bottom = rootBox.bottom;
+    const view = doc.defaultView;
+    if (view) {
+      left = Math.max(left, 0);
+      top = Math.max(top, 0);
+      right = Math.min(right, view.innerWidth);
+      bottom = Math.min(bottom, view.innerHeight);
+      // Stops at <body>: overflow on the root element (and on body, when the
+      // root's is visible) is *propagated to the viewport* rather than
+      // clipping a box, and `documentElement.getBoundingClientRect()` on a
+      // scrolled page returns a box far above the viewport. Intersecting with
+      // it would shrink the bounds to nothing — the dataset page sets
+      // `overflow-x: clip` on <html>, so this is the common case, not a
+      // theoretical one.
+      for (
+        let node = opts.root.parentElement;
+        node && node !== doc.body && node !== doc.documentElement;
+        node = node.parentElement
+      ) {
+        const style = view.getComputedStyle(node);
+        if (style.overflowX === "visible" && style.overflowY === "visible") continue;
+        const box = node.getBoundingClientRect();
+        left = Math.max(left, box.left);
+        top = Math.max(top, box.top);
+        right = Math.min(right, box.right);
+        bottom = Math.min(bottom, box.bottom);
+      }
+    }
+    return {
+      left: left - rootBox.left,
+      top: top - rootBox.top,
+      width: Math.max(0, right - left),
+      height: Math.max(0, bottom - top),
+    };
+  }
+
+  /** The trace area in viewer-root coordinates, for the last-resort placement. */
+  function plotRect(): AnnotationRect {
+    const g = geometry;
+    if (!g)
+      return { left: 0, top: 0, width: opts.root.clientWidth, height: opts.root.clientHeight };
+    const { x, y } = scopeOffset();
+    return { left: x + g.plotLeft, top: y + g.plotTop, width: g.plotWidth, height: g.plotHeight };
+  }
+
+  /**
+   * Put the popover where `placeAnnotationPopover` says, after capping its
+   * height to the viewer so a long vocabulary list cannot push the footer out
+   * of the frame. Re-run on every render and every frame the popover survives,
+   * which is what makes it follow a resize and a time scrub.
+   */
+  function positionPopover(): void {
+    if (!popState || popover.hidden) return;
+    const bounds = visibleBounds();
+    popover.style.maxBlockSize = `${Math.max(
+      POPOVER_MIN_HEIGHT_PX,
+      bounds.height - POPOVER_GAP_PX * 2,
+    )}px`;
+    const box = popover.getBoundingClientRect();
+    const plot = plotRect();
+    const selection = selectionRect();
+    const placement = placeAnnotationPopover({
+      // With no selection to avoid (no frame yet, or butterfly), a zero-size
+      // box at the trace's right edge lands the popover in the fallback spot
+      // without a special case.
+      selection: selection ?? {
+        left: plot.left + plot.width,
+        top: plot.top + plot.height / 2,
+        width: 0,
+        height: 0,
+      },
+      popover: { width: box.width, height: box.height },
+      bounds,
+      plot,
+      gap: POPOVER_GAP_PX,
+    });
+    popover.style.left = `${Math.round(placement.left)}px`;
+    popover.style.top = `${Math.round(placement.top)}px`;
+    popover.dataset.side = placement.side;
   }
 
   function renderPopover(): void {
@@ -799,10 +1142,13 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       body.append(warn);
     }
 
-    // Quick picks.
+    // Quick picks. A channel annotation gets the artifact vocabulary instead of
+    // the general one: the flow the pencil now offers is click a channel, pick
+    // the noise it carries, save.
     if (vocab && vocabIndex) {
       const byPath = vocabIndex;
-      for (const group of vocab.quickPicks) {
+      const picks = state.kind === "channels" ? artifactQuickPicks(vocab) : vocab.quickPicks;
+      for (const group of picks) {
         const wrap = el("div", "eegv__annot-quick");
         const label = el("span", "eegv__annot-quick-label");
         label.textContent = group.group;
@@ -838,9 +1184,12 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     });
     body.append(field(state.kind === "time" ? "Comment" : "Status description", comment));
 
-    // Footer.
+    // Footer. Pinned: it never scrolls with the body above it, so Save and
+    // Cancel are on screen whatever the vocabulary list is doing.
     const save = actionButton("Save", "eegv__annot-primary");
-    save.addEventListener("click", () => {
+    // Hoisted out of the click handler so Enter can commit the same draft
+    // without synthesising a click on a button that may not have focus.
+    submitPopover = (): void => {
       const current = popState;
       if (!current) return;
       if (current.kind === "time") {
@@ -870,12 +1219,20 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
           }),
         });
         // The annotation is now the source of truth for these channels'
-        // status, so bring the montage marking into line with it.
+        // status, so bring the montage marking into line with it. The panel is
+        // rendered again afterwards because `mutate` drew it *before* the
+        // marking changed, and the bulk "annotate marked channels" entry
+        // point keys off exactly that marking.
         syncChannelMarks();
+        renderPanel();
       }
       closePopover();
-    });
-    footer.append(save);
+    };
+    save.addEventListener("click", () => submitPopover?.());
+
+    const shortcut = el("span", "eegv__annot-foot-hint");
+    shortcut.textContent = "Enter saves · Esc cancels";
+    footer.append(shortcut, save);
 
     const removable =
       (state.kind === "time" && !state.isNew) || (state.kind === "channels" && state.existing);
@@ -899,9 +1256,12 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     footer.append(cancel);
 
     popover.append(heading, body, footer);
+    // Placed only once the content is in: the height decides which side has
+    // room, so measuring before this point would place an empty box.
+    positionPopover();
     // Focus the first useful control, not the dialog: an annotator's next act
     // is almost always to type a term.
-    (vocab ? search : (onsetInput ?? save)).focus();
+    (vocab ? search : (onsetInput ?? save)).focus({ preventScroll: true });
   }
 
   function resultButton(entry: HedVocabEntry, onPick: (path: HedPath) => void): HTMLElement {
@@ -934,7 +1294,30 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     event.stopPropagation();
     if (event.key === "Escape") {
       event.preventDefault();
+      // Remembered because the enlarge dialog's own Escape handling may run
+      // *after* this, by which time the popover is already gone — see
+      // `onDialogCancel`.
+      escapeConsumedAt = Date.now();
       closePopover();
+      return;
+    }
+    if (event.key === "Enter") {
+      const target = event.target;
+      const composing = event.isComposing || event.keyCode === 229;
+      if (
+        !enterMeansSubmit({
+          composing,
+          shiftKey: event.shiftKey,
+          tagName: target instanceof Element ? target.tagName : "",
+        })
+      ) {
+        return;
+      }
+      // Only once there is something to save. Enter on an empty draft would
+      // otherwise store a nameless marker the annotator never described.
+      if (!popState || !hasAnnotationContent(popState)) return;
+      event.preventDefault();
+      submitPopover?.();
       return;
     }
     if (event.key !== "Tab") return;
@@ -953,6 +1336,38 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     }
   }
   popover.addEventListener("keydown", onPopoverKeyDown);
+
+  // --- Escape and the enlarge dialog ----------------------------------------
+
+  /**
+   * The viewer's host is *moved* into the page's `<dialog>` when enlarged
+   * (website#199), so the dialog around this layer changes over its life and
+   * is looked up whenever the popover opens rather than once at mount.
+   *
+   * Why a `cancel` listener at all, when the popover's own keydown already
+   * calls `preventDefault()`: a modal dialog closes on Escape through the
+   * close-watcher machinery, and whether a cancelled keydown suppresses that
+   * is not something the spec pins down per engine. Without this guard one
+   * Escape could close the popover *and* the enlarged viewer behind it,
+   * throwing away the annotator's place in the recording along with a
+   * half-written annotation.
+   */
+  let guardedDialog: HTMLDialogElement | null = null;
+  let escapeConsumedAt = 0;
+
+  const onDialogCancel = (event: Event): void => {
+    if (popState !== null || Date.now() - escapeConsumedAt < ESCAPE_GUARD_MS) {
+      event.preventDefault();
+    }
+  };
+
+  function syncDialogGuard(): void {
+    const dialog = opts.root.closest("dialog");
+    if (dialog === guardedDialog) return;
+    guardedDialog?.removeEventListener("cancel", onDialogCancel);
+    guardedDialog = dialog;
+    guardedDialog?.addEventListener("cancel", onDialogCancel);
+  }
 
   // --- panel ----------------------------------------------------------------
 
@@ -980,7 +1395,9 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
       bar.append(button);
     }
     if (set.channels.length > 0) {
-      const button = actionButton("Download channels.tsv", "");
+      const button = actionButton("Download channel annotations", "");
+      button.title =
+        "A channels.tsv-shaped file listing only the channels you marked — merge it into the dataset's own channels.tsv";
       button.addEventListener("click", () =>
         download(channelsTsvFilename(opts.key.filePath), serializeChannelsTsv(set.channels)),
       );
@@ -988,27 +1405,35 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     }
 
     const selected = opts.getSelectedChannels();
-    if (mode) {
+    // Bulk entry point, for channels already marked in the montage (annotation
+    // mode's own channel click annotates one at a time). Offered only when
+    // there is a marking to act on, so it never advertises a dead control.
+    if (mode && selected.length > 0) {
       const button = actionButton(
-        selected.length > 0
-          ? `Annotate ${selected.length} marked channel${selected.length === 1 ? "" : "s"}`
-          : "Annotate marked channels",
+        `Annotate ${selected.length} marked channel${selected.length === 1 ? "" : "s"}`,
         "",
       );
-      button.disabled = selected.length === 0;
-      button.title =
-        selected.length > 0
-          ? "Describe the channels currently marked in the montage"
-          : "Click a channel label in the montage to mark it first";
+      button.title = "Describe the channels currently marked in the montage as one set";
       button.addEventListener("click", () => openChannelPopover(selected, null));
       bar.append(button);
     }
     opts.panel.append(bar);
 
+    // The channels file is deliberately partial: it names only what somebody
+    // marked and omits the type/units columns that belong to the dataset. Say
+    // so beside the button rather than only in the serializer's docstring —
+    // a bare `channels.tsv` name would invite dropping it into a dataset as-is.
+    if (set.channels.length > 0) {
+      const caveat = el("p", "eegv__annot-hint");
+      caveat.textContent =
+        "The channel file covers only the channels you annotated; merge it into the dataset's channels.tsv rather than using it as one.";
+      opts.panel.append(caveat);
+    }
+
     if (mode) {
       const hint = el("p", "eegv__annot-hint");
       hint.textContent =
-        "Click the trace for a marker, drag for a span. Click a channel label to mark it.";
+        "Click the trace for a marker, drag for a span. Click a channel label to annotate that channel.";
       opts.panel.append(hint);
     }
 
@@ -1107,6 +1532,30 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     setMode(!mode);
   });
 
+  /**
+   * A viewport resize moves the viewer without necessarily re-rendering it
+   * (the viewer's own ResizeObserver only repaints on a *width* change), so
+   * the popover needs its own hook to stay beside its selection.
+   */
+  let resizeRaf = 0;
+  const onWindowResize = (): void => {
+    if (!popState) return;
+    // Twice on purpose. Once now, so the popover is placed even where frame
+    // callbacks never arrive; and once on the next frame, because a resize can
+    // be delivered before the new viewport metrics have settled and the first
+    // placement would then be sized for the window that just went away. The
+    // pending frame is cancelled rather than skipped, so a callback the browser
+    // never ran (a backgrounded tab mid-resize) cannot wedge the later ones.
+    positionPopover();
+    if (typeof requestAnimationFrame !== "function") return;
+    if (resizeRaf !== 0) cancelAnimationFrame(resizeRaf);
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = 0;
+      if (popState) positionPopover();
+    });
+  };
+  globalThis.addEventListener("resize", onWindowResize);
+
   void restore();
   syncBeforeUnload();
 
@@ -1114,9 +1563,21 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     onFrame(next) {
       geometry = next;
       drawOverlay();
+      // The selection has moved with the frame — scrubbing time, zooming
+      // channels, the dialog opening. Follow it.
+      if (popState) positionPopover();
     },
     onSelectionChanged() {
       renderPanel();
+    },
+    onChannelClick(label) {
+      if (!mode) return false;
+      // Editing rather than adding when this channel already has a mark, so a
+      // second click on the same label reopens what is there instead of
+      // silently replacing it.
+      const existing = set.channels.find((c) => c.channel === label) ?? null;
+      openChannelPopover([label], existing);
+      return true;
     },
     setActive(active) {
       if (active !== mode) setMode(active);
@@ -1124,10 +1585,19 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
     isActive() {
       return mode;
     },
+    isPopoverOpen() {
+      return popState !== null;
+    },
     drawOverview,
     flush,
     destroy() {
       destroyed = true;
+      cancelOverlayDraw();
+      if (resizeRaf !== 0) cancelAnimationFrame(resizeRaf);
+      resizeRaf = 0;
+      guardedDialog?.removeEventListener("cancel", onDialogCancel);
+      guardedDialog = null;
+      globalThis.removeEventListener("resize", onWindowResize);
       // Fire-and-forget: the caller may be tearing down synchronously (a
       // recording swap), and the write is already queued behind whatever else
       // was pending. Losing it would only ever cost the last few hundred ms.
@@ -1186,8 +1656,27 @@ function actionButton(label: string, extraClass: string): HTMLButtonElement {
   return button;
 }
 
+/**
+ * Controls whose own meaning for Enter outranks "save": a textarea's newline,
+ * and the activation of a button, link or select. Stealing Enter from a
+ * quick-pick chip would make the whole vocabulary keyboard-unreachable.
+ */
+const ENTER_OWNING_TAGS = new Set(["TEXTAREA", "BUTTON", "A", "SELECT"]);
+
+/** Whether an Enter pressed inside the popover means "save this annotation". */
+export function enterMeansSubmit(input: {
+  /** Mid-IME-composition: the Enter is committing a candidate, not a form. */
+  composing: boolean;
+  shiftKey: boolean;
+  /** The focused element's tag name, upper case; "" when there is none. */
+  tagName: string;
+}): boolean {
+  if (input.composing || input.shiftKey) return false;
+  return !ENTER_OWNING_TAGS.has(input.tagName);
+}
+
 /** Blend a hex colour with an alpha, for the translucent span fills. */
-function withAlpha(hex: string, alpha: number): string {
+export function withAlpha(hex: string, alpha: number): string {
   const clean = hex.startsWith("#") ? hex.slice(1) : hex;
   if (clean.length !== 6) return hex;
   const r = Number.parseInt(clean.slice(0, 2), 16);

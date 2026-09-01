@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   type HedVocab,
   type HedVocabEntry,
+  artifactQuickPicks,
   entriesByPath,
   hedVersionSpec,
   loadHedVocab,
@@ -91,6 +92,58 @@ describe("the generated bundle", () => {
 describe("hedVersionSpec", () => {
   it("produces the HEDVersion entries a sidecar needs", () => {
     expect(hedVersionSpec(vocab)).toEqual(["8.4.0", "sc:score_2.1.0"]);
+  });
+});
+
+describe("artifactQuickPicks", () => {
+  const groups = artifactQuickPicks(vocab);
+
+  it("offers only artifact terms, in resolvable groups", () => {
+    const byPath = entriesByPath(vocab);
+    expect(groups.length).toBeGreaterThan(0);
+    for (const group of groups) {
+      expect(group.paths.length).toBeGreaterThan(0);
+      for (const path of group.paths) {
+        expect(byPath.get(path)).toBeDefined();
+        expect(path.toLowerCase()).toContain("artifact");
+      }
+    }
+  });
+
+  it("carries the noise a channel actually gets marked for", () => {
+    const tags = new Set(
+      groups.flatMap((g) => g.paths).map((p) => vocab.entries.find((e) => e.path === p)?.tag ?? ""),
+    );
+    for (const tag of [
+      "Line-noise-artifact",
+      "Electrode-pops-artifact",
+      "EMG-artifact",
+      "Eye-blink-artifact",
+      "Sweat-artifact",
+    ]) {
+      expect(tags.has(tag)).toBe(true);
+    }
+  });
+
+  it("splits biological from non-biological and keeps the SCORE terms last", () => {
+    expect(groups.map((g) => g.group)).toEqual([
+      "Artifact",
+      "Biological",
+      "Non-biological",
+      "Effect on the recording",
+    ]);
+    const biological = groups.find((g) => g.group === "Biological");
+    const nonBiological = groups.find((g) => g.group === "Non-biological");
+    const score = groups.find((g) => g.group === "Effect on the recording");
+    expect(biological?.paths.every((p) => p.includes("/Biological-artifact"))).toBe(true);
+    expect(nonBiological?.paths.every((p) => p.includes("/Nonbiological-artifact"))).toBe(true);
+    expect(score?.paths.every((p) => p.startsWith("sc:"))).toBe(true);
+  });
+
+  it("leaves out the general clinical picks a channel mark has no use for", () => {
+    const paths = new Set(groups.flatMap((g) => g.paths));
+    expect(paths.has("sc:Episode/Epileptic-seizure")).toBe(false);
+    expect(paths.has("sc:Sleep-and-drowsiness/Sleep-spindles")).toBe(false);
   });
 });
 

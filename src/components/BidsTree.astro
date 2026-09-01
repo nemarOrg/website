@@ -1045,7 +1045,10 @@ const dataHost = new URL(dataBase).host;
     color: var(--color-fg-muted);
   }
   /* Popover: positioned inside the viewer root (position:relative) rather than
-     inside the scope, so it is never clipped by the scope's overflow:hidden. */
+     inside the scope, so it is never clipped by the scope's overflow:hidden.
+     JS sets left/top — beside the selection, never over it — and caps
+     max-block-size to the viewer's own height; the values here are the floor
+     for a viewer that has not laid out yet. */
   .eegv__annot-pop {
     position: absolute;
     z-index: 20;
@@ -1055,7 +1058,9 @@ const dataHost = new URL(dataBase).host;
        positioned inside the viewer, and the viewer often sits low on a long
        dataset page, where a 70vh box would still run off the bottom. */
     max-block-size: min(70vh, 440px);
-    overflow-y: auto;
+    /* The popover itself never scrolls — its body does, below. That is what
+       keeps Save and Cancel on screen however long the vocabulary list is. */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -1067,18 +1072,37 @@ const dataHost = new URL(dataBase).host;
     font-size: var(--fs-xs);
   }
   .eegv__annot-pop-title {
+    flex: 0 0 auto;
     font-weight: var(--fw-semibold, 600);
     color: var(--color-fg);
   }
+  /* The one scrolling region. `min-block-size: 0` is load-bearing: a flex item
+     will not shrink below its content without it, so the footer would be
+     pushed out of the popover instead of the body scrolling. */
   .eegv__annot-pop-body {
+    flex: 1 1 auto;
+    min-block-size: 0;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    /* Keeps a focus ring inside the scroll box clear of the scrollbar. */
+    padding-inline-end: 2px;
   }
   .eegv__annot-pop-foot {
+    flex: 0 0 auto;
     display: flex;
+    align-items: center;
     gap: var(--space-2);
     justify-content: flex-end;
+    padding-block-start: var(--space-2);
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated, var(--color-bg));
+  }
+  .eegv__annot-foot-hint {
+    margin-inline-end: auto;
+    color: var(--color-fg-subtle);
+    font-size: 0.9em;
   }
   .eegv__annot-row {
     display: flex;
