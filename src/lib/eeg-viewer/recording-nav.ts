@@ -212,6 +212,19 @@ export function recordingPosition(ordered: RecordingEntry[], path: string): numb
 }
 
 /**
+ * The first recording in the given iteration order, or null for an empty
+ * list. Used by the dataset page's "View data" button (website#260) to open
+ * the enlarge dialog directly on the dataset's first viewable recording
+ * without requiring the user to open the file tree first.
+ */
+export function firstRecording(
+  list: RecordingEntry[],
+  order: NavOrder = DEFAULT_NAV_ORDER,
+): RecordingEntry | null {
+  return orderedRecordings(list, order)[0] ?? null;
+}
+
+/**
  * The recording `delta` steps from `currentPath` in the given order, or null
  * at either end (no wrap-around — the caller disables the button instead, so
  * "next" never silently loops back to the first subject).
