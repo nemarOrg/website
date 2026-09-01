@@ -718,6 +718,15 @@ const dataHost = new URL(dataBase).host;
   .eegv__menu .eegv__group-row {
     flex-wrap: wrap;
   }
+  /* Its own line inside the Preload group's wrapping row. Only ever filled in
+     when the background walk's circuit breaker trips, so the buffered bar
+     going quiet reads as an outage rather than as a finished preload. */
+  .eegv__preload-note {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
   .eegv__readout {
     min-inline-size: 10ch;
     padding-inline: 4px;

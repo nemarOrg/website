@@ -249,6 +249,11 @@ export interface PrefetchControllerOptions<T> {
    *  errored) with a snapshot of covered segment indices, so the caller can
    *  redraw a buffered-region affordance. */
   onProgress?: (covered: ReadonlySet<number>) => void;
+  /** Fired once when the walk gives up after `MAX_CONSECUTIVE_FAILURES`
+   *  back-to-back segment failures, so the caller can say why the buffered
+   *  bar stopped growing. Not fired for a clean stop, a full cache, or a
+   *  completed walk — only for the outage case. */
+  onStalled?: () => void;
   /** Cooperative yield point between segments (and while paused/yielding to
    *  an interactive read). Defaults to `requestIdleCallback` when available,
    *  else a short `setTimeout`. Tests inject an immediate resolver. */
@@ -269,6 +274,27 @@ export interface PrefetchControllerOptions<T> {
  * continuously.
  */
 const PROGRESS_BATCH_SIZE = 32;
+
+/**
+ * How many segment fetches may fail back-to-back before the walk gives up.
+ *
+ * Every one of those failures has already been through store.ts's
+ * `retryingFetch` (up to seven attempts with backoff), so four in a row is not
+ * a flaky chunk — it is the backend or the connection being down, and each
+ * further segment costs another full retry ladder against it. Four rather than
+ * two because the walk is genuinely allowed a few unlucky segments (a shard
+ * that 404s, one expired presign) without abandoning a recording the user is
+ * still reading; and rather than ten because past that point the only thing
+ * being preloaded is retry traffic. A single success anywhere resets the
+ * count, so an intermittent connection keeps making progress instead of
+ * tripping on an unlucky cluster.
+ */
+const MAX_CONSECUTIVE_FAILURES = 4;
+
+/** True for a fetch that was cancelled rather than one that failed. */
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
 
 function defaultIdle(): Promise<void> {
   return new Promise((resolve) => {
@@ -295,6 +321,8 @@ export class PrefetchController<T> {
   private interactiveDepth = 0;
   private hidden = false;
   private runningFlag = false;
+  private consecutiveFailures = 0;
+  private stalledFlag = false;
 
   constructor(private opts: PrefetchControllerOptions<T>) {}
 
@@ -306,6 +334,11 @@ export class PrefetchController<T> {
    *  a full cache, not finished covering every segment). */
   get running(): boolean {
     return this.runningFlag;
+  }
+
+  /** True once the circuit breaker tripped; cleared by the next `start()`. */
+  get stalled(): boolean {
+    return this.stalledFlag;
   }
 
   retarget(opts: Partial<PrefetchControllerOptions<T>>): void {
@@ -325,6 +358,11 @@ export class PrefetchController<T> {
     this.abortController?.abort();
     this.abortController = null;
     this.runningFlag = totalSegments > 0;
+    // A restart is the retry: the user toggled preload, changed the cap, or
+    // moved to a different target, all of which deserve a fresh look at a
+    // network that may since have come back.
+    this.consecutiveFailures = 0;
+    this.stalledFlag = false;
     void this.loop(gen);
   }
 
@@ -425,6 +463,10 @@ export class PrefetchController<T> {
           return;
         }
         this.covered.add(seg);
+        // Any success means the network is answering, so the outage counter
+        // starts over -- an intermittent connection keeps making progress
+        // rather than tripping the breaker on an unlucky cluster.
+        this.consecutiveFailures = 0;
         // A real fetch is already rate-limited by the network + the idle await
         // below, so it always reports -- this also subsumes (rather than
         // duplicates) any batched-but-unflushed hits, since `this.covered`
@@ -434,8 +476,25 @@ export class PrefetchController<T> {
       } catch (err) {
         if (gen !== this.generation) return; // stop()'s abort landing here is expected
         console.warn("[eeg-viewer] prefetch segment failed:", err);
-        // One bad segment (e.g. a transient failure that exhausted store.ts's
-        // own retries) should not stall preloading the rest of the recording.
+        // A cancellation is not an outage. `stop()` bumps the generation and is
+        // caught above, but a transport can also abort for its own reasons
+        // (dedupingFetch's last subscriber leaving); counting those would trip
+        // the breaker on a healthy connection.
+        if (!isAbortError(err)) {
+          // One bad segment should not stall preloading the rest of the
+          // recording -- but four in a row, each already having exhausted
+          // store.ts's own retry ladder, means retrying into an outage. Stop
+          // and say so, rather than leaving a buffered bar that silently never
+          // grows again (website#254 shipped with no feedback for this at all).
+          this.consecutiveFailures++;
+          if (this.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            flushProgress();
+            this.runningFlag = false;
+            this.stalledFlag = true;
+            this.opts.onStalled?.();
+            return;
+          }
+        }
       }
       await this.idle();
     }

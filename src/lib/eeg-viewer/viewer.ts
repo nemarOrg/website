@@ -358,6 +358,10 @@ export async function mountEegViewer(
   let eventTypes: EventType[] = [];
 
   // --- state ---------------------------------------------------------------
+  // True once this mount's destroy() has run, so the fire-and-forget callbacks
+  // below (view-level discovery settling, the preloader's stall notice) stop
+  // touching DOM they no longer own.
+  let disposed = false;
   let groupIndex = 0;
   let windowStartS = 0;
   let windowLengthS = 10;
@@ -406,6 +410,11 @@ export async function mountEegViewer(
   let bufferedSegments = new Set<number>();
   let bufferedSegmentS = 0; // segment width the current bufferedSegments indices are relative to
   let prefetchSignature = "";
+  // Set when the walk's circuit breaker trips (a run of segment failures, i.e.
+  // an outage rather than one bad chunk). Surfaced as a note beside the preload
+  // toggle so the buffered bar's silence has a stated cause; cleared when the
+  // user re-arms preload, which is also what restarts the walk.
+  let preloadStalled = false;
   const prefetchController = new PrefetchController<WindowData>({
     cache: prefetchCache,
     transport: { fetchSegment: () => Promise.reject(new Error("prefetch not targeted yet")) },
@@ -414,7 +423,20 @@ export async function mountEegViewer(
       bufferedSegments = new Set(covered);
       drawOverview();
     },
+    onStalled: () => {
+      preloadStalled = true;
+      syncPreloadNote();
+    },
   });
+
+  function syncPreloadNote(): void {
+    if (disposed) return;
+    const show = preloadStalled && preloadEnabled;
+    ui.preloadNote.hidden = !show;
+    ui.preloadNote.textContent = show
+      ? "Preload paused — network trouble. Turn it off and on again to retry."
+      : "";
+  }
 
   /** (Re)targets and, when the target actually changed, restarts the
    *  background walk. Called after every render (cheap no-op when nothing
@@ -452,6 +474,11 @@ export async function mountEegViewer(
     bufferedSegmentS = segS;
     const total = Math.max(1, Math.ceil(g.durationS / segS));
     const center = Math.max(0, Math.min(total - 1, Math.floor(windowStartS / segS)));
+    // A restart is a fresh look at the network, so retire any stall notice
+    // here rather than in each of the handlers that can cause one (the preload
+    // toggle, the cache cap, a group switch).
+    preloadStalled = false;
+    syncPreloadNote();
     prefetchController.start(total, center);
   }
   // Topomap state. The projection is computed once (positions are fixed per
@@ -490,10 +517,6 @@ export async function mountEegViewer(
   let overviewData: Float32Array | null = null;
   let overviewLoaded = false;
   let overviewSeq = 0; // guards a fire-and-forget overview load against group switches
-
-  // True once this mount's destroy() has run, so the fire-and-forget callbacks
-  // below (view-level discovery settling) stop touching DOM they no longer own.
-  let disposed = false;
 
   // Safe to claim the slot: the previous instance was torn down at the top of
   // this function, and the `isStale` check after the await ruled out a newer
@@ -1368,7 +1391,12 @@ export async function mountEegViewer(
     preloadEnabled = ui.preloadCheck.checked;
     savePreloadEnabled(preloadEnabled);
     ui.preloadCap.disabled = !preloadEnabled;
+    // Toggling off and on is the documented retry after a stall:
+    // `updatePrefetchTarget` clears the signature on the way out and clears the
+    // stall on the way back in. The extra sync covers the off half, where the
+    // walk never restarts but the note must still go.
     updatePrefetchTarget();
+    syncPreloadNote();
   });
   ui.preloadCap.addEventListener("change", () => {
     preloadCapMB = Number(ui.preloadCap.value) || DEFAULT_PRELOAD_CAP_MB;
@@ -1737,6 +1765,8 @@ interface ViewerUi {
   legend: HTMLElement;
   preloadCheck: HTMLInputElement;
   preloadCap: HTMLSelectElement;
+  /** Note beside the preload toggle when the walk stalled; normally hidden. */
+  preloadNote: HTMLElement;
   annotateBtn: HTMLButtonElement;
   annotPanel: HTMLElement;
   on(action: string, fn: () => void): void;
@@ -1871,6 +1901,12 @@ function buildDom(
   const preloadCap = compactSelect(PRELOAD_CAP_CHOICES, String(preloadCapMB));
   preloadCap.title = "Background preload memory cap";
   preloadCap.disabled = !preloadEnabled;
+  // Only ever filled in when the walk's circuit breaker trips, so the buffered
+  // bar going quiet has a stated cause instead of reading as a finished
+  // preload.
+  const preloadNote = el("p", "eegv__preload-note");
+  preloadNote.setAttribute("role", "status");
+  preloadNote.hidden = true;
 
   const gearBtn = document.createElement("button");
   gearBtn.type = "button";
@@ -1898,7 +1934,7 @@ function buildDom(
     grouped("Filter (Hz)", fieldLabel("HP", hp), fieldLabel("LP", lp), fieldLabel("Notch", notch)),
     grouped("Display", dc.wrap, events.wrap, butterflyLc.wrap, clockLc.wrap, hideBadLc.wrap),
     grouped("Next moves through", navOrder),
-    grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap)),
+    grouped("Preload", preloadLc.wrap, fieldLabel("Cache", preloadCap), preloadNote),
   );
   const settings = el("div", "eegv__settings");
   settings.append(gearBtn, menu);
@@ -2016,6 +2052,7 @@ function buildDom(
     hideBadCheck: hideBadLc.input,
     preloadCheck: preloadLc.input,
     preloadCap,
+    preloadNote,
     topoBtn,
     topo,
     topoCanvas,
