@@ -725,10 +725,24 @@ export async function mountEegViewer(
           if (cached) return { win: cached, filtered: false };
         }
       }
-      return {
-        win: await readWindow(g, start, end, plotWidth, chanStart, chanCount, false),
-        filtered: false,
-      };
+      const win = await readWindow(g, start, end, plotWidth, chanStart, chanCount, false);
+      // Write-through: an interactive read that landed on the segment grid IS
+      // the segment the background walk would fetch for that index -- store it
+      // under the walk's own key so the walk's `cache.has` skips it instead of
+      // re-transferring the identical bytes. Without this, enabling preload
+      // re-fetched the window the user was already looking at on every
+      // (re)target (~430 KB per 10 s level-0 page on a 129-channel store).
+      // `put` (evicting), not `putIfRoom`: the user has actively looked at this
+      // window, which is exactly the recency signal the LRU exists to keep.
+      if (preloadEnabled) {
+        const seg = segmentIndexForTime(start, windowLengthS);
+        if (seg !== null && Math.abs(end - start - windowLengthS) < 1e-6) {
+          const r1 = Math.min(g.nChannels, chanStart + chanCount);
+          const key = prefetchCacheKey(g.name, win.level, chanStart, r1, windowLengthS, seg);
+          prefetchCache.put(key, win, windowDataBytes(win));
+        }
+      }
+      return { win, filtered: false };
     }
     const padS = Math.min(2, (end - start) * 0.5);
     const pStart = Math.max(0, start - padS);
