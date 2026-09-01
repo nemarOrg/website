@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyFile, signalDirExt } from "./bids-tree";
+import { classifyFile, isDirRecordingName, signalDirExt } from "./bids-tree";
 
 describe("classifyFile", () => {
   it("flags EEG raw formats", () => {
@@ -68,5 +68,27 @@ describe("signalDirExt", () => {
   it("does not match the extension mid-name", () => {
     expect(signalDirExt("sub-01_ieeg.mefd.bak")).toBeNull();
     expect(signalDirExt("dsstore")).toBeNull();
+  });
+});
+
+describe("isDirRecordingName", () => {
+  it("is false for every single-file recording format", () => {
+    expect(isDirRecordingName("sub-01_task-rest_eeg.set")).toBe(false);
+    expect(isDirRecordingName("sub-01_task-rest_eeg.edf")).toBe(false);
+    expect(isDirRecordingName("sub-01_task-rest_eeg.bdf")).toBe(false);
+    expect(isDirRecordingName("sub-01_task-rest_eeg.vhdr")).toBe(false);
+    expect(isDirRecordingName("sub-01_task-rest_meg.fif")).toBe(false);
+  });
+
+  it("is true for the named directory formats", () => {
+    expect(isDirRecordingName("sub-01_task-ccep_run-01_ieeg.mefd")).toBe(true);
+    expect(isDirRecordingName("sub-01_task-rest_meg.ds")).toBe(true);
+  });
+
+  it("is true for an extensionless 4D/BTi recording directory", () => {
+    // The case `signalDirExt` deliberately cannot answer: no extension, so the
+    // zarr index is the only authority that it is a recording at all.
+    expect(signalDirExt("sub-01_task-rest_meg")).toBeNull();
+    expect(isDirRecordingName("sub-01_task-rest_meg")).toBe(true);
   });
 });

@@ -88,6 +88,13 @@ export interface ViewerOptions {
   /** Data-plane URL for the "download instead" fallback when no store exists. */
   downloadUrl?: string;
   /**
+   * True when this recording is a DIRECTORY (`.mefd`/`.ds`/BTi, website#252).
+   * Such a recording has no single file to offer, so the "unavailable"
+   * fallback points at the tree row's expand arrow instead of a download link
+   * that would resolve to raw directory listing JSON.
+   */
+  dirRecording?: boolean;
+  /**
    * Producer-supplied reason this recording has no viewer (from the Zarr index
    * `failures`): a trial-averaged/epoched derivative, a corrupt file, etc. When
    * set, it replaces the generic "still generating" message. Absent for a
@@ -470,8 +477,11 @@ export async function mountEegViewer(
   const cleanups: Array<() => void> = [];
   // Default the notch filter from the recording's PowerLineFrequency (the converter
   // embeds it in the store attrs; the Notch select already reflects it). Datasets
-  // without the sidecar field stay unfiltered.
-  filters.notch = Number(ui.notch.value) || null;
+  // without the sidecar field stay unfiltered. The declared line frequency can
+  // still sit above this recording's Nyquist (60 Hz on a 100 Hz store), so it
+  // goes through the same honesty check a transferred cutoff does.
+  filters.notch = usableCutoff(Number(ui.notch.value) || null);
+  ui.notch.value = String(filters.notch ?? 0);
   applyTransfer(opts.transfer);
   const maybeCtx = ui.canvas.getContext("2d");
   if (!maybeCtx) {
@@ -499,6 +509,19 @@ export async function mountEegViewer(
   }
 
   /**
+   * A cutoff this recording can actually apply, or null.
+   *
+   * `designFilters` drops anything at or above the Nyquist, which is correct
+   * signal processing and a terrible UI on its own: the select would still
+   * read "30" while nothing filtered. Every cutoff that reaches `filters`
+   * passes through here, so what the gear shows is what runs — a 30 Hz
+   * low-pass on a 40 Hz recording becomes an honest "off" instead.
+   */
+  function usableCutoff(hz: number | null): number | null {
+    return hz !== null && hz > 0 && hz < store.groups[0].rate / 2 ? hz : null;
+  }
+
+  /**
    * Seed this instance from the settings the user had on the previous
    * recording (website#253). Every field is optional in effect: a value the
    * new recording cannot honour (a channel count it does not have, a window
@@ -522,13 +545,16 @@ export async function mountEegViewer(
     // `clamp()` bounds this against the new montage on the first render, so a
     // 32-channel zoom into a 16-channel recording simply shows all 16.
     if (t.chanCount !== null && t.chanCount > 0) chanCount = t.chanCount;
-    filters.hp = t.hp;
-    filters.lp = t.lp;
-    ui.hp.value = String(t.hp ?? 0);
-    ui.lp.value = String(t.lp ?? 0);
+    // Cutoffs go through `usableCutoff`: one the new recording cannot apply is
+    // carried over as "off" rather than as a setting the gear shows active and
+    // `designFilters` silently drops.
+    filters.hp = usableCutoff(t.hp);
+    filters.lp = usableCutoff(t.lp);
+    ui.hp.value = String(filters.hp ?? 0);
+    ui.lp.value = String(filters.lp ?? 0);
     if (t.notchUserSet) {
-      filters.notch = t.notch;
-      ui.notch.value = String(t.notch ?? 0);
+      filters.notch = usableCutoff(t.notch);
+      ui.notch.value = String(filters.notch ?? 0);
       notchUserSet = true;
     }
     dcRemove = t.dcRemove;
@@ -1804,9 +1830,16 @@ function buildDom(
 }
 
 function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
-  const dl = opts.downloadUrl
-    ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
-    : "";
+  // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
+  // to download: `downloadUrl` names a data.nemar.org directory, which answers
+  // with raw listing JSON. Point at the row's expand arrow instead, in the same
+  // words `fallbackActionHtml` uses in dataset/[id].astro — the two are one
+  // sentence on two surfaces, so keep them in sync.
+  const dl = opts.dirRecording
+    ? " Use the expand arrow next to its name to browse the recording's files instead."
+    : opts.downloadUrl
+      ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
+      : "";
   // A recorded data failure (derivative, corrupt, unsupported) has a specific,
   // permanent reason -> show it. Otherwise the store is just missing: still
   // generating, or a transient failure that will retry.
