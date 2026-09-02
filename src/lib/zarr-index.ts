@@ -398,6 +398,22 @@ export function zarrFailureReasonByPath(index: ZarrIndex): Map<string, string> {
   return m;
 }
 
+/**
+ * BIDS source paths of every v3 `pending` entry (empty on v1, which doesn't
+ * report pending recordings at all). Mirrors `zarrAvailablePaths` /
+ * `zarrFailureReasonByPath`'s shape so a caller can recognize a recording
+ * regardless of which of the three buckets it's currently in -- notably a
+ * directory recording (a 4D/BTi store with no name-derived extension) that
+ * is still pending: without this, the tree's dir-recognition pass has no
+ * way to know that ordinary-looking directory is a recording at all, and
+ * the coverage panel's jump link for it resolves to nothing (PR #278
+ * review).
+ */
+export function zarrPendingPaths(index: ZarrIndex): Set<string> {
+  if (index.format_version !== 3) return new Set();
+  return new Set(index.pending.map((p) => p.path));
+}
+
 export async function fetchZarrIndex(datasetId: string): Promise<ZarrIndex | null> {
   try {
     const res = await fetch(zarrIndexUrl(datasetId), {

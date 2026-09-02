@@ -8,6 +8,7 @@ import {
   zarrAvailablePaths,
   zarrCoverage,
   zarrFailureReasonByPath,
+  zarrPendingPaths,
   zarrStoreByPath,
 } from "./zarr-index";
 
@@ -79,6 +80,38 @@ describe("zarrFailureReasonByPath", () => {
     expect(m.get("a-ave.fif")).toBe("derivative");
     expect(m.get("a-ave.zarr")).toBe("derivative"); // fallback key
     expect(m.has("b.edf")).toBe(false);
+  });
+});
+
+describe("zarrPendingPaths (website#278 review)", () => {
+  it("returns the pending BIDS paths on a v3 index", () => {
+    const index = parseZarrIndex(v3Sample);
+    expect(index?.format_version).toBe(3);
+    const paths = zarrPendingPaths(index!);
+    expect([...paths].sort()).toEqual([
+      "sub-04/eeg/sub-04_task-rest_eeg.set",
+      "sub-05/eeg/sub-05_task-rest_eeg.bdf",
+      "sub-06/eeg/sub-06_task-rest_eeg.vhdr",
+    ]);
+  });
+
+  it("is empty on a v1 index (v1 never reports pending)", () => {
+    const index = parseZarrIndex(on008083V1);
+    expect(index?.format_version).toBe(1);
+    expect(zarrPendingPaths(index!)).toEqual(new Set());
+  });
+
+  it("includes a pending directory recording's path (no name-derived extension)", () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      format_version: 3,
+      stores: [],
+      failures: [],
+      pending: [{ path: "sub-01/meg/sub-01_task-rest_meg", reason: "not_attempted", attempts: 0 }],
+      discovered_count: 1,
+    });
+    expect(zarrPendingPaths(index!).has("sub-01/meg/sub-01_task-rest_meg")).toBe(true);
   });
 });
 

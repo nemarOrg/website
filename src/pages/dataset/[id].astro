@@ -336,6 +336,7 @@ Astro.response.headers.set(
     unitsNoticeText,
     zarrAvailablePaths,
     zarrFailureReasonByPath,
+    zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
   import {
@@ -382,6 +383,11 @@ Astro.response.headers.set(
       stores: Map<string, ZarrIndexStore>;
       /** BIDS path (or store-rel path) -> reason it has no viewer, when known. */
       failureReasons: Map<string, string>;
+      /** Paths still pending conversion (v3 only; empty on v1). A directory
+       *  recording (4D/BTi, no name-derived extension) that is only pending
+       *  needs this to be recognized as a recording at all -- `paths` and
+       *  `failureReasons` alone miss it (PR #278 review). */
+      pendingPaths: Set<string>;
       /** Cache-busting token for this conversion (index `updated_utc`; #240). */
       token: string;
       prefetched: Set<string>;
@@ -545,6 +551,7 @@ Astro.response.headers.set(
           paths: zarrAvailablePaths(index),
           stores: zarrStoreByPath(index),
           failureReasons: zarrFailureReasonByPath(index),
+          pendingPaths: zarrPendingPaths(index),
           token: index.updated_utc,
           prefetched: new Set<string>(),
           firstPrefetched: false,
@@ -683,11 +690,21 @@ Astro.response.headers.set(
     // so the buttons this creates are annotated by the same pass. A path in
     // `failureReasons` is upgraded too: the recording exists but can't be
     // converted, and the row must be able to SAY that (disabled-with-reason,
-    // like a `.mefd` row) rather than pose as an ordinary folder.
+    // like a `.mefd` row) rather than pose as an ordinary folder. Same for
+    // `pendingPaths` (PR #278 review): a still-converting 4D/BTi directory
+    // recording has no name-derived extension either, so without this check
+    // it never gets upgraded and the coverage panel's jump link for it (a
+    // pending entry with no store or failure yet) resolves to nothing.
     for (const details of section.querySelectorAll<HTMLElement>("details[data-dir-path]")) {
       const path = details.dataset.dirPath ?? "";
       if (!path) continue;
-      if (!state.paths.has(path) && !state.failureReasons.has(path)) continue;
+      if (
+        !state.paths.has(path) &&
+        !state.failureReasons.has(path) &&
+        !state.pendingPaths.has(path)
+      ) {
+        continue;
+      }
       upgradeDirRecordingRow(details);
     }
     for (const btn of section.querySelectorAll<HTMLButtonElement>(
