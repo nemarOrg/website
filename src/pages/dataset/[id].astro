@@ -552,34 +552,44 @@ Astro.response.headers.set(
           console.warn(`[zarr/${datasetId}] index unavailable; viewer cache-busting disabled`);
           return;
         }
-        const state = {
-          paths: zarrAvailablePaths(index),
-          stores: zarrStoreByPath(index),
-          failureReasons: zarrFailureReasonByPath(index),
-          pendingPaths: zarrPendingPaths(index),
-          token: index.updated_utc,
-          prefetched: new Set<string>(),
-          firstPrefetched: false,
-        };
-        zarrBySection.set(section, state);
-        annotateZarrRows(section);
-        // "View data" action-bar button (website#260): revealed only once the
-        // index resolves with at least one store, so a dataset with none
-        // (pre-backfill, e.g. on004696) never advertises a dead button. Left
-        // hidden (its SSR default) when the index fetch fails or throws —
-        // neither of those runs this callback.
-        const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
-        if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
-        // Coverage panel (website#277 decision 2): same already-fetched index,
-        // no new request. renderZarrCoveragePanel returns "" for a dataset
-        // with no Zarr data at all, which leaves the slot hidden.
-        const coverageSlot = document.querySelector<HTMLElement>("[data-zarr-coverage-slot]");
-        if (coverageSlot) {
-          const html = renderZarrCoveragePanel(index);
-          if (html) {
-            coverageSlot.innerHTML = html;
-            coverageSlot.hidden = false;
+        // A SUCCESSFULLY fetched+parsed index is not the same failure class as
+        // a fetch/parse problem (the outer .catch below) -- a bug in applying
+        // it (annotateZarrRows, renderZarrCoveragePanel, ...) is a rendering
+        // defect against known-good data, and lumping both under one "index
+        // fetch threw" label pointed a developer at the wrong stage entirely
+        // (PR #278 review).
+        try {
+          const state = {
+            paths: zarrAvailablePaths(index),
+            stores: zarrStoreByPath(index),
+            failureReasons: zarrFailureReasonByPath(index),
+            pendingPaths: zarrPendingPaths(index),
+            token: index.updated_utc,
+            prefetched: new Set<string>(),
+            firstPrefetched: false,
+          };
+          zarrBySection.set(section, state);
+          annotateZarrRows(section);
+          // "View data" action-bar button (website#260): revealed only once the
+          // index resolves with at least one store, so a dataset with none
+          // (pre-backfill, e.g. on004696) never advertises a dead button. Left
+          // hidden (its SSR default) when the index fetch fails or throws —
+          // neither of those runs this callback.
+          const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
+          if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
+          // Coverage panel (website#277 decision 2): same already-fetched index,
+          // no new request. renderZarrCoveragePanel returns "" for a dataset
+          // with no Zarr data at all, which leaves the slot hidden.
+          const coverageSlot = document.querySelector<HTMLElement>("[data-zarr-coverage-slot]");
+          if (coverageSlot) {
+            const html = renderZarrCoveragePanel(index);
+            if (html) {
+              coverageSlot.innerHTML = html;
+              coverageSlot.hidden = false;
+            }
           }
+        } catch (err) {
+          console.error(`[zarr/${datasetId}] applying the fetched index threw:`, err);
         }
       })
       .catch((err) => {
