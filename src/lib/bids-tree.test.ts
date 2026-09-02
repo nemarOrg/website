@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyFile, isDirRecordingName, signalDirExt } from "./bids-tree";
+import { bidsRowId, classifyFile, isDirRecordingName, signalDirExt } from "./bids-tree";
 
 describe("classifyFile", () => {
   it("flags EEG raw formats", () => {
@@ -90,5 +90,30 @@ describe("isDirRecordingName", () => {
     // zarr index is the only authority that it is a recording at all.
     expect(signalDirExt("sub-01_task-rest_meg")).toBeNull();
     expect(isDirRecordingName("sub-01_task-rest_meg")).toBe(true);
+  });
+});
+
+describe("bidsRowId (website#277)", () => {
+  it("is a valid, whitespace-free DOM id for an ordinary BIDS path", () => {
+    const id = bidsRowId("sub-01/eeg/sub-01_task-rest_eeg.set");
+    // Hyphen and underscore are left alone (already id-safe); '/' and '.' are
+    // escaped to their hex code point so the id has no path/extension syntax.
+    expect(id).toBe("rec-sub-01_2feeg_2fsub-01_task-rest_eeg_2eset");
+    expect(id).not.toMatch(/\s/);
+  });
+
+  it("is stable and deterministic for the same path", () => {
+    const path = "sub-02/ses-01/eeg/sub-02_ses-01_task-rest_eeg.edf";
+    expect(bidsRowId(path)).toBe(bidsRowId(path));
+  });
+
+  it("gives distinct paths distinct ids", () => {
+    expect(bidsRowId("sub-01/a.set")).not.toBe(bidsRowId("sub-02/a.set"));
+  });
+
+  it("round trips a derivatives path with a different extension", () => {
+    const id = bidsRowId("derivatives/sub-01/eeg/sub-01_task-x_ave.fif");
+    expect(id.startsWith("rec-derivatives")).toBe(true);
+    expect(id).not.toContain("/");
   });
 });

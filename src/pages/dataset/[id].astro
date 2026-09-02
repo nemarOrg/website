@@ -315,7 +315,7 @@ Astro.response.headers.set(
 
 <script>
   import { renderMarkdown } from "../../lib/markdown";
-  import { isDirRecordingName } from "../../lib/bids-tree";
+  import { bidsRowId, isDirRecordingName } from "../../lib/bids-tree";
   import type { DirListing } from "../../lib/dir-listing";
   import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
   import { formatBytes } from "../../lib/format";
@@ -606,6 +606,11 @@ Astro.response.headers.set(
 
     const row = document.createElement("div");
     row.className = "tree__row tree__row--dir";
+    // Same anchor id `render-dir-listing.ts` stamps on an SSR'd
+    // `.mefd`/`.ds` recording row (website#277 decision 2) — this upgrade
+    // path exists precisely for the recording shapes the renderer could NOT
+    // recognize by name (BTi), so it must match the SSR'd id space itself.
+    row.id = bidsRowId(path);
     // Carry the renderer-computed indent over from the summary it replaces.
     const indent = summary.getAttribute("style");
     if (indent) row.setAttribute("style", indent);

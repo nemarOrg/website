@@ -63,3 +63,20 @@ export function signalDirExt(dirname: string): "mefd" | "ds" | null {
 export function isDirRecordingName(name: string): boolean {
   return !classifyFile(name).isEEG;
 }
+
+/**
+ * Stable DOM id for a recording's row in the file tree, keyed by its BIDS
+ * path (website#277 decision 2 — the coverage panel links a failed/pending
+ * recording to its row here). `render-dir-listing.ts` stamps this onto every
+ * file row and directory-recording row it renders (both the initial SSR-
+ * triggered fetch and a later lazy-loaded subdirectory); the client script's
+ * `upgradeDirRecordingRow` (a BTi directory recognized only after the Zarr
+ * index resolves) stamps the same id for parity, so a row is addressable
+ * regardless of which path built it.
+ *
+ * Not a CSS-selector-safe id (BIDS paths contain `/`) — always resolve it
+ * with `document.getElementById`, never `querySelector('#...')`.
+ */
+export function bidsRowId(path: string): string {
+  return `rec-${path.replace(/[^A-Za-z0-9_-]/g, (ch) => `_${ch.charCodeAt(0).toString(16)}`)}`;
+}
