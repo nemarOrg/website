@@ -296,6 +296,10 @@ Astro.response.headers.set(
             <DatasetTabs datasetId={id} version={selectedVersion} />
             {selectedVersion && (
               <>
+                {/* Populated client-side once the tree's own index.json fetch
+                    resolves (website#277 decision 2) -- no separate API call.
+                    Starts hidden; stays hidden for a dataset with no Zarr data. */}
+                <div data-zarr-coverage-slot hidden></div>
                 <BidsTree datasetId={id} version={selectedVersion} />
                 <EegViewerDialog />
               </>
@@ -324,10 +328,12 @@ Astro.response.headers.set(
     renderSubdir,
     renderTopLevel,
   } from "../../lib/render-dir-listing";
+  import { renderZarrCoveragePanel } from "../../lib/render-zarr-coverage";
   import {
     type ZarrIndexStore,
     fetchZarrIndex,
     prefetchZarrStoreMetadata,
+    unitsNoticeText,
     zarrAvailablePaths,
     zarrFailureReasonByPath,
     zarrStoreByPath,
@@ -552,6 +558,17 @@ Astro.response.headers.set(
         // neither of those runs this callback.
         const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
         if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
+        // Coverage panel (website#277 decision 2): same already-fetched index,
+        // no new request. renderZarrCoveragePanel returns "" for a dataset
+        // with no Zarr data at all, which leaves the slot hidden.
+        const coverageSlot = document.querySelector<HTMLElement>("[data-zarr-coverage-slot]");
+        if (coverageSlot) {
+          const html = renderZarrCoveragePanel(index);
+          if (html) {
+            coverageSlot.innerHTML = html;
+            coverageSlot.hidden = false;
+          }
+        }
       })
       .catch((err) => {
         console.warn(`[zarr/${datasetId}] index fetch threw:`, err);
@@ -823,6 +840,95 @@ Astro.response.headers.set(
     if (counter) counter.textContent = `(${newRendered} of ${total} shown)`;
   });
 
+  /** Longest a lazily-loaded directory slot is awaited before giving up on
+   *  revealing a coverage-panel jump target (website#277 decision 2). */
+  const REVEAL_SLOT_TIMEOUT_MS = 8000;
+  /** Bound on how many "Show next" chunk-clicks a reveal will synthesize,
+   *  against a pathological dataset -- past this it gives up silently. */
+  const REVEAL_MAX_CHUNK_CLICKS = 500;
+
+  function waitForSlotLoaded(slot: HTMLElement): Promise<void> {
+    if (slot.dataset.loaded === "true") return Promise.resolve();
+    return new Promise((resolve) => {
+      const start = performance.now();
+      const check = () => {
+        if (slot.dataset.loaded === "true" || performance.now() - start > REVEAL_SLOT_TIMEOUT_MS) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    });
+  }
+
+  /**
+   * Best-effort auto-expand for a coverage-panel "jump to recording" link. A
+   * plain `#anchor` only resolves when the row already happens to be
+   * rendered -- directories are lazy-loaded on click/open, and the top-level
+   * dir list itself may be capped behind a "Show next N" footer -- so this
+   * walks the path's ancestor directories, revealing further top-level
+   * chunks (by clicking the SAME `.tree__more-btn` a user would) and opening
+   * each `<details>` in turn (which fires the native toggle event that
+   * `loadDirChildren` already listens for), before returning the target row.
+   * Returns null when the chain can't be completed -- an ancestor genuinely
+   * isn't a `<details>` row (e.g. it's inside a directory recording, which
+   * has no lazy children of its own) or a slot never finishes loading.
+   */
+  async function revealRecordingRow(section: HTMLElement, fullPath: string): Promise<HTMLElement | null> {
+    const segments = fullPath.split("/").filter(Boolean);
+    segments.pop(); // ancestor directories only -- the recording itself isn't one
+    let ancestor = "";
+    for (const seg of segments) {
+      const isTopLevel = ancestor === "";
+      ancestor = ancestor ? `${ancestor}/${seg}` : seg;
+      const selector = `details[data-dir-path="${ancestor.replace(/"/g, '\\"')}"]`;
+      if (isTopLevel) {
+        let clicks = 0;
+        while (!section.querySelector(selector) && clicks < REVEAL_MAX_CHUNK_CLICKS) {
+          const moreBtn = section.querySelector<HTMLButtonElement>(".tree__more-btn");
+          if (!moreBtn) break;
+          moreBtn.click();
+          clicks++;
+        }
+      }
+      const details = section.querySelector<HTMLDetailsElement>(selector);
+      if (!details) return null;
+      if (!details.open) details.open = true; // fires the native "toggle" -> loadDirChildren
+      const slot = details.querySelector<HTMLElement>(":scope > [data-dir-target]");
+      if (slot) await waitForSlotLoaded(slot);
+    }
+    return document.getElementById(bidsRowId(fullPath));
+  }
+
+  // Delegated click for the coverage panel's recording links (website#277
+  // decision 2). Left-clicks only intercepted -- a modifier click (open in
+  // new tab, etc.) falls through to the plain #anchor href unmodified.
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("[data-jump-path]");
+    if (!link) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const path = link.dataset.jumpPath;
+    const section = document.querySelector<HTMLElement>("[data-tree-defer]");
+    if (!path || !section) return;
+    event.preventDefault();
+    void (async () => {
+      const row = (await revealRecordingRow(section, path)) ?? document.getElementById(bidsRowId(path));
+      if (!row) {
+        console.warn(`[zarr-coverage] couldn't reveal the row for "${path}" (still loading, or not in the tree)`);
+        return;
+      }
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.classList.add("tree__row--flash");
+      window.setTimeout(() => row.classList.remove("tree__row--flash"), 2000);
+      history.replaceState(null, "", `#${bidsRowId(path)}`);
+    })();
+  });
+
   // Inline file-preview delegate. Mirrors the show-more click delegate
   // above. Fires when the user clicks a `.tree__preview-btn` (the name of
   // a previewable file). First click fetches + renders the inline panel
@@ -914,6 +1020,25 @@ Astro.response.headers.set(
    * the first finishes loading must actively tear the first one down, since
    * by then it may already hold a store and a GL context.
    */
+  /**
+   * Append the units notice (website#277 decision 4) as the last child of a
+   * just-mounted viewer host. Safe at every one of the three mount call
+   * sites: `host` is either freshly created (inline open, dialog open) or
+   * `mountEegViewer` tore down and rebuilt its own contents as its first act
+   * (navigate) before this runs, so there is never a stale notice to clear
+   * first. No-ops when `unitsNoticeText` has nothing to say (v1 stores, or a
+   * store with nothing to flag).
+   */
+  function applyUnitsNotice(host: HTMLElement, store: ZarrIndexStore | undefined): void {
+    const text = unitsNoticeText(store);
+    if (!text) return;
+    const p = document.createElement("p");
+    p.className = "eegv-units-notice";
+    p.setAttribute("role", "note");
+    p.textContent = text;
+    host.appendChild(p);
+  }
+
   async function openEegViewerInline(btn: HTMLButtonElement): Promise<void> {
     const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
     const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
@@ -1090,6 +1215,7 @@ Astro.response.headers.set(
         return;
       }
       if (eegLive) eegLive.destroy = destroy;
+      applyUnitsNotice(host, zarr?.stores.get(filePath));
     } catch (err) {
       console.error("[eeg-viewer] mount failed:", err);
       if (seq !== eegSeq) return;
@@ -1268,6 +1394,7 @@ Astro.response.headers.set(
         return;
       }
       if (eegLive) eegLive.destroy = destroy;
+      applyUnitsNotice(host, ctx.zarr?.stores.get(target.path));
     } catch (err) {
       // Mirrors `navigateEegViewer`'s failure state: an explicit error in
       // the dialog, never a blank one (website#260).
@@ -1578,6 +1705,11 @@ Astro.response.headers.set(
         return;
       }
       if (eegLive) eegLive.destroy = destroy ?? null;
+      // Unlike the other two mount sites, a falsy `destroy` here still falls
+      // through to this point (mount rendered its own "unavailable" message
+      // in `host` instead of a viewer) -- guard so the notice is never
+      // appended after that text.
+      if (destroy) applyUnitsNotice(host, live.zarr?.stores.get(target.path));
       prefetchAdjacentRecordings();
     } catch (err) {
       // Reaching here means the mount threw somewhere its own try/catch does
