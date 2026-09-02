@@ -145,23 +145,31 @@ const { state, searchActive = false } = Astro.props;
         </label>
       </li>
       <li>
-        <label title="Has an interactive Zarr signal viewer copy.">
+        <label
+          class:list={[searchActive && "flag--disabled"]}
+          title="Has an interactive Zarr signal viewer copy."
+        >
           <input
             type="checkbox"
             name="has_zarr"
             value="1"
             checked={state.hasZarr}
+            disabled={searchActive}
           />
           Has Zarr viewer
         </label>
       </li>
       <li>
-        <label title="The Zarr viewer copy passed the standing fidelity verification sweep.">
+        <label
+          class:list={[searchActive && "flag--disabled"]}
+          title="The Zarr viewer copy passed the standing fidelity verification sweep."
+        >
           <input
             type="checkbox"
             name="has_zarr_verified"
             value="1"
             checked={state.hasZarrVerified}
+            disabled={searchActive}
           />
           Zarr viewer verified
         </label>
@@ -180,6 +188,11 @@ const { state, searchActive = false } = Astro.props;
         </label>
       </li>
     </ul>
+    {searchActive && (
+      <p class="filters__note">
+        Zarr filters aren't available while searching — clear the search box to filter by them.
+      </p>
+    )}
   </div>
 
   <div class="filters__group">
@@ -391,6 +404,15 @@ const { state, searchActive = false } = Astro.props;
     cursor: pointer;
   }
   .filters__flags label.flag--soon {
+    color: var(--color-fg-subtle);
+    cursor: not-allowed;
+  }
+  /* Temporarily disabled while a search query is active (client-side zarr
+     filtering isn't wired for the hybrid search endpoint yet). Distinct
+     from .flag--soon (a not-yet-shipped feature): same muted treatment,
+     different reason, so it doesn't read as "coming later" when it's
+     really "clear the search box". */
+  .filters__flags label.flag--disabled {
     color: var(--color-fg-subtle);
     cursor: not-allowed;
   }
