@@ -537,6 +537,10 @@ function fakeZarrV3Store(opts: {
   viewLevels: number[];
   /** This view level responds 403 instead of metadata (expired-token shape). */
   failLevel?: number;
+  /** When set, the group attrs declare this exact pyramid shape
+   *  (biosigio 1.2.6+, website#276) instead of leaving discovery to probe
+   *  for it. An empty array declares a zero-level pyramid. */
+  declaredLevels?: number[];
 }) {
   const requests: string[] = [];
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -565,6 +569,7 @@ function fakeZarrV3Store(opts: {
         rate: 250,
         n_samples: opts.nSamples,
         channels: [{ label: "Cz", unit: "uV", row_index: 0 }],
+        ...(opts.declaredLevels !== undefined ? { view_levels: opts.declaredLevels } : {}),
       });
     }
     if (path === "eeg/0/zarr.json") return array([1, opts.nSamples], [1, 1000]);
@@ -647,6 +652,45 @@ describe("view-level discovery against a fake v3 store", () => {
       expect(levels.map((l) => l.level)).toEqual([1, 3]); // siblings kept, not discarded
       expect(g.viewLevels.map((l) => l.level)).toEqual([1, 3]);
       expect(g.viewLevelsDegraded).toBe(true); // "discovery broke", not "1-level recording"
+    });
+  });
+});
+
+describe("declared view levels skip probing entirely (website#276)", () => {
+  const viewProbes = (requests: string[]) => requests.filter((p) => p.includes("/view/")).sort();
+
+  it("an empty declared view_levels array means zero levels, not 'undeclared' -- no probe requests at all", async () => {
+    // The server actually has 3 levels available, but they are not declared:
+    // a reader that treated [] as "absent" would probe and find them anyway,
+    // which is exactly the bug website#276 asks to fix.
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      declaredLevels: [],
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels).toEqual([]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      expect(viewProbes(requests)).toEqual([]);
+    });
+  });
+
+  it("a non-empty declared view_levels array opens exactly those levels, with no follow-up probe", async () => {
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500],
+      declaredLevels: [1, 2],
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels.map((l) => l.level)).toEqual([1, 2]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      // Exactly the declared levels are fetched -- no confirm-the-end 404,
+      // unlike the probing path's VIEW_PROBE_FOLLOWUP batch.
+      expect(viewProbes(requests)).toEqual(["eeg/view/1/zarr.json", "eeg/view/2/zarr.json"]);
     });
   });
 });

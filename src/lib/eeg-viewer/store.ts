@@ -547,16 +547,24 @@ export class ViewLevelDiscoveryError extends Error {
 }
 
 /**
- * Discover the view-pyramid levels (view/1, view/2, ...). The store has no
- * level count attribute, so we probe — with the first batch sized by
- * `predictedViewLevelCount(nSamples)`. `nSamples` comes from the group handle
- * (attrs.n_samples with the level-0 shape as fallback), so it is always a real
- * number and a typical pyramid resolves in one round-trip plus one
- * VIEW_PROBE_FOLLOWUP batch of 404s confirming the end (each miss a single
- * request via the v3-pinned open). Levels are contiguous from view/1 in a
- * well-formed store; every fulfilled probe is kept regardless (an anomalous
- * gap degrades to a usable, sorted list rather than discarding data). A
- * non-404 probe failure throws `ViewLevelDiscoveryError` — see its doc.
+ * Discover the view-pyramid levels (view/1, view/2, ...). Prefers the
+ * producer-declared shape from the group attrs (`declaredViewLevels`,
+ * `view_levels`/`n_view_levels`) and opens exactly those levels with no
+ * probing at all. biosigio 1.2.6+ writes both attrs on every group
+ * (neuromechanist/biosigio#119, PR #126), so after the next NEMAR engine
+ * bump every store declares its pyramid and this is the common path.
+ *
+ * Only when NEITHER attr is present does this fall back to probing — the
+ * legacy path for stores written before that engine bump — with the first
+ * batch sized by `predictedViewLevelCount(nSamples)`. `nSamples` comes from
+ * the group handle (attrs.n_samples with the level-0 shape as fallback), so
+ * it is always a real number and a typical pyramid resolves in one
+ * round-trip plus one VIEW_PROBE_FOLLOWUP batch of 404s confirming the end
+ * (each miss a single request via the v3-pinned open). Levels are
+ * contiguous from view/1 in a well-formed store; every fulfilled probe is
+ * kept regardless (an anomalous gap degrades to a usable, sorted list rather
+ * than discarding data). A non-404 probe failure throws
+ * `ViewLevelDiscoveryError` — see its doc.
  */
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
@@ -609,6 +617,20 @@ async function discoverViewLevels(
   return levels;
 }
 
+/**
+ * Read the producer-declared pyramid shape off a group's attrs, or null when
+ * neither attr is present at all (the only case that falls through to
+ * probing in `discoverViewLevels`).
+ *
+ * An explicit `view_levels` array — even an EMPTY one — counts as declared:
+ * it means the producer looked at this recording and wrote zero pyramid
+ * levels for it (a very short recording), which is a real, final answer, not
+ * an absent attribute. Returning `null` for that case (as this used to)
+ * reads as "not declared" and sends a short recording through the full
+ * VIEW_PROBE_MAX probe batch to discover the same zero the attrs already
+ * said (website#276). Same reasoning for `n_view_levels`/`view_level_count`
+ * counting 0.
+ */
 function declaredViewLevels(attrs: Record<string, unknown>): number[] | null {
   const raw = attrs.view_levels ?? attrs.viewLevels;
   if (Array.isArray(raw)) {
@@ -622,10 +644,10 @@ function declaredViewLevels(attrs: Record<string, unknown>): number[] | null {
         return Number.NaN;
       })
       .filter((n) => Number.isInteger(n) && n > 0);
-    return levels.length > 0 ? [...new Set(levels)].sort((a, b) => a - b) : null;
+    return [...new Set(levels)].sort((a, b) => a - b);
   }
   const count = attrs.n_view_levels ?? attrs.view_level_count;
-  if (typeof count === "number" && Number.isInteger(count) && count > 0) {
+  if (typeof count === "number" && Number.isInteger(count) && count >= 0) {
     return Array.from({ length: Math.min(count, VIEW_PROBE_MAX) }, (_, i) => i + 1);
   }
   return null;
