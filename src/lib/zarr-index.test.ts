@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import on008083V1 from "../../test/fixtures/zarr/on008083-index-v1.json";
 import v3Sample from "../../test/fixtures/zarr/v3-sample-index.json";
 import {
+  fetchZarrIndex,
   parseZarrIndex,
   prefetchZarrStoreMetadata,
   unitsNoticeText,
@@ -698,5 +699,86 @@ describe("unitsNoticeText (website#277 decision 4)", () => {
     expect(unitsNoticeText(store)).toBe(
       "Units are the file's own; the dataset's channels.tsv unit could not be adopted for 2 channels.",
     );
+  });
+});
+
+describe("fetchZarrIndex logging (PR #278 review)", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("stays quiet on a 404 (the common 'not converted yet' case)", async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(null, { status: 404, statusText: "Not Found" }),
+      )) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await fetchZarrIndex("nm000132")).toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns with the status on a non-404 non-ok response", async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(null, { status: 503, statusText: "Service Unavailable" }),
+      )) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await fetchZarrIndex("nm000132")).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("503");
+      expect(warn.mock.calls[0][0]).toContain("nm000132");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns with the error when the network request itself fails", async () => {
+    globalThis.fetch = (() => Promise.reject(new Error("network down"))) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await fetchZarrIndex("nm000132")).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("nm000132");
+      expect(warn.mock.calls[0][1]).toBeInstanceOf(Error);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns when the response body is not valid JSON", async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(new Response("not json{", { status: 200 }))) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await fetchZarrIndex("nm000132")).toBeNull();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("nm000132");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays quiet and returns the parsed index on success", async () => {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ dataset_id: "nm000132", format: "nemar-zarr-index", stores: [] }),
+          { status: 200 },
+        ),
+      )) as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const index = await fetchZarrIndex("nm000132");
+      expect(index?.dataset_id).toBe("nm000132");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

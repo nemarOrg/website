@@ -441,9 +441,22 @@ export async function fetchZarrIndex(datasetId: string): Promise<ZarrIndex | nul
     const res = await fetch(zarrIndexUrl(datasetId), {
       headers: { Accept: "application/json" },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // 404 is the common "not converted yet" case -- skip the log, same
+      // convention as api.ts's resolveCanonical. Anything else (a 5xx, a
+      // 403) is a real upstream blip a silent null used to hide entirely
+      // (PR #278 review).
+      if (res.status !== 404) {
+        console.warn(`[zarr-index] fetchZarrIndex ${datasetId}: ${res.status} ${res.statusText}`);
+      }
+      return null;
+    }
     return parseZarrIndex(await res.json());
-  } catch {
+  } catch (err) {
+    // A network failure (fetch itself rejects) and a malformed JSON body
+    // (res.json() rejects) both land here -- either way, worth a trail
+    // instead of a silent null.
+    console.warn(`[zarr-index] fetchZarrIndex ${datasetId} threw:`, err);
     return null;
   }
 }
