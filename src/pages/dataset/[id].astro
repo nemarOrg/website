@@ -28,6 +28,7 @@ import { detectProvenance } from "../../lib/provenance";
 import {
   ZARR_VERIFY_BLURB,
   ZARR_VERIFY_LABELS,
+  ZARR_VERIFY_TAG_KIND,
   isZarrVerifyStatus,
   modalityHref,
 } from "../../lib/tags";
@@ -153,7 +154,11 @@ const modalities = enrichedMetadata.recording_modality.length
 // Zarr copy at all) renders nothing -- see ZARR_VERIFY_* in lib/tags.ts.
 const zarrVerifyStatus = catalogRow?.zarr_verify_status ?? null;
 const zarrBadge = isZarrVerifyStatus(zarrVerifyStatus)
-  ? { label: ZARR_VERIFY_LABELS[zarrVerifyStatus], blurb: ZARR_VERIFY_BLURB[zarrVerifyStatus] }
+  ? {
+      label: ZARR_VERIFY_LABELS[zarrVerifyStatus],
+      blurb: ZARR_VERIFY_BLURB[zarrVerifyStatus],
+      kind: ZARR_VERIFY_TAG_KIND[zarrVerifyStatus],
+    }
   : null;
 
 // Server-rendered schema.org Dataset JSON-LD (website#156). Shares
@@ -250,7 +255,7 @@ Astro.response.headers.set(
       )}
       <div class="detail__chips">
         {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
-        {zarrBadge && <Tag kind="neutral" value={zarrBadge.label} title={zarrBadge.blurb} size="md" />}
+        {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} size="md" />}
       </div>
       <div class="detail__actions">
         <ActionBar

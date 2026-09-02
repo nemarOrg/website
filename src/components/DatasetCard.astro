@@ -7,7 +7,12 @@ import {
   safeSnippet,
   splitModalities,
 } from "../lib/format";
-import { ZARR_VERIFY_BLURB, ZARR_VERIFY_LABELS, isZarrVerifyStatus } from "../lib/tags";
+import {
+  ZARR_VERIFY_BLURB,
+  ZARR_VERIFY_LABELS,
+  ZARR_VERIFY_TAG_KIND,
+  isZarrVerifyStatus,
+} from "../lib/tags";
 import type { Dataset } from "../lib/types";
 import Tag from "./Tag.astro";
 
@@ -34,6 +39,7 @@ const zarrBadge = isZarrVerifyStatus(dataset.zarr_verify_status)
   ? {
       label: ZARR_VERIFY_LABELS[dataset.zarr_verify_status],
       blurb: ZARR_VERIFY_BLURB[dataset.zarr_verify_status],
+      kind: ZARR_VERIFY_TAG_KIND[dataset.zarr_verify_status],
     }
   : null;
 
@@ -93,7 +99,7 @@ if (updated) {
               nested filter link would be invalid HTML. Modality filtering
               lives on the detail page + the sidebar. */}
           {modalities.map((m) => <Tag kind="modality" value={m} />)}
-          {zarrBadge && <Tag kind="neutral" value={zarrBadge.label} title={zarrBadge.blurb} />}
+          {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} />}
         </div>
       ) : (
         <span class="ds-card__mods-empty">Modalities pending</span>

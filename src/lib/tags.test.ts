@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ZARR_VERIFY_BLURB,
   ZARR_VERIFY_LABELS,
+  ZARR_VERIFY_TAG_KIND,
   isZarrVerifyStatus,
   keywordHref,
   licenseHref,
@@ -184,5 +185,21 @@ describe("isZarrVerifyStatus (website#277)", () => {
       expect(blurb.length).toBeGreaterThan(0);
       expect(blurb.endsWith(".")).toBe(true);
     }
+  });
+
+  it("labels 'failed' as a fidelity issue, distinct from 'unverifiable' (PR #278 review)", () => {
+    // "failed" means the sweep RAN and found a mismatch; "unverifiable"
+    // means no check could run at all. The two must not read as synonyms.
+    expect(ZARR_VERIFY_LABELS.failed).toBe("Zarr fidelity issue");
+    expect(ZARR_VERIFY_LABELS.unverifiable).toBe("Zarr unverifiable");
+    expect(ZARR_VERIFY_LABELS.failed).not.toBe(ZARR_VERIFY_LABELS.unverifiable);
+  });
+
+  it("maps each verdict to the correct Tag kind: positive/warning/neutral", () => {
+    expect(ZARR_VERIFY_TAG_KIND.verified).toBe("positive");
+    expect(ZARR_VERIFY_TAG_KIND.failed).toBe("warning");
+    // unverifiable is NOT a warning -- no check ran, so there is nothing to
+    // flag; it stays neutral.
+    expect(ZARR_VERIFY_TAG_KIND.unverifiable).toBe("neutral");
   });
 });

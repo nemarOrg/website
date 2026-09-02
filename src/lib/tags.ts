@@ -135,7 +135,11 @@ export function isZarrVerifyStatus(value: unknown): value is ZarrVerifyStatus {
 
 export const ZARR_VERIFY_LABELS: Record<ZarrVerifyStatus, string> = {
   verified: "Zarr verified",
-  failed: "Zarr unverified",
+  // "failed" means the sweep RAN and found a real mismatch -- distinct from
+  // "unverifiable", where no check could run at all. "Zarr unverified" read
+  // as the same thing as "unverifiable"; "fidelity issue" names what
+  // actually happened (PR #278 review).
+  failed: "Zarr fidelity issue",
   unverifiable: "Zarr unverifiable",
 };
 
@@ -150,4 +154,16 @@ export const ZARR_VERIFY_BLURB: Record<ZarrVerifyStatus, string> = {
     "A sampled recording's converted channel count disagreed with this dataset's channels.tsv; the copy is still served but excluded from the verified filter until it's rechecked.",
   unverifiable:
     "The fidelity sweep hasn't reached a verdict yet (private dataset, or the check couldn't run) — this does not mean it failed.",
+};
+
+/**
+ * `Tag` kind per verdict (PR #278 review): `verified` is a passed check
+ * (positive/green), `failed` is a check that ran and found a real issue
+ * (warning/amber) -- not `neutral`, which is reserved for `unverifiable`
+ * (no check could run at all, so there is nothing to warn about).
+ */
+export const ZARR_VERIFY_TAG_KIND: Record<ZarrVerifyStatus, "positive" | "warning" | "neutral"> = {
+  verified: "positive",
+  failed: "warning",
+  unverifiable: "neutral",
 };

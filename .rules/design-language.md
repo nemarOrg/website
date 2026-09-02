@@ -164,6 +164,15 @@ relying on hue alone (color-blind safety; the license text differs too).
 **Keyword** (`--keyword`) — free-text taxonomy, deliberately the quietest
 tag (sans, muted, subtle border).
 
+**Status** (`--color-success` / `--color-warning`) — a pass/flag verdict on
+something the site checked itself (not a taxonomy value), e.g. the Zarr
+fidelity-sweep badge: `positive` = verified, `warning` = an issue was
+found. Reuses the same palette tokens the StatusBadge-family components
+(`UserStatusBadge.astro`, `PublishStateBadge.astro`, `ImportStatusBadge.astro`)
+already use for pass/fail states — not new tag colors. A verdict the sweep
+could not reach at all (no check ran, which is not the same as a failed
+check) is `neutral`, not `warning` — it isn't a flagged issue.
+
 Two deliberate near-overlaps, documented so they don't read as bugs: EMG
 (orange) and the non-commercial tier sit in the same warm region, and
 "other" modality and "unknown" license both use slate. They never co-occur
