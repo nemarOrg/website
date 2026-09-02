@@ -374,6 +374,76 @@ describe("parseZarrIndex format_version discrimination (website#277)", () => {
   });
 });
 
+describe("parseZarrIndex discovered_count validation (PR #278 review)", () => {
+  const THREE_PARTS = {
+    dataset_id: "nm000132",
+    format: "nemar-zarr-index",
+    format_version: 3,
+    stores: [{ path: "a.set", zarr: "a.zarr" }],
+    failures: [{ path: "b.set", code: "not_continuous", reason: "x" }],
+    pending: [{ path: "c.set", reason: "not_attempted", attempts: 0 }],
+  }; // sum of parts = 3
+
+  it("recomputes a too-small discovered_count from the sum of parts, with a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const index = parseZarrIndex({ ...THREE_PARTS, discovered_count: 1 });
+      expect(index?.format_version).toBe(3);
+      if (index?.format_version !== 3) throw new Error("expected v3");
+      // Must never render "1 of ... viewable" undercounting what's actually
+      // reported below it -- the too-small case that motivated this fix.
+      expect(index.discovered_count).toBe(3);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("discovered_count=1");
+      expect(warn.mock.calls[0][0]).toContain("stores+failures+pending=3");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("recomputes a zero discovered_count even though stores/failures/pending are nonempty", () => {
+    // The ?? fallback in zarrCoverage/renderZarrCoveragePanel does not treat
+    // 0 as "missing" -- a raw 0 here must not hide a nonempty panel.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const index = parseZarrIndex({ ...THREE_PARTS, discovered_count: 0 });
+      expect(index?.format_version).toBe(3);
+      if (index?.format_version !== 3) throw new Error("expected v3");
+      expect(index.discovered_count).toBe(3);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("recomputes a negative discovered_count, with a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const index = parseZarrIndex({ ...THREE_PARTS, discovered_count: -5 });
+      expect(index?.format_version).toBe(3);
+      if (index?.format_version !== 3) throw new Error("expected v3");
+      expect(index.discovered_count).toBe(3);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("discovered_count=-5");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stays silent when the raw discovered_count matches the computed sum", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const index = parseZarrIndex({ ...THREE_PARTS, discovered_count: 3 });
+      expect(index?.format_version).toBe(3);
+      if (index?.format_version !== 3) throw new Error("expected v3");
+      expect(index.discovered_count).toBe(3);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
 describe("zarrCoverage (website#277)", () => {
   it("computes coverage from the real v1 fixture: viewable 2, failed 36, discovered null", () => {
     const index = parseZarrIndex(on008083V1);

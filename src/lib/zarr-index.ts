@@ -110,13 +110,22 @@ export interface ZarrIndexV1 extends ZarrIndexCommon {
  * + `pending[]` (coverage), failure `detail` (diagnosis), and top-level
  * dataset provenance hoisted from the catalog row. `discovered_count ==
  * store_count + failure_count + pending_count` is the producer's own
- * invariant; a document missing/mistyping it degrades to that same sum
- * (`errors` and other run-only counters are not carried — nothing here reads
- * them). Additional top-level fields the schema defines (`contract_base`,
- * `data_base`, `layout`, ...) are intentionally not modeled: no current
- * consumer needs them, and the schema is CLOSED so an unknown field would
- * fail producer-side validation before it ever reaches a client — this
- * parser still ignores anything it doesn't recognize, same as v1.
+ * invariant, and this parser ENFORCES it rather than trusting the raw
+ * field: `discovered_count` is always recomputed as
+ * `stores.length + failures.length + pending.length`, so a too-small,
+ * negative, zero-with-nonempty-arrays, or simply missing raw value can
+ * never reach a consumer (a coverage panel reading a mistrusted raw value
+ * verbatim could render "5 of 3 recordings viewable", or a zero silently
+ * hide a nonempty panel via `??`'s no-fallthrough-on-0 — PR #278 review). A
+ * present value that disagrees with the computed sum logs one console
+ * warning naming both numbers; a matching value, or an absent one, is
+ * silent (`errors` and other run-only counters are not carried — nothing
+ * here reads them). Additional top-level fields the schema defines
+ * (`contract_base`, `data_base`, `layout`, ...) are intentionally not
+ * modeled: no current consumer needs them, and the schema is CLOSED so an
+ * unknown field would fail producer-side validation before it ever reaches
+ * a client — this parser still ignores anything it doesn't recognize, same
+ * as v1.
  */
 export interface ZarrIndexV3 extends ZarrIndexCommon {
   format_version: 3;
@@ -247,10 +256,15 @@ export function parseZarrIndex(raw: unknown): ZarrIndex | null {
 
   if (o.format_version === 3) {
     const pending = parsePending(o.pending);
-    const discovered_count =
-      typeof o.discovered_count === "number"
-        ? o.discovered_count
-        : stores.length + failures.length + pending.length;
+    // Always recomputed from the sum of parts -- never trust the raw field
+    // verbatim, since a too-small/negative/mistyped value would otherwise
+    // reach the coverage panel unchanged (PR #278 review).
+    const discovered_count = stores.length + failures.length + pending.length;
+    if (typeof o.discovered_count === "number" && o.discovered_count !== discovered_count) {
+      console.warn(
+        `[zarr-index] ${o.dataset_id}: discovered_count=${o.discovered_count} disagrees with stores+failures+pending=${discovered_count}; using ${discovered_count}`,
+      );
+    }
     return {
       dataset_id: o.dataset_id,
       format: o.format,
