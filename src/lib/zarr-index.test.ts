@@ -238,7 +238,9 @@ describe("parseZarrIndex format_version discrimination (website#277)", () => {
     expect(index.failures.length).toBe(2);
     expect(index.pending.length).toBe(3);
     expect(index.discovered_count).toBe(7);
-    expect(index.discovered_count).toBe(index.stores.length + index.failures.length + index.pending.length);
+    expect(index.discovered_count).toBe(
+      index.stores.length + index.failures.length + index.pending.length,
+    );
   });
 
   it("carries v3-only store detail (units_report, channels_tsv_read_error, source_tree)", () => {
@@ -256,7 +258,9 @@ describe("parseZarrIndex format_version discrimination (website#277)", () => {
     const index = parseZarrIndex(v3Sample);
     expect(index?.format_version).toBe(3);
     if (index?.format_version !== 3) throw new Error("expected v3");
-    expect(index.failures.find((f) => f.code === "retry_exhausted")?.detail).toContain("TimeoutError");
+    expect(index.failures.find((f) => f.code === "retry_exhausted")?.detail).toContain(
+      "TimeoutError",
+    );
     expect(index.failures.find((f) => f.code === "not_continuous")?.detail).toBeNull();
     expect(index.pending.map((p) => p.reason).sort()).toEqual([
       "infra_failure",
@@ -276,7 +280,11 @@ describe("parseZarrIndex format_version discrimination (website#277)", () => {
   });
 
   it("treats an absent format_version as v1 (legacy indexes that predate the field)", () => {
-    const index = parseZarrIndex({ dataset_id: "nm000132", format: "nemar-zarr-index", stores: [] });
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      stores: [],
+    });
     expect(index?.format_version).toBe(1);
   });
 
@@ -375,7 +383,11 @@ describe("zarrCoverage (website#277)", () => {
   });
 
   it("returns 0/empty coverage for an empty document (no zarr conversion attempted)", () => {
-    const index = parseZarrIndex({ dataset_id: "nm000132", format: "nemar-zarr-index", stores: [] });
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      stores: [],
+    });
     const cov = zarrCoverage(index!);
     expect(cov).toEqual({
       viewable: 0,

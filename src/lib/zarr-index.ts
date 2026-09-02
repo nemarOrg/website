@@ -318,13 +318,15 @@ export function zarrCoverage(index: ZarrIndex): ZarrCoverage {
   const byFailureCode: Record<string, ZarrIndexFailure[]> = {};
   for (const f of index.failures) {
     const code = f.code ?? "unknown";
-    (byFailureCode[code] ??= []).push(f);
+    if (!byFailureCode[code]) byFailureCode[code] = [];
+    byFailureCode[code].push(f);
   }
 
   const byPendingReason: Record<string, ZarrIndexPending[]> = {};
   let unknownPending = false;
   for (const p of pendingList) {
-    (byPendingReason[p.reason] ??= []).push(p);
+    if (!byPendingReason[p.reason]) byPendingReason[p.reason] = [];
+    byPendingReason[p.reason].push(p);
     if (!KNOWN_PENDING_REASONS.has(p.reason)) unknownPending = true;
   }
 
