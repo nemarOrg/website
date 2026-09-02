@@ -74,9 +74,16 @@ export function isDirRecordingName(name: string): boolean {
  * index resolves) stamps the same id for parity, so a row is addressable
  * regardless of which path built it.
  *
+ * `_` is escaped too (to `_5f`), not left alone: `_` doubles as the escape
+ * marker for every OTHER disallowed character (`.` -> `_2e`, `/` -> `_2f`,
+ * ...), so leaving a literal `_` unescaped makes the scheme ambiguous --
+ * `"a_2e"` and `"a."` collided on the same id before this (PR #278 review).
+ * Escaping `_` itself means `_` never appears in the output except as part
+ * of a `_XX` escape sequence, which keeps the mapping injective.
+ *
  * Not a CSS-selector-safe id (BIDS paths contain `/`) — always resolve it
  * with `document.getElementById`, never `querySelector('#...')`.
  */
 export function bidsRowId(path: string): string {
-  return `rec-${path.replace(/[^A-Za-z0-9_-]/g, (ch) => `_${ch.charCodeAt(0).toString(16)}`)}`;
+  return `rec-${path.replace(/[^A-Za-z0-9-]/g, (ch) => `_${ch.charCodeAt(0).toString(16)}`)}`;
 }

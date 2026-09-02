@@ -96,9 +96,12 @@ describe("isDirRecordingName", () => {
 describe("bidsRowId (website#277)", () => {
   it("is a valid, whitespace-free DOM id for an ordinary BIDS path", () => {
     const id = bidsRowId("sub-01/eeg/sub-01_task-rest_eeg.set");
-    // Hyphen and underscore are left alone (already id-safe); '/' and '.' are
-    // escaped to their hex code point so the id has no path/extension syntax.
-    expect(id).toBe("rec-sub-01_2feeg_2fsub-01_task-rest_eeg_2eset");
+    // Hyphen is left alone (already id-safe); '_', '/', and '.' are all
+    // escaped to their hex code point so the id has no path/extension
+    // syntax AND '_' never appears unescaped (PR #278 review -- '_' is the
+    // escape marker itself, so a literal one must be escaped too or the
+    // scheme isn't injective).
+    expect(id).toBe("rec-sub-01_2feeg_2fsub-01_5ftask-rest_5feeg_2eset");
     expect(id).not.toMatch(/\s/);
   });
 
@@ -109,6 +112,13 @@ describe("bidsRowId (website#277)", () => {
 
   it("gives distinct paths distinct ids", () => {
     expect(bidsRowId("sub-01/a.set")).not.toBe(bidsRowId("sub-02/a.set"));
+  });
+
+  it("does not collide a literal underscore-then-hex-digits with an escaped character (PR #278 review)", () => {
+    // Before escaping '_', both of these produced "rec-a_2e": the literal
+    // "_2e" in the first string is indistinguishable from '.' escaped to
+    // "_2e" in the second, once '_' itself is left unescaped.
+    expect(bidsRowId("a_2e")).not.toBe(bidsRowId("a."));
   });
 
   it("round trips a derivatives path with a different extension", () => {
