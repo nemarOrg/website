@@ -72,6 +72,13 @@ export interface FilterState {
   citations: { min: number | null; max: number | null };
   hasDataQuality: boolean;
   hasHed: boolean;
+  /** Only converted-to-Zarr datasets (nemar-cli#1181 phase 2); server-side
+   *  `?has_zarr=1`, mirroring `hasHed`'s round trip. */
+  hasZarr: boolean;
+  /** Only datasets whose Zarr copy passed the standing fidelity sweep
+   *  (nemar-cli#1181 phase 8); server-side `?has_zarr_verified=1`. A strict
+   *  narrowing of `hasZarr`, not a replacement for it. */
+  hasZarrVerified: boolean;
   sort: SortOption;
   page: number; // 1-based
   pageSize: number;
@@ -93,6 +100,8 @@ export function defaultFilterState(): FilterState {
     citations: { min: null, max: null },
     hasDataQuality: false,
     hasHed: false,
+    hasZarr: false,
+    hasZarrVerified: false,
     sort: "newest",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
@@ -180,6 +189,8 @@ export function filterStateFromURL(params: URLSearchParams): FilterState {
 
   s.hasDataQuality = params.get("has_qa") === "1";
   s.hasHed = params.get("has_hed") === "1";
+  s.hasZarr = params.get("has_zarr") === "1";
+  s.hasZarrVerified = params.get("has_zarr_verified") === "1";
 
   s.sort = parseSort(params.get("sort"));
 
@@ -214,6 +225,8 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.citations.max != null) sp.set("cit_max", String(state.citations.max));
   if (state.hasDataQuality) sp.set("has_qa", "1");
   if (state.hasHed) sp.set("has_hed", "1");
+  if (state.hasZarr) sp.set("has_zarr", "1");
+  if (state.hasZarrVerified) sp.set("has_zarr_verified", "1");
   if (state.sort !== "newest") sp.set("sort", state.sort);
   if (state.page > 1) sp.set("page", String(state.page));
   if (state.pageSize !== DEFAULT_PAGE_SIZE) sp.set("page_size", String(state.pageSize));
@@ -245,6 +258,20 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
     // which the backend accepts alongside `1`. Server-side keeps count/pagination
     // accurate, like license.
     q.has_hed = true;
+  }
+  if (state.hasZarr) {
+    // nemar-cli#1181 phase 2: same `has_hed` convention, `?has_zarr=1`/`true`.
+    // Sent unconditionally even though production's /datasets doesn't
+    // understand it yet (the epic branch ships it; production catches up on
+    // its own release cadence) -- an unrecognized query param is just
+    // ignored server-side, so this degrades to "no filter applied" rather
+    // than an error, and the toggle starts working the moment the backend
+    // does with no frontend change.
+    q.has_zarr = true;
+  }
+  if (state.hasZarrVerified) {
+    // nemar-cli#1181 phase 8. Same production-lag note as has_zarr above.
+    q.has_zarr_verified = true;
   }
   return q;
 }

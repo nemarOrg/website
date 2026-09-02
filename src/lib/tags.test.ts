@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ZARR_VERIFY_BLURB,
+  ZARR_VERIFY_LABELS,
+  ZARR_VERIFY_TAG_KIND,
+  isZarrVerifyStatus,
   keywordHref,
   licenseHref,
   licenseTier,
@@ -159,5 +163,43 @@ describe("LICENSE_TIERS ordering (permissiveness thermometer)", () => {
       "noderiv",
       "unknown",
     ]);
+  });
+});
+
+describe("isZarrVerifyStatus (website#277)", () => {
+  it("accepts the three sweep verdicts", () => {
+    expect(isZarrVerifyStatus("verified")).toBe(true);
+    expect(isZarrVerifyStatus("failed")).toBe(true);
+    expect(isZarrVerifyStatus("unverifiable")).toBe(true);
+  });
+  it("rejects null, undefined, and any other string", () => {
+    expect(isZarrVerifyStatus(null)).toBe(false);
+    expect(isZarrVerifyStatus(undefined)).toBe(false);
+    expect(isZarrVerifyStatus("pending")).toBe(false);
+    expect(isZarrVerifyStatus("")).toBe(false);
+  });
+  it("has a label and a tooltip blurb ending a single sentence for every status", () => {
+    for (const status of ["verified", "failed", "unverifiable"] as const) {
+      expect(ZARR_VERIFY_LABELS[status]).toBeTruthy();
+      const blurb = ZARR_VERIFY_BLURB[status];
+      expect(blurb.length).toBeGreaterThan(0);
+      expect(blurb.endsWith(".")).toBe(true);
+    }
+  });
+
+  it("labels 'failed' as a fidelity issue, distinct from 'unverifiable' (PR #278 review)", () => {
+    // "failed" means the sweep RAN and found a mismatch; "unverifiable"
+    // means no check could run at all. The two must not read as synonyms.
+    expect(ZARR_VERIFY_LABELS.failed).toBe("Zarr fidelity issue");
+    expect(ZARR_VERIFY_LABELS.unverifiable).toBe("Zarr unverifiable");
+    expect(ZARR_VERIFY_LABELS.failed).not.toBe(ZARR_VERIFY_LABELS.unverifiable);
+  });
+
+  it("maps each verdict to the correct Tag kind: positive/warning/neutral", () => {
+    expect(ZARR_VERIFY_TAG_KIND.verified).toBe("positive");
+    expect(ZARR_VERIFY_TAG_KIND.failed).toBe("warning");
+    // unverifiable is NOT a warning -- no check ran, so there is nothing to
+    // flag; it stays neutral.
+    expect(ZARR_VERIFY_TAG_KIND.unverifiable).toBe("neutral");
   });
 });

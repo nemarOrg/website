@@ -7,6 +7,12 @@ import {
   safeSnippet,
   splitModalities,
 } from "../lib/format";
+import {
+  ZARR_VERIFY_BLURB,
+  ZARR_VERIFY_LABELS,
+  ZARR_VERIFY_TAG_KIND,
+  isZarrVerifyStatus,
+} from "../lib/tags";
 import type { Dataset } from "../lib/types";
 import Tag from "./Tag.astro";
 
@@ -27,6 +33,15 @@ const modalities = splitModalities(dataset.modalities);
 const byline = formatAuthorByline(dataset.authors) || dataset.owner_username || "NEMAR";
 const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
 const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
+// Zarr fidelity-sweep verdict badge (website#277). Null (never swept, or no
+// Zarr copy at all) renders nothing -- see ZARR_VERIFY_* in lib/tags.ts.
+const zarrBadge = isZarrVerifyStatus(dataset.zarr_verify_status)
+  ? {
+      label: ZARR_VERIFY_LABELS[dataset.zarr_verify_status],
+      blurb: ZARR_VERIFY_BLURB[dataset.zarr_verify_status],
+      kind: ZARR_VERIFY_TAG_KIND[dataset.zarr_verify_status],
+    }
+  : null;
 
 interface Fact {
   label: string;
@@ -78,12 +93,13 @@ if (updated) {
         <span class="ds-card__id">{dataset.dataset_id}</span>
         <h3 class="ds-card__name">{dataset.name}</h3>
       </div>
-      {modalities.length > 0 ? (
+      {modalities.length > 0 || zarrBadge ? (
         <div class="ds-card__mods">
           {/* Non-clickable here: the whole card is already one <a>, so a
               nested filter link would be invalid HTML. Modality filtering
               lives on the detail page + the sidebar. */}
           {modalities.map((m) => <Tag kind="modality" value={m} />)}
+          {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} />}
         </div>
       ) : (
         <span class="ds-card__mods-empty">Modalities pending</span>

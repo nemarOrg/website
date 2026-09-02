@@ -547,16 +547,24 @@ export class ViewLevelDiscoveryError extends Error {
 }
 
 /**
- * Discover the view-pyramid levels (view/1, view/2, ...). The store has no
- * level count attribute, so we probe — with the first batch sized by
- * `predictedViewLevelCount(nSamples)`. `nSamples` comes from the group handle
- * (attrs.n_samples with the level-0 shape as fallback), so it is always a real
- * number and a typical pyramid resolves in one round-trip plus one
- * VIEW_PROBE_FOLLOWUP batch of 404s confirming the end (each miss a single
- * request via the v3-pinned open). Levels are contiguous from view/1 in a
- * well-formed store; every fulfilled probe is kept regardless (an anomalous
- * gap degrades to a usable, sorted list rather than discarding data). A
- * non-404 probe failure throws `ViewLevelDiscoveryError` — see its doc.
+ * Discover the view-pyramid levels (view/1, view/2, ...). Prefers the
+ * producer-declared shape from the group attrs (`declaredViewLevels`,
+ * `view_levels`/`n_view_levels`) and opens exactly those levels with no
+ * probing at all. biosigio 1.2.6+ writes both attrs on every group
+ * (neuromechanist/biosigio#119, PR #126), so after the next NEMAR engine
+ * bump every store declares its pyramid and this is the common path.
+ *
+ * Only when NEITHER attr is present does this fall back to probing — the
+ * legacy path for stores written before that engine bump — with the first
+ * batch sized by `predictedViewLevelCount(nSamples)`. `nSamples` comes from
+ * the group handle (attrs.n_samples with the level-0 shape as fallback), so
+ * it is always a real number and a typical pyramid resolves in one
+ * round-trip plus one VIEW_PROBE_FOLLOWUP batch of 404s confirming the end
+ * (each miss a single request via the v3-pinned open). Levels are
+ * contiguous from view/1 in a well-formed store; every fulfilled probe is
+ * kept regardless (an anomalous gap degrades to a usable, sorted list rather
+ * than discarding data). A non-404 probe failure throws
+ * `ViewLevelDiscoveryError` — see its doc.
  */
 async function discoverViewLevels(
   root: zarr.Group<zarr.FetchStore>,
@@ -564,10 +572,36 @@ async function discoverViewLevels(
   attrs: Record<string, unknown> = {},
   nSamples = Number.NaN,
 ): Promise<ViewLevel[]> {
-  const declared = declaredViewLevels(attrs);
+  const declared = declaredViewLevels(attrs, group);
   if (declared) {
-    const levels = await Promise.all(declared.map((level) => openViewLevel(root, group, level)));
-    return levels.filter((v): v is ViewLevel => v !== null);
+    // Mirrors the probing branch below: collect every fulfilled level first
+    // so one bad level (a 403, a transient 5xx, a level the producer
+    // declared but never actually wrote) does not discard siblings that
+    // opened fine. A clean 404 on a declared level is dropped silently, same
+    // as a clean 404 ending a probe batch; any other rejection throws
+    // ViewLevelDiscoveryError with the partial list so the caller flags
+    // degradation instead of losing the whole pyramid.
+    const settled = await Promise.allSettled(
+      declared.map((level) => openViewLevel(root, group, level)),
+    );
+    const levels: ViewLevel[] = [];
+    let failure: unknown;
+    for (const p of settled) {
+      if (p.status === "fulfilled") {
+        levels.push(p.value);
+      } else if (failure === undefined && !isNotFound(p.reason)) {
+        failure = p.reason;
+      }
+    }
+    levels.sort((a, b) => a.level - b.level);
+    if (failure !== undefined) {
+      throw new ViewLevelDiscoveryError(
+        `declared view-level open for "${group}" failed with a non-404 error; pyramid may be incomplete`,
+        levels,
+        { cause: failure },
+      );
+    }
+    return levels;
   }
 
   const levels: ViewLevel[] = [];
@@ -576,11 +610,9 @@ async function discoverViewLevels(
   while (base <= VIEW_PROBE_MAX) {
     const size = Math.min(batch, VIEW_PROBE_MAX - base + 1);
     const probes = await Promise.allSettled(
-      Array.from({ length: size }, (_, i) => base + i).map(async (level) => {
-        const view = await openViewLevel(root, group, level);
-        if (!view) throw new Error(`unexpected missing view/${level}`);
-        return view;
-      }),
+      Array.from({ length: size }, (_, i) => base + i).map((level) =>
+        openViewLevel(root, group, level),
+      ),
     );
     // Collect every fulfilled probe first — a failure must not discard sibling
     // levels that already opened successfully in the same batch.
@@ -609,7 +641,28 @@ async function discoverViewLevels(
   return levels;
 }
 
-function declaredViewLevels(attrs: Record<string, unknown>): number[] | null {
+/**
+ * Read the producer-declared pyramid shape off a group's attrs, or null when
+ * neither attr is present at all (the only case that falls through to
+ * probing in `discoverViewLevels`).
+ *
+ * An explicit `view_levels` array — even an EMPTY one — counts as declared:
+ * it means the producer looked at this recording and wrote zero pyramid
+ * levels for it (a very short recording), which is a real, final answer, not
+ * an absent attribute. Returning `null` for that case (as this used to)
+ * reads as "not declared" and sends a short recording through the full
+ * VIEW_PROBE_MAX probe batch to discover the same zero the attrs already
+ * said (website#276). Same reasoning for `n_view_levels`/`view_level_count`
+ * counting 0.
+ *
+ * A NON-empty array that filters down to zero valid entries is a different
+ * case: every element was garbage (a string, a negative number, an object
+ * with no numeric `level`), which is malformed producer data, not a
+ * deliberate "zero levels" declaration. That degrades to probing (with a
+ * console warning) rather than being read as declared-empty (PR #278
+ * review) — a genuinely empty `[]` is unaffected and still returns `[]`.
+ */
+function declaredViewLevels(attrs: Record<string, unknown>, groupName = "?"): number[] | null {
   const raw = attrs.view_levels ?? attrs.viewLevels;
   if (Array.isArray(raw)) {
     const levels = raw
@@ -622,20 +675,32 @@ function declaredViewLevels(attrs: Record<string, unknown>): number[] | null {
         return Number.NaN;
       })
       .filter((n) => Number.isInteger(n) && n > 0);
-    return levels.length > 0 ? [...new Set(levels)].sort((a, b) => a - b) : null;
+    const deduped = [...new Set(levels)].sort((a, b) => a - b);
+    if (raw.length > 0 && deduped.length === 0) {
+      console.warn(
+        `[eeg-viewer] group "${groupName}": view_levels declared (${raw.length} entr${raw.length === 1 ? "y" : "ies"}) but none were valid; falling back to probing`,
+      );
+      return null;
+    }
+    return deduped;
   }
   const count = attrs.n_view_levels ?? attrs.view_level_count;
-  if (typeof count === "number" && Number.isInteger(count) && count > 0) {
+  if (typeof count === "number" && Number.isInteger(count) && count >= 0) {
     return Array.from({ length: Math.min(count, VIEW_PROBE_MAX) }, (_, i) => i + 1);
   }
   return null;
 }
 
+// Never actually resolves null -- it either resolves a ViewLevel or the
+// underlying openNode() call rejects (404, a bad dtype, ...). Typed
+// non-nullable so both call sites (the declared branch and the probing
+// batch below) can collect Promise.allSettled results without a redundant
+// null-narrowing step.
 async function openViewLevel(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
   level: number,
-): Promise<ViewLevel | null> {
+): Promise<ViewLevel> {
   const rawArray = await openNode(root.resolve(`${group}/view/${level}`), {
     kind: "array",
   });

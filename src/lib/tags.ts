@@ -114,3 +114,56 @@ export function licenseTier(license: string | null | undefined): LicenseTier {
 export function licenseHref(license: string | null | undefined): string {
   return `/discover?license=${licenseTier(license)}`;
 }
+
+// --- Zarr verification badge (website#277) -----------------------------------
+// The badge surfaces `Dataset.zarr_verify_status` (nemar-cli#1181 phase 8): the
+// standing fidelity sweep's verdict for a dataset's Zarr copy. `null` means the
+// sweep hasn't reached this dataset yet (or it has no Zarr copy at all) and
+// renders nothing — see DatasetCard.astro / the dataset page header.
+
+export type ZarrVerifyStatus = "verified" | "failed" | "unverifiable";
+
+const ZARR_VERIFY_STATUSES: ReadonlySet<string> = new Set<ZarrVerifyStatus>([
+  "verified",
+  "failed",
+  "unverifiable",
+]);
+
+export function isZarrVerifyStatus(value: unknown): value is ZarrVerifyStatus {
+  return typeof value === "string" && ZARR_VERIFY_STATUSES.has(value);
+}
+
+export const ZARR_VERIFY_LABELS: Record<ZarrVerifyStatus, string> = {
+  verified: "Zarr verified",
+  // "failed" means the sweep RAN and found a real mismatch -- distinct from
+  // "unverifiable", where no check could run at all. "Zarr unverified" read
+  // as the same thing as "unverifiable"; "fidelity issue" names what
+  // actually happened (PR #278 review).
+  failed: "Zarr fidelity issue",
+  unverifiable: "Zarr unverifiable",
+};
+
+/** One-sentence tooltip per verdict (mirrors `zarr-fidelity-sweep.ts`'s own
+ *  verdict semantics: "verified"/"failed" both mean a check actually ran;
+ *  "unverifiable" means no verdict could be reached at all, which is NOT the
+ *  same as a failed check). */
+export const ZARR_VERIFY_BLURB: Record<ZarrVerifyStatus, string> = {
+  verified:
+    "The converted viewer copy's channel counts match this dataset's own channels.tsv, checked by the standing fidelity sweep.",
+  failed:
+    "A sampled recording's converted channel count disagreed with this dataset's channels.tsv; the copy is still served but excluded from the verified filter until it's rechecked.",
+  unverifiable:
+    "The fidelity sweep hasn't reached a verdict yet (private dataset, or the check couldn't run) — this does not mean it failed.",
+};
+
+/**
+ * `Tag` kind per verdict (PR #278 review): `verified` is a passed check
+ * (positive/green), `failed` is a check that ran and found a real issue
+ * (warning/amber) -- not `neutral`, which is reserved for `unverifiable`
+ * (no check could run at all, so there is nothing to warn about).
+ */
+export const ZARR_VERIFY_TAG_KIND: Record<ZarrVerifyStatus, "positive" | "warning" | "neutral"> = {
+  verified: "positive",
+  failed: "warning",
+  unverifiable: "neutral",
+};
