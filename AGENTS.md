@@ -297,6 +297,18 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
   added 2026-07-20, so pushes to `staging` deploy automatically — no manual
   deploy needed. The prod project keeps deploying via Cloudflare's GitHub
   integration; this workflow never touches it.
+- **`zarr-test.nemar.org` is not a copy of production's zarr stores.** A
+  second, independently-stated Hallu conversion instance (`--test` profile,
+  nemarOrg/nemar-cli#1180, epic #1181 phase 3) carries real nightly
+  re-conversions of the staging exemplar fleet (the seven `xx0999NN`
+  datasets, `scripts/exemplar-fleet.json`, plus any dev-range `xx09*`
+  upload) straight from `nemar-db-dev`'s catalog into `s3://nemar-dev/<id>/
+  zarr/`. That means it can exercise a producer change — chunk geometry, the
+  index format v3 fields this repo's `zarr-index.ts` reads (nemar-cli#1059,
+  website#277) — against a real re-conversion before it reaches any of
+  production's ~40k stores, not just serve bytes copied from prod. Own
+  state, own queue, own AWS profile on the same Hallu box; see
+  nemar-cli's `.context/systems-inventory.md` §3.4 for the full picture.
 - **Noindex:** every non-production host (`test.nemar.org`, `*.pages.dev`
   previews) gets `X-Robots-Tag: noindex, nofollow` on every SSR response
   (`isNoindexHost` in `src/lib/host.ts`, threaded through
