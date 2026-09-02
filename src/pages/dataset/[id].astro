@@ -894,6 +894,13 @@ Astro.response.headers.set(
     });
   }
 
+  /** One paint's worth of a yield, so a run of synthesized "Show next"
+   *  clicks (below) doesn't block the main thread solid across a large
+   *  chunk count (PR #278 review). */
+  function nextFrame(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
   /**
    * Best-effort auto-expand for a coverage-panel "jump to recording" link. A
    * plain `#anchor` only resolves when the row already happens to be
@@ -922,6 +929,7 @@ Astro.response.headers.set(
           if (!moreBtn) break;
           moreBtn.click();
           clicks++;
+          await nextFrame();
         }
       }
       const details = section.querySelector<HTMLDetailsElement>(selector);
