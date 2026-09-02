@@ -525,6 +525,64 @@ describe("zarrCoverage (website#277)", () => {
       unknownPending: false,
     });
   });
+
+  it("does not crash or pollute the prototype when a failure code is literally '__proto__' (PR #278 review)", () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      stores: [],
+      failures: [
+        { path: "a.set", code: "__proto__", reason: "x" },
+        { path: "b.set", code: "__proto__", reason: "x" },
+      ],
+    });
+    expect(index).not.toBeNull();
+    let cov: ReturnType<typeof zarrCoverage> | undefined;
+    expect(() => {
+      cov = zarrCoverage(index!);
+    }).not.toThrow();
+    // Dot notation is deliberate here (Biome's own lint/complexity/
+    // useLiteralKeys rule prefers it): on this null-prototype object it is
+    // a plain property read, not the special Object.prototype accessor an
+    // ordinary {} would have.
+    expect(cov?.byFailureCode.__proto__).toEqual([
+      {
+        path: "a.set",
+        zarr: undefined,
+        code: "__proto__",
+        reason: "x",
+        detail: null,
+        attempts: undefined,
+      },
+      {
+        path: "b.set",
+        zarr: undefined,
+        code: "__proto__",
+        reason: "x",
+        detail: null,
+        attempts: undefined,
+      },
+    ]);
+    // The real prototype must be untouched -- an ordinary object built
+    // elsewhere in the same process must not have inherited an array.
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
+
+  it("does not crash when a pending reason is literally '__proto__'", () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      format_version: 3,
+      stores: [],
+      failures: [],
+      pending: [{ path: "a.set", reason: "__proto__", attempts: 1 }],
+      discovered_count: 1,
+    });
+    expect(() => zarrCoverage(index!)).not.toThrow();
+    const cov = zarrCoverage(index!);
+    expect(cov.byPendingReason.__proto__.length).toBe(1);
+    expect(cov.unknownPending).toBe(true);
+  });
 });
 
 describe("unitsNoticeText (website#277 decision 4)", () => {

@@ -329,14 +329,22 @@ const KNOWN_PENDING_REASONS: ReadonlySet<string> = new Set([
 export function zarrCoverage(index: ZarrIndex): ZarrCoverage {
   const pendingList = index.format_version === 3 ? index.pending : [];
 
-  const byFailureCode: Record<string, ZarrIndexFailure[]> = {};
+  // Object.create(null), not {} -- these are keyed by producer-supplied
+  // strings (a failure `code`, a pending `reason`), and an ordinary object
+  // literal treats the key "__proto__" specially: `obj["__proto__"]` reads
+  // the object's OWN prototype rather than an own property, so the
+  // `if (!byFailureCode[code])` init check sees a truthy Object.prototype,
+  // skips initializing an array, and the next `.push` throws (PR #278
+  // review). A null-prototype object has no such accessor, so "__proto__"
+  // behaves like any other string key.
+  const byFailureCode: Record<string, ZarrIndexFailure[]> = Object.create(null);
   for (const f of index.failures) {
     const code = f.code ?? "unknown";
     if (!byFailureCode[code]) byFailureCode[code] = [];
     byFailureCode[code].push(f);
   }
 
-  const byPendingReason: Record<string, ZarrIndexPending[]> = {};
+  const byPendingReason: Record<string, ZarrIndexPending[]> = Object.create(null);
   let unknownPending = false;
   for (const p of pendingList) {
     if (!byPendingReason[p.reason]) byPendingReason[p.reason] = [];
