@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ZARR_VERIFY_BLURB,
+  ZARR_VERIFY_LABELS,
+  isZarrVerifyStatus,
   keywordHref,
   licenseHref,
   licenseTier,
@@ -159,5 +162,27 @@ describe("LICENSE_TIERS ordering (permissiveness thermometer)", () => {
       "noderiv",
       "unknown",
     ]);
+  });
+});
+
+describe("isZarrVerifyStatus (website#277)", () => {
+  it("accepts the three sweep verdicts", () => {
+    expect(isZarrVerifyStatus("verified")).toBe(true);
+    expect(isZarrVerifyStatus("failed")).toBe(true);
+    expect(isZarrVerifyStatus("unverifiable")).toBe(true);
+  });
+  it("rejects null, undefined, and any other string", () => {
+    expect(isZarrVerifyStatus(null)).toBe(false);
+    expect(isZarrVerifyStatus(undefined)).toBe(false);
+    expect(isZarrVerifyStatus("pending")).toBe(false);
+    expect(isZarrVerifyStatus("")).toBe(false);
+  });
+  it("has a label and a tooltip blurb ending a single sentence for every status", () => {
+    for (const status of ["verified", "failed", "unverifiable"] as const) {
+      expect(ZARR_VERIFY_LABELS[status]).toBeTruthy();
+      const blurb = ZARR_VERIFY_BLURB[status];
+      expect(blurb.length).toBeGreaterThan(0);
+      expect(blurb.endsWith(".")).toBe(true);
+    }
   });
 });

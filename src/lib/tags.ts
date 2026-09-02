@@ -114,3 +114,40 @@ export function licenseTier(license: string | null | undefined): LicenseTier {
 export function licenseHref(license: string | null | undefined): string {
   return `/discover?license=${licenseTier(license)}`;
 }
+
+// --- Zarr verification badge (website#277) -----------------------------------
+// The badge surfaces `Dataset.zarr_verify_status` (nemar-cli#1181 phase 8): the
+// standing fidelity sweep's verdict for a dataset's Zarr copy. `null` means the
+// sweep hasn't reached this dataset yet (or it has no Zarr copy at all) and
+// renders nothing — see DatasetCard.astro / the dataset page header.
+
+export type ZarrVerifyStatus = "verified" | "failed" | "unverifiable";
+
+const ZARR_VERIFY_STATUSES: ReadonlySet<string> = new Set<ZarrVerifyStatus>([
+  "verified",
+  "failed",
+  "unverifiable",
+]);
+
+export function isZarrVerifyStatus(value: unknown): value is ZarrVerifyStatus {
+  return typeof value === "string" && ZARR_VERIFY_STATUSES.has(value);
+}
+
+export const ZARR_VERIFY_LABELS: Record<ZarrVerifyStatus, string> = {
+  verified: "Zarr verified",
+  failed: "Zarr unverified",
+  unverifiable: "Zarr unverifiable",
+};
+
+/** One-sentence tooltip per verdict (mirrors `zarr-fidelity-sweep.ts`'s own
+ *  verdict semantics: "verified"/"failed" both mean a check actually ran;
+ *  "unverifiable" means no verdict could be reached at all, which is NOT the
+ *  same as a failed check). */
+export const ZARR_VERIFY_BLURB: Record<ZarrVerifyStatus, string> = {
+  verified:
+    "The converted viewer copy's channel counts match this dataset's own channels.tsv, checked by the standing fidelity sweep.",
+  failed:
+    "A sampled recording's converted channel count disagreed with this dataset's channels.tsv; the copy is still served but excluded from the verified filter until it's rechecked.",
+  unverifiable:
+    "The fidelity sweep hasn't reached a verdict yet (private dataset, or the check couldn't run) — this does not mean it failed.",
+};

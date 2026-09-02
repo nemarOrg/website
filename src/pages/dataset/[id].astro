@@ -25,7 +25,12 @@ import { splitModalities } from "../../lib/format";
 import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
-import { modalityHref } from "../../lib/tags";
+import {
+  ZARR_VERIFY_BLURB,
+  ZARR_VERIFY_LABELS,
+  isZarrVerifyStatus,
+  modalityHref,
+} from "../../lib/tags";
 
 const { id } = Astro.params;
 if (!id) {
@@ -144,6 +149,13 @@ const modalities = enrichedMetadata.recording_modality.length
   ? enrichedMetadata.recording_modality
   : splitModalities("");
 
+// Zarr fidelity-sweep verdict badge (website#277). Null (never swept, or no
+// Zarr copy at all) renders nothing -- see ZARR_VERIFY_* in lib/tags.ts.
+const zarrVerifyStatus = catalogRow?.zarr_verify_status ?? null;
+const zarrBadge = isZarrVerifyStatus(zarrVerifyStatus)
+  ? { label: ZARR_VERIFY_LABELS[zarrVerifyStatus], blurb: ZARR_VERIFY_BLURB[zarrVerifyStatus] }
+  : null;
+
 // Server-rendered schema.org Dataset JSON-LD (website#156). Shares
 // `canonicalOriginFor` with Base.astro's `<link rel="canonical">` rather than
 // re-deriving the origin, so the two cannot drift: this page is a marketing
@@ -238,6 +250,7 @@ Astro.response.headers.set(
       )}
       <div class="detail__chips">
         {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
+        {zarrBadge && <Tag kind="neutral" value={zarrBadge.label} title={zarrBadge.blurb} size="md" />}
       </div>
       <div class="detail__actions">
         <ActionBar

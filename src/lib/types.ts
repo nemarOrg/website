@@ -64,6 +64,14 @@ export interface Dataset {
   num_citations?: number;
   num_dataset_citations?: number;
   num_datapaper_citations?: number;
+  /**
+   * The standing Zarr fidelity verification sweep's verdict (nemar-cli#1181
+   * phase 8, issue #1068): null until the daily sweep reaches a
+   * freshly-converted dataset, or when it has no Zarr copy at all. Drives
+   * the coverage badge (website#277) — see `tags.ts`'s `ZARR_VERIFY_*`
+   * lookups for the label/tooltip per status.
+   */
+  zarr_verify_status?: "verified" | "failed" | "unverifiable" | null;
 }
 
 export interface DatasetListResponse {
@@ -234,6 +242,12 @@ export interface DatasetQuery {
   has_doi?: boolean;
   /** Only datasets with HED annotations; server-side `?has_hed=1` (nemar-cli#869). */
   has_hed?: boolean;
+  /** Only converted-to-Zarr datasets; server-side `?has_zarr=1`
+   *  (nemar-cli#1181 phase 2). */
+  has_zarr?: boolean;
+  /** Only datasets whose Zarr copy passed the fidelity sweep; server-side
+   *  `?has_zarr_verified=1` (nemar-cli#1181 phase 8). */
+  has_zarr_verified?: boolean;
   recent?: number; // days
   sort?: SortOption;
 }

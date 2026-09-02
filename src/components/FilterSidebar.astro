@@ -145,6 +145,28 @@ const { state, searchActive = false } = Astro.props;
         </label>
       </li>
       <li>
+        <label title="Has an interactive Zarr signal viewer copy.">
+          <input
+            type="checkbox"
+            name="has_zarr"
+            value="1"
+            checked={state.hasZarr}
+          />
+          Has Zarr viewer
+        </label>
+      </li>
+      <li>
+        <label title="The Zarr viewer copy passed the standing fidelity verification sweep.">
+          <input
+            type="checkbox"
+            name="has_zarr_verified"
+            value="1"
+            checked={state.hasZarrVerified}
+          />
+          Zarr viewer verified
+        </label>
+      </li>
+      <li>
         <label class="flag--soon">
           <input
             type="checkbox"
