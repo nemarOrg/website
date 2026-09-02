@@ -83,6 +83,21 @@ describe("renderZarrCoveragePanel — v3 fixture (schema-valid, with pending)", 
   it("does not warn about an unrecognized pending reason (all three are known)", () => {
     expect(html).not.toContain("doesn't recognize yet");
   });
+
+  it("shows a last-error disclosure for pending entries that carry one (PR #278 review)", () => {
+    expect(html).toContain("zcov__detail");
+    expect(html).toContain("Last error");
+    expect(html).toContain("ConnectionResetError: [Errno 104] Connection reset by peer");
+    expect(html).toContain("did not fit the memory free on the node at the time");
+  });
+
+  it("omits the last-error disclosure for a pending entry with none (not_attempted, last_error null)", () => {
+    // sub-06 is not_attempted with last_error: null -- its own <li> must not
+    // carry a disclosure, even though sibling pending entries do.
+    const notAttemptedIndex = html.indexOf("sub-06_task-rest_eeg.vhdr");
+    const nextLi = html.indexOf("</li>", notAttemptedIndex);
+    expect(html.slice(notAttemptedIndex, nextLi)).not.toContain("zcov__detail");
+  });
 });
 
 describe("renderZarrCoveragePanel — edge cases", () => {
@@ -124,5 +139,76 @@ describe("renderZarrCoveragePanel — edge cases", () => {
     const html = renderZarrCoveragePanel(index!);
     expect(html).toContain("doesn't recognize yet");
     expect(html).toContain("<code>quota_exceeded</code>");
+  });
+});
+
+describe("renderZarrCoveragePanel — HTML escaping (PR #278 review)", () => {
+  // One string carrying all five characters esc() must neutralize, run
+  // through every field the renderer interpolates raw text into: failure
+  // code/reason/detail/path and pending reason/path/last_error.
+  const XSS = `<img src=x onerror=alert('x')> & "quoted" 'single'`;
+  const ESCAPED =
+    "&lt;img src=x onerror=alert(&#39;x&#39;)&gt; &amp; &quot;quoted&quot; &#39;single&#39;";
+
+  function buildIndex() {
+    return parseZarrIndex({
+      dataset_id: "nm000001",
+      format: "nemar-zarr-index",
+      format_version: 3,
+      stores: [],
+      failures: [
+        {
+          path: XSS,
+          code: XSS,
+          reason: XSS,
+          detail: XSS,
+        },
+      ],
+      pending: [
+        {
+          path: XSS,
+          reason: XSS,
+          attempts: 1,
+          last_error: XSS,
+        },
+      ],
+      discovered_count: 2,
+    });
+  }
+
+  it("escapes every failure field (code, reason, detail, path)", () => {
+    const html = renderZarrCoveragePanel(buildIndex()!);
+    // The raw payload must never appear verbatim anywhere in the output.
+    expect(html).not.toContain(XSS);
+    // The escaped form does appear -- for each field individually, not just
+    // once, since code/reason/detail/path each interpolate it separately.
+    const occurrences = html.split(ESCAPED).length - 1;
+    expect(occurrences).toBeGreaterThanOrEqual(4); // code, reason, detail, path (link text)
+  });
+
+  it("escapes every pending field (reason, path, last_error)", () => {
+    const html = renderZarrCoveragePanel(buildIndex()!);
+    expect(html).not.toContain(XSS);
+    const occurrences = html.split(ESCAPED).length - 1;
+    // failure fields (4) + pending reason/path/last_error (3) = 7, but
+    // pending's reason is also grouped under byPendingReason's unknown-check
+    // -- assert the pending-specific minimum on top of the failure assertion
+    // above rather than an exact count, which would over-couple to layout.
+    expect(occurrences).toBeGreaterThanOrEqual(7);
+  });
+
+  it("escapes the data-jump-path attribute value, not just the visible link text", () => {
+    const html = renderZarrCoveragePanel(buildIndex()!);
+    expect(html).toContain(`data-jump-path="${ESCAPED}"`);
+    expect(html).not.toContain(`data-jump-path="${XSS}"`);
+  });
+
+  it("never leaves an unescaped '<' anywhere outside the renderer's own markup tags", () => {
+    // A crude but effective structural check: after removing every well-formed
+    // tag the renderer itself emits, no bare '<' should remain -- one would
+    // mean a field's raw value broke out into markup.
+    const html = renderZarrCoveragePanel(buildIndex()!);
+    const stripped = html.replace(/<\/?[a-z][a-z0-9]*(?:\s[^<>]*)?>/gi, "");
+    expect(stripped).not.toContain("<");
   });
 });

@@ -73,7 +73,13 @@ function renderPendingGroup(reason: string, entries: ZarrIndexPending[]): string
   out.push(`<ul class="zcov__entries">`);
   for (const p of entries) {
     const attempts = `${p.attempts} attempt${p.attempts === 1 ? "" : "s"}`;
-    out.push(`<li>${recordingLink(p.path)} <span class="zcov__attempts">(${attempts})</span></li>`);
+    out.push(`<li>${recordingLink(p.path)} <span class="zcov__attempts">(${attempts})</span>`);
+    if (p.last_error) {
+      out.push(
+        `<details class="zcov__detail"><summary>Last error</summary><pre>${esc(p.last_error)}</pre></details>`,
+      );
+    }
+    out.push("</li>");
   }
   out.push("</ul></li>");
   return out.join("");
