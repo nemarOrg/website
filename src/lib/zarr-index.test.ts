@@ -321,6 +321,29 @@ describe("parseZarrIndex format_version discrimination (website#277)", () => {
     expect(index?.format_version).toBe(1);
   });
 
+  it('parsePending skips a null entry and defaults a non-string reason to "unknown" (PR #278 review)', () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      format_version: 3,
+      stores: [],
+      failures: [],
+      pending: [null, { path: "x", reason: 123 }],
+    });
+    expect(index?.format_version).toBe(3);
+    if (index?.format_version !== 3) throw new Error("expected v3");
+    expect(index.pending).toEqual([
+      {
+        path: "x",
+        zarr: undefined,
+        reason: "unknown",
+        attempts: 0,
+        last_error: null,
+        last_attempt_utc: null,
+      },
+    ]);
+  });
+
   it("degrades a v3 document with a missing/malformed pending array to an empty list (ADR 0005)", () => {
     const index = parseZarrIndex({
       dataset_id: "nm000132",
@@ -524,6 +547,28 @@ describe("unitsNoticeText (website#277 decision 4)", () => {
     );
     expect(unitsNoticeText(second)).toBe(
       "Units are the file's own; the dataset's channels.tsv unit could not be adopted for 29 channels.",
+    );
+  });
+
+  it("pins kept_importer_unit as the winning branch when it overlaps with channels_tsv_read_error (PR #278 review)", () => {
+    // Both conditions can legitimately co-occur: the sidecar was read (so
+    // units_report exists and reports SOME channels kept the importer's
+    // unit) but ALSO could not be read for a different reason the producer
+    // still flags. kept_importer_unit is the more precise, exact count and
+    // wins over the coarser channels_tsv_read_error fallback (which sums
+    // the store's total channel count, an approximation for "read entirely
+    // failed"). Both groups' n_channels are deliberately large here so a
+    // regression that fell through to the fallback branch would produce a
+    // visibly different (much larger) number.
+    const store = {
+      path: "a.set",
+      zarr: "a.zarr",
+      units_report: { kept_importer_unit: 2 },
+      channels_tsv_read_error: true,
+      groups: [{ name: "eeg_250hz", n_channels: 64 }],
+    };
+    expect(unitsNoticeText(store)).toBe(
+      "Units are the file's own; the dataset's channels.tsv unit could not be adopted for 2 channels.",
     );
   });
 });
