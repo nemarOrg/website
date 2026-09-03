@@ -71,7 +71,7 @@ export function llmsTxtBody(): string {
   const datasetsSection = [
     "## Datasets",
     "",
-    `- [/dataset/<id>](${MARKETING_BASE_URL}/dataset/<id>): server-rendered dataset page with a schema.org Dataset JSON-LD block in the page head; a markdown mirror is served at \`/dataset/<id>.md\`.`,
+    `- \`${MARKETING_BASE_URL}/dataset/<id>\`: server-rendered dataset page with a schema.org Dataset JSON-LD block in the page head; a markdown mirror is served at \`/dataset/<id>.md\`.`,
   ].join("\n");
 
   const licenseSection = [

@@ -69,6 +69,16 @@ describe("llmsTxtBody links", () => {
     expect(body.toLowerCase()).not.toContain("openneuro");
   });
 
+  it("never puts a <id>/<version> placeholder inside a markdown link target", () => {
+    // Mechanical form of the dataset-page fix: a link whose href is a literal
+    // placeholder always resolves to a URL that does not exist. Placeholders
+    // belong in inline code (backticks), not as link targets.
+    const links = extractLinks(llmsTxtBody());
+    for (const { url } of links) {
+      expect(url, `${url} embeds a placeholder as a link target`).not.toMatch(/<id>|<version>/);
+    }
+  });
+
   it("links the data host with the /<id>/latest/ shape and a v-prefixed version placeholder", () => {
     const body = llmsTxtBody();
     expect(body).toContain("https://data.nemar.org/");
@@ -94,9 +104,12 @@ describe("llmsTxtBody links", () => {
     expect(body).toContain("https://docs.nemar.org/platform/zarr/");
   });
 
-  it("links the per-dataset page and names its markdown mirror and JSON-LD", () => {
+  it("names the per-dataset page as a code span, not a link, and cites its markdown mirror and JSON-LD", () => {
     const body = llmsTxtBody();
-    expect(body).toContain("https://nemar.org/dataset/<id>");
+    // The literal placeholder URL always 404s, so it must not be a link
+    // target -- only inline code, matching the /<id>/latest/ convention.
+    expect(body).toContain("`https://nemar.org/dataset/<id>`");
+    expect(body).not.toContain("[/dataset/<id>](");
     expect(body).toContain("/dataset/<id>.md");
     expect(body).toContain("JSON-LD");
   });
