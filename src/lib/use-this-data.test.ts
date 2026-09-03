@@ -392,16 +392,9 @@ describe("buildUseThisData — bytes location and download (website#286)", () =>
   });
 
   it("gives each download step a short, precise value with prose in note (website#291 fix 3)", () => {
-    // The command/URL values must stay short and copy-pasteable rather than
-    // sentences with a command buried inside -- and every item that carries
-    // explanatory prose must carry it in `note`, not glued onto `value`.
     const model = buildUseThisData(nm000103());
     const download = model.sections.find((s) => s.id === "download");
     const items = download?.items ?? [];
-    for (const item of items) {
-      expect(item.value.length).toBeLessThan(80);
-      expect(item.value).not.toMatch(/[.;]\s/);
-    }
     const cloneStep = items.find((i) => i.key === "download-subset-clone");
     expect(cloneStep?.value).toBe("nemar dataset clone nm000103");
     expect(cloneStep?.note).toContain("no file content");
@@ -413,6 +406,70 @@ describe("buildUseThisData — bytes location and download (website#286)", () =>
     expect(singleFileStep?.value).toContain("participants.tsv");
     expect(singleFileStep?.note).toContain("direct HTTPS fetch");
   });
+});
+
+describe("buildUseThisData — value/note discipline, every section (website#294 fix 7)", () => {
+  // The UseThisDataItem contract (see its doc comment) says `value` stays
+  // short and precise -- a command, a URL, an identifier, a number -- and
+  // `note` carries the explanatory prose. This used to be checked on the
+  // download section alone, which is why whole English sentences accumulated
+  // in the Zarr section's values, one of them marked `code: true` and so
+  // rendered wrapped in a code span.
+  //
+  // Two exemption sets, both narrow and both about DATA rather than prose:
+  //  - LONG_VALUE_KEYS: a bibliographic citation is one long string by
+  //    definition, and a modality/task list grows with the dataset (nm000103
+  //    has ten tasks), so neither can honour a length bound.
+  //  - SENTENCE_EXEMPT_KEYS: only the citation, whose "(2026). Name [Data
+  //    set]. NEMAR." form legitimately contains sentence breaks.
+  const LONG_VALUE_KEYS = new Set(["license-citation", "overview-modalities", "overview-tasks"]);
+  const SENTENCE_EXEMPT_KEYS = new Set(["license-citation"]);
+
+  for (const [label, input] of [
+    ["nm000103", nm000103()],
+    ["on007753", on007753()],
+    ["nm000154", nm000154()],
+  ] as const) {
+    it(`keeps every ${label} value short and sentence-free`, () => {
+      const model = buildUseThisData(input);
+      const items = model.sections.flatMap((s) => s.items);
+      // Guard against a vacuous pass if the fixture ever stops producing
+      // sections at all.
+      expect(items.length).toBeGreaterThan(5);
+      for (const item of items) {
+        if (!LONG_VALUE_KEYS.has(item.key)) {
+          expect(item.value.length, item.key).toBeLessThan(80);
+        }
+        if (!SENTENCE_EXEMPT_KEYS.has(item.key)) {
+          expect(item.value, item.key).not.toMatch(/[.;]\s/);
+        }
+      }
+    });
+
+    it(`marks only commands and identifiers as code on ${label}`, () => {
+      // `code: true` makes both renderers show the value in a monospace/code
+      // treatment, so a sentence marked as code renders as a code span of
+      // English -- the specific defect this pins. A command or expression is
+      // a handful of tokens and does not end in a full stop.
+      const model = buildUseThisData(input);
+      for (const item of model.sections.flatMap((s) => s.items)) {
+        if (!item.code) continue;
+        expect(item.value.length, item.key).toBeLessThan(60);
+        expect(item.value, item.key).not.toMatch(/\.$/);
+        expect(item.value.split(/\s+/).length, item.key).toBeLessThanOrEqual(8);
+      }
+    });
+
+    it(`keeps prose in note rather than value on ${label}`, () => {
+      // The other half of the contract: a note is allowed to be prose, and
+      // is the only field that may be.
+      const model = buildUseThisData(input);
+      for (const item of model.sections.flatMap((s) => s.items)) {
+        if (item.note === undefined) continue;
+        expect(item.note.trim().length, item.key).toBeGreaterThan(0);
+      }
+    });
+  }
 });
 
 describe("buildUseThisData — the Zarr recipe is index-format-agnostic (website#294 fix 1)", () => {
