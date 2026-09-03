@@ -727,7 +727,9 @@ export function markdownMirrorUrl(pathname: string, origin: string): string {
  */
 export function renderUseThisDataMarkdown(model: UseThisData): string {
   const title = `${escapeMarkdownText(model.name)} (${escapeMarkdownText(model.datasetId)})`;
-  const lines: string[] = [`# ${title}`, "", "## Use this data", ""];
+  // Same wording as the HTML disclosure's summary (UseThisData.astro), so the
+  // page and the mirror name this material identically.
+  const lines: string[] = [`# ${title}`, "", "## How to use the data (for agentic research)", ""];
 
   if (model.unpublished) {
     lines.push("This dataset has been registered but no published version is available yet.", "");
