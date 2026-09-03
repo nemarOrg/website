@@ -54,10 +54,23 @@ export interface UseThisDataInput {
   id: string;
   metadata: NeuroschemaDataset;
   catalogRow: UseThisDataCatalogRow | null;
-  /** Resolved by the page (latest, or the `?v=` override) — null only for an
-   *  unpublished dataset. The bytes-location, download, assess, and Zarr
-   *  sections are all omitted when this is null (decision 4). */
+  /** Resolved by the page (latest, or the `?v=` override) — usually null
+   *  exactly when `unpublished` is true, but the two are computed
+   *  independently upstream: `isUnpublished` ORs in an empty-`versions`
+   *  check that this field's own `landing.latest ?? landing.versions[0]?.version`
+   *  fallback chain does not defend against. So a landing payload with
+   *  `latest: null` and a non-empty `versions` array makes this non-null
+   *  while `unpublished` is still true. `unpublished` is authoritative —
+   *  see `publishedVersion` — this field is only the literal version string
+   *  used to build a URL once a section has already decided to render. */
   selectedVersion: string | null;
+  /** The page's own `isUnpublished(landing)` (data-api.ts) — the single
+   *  source of truth for whether a published version exists. The
+   *  bytes-location, download, assess, and Zarr sections are all omitted
+   *  when this is true, regardless of what `selectedVersion` holds
+   *  (decision 4). Passed in rather than re-derived here so this module
+   *  never disagrees with the page about publication state. */
+  unpublished: boolean;
   /** data.nemar.org base, env-aware (data-test on staging). Trailing slash optional. */
   dataBase: string;
   /**
@@ -106,9 +119,9 @@ export interface UseThisData {
   /** Display name for the markdown mirror's title; the HTML page already has
    *  its own `<h1>` and doesn't need this. */
   name: string;
-  /** Mirrors `isUnpublished(landing)` on the page — true when
-   *  `selectedVersion` was null. Sections that need a published version are
-   *  simply absent from `sections` rather than rendered empty. */
+  /** Set directly from `input.unpublished` — see `UseThisDataInput.unpublished`.
+   *  Sections that need a published version are simply absent from
+   *  `sections` rather than rendered empty. */
   unpublished: boolean;
   sections: UseThisDataSection[];
 }
@@ -124,6 +137,18 @@ function trimmedOrNull(value: string | null | undefined): string | null {
 
 function normalizedBase(base: string): string {
   return base.replace(/\/$/, "");
+}
+
+/**
+ * The version to treat as published, treating `input.unpublished` as
+ * authoritative over `input.selectedVersion` (see the doc comments on both
+ * fields of `UseThisDataInput` for why they can diverge). Every
+ * version-gated section builder (location, download, assess, Zarr) reads
+ * this instead of `input.selectedVersion` directly, so none of them can
+ * independently re-derive "published" and disagree with the page.
+ */
+function publishedVersion(input: UseThisDataInput): string | null {
+  return input.unpublished ? null : input.selectedVersion;
 }
 
 /** Bare "10.x/y" from a DOI in any of the shapes NEMAR stores it. Mirrors the
@@ -285,11 +310,12 @@ function buildLicenseSection(input: UseThisDataInput): UseThisDataSection {
  * selected version.
  */
 function buildLocationSection(input: UseThisDataInput): UseThisDataSection | null {
-  if (!input.selectedVersion) return null;
+  const version = publishedVersion(input);
+  if (!version) return null;
   const base = normalizedBase(input.dataBase);
   const id = encodeURIComponent(input.id);
   const latestUrl = `${base}/${id}/latest/`;
-  const versionUrl = `${base}/${id}/${encodeURIComponent(input.selectedVersion)}/`;
+  const versionUrl = `${base}/${id}/${encodeURIComponent(version)}/`;
   return {
     id: "location",
     heading: "Where the bytes are",
@@ -302,7 +328,7 @@ function buildLocationSection(input: UseThisDataInput): UseThisDataSection | nul
       },
       {
         key: "location-selected",
-        label: `This version (${input.selectedVersion})`,
+        label: `This version (${version})`,
         value: versionUrl,
         href: versionUrl,
       },
@@ -311,10 +337,11 @@ function buildLocationSection(input: UseThisDataInput): UseThisDataSection | nul
 }
 
 function buildDownloadSection(input: UseThisDataInput): UseThisDataSection | null {
-  if (!input.selectedVersion) return null;
+  const publishedVersionValue = publishedVersion(input);
+  if (!publishedVersionValue) return null;
   const base = normalizedBase(input.dataBase);
   const id = input.id;
-  const version = encodeURIComponent(input.selectedVersion);
+  const version = encodeURIComponent(publishedVersionValue);
   return {
     id: "download",
     heading: "How to download",
@@ -341,13 +368,14 @@ function buildDownloadSection(input: UseThisDataInput): UseThisDataSection | nul
 
 /** How to decide whether a dataset is worth downloading before doing it. */
 function buildAssessSection(input: UseThisDataInput): UseThisDataSection | null {
-  if (!input.selectedVersion) return null;
+  const publishedVersionValue = publishedVersion(input);
+  if (!publishedVersionValue) return null;
   const base = normalizedBase(input.dataBase);
   const id = encodeURIComponent(input.id);
-  const version = encodeURIComponent(input.selectedVersion);
+  const version = encodeURIComponent(publishedVersionValue);
   const participantsUrl = `${base}/${id}/${version}/participants.tsv`;
   const descriptionUrl = `${base}/${id}/${version}/dataset_description.json`;
-  const listingUrl = dirListingUrl(input.id, input.selectedVersion, "", input.dataBase);
+  const listingUrl = dirListingUrl(input.id, publishedVersionValue, "", input.dataBase);
   const catalogUrl = `${apiBase()}/datasets/${id}`;
   return {
     id: "assess",
@@ -379,7 +407,7 @@ function buildAssessSection(input: UseThisDataInput): UseThisDataSection | null 
  * non-null only when ready) and falls back to `zarrIndexUrl(id)`.
  */
 function buildZarrSection(input: UseThisDataInput): UseThisDataSection | null {
-  if (!input.selectedVersion) return null;
+  if (!publishedVersion(input)) return null;
   const row = input.catalogRow;
   const hasZarr = row?.zarr_status === "ready" && (row?.zarr_store_count ?? 0) > 0;
   if (!hasZarr) return null;
@@ -468,7 +496,7 @@ export function buildUseThisData(input: UseThisDataInput): UseThisData {
   return {
     datasetId: input.id,
     name: input.metadata.name,
-    unpublished: input.selectedVersion === null,
+    unpublished: input.unpublished,
     sections,
   };
 }

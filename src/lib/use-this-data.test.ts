@@ -8,6 +8,7 @@ import landingOn007753 from "../../test/fixtures/jsonld-landing-on007753.json";
 import metadataNm000103 from "../../test/fixtures/jsonld-metadata-nm000103.json";
 import metadataNm000154 from "../../test/fixtures/jsonld-metadata-nm000154.json";
 import metadataOn007753 from "../../test/fixtures/jsonld-metadata-on007753.json";
+import { isUnpublished } from "./data-api";
 import type { LandingPayload, NeuroschemaDataset } from "./neuroschema";
 import {
   type UseThisData,
@@ -38,6 +39,7 @@ function realInput(
     metadata,
     catalogRow,
     selectedVersion,
+    unpublished: isUnpublished(landing),
     dataBase: "https://data.nemar.org",
     zarrBase: "https://zarr.nemar.org",
     ...overrides,
@@ -187,6 +189,7 @@ describe("buildUseThisData — unpublished dataset", () => {
       metadata,
       catalogRow: null,
       selectedVersion: null,
+      unpublished: true,
       dataBase: "https://data.nemar.org",
       zarrBase: "https://zarr.nemar.org",
     };
@@ -218,6 +221,40 @@ describe("buildUseThisData — unpublished dataset", () => {
   it("markdown says the dataset is not yet published", () => {
     const markdown = renderUseThisDataMarkdown(buildUseThisData(unpublishedInput()));
     expect(markdown).toContain("no published version is available yet");
+  });
+});
+
+describe("buildUseThisData — unpublished is authoritative over selectedVersion (website#291 fix 2)", () => {
+  it("omits location/download/assess/zarr when unpublished even though selectedVersion resolved to a real version", () => {
+    // Real captured landing payload (nm000103) with `latest` overridden to
+    // null while `versions` stays non-empty -- exactly the shape
+    // isUnpublished's `!landing.latest || versions.length === 0` OR exists
+    // to catch, and which selectedVersion's own fallback chain
+    // (`landing.latest ?? landing.versions[0]?.version`) does not defend
+    // against: selectedVersion still resolves to versions[0].version here,
+    // so unpublished and selectedVersion diverge unless unpublished is
+    // taken as authoritative rather than re-derived from selectedVersion.
+    const divergentLanding: LandingPayload = {
+      ...(landingNm000103 as LandingPayload),
+      latest: null,
+    };
+    expect(divergentLanding.versions.length).toBeGreaterThan(0);
+
+    const input: UseThisDataInput = {
+      ...nm000103(),
+      selectedVersion: divergentLanding.versions[0]?.version ?? null,
+      unpublished: isUnpublished(divergentLanding),
+    };
+    // Confirm the divergence this test exists to exercise actually holds.
+    expect(input.selectedVersion).not.toBeNull();
+    expect(input.unpublished).toBe(true);
+
+    const model = buildUseThisData(input);
+    const ids = model.sections.map((s) => s.id);
+    expect(ids).not.toContain("location");
+    expect(ids).not.toContain("download");
+    expect(ids).not.toContain("assess");
+    expect(ids).not.toContain("zarr");
   });
 });
 

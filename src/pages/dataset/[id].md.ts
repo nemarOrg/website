@@ -3,6 +3,7 @@ import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api"
 import {
   getLandingOutcome,
   getMetadataOutcome,
+  isUnpublished,
   outcomeValue,
   resolveDatasetPageStatus,
 } from "../../lib/data-api";
@@ -77,11 +78,18 @@ export const GET: APIRoute = async ({ params, url, redirect }) => {
       ? versionParam
       : (landing.latest ?? landing.versions[0]?.version ?? null);
 
+  // Same isUnpublished(landing) the page computes ([id].astro) -- passed
+  // through rather than re-derived from selectedVersion here, so this
+  // mirror and the page can never disagree about publication state
+  // (website#291 fix 2).
+  const unpublished = isUnpublished(landing);
+
   const model = buildUseThisData({
     id,
     metadata,
     catalogRow,
     selectedVersion,
+    unpublished,
     dataBase: resolveDataBase(),
     zarrBase: zarrBase(),
   });
