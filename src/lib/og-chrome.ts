@@ -34,12 +34,3 @@ export const OG_DEFS = `<defs>
       <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#020617" flood-opacity="0.24"/>
     </filter>
   </defs>`;
-
-export function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
