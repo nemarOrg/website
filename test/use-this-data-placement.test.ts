@@ -16,13 +16,12 @@
  * made agent-facing reference material the first thing a human read.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-
-const ROOT = join(import.meta.dirname, "..", "..");
-const COMPONENT = readFileSync(join(ROOT, "src/components/UseThisData.astro"), "utf8");
-const PAGE = readFileSync(join(ROOT, "src/pages/dataset/[id].astro"), "utf8");
+// Vite's `?raw` rather than node:fs, because `astro check` type-checks every
+// file under the repo (tsconfig includes **/*) without node types, so a
+// readFileSync here fails typecheck in CI while passing locally under vitest.
+import COMPONENT from "../src/components/UseThisData.astro?raw";
+import PAGE from "../src/pages/dataset/[id].astro?raw";
 
 describe("UseThisData is a collapsed disclosure", () => {
   it("renders a <details>, not a bare <section>", () => {
