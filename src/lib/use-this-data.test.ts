@@ -376,6 +376,67 @@ describe("buildUseThisData — bytes location and download (website#286)", () =>
   });
 });
 
+describe("buildUseThisData — the Zarr recipe is index-format-agnostic (website#294 fix 1)", () => {
+  const zarrText = () => {
+    const model = buildUseThisData(nm000103());
+    const zarr = model.sections.find((s) => s.id === "zarr");
+    return (zarr?.items ?? []).flatMap((i) => [i.value, i.note ?? ""]).join("\n");
+  };
+
+  it("derives the store URI from stores[].zarr rather than a v3-only field", () => {
+    // nm000103's live index is still format_version 1: contract_base,
+    // data_base, s3_uri and layout are all absent there (checked against
+    // zarr.nemar.org 2026-09-03), so a recipe that instructs the reader to
+    // read data_base/s3_uri is a dead end on that half of the catalog.
+    // stores[].zarr exists in both v1 and v3, and the canonical URI is
+    // derivable from it alone.
+    const model = buildUseThisData(nm000103());
+    const zarr = model.sections.find((s) => s.id === "zarr");
+    const uriStep = zarr?.items.find((i) => i.key === "zarr-step-3");
+    expect(uriStep?.value).toBe("s3://nemar/nm000103/zarr/{store.zarr}");
+    expect(zarrText()).toContain("stores[].zarr");
+  });
+
+  it("names the v3 fields only as an optimisation, never as the way in", () => {
+    const text = zarrText();
+    // Mentioned, but gated on the format version rather than assumed.
+    expect(text).toContain("format_version 3");
+    expect(text).toContain("never require them");
+  });
+
+  it("requires zarr_format=3 on open and never suggests consolidated metadata", () => {
+    const text = zarrText();
+    expect(text).toContain("zarr_format=3");
+    // The converter writes no consolidated metadata, so consolidated=True
+    // raises; fsspec.get_mapper is the deprecated v2-era mapper.
+    expect(text).not.toContain("consolidated");
+    expect(text).not.toContain("get_mapper");
+    expect(text).not.toContain("open_zarr");
+  });
+
+  it("reads the level-0 array of a named group and dequantizes it", () => {
+    const text = zarrText();
+    expect(text).toContain('root[store.groups[0].name]["0"]');
+    expect(text).toContain("physical = digital * scale + offset");
+    // "view/" arrays are display-only and must never be used for inference.
+    expect(text).toContain("Never read a view/ array");
+  });
+
+  it("names has_zarr as the converted filter and has_zarr_verified as the stricter one", () => {
+    // In production today `has_zarr_verified=1` returns zero rows while
+    // `has_zarr=1` returns 618, because the fidelity sweep has not stamped
+    // the catalog yet -- so telling a pipeline to filter on the verified
+    // flag hands it an empty result set (website#294 fix 2).
+    const model = buildUseThisData(nm000103());
+    const zarr = model.sections.find((s) => s.id === "zarr");
+    const filterStep = zarr?.items.find((i) => i.key === "zarr-step-10");
+    expect(filterStep?.value).toBe("has_zarr=1");
+    expect(filterStep?.note).toContain("stricter");
+    expect(filterStep?.note).toContain("can be empty");
+    expect(filterStep?.note).toContain("never a precondition for serving");
+  });
+});
+
 describe("buildUseThisData — Zarr step 1 value/note shape (website#291 fix 3)", () => {
   it("keeps zarr-step-1's value as the bare index URL with the explanation in note", () => {
     const model = buildUseThisData(nm000103());

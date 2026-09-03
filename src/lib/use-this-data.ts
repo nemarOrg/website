@@ -424,6 +424,22 @@ function buildAssessSection(input: UseThisDataInput): UseThisDataSection | null 
  * "ready"` AND `(zarr_store_count ?? 0) > 0`; that is the gate here too. The
  * index URL prefers the row's own `zarr_index_url` (derived server-side,
  * non-null only when ready) and falls back to `zarrIndexUrl(id)`.
+ *
+ * THE RECIPE MUST BE INDEX-FORMAT-AGNOSTIC. The published catalog is mixed
+ * and stays mixed for as long as the engine-3 wave takes to re-convert the
+ * back catalogue: nm000103 is still `format_version: 1` with no
+ * `contract_base`, `data_base`, `s3_uri` or `layout` at all, while on004696
+ * is `format_version: 3` and carries all four (verified against
+ * zarr.nemar.org on 2026-09-03). So every step here keys only on fields that
+ * exist in BOTH versions — `stores[].zarr` and `stores[].groups[].name` —
+ * and the canonical object URI is derived as
+ * `s3://nemar/<id>/zarr/<store.zarr>` rather than read from a v3-only field.
+ * The v3 fields are named once, as an optimisation available when
+ * `format_version >= 3`, never as a prerequisite.
+ *
+ * The steps mirror the canonical worked recipe in the docs repo
+ * (`src/content/docs/platform/zarr/cost-ladder.md`, "Recipe-first guidance
+ * for agents") rather than restating it from memory, so the two cannot drift.
  */
 function buildZarrSection(input: UseThisDataInput): UseThisDataSection | null {
   if (!publishedVersion(input)) return null;
@@ -444,49 +460,66 @@ function buildZarrSection(input: UseThisDataInput): UseThisDataSection | null {
     },
     {
       key: "zarr-step-2",
-      label: "2. Read where the bytes are",
-      value: "Read this dataset's own data_base / s3_uri from index.json, not a guessed prefix.",
+      label: "2. Pick a store entry",
+      value: "stores[].zarr, stores[].groups[].name",
+      code: true,
+      note: "These two fields exist in every index format version, so a recipe that keys on them works against the whole catalog while the back conversion is still in flight.",
     },
     {
       key: "zarr-step-3",
-      label: "3. Open the store, streaming",
-      value:
-        'Default to streaming: zarr.open(store, mode="r") or xr.open_zarr(fsspec.get_mapper(data_base), consolidated=True).',
+      label: "3. Build the store URI",
+      value: `s3://nemar/${input.id}/zarr/{store.zarr}`,
       code: true,
+      note: "Derivable from the store entry alone. An index at format_version 3 or later also publishes contract_base, data_base and s3_uri; use them when they are there, never require them.",
     },
     {
       key: "zarr-step-4",
-      label: "4. Slice, don't download",
-      value:
-        "Stream a slice of channels, time, or subjects; download only when touching most of the array.",
+      label: "4. Open the store anonymously",
+      value: 'zarr.open_group(store=..., mode="r", zarr_format=3)',
+      code: true,
+      note: "Anonymous FsspecStore.from_url in region us-east-2, no credentials. zarr_format=3 is required: without it zarr-python probes for Zarr v2 sidecars, and because anonymous ListBucket is denied, S3 answers a missing key with 403 rather than 404 and the open raises.",
     },
     {
       key: "zarr-step-5",
-      label: "5. Pick the matching client",
-      value: "Use s3fs/fsspec for S3 URIs, and plain HTTPS fsspec for zarr.nemar.org.",
+      label: "5. Read the level-0 array",
+      value: 'root[store.groups[0].name]["0"]',
+      code: true,
+      note: "Level 0 is the full-rate signal. Never read a view/ array for inference; those exist for display.",
     },
     {
       key: "zarr-step-6",
-      label: "6. Check existence with HEAD",
-      value:
-        "HEAD is never redirected. A plain GET with no allowlisted browser Origin 302s to S3, so follow redirects.",
+      label: "6. Dequantize the samples",
+      value: "physical = digital * scale + offset",
+      code: true,
+      note: "scale and offset are attributes of the level-0 array, one entry per channel; the unit is on the group's channels attribute.",
     },
     {
       key: "zarr-step-7",
-      label: "7. Know what's cached",
-      value:
-        "Only index.json is always proxied and edge-cached; manifest.json and events.parquet redirect like store objects for non-browser clients.",
+      label: "7. Slice, don't download",
+      value: "signal[0:4, 0:500]",
+      code: true,
+      note: "Stream a window of channels and samples; download only when you will touch most of the array.",
     },
     {
       key: "zarr-step-8",
-      label: "8. Read the attribution before reuse",
-      value:
-        "Read the store's nemar root attribute (DOI, license, citation, source commit) before reuse.",
+      label: "8. Know the HTTP contract",
+      value: "index.json",
+      code: true,
+      note: "Only index.json is always proxied and edge-cached. A plain GET for a store object, manifest.json or events.parquet 302s to the public S3 object for non-browser clients, so follow redirects, and HEAD is never redirected.",
     },
     {
       key: "zarr-step-9",
-      label: "9. Filter for pipelines",
-      value: "Filter on has_zarr_verified, not just has_zarr, for agent pipelines.",
+      label: "9. Read the attribution before reuse",
+      value: 'root.attrs["nemar"]',
+      code: true,
+      note: "The store carries its own dataset id, DOI, license, citation and source commit.",
+    },
+    {
+      key: "zarr-step-10",
+      label: "10. Filter for pipelines",
+      value: "has_zarr=1",
+      code: true,
+      note: "This is the converted filter. has_zarr_verified is the stricter one, and its result set can be empty until the daily fidelity sweep reaches a dataset; verification is reported, never a precondition for serving (nemar-cli ADR 0005).",
     },
   ];
 
