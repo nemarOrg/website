@@ -88,7 +88,11 @@ export interface UseThisDataInput {
  * test (or a future consumer) can address a specific fact without depending
  * on section order. `code` hints that `value` is a literal shell command or
  * file path best shown in a monospace/code treatment — advisory only, both
- * renderers still emit the same text either way.
+ * renderers still emit the same text either way. `value` should stay short
+ * and precise (a command, a URL, a number) rather than a whole sentence;
+ * `note` is where the explanatory prose that used to get folded into
+ * `value` belongs instead, so a command stays copy-pasteable and a link
+ * stays a link rather than a sentence-long anchor.
  */
 export interface UseThisDataItem {
   key: string;
@@ -96,6 +100,9 @@ export interface UseThisDataItem {
   value: string;
   href?: string;
   code?: boolean;
+  /** Short explanatory prose accompanying `value`, rendered after it in
+   *  both surfaces. Optional — most items have none. */
+  note?: string;
 }
 
 export type UseThisDataSectionId =
@@ -342,6 +349,7 @@ function buildDownloadSection(input: UseThisDataInput): UseThisDataSection | nul
   const base = normalizedBase(input.dataBase);
   const id = input.id;
   const version = encodeURIComponent(publishedVersionValue);
+  const participantsUrl = `${base}/${encodeURIComponent(id)}/${version}/participants.tsv`;
   return {
     id: "download",
     heading: "How to download",
@@ -353,14 +361,25 @@ function buildDownloadSection(input: UseThisDataInput): UseThisDataSection | nul
         code: true,
       },
       {
-        key: "download-subset",
-        label: "A subset",
-        value: `nemar dataset clone ${id} fetches git-annex pointers only, no file content; follow it with nemar dataset get <files> to pull the files you actually need.`,
+        key: "download-subset-clone",
+        label: "A subset, step 1",
+        value: `nemar dataset clone ${id}`,
+        code: true,
+        note: "Clones git-annex pointers only; fetches no file content.",
+      },
+      {
+        key: "download-subset-get",
+        label: "A subset, step 2",
+        value: "nemar dataset get <files>",
+        code: true,
+        note: "Pulls the files you actually need.",
       },
       {
         key: "download-single-file",
         label: "One small file",
-        value: `A direct HTTPS fetch works for any single file, e.g. ${base}/${encodeURIComponent(id)}/${version}/participants.tsv.`,
+        value: participantsUrl,
+        href: participantsUrl,
+        note: "A direct HTTPS fetch works for any single file.",
       },
     ],
   };
@@ -419,8 +438,9 @@ function buildZarrSection(input: UseThisDataInput): UseThisDataSection | null {
     {
       key: "zarr-step-1",
       label: "1. Start at the index",
-      value: `Fetch ${indexUrl} — the mandatory entry point. Never hardcode a bucket path.`,
+      value: indexUrl,
       href: indexUrl,
+      note: "The mandatory entry point. Never hardcode a bucket path.",
     },
     {
       key: "zarr-step-2",
@@ -525,7 +545,10 @@ export function renderUseThisDataMarkdown(model: UseThisData): string {
         : item.code
           ? `\`${item.value}\``
           : item.value;
-      lines.push(`- **${item.label}:** ${rendered}`);
+      // A period, not an em dash, separates value from note (repo writing
+      // style avoids em dashes) -- only added when there's a note to say.
+      const noteSuffix = item.note ? `. ${item.note}` : "";
+      lines.push(`- **${item.label}:** ${rendered}${noteSuffix}`);
     }
     lines.push("");
   }

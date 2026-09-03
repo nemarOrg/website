@@ -66,9 +66,14 @@ const nm000154 = () =>
   );
 
 /** Every fact value the model carries, across every section — the flat list
- *  the parity test checks against the markdown rendering. */
+ *  the parity test checks against the markdown rendering. Flattens BOTH
+ *  `value` and `note` for every item: `note` is a second field a fact can
+ *  live in (website#291 fix 3), and omitting it here would silently weaken
+ *  the parity guarantee this list feeds. */
 function allFactValues(model: UseThisData): string[] {
-  return model.sections.flatMap((s) => s.items.map((i) => i.value));
+  return model.sections.flatMap((s) =>
+    s.items.flatMap((i) => (i.note ? [i.value, i.note] : [i.value])),
+  );
 }
 
 describe("buildUseThisData / renderUseThisDataMarkdown — parity", () => {
@@ -339,9 +344,45 @@ describe("buildUseThisData — bytes location and download (website#286)", () =>
   it("states the nemar CLI download command and the clone-fetches-no-content caveat", () => {
     const model = buildUseThisData(nm000103());
     const download = model.sections.find((s) => s.id === "download");
-    const values = download?.items.map((i) => i.value) ?? [];
+    const items = download?.items ?? [];
+    const values = items.map((i) => i.value);
+    const notes = items.map((i) => i.note ?? "");
     expect(values).toContain("nemar dataset download nm000103");
     expect(values.some((v) => v.includes("nemar dataset clone nm000103"))).toBe(true);
-    expect(values.some((v) => v.includes("no file content"))).toBe(true);
+    expect(notes.some((n) => n.includes("no file content"))).toBe(true);
+  });
+
+  it("gives each download step a short, precise value with prose in note (website#291 fix 3)", () => {
+    // The command/URL values must stay short and copy-pasteable rather than
+    // sentences with a command buried inside -- and every item that carries
+    // explanatory prose must carry it in `note`, not glued onto `value`.
+    const model = buildUseThisData(nm000103());
+    const download = model.sections.find((s) => s.id === "download");
+    const items = download?.items ?? [];
+    for (const item of items) {
+      expect(item.value.length).toBeLessThan(80);
+      expect(item.value).not.toMatch(/[.;]\s/);
+    }
+    const cloneStep = items.find((i) => i.key === "download-subset-clone");
+    expect(cloneStep?.value).toBe("nemar dataset clone nm000103");
+    expect(cloneStep?.note).toContain("no file content");
+    const getStep = items.find((i) => i.key === "download-subset-get");
+    expect(getStep?.value).toBe("nemar dataset get <files>");
+    expect(getStep?.note).toContain("files you actually need");
+    const singleFileStep = items.find((i) => i.key === "download-single-file");
+    expect(singleFileStep?.href).toBe(singleFileStep?.value);
+    expect(singleFileStep?.value).toContain("participants.tsv");
+    expect(singleFileStep?.note).toContain("direct HTTPS fetch");
+  });
+});
+
+describe("buildUseThisData — Zarr step 1 value/note shape (website#291 fix 3)", () => {
+  it("keeps zarr-step-1's value as the bare index URL with the explanation in note", () => {
+    const model = buildUseThisData(nm000103());
+    const zarr = model.sections.find((s) => s.id === "zarr");
+    const step1 = zarr?.items.find((i) => i.key === "zarr-step-1");
+    expect(step1?.href).toBeDefined();
+    expect(step1?.value).toBe(step1?.href);
+    expect(step1?.note).toContain("mandatory entry point");
   });
 });

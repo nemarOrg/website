@@ -34,6 +34,7 @@ const { model } = Astro.props;
               ) : (
                 item.value
               )}
+              {item.note && <span class="use-this-data__note">{item.note}</span>}
             </dd>
           </div>
         ))}
@@ -116,5 +117,12 @@ const { model } = Astro.props;
     background: var(--color-bg-subtle);
     padding: 2px 6px;
     border-radius: var(--radius-sm);
+  }
+  .use-this-data__note {
+    display: block;
+    margin-block-start: var(--space-1);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-relaxed);
   }
 </style>
