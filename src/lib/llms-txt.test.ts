@@ -96,11 +96,20 @@ describe("llmsTxtBody links", () => {
 });
 
 describe("llmsTxtBody license caveat", () => {
-  it("warns that dataset licenses vary and are often non-commercial", () => {
+  it("says most licenses are CC0 or CC-BY and a minority are restrictive", () => {
     const body = llmsTxtBody();
     expect(body).toContain("## License");
     expect(body).toContain("vary per dataset");
-    expect(body).toContain("non-commercial");
+    expect(body).toContain("Most are CC0 or CC-BY");
+    expect(body).toContain("a minority carry a non-commercial or no-derivatives term");
+  });
+
+  it("does not overstate non-commercial licensing as the norm", () => {
+    // Measured across all 755 public datasets (catalog API, 2026-09-03):
+    // CC0/public-domain is ~76%, non-commercial/no-derivatives is ~5%.
+    // "Often non-commercial" was off by an order of magnitude.
+    const body = llmsTxtBody();
+    expect(body).not.toMatch(/often non-commercial/i);
   });
 });
 

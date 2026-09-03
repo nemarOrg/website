@@ -77,7 +77,7 @@ export function llmsTxtBody(): string {
   const licenseSection = [
     "## License",
     "",
-    "Dataset licenses vary per dataset and are often non-commercial (for example CC-BY-NC-SA). Check each dataset's own license before reuse -- it is not the same across NEMAR.",
+    "Dataset licenses vary per dataset. Most are CC0 or CC-BY; a minority carry a non-commercial or no-derivatives term (for example CC-BY-NC-SA). Check each dataset's own license before reuse -- it is not the same across NEMAR.",
   ].join("\n");
 
   return `${[header, summary, dataSection, apiSection, docsSection, datasetsSection, licenseSection].join("\n\n")}\n`;
