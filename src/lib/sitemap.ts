@@ -1,6 +1,7 @@
+import { isManagedDatasetId } from "./api";
 import { MARKETING_BASE_URL } from "./host";
-import { escapeXml } from "./og-chrome";
 import type { Dataset } from "./types";
+import { escapeXml } from "./xml";
 
 /**
  * Pure helpers behind `src/pages/sitemap.xml.ts` (website#284 phase 1,
@@ -90,8 +91,6 @@ export function sitemapLastmod(row: {
   return date.toISOString();
 }
 
-const MANAGED_DATASET_ID_RE = /^(nm|on)\d{6}$/;
-
 /**
  * Catalog rows worth listing in the sitemap: active, public, and addressed
  * by a managed id (`nm*`/`on*`). `ds*` rows are deliberately excluded --
@@ -102,7 +101,7 @@ export function datasetSitemapEntries(rows: readonly Dataset[]): SitemapEntry[] 
   const entries: SitemapEntry[] = [];
   for (const row of rows) {
     if (row.status !== "active" || row.visibility !== "public") continue;
-    if (!MANAGED_DATASET_ID_RE.test(row.dataset_id)) continue;
+    if (!isManagedDatasetId(row.dataset_id)) continue;
     entries.push({
       loc: `${MARKETING_BASE_URL}/dataset/${row.dataset_id}`,
       lastmod: sitemapLastmod(row),
@@ -113,9 +112,8 @@ export function datasetSitemapEntries(rows: readonly Dataset[]): SitemapEntry[] 
 
 /**
  * Renders a valid `<urlset>` sitemap document. Every value is XML-escaped
- * (reusing the OG-card escaper in `og-chrome.ts` rather than a second
- * copy) so a dataset name or id containing `&`/`<` can never break the
- * document.
+ * (reusing the shared escaper in `xml.ts` rather than a second copy) so a
+ * dataset name or id containing `&`/`<` can never break the document.
  */
 export function buildSitemapXml(entries: readonly SitemapEntry[]): string {
   const urls = entries
