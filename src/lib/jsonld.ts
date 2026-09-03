@@ -56,7 +56,7 @@ export interface DatasetJsonLdInput {
 // dropped.
 // ---------------------------------------------------------------------------
 
-function ccLicenseUrl(raw: string): string | undefined {
+export function ccLicenseUrl(raw: string): string | undefined {
   const s = raw.toUpperCase().replace(/[\s_]+/g, "-");
   if (/(^|-)CC-?0(-|$)/.test(s) || /PUBLIC-?DOMAIN/.test(s)) {
     return "https://creativecommons.org/publicdomain/zero/1.0/";
@@ -75,10 +75,12 @@ function ccLicenseUrl(raw: string): string | undefined {
 
 /** `conditionsOfAccess` note for restrictive tiers. Generic and factual —
  *  never invents participant-consent language the metadata doesn't carry. */
-function conditionsOfAccess(rawLicense: string): string | undefined {
+export function conditionsOfAccess(rawLicense: string): string | undefined {
   const tier = licenseTier(rawLicense);
   if (tier === "noncommercial") return `Non-commercial use only (${rawLicense}).`;
   if (tier === "noderiv") return `No derivative works permitted (${rawLicense}).`;
+  if (tier === "sharealike")
+    return `Derivatives must be shared under the same license (${rawLicense}).`;
   return undefined;
 }
 

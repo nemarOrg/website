@@ -10,7 +10,7 @@
  * Per-file sizes come straight from the listing entry — no synthesis.
  */
 
-import { type FileClassification, classifyFile, signalDirExt } from "./bids-tree";
+import { type FileClassification, bidsRowId, classifyFile, signalDirExt } from "./bids-tree";
 import type { DirListing, DirListingEntry } from "./dir-listing";
 import { fileDownloadUrl } from "./dir-listing";
 import { formatBytes } from "./format";
@@ -88,9 +88,13 @@ function renderFileRow(
   // The displayed name: root rows show the full path (single-level dataset
   // root); nested rows show just the basename.
   const displayName = esc(isRoot ? fullPath : entry.name);
+  // Anchor id for the coverage panel's "link each recording to its row"
+  // (website#277 decision 2). Only signal-recording rows are ever linked
+  // there, so only they carry one.
+  const rowId = cls.isEEG ? ` id="${esc(bidsRowId(fullPath))}"` : "";
 
   const row: string[] = [];
-  row.push(`<div class="tree__row${isRoot ? "" : " tree__row--file"}"${indentStyle}>`);
+  row.push(`<div class="tree__row${isRoot ? "" : " tree__row--file"}"${rowId}${indentStyle}>`);
   if (isRoot) {
     row.push(`<span class="tree__icon" aria-hidden="true">▪</span>`);
   }
@@ -191,9 +195,12 @@ function renderSignalDirRow(
   indentStyle: string,
   sigExt: string,
 ): string {
+  // Anchor id for the coverage panel (website#277 decision 2) — a directory
+  // recording (.mefd/.ds) is a recording too, always linkable.
+  const rowId = ` id="${esc(bidsRowId(fullPath))}"`;
   return [
     `<li class="tree__file-wrap" data-preview-wrap>`,
-    `<div class="tree__row tree__row--dir"${indentStyle}>`,
+    `<div class="tree__row tree__row--dir"${rowId}${indentStyle}>`,
     `<button class="tree__dir-toggle" type="button" data-dir-toggle data-dir-path="${esc(fullPath)}" data-depth="${depth}" aria-expanded="false" aria-label="Browse files in ${esc(name)}">${CHEVRON_SVG}</button>`,
     `<span class="tree__icon" aria-hidden="true">▸</span>`,
     `<button class="tree__preview-btn" type="button" data-preview-path="${esc(fullPath)}" data-preview-type="eeg" data-dir-recording="true" data-file-name="${esc(name)}" aria-expanded="false" title="Open signal viewer for ${esc(name)}"><span class="tree__name">${esc(name)}/</span></button>`,

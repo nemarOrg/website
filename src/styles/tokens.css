@@ -153,7 +153,15 @@
     /* Brand — pale gold reads on the navy ground; deep gold is for light. */
     --brand-gold: var(--brand-gold-light);
 
-    /* Semantic — dark-lifted where used as text (see :root). */
+    /* Semantic — dark-lifted where used as text (see :root). Success/warning
+       reuse the exact hexes already dark-lifted on --license-public /
+       --license-sharealike below (same light values too), rather than
+       introducing new lift pairs for what's already one color used under
+       two names -- consumed as text by Tag.astro's positive/warning kinds
+       (website#278) plus DoiBadge, BidsTree, and UploadProgress, all of
+       which were rendering at ~3.7:1 on the dark background before this. */
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
     --color-maintenance: #a78bfa;
 
     /* Tag color bible — dark-lifted (see :root for the semantics). */
@@ -189,7 +197,15 @@
   --color-link: #93c5fd;
   --color-link-hover: #bfdbfe;
 
-  /* Semantic — dark-lifted where used as text (see :root). */
+  /* Semantic — dark-lifted where used as text (see :root). Success/warning
+     reuse the exact hexes already dark-lifted on --license-public /
+     --license-sharealike below (same light values too), rather than
+     introducing new lift pairs for what's already one color used under two
+     names -- consumed as text by Tag.astro's positive/warning kinds
+     (website#278) plus DoiBadge, BidsTree, and UploadProgress, all of which
+     were rendering at ~3.7:1 on the dark background before this. */
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
   --color-maintenance: #a78bfa;
 
   /* Tag color bible — dark-lifted (see :root for the semantics). */

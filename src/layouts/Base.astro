@@ -37,6 +37,14 @@ interface Props {
    * output here.
    */
   jsonLdScript?: string;
+  /**
+   * Additional `<link>` elements for the head (website#284 phase 2), e.g. the
+   * dataset page's `rel="alternate" type="text/markdown"` pointer at its own
+   * `.md` mirror. Deliberately generic — Base.astro stays free of per-page
+   * mapping logic, same discipline as `jsonLdScript` above. A future phase
+   * (Signposting `<link>`s) reuses the same seam rather than adding a new prop.
+   */
+  headLinks?: Array<{ rel: string; href: string; type?: string; title?: string }>;
 }
 
 const {
@@ -52,6 +60,7 @@ const {
   ogType = "website",
   bareLayout = false,
   jsonLdScript,
+  headLinks = [],
 } = Astro.props;
 
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
@@ -88,6 +97,9 @@ const absoluteFallbackImage = fallbackImage
     <meta name="description" content={description} />
     <meta name="generator" content={Astro.generator} />
     <link rel="canonical" href={canonicalUrl} />
+    {headLinks.map((link) => (
+      <link rel={link.rel} href={link.href} type={link.type} title={link.title} />
+    ))}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="/android-chrome-192x192.png" />
     <link rel="alternate icon" href="/favicon.ico" />

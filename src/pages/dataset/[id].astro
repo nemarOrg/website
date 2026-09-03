@@ -7,9 +7,11 @@ import EegViewerDialog from "../../components/EegViewerDialog.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import Readme from "../../components/Readme.astro";
 import Tag from "../../components/Tag.astro";
+import UseThisData from "../../components/UseThisData.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
 import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
+import { apiBase } from "../../lib/api-base";
 import { datasetCitation } from "../../lib/cite";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
@@ -25,7 +27,16 @@ import { splitModalities } from "../../lib/format";
 import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
-import { modalityHref } from "../../lib/tags";
+import { buildSignposting, signpostingLinkHeader } from "../../lib/signposting";
+import {
+  ZARR_VERIFY_BLURB,
+  ZARR_VERIFY_LABELS,
+  ZARR_VERIFY_TAG_KIND,
+  isZarrVerifyStatus,
+  modalityHref,
+} from "../../lib/tags";
+import { buildUseThisData, markdownMirrorUrl } from "../../lib/use-this-data";
+import { zarrBase } from "../../lib/zarr-base";
 
 const { id } = Astro.params;
 if (!id) {
@@ -119,6 +130,16 @@ const selectedVersion =
 
 // Dataset DOI + citation (APA/BibTeX) for the rail. The DOI moved off the
 // action row into the rail so the buttons stay on one line (#126).
+//
+// The citation's version is the PUBLISHED version, not `selectedVersion`.
+// `isUnpublished` ORs in an empty-`versions` check that `selectedVersion`'s
+// own `latest ?? versions[0].version` fallback does not defend against, so a
+// landing payload with `latest: null` and a non-empty `versions` array leaves
+// `selectedVersion` set while the dataset is unpublished — and the page would
+// then hand out "cite this, Version v2.0.0" for something it elsewhere
+// reports as having no published version. Same rule as
+// `publishedVersion` in lib/use-this-data.ts, which this mirrors.
+const citedVersion = unpublished ? null : selectedVersion;
 const datasetDoi = metadata.external_links.dataset_doi;
 const cite = datasetDoi
   ? {
@@ -126,7 +147,7 @@ const cite = datasetDoi
       ...datasetCitation({
         authors: enrichedMetadata.authors.map((a) => a.name).filter(Boolean),
         name: metadata.name,
-        version: selectedVersion,
+        version: citedVersion,
         date: metadata.provenance.publish_date,
         doi: datasetDoi,
         id,
@@ -143,6 +164,17 @@ const provenance = detectProvenance(metadata, landing);
 const modalities = enrichedMetadata.recording_modality.length
   ? enrichedMetadata.recording_modality
   : splitModalities("");
+
+// Zarr fidelity-sweep verdict badge (website#277). Null (never swept, or no
+// Zarr copy at all) renders nothing -- see ZARR_VERIFY_* in lib/tags.ts.
+const zarrVerifyStatus = catalogRow?.zarr_verify_status ?? null;
+const zarrBadge = isZarrVerifyStatus(zarrVerifyStatus)
+  ? {
+      label: ZARR_VERIFY_LABELS[zarrVerifyStatus],
+      blurb: ZARR_VERIFY_BLURB[zarrVerifyStatus],
+      kind: ZARR_VERIFY_TAG_KIND[zarrVerifyStatus],
+    }
+  : null;
 
 // Server-rendered schema.org Dataset JSON-LD (website#156). Shares
 // `canonicalOriginFor` with Base.astro's `<link rel="canonical">` rather than
@@ -163,6 +195,41 @@ const jsonLdScript = datasetJsonLdScript({
   pageUrl: jsonLdPageUrl,
   dataBase: resolveDataBase(),
 });
+
+// "Use this data" section (website#284 phase 2) + its markdown mirror at
+// `/dataset/<id>.md` ([id].md.ts). ONE MODEL, TWO RENDERERS -- see
+// lib/use-this-data.ts's module doc. Built from data already in hand above
+// (no new fetches); `catalogRow` is narrowed to the fields the builder reads.
+const useThisData = buildUseThisData({
+  id,
+  metadata,
+  catalogRow,
+  selectedVersion,
+  unpublished,
+  dataBase: resolveDataBase(),
+  zarrBase: zarrBase(),
+});
+// Same origin logic as the JSON-LD page URL above, so the alternate link
+// can never disagree with this page's own canonical origin. The helper is
+// what strips a trailing slash before appending `.md` -- see its doc comment;
+// `/dataset/<id>/.md` matches no route.
+const mdUrl = markdownMirrorUrl(url.pathname, jsonLdOrigin);
+
+// FAIR Signposting link relations (website#284 phase 3, issue #287). ONE
+// MODEL, TWO SERIALIZATIONS -- see lib/signposting.ts's module doc. Built
+// from data already in hand above (no new fetches); reuses the same
+// headLinks seam phase 2 introduced rather than adding a second prop to
+// Base.astro, so the HTTP `Link` header and the `<link>` elements in
+// <head> can never disagree (OSCAR parity -- nothing here is header-only).
+const signpostingLinks = buildSignposting({
+  id,
+  metadata,
+  catalogRow,
+  selectedVersion,
+  dataBase: resolveDataBase(),
+  apiBase: apiBase(),
+});
+Astro.response.headers.set("Link", signpostingLinkHeader(signpostingLinks));
 
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
 // Owner/repo slug for the client-side GitHub raw fetch. Strips the
@@ -201,6 +268,10 @@ Astro.response.headers.set(
   imageAlt={`${metadata.name} dataset summary card on NEMAR.`}
   ogType="article"
   jsonLdScript={jsonLdScript}
+  headLinks={[
+    { rel: "alternate", type: "text/markdown", href: mdUrl, title: "Markdown version" },
+    ...signpostingLinks,
+  ]}
 >
   <article class="detail">
     <header class="detail__header container">
@@ -238,6 +309,7 @@ Astro.response.headers.set(
       )}
       <div class="detail__chips">
         {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
+        {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} size="md" />}
       </div>
       <div class="detail__actions">
         <ActionBar
@@ -262,12 +334,24 @@ Astro.response.headers.set(
 
     <div class="container detail__body">
       <div class="detail__main">
-        {unpublished ? (
+        {unpublished && (
           <div class="detail__unpublished">
             <h2>Not yet published</h2>
             <p>This dataset has been registered but no published version is available yet. Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</p>
           </div>
-        ) : (
+        )}
+        {/* Renders in BOTH the unpublished and published states, deliberately
+            not inside the branch above. buildUseThisData is the single source
+            of truth for what an unpublished dataset shows -- it already omits
+            the location/download/assess/Zarr sections for one (see
+            lib/use-this-data.ts's UseThisDataInput.unpublished doc) and keeps
+            only overview/license. Gating the whole component on `unpublished`
+            here as well double-gated it: the page showed nothing while the
+            .md mirror ([id].md.ts) rendered the model unconditionally, so an
+            unpublished dataset's markdown carried an overview and a citation
+            the human page never displayed (website#291 fix 1). */}
+        <UseThisData model={useThisData} />
+        {!unpublished && (
           <>
             <Readme
               defer
@@ -283,6 +367,10 @@ Astro.response.headers.set(
             <DatasetTabs datasetId={id} version={selectedVersion} />
             {selectedVersion && (
               <>
+                {/* Populated client-side once the tree's own index.json fetch
+                    resolves (website#277 decision 2) -- no separate API call.
+                    Starts hidden; stays hidden for a dataset with no Zarr data. */}
+                <div data-zarr-coverage-slot hidden></div>
                 <BidsTree datasetId={id} version={selectedVersion} />
                 <EegViewerDialog />
               </>
@@ -302,7 +390,7 @@ Astro.response.headers.set(
 
 <script>
   import { renderMarkdown } from "../../lib/markdown";
-  import { isDirRecordingName } from "../../lib/bids-tree";
+  import { bidsRowId, isDirRecordingName } from "../../lib/bids-tree";
   import type { DirListing } from "../../lib/dir-listing";
   import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
   import { formatBytes } from "../../lib/format";
@@ -311,12 +399,15 @@ Astro.response.headers.set(
     renderSubdir,
     renderTopLevel,
   } from "../../lib/render-dir-listing";
+  import { renderZarrCoveragePanel } from "../../lib/render-zarr-coverage";
   import {
     type ZarrIndexStore,
     fetchZarrIndex,
     prefetchZarrStoreMetadata,
+    unitsNoticeText,
     zarrAvailablePaths,
     zarrFailureReasonByPath,
+    zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
   import {
@@ -363,6 +454,11 @@ Astro.response.headers.set(
       stores: Map<string, ZarrIndexStore>;
       /** BIDS path (or store-rel path) -> reason it has no viewer, when known. */
       failureReasons: Map<string, string>;
+      /** Paths still pending conversion (v3 only; empty on v1). A directory
+       *  recording (4D/BTi, no name-derived extension) that is only pending
+       *  needs this to be recognized as a recording at all -- `paths` and
+       *  `failureReasons` alone miss it (PR #278 review). */
+      pendingPaths: Set<string>;
       /** Cache-busting token for this conversion (index `updated_utc`; #240). */
       token: string;
       prefetched: Set<string>;
@@ -522,23 +618,45 @@ Astro.response.headers.set(
           console.warn(`[zarr/${datasetId}] index unavailable; viewer cache-busting disabled`);
           return;
         }
-        const state = {
-          paths: zarrAvailablePaths(index),
-          stores: zarrStoreByPath(index),
-          failureReasons: zarrFailureReasonByPath(index),
-          token: index.updated_utc,
-          prefetched: new Set<string>(),
-          firstPrefetched: false,
-        };
-        zarrBySection.set(section, state);
-        annotateZarrRows(section);
-        // "View data" action-bar button (website#260): revealed only once the
-        // index resolves with at least one store, so a dataset with none
-        // (pre-backfill, e.g. on004696) never advertises a dead button. Left
-        // hidden (its SSR default) when the index fetch fails or throws —
-        // neither of those runs this callback.
-        const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
-        if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
+        // A SUCCESSFULLY fetched+parsed index is not the same failure class as
+        // a fetch/parse problem (the outer .catch below) -- a bug in applying
+        // it (annotateZarrRows, renderZarrCoveragePanel, ...) is a rendering
+        // defect against known-good data, and lumping both under one "index
+        // fetch threw" label pointed a developer at the wrong stage entirely
+        // (PR #278 review).
+        try {
+          const state = {
+            paths: zarrAvailablePaths(index),
+            stores: zarrStoreByPath(index),
+            failureReasons: zarrFailureReasonByPath(index),
+            pendingPaths: zarrPendingPaths(index),
+            token: index.updated_utc,
+            prefetched: new Set<string>(),
+            firstPrefetched: false,
+          };
+          zarrBySection.set(section, state);
+          annotateZarrRows(section);
+          // "View data" action-bar button (website#260): revealed only once the
+          // index resolves with at least one store, so a dataset with none
+          // (pre-backfill, e.g. on004696) never advertises a dead button. Left
+          // hidden (its SSR default) when the index fetch fails or throws —
+          // neither of those runs this callback.
+          const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
+          if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
+          // Coverage panel (website#277 decision 2): same already-fetched index,
+          // no new request. renderZarrCoveragePanel returns "" for a dataset
+          // with no Zarr data at all, which leaves the slot hidden.
+          const coverageSlot = document.querySelector<HTMLElement>("[data-zarr-coverage-slot]");
+          if (coverageSlot) {
+            const html = renderZarrCoveragePanel(index);
+            if (html) {
+              coverageSlot.innerHTML = html;
+              coverageSlot.hidden = false;
+            }
+          }
+        } catch (err) {
+          console.error(`[zarr/${datasetId}] applying the fetched index threw:`, err);
+        }
       })
       .catch((err) => {
         console.warn(`[zarr/${datasetId}] index fetch threw:`, err);
@@ -593,6 +711,11 @@ Astro.response.headers.set(
 
     const row = document.createElement("div");
     row.className = "tree__row tree__row--dir";
+    // Same anchor id `render-dir-listing.ts` stamps on an SSR'd
+    // `.mefd`/`.ds` recording row (website#277 decision 2) — this upgrade
+    // path exists precisely for the recording shapes the renderer could NOT
+    // recognize by name (BTi), so it must match the SSR'd id space itself.
+    row.id = bidsRowId(path);
     // Carry the renderer-computed indent over from the summary it replaces.
     const indent = summary.getAttribute("style");
     if (indent) row.setAttribute("style", indent);
@@ -648,11 +771,21 @@ Astro.response.headers.set(
     // so the buttons this creates are annotated by the same pass. A path in
     // `failureReasons` is upgraded too: the recording exists but can't be
     // converted, and the row must be able to SAY that (disabled-with-reason,
-    // like a `.mefd` row) rather than pose as an ordinary folder.
+    // like a `.mefd` row) rather than pose as an ordinary folder. Same for
+    // `pendingPaths` (PR #278 review): a still-converting 4D/BTi directory
+    // recording has no name-derived extension either, so without this check
+    // it never gets upgraded and the coverage panel's jump link for it (a
+    // pending entry with no store or failure yet) resolves to nothing.
     for (const details of section.querySelectorAll<HTMLElement>("details[data-dir-path]")) {
       const path = details.dataset.dirPath ?? "";
       if (!path) continue;
-      if (!state.paths.has(path) && !state.failureReasons.has(path)) continue;
+      if (
+        !state.paths.has(path) &&
+        !state.failureReasons.has(path) &&
+        !state.pendingPaths.has(path)
+      ) {
+        continue;
+      }
       upgradeDirRecordingRow(details);
     }
     for (const btn of section.querySelectorAll<HTMLButtonElement>(
@@ -805,6 +938,103 @@ Astro.response.headers.set(
     if (counter) counter.textContent = `(${newRendered} of ${total} shown)`;
   });
 
+  /** Longest a lazily-loaded directory slot is awaited before giving up on
+   *  revealing a coverage-panel jump target (website#277 decision 2). */
+  const REVEAL_SLOT_TIMEOUT_MS = 8000;
+  /** Bound on how many "Show next" chunk-clicks a reveal will synthesize,
+   *  against a pathological dataset -- past this it gives up silently. */
+  const REVEAL_MAX_CHUNK_CLICKS = 500;
+
+  function waitForSlotLoaded(slot: HTMLElement): Promise<void> {
+    if (slot.dataset.loaded === "true") return Promise.resolve();
+    return new Promise((resolve) => {
+      const start = performance.now();
+      const check = () => {
+        if (slot.dataset.loaded === "true" || performance.now() - start > REVEAL_SLOT_TIMEOUT_MS) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    });
+  }
+
+  /** One paint's worth of a yield, so a run of synthesized "Show next"
+   *  clicks (below) doesn't block the main thread solid across a large
+   *  chunk count (PR #278 review). */
+  function nextFrame(): Promise<void> {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
+  /**
+   * Best-effort auto-expand for a coverage-panel "jump to recording" link. A
+   * plain `#anchor` only resolves when the row already happens to be
+   * rendered -- directories are lazy-loaded on click/open, and the top-level
+   * dir list itself may be capped behind a "Show next N" footer -- so this
+   * walks the path's ancestor directories, revealing further top-level
+   * chunks (by clicking the SAME `.tree__more-btn` a user would) and opening
+   * each `<details>` in turn (which fires the native toggle event that
+   * `loadDirChildren` already listens for), before returning the target row.
+   * Returns null when the chain can't be completed -- an ancestor genuinely
+   * isn't a `<details>` row (e.g. it's inside a directory recording, which
+   * has no lazy children of its own) or a slot never finishes loading.
+   */
+  async function revealRecordingRow(section: HTMLElement, fullPath: string): Promise<HTMLElement | null> {
+    const segments = fullPath.split("/").filter(Boolean);
+    segments.pop(); // ancestor directories only -- the recording itself isn't one
+    let ancestor = "";
+    for (const seg of segments) {
+      const isTopLevel = ancestor === "";
+      ancestor = ancestor ? `${ancestor}/${seg}` : seg;
+      const selector = `details[data-dir-path="${ancestor.replace(/"/g, '\\"')}"]`;
+      if (isTopLevel) {
+        let clicks = 0;
+        while (!section.querySelector(selector) && clicks < REVEAL_MAX_CHUNK_CLICKS) {
+          const moreBtn = section.querySelector<HTMLButtonElement>(".tree__more-btn");
+          if (!moreBtn) break;
+          moreBtn.click();
+          clicks++;
+          await nextFrame();
+        }
+      }
+      const details = section.querySelector<HTMLDetailsElement>(selector);
+      if (!details) return null;
+      if (!details.open) details.open = true; // fires the native "toggle" -> loadDirChildren
+      const slot = details.querySelector<HTMLElement>(":scope > [data-dir-target]");
+      if (slot) await waitForSlotLoaded(slot);
+    }
+    return document.getElementById(bidsRowId(fullPath));
+  }
+
+  // Delegated click for the coverage panel's recording links (website#277
+  // decision 2). Left-clicks only intercepted -- a modifier click (open in
+  // new tab, etc.) falls through to the plain #anchor href unmodified.
+  document.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const link = target.closest<HTMLAnchorElement>("[data-jump-path]");
+    if (!link) return;
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const path = link.dataset.jumpPath;
+    const section = document.querySelector<HTMLElement>("[data-tree-defer]");
+    if (!path || !section) return;
+    event.preventDefault();
+    void (async () => {
+      const row = (await revealRecordingRow(section, path)) ?? document.getElementById(bidsRowId(path));
+      if (!row) {
+        console.warn(`[zarr-coverage] couldn't reveal the row for "${path}" (still loading, or not in the tree)`);
+        return;
+      }
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.classList.add("tree__row--flash");
+      window.setTimeout(() => row.classList.remove("tree__row--flash"), 2000);
+      history.replaceState(null, "", `#${bidsRowId(path)}`);
+    })();
+  });
+
   // Inline file-preview delegate. Mirrors the show-more click delegate
   // above. Fires when the user clicks a `.tree__preview-btn` (the name of
   // a previewable file). First click fetches + renders the inline panel
@@ -896,6 +1126,25 @@ Astro.response.headers.set(
    * the first finishes loading must actively tear the first one down, since
    * by then it may already hold a store and a GL context.
    */
+  /**
+   * Append the units notice (website#277 decision 4) as the last child of a
+   * just-mounted viewer host. Safe at every one of the three mount call
+   * sites: `host` is either freshly created (inline open, dialog open) or
+   * `mountEegViewer` tore down and rebuilt its own contents as its first act
+   * (navigate) before this runs, so there is never a stale notice to clear
+   * first. No-ops when `unitsNoticeText` has nothing to say (v1 stores, or a
+   * store with nothing to flag).
+   */
+  function applyUnitsNotice(host: HTMLElement, store: ZarrIndexStore | undefined): void {
+    const text = unitsNoticeText(store);
+    if (!text) return;
+    const p = document.createElement("p");
+    p.className = "eegv-units-notice";
+    p.setAttribute("role", "note");
+    p.textContent = text;
+    host.appendChild(p);
+  }
+
   async function openEegViewerInline(btn: HTMLButtonElement): Promise<void> {
     const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
     const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
@@ -1072,6 +1321,7 @@ Astro.response.headers.set(
         return;
       }
       if (eegLive) eegLive.destroy = destroy;
+      applyUnitsNotice(host, zarr?.stores.get(filePath));
     } catch (err) {
       console.error("[eeg-viewer] mount failed:", err);
       if (seq !== eegSeq) return;
@@ -1250,6 +1500,7 @@ Astro.response.headers.set(
         return;
       }
       if (eegLive) eegLive.destroy = destroy;
+      applyUnitsNotice(host, ctx.zarr?.stores.get(target.path));
     } catch (err) {
       // Mirrors `navigateEegViewer`'s failure state: an explicit error in
       // the dialog, never a blank one (website#260).
@@ -1560,6 +1811,11 @@ Astro.response.headers.set(
         return;
       }
       if (eegLive) eegLive.destroy = destroy ?? null;
+      // Unlike the other two mount sites, a falsy `destroy` here still falls
+      // through to this point (mount rendered its own "unavailable" message
+      // in `host` instead of a viewer) -- guard so the notice is never
+      // appended after that text.
+      if (destroy) applyUnitsNotice(host, live.zarr?.stores.get(target.path));
       prefetchAdjacentRecordings();
     } catch (err) {
       // Reaching here means the mount threw somewhere its own try/catch does

@@ -63,3 +63,27 @@ export function signalDirExt(dirname: string): "mefd" | "ds" | null {
 export function isDirRecordingName(name: string): boolean {
   return !classifyFile(name).isEEG;
 }
+
+/**
+ * Stable DOM id for a recording's row in the file tree, keyed by its BIDS
+ * path (website#277 decision 2 — the coverage panel links a failed/pending
+ * recording to its row here). `render-dir-listing.ts` stamps this onto every
+ * file row and directory-recording row it renders (both the initial SSR-
+ * triggered fetch and a later lazy-loaded subdirectory); the client script's
+ * `upgradeDirRecordingRow` (a BTi directory recognized only after the Zarr
+ * index resolves) stamps the same id for parity, so a row is addressable
+ * regardless of which path built it.
+ *
+ * `_` is escaped too (to `_5f`), not left alone: `_` doubles as the escape
+ * marker for every OTHER disallowed character (`.` -> `_2e`, `/` -> `_2f`,
+ * ...), so leaving a literal `_` unescaped makes the scheme ambiguous --
+ * `"a_2e"` and `"a."` collided on the same id before this (PR #278 review).
+ * Escaping `_` itself means `_` never appears in the output except as part
+ * of a `_XX` escape sequence, which keeps the mapping injective.
+ *
+ * Not a CSS-selector-safe id (BIDS paths contain `/`) — always resolve it
+ * with `document.getElementById`, never `querySelector('#...')`.
+ */
+export function bidsRowId(path: string): string {
+  return `rec-${path.replace(/[^A-Za-z0-9-]/g, (ch) => `_${ch.charCodeAt(0).toString(16)}`)}`;
+}

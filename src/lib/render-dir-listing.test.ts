@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bidsRowId } from "./bids-tree";
 import type { DirListing, DirListingEntry } from "./dir-listing";
 import {
   DEFAULT_DIR_CHUNK_SIZE,
@@ -87,6 +88,20 @@ describe("renderTopLevel", () => {
     // announcing each one is why it opts out of the aria-live the text
     // previews use.
     expect(html).not.toMatch(/tree__preview--signal[^>]*aria-live/);
+  });
+
+  it("stamps a bidsRowId anchor on a recording row (website#277 coverage panel links)", () => {
+    const html = renderTopLevel(
+      listing({ children: [{ kind: "file", name: "sub-01_task-rest_eeg.set", size: 100000 }] }),
+    );
+    expect(html).toContain(`id="${bidsRowId("sub-01_task-rest_eeg.set")}"`);
+  });
+
+  it("does not stamp an anchor id on a non-recording file row", () => {
+    const html = renderTopLevel(
+      listing({ children: [{ kind: "file", name: "README.md", size: 100 }] }),
+    );
+    expect(html).not.toContain(` id="rec-`);
   });
 
   it("marks the eeg preview button aria-expanded, not aria-haspopup=dialog", () => {
@@ -337,6 +352,9 @@ describe("directory-keyed signal recordings (website#252)", () => {
     expect(html).toContain(`data-dir-path="sub-01/ses-ieeg01/ieeg/${mefd}"`);
     expect(html).toContain(`aria-label="Browse files in ${mefd}"`);
     expect(html).toContain("data-dir-target hidden");
+    // A directory recording is a recording too -- always linkable from the
+    // coverage panel (website#277).
+    expect(html).toContain(`id="${bidsRowId(`sub-01/ses-ieeg01/ieeg/${mefd}`)}"`);
     // The wrap + slot the inline viewer mounts into.
     expect(html).toContain(`<li class="tree__file-wrap" data-preview-wrap>`);
     expect(html).toContain(`class="tree__preview tree__preview--signal" data-preview-slot hidden`);

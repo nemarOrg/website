@@ -1,6 +1,6 @@
 ---
 /**
- * The one tag element. Replaces the old ModalityBadge + Chip. Four semantic
+ * The one tag element. Replaces the old ModalityBadge + Chip. Six semantic
  * kinds share a single pill shape; color carries meaning (see
  * `.rules/design-language.md` "Tag color bible" and `src/lib/tags.ts`).
  *
@@ -8,6 +8,10 @@
  *   license   — permissiveness tier, colored per --license-*; leading dot
  *   keyword   — free-text, deliberately quiet
  *   neutral   — generic taxonomy (tasks, BIDS datatypes)
+ *   positive  — a passed/good verdict, colored --color-success (e.g. a
+ *               fidelity-sweep "verified" badge)
+ *   warning   — a flagged-but-not-fatal verdict, colored --color-warning
+ *               (e.g. a fidelity-sweep "issue found" badge)
  *
  * Pass an `href` to make it a clickable filter link; omit it for a plain,
  * read-only tag (e.g. inside a card that is already one big link).
@@ -16,7 +20,7 @@ import { type ModalityVariant, licenseTier, modalityVariant } from "../lib/tags"
 import type { LicenseTier } from "../lib/types";
 
 interface Props {
-  kind: "modality" | "license" | "keyword" | "neutral";
+  kind: "modality" | "license" | "keyword" | "neutral" | "positive" | "warning";
   value: string;
   href?: string | null;
   size?: "sm" | "md";
@@ -176,5 +180,16 @@ const showCue = kind === "modality" && Boolean(href);
     border-color: var(--color-border-strong);
     background: var(--color-bg-elevated);
     color: var(--color-fg);
+  }
+
+  /* Positive / warning: a pass/flag verdict (e.g. the Zarr fidelity-sweep
+     badge). Reuses the existing --color-success / --color-warning palette
+     tokens already used by the StatusBadge-family components -- not new
+     tag colors, just this kind system's first use of them. */
+  .tag--positive {
+    --tag-color: var(--color-success);
+  }
+  .tag--warning {
+    --tag-color: var(--color-warning);
   }
 </style>

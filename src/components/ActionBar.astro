@@ -249,8 +249,8 @@ cd {datasetId} && nemar dataset get</code></pre>
     <h2 id="citations-dialog-heading" data-citations-heading>Citations</h2>
     <div class="cite-filter" role="group" aria-label="Filter citations by what they reference">
       <button type="button" class="cite-filter__btn is-active" data-cite-filter="all" aria-pressed="true">All</button>
-      <button type="button" class="cite-filter__btn" data-cite-filter="dataset" aria-pressed="false">Cites dataset</button>
-      <button type="button" class="cite-filter__btn" data-cite-filter="paper" aria-pressed="false">Cites a paper</button>
+      <button type="button" class="cite-filter__btn" data-cite-filter="dataset" aria-pressed="false">Cites the dataset</button>
+      <button type="button" class="cite-filter__btn" data-cite-filter="paper" aria-pressed="false">Cites the paper</button>
     </div>
   </header>
   <ol class="cite-list" data-citations-list></ol>
@@ -575,47 +575,54 @@ cd {datasetId} && nemar dataset get</code></pre>
     margin: 0;
     border-block-start: 1px solid var(--color-border);
   }
-  .cite-item {
+  /* Rows inside .cite-list are created by the script below with
+     document.createElement, so they never receive this component's
+     data-astro-cid attribute and a plain scoped selector never matches them
+     (the pills rendered as bare text on production). `:global()` under the
+     template-rendered .cite-list parent keeps the rules scoped to this dialog
+     while reaching the script-built nodes, same pattern as Footer.astro's
+     `.site-footer__nav :global(a)` and DatasetCard.astro's snippet <mark>. */
+  .cite-list :global(.cite-item) {
     padding-block: var(--space-3);
     border-block-end: 1px solid var(--color-border);
   }
-  .cite-item__title {
+  .cite-list :global(.cite-item__title) {
     font-weight: var(--fw-medium);
     color: var(--color-fg);
   }
-  a.cite-item__title:hover {
+  .cite-list :global(a.cite-item__title:hover) {
     color: var(--brand-teal);
   }
-  .cite-item__meta {
+  .cite-list :global(.cite-item__meta) {
     margin-block-start: 2px;
     font-size: var(--fs-sm);
     color: var(--color-fg-muted);
   }
-  .cite-item__tags {
+  .cite-list :global(.cite-item__tags) {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2) var(--space-3);
     margin-block-start: var(--space-2);
   }
-  .cite-flag {
+  .cite-list :global(.cite-flag) {
     font-size: var(--fs-xs);
     font-weight: var(--fw-medium);
     padding: 2px var(--space-2);
     border-radius: var(--radius-sm);
     border: 1px solid transparent;
   }
-  .cite-flag--paper {
+  .cite-list :global(.cite-flag--paper) {
     color: var(--color-fg-muted);
     background: var(--color-bg-subtle);
     border-color: var(--color-border);
   }
-  .cite-flag--dataset {
+  .cite-list :global(.cite-flag--dataset) {
     color: var(--brand-teal);
     background: color-mix(in srgb, var(--brand-teal) 12%, transparent);
     border-color: color-mix(in srgb, var(--brand-teal) 35%, transparent);
   }
-  .cite-item__by {
+  .cite-list :global(.cite-item__by) {
     font-size: var(--fs-xs);
     color: var(--color-fg-subtle);
   }
@@ -626,6 +633,8 @@ cd {datasetId} && nemar dataset get</code></pre>
 </style>
 
 <script>
+  import { citeKindLabel, citedByLabel } from "../lib/citation-labels";
+
   document.querySelectorAll<HTMLButtonElement>("[data-compute-stub]").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
@@ -745,12 +754,19 @@ cd {datasetId} && nemar dataset get</code></pre>
         tags.className = "cite-item__tags";
         const flag = document.createElement("span");
         flag.className = `cite-flag cite-flag--${kind}`;
-        flag.textContent = kind === "dataset" ? "Cites dataset" : "Cites a paper";
+        flag.textContent = citeKindLabel(kind);
         tags.appendChild(flag);
-        if (typeof c.cited_by === "number" && c.cited_by > 0) {
+        const byLabel = citedByLabel(c.cited_by, fmt);
+        if (byLabel) {
+          // The count is the citing work's own, not the dataset's; sighted
+          // users read that from the layout, screen readers get it spelled out.
           const by = document.createElement("span");
           by.className = "cite-item__by";
-          by.textContent = `${fmt(c.cited_by)} citations`;
+          const sr = document.createElement("span");
+          sr.className = "visually-hidden";
+          sr.textContent = "This work has been ";
+          by.appendChild(sr);
+          by.appendChild(document.createTextNode(byLabel));
           tags.appendChild(by);
         }
         li.appendChild(tags);

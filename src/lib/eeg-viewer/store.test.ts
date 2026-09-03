@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   aggregateOverview,
   chooseWindowLevel,
@@ -6,6 +6,9 @@ import {
   openRecording,
   parseChannels,
   predictedViewLevelCount,
+  readLevel0,
+  readOverview,
+  readWindow,
   retryingFetch,
   windowDataBytes,
 } from "./store";
@@ -537,6 +540,15 @@ function fakeZarrV3Store(opts: {
   viewLevels: number[];
   /** This view level responds 403 instead of metadata (expired-token shape). */
   failLevel?: number;
+  /** When set, the group attrs declare this exact pyramid shape
+   *  (biosigio 1.2.6+, website#276) instead of leaving discovery to probe
+   *  for it. An empty array declares a zero-level pyramid. */
+  declaredLevels?: number[];
+  /** When set (and `declaredLevels` is not), declares the pyramid via the
+   *  numeric `n_view_levels` count instead of the `view_levels` array --
+   *  the sibling declaration shape `declaredViewLevels` also reads. 0
+   *  declares a zero-level pyramid, same as an empty `declaredLevels`. */
+  declaredCount?: number;
 }) {
   const requests: string[] = [];
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -565,6 +577,10 @@ function fakeZarrV3Store(opts: {
         rate: 250,
         n_samples: opts.nSamples,
         channels: [{ label: "Cz", unit: "uV", row_index: 0 }],
+        ...(opts.declaredLevels !== undefined ? { view_levels: opts.declaredLevels } : {}),
+        ...(opts.declaredLevels === undefined && opts.declaredCount !== undefined
+          ? { n_view_levels: opts.declaredCount }
+          : {}),
       });
     }
     if (path === "eeg/0/zarr.json") return array([1, opts.nSamples], [1, 1000]);
@@ -648,5 +664,274 @@ describe("view-level discovery against a fake v3 store", () => {
       expect(g.viewLevels.map((l) => l.level)).toEqual([1, 3]);
       expect(g.viewLevelsDegraded).toBe(true); // "discovery broke", not "1-level recording"
     });
+  });
+});
+
+describe("declared view levels skip probing entirely (website#276)", () => {
+  const viewProbes = (requests: string[]) => requests.filter((p) => p.includes("/view/")).sort();
+
+  it("an empty declared view_levels array means zero levels, not 'undeclared' -- no probe requests at all", async () => {
+    // The server actually has 3 levels available, but they are not declared:
+    // a reader that treated [] as "absent" would probe and find them anyway,
+    // which is exactly the bug website#276 asks to fix.
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      declaredLevels: [],
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels).toEqual([]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      expect(viewProbes(requests)).toEqual([]);
+    });
+  });
+
+  it("a non-empty declared view_levels array opens exactly those levels, with no follow-up probe", async () => {
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500],
+      declaredLevels: [1, 2],
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels.map((l) => l.level)).toEqual([1, 2]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      // Exactly the declared levels are fetched -- no confirm-the-end 404,
+      // unlike the probing path's VIEW_PROBE_FOLLOWUP batch.
+      expect(viewProbes(requests)).toEqual(["eeg/view/1/zarr.json", "eeg/view/2/zarr.json"]);
+    });
+  });
+
+  it("keeps fulfilled declared siblings and flags degradation on a non-404 declared-level failure", async () => {
+    // Declared 3 levels; level 2 comes back 403 (expired token, not missing).
+    // Levels 1 and 3 must survive -- a single bad declared level must not
+    // discard siblings that opened fine (PR #278 review).
+    const { handler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      declaredLevels: [1, 2, 3],
+      failLevel: 2,
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const g = store.groups[0];
+      const levels = await g.viewLevelsReady;
+      expect(levels.map((l) => l.level)).toEqual([1, 3]);
+      expect(g.viewLevels.map((l) => l.level)).toEqual([1, 3]);
+      expect(g.viewLevelsDegraded).toBe(true);
+    });
+  });
+
+  it("a positive numeric n_view_levels count declares 1..count, no probing", async () => {
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      declaredCount: 3,
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels.map((l) => l.level)).toEqual([1, 2, 3]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      expect(viewProbes(requests)).toEqual([
+        "eeg/view/1/zarr.json",
+        "eeg/view/2/zarr.json",
+        "eeg/view/3/zarr.json",
+      ]);
+    });
+  });
+
+  it("a zero numeric n_view_levels count means zero levels, not undeclared -- no probe requests", async () => {
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125], // present on the server but not declared
+      declaredCount: 0,
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      const levels = await store.groups[0].viewLevelsReady;
+      expect(levels).toEqual([]);
+      expect(store.groups[0].viewLevelsDegraded).toBe(false);
+      expect(viewProbes(requests)).toEqual([]);
+    });
+  });
+
+  it("a non-empty view_levels array of nothing but garbage falls back to probing, with a warning (not declared-empty)", async () => {
+    // Every entry is invalid (strings), unlike a genuine [] -- malformed
+    // producer data must not be read as "zero levels declared".
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      declaredLevels: ["bogus", "also-bogus"] as unknown as number[],
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await withFetch(handler, async () => {
+        const store = await openRecording("https://example.test/store/");
+        const levels = await store.groups[0].viewLevelsReady;
+        // Falls through to probing and finds the real 3 levels on the server.
+        expect(levels.map((l) => l.level)).toEqual([1, 2, 3]);
+        expect(viewProbes(requests).length).toBeGreaterThan(0);
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("view_levels declared"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("a genuinely empty view_levels array stays declared-empty (no warning, no probe)", async () => {
+    const { handler, requests } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      declaredLevels: [],
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await withFetch(handler, async () => {
+        const store = await openRecording("https://example.test/store/");
+        const levels = await store.groups[0].viewLevelsReady;
+        expect(levels).toEqual([]);
+        expect(viewProbes(requests)).toEqual([]);
+      });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+/**
+ * website#208: the interactive path (openRecording, and the window reads
+ * viewer.ts's render loop calls) must actually cancel its underlying HTTP
+ * requests when a mount is superseded or destroyed, not just discard the
+ * result once it eventually arrives. These exercise the same transport
+ * boundary as the rest of this file (a real in-memory fetch stub, real
+ * AbortController/AbortSignal plumbing through zarrita) rather than mocking
+ * openRecording/readWindow themselves.
+ */
+describe("abort propagation into the interactive path (website#208)", () => {
+  it("openRecording rejects once the caller's signal aborts mid-open, and never issues a group/level-0 request", async () => {
+    const requests: string[] = [];
+    // The root zarr.json request hangs forever on its own -- it only settles
+    // (via zarrita/dedupingFetch's own abort wiring) once `controller` aborts.
+    const handler = (async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(new URL(url).pathname.replace(/^\/store\//, ""));
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = new AbortController();
+    await withFetch(handler, async () => {
+      const pending = openRecording("https://example.test/store/", controller.signal);
+      // Let the synchronous open of the root request actually dispatch before
+      // aborting it -- confirms the rejection comes from the abort, not from
+      // aborting before anything was even in flight.
+      await Promise.resolve();
+      expect(requests).toEqual(["zarr.json"]);
+      controller.abort();
+      await expect(pending).rejects.toThrow();
+    });
+    // No group ("eeg/zarr.json") or level-0 ("eeg/0/zarr.json") request was
+    // ever issued -- the abort cut the open off at the root, not after.
+    expect(requests).toEqual(["zarr.json"]);
+  });
+
+  it("readLevel0 rejects an in-flight chunk read once the signal aborts, and writes no data", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({ nSamples: 2000, viewLevels: [] });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      // Let the fire-and-forget view-level/events reads settle on THIS
+      // handler before it is swapped out below, so they don't leak a
+      // dangling request into the hanging handler.
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+
+    // Every request for the actual chunk bytes hangs until aborted -- opening
+    // is already done, so nothing else should be requesting metadata here.
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    await withFetch(hangingFetch, async () => {
+      const pending = readLevel0(g, 0, 1, 0, g.nChannels, controller.signal);
+      await Promise.resolve();
+      controller.abort();
+      await expect(pending).rejects.toThrow();
+    });
+  });
+
+  it("readWindow (the function viewer.ts's interactive render path calls) also rejects on abort instead of resolving with stale data", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({ nSamples: 2000, viewLevels: [] });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    let settled: "resolved" | "rejected" | "pending" = "pending";
+    await withFetch(hangingFetch, async () => {
+      const pending = readWindow(g, 0, 1, 800, 0, g.nChannels, false, controller.signal).then(
+        () => {
+          settled = "resolved";
+        },
+        () => {
+          settled = "rejected";
+        },
+      );
+      await Promise.resolve();
+      expect(settled).toBe("pending"); // genuinely in flight, not already settled
+      controller.abort();
+      await pending;
+    });
+    expect(settled).toBe("rejected"); // aborted, not resolved with a dropped-in-flight result
+  });
+
+  it("readOverview resolves to null (never rejects, never hangs) once the signal aborts the minimap read", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+    });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+    // Otherwise readOverview short-circuits to null without ever reading --
+    // the abort has to interrupt a genuine in-flight zarr.get.
+    expect(g.viewLevels.length).toBeGreaterThan(0);
+
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    let settled: "resolved" | "rejected" | "pending" = "pending";
+    let result: Float32Array | null | undefined;
+    await withFetch(hangingFetch, async () => {
+      const pending = readOverview(g, controller.signal).then((data) => {
+        settled = "resolved";
+        result = data;
+      });
+      await Promise.resolve();
+      expect(settled).toBe("pending"); // genuinely in flight, not already settled
+      controller.abort();
+      await pending;
+    });
+    // readOverview swallows every failure (including an abort) and resolves
+    // to null rather than throwing -- same contract it always had, now also
+    // true for a caller-driven cancellation.
+    expect(settled).toBe("resolved");
+    expect(result).toBeNull();
   });
 });

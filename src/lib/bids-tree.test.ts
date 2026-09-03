@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyFile, isDirRecordingName, signalDirExt } from "./bids-tree";
+import { bidsRowId, classifyFile, isDirRecordingName, signalDirExt } from "./bids-tree";
 
 describe("classifyFile", () => {
   it("flags EEG raw formats", () => {
@@ -90,5 +90,40 @@ describe("isDirRecordingName", () => {
     // zarr index is the only authority that it is a recording at all.
     expect(signalDirExt("sub-01_task-rest_meg")).toBeNull();
     expect(isDirRecordingName("sub-01_task-rest_meg")).toBe(true);
+  });
+});
+
+describe("bidsRowId (website#277)", () => {
+  it("is a valid, whitespace-free DOM id for an ordinary BIDS path", () => {
+    const id = bidsRowId("sub-01/eeg/sub-01_task-rest_eeg.set");
+    // Hyphen is left alone (already id-safe); '_', '/', and '.' are all
+    // escaped to their hex code point so the id has no path/extension
+    // syntax AND '_' never appears unescaped (PR #278 review -- '_' is the
+    // escape marker itself, so a literal one must be escaped too or the
+    // scheme isn't injective).
+    expect(id).toBe("rec-sub-01_2feeg_2fsub-01_5ftask-rest_5feeg_2eset");
+    expect(id).not.toMatch(/\s/);
+  });
+
+  it("is stable and deterministic for the same path", () => {
+    const path = "sub-02/ses-01/eeg/sub-02_ses-01_task-rest_eeg.edf";
+    expect(bidsRowId(path)).toBe(bidsRowId(path));
+  });
+
+  it("gives distinct paths distinct ids", () => {
+    expect(bidsRowId("sub-01/a.set")).not.toBe(bidsRowId("sub-02/a.set"));
+  });
+
+  it("does not collide a literal underscore-then-hex-digits with an escaped character (PR #278 review)", () => {
+    // Before escaping '_', both of these produced "rec-a_2e": the literal
+    // "_2e" in the first string is indistinguishable from '.' escaped to
+    // "_2e" in the second, once '_' itself is left unescaped.
+    expect(bidsRowId("a_2e")).not.toBe(bidsRowId("a."));
+  });
+
+  it("round trips a derivatives path with a different extension", () => {
+    const id = bidsRowId("derivatives/sub-01/eeg/sub-01_task-x_ave.fif");
+    expect(id.startsWith("rec-derivatives")).toBe(true);
+    expect(id).not.toContain("/");
   });
 });
