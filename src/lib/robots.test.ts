@@ -27,8 +27,25 @@ describe("robotsBody on production hosts", () => {
 
   it.each(PRODUCTION_HOSTS)("shares a single Allow: / for the AI crawler block on %s", (host) => {
     const body = robotsBody(host);
-    const lastToken = AI_CRAWLER_TOKENS[AI_CRAWLER_TOKENS.length - 1];
-    expect(body).toContain(`User-agent: ${lastToken}\nAllow: /`);
+    // Assert the WHOLE block is contiguous, not just that the last token is
+    // followed by `Allow: /`. Checking only the tail passes even when the
+    // group has been split in two, because both halves would carry the same
+    // `Allow: /` today -- so the split is invisible until some crawler is
+    // given a directive of its own, at which point the tokens above the
+    // split would silently be governed by the wrong group.
+    const contiguousBlock = [
+      ...AI_CRAWLER_TOKENS.map((token) => `User-agent: ${token}`),
+      "Allow: /",
+    ].join("\n");
+    expect(body).toContain(contiguousBlock);
+  });
+
+  it.each(PRODUCTION_HOSTS)("emits exactly two rule groups on %s", (host) => {
+    const body = robotsBody(host);
+    // One `Allow: /` for the named crawlers, one for the wildcard. A third
+    // would mean the named block fragmented; see the contiguity test above
+    // for why that is not self-evident from the tokens alone.
+    expect(body.match(/^Allow: \/$/gm) ?? []).toHaveLength(2);
   });
 
   it.each(PRODUCTION_HOSTS)("still allows everything under the wildcard on %s", (host) => {
