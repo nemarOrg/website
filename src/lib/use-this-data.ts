@@ -343,6 +343,28 @@ function buildLocationSection(input: UseThisDataInput): UseThisDataSection | nul
   };
 }
 
+/**
+ * How to get the bytes. Every command and every default here is stated from
+ * the CLI's own help text (`nemar dataset download --help`,
+ * `nemar dataset get --help` in nemarOrg/nemar-cli
+ * `src/commands/dataset.ts`), not from what the commands sound like they do.
+ * Two of those defaults are counter-intuitive and were previously stated
+ * wrongly here:
+ *
+ *  - `download` is NOT "everything". It skips `stimuli/` and `derivatives/`
+ *    content by default because those trees can be very large; the annex
+ *    pointers are still cloned, so `--stimuli` / `--derivatives` (on either
+ *    command) fetch them later. `nemar dataset get` skips the same two by
+ *    default, unless the path you ask for is itself under one of them.
+ *  - `get` only works from INSIDE a clone -- it exits non-zero with
+ *    "Not inside a git-annex dataset directory" anywhere else -- so the
+ *    subset path needs the `cd` step spelled out. `clone` creates `./<id>`.
+ *
+ * `download` also takes the same subset filters as `get`, which makes a
+ * one-step subset possible (`--subjects`, `--sessions`, `--tasks`, `--runs`,
+ * `--datatypes`, `--include`, `--exclude`); that is the shortest path for
+ * anyone who wants part of a dataset and is offered before the clone route.
+ */
 function buildDownloadSection(input: UseThisDataInput): UseThisDataSection | null {
   const publishedVersionValue = publishedVersion(input);
   if (!publishedVersionValue) return null;
@@ -356,23 +378,38 @@ function buildDownloadSection(input: UseThisDataInput): UseThisDataSection | nul
     items: [
       {
         key: "download-all",
-        label: "Everything",
+        label: "The dataset",
         value: `nemar dataset download ${id}`,
         code: true,
+        note: "Clones and fetches in one step. Content under stimuli/ and derivatives/ is skipped by default because those trees can be large; add --stimuli --derivatives for the whole thing.",
+      },
+      {
+        key: "download-subset-one-step",
+        label: "A subset, one step",
+        value: `nemar dataset download ${id} --subjects sub-01,02`,
+        code: true,
+        note: "Also filters by --sessions, --tasks, --runs, --datatypes, --include and --exclude.",
       },
       {
         key: "download-subset-clone",
         label: "A subset, step 1",
         value: `nemar dataset clone ${id}`,
         code: true,
-        note: "Clones git-annex pointers only; fetches no file content.",
+        note: `Clones git-annex pointers only; fetches no file content. Creates ./${id}.`,
+      },
+      {
+        key: "download-subset-cd",
+        label: "A subset, step 2",
+        value: `cd ${id}`,
+        code: true,
+        note: "The get command below reads the clone's annex, so it only works from inside the clone.",
       },
       {
         key: "download-subset-get",
-        label: "A subset, step 2",
+        label: "A subset, step 3",
         value: "nemar dataset get <files>",
         code: true,
-        note: "Pulls the files you actually need.",
+        note: "Pulls the files you actually need. Skips stimuli/ and derivatives/ unless the path you ask for is under one of them.",
       },
       {
         key: "download-single-file",

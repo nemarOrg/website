@@ -352,6 +352,45 @@ describe("buildUseThisData — bytes location and download (website#286)", () =>
     expect(notes.some((n) => n.includes("no file content"))).toBe(true);
   });
 
+  it("never calls the default download 'everything', and says what it skips (website#294 fix 8)", () => {
+    // `nemar dataset download <id>` skips stimuli/ and derivatives/ content by
+    // default -- confirmed in nemar-cli's own help text for the command. The
+    // old label ("Everything") told the reader the opposite.
+    const model = buildUseThisData(nm000103());
+    const download = model.sections.find((s) => s.id === "download");
+    const all = download?.items.find((i) => i.key === "download-all");
+    expect(all?.value).toBe("nemar dataset download nm000103");
+    expect(all?.label).not.toBe("Everything");
+    expect(all?.note).toContain("stimuli/");
+    expect(all?.note).toContain("derivatives/");
+    expect(all?.note).toContain("--stimuli --derivatives");
+  });
+
+  it("offers --subjects as the one-step subset path (website#294 fix 8)", () => {
+    const model = buildUseThisData(nm000103());
+    const download = model.sections.find((s) => s.id === "download");
+    const oneStep = download?.items.find((i) => i.key === "download-subset-one-step");
+    expect(oneStep?.value).toBe("nemar dataset download nm000103 --subjects sub-01,02");
+  });
+
+  it("puts a cd step between clone and get, in that order (website#294 fix 8)", () => {
+    // `nemar dataset get` exits non-zero outside a git-annex dataset
+    // directory, so the clone -> get instruction is unfollowable without it.
+    const model = buildUseThisData(nm000103());
+    const keys = (model.sections.find((s) => s.id === "download")?.items ?? []).map((i) => i.key);
+    const clone = keys.indexOf("download-subset-clone");
+    const cd = keys.indexOf("download-subset-cd");
+    const get = keys.indexOf("download-subset-get");
+    expect(clone).toBeGreaterThanOrEqual(0);
+    expect(cd).toBe(clone + 1);
+    expect(get).toBe(cd + 1);
+    const cdStep = model.sections
+      .find((s) => s.id === "download")
+      ?.items.find((i) => i.key === "download-subset-cd");
+    expect(cdStep?.value).toBe("cd nm000103");
+    expect(cdStep?.note).toContain("inside the clone");
+  });
+
   it("gives each download step a short, precise value with prose in note (website#291 fix 3)", () => {
     // The command/URL values must stay short and copy-pasteable rather than
     // sentences with a command buried inside -- and every item that carries
