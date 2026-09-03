@@ -58,7 +58,7 @@ export function llmsTxtBody(): string {
     "## API",
     "",
     `- [${apiHost}/datasets](${apiOrigin}/datasets): paginated dataset catalog, JSON.`,
-    `- [${apiHost}/datasets/search](${apiOrigin}/datasets/search): full-text and faceted dataset search, JSON.`,
+    `- [${apiHost}/datasets/search?q=EEG](${apiOrigin}/datasets/search?q=EEG): full-text and faceted dataset search, JSON. The \`q\` query parameter is required; a bare GET with no \`q\` returns 400.`,
   ].join("\n");
 
   const docsSection = [

@@ -75,10 +75,13 @@ describe("llmsTxtBody links", () => {
     expect(body).toContain("/<id>/latest/");
   });
 
-  it("links the API catalog and search endpoints", () => {
+  it("links the API catalog endpoint and a working search example", () => {
     const body = llmsTxtBody();
     expect(body).toContain("https://api.nemar.org/datasets)");
-    expect(body).toContain("https://api.nemar.org/datasets/search)");
+    // The search endpoint 400s with no `q` param; the linked example must
+    // carry one so a naive follow of the link actually resolves.
+    expect(body).toContain("https://api.nemar.org/datasets/search?q=EEG)");
+    expect(body).toContain("`q`");
   });
 
   it("links the docs For-agents guide and the Zarr contract pages", () => {
