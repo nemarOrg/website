@@ -15,6 +15,8 @@ import {
   type UseThisDataCatalogRow,
   type UseThisDataInput,
   buildUseThisData,
+  collapseForMarkdown,
+  escapeMarkdownText,
   renderUseThisDataMarkdown,
 } from "./use-this-data";
 
@@ -65,14 +67,25 @@ const nm000154 = () =>
     catalogNm000154 as unknown as UseThisDataCatalogRow,
   );
 
-/** Every fact value the model carries, across every section — the flat list
- *  the parity test checks against the markdown rendering. Flattens BOTH
- *  `value` and `note` for every item: `note` is a second field a fact can
- *  live in (website#291 fix 3), and omitting it here would silently weaken
- *  the parity guarantee this list feeds. */
+/** Every fact the model carries, across every section, in the form the
+ *  markdown mirror is expected to carry it — the flat list the parity test
+ *  checks against the rendering. Flattens BOTH `value` and `note` for every
+ *  item: `note` is a second field a fact can live in (website#291 fix 3), and
+ *  omitting it here would silently weaken the parity guarantee this list
+ *  feeds.
+ *
+ *  Values pass through the same escaper the renderer picks for them
+ *  (website#294 fix 3) — a code value sits in a code span where backslash
+ *  escapes are literal, everything else is escaped text — so parity is
+ *  checked on the escaped form rather than requiring that escaping never
+ *  happen. Anything with nothing to escape, which is every URL and command
+ *  here, still compares byte-for-byte. */
 function allFactValues(model: UseThisData): string[] {
   return model.sections.flatMap((s) =>
-    s.items.flatMap((i) => (i.note ? [i.value, i.note] : [i.value])),
+    s.items.flatMap((i) => {
+      const value = !i.href && i.code ? collapseForMarkdown(i.value) : escapeMarkdownText(i.value);
+      return i.note ? [value, escapeMarkdownText(i.note)] : [value];
+    }),
   );
 }
 
@@ -86,7 +99,7 @@ describe("buildUseThisData / renderUseThisDataMarkdown — parity", () => {
     ["on007753 (OpenNeuro-derived, IsReferencedBy only)", on007753()],
     ["nm000154 (sparse, null license/authors)", nm000154()],
   ] as const) {
-    it(`every fact in the ${label} model appears verbatim in its markdown`, () => {
+    it(`every fact in the ${label} model appears in its markdown`, () => {
       const model = buildUseThisData(input);
       const markdown = renderUseThisDataMarkdown(model);
       for (const value of allFactValues(model)) {
@@ -157,6 +170,96 @@ describe("buildUseThisData — Zarr block gating", () => {
     const zarr = model.sections.find((s) => s.id === "zarr");
     const step1 = zarr?.items.find((i) => i.key === "zarr-step-1");
     expect(step1?.href).toBe("https://zarr.nemar.org/nm000103/zarr/index.json?v=custom");
+  });
+});
+
+describe("renderUseThisDataMarkdown — markdown injection (website#294 fix 3)", () => {
+  /**
+   * Real nm000103 metadata with three adversarial strings substituted in, one
+   * per interpolation site the renderer has: the heading (`name`), a link's
+   * text AND destination (a `References` DOI), and a plain value (an author
+   * name, which reaches the page through the APA citation).
+   *
+   * These are the shapes that actually matter rather than arbitrary
+   * punctuation: `metadata.json` is edited by dataset owners, a newline ends
+   * the heading or list item it lands in, `](` closes our link and opens
+   * theirs, and a lone backtick pairs with the next one anywhere in the
+   * document.
+   */
+  function adversarialInput(): UseThisDataInput {
+    const base = nm000103();
+    const authors = [
+      { name: "Doe`, J", name_type: "Personal", orcid: null, affiliations: [] },
+      ...(base.metadata.authors ?? []),
+    ];
+    return {
+      ...base,
+      metadata: {
+        ...base.metadata,
+        name: "Bad Dataset\n# Injected Heading\n\nInjected body text.",
+        authors,
+        related_identifiers: [
+          {
+            identifier: "10.1234/ok](https://evil.example/pwned)",
+            identifier_type: "DOI",
+            relation_type: "References",
+          },
+        ],
+      },
+    };
+  }
+
+  const render = () => renderUseThisDataMarkdown(buildUseThisData(adversarialInput()));
+
+  it("emits exactly one top-level heading, whatever the dataset name contains", () => {
+    const h1 = render()
+      .split("\n")
+      .filter((line) => /^# /.test(line));
+    expect(h1).toHaveLength(1);
+    // The name survives as text on that one line, newlines collapsed to
+    // spaces rather than dropped.
+    expect(h1[0]).toContain("Bad Dataset # Injected Heading Injected body text.");
+  });
+
+  it("emits only structural lines: headings, list items, and blanks", () => {
+    // The general form of the newline problem. Every line this renderer
+    // produces is a heading, a `- ` list item, or empty; a line that is none
+    // of those came from inside an interpolated value.
+    for (const line of render().split("\n")) {
+      expect(line, line).toMatch(/^(#{1,3} |- |$)/);
+    }
+  });
+
+  it("keeps a DOI carrying `](` inside one link", () => {
+    const refLine = render()
+      .split("\n")
+      .find((line) => line.startsWith("- **Reference:**"));
+    expect(refLine).toBeDefined();
+    // Link text with no unescaped brackets, destination with no parens or
+    // whitespace, and nothing after the closing paren: the line still parses
+    // as a single link no matter what the DOI contained.
+    expect(refLine).toMatch(/^- \*\*Reference:\*\* \[(?:\\.|[^[\]\\])+\]\((?:\\.|[^\s()])+\)$/);
+    expect(refLine).toContain("%28");
+    expect(refLine).toContain("%29");
+  });
+
+  it("escapes a backtick in an author name so it cannot open a code span", () => {
+    const citationLine = render()
+      .split("\n")
+      .find((line) => line.startsWith("- **Recommended citation:**"));
+    expect(citationLine).toBeDefined();
+    expect(citationLine).toContain("Doe\\`");
+    // An unescaped backtick would leave an odd count on the line and pair
+    // with whatever came next.
+    expect((citationLine?.match(/(?<!\\)`/g) ?? []).length).toBe(0);
+  });
+
+  it("still renders every real fixture as structural lines only", () => {
+    for (const input of [nm000103(), on007753(), nm000154()]) {
+      for (const line of renderUseThisDataMarkdown(buildUseThisData(input)).split("\n")) {
+        expect(line, line).toMatch(/^(#{1,3} |- |This dataset has been registered|$)/);
+      }
+    }
   });
 });
 
