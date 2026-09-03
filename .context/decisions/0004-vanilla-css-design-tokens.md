@@ -18,9 +18,9 @@ blocks per Astro component. No Tailwind, no CSS-in-JS.
 ## Consequences
 
 - Theme switching is straightforward via custom properties; no utility-class bundle weight.
-- Astro scoped styles do not cross component boundaries, so shared row layouts are duplicated
-  on purpose (e.g. `BidsTree.astro` / `BidsDirChildren.astro`) with a sync comment. This is
-  intentional, not a DRY violation.
+- Astro scoped styles do not cross component boundaries, so shared styling is duplicated on
+  purpose (e.g. `SiteNotices.astro` / `admin/notices.astro`'s matched notice-tone rules) with a
+  sync comment. This is intentional, not a DRY violation.
 
 ## Alternatives considered
 

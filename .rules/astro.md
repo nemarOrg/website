@@ -29,7 +29,7 @@ Astro scopes every `<style>` block to its component file. If `ComponentA.astro` 
 
 **Implication:** when two components share layout (recursive rendering, common rows), **duplicate the CSS** in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the per-file scoping is the feature, not the bug.
 
-Example: `BidsTree.astro` and `BidsDirChildren.astro` both declare `.tree__row { display: flex; ... }` independently.
+Example: `SiteNotices.astro` and `src/pages/admin/notices.astro` each declare their own matched notice-tone rules (`.site-notice--tip` / `.notice-badge--tip`, and the other levels) independently, with a comment on each side pointing at the other.
 
 ### Component file layout
 
