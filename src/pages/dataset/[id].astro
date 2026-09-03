@@ -7,6 +7,7 @@ import EegViewerDialog from "../../components/EegViewerDialog.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import Readme from "../../components/Readme.astro";
 import Tag from "../../components/Tag.astro";
+import UseThisData from "../../components/UseThisData.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
 import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
@@ -32,6 +33,8 @@ import {
   isZarrVerifyStatus,
   modalityHref,
 } from "../../lib/tags";
+import { buildUseThisData } from "../../lib/use-this-data";
+import { zarrBase } from "../../lib/zarr-base";
 
 const { id } = Astro.params;
 if (!id) {
@@ -181,6 +184,22 @@ const jsonLdScript = datasetJsonLdScript({
   dataBase: resolveDataBase(),
 });
 
+// "Use this data" section (website#284 phase 2) + its markdown mirror at
+// `/dataset/<id>.md` ([id].md.ts). ONE MODEL, TWO RENDERERS -- see
+// lib/use-this-data.ts's module doc. Built from data already in hand above
+// (no new fetches); `catalogRow` is narrowed to the fields the builder reads.
+const useThisData = buildUseThisData({
+  id,
+  metadata,
+  catalogRow,
+  selectedVersion,
+  dataBase: resolveDataBase(),
+  zarrBase: zarrBase(),
+});
+// Same origin logic as the JSON-LD page URL above, so the alternate link
+// can never disagree with this page's own canonical origin.
+const mdUrl = new URL(`${url.pathname}.md`, jsonLdOrigin).toString();
+
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
 // Owner/repo slug for the client-side GitHub raw fetch. Strips the
 // `https://github.com/` prefix + any trailing slash + any `.git` suffix
@@ -218,6 +237,7 @@ Astro.response.headers.set(
   imageAlt={`${metadata.name} dataset summary card on NEMAR.`}
   ogType="article"
   jsonLdScript={jsonLdScript}
+  headLinks={[{ rel: "alternate", type: "text/markdown", href: mdUrl, title: "Markdown version" }]}
 >
   <article class="detail">
     <header class="detail__header container">
@@ -287,6 +307,7 @@ Astro.response.headers.set(
           </div>
         ) : (
           <>
+            <UseThisData model={useThisData} />
             <Readme
               defer
               datasetId={id}
