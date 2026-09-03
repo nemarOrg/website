@@ -1,17 +1,59 @@
 import { describe, expect, it } from "vitest";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./host";
-import { AI_CRAWLER_TOKENS, robotsBody } from "./robots";
+import { AI_CRAWLER_TOKENS, SEARCH_CRAWLER_TOKENS, robotsBody } from "./robots";
 
 const PRODUCTION_HOSTS = [APP_HOST, MARKETING_HOST, "ww2.nemar.org"];
 const NON_PRODUCTION_HOSTS = ["test.nemar.org", "fa9dbfa0.nemar-website.pages.dev", "localhost"];
 
+/** Every named token the body is expected to carry, in emission order. */
+const NAMED_TOKENS = [...SEARCH_CRAWLER_TOKENS, ...AI_CRAWLER_TOKENS];
+
+interface RobotsGroup {
+  agents: string[];
+  directives: string[];
+}
+
+/**
+ * Parse a robots.txt body into RFC 9309 groups: consecutive `User-agent`
+ * lines, then the directives that apply to all of them. A `User-agent` line
+ * following a directive starts a new group. `Sitemap` is a non-group record
+ * and is skipped; comment-only lines carry nothing.
+ *
+ * Written out rather than asserted with substring matches because the thing
+ * being checked IS the grouping -- `body.includes("Allow: /")` cannot tell
+ * which group the directive landed in, and that is the whole question.
+ */
+function parseGroups(body: string): RobotsGroup[] {
+  const groups: RobotsGroup[] = [];
+  let current: RobotsGroup | null = null;
+  for (const raw of body.split("\n")) {
+    const line = raw.replace(/#.*$/, "").trim();
+    if (!line) continue;
+    const separator = line.indexOf(":");
+    if (separator === -1) continue;
+    const field = line.slice(0, separator).trim().toLowerCase();
+    const value = line.slice(separator + 1).trim();
+    if (field === "sitemap") continue;
+    if (field === "user-agent") {
+      if (!current || current.directives.length > 0) {
+        current = { agents: [], directives: [] };
+        groups.push(current);
+      }
+      current.agents.push(value);
+      continue;
+    }
+    if (current) current.directives.push(line);
+  }
+  return groups;
+}
+
 describe("robotsBody on production hosts", () => {
-  it.each(PRODUCTION_HOSTS)("lists every AI crawler token exactly once on %s", (host) => {
+  it.each(PRODUCTION_HOSTS)("lists every named crawler token exactly once on %s", (host) => {
     const body = robotsBody(host);
     const agentLines = body.match(/^User-agent: .+$/gm) ?? [];
-    for (const token of AI_CRAWLER_TOKENS) {
+    for (const token of NAMED_TOKENS) {
       const matches = agentLines.filter((line) => line === `User-agent: ${token}`);
-      expect(matches).toHaveLength(1);
+      expect(matches, token).toHaveLength(1);
     }
   });
 
@@ -22,7 +64,7 @@ describe("robotsBody on production hosts", () => {
     );
     // Only the named tokens, in order, excluding the trailing wildcard group.
     const namedTokens = agentLines.filter((token) => token !== "*");
-    expect(namedTokens).toEqual(AI_CRAWLER_TOKENS);
+    expect(namedTokens).toEqual(NAMED_TOKENS);
   });
 
   it.each(PRODUCTION_HOSTS)("shares a single Allow: / for the AI crawler block on %s", (host) => {
@@ -40,12 +82,59 @@ describe("robotsBody on production hosts", () => {
     expect(body).toContain(contiguousBlock);
   });
 
-  it.each(PRODUCTION_HOSTS)("emits exactly two rule groups on %s", (host) => {
+  it.each(PRODUCTION_HOSTS)("emits exactly three rule groups on %s", (host) => {
     const body = robotsBody(host);
-    // One `Allow: /` for the named crawlers, one for the wildcard. A third
-    // would mean the named block fragmented; see the contiguity test above
-    // for why that is not self-evident from the tokens alone.
-    expect(body.match(/^Allow: \/$/gm) ?? []).toHaveLength(2);
+    // One `Allow: /` for Applebot, one for the AI crawlers, one for the
+    // wildcard. A fourth would mean a block fragmented; see the contiguity
+    // test above for why that is not self-evident from the tokens alone.
+    expect(body.match(/^Allow: \/$/gm) ?? []).toHaveLength(3);
+    expect(parseGroups(body)).toHaveLength(3);
+  });
+
+  it.each(PRODUCTION_HOSTS)(
+    "gives every named group the wildcard group's exact directive set on %s",
+    (host) => {
+      // RFC 9309 §2.2.1: a crawler obeys ONLY its most specific matching
+      // group and inherits nothing from `User-agent: *`. So every named token
+      // here silently escapes any future `Disallow` added to the wildcard
+      // group. The named blocks are kept as a readable statement of intent;
+      // this is the guard that makes the divergence fail loudly instead
+      // (website#294 fix 9).
+      const groups = parseGroups(robotsBody(host));
+      const wildcard = groups.find((g) => g.agents.includes("*"));
+      expect(wildcard).toBeDefined();
+      expect(wildcard?.directives.length).toBeGreaterThan(0);
+      const named = groups.filter((g) => !g.agents.includes("*"));
+      expect(named.length).toBeGreaterThan(0);
+      for (const group of named) {
+        expect(new Set(group.directives), group.agents.join(", ")).toEqual(
+          new Set(wildcard?.directives),
+        );
+      }
+    },
+  );
+
+  it.each(PRODUCTION_HOSTS)("keeps Applebot in a group of its own on %s", (host) => {
+    // Applebot is Apple's SEARCH crawler; Applebot-Extended is the
+    // AI-training token. Sharing a group with the AI tokens means an
+    // AI-motivated `Disallow` would deindex the site from Apple search
+    // (website#294 fix 9).
+    const groups = parseGroups(robotsBody(host));
+    const appleGroup = groups.find((g) => g.agents.includes("Applebot"));
+    expect(appleGroup?.agents).toEqual(["Applebot"]);
+    const aiGroup = groups.find((g) => g.agents.includes("Applebot-Extended"));
+    expect(aiGroup?.agents).not.toContain("Applebot");
+    expect(AI_CRAWLER_TOKENS).not.toContain("Applebot");
+  });
+
+  it.each(PRODUCTION_HOSTS)("allows the user-initiated assistant fetchers on %s", (host) => {
+    // A person asking an assistant about a dataset is a separate token from
+    // the vendor's bulk crawl, so it needs listing separately or it falls to
+    // a different rule (website#294 fix 9).
+    const groups = parseGroups(robotsBody(host));
+    const aiGroup = groups.find((g) => g.agents.includes("GPTBot"));
+    expect(aiGroup?.agents).toContain("Perplexity-User");
+    expect(aiGroup?.agents).toContain("meta-externalfetcher");
   });
 
   it.each(PRODUCTION_HOSTS)("still allows everything under the wildcard on %s", (host) => {
@@ -82,10 +171,10 @@ describe("robotsBody on non-production hosts", () => {
     expect(robotsBody(host)).toBe("User-agent: *\nDisallow: /\n");
   });
 
-  it.each(NON_PRODUCTION_HOSTS)("never mentions AI crawler tokens on %s", (host) => {
+  it.each(NON_PRODUCTION_HOSTS)("never mentions a named crawler token on %s", (host) => {
     const body = robotsBody(host);
-    for (const token of AI_CRAWLER_TOKENS) {
-      expect(body).not.toContain(token);
+    for (const token of NAMED_TOKENS) {
+      expect(body, token).not.toContain(token);
     }
   });
 
