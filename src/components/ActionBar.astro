@@ -249,7 +249,7 @@ cd {datasetId} && nemar dataset get</code></pre>
     <h2 id="citations-dialog-heading" data-citations-heading>Citations</h2>
     <div class="cite-filter" role="group" aria-label="Filter citations by what they reference">
       <button type="button" class="cite-filter__btn is-active" data-cite-filter="all" aria-pressed="true">All</button>
-      <button type="button" class="cite-filter__btn" data-cite-filter="dataset" aria-pressed="false">Cites dataset</button>
+      <button type="button" class="cite-filter__btn" data-cite-filter="dataset" aria-pressed="false">Cites the dataset</button>
       <button type="button" class="cite-filter__btn" data-cite-filter="paper" aria-pressed="false">Cites the paper</button>
     </div>
   </header>
@@ -633,6 +633,8 @@ cd {datasetId} && nemar dataset get</code></pre>
 </style>
 
 <script>
+  import { citeKindLabel, citedByLabel } from "../lib/citation-labels";
+
   document.querySelectorAll<HTMLButtonElement>("[data-compute-stub]").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
@@ -752,12 +754,19 @@ cd {datasetId} && nemar dataset get</code></pre>
         tags.className = "cite-item__tags";
         const flag = document.createElement("span");
         flag.className = `cite-flag cite-flag--${kind}`;
-        flag.textContent = kind === "dataset" ? "Cites dataset" : "Cites the paper";
+        flag.textContent = citeKindLabel(kind);
         tags.appendChild(flag);
-        if (typeof c.cited_by === "number" && c.cited_by > 0) {
+        const byLabel = citedByLabel(c.cited_by, fmt);
+        if (byLabel) {
+          // The count is the citing work's own, not the dataset's; sighted
+          // users read that from the layout, screen readers get it spelled out.
           const by = document.createElement("span");
           by.className = "cite-item__by";
-          by.textContent = c.cited_by === 1 ? "cited once" : `cited ${fmt(c.cited_by)} times`;
+          const sr = document.createElement("span");
+          sr.className = "visually-hidden";
+          sr.textContent = "This work has been ";
+          by.appendChild(sr);
+          by.appendChild(document.createTextNode(byLabel));
           tags.appendChild(by);
         }
         li.appendChild(tags);
