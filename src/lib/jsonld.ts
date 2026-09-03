@@ -79,6 +79,8 @@ function conditionsOfAccess(rawLicense: string): string | undefined {
   const tier = licenseTier(rawLicense);
   if (tier === "noncommercial") return `Non-commercial use only (${rawLicense}).`;
   if (tier === "noderiv") return `No derivative works permitted (${rawLicense}).`;
+  if (tier === "sharealike")
+    return `Derivatives must be shared under the same license (${rawLicense}).`;
   return undefined;
 }
 

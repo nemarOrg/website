@@ -334,6 +334,64 @@ describe("buildDatasetJsonLd — missing DOI", () => {
   });
 });
 
+// website#209: conditionsOfAccess only branched on "noncommercial" and
+// "noderiv", silently dropping the note for a pure share-alike license
+// (CC-BY-SA) even though licenseTier (./tags.ts) already classifies it as
+// its own "sharealike" tier. One case per tier licenseTier recognizes,
+// covering both the combined-clause ordering (most restrictive marker wins,
+// per licenseTier's own doc comment) and the two tiers that carry no
+// conditionsOfAccess note at all.
+describe("conditionsOfAccess by license tier (website#209)", () => {
+  const withLicense = (license: string) =>
+    buildDatasetJsonLd(minimalInput({ metadata: minimalMetadata({ license }) }));
+
+  it("CC-BY: attribution tier, no conditionsOfAccess note", () => {
+    const jsonld = withLicense("CC-BY 4.0");
+    expect(jsonld.conditionsOfAccess).toBeUndefined();
+  });
+
+  it("CC-BY-SA: sharealike tier, notes derivatives must keep the same license", () => {
+    const jsonld = withLicense("CC-BY-SA 4.0");
+    expect(jsonld.license).toBe("https://creativecommons.org/licenses/by-sa/4.0/");
+    expect(jsonld.conditionsOfAccess).toBe(
+      "Derivatives must be shared under the same license (CC-BY-SA 4.0).",
+    );
+  });
+
+  it("CC-BY-NC: noncommercial tier", () => {
+    const jsonld = withLicense("CC-BY-NC 4.0");
+    expect(jsonld.license).toBe("https://creativecommons.org/licenses/by-nc/4.0/");
+    expect(jsonld.conditionsOfAccess).toBe("Non-commercial use only (CC-BY-NC 4.0).");
+  });
+
+  it("CC-BY-NC-SA: the noncommercial marker wins over share-alike (most restrictive first)", () => {
+    const jsonld = withLicense("CC-BY-NC-SA 4.0");
+    expect(jsonld.license).toBe("https://creativecommons.org/licenses/by-nc-sa/4.0/");
+    expect(jsonld.conditionsOfAccess).toBe("Non-commercial use only (CC-BY-NC-SA 4.0).");
+  });
+
+  it("CC-BY-ND: noderiv tier", () => {
+    const jsonld = withLicense("CC-BY-ND 4.0");
+    expect(jsonld.license).toBe("https://creativecommons.org/licenses/by-nd/4.0/");
+    expect(jsonld.conditionsOfAccess).toBe("No derivative works permitted (CC-BY-ND 4.0).");
+  });
+
+  it("CC-BY-NC-ND: the noderiv marker wins over noncommercial (most restrictive first)", () => {
+    const jsonld = withLicense("CC-BY-NC-ND 4.0");
+    expect(jsonld.license).toBe("https://creativecommons.org/licenses/by-nc-nd/4.0/");
+    expect(jsonld.conditionsOfAccess).toBe("No derivative works permitted (CC-BY-NC-ND 4.0).");
+  });
+
+  it("CC0 / PDDL: public-domain tier, no conditionsOfAccess note", () => {
+    const cc0 = withLicense("CC0 1.0");
+    expect(cc0.license).toBe("https://creativecommons.org/publicdomain/zero/1.0/");
+    expect(cc0.conditionsOfAccess).toBeUndefined();
+
+    const pddl = withLicense("PDDL 1.0");
+    expect(pddl.conditionsOfAccess).toBeUndefined();
+  });
+});
+
 describe("escapeJsonLdForScript — </script> and HTML breakout", () => {
   it("escapes < so </script> cannot appear in the output", () => {
     const hostile = "</script><script>alert(document.cookie)</script>";

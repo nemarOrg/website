@@ -6,6 +6,9 @@ import {
   openRecording,
   parseChannels,
   predictedViewLevelCount,
+  readLevel0,
+  readOverview,
+  readWindow,
   retryingFetch,
   windowDataBytes,
 } from "./store";
@@ -797,5 +800,138 @@ describe("declared view levels skip probing entirely (website#276)", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+/**
+ * website#208: the interactive path (openRecording, and the window reads
+ * viewer.ts's render loop calls) must actually cancel its underlying HTTP
+ * requests when a mount is superseded or destroyed, not just discard the
+ * result once it eventually arrives. These exercise the same transport
+ * boundary as the rest of this file (a real in-memory fetch stub, real
+ * AbortController/AbortSignal plumbing through zarrita) rather than mocking
+ * openRecording/readWindow themselves.
+ */
+describe("abort propagation into the interactive path (website#208)", () => {
+  it("openRecording rejects once the caller's signal aborts mid-open, and never issues a group/level-0 request", async () => {
+    const requests: string[] = [];
+    // The root zarr.json request hangs forever on its own -- it only settles
+    // (via zarrita/dedupingFetch's own abort wiring) once `controller` aborts.
+    const handler = (async (input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(new URL(url).pathname.replace(/^\/store\//, ""));
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = new AbortController();
+    await withFetch(handler, async () => {
+      const pending = openRecording("https://example.test/store/", controller.signal);
+      // Let the synchronous open of the root request actually dispatch before
+      // aborting it -- confirms the rejection comes from the abort, not from
+      // aborting before anything was even in flight.
+      await Promise.resolve();
+      expect(requests).toEqual(["zarr.json"]);
+      controller.abort();
+      await expect(pending).rejects.toThrow();
+    });
+    // No group ("eeg/zarr.json") or level-0 ("eeg/0/zarr.json") request was
+    // ever issued -- the abort cut the open off at the root, not after.
+    expect(requests).toEqual(["zarr.json"]);
+  });
+
+  it("readLevel0 rejects an in-flight chunk read once the signal aborts, and writes no data", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({ nSamples: 2000, viewLevels: [] });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      // Let the fire-and-forget view-level/events reads settle on THIS
+      // handler before it is swapped out below, so they don't leak a
+      // dangling request into the hanging handler.
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+
+    // Every request for the actual chunk bytes hangs until aborted -- opening
+    // is already done, so nothing else should be requesting metadata here.
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    await withFetch(hangingFetch, async () => {
+      const pending = readLevel0(g, 0, 1, 0, g.nChannels, controller.signal);
+      await Promise.resolve();
+      controller.abort();
+      await expect(pending).rejects.toThrow();
+    });
+  });
+
+  it("readWindow (the function viewer.ts's interactive render path calls) also rejects on abort instead of resolving with stale data", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({ nSamples: 2000, viewLevels: [] });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    let settled: "resolved" | "rejected" | "pending" = "pending";
+    await withFetch(hangingFetch, async () => {
+      const pending = readWindow(g, 0, 1, 800, 0, g.nChannels, false, controller.signal).then(
+        () => {
+          settled = "resolved";
+        },
+        () => {
+          settled = "rejected";
+        },
+      );
+      await Promise.resolve();
+      expect(settled).toBe("pending"); // genuinely in flight, not already settled
+      controller.abort();
+      await pending;
+    });
+    expect(settled).toBe("rejected"); // aborted, not resolved with a dropped-in-flight result
+  });
+
+  it("readOverview resolves to null (never rejects, never hangs) once the signal aborts the minimap read", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+    });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+    // Otherwise readOverview short-circuits to null without ever reading --
+    // the abort has to interrupt a genuine in-flight zarr.get.
+    expect(g.viewLevels.length).toBeGreaterThan(0);
+
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    let settled: "resolved" | "rejected" | "pending" = "pending";
+    let result: Float32Array | null | undefined;
+    await withFetch(hangingFetch, async () => {
+      const pending = readOverview(g, controller.signal).then((data) => {
+        settled = "resolved";
+        result = data;
+      });
+      await Promise.resolve();
+      expect(settled).toBe("pending"); // genuinely in flight, not already settled
+      controller.abort();
+      await pending;
+    });
+    // readOverview swallows every failure (including an abort) and resolves
+    // to null rather than throwing -- same contract it always had, now also
+    // true for a caller-driven cancellation.
+    expect(settled).toBe("resolved");
+    expect(result).toBeNull();
   });
 });

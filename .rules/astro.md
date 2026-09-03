@@ -27,9 +27,9 @@ The `compile` option pulls sharp into the SSR bundle. The Workers runtime can't 
 ### Scoped styles don't cross components
 Astro scopes every `<style>` block to its component file. If `ComponentA.astro` imports `ComponentB.astro` and ComponentB has a `.row` class, ComponentA's `.row` styles won't apply.
 
-**Implication:** when two components share layout (recursive rendering, common rows), **duplicate the CSS** in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the per-file scoping is the feature, not the bug.
+**Implication:** when two components must stay visually matched (shared styling, not shared markup — e.g. matched tone/status rules), **duplicate the CSS** in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the per-file scoping is the feature, not the bug.
 
-Example: `BidsTree.astro` and `BidsDirChildren.astro` both declare `.tree__row { display: flex; ... }` independently.
+Example: `SiteNotices.astro` and `src/pages/admin/notices.astro` each declare their own matched notice-tone rules (`.site-notice--tip` / `.notice-badge--tip`, and the other levels) independently, with a comment on each side pointing at the other.
 
 ### Component file layout
 

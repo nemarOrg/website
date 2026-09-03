@@ -397,21 +397,36 @@ export async function mountEegViewer(
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">Loading viewer…</p></div>`;
   const url = zarrStoreUrl(opts.datasetId, opts.filePath, { token: opts.zarrToken });
 
+  // Owns every zarr fetch this mount attempt makes: the store open below and,
+  // once mounted, every interactive window read (website#208). Registered as
+  // the slot's cleanup immediately -- before the store has even opened -- so
+  // that if a later `mountEegViewer` call supersedes this one while
+  // `openRecording` is still in flight, ITS teardown-first block above runs
+  // this abort instead of letting the fetch run to completion for a
+  // `RecordingStore` nobody will use. Folded into the full disposer's own
+  // cleanups once the mount succeeds (see `cleanups.push` below); aborting an
+  // already-aborted controller is a no-op, so holding both references is safe.
+  const abortController = new AbortController();
+  (slot as HTMLElement & { _eegvCleanup?: () => void })._eegvCleanup = () =>
+    abortController.abort();
+
   let store: RecordingStore;
   try {
-    store = await openRecording(url);
+    store = await openRecording(url, abortController.signal);
   } catch (err) {
     // Even the error path must respect staleness: a superseded attempt writing
     // "viewer unavailable" would replace a working viewer that a later mount
-    // put in this slot.
-    if (opts.isStale?.()) return undefined;
+    // put in this slot. An aborted open is the same story either way -- the
+    // fetch was cancelled on purpose (superseded or closed), not a real
+    // failure worth surfacing.
+    if (opts.isStale?.() || abortController.signal.aborted) return undefined;
     renderUnavailable(slot, opts, err);
     return undefined;
   }
   // Past the await, so a newer mount may already own this slot. Return before
   // writing anything — see `isStale` on ViewerOptions. Nothing needs releasing
   // here: no DOM was built yet, and the store holds no handle to close.
-  if (opts.isStale?.()) return undefined;
+  if (opts.isStale?.() || abortController.signal.aborted) return undefined;
   if (store.groups.length === 0) {
     renderUnavailable(slot, opts, new Error("store has no channel groups"));
     return undefined;
@@ -914,7 +929,16 @@ export async function mountEegViewer(
       const readChanCount = chanCount;
       const readWindowLengthS = windowLengthS;
       const readPreloadEnabled = preloadEnabled;
-      const win = await readWindow(g, start, end, plotWidth, readChanStart, readChanCount, false);
+      const win = await readWindow(
+        g,
+        start,
+        end,
+        plotWidth,
+        readChanStart,
+        readChanCount,
+        false,
+        abortController.signal,
+      );
       // Write-through: an interactive read that landed on the segment grid IS
       // the segment the background walk would fetch for that index -- store it
       // under the walk's own key (writeThroughKey shares prefetchCacheKey with
@@ -948,7 +972,16 @@ export async function mountEegViewer(
     const padS = Math.min(2, (end - start) * 0.5);
     const pStart = Math.max(0, start - padS);
     const pEnd = Math.min(g.durationS, end + padS);
-    const w = await readWindow(g, pStart, pEnd, plotWidth, chanStart, chanCount, true);
+    const w = await readWindow(
+      g,
+      pStart,
+      pEnd,
+      plotWidth,
+      chanStart,
+      chanCount,
+      true,
+      abortController.signal,
+    );
     if (w.channels.length === 0 || w.channels[0].kind !== "line") {
       // Window too wide for level-0: the read fell back to the pyramid band, which
       // filtfilt cannot touch. Re-read the *visible* (unpadded) window so its nCols
@@ -957,7 +990,16 @@ export async function mountEegViewer(
       const band =
         w.channels.length === 0
           ? w
-          : await readWindow(g, start, end, plotWidth, chanStart, chanCount, false);
+          : await readWindow(
+              g,
+              start,
+              end,
+              plotWidth,
+              chanStart,
+              chanCount,
+              false,
+              abortController.signal,
+            );
       return { win: band, filtered: false };
     }
     const biquads = designFilters(filters, g.rate);
@@ -1051,7 +1093,13 @@ export async function mountEegViewer(
     try {
       ({ win, filtered } = await readFrame(g, start, end, plotWidth));
     } catch (err) {
-      if (seq === renderSeq) {
+      // An aborted read (destroy() tore this mount down, or a superseding
+      // mount reused this slot -- website#208) is a deliberate cancellation,
+      // not a failure: leave whatever was already painted rather than
+      // flashing "Signal unavailable" over a viewer that is (or is about to
+      // be) gone, and write no other state for a request nobody asked to see
+      // the result of.
+      if (seq === renderSeq && !abortController.signal.aborted) {
         firstPaint = false;
         const msg = err instanceof Error ? err.message : String(err);
         const tc = themeColors(ui.root);
@@ -1203,11 +1251,20 @@ export async function mountEegViewer(
     const seq = ++overviewSeq;
     let data: Float32Array | null = null;
     try {
-      data = await readOverview(g);
+      data = await readOverview(g, abortController.signal);
     } catch (err) {
-      console.error("[eeg-viewer] loadOverview failed:", err);
+      // readOverview itself never rejects (it swallows failures, including a
+      // caller-driven abort, and resolves to null) -- this catch is defense
+      // in depth, so still skip logging an abort as if it were a failure.
+      if (!abortController.signal.aborted) {
+        console.error("[eeg-viewer] loadOverview failed:", err);
+      }
     }
-    if (seq !== overviewSeq) return; // a group switch superseded this load
+    // `disposed` covers the abort/teardown case (website#208): a torn-down
+    // mount must not write overviewData, touch the minimap's (possibly
+    // detached) display style, or call drawOverview(). `seq !== overviewSeq`
+    // covers the narrower case of a group switch superseding this load.
+    if (disposed || seq !== overviewSeq) return;
     overviewData = data;
     ui.minimap.style.display = data && data.length > 0 ? "block" : "none";
     drawOverview();
@@ -1784,11 +1841,17 @@ export async function mountEegViewer(
     document.addEventListener("visibilitychange", onVisibility);
     cleanups.push(() => document.removeEventListener("visibilitychange", onVisibility));
   }
-  // Clean abort on teardown (website#208's discipline, applied to this mount's
-  // own background reads): stop() invalidates the walk and aborts whatever
-  // segment fetch is in flight rather than letting it run to completion
-  // against a viewer nobody is looking at any more.
+  // Clean abort on teardown (website#208): stop() invalidates the background
+  // walk and aborts whatever segment fetch is in flight rather than letting it
+  // run to completion against a viewer nobody is looking at any more.
   cleanups.push(() => prefetchController.stop());
+  // Same discipline for the interactive path: aborts openRecording (if this
+  // somehow still ran during teardown), every in-flight readWindow call
+  // threaded through readFrame above, and the overview minimap's readOverview
+  // call in loadOverview. Idempotent -- the early lightweight `_eegvCleanup`
+  // registered before the store even opened may already have aborted this
+  // same controller.
+  cleanups.push(() => abortController.abort());
   cleanups.push(() => glRenderer?.dispose());
   // Idempotent. The page holds up to three handles on this one function — the
   // disposer returned below, `slot._eegvCleanup`, and `eegLive.destroy` — and a
@@ -1814,6 +1877,11 @@ export async function mountEegViewer(
 
   await render();
   void store.eventsReady.then((events) => {
+    // Mirrors watchViewLevels' guard: a mount torn down while eventsReady is
+    // still in flight must not write store.events/eventTypes, touch the
+    // (possibly detached) legend node, or call render() -- which would touch
+    // glRenderer after dispose() (website#208's discipline, applied here).
+    if (disposed) return;
     store.events = events;
     eventTypes = events ? buildEventTypes(events) : [];
     fillEventLegend(ui.legend, eventTypes);

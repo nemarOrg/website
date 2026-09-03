@@ -344,7 +344,7 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 
 1. **Check context:** Read `.context/handoff.md` first (it has the most recent session state). Then `.context/plan.md`.
 2. **Branch:** `gh issue develop <issue>` for non-trivial work; epic-dev workflow for multi-phase features.
-3. **Code:** Follow patterns in this file + the rules. **Component styles are scoped per .astro file** — duplicated layout CSS in nested components is intentional, not DRY-violating (see BidsTree.astro / BidsDirChildren.astro).
+3. **Code:** Follow patterns in this file + the rules. **Component styles are scoped per .astro file** — duplicated layout CSS in nested components is intentional, not DRY-violating (see SiteNotices.astro / admin/notices.astro's matched notice-tone rules).
 4. **Test:** real APIs only. Vitest covers pure helpers in `src/lib/*.test.ts`. Astro page rendering verified via `/browse` against the dev server or a Cloudflare Pages preview deploy.
 5. **Commit:** atomic, <50 chars, no emojis, no AI attribution. Never hand-edit the version
    in `package.json` on a feature branch — the workflows own it (see Versioning above).
@@ -438,7 +438,7 @@ bun run bump <arg>            # version bump; workflows normally do this for you
 
 ## Project-Specific Guidelines
 
-- **Astro scoped `<style>` doesn't cross component boundaries.** If two components share row layout (e.g., `BidsTree.astro` and `BidsDirChildren.astro`), duplicate the CSS in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the components are intentionally self-contained.
+- **Astro scoped `<style>` doesn't cross component boundaries.** If two components share styling (e.g., `SiteNotices.astro` and `src/pages/admin/notices.astro`'s matched notice-tone rules), duplicate the CSS in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the components are intentionally self-contained.
 - **Multi-modality filtering is a known tradeoff.** Server-side offset pagination + client-side AND/OR multi-modality means the `total_count` in the count display reflects server total, not client-filtered count when 2+ modalities are selected. Move AND/OR to the API only when the backend supports it.
 - **Logo SVG (`public/nemar-logo.svg`) uses `currentColor`** — themes via parent color inheritance. Don't hardcode fill.
 - **Brain hero (`public/hero-brain.png`) uses mix-blend-mode tricks.** Dark mode: `screen` blend; light mode: `filter: invert + multiply`. Don't refactor without verifying both themes.
