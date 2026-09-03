@@ -300,14 +300,25 @@ Astro.response.headers.set(
 
     <div class="container detail__body">
       <div class="detail__main">
-        {unpublished ? (
+        {unpublished && (
           <div class="detail__unpublished">
             <h2>Not yet published</h2>
             <p>This dataset has been registered but no published version is available yet. Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</p>
           </div>
-        ) : (
+        )}
+        {/* Renders in BOTH the unpublished and published states, deliberately
+            not inside the branch above. buildUseThisData is the single source
+            of truth for what an unpublished dataset shows -- it already omits
+            the location/download/assess/Zarr sections for one (see
+            lib/use-this-data.ts's UseThisDataInput.unpublished doc) and keeps
+            only overview/license. Gating the whole component on `unpublished`
+            here as well double-gated it: the page showed nothing while the
+            .md mirror ([id].md.ts) rendered the model unconditionally, so an
+            unpublished dataset's markdown carried an overview and a citation
+            the human page never displayed (website#291 fix 1). */}
+        <UseThisData model={useThisData} />
+        {!unpublished && (
           <>
-            <UseThisData model={useThisData} />
             <Readme
               defer
               datasetId={id}
