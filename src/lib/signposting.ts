@@ -129,10 +129,12 @@ const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
  * null when it is not an ORCID iD at all.
  *
  * THE STRIP HAS TO COME FIRST because both shapes are real. neuroschema
- * documents `orcid` as a URL (`https://orcid.org/0000-...`) while production
- * `metadata.json` ships the bare id, so validating before stripping would
- * reject every URL-form value and prefixing before validating would produce
- * `https://orcid.org/https://orcid.org/0000-...`.
+ * documents this field as "ORCID identifier URL"
+ * (`schema/definitions/person.schema.json`) while production `metadata.json`
+ * ships the bare id (nm000103's eight authors, captured in
+ * `test/fixtures/jsonld-metadata-nm000103.json`). Validating before stripping
+ * would reject every URL-form value; prefixing before validating would
+ * produce `https://orcid.org/https://orcid.org/0000-...`.
  *
  * Validation is the point, not tidiness: the return value is interpolated
  * into a `Link` header, and `Headers.set` THROWS on a control character. The

@@ -4,12 +4,15 @@ import type { APIContext, APIRoute } from "astro";
  * Shared harness for the route-level tests in this directory (website#294
  * fix 10).
  *
- * WHY THESE TESTS LIVE UNDER `test/` RATHER THAN BESIDE THE ROUTES. Every
- * file under `src/pages/` is a route: a `sitemap.xml.test.ts` there would be
- * built and served as the endpoint `/sitemap.xml.test`, which exports no
- * handler. So the tests sit outside the pages tree; vitest's default include
- * glob matches a `.test.ts` file anywhere in the repo, so nothing else has to
- * be configured for them to run.
+ * WHY THESE TESTS LIVE UNDER `test/` RATHER THAN BESIDE THE ROUTES, unlike
+ * every other test in this repo. Every file under `src/pages/` is a route,
+ * `.test.ts` included: a `sitemap.xml.test.ts` placed there builds without
+ * complaint and lands in the route manifest as `/sitemap.xml.test` (verified
+ * by grepping `dist/_worker.js/index.js` after a build), so it would ship
+ * test code into the Worker bundle and serve a route with no handler. Hence
+ * the tests sit outside the pages tree; vitest's default include glob matches
+ * a `.test.ts` file anywhere in the repo, so nothing else has to be
+ * configured for them to run.
  *
  * WHAT IS STUBBED, AND WHAT IS NOT. Only the network boundary
  * (`globalThis.fetch`) and Astro's own `redirect` helper, which is a
