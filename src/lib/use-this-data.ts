@@ -697,6 +697,25 @@ export function safeMarkdownUrl(href: string): string {
 }
 
 /**
+ * Absolute URL of a dataset page's markdown mirror, for the
+ * `rel="alternate"` link the page advertises.
+ *
+ * THE TRAILING SLASH HAS TO GO FIRST. `astro.config.mjs` sets
+ * `trailingSlash: "ignore"`, so `/dataset/nm000103` and
+ * `/dataset/nm000103/` are both live URLs for the same page, and the second
+ * one is what a crawler following a slash-terminated link arrives on.
+ * Appending `.md` to that pathname produced `/dataset/nm000103/.md`, which
+ * matches no route in `src/pages/` and 404s — an advertised alternate that
+ * only works on one of the two spellings of the page advertising it.
+ *
+ * `origin` comes from the caller's `canonicalOriginFor` so the mirror URL and
+ * the page's own canonical URL cannot name different hosts.
+ */
+export function markdownMirrorUrl(pathname: string, origin: string): string {
+  return new URL(`${pathname.replace(/\/+$/, "")}.md`, origin).toString();
+}
+
+/**
  * Render the model as markdown — the `.md` mirror's entire body. Every fact
  * the model carries appears here (the load-bearing parity guarantee tested in
  * use-this-data.test.ts, checked through `escapeMarkdownText` since that is

@@ -17,6 +17,7 @@ import {
   buildUseThisData,
   collapseForMarkdown,
   escapeMarkdownText,
+  markdownMirrorUrl,
   renderUseThisDataMarkdown,
 } from "./use-this-data";
 
@@ -170,6 +171,39 @@ describe("buildUseThisData — Zarr block gating", () => {
     const zarr = model.sections.find((s) => s.id === "zarr");
     const step1 = zarr?.items.find((i) => i.key === "zarr-step-1");
     expect(step1?.href).toBe("https://zarr.nemar.org/nm000103/zarr/index.json?v=custom");
+  });
+});
+
+describe("markdownMirrorUrl (website#294 fix 5)", () => {
+  const origin = "https://nemar.org";
+
+  it("appends .md to the slashless pathname", () => {
+    expect(markdownMirrorUrl("/dataset/nm000103", origin)).toBe(
+      "https://nemar.org/dataset/nm000103.md",
+    );
+  });
+
+  it("strips a trailing slash first, so the live slashed variant resolves", () => {
+    // `trailingSlash: "ignore"` means both spellings serve the page, and this
+    // one used to produce `/dataset/nm000103/.md` -- a 404.
+    expect(markdownMirrorUrl("/dataset/nm000103/", origin)).toBe(
+      "https://nemar.org/dataset/nm000103.md",
+    );
+    expect(markdownMirrorUrl("/dataset/nm000103///", origin)).toBe(
+      "https://nemar.org/dataset/nm000103.md",
+    );
+  });
+
+  it("never emits a path segment starting with a dot", () => {
+    for (const pathname of ["/dataset/nm000103", "/dataset/nm000103/", "/dataset/on007753/"]) {
+      expect(new URL(markdownMirrorUrl(pathname, origin)).pathname).not.toContain("/.");
+    }
+  });
+
+  it("takes the origin from the caller rather than hardcoding one", () => {
+    expect(markdownMirrorUrl("/dataset/nm000103/", "https://app.nemar.org")).toBe(
+      "https://app.nemar.org/dataset/nm000103.md",
+    );
   });
 });
 

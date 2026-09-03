@@ -35,7 +35,7 @@ import {
   isZarrVerifyStatus,
   modalityHref,
 } from "../../lib/tags";
-import { buildUseThisData } from "../../lib/use-this-data";
+import { buildUseThisData, markdownMirrorUrl } from "../../lib/use-this-data";
 import { zarrBase } from "../../lib/zarr-base";
 
 const { id } = Astro.params;
@@ -210,8 +210,10 @@ const useThisData = buildUseThisData({
   zarrBase: zarrBase(),
 });
 // Same origin logic as the JSON-LD page URL above, so the alternate link
-// can never disagree with this page's own canonical origin.
-const mdUrl = new URL(`${url.pathname}.md`, jsonLdOrigin).toString();
+// can never disagree with this page's own canonical origin. The helper is
+// what strips a trailing slash before appending `.md` -- see its doc comment;
+// `/dataset/<id>/.md` matches no route.
+const mdUrl = markdownMirrorUrl(url.pathname, jsonLdOrigin);
 
 // FAIR Signposting link relations (website#284 phase 3, issue #287). ONE
 // MODEL, TWO SERIALIZATIONS -- see lib/signposting.ts's module doc. Built
