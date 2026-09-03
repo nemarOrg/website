@@ -9,6 +9,12 @@ import { llmsTxtBody } from "../lib/llms-txt";
  */
 export const GET: APIRoute = () => {
   return new Response(llmsTxtBody(), {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      // Same reasoning as robots.txt.ts: a static body, so let the edge serve
+      // it. `isPublicCacheable` in src/middleware.ts needs `public` plus a
+      // max-age to cache a response at all.
+      "Cache-Control": "public, max-age=3600",
+    },
   });
 };

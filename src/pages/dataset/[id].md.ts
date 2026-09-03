@@ -8,6 +8,7 @@ import {
   resolveDatasetPageStatus,
 } from "../../lib/data-api";
 import { resolveDataBase } from "../../lib/data-base";
+import { canonicalOriginFor } from "../../lib/host";
 import { buildUseThisData, renderUseThisDataMarkdown } from "../../lib/use-this-data";
 import { zarrBase } from "../../lib/zarr-base";
 
@@ -96,6 +97,17 @@ export const GET: APIRoute = async ({ params, url, redirect }) => {
 
   const body = renderUseThisDataMarkdown(model);
 
+  // This document is a MIRROR of `/dataset/<id>`, so it must not compete with
+  // it in search: `noindex` keeps it out of the index, and the canonical Link
+  // header names the HTML page as the indexable original (RFC 6596; a header
+  // rather than an element because markdown has no <head>). The query string
+  // is deliberately dropped, matching how [id].astro derives its own
+  // canonical URL, so every `?v=` variant canonicalises to one URL.
+  const canonicalUrl = new URL(
+    `/dataset/${encodeURIComponent(id)}`,
+    canonicalOriginFor(url.pathname, url.hostname),
+  ).toString();
+
   // Same edge-cache policy as the HTML page (dataset detail rarely changes
   // within the window; see [id].astro's identical Cache-Control comment).
   return new Response(body, {
@@ -103,6 +115,8 @@ export const GET: APIRoute = async ({ params, url, redirect }) => {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
       "Cache-Control": "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+      "X-Robots-Tag": "noindex",
+      Link: `<${canonicalUrl}>; rel="canonical"`,
     },
   });
 };

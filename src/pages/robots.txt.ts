@@ -18,5 +18,16 @@ import { robotsBody } from "../lib/robots";
  */
 export const GET: APIRoute = ({ request }) => {
   const url = new URL(request.url);
-  return new Response(robotsBody(url.hostname), { headers: { "Content-Type": "text/plain" } });
+  return new Response(robotsBody(url.hostname), {
+    headers: {
+      "Content-Type": "text/plain",
+      // Edge-cacheable: the body depends on the hostname alone, and
+      // `isPublicCacheable` in src/middleware.ts requires `public` plus a
+      // max-age before it will put a response in `caches.default`. Without
+      // this header every crawler hit rendered a fresh Worker invocation for
+      // a body that changes only on deploy. An hour is short enough that a
+      // policy change is live the same day and long enough to absorb a crawl.
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
 };
