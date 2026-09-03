@@ -72,6 +72,22 @@ export interface Dataset {
    * lookups for the label/tooltip per status.
    */
   zarr_verify_status?: "verified" | "failed" | "unverifiable" | null;
+  /**
+   * Zarr conversion state (nemar-cli#1181, ADR 0033/0034): "ready" once at
+   * least one store has been produced. Combined with `zarr_store_count > 0`
+   * this is the documented definition of `has_zarr` — see AGENTS.md. Optional
+   * + nullable since older snapshots and never-converted rows ship null.
+   */
+  zarr_status?: string | null;
+  /** Number of Zarr stores produced for this dataset's latest conversion.
+   *  Zero or null means no viewable Zarr copy yet, regardless of `zarr_status`. */
+  zarr_store_count?: number | null;
+  /**
+   * Absolute URL of this dataset's `index.json` (format v3's mandatory entry
+   * point), derived server-side. Non-null only when `zarr_status` is "ready".
+   * Null/absent falls back to `zarrIndexUrl(id)` in `lib/zarr-base.ts`.
+   */
+  zarr_index_url?: string | null;
 }
 
 export interface DatasetListResponse {
