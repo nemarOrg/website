@@ -335,15 +335,15 @@ const confirmedV3Stores = new WeakSet<object>();
  */
 function openNode(
   location: zarr.Location<zarr.FetchStore> | zarr.FetchStore,
-  options: { kind: "group" },
+  options: { kind: "group"; signal?: AbortSignal },
 ): Promise<zarr.Group<zarr.FetchStore>>;
 function openNode(
   location: zarr.Location<zarr.FetchStore> | zarr.FetchStore,
-  options: { kind: "array" },
+  options: { kind: "array"; signal?: AbortSignal },
 ): Promise<zarr.Array<zarr.DataType, zarr.FetchStore>>;
 async function openNode(
   location: zarr.Location<zarr.FetchStore> | zarr.FetchStore,
-  options: { kind: "group" | "array" },
+  options: { kind: "group" | "array"; signal?: AbortSignal },
 ): Promise<zarr.Group<zarr.FetchStore> | zarr.Array<zarr.DataType, zarr.FetchStore>> {
   const store = location instanceof zarr.Location ? location.store : location;
   try {
@@ -359,14 +359,20 @@ async function openNode(
 }
 
 /**
- * Open a recording store and read all group + event metadata (no signal yet).
+ * Open a recording store and read all group + event metadata. `signal` cancels
+ * every fetch this open makes -- the root/group/level-0 opens, view-level
+ * discovery, and the events read -- so a superseded or closed mount (website#208)
+ * stops costing network and CPU the moment the caller aborts it, rather than
+ * running to completion for a `RecordingStore` nobody will use. An aborted open
+ * rejects like any other failed open; the caller distinguishes "real failure" from
+ * "cancelled" via `signal.aborted`, same as the interactive window reads below.
  * The per-group reads (attrs, level-0, view-level probes) and the events read run
  * in parallel so first paint of the toolbar is not gated on a chain of sequential
  * round trips.
  */
-export async function openRecording(url: string): Promise<RecordingStore> {
+export async function openRecording(url: string, signal?: AbortSignal): Promise<RecordingStore> {
   const store = makeStore(url);
-  const root = await openNode(store, { kind: "group" });
+  const root = await openNode(store, { kind: "group", signal });
   const attrs = root.attrs as Record<string, unknown>;
   const format = typeof attrs.format === "string" ? attrs.format : "";
   const plf = attrs.power_line_frequency;
@@ -403,8 +409,8 @@ export async function openRecording(url: string): Promise<RecordingStore> {
     typeof attrs.electrode_coordinate_units === "string" ? attrs.electrode_coordinate_units : "";
   const groupNames = Array.isArray(attrs.channel_groups) ? (attrs.channel_groups as string[]) : [];
 
-  const groups = await Promise.all(groupNames.map((name) => openGroup(root, name)));
-  const eventsReady = readEvents(root);
+  const groups = await Promise.all(groupNames.map((name) => openGroup(root, name, signal)));
+  const eventsReady = readEvents(root, signal);
   return {
     url,
     format,
@@ -418,11 +424,15 @@ export async function openRecording(url: string): Promise<RecordingStore> {
   };
 }
 
-async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promise<GroupHandle> {
+async function openGroup(
+  root: zarr.Group<zarr.FetchStore>,
+  name: string,
+  signal?: AbortSignal,
+): Promise<GroupHandle> {
   try {
     const [grp, rawLevel0] = await Promise.all([
-      openNode(root.resolve(name), { kind: "group" }),
-      openNode(root.resolve(`${name}/0`), { kind: "array" }),
+      openNode(root.resolve(name), { kind: "group", signal }),
+      openNode(root.resolve(`${name}/0`), { kind: "array", signal }),
     ]);
     if (rawLevel0.dtype !== "int16") {
       throw new Error(`unexpected dtype ${rawLevel0.dtype} at ${name}/0; expected int16`);
@@ -457,7 +467,7 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
       viewLevelsReady: Promise.resolve([]),
       viewLevelsDegraded: false,
     };
-    handle.viewLevelsReady = discoverViewLevels(root, name, ga, nSamples)
+    handle.viewLevelsReady = discoverViewLevels(root, name, ga, nSamples, signal)
       .then((levels) => {
         handle.viewLevels = levels;
         return levels;
@@ -467,10 +477,15 @@ async function openGroup(root: zarr.Group<zarr.FetchStore>, name: string): Promi
         // still get a pyramid, and flag the handle so callers can tell this
         // apart from a recording whose pyramid is genuinely this small.
         const partial = err instanceof ViewLevelDiscoveryError ? err.partialLevels : [];
-        console.warn(
-          `[eeg-viewer] view-level discovery degraded for ${name} (${partial.length} level(s) kept):`,
-          err instanceof Error ? (err.cause ?? err) : err,
-        );
+        // A caller-driven abort (a superseded/closed mount, website#208) is not
+        // a degraded pyramid -- the whole store this handle belongs to is being
+        // discarded, so warning about it would be noise, not a real signal.
+        if (!signal?.aborted) {
+          console.warn(
+            `[eeg-viewer] view-level discovery degraded for ${name} (${partial.length} level(s) kept):`,
+            err instanceof Error ? (err.cause ?? err) : err,
+          );
+        }
         handle.viewLevels = partial;
         handle.viewLevelsDegraded = true;
         return partial;
@@ -571,6 +586,7 @@ async function discoverViewLevels(
   group: string,
   attrs: Record<string, unknown> = {},
   nSamples = Number.NaN,
+  signal?: AbortSignal,
 ): Promise<ViewLevel[]> {
   const declared = declaredViewLevels(attrs, group);
   if (declared) {
@@ -582,7 +598,7 @@ async function discoverViewLevels(
     // ViewLevelDiscoveryError with the partial list so the caller flags
     // degradation instead of losing the whole pyramid.
     const settled = await Promise.allSettled(
-      declared.map((level) => openViewLevel(root, group, level)),
+      declared.map((level) => openViewLevel(root, group, level, signal)),
     );
     const levels: ViewLevel[] = [];
     let failure: unknown;
@@ -611,7 +627,7 @@ async function discoverViewLevels(
     const size = Math.min(batch, VIEW_PROBE_MAX - base + 1);
     const probes = await Promise.allSettled(
       Array.from({ length: size }, (_, i) => base + i).map((level) =>
-        openViewLevel(root, group, level),
+        openViewLevel(root, group, level, signal),
       ),
     );
     // Collect every fulfilled probe first — a failure must not discard sibling
@@ -700,9 +716,11 @@ async function openViewLevel(
   root: zarr.Group<zarr.FetchStore>,
   group: string,
   level: number,
+  signal?: AbortSignal,
 ): Promise<ViewLevel> {
   const rawArray = await openNode(root.resolve(`${group}/view/${level}`), {
     kind: "array",
+    signal,
   });
   if (rawArray.dtype !== "int16") {
     throw new Error(`unexpected dtype ${rawArray.dtype} at ${group}/view/${level}; expected int16`);
@@ -711,18 +729,21 @@ async function openViewLevel(
   return { level, nTime: array.shape[array.shape.length - 1], array };
 }
 
-async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable | null> {
+async function readEvents(
+  root: zarr.Group<zarr.FetchStore>,
+  signal?: AbortSignal,
+): Promise<EventTable | null> {
   try {
-    const grp = await openNode(root.resolve("events"), { kind: "group" });
+    const grp = await openNode(root.resolve("events"), { kind: "group", signal });
     const [onset, duration, code] = await Promise.all([
-      openNode(root.resolve("events/onset"), { kind: "array" }),
-      openNode(root.resolve("events/duration"), { kind: "array" }),
-      openNode(root.resolve("events/code"), { kind: "array" }),
+      openNode(root.resolve("events/onset"), { kind: "array", signal }),
+      openNode(root.resolve("events/duration"), { kind: "array", signal }),
+      openNode(root.resolve("events/code"), { kind: "array", signal }),
     ]);
     const [on, du, co] = await Promise.all([
-      zarr.get(onset, null),
-      zarr.get(duration, null),
-      zarr.get(code, null),
+      zarr.get(onset, null, { signal }),
+      zarr.get(duration, null, { signal }),
+      zarr.get(code, null, { signal }),
     ]);
     const attrs = grp.attrs as Record<string, unknown>;
     const labelMap = (attrs.label_map ?? {}) as Record<string, string>;
@@ -735,7 +756,11 @@ async function readEvents(root: zarr.Group<zarr.FetchStore>): Promise<EventTable
       valueDescriptions,
     };
   } catch (err) {
-    console.warn("[eeg-viewer] readEvents failed; events hidden:", err);
+    // Same abort-is-quiet treatment as the view-level discovery catch above:
+    // a caller-driven cancellation is not a real read failure.
+    if (!signal?.aborted) {
+      console.warn("[eeg-viewer] readEvents failed; events hidden:", err);
+    }
     return null;
   }
 }
@@ -903,9 +928,10 @@ export async function readWindow(
  * background preloader (prefetch.ts, website#254) can target a specific,
  * already-chosen pyramid level while walking the recording, rather than
  * re-deriving `pickViewLevel`'s pixel-width heuristic for a window that is not
- * actually on screen. `signal` aborts the underlying zarr chunk fetch (wired
- * to the preloader's own AbortController; website#208 covers threading this
- * through the interactive path too).
+ * actually on screen. `signal` aborts the underlying zarr chunk fetch -- wired
+ * to the preloader's own AbortController, and (website#208) to the interactive
+ * path's per-mount AbortController in viewer.ts, so a superseded or closed
+ * mount cancels its window reads the same way the preloader already does.
  */
 export async function readLevel0(
   group: GroupHandle,
