@@ -1,7 +1,8 @@
 import { formatAuthorByline, formatBytes, splitModalities } from "./format";
 import type { NeuroschemaDataset } from "./neuroschema";
-import { ELECTRODE_GOLD, OG_DEFS, escapeXml } from "./og-chrome";
+import { ELECTRODE_GOLD, OG_DEFS } from "./og-chrome";
 import type { Dataset } from "./types";
+import { escapeXml } from "./xml";
 
 type MetadataSource = Pick<
   NeuroschemaDataset,
