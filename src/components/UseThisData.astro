@@ -6,6 +6,18 @@
  * No hidden text, no display:none agent-only content: everything here also
  * appears in the `.md` mirror, and everything the mirror says is visible
  * here (OSCAR parity).
+ *
+ * COLLAPSED BY DEFAULT (`<details>`), and that is a placement fix rather than
+ * a parity compromise. Expanded, this block runs to ten download and Zarr
+ * steps, which on production pushed the README and the file tree roughly two
+ * screens down and made the agent-facing material the first thing a human
+ * read. A disclosure keeps every string in the server-rendered payload -- the
+ * only thing agents fetch, and the reason this section exists -- while giving
+ * a human one line to open. That is the opposite of the cloaking OSCAR's
+ * principles forbid: nothing is shown to a crawler that a human cannot see by
+ * clicking once, and nothing is hidden with `display: none` or off-screen
+ * positioning. Do NOT switch this to `open` by default without re-checking
+ * how far it pushes the README on a dataset with many references.
  */
 import type { UseThisData } from "../lib/use-this-data";
 
@@ -16,48 +28,76 @@ interface Props {
 const { model } = Astro.props;
 ---
 
-<section class="use-this-data" aria-labelledby="use-this-data-heading">
-  <h2 id="use-this-data-heading">Use this data</h2>
-  {model.sections.map((section) => (
-    <div class="use-this-data__section">
-      <h3>{section.heading}</h3>
-      {section.intro?.map((p) => <p class="use-this-data__intro">{p}</p>)}
-      <dl class="use-this-data__list">
-        {section.items.map((item) => (
-          <div class="use-this-data__row">
-            <dt>{item.label}</dt>
-            <dd>
-              {item.href ? (
-                <a href={item.href} rel="external">{item.value}</a>
-              ) : item.code ? (
-                <code>{item.value}</code>
-              ) : (
-                item.value
-              )}
-              {item.note && <span class="use-this-data__note">{item.note}</span>}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  ))}
-</section>
+<details class="use-this-data">
+  <summary class="use-this-data__summary">
+    <span class="use-this-data__summary-title">How to use the data (for agentic research)</span>
+    <span class="use-this-data__summary-hint">license, citation, download commands{
+      model.sections.some((s) => s.heading.toLowerCase().includes("zarr")) ? ", Zarr access" : ""
+    }</span>
+  </summary>
+  <div class="use-this-data__body">
+    {model.sections.map((section) => (
+      <div class="use-this-data__section">
+        <h3>{section.heading}</h3>
+        {section.intro?.map((p) => <p class="use-this-data__intro">{p}</p>)}
+        <dl class="use-this-data__list">
+          {section.items.map((item) => (
+            <div class="use-this-data__row">
+              <dt>{item.label}</dt>
+              <dd>
+                {item.href ? (
+                  <a href={item.href} rel="external">{item.value}</a>
+                ) : item.code ? (
+                  <code>{item.value}</code>
+                ) : (
+                  item.value
+                )}
+                {item.note && <span class="use-this-data__note">{item.note}</span>}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    ))}
+  </div>
+</details>
 
 <style>
   .use-this-data {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-6);
-    padding: var(--space-5) var(--space-6);
+    padding: var(--space-4) var(--space-6);
     margin-block-end: var(--space-6);
     background: var(--color-bg-elevated);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
   }
-  .use-this-data > h2 {
+  .use-this-data__summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-3);
+    cursor: pointer;
+  }
+  /* The marker is the only affordance that this opens, so keep it. */
+  .use-this-data__summary::marker,
+  .use-this-data__summary::-webkit-details-marker {
+    color: var(--color-fg-muted);
+  }
+  .use-this-data__summary-title {
     font-size: var(--fs-xl);
     font-weight: var(--fw-semibold);
     color: var(--color-fg);
+  }
+  .use-this-data__summary-hint {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .use-this-data[open] .use-this-data__summary {
+    margin-block-end: var(--space-5);
+  }
+  .use-this-data__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
   }
   .use-this-data__section {
     display: flex;

@@ -340,17 +340,6 @@ Astro.response.headers.set(
             <p>This dataset has been registered but no published version is available yet. Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</p>
           </div>
         )}
-        {/* Renders in BOTH the unpublished and published states, deliberately
-            not inside the branch above. buildUseThisData is the single source
-            of truth for what an unpublished dataset shows -- it already omits
-            the location/download/assess/Zarr sections for one (see
-            lib/use-this-data.ts's UseThisDataInput.unpublished doc) and keeps
-            only overview/license. Gating the whole component on `unpublished`
-            here as well double-gated it: the page showed nothing while the
-            .md mirror ([id].md.ts) rendered the model unconditionally, so an
-            unpublished dataset's markdown carried an overview and a citation
-            the human page never displayed (website#291 fix 1). */}
-        <UseThisData model={useThisData} />
         {!unpublished && (
           <>
             <Readme
@@ -377,6 +366,25 @@ Astro.response.headers.set(
             )}
           </>
         )}
+        {/* LAST in the content column, and collapsed by default (see
+            UseThisData.astro). This is reference material for agentic research
+            rather than something a human reads first: rendered near the header
+            and expanded, it pushed the README and the file tree about two
+            screens down on production (v0.2.6 regression). It stays in the
+            server-rendered payload here, which is what crawlers and agents
+            fetch, so the placement costs nothing on that side.
+
+            Renders in BOTH the unpublished and published states, deliberately
+            outside the branch above. buildUseThisData is the single source of
+            truth for what an unpublished dataset shows -- it already omits the
+            location/download/assess/Zarr sections for one (see
+            lib/use-this-data.ts's UseThisDataInput.unpublished doc) and keeps
+            only overview/license. Gating the whole component on `unpublished`
+            here as well double-gated it: the page showed nothing while the
+            .md mirror ([id].md.ts) rendered the model unconditionally, so an
+            unpublished dataset's markdown carried an overview and a citation
+            the human page never displayed (website#291 fix 1). */}
+        <UseThisData model={useThisData} />
       </div>
       <DetailRail
         metadata={enrichedMetadata}
