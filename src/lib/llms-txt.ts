@@ -51,7 +51,7 @@ export function llmsTxtBody(): string {
   const dataSection = [
     "## Data",
     "",
-    `- [${dataHost}](${dataBase}/): BIDS-shaped file access over HTTPS. A dataset's current release is served under \`/<id>/latest/\`; earlier releases are under \`/<id>/<version>/\`.`,
+    `- [${dataHost}](${dataBase}/): BIDS-shaped file access over HTTPS. A dataset's current release is served under \`/<id>/latest/\`; earlier releases are under \`/<id>/v<version>/\` (for example \`v2.0.0\` -- the \`v\` prefix is required, the bare semver 404s).`,
   ].join("\n");
 
   const apiSection = [

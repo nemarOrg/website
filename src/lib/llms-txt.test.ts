@@ -69,10 +69,14 @@ describe("llmsTxtBody links", () => {
     expect(body.toLowerCase()).not.toContain("openneuro");
   });
 
-  it("links the data host with the /<id>/latest/ shape", () => {
+  it("links the data host with the /<id>/latest/ shape and a v-prefixed version placeholder", () => {
     const body = llmsTxtBody();
     expect(body).toContain("https://data.nemar.org/");
     expect(body).toContain("/<id>/latest/");
+    expect(body).toContain("/<id>/v<version>/");
+    // The bare (no "v") form 404s against the real data host and must not
+    // appear anywhere in the body.
+    expect(body).not.toContain("/<id>/<version>/");
   });
 
   it("links the API catalog endpoint and a working search example", () => {
