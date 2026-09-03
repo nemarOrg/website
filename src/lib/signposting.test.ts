@@ -15,6 +15,8 @@ import {
   type SignpostingInput,
   type SignpostingLink,
   buildSignposting,
+  isSerializableLink,
+  normalizeOrcid,
   signpostingLinkHeader,
 } from "./signposting";
 
@@ -268,6 +270,75 @@ describe("buildSignposting — author (bounded)", () => {
     );
   });
 
+  it("accepts a bare ORCID iD and the URL form, and normalizes both (website#294 fix 4)", () => {
+    // neuroschema documents `orcid` as a URL; production metadata.json ships
+    // the bare id. Both are real, so both have to resolve to the same href
+    // rather than one of them becoming
+    // "https://orcid.org/https://orcid.org/0000-...".
+    const input = nm000103();
+    const authors: Author[] = [
+      { name: "Bare", name_type: "Personal", orcid: "0000-0001-5557-259X", affiliations: [] },
+      {
+        name: "Url",
+        name_type: "Personal",
+        orcid: "https://orcid.org/0000-0002-1825-0097",
+        affiliations: [],
+      },
+      {
+        name: "Padded url",
+        name_type: "Personal",
+        orcid: "  http://orcid.org/0000-0003-1415-9269  ",
+        affiliations: [],
+      },
+    ];
+    const links = buildSignposting({ ...input, metadata: { ...input.metadata, authors } });
+    expect(links.filter((l) => l.rel === "author").map((l) => l.href)).toEqual([
+      "https://orcid.org/0000-0001-5557-259X",
+      "https://orcid.org/0000-0002-1825-0097",
+      "https://orcid.org/0000-0003-1415-9269",
+    ]);
+  });
+
+  it("drops an author whose orcid is malformed (website#294 fix 4)", () => {
+    const input = nm000103();
+    const authors: Author[] = [
+      // Free text, a truncated id, an id with an interior space, and a
+      // control character -- the last one is the one that matters: it makes
+      // `Headers.set` throw, and the header is set in page frontmatter.
+      { name: "Free text", name_type: "Personal", orcid: "see my website", affiliations: [] },
+      { name: "Truncated", name_type: "Personal", orcid: "0000-0001-5557", affiliations: [] },
+      {
+        name: "Interior space",
+        name_type: "Personal",
+        orcid: "0000-0001 5557-259X",
+        affiliations: [],
+      },
+      {
+        name: "Control char",
+        name_type: "Personal",
+        orcid: "0000-0001-5557-259X\r\nX-Injected: 1",
+        affiliations: [],
+      },
+      { name: "Good", name_type: "Personal", orcid: "0000-0001-5557-259X", affiliations: [] },
+    ];
+    const links = buildSignposting({ ...input, metadata: { ...input.metadata, authors } });
+    const authorLinks = links.filter((l) => l.rel === "author");
+    expect(authorLinks.map((l) => l.href)).toEqual(["https://orcid.org/0000-0001-5557-259X"]);
+    // And the header it serializes into stays a single well-formed line.
+    const header = signpostingLinkHeader(links);
+    expect(header.split("\n")).toHaveLength(1);
+    expect(header).not.toContain("X-Injected");
+  });
+
+  it("normalizeOrcid returns null for every non-iD shape and the bare id otherwise", () => {
+    expect(normalizeOrcid("0000-0002-1825-0097")).toBe("0000-0002-1825-0097");
+    expect(normalizeOrcid("https://orcid.org/0000-0002-1825-009X")).toBe("0000-0002-1825-009X");
+    expect(normalizeOrcid(null)).toBeNull();
+    expect(normalizeOrcid("   ")).toBeNull();
+    expect(normalizeOrcid("0000-0002-1825-00977")).toBeNull();
+    expect(normalizeOrcid("https://example.com/0000-0002-1825-0097")).toBeNull();
+  });
+
   it("skips authors with a null or blank orcid rather than emitting a broken link", () => {
     const input = nm000103();
     const authors: Author[] = [
@@ -322,5 +393,39 @@ describe("signpostingLinkHeader — RFC 8288 serialization", () => {
 
   it("returns an empty string for an empty link list", () => {
     expect(signpostingLinkHeader([])).toBe("");
+  });
+
+  it("drops a link whose href cannot be serialized, keeping the rest (website#294 fix 4)", () => {
+    // RFC 8288 gives a Link target no escaping mechanism, so a `>` or a `"`
+    // inside one re-parses the field and a control character makes
+    // `Headers.set` throw. Dropping the entry is the only safe answer.
+    const links: SignpostingLink[] = [
+      { rel: "cite-as", href: 'https://doi.org/10.1234/a>; rel="stylesheet' },
+      { rel: "describedby", href: "https://data.nemar.org/nm000103/metadata.json " },
+      { rel: "author", href: "https://orcid.org/0000-0001-5557-259X\r\nX-Injected: 1" },
+      { rel: "type", href: "https://schema.org/Dataset" },
+    ];
+    expect(signpostingLinkHeader(links)).toBe('<https://schema.org/Dataset>; rel="type"');
+    // The whole point: whatever is returned can be set as a header.
+    expect(() => new Headers({ Link: signpostingLinkHeader(links) })).not.toThrow();
+  });
+
+  it("every real fixture's header can actually be set on a Headers object", () => {
+    for (const input of [nm000103(), on007753(), nm000154()]) {
+      const header = signpostingLinkHeader(buildSignposting(input));
+      expect(() => new Headers({ Link: header })).not.toThrow();
+    }
+  });
+
+  it("isSerializableLink accepts an ordinary href and rejects the four unsafe classes", () => {
+    expect(isSerializableLink({ rel: "type", href: "https://schema.org/Dataset" })).toBe(true);
+    for (const href of [
+      "https://example.com/a<b",
+      "https://example.com/a>b",
+      'https://example.com/a"b',
+      "https://example.com/a\tb",
+    ]) {
+      expect(isSerializableLink({ rel: "type", href }), href).toBe(false);
+    }
   });
 });

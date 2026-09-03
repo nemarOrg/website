@@ -23,6 +23,15 @@
  * `item`; a free-text (non-URI) license means no `license` relation. This
  * module is pure and total: it never throws on sparse/null-heavy input.
  *
+ * MALFORMED is treated the same way as missing, and for a harder reason than
+ * tidiness. `metadata.json` is upstream free text, and the two values that
+ * reach an href from it — a DOI and an author's ORCID — end up inside an HTTP
+ * `Link` header that `[id].astro` sets in its frontmatter. `Headers.set`
+ * throws on a control character, so one bad character there is a 500 on the
+ * dataset page rather than one missing relation. An ORCID that is not an
+ * ORCID is dropped (see `normalizeOrcid`), and so is any href that cannot be
+ * serialized at all (see `isSerializableLink`).
+ *
  * GATING: none, deliberately. A private dataset already 404s upstream
  * before `src/pages/dataset/[id].astro` renders anything (both the landing
  * and metadata fetches fail), so it never reaches this builder at all — no
@@ -111,6 +120,58 @@ function normalizedBase(base: string): string {
   return base.replace(/\/$/, "");
 }
 
+/** A well-formed ORCID iD: four groups of four, the last character either a
+ *  digit or the checksum `X`. */
+const ORCID_RE = /^\d{4}-\d{4}-\d{4}-\d{3}[\dX]$/;
+
+/**
+ * Normalise an author's `orcid` to the bare `0000-0000-0000-0000` form, or
+ * null when it is not an ORCID iD at all.
+ *
+ * THE STRIP HAS TO COME FIRST because both shapes are real. neuroschema
+ * documents `orcid` as a URL (`https://orcid.org/0000-...`) while production
+ * `metadata.json` ships the bare id, so validating before stripping would
+ * reject every URL-form value and prefixing before validating would produce
+ * `https://orcid.org/https://orcid.org/0000-...`.
+ *
+ * Validation is the point, not tidiness: the return value is interpolated
+ * into a `Link` header, and `Headers.set` THROWS on a control character. The
+ * header is set in `[id].astro`'s frontmatter, so one malformed upstream
+ * value would take the whole dataset page to a 500 rather than costing one
+ * `author` relation. Anything that does not match is dropped.
+ */
+export function normalizeOrcid(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const bare = raw.trim().replace(/^https?:\/\/orcid\.org\//i, "");
+  return ORCID_RE.test(bare) ? bare : null;
+}
+
+/**
+ * Characters that cannot appear in a `Link` header target. `<` and `>`
+ * delimit the URI-Reference and `"` delimits a parameter value, so either one
+ * inside an href silently re-parses the field; a control character makes
+ * `Headers.set` throw outright.
+ *
+ * Written as a Unicode property escape (`\p{Cc}` is C0, DEL and C1) so this
+ * source file carries no literal control characters of its own.
+ */
+const UNSAFE_HREF_RE = /[<>"\p{Cc}]/u;
+
+/**
+ * Whether a link is safe to serialize into a `Link` header.
+ *
+ * Applied in BOTH {@link buildSignposting} and {@link signpostingLinkHeader},
+ * deliberately. Filtering only in the serializer would leave the header and
+ * the `<link>` elements built from the same array describing different sets,
+ * which is exactly the divergence this module's header promises cannot
+ * happen; filtering only in the builder would leave the exported serializer
+ * unsafe on any array it did not build. One predicate, so the two cannot
+ * disagree about what is droppable.
+ */
+export function isSerializableLink(link: SignpostingLink): boolean {
+  return !UNSAFE_HREF_RE.test(link.href);
+}
+
 /**
  * Build the Signposting link relations for a dataset detail page. Pure and
  * total: never throws on sparse/null-heavy input.
@@ -125,8 +186,12 @@ export function buildSignposting(input: SignpostingInput): SignpostingLink[] {
   // persistent identifier for the resource, matching what jsonld.ts
   // publishes as `identifier` (same `concept_doi ?? external_links.dataset_doi`
   // precedence, so the two can never disagree about which DOI is "the" one).
+  // Optional-chained despite the type saying `external_links` is required:
+  // this module promises it never throws on sparse input, and a
+  // `metadata.json` missing the whole object would otherwise take the dataset
+  // page down instead of costing one relation.
   const conceptDoi =
-    input.catalogRow?.concept_doi ?? input.metadata.external_links.dataset_doi ?? null;
+    input.catalogRow?.concept_doi ?? input.metadata.external_links?.dataset_doi ?? null;
   const citeAsUrl = doiUrl(conceptDoi);
   if (citeAsUrl) links.push({ rel: "cite-as", href: citeAsUrl });
 
@@ -171,29 +236,46 @@ export function buildSignposting(input: SignpostingInput): SignpostingLink[] {
   links.push({ rel: "type", href: "https://schema.org/Dataset" });
   links.push({ rel: "type", href: "https://schema.org/AboutPage" });
 
-  // author: one per author carrying an ORCID, bounded (see
-  // MAX_SIGNPOSTING_AUTHORS above).
+  // author: one per author carrying a WELL-FORMED ORCID, bounded (see
+  // MAX_SIGNPOSTING_AUTHORS above). The cap is applied after validation so a
+  // few malformed values cannot push real authors out of the list.
   const orcids = (input.metadata.authors ?? [])
-    .map((a) => a.orcid?.trim())
-    .filter((orcid): orcid is string => Boolean(orcid))
+    .map((a) => normalizeOrcid(a.orcid))
+    .filter((orcid): orcid is string => orcid !== null)
     .slice(0, MAX_SIGNPOSTING_AUTHORS);
   for (const orcid of orcids) {
     links.push({ rel: "author", href: `https://orcid.org/${orcid}` });
   }
 
-  return links;
+  // Last gate before either serialization. Every href above is either a fixed
+  // literal, an env-configured base, or DOI-derived — and that last one is
+  // free text from `metadata.json`, which is what makes this necessary rather
+  // than paranoid.
+  return links.filter(isSerializableLink);
 }
 
 /**
  * Serialize Signposting links as a single HTTP `Link` header field value
  * (RFC 8288): comma-separated `<uri>; rel="..."` entries, with `; type="..."`
- * appended where the link carries a media type. Every value here is either a
- * DOI-derived URL, an env-configured base URL, an id encoded via
- * `encodeURIComponent`, or one of this module's own fixed literal strings —
- * none can contain `>` or an unescaped `"`, so no further escaping is done.
+ * appended where the link carries a media type.
+ *
+ * `rel` and `type` are this module's own fixed literals, so they need no
+ * escaping. An href does NOT: the `cite-as` target is built from
+ * `metadata.external_links.dataset_doi`, free text that dataset owners edit,
+ * and RFC 8288 gives a `Link` target no escaping mechanism at all — a `>`
+ * inside one simply ends the URI-Reference early. So an unserializable href
+ * is DROPPED rather than escaped or emitted (see {@link isSerializableLink}
+ * for why the same filter runs in the builder too).
+ *
+ * This used to claim no value could contain `>` or an unescaped `"`. That was
+ * false for exactly the DOI case above, and a control character in the same
+ * position is worse than a malformed header: `Headers.set` throws on it, and
+ * this header is set in `[id].astro`'s frontmatter, so it would 500 the
+ * dataset page.
  */
 export function signpostingLinkHeader(links: SignpostingLink[]): string {
   return links
+    .filter(isSerializableLink)
     .map((link) => {
       const params = [`rel="${link.rel}"`];
       if (link.type) params.push(`type="${link.type}"`);
