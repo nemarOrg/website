@@ -1,0 +1,120 @@
+---
+/**
+ * HTML renderer for the "Use this data" model (website#284 phase 2). Reads
+ * only `model.sections` -- see src/lib/use-this-data.ts for the ONE MODEL,
+ * TWO RENDERERS contract this and `renderUseThisDataMarkdown` both honor.
+ * No hidden text, no display:none agent-only content: everything here also
+ * appears in the `.md` mirror, and everything the mirror says is visible
+ * here (OSCAR parity).
+ */
+import type { UseThisData } from "../lib/use-this-data";
+
+interface Props {
+  model: UseThisData;
+}
+
+const { model } = Astro.props;
+---
+
+<section class="use-this-data" aria-labelledby="use-this-data-heading">
+  <h2 id="use-this-data-heading">Use this data</h2>
+  {model.sections.map((section) => (
+    <div class="use-this-data__section">
+      <h3>{section.heading}</h3>
+      {section.intro?.map((p) => <p class="use-this-data__intro">{p}</p>)}
+      <dl class="use-this-data__list">
+        {section.items.map((item) => (
+          <div class="use-this-data__row">
+            <dt>{item.label}</dt>
+            <dd>
+              {item.href ? (
+                <a href={item.href} rel="external">{item.value}</a>
+              ) : item.code ? (
+                <code>{item.value}</code>
+              ) : (
+                item.value
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  ))}
+</section>
+
+<style>
+  .use-this-data {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-6);
+    padding: var(--space-5) var(--space-6);
+    margin-block-end: var(--space-6);
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .use-this-data > h2 {
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .use-this-data__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .use-this-data__section h3 {
+    font-size: var(--fs-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-subtle);
+  }
+  .use-this-data__intro {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+  }
+  .use-this-data__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+  }
+  .use-this-data__row {
+    display: grid;
+    grid-template-columns: 12rem 1fr;
+    gap: var(--space-3);
+    align-items: baseline;
+    font-size: var(--fs-sm);
+  }
+  @media (max-width: 640px) {
+    .use-this-data__row {
+      grid-template-columns: 1fr;
+      gap: var(--space-1);
+    }
+  }
+  .use-this-data__row dt {
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-medium);
+  }
+  .use-this-data__row dd {
+    margin: 0;
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+  }
+  .use-this-data__row a {
+    color: var(--color-link);
+  }
+  .use-this-data__row a:hover {
+    color: var(--color-link-hover);
+  }
+  .use-this-data__row code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    background: var(--color-bg-subtle);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+  }
+</style>
