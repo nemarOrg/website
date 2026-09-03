@@ -261,6 +261,36 @@ describe("buildUseThisData — unpublished is authoritative over selectedVersion
     expect(ids).not.toContain("assess");
     expect(ids).not.toContain("zarr");
   });
+
+  it("never cites a version the same document calls unpublished (website#294 fix 6)", () => {
+    // The citation block used to read `selectedVersion` directly, so this
+    // exact shape rendered "no published version is available yet" and
+    // "... (Version v2.0.0)" in one document.
+    const divergentLanding: LandingPayload = {
+      ...(landingNm000103 as LandingPayload),
+      latest: null,
+    };
+    const version = divergentLanding.versions[0]?.version ?? null;
+    expect(version).not.toBeNull();
+
+    const model = buildUseThisData({
+      ...nm000103(),
+      selectedVersion: version,
+      unpublished: isUnpublished(divergentLanding),
+    });
+    const citation = model.sections
+      .find((s) => s.id === "license")
+      ?.items.find((i) => i.key === "license-citation");
+    expect(citation?.value).not.toContain("Version");
+    expect(renderUseThisDataMarkdown(model)).not.toContain(`Version ${version}`);
+  });
+
+  it("still cites the version for a normally published dataset", () => {
+    const citation = buildUseThisData(nm000103())
+      .sections.find((s) => s.id === "license")
+      ?.items.find((i) => i.key === "license-citation");
+    expect(citation?.value).toContain("(Version v2.0.0)");
+  });
 });
 
 describe("buildUseThisData — References vs IsReferencedBy (website#286)", () => {

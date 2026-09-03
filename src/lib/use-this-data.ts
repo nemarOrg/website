@@ -283,10 +283,16 @@ function buildLicenseSection(input: UseThisDataInput): UseThisDataSection {
   const doi = input.metadata.external_links.dataset_doi ?? null;
   // datasetCitation is null-safe (no authors / no doi / no date all degrade
   // cleanly — see cite.test.ts), so this item is always present.
+  //
+  // `publishedVersion`, not `selectedVersion`: on the unpublished-with-a-
+  // resolved-selectedVersion shape (see the doc comments on both input
+  // fields) the mirror already says "no published version is available yet",
+  // and a citation carrying "(Version v2.0.0)" in the same document
+  // contradicts it. Every other version-gated section reads the same helper.
   const { apa } = datasetCitation({
     authors: authorNames,
     name: input.metadata.name,
-    version: input.selectedVersion,
+    version: publishedVersion(input),
     date: input.metadata.provenance.publish_date,
     doi,
     id: input.id,

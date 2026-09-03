@@ -130,6 +130,16 @@ const selectedVersion =
 
 // Dataset DOI + citation (APA/BibTeX) for the rail. The DOI moved off the
 // action row into the rail so the buttons stay on one line (#126).
+//
+// The citation's version is the PUBLISHED version, not `selectedVersion`.
+// `isUnpublished` ORs in an empty-`versions` check that `selectedVersion`'s
+// own `latest ?? versions[0].version` fallback does not defend against, so a
+// landing payload with `latest: null` and a non-empty `versions` array leaves
+// `selectedVersion` set while the dataset is unpublished — and the page would
+// then hand out "cite this, Version v2.0.0" for something it elsewhere
+// reports as having no published version. Same rule as
+// `publishedVersion` in lib/use-this-data.ts, which this mirrors.
+const citedVersion = unpublished ? null : selectedVersion;
 const datasetDoi = metadata.external_links.dataset_doi;
 const cite = datasetDoi
   ? {
@@ -137,7 +147,7 @@ const cite = datasetDoi
       ...datasetCitation({
         authors: enrichedMetadata.authors.map((a) => a.name).filter(Boolean),
         name: metadata.name,
-        version: selectedVersion,
+        version: citedVersion,
         date: metadata.provenance.publish_date,
         doi: datasetDoi,
         id,
