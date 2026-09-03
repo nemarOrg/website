@@ -76,6 +76,10 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           <li><ExternalLink href={`https://${dataHost}/`}>{dataHost}</ExternalLink></li>
           <li><ExternalLink href={`https://${apiHost}/`}>{apiHost}</ExternalLink></li>
           <li><ExternalLink href={`https://${docsHost}/`}>{docsHost}</ExternalLink></li>
+          {/* Same-origin, unlike the three hosts above -- a plain anchor, not
+              ExternalLink. Its only job is auditability: a human can read the
+              same index a crawler would fetch (website#284 phase 6, issue #289). */}
+          <li><a href="/llms.txt">llms.txt</a></li>
         </ul>
       </div>
       <div>
