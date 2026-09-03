@@ -11,6 +11,7 @@ import UseThisData from "../../components/UseThisData.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
 import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
+import { apiBase } from "../../lib/api-base";
 import { datasetCitation } from "../../lib/cite";
 import { ORG_DATASETS } from "../../lib/constants";
 import {
@@ -26,6 +27,7 @@ import { splitModalities } from "../../lib/format";
 import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
+import { buildSignposting, signpostingLinkHeader } from "../../lib/signposting";
 import {
   ZARR_VERIFY_BLURB,
   ZARR_VERIFY_LABELS,
@@ -201,6 +203,22 @@ const useThisData = buildUseThisData({
 // can never disagree with this page's own canonical origin.
 const mdUrl = new URL(`${url.pathname}.md`, jsonLdOrigin).toString();
 
+// FAIR Signposting link relations (website#284 phase 3, issue #287). ONE
+// MODEL, TWO SERIALIZATIONS -- see lib/signposting.ts's module doc. Built
+// from data already in hand above (no new fetches); reuses the same
+// headLinks seam phase 2 introduced rather than adding a second prop to
+// Base.astro, so the HTTP `Link` header and the `<link>` elements in
+// <head> can never disagree (OSCAR parity -- nothing here is header-only).
+const signpostingLinks = buildSignposting({
+  id,
+  metadata,
+  catalogRow,
+  selectedVersion,
+  dataBase: resolveDataBase(),
+  apiBase: apiBase(),
+});
+Astro.response.headers.set("Link", signpostingLinkHeader(signpostingLinks));
+
 const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
 // Owner/repo slug for the client-side GitHub raw fetch. Strips the
 // `https://github.com/` prefix + any trailing slash + any `.git` suffix
@@ -238,7 +256,10 @@ Astro.response.headers.set(
   imageAlt={`${metadata.name} dataset summary card on NEMAR.`}
   ogType="article"
   jsonLdScript={jsonLdScript}
-  headLinks={[{ rel: "alternate", type: "text/markdown", href: mdUrl, title: "Markdown version" }]}
+  headLinks={[
+    { rel: "alternate", type: "text/markdown", href: mdUrl, title: "Markdown version" },
+    ...signpostingLinks,
+  ]}
 >
   <article class="detail">
     <header class="detail__header container">
