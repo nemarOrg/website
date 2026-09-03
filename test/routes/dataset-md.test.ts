@@ -100,7 +100,7 @@ describe("GET /dataset/[id].md — success", () => {
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
     const body = await response.text();
     expect(body.startsWith("# Healthy Brain Network EEG")).toBe(true);
-    expect(body).toContain("## Use this data");
+    expect(body).toContain("## How to use the data (for agentic research)");
     expect(body).toContain("nemar dataset download nm000103");
   });
 
@@ -112,7 +112,7 @@ describe("GET /dataset/[id].md — success", () => {
       () => callRoute(GET, "https://nemar.org/dataset/nm000103.md", { id: "nm000103" }),
     );
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("## Use this data");
+    expect(await response.text()).toContain("## How to use the data (for agentic research)");
   });
 
   it("is noindex and canonicalises to the HTML page (website#294 fix 11)", async () => {
