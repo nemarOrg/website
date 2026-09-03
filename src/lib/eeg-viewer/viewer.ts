@@ -1251,11 +1251,20 @@ export async function mountEegViewer(
     const seq = ++overviewSeq;
     let data: Float32Array | null = null;
     try {
-      data = await readOverview(g);
+      data = await readOverview(g, abortController.signal);
     } catch (err) {
-      console.error("[eeg-viewer] loadOverview failed:", err);
+      // readOverview itself never rejects (it swallows failures, including a
+      // caller-driven abort, and resolves to null) -- this catch is defense
+      // in depth, so still skip logging an abort as if it were a failure.
+      if (!abortController.signal.aborted) {
+        console.error("[eeg-viewer] loadOverview failed:", err);
+      }
     }
-    if (seq !== overviewSeq) return; // a group switch superseded this load
+    // `disposed` covers the abort/teardown case (website#208): a torn-down
+    // mount must not write overviewData, touch the minimap's (possibly
+    // detached) display style, or call drawOverview(). `seq !== overviewSeq`
+    // covers the narrower case of a group switch superseding this load.
+    if (disposed || seq !== overviewSeq) return;
     overviewData = data;
     ui.minimap.style.display = data && data.length > 0 ? "block" : "none";
     drawOverview();
@@ -1837,10 +1846,11 @@ export async function mountEegViewer(
   // run to completion against a viewer nobody is looking at any more.
   cleanups.push(() => prefetchController.stop());
   // Same discipline for the interactive path: aborts openRecording (if this
-  // somehow still ran during teardown) and every in-flight readWindow call
-  // threaded through readFrame above. Idempotent -- the early lightweight
-  // `_eegvCleanup` registered before the store even opened may already have
-  // aborted this same controller.
+  // somehow still ran during teardown), every in-flight readWindow call
+  // threaded through readFrame above, and the overview minimap's readOverview
+  // call in loadOverview. Idempotent -- the early lightweight `_eegvCleanup`
+  // registered before the store even opened may already have aborted this
+  // same controller.
   cleanups.push(() => abortController.abort());
   cleanups.push(() => glRenderer?.dispose());
   // Idempotent. The page holds up to three handles on this one function — the
@@ -1867,6 +1877,11 @@ export async function mountEegViewer(
 
   await render();
   void store.eventsReady.then((events) => {
+    // Mirrors watchViewLevels' guard: a mount torn down while eventsReady is
+    // still in flight must not write store.events/eventTypes, touch the
+    // (possibly detached) legend node, or call render() -- which would touch
+    // glRenderer after dispose() (website#208's discipline, applied here).
+    if (disposed) return;
     store.events = events;
     eventTypes = events ? buildEventTypes(events) : [];
     fillEventLegend(ui.legend, eventTypes);

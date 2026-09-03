@@ -805,14 +805,21 @@ export function aggregateOverview(
  * dequantized to SI units). Returns null when no view levels exist.
  *
  * This is used by the overview minimap: a single cheap read of the coarsest
- * (smallest) level, cached by the caller.
+ * (smallest) level, cached by the caller. `signal` cancels the underlying
+ * fetch the same way it does for the window reads (website#208) -- a
+ * superseded or closed mount stops paying for a minimap nobody will see.
+ * Never rejects: a failed or aborted read resolves to null rather than
+ * throwing, same as this function always did before `signal` existed.
  */
-export async function readOverview(group: GroupHandle): Promise<Float32Array | null> {
+export async function readOverview(
+  group: GroupHandle,
+  signal?: AbortSignal,
+): Promise<Float32Array | null> {
   if (group.viewLevels.length === 0) await group.viewLevelsReady;
   if (group.viewLevels.length === 0) return null;
   const view = group.viewLevels[group.viewLevels.length - 1];
   try {
-    const region = await zarr.get(view.array, null);
+    const region = await zarr.get(view.array, null, { signal });
     // Expected shape [2, nCh, nTime] (min/max rows). Guard so a mis-shaped store
     // hides the minimap instead of indexing undefined dims into garbage data.
     if (region.shape.length < 3 || region.shape[0] !== 2) {
@@ -827,7 +834,12 @@ export async function readOverview(group: GroupHandle): Promise<Float32Array | n
     const nTime = region.shape[2];
     return aggregateOverview(region.data as Int16Array, nCh, nTime, group.channelsByRow);
   } catch (err) {
-    console.warn("[eeg-viewer] readOverview failed:", err);
+    // A caller-driven abort (a superseded/closed mount, website#208) is not a
+    // real read failure -- same quiet treatment as the other reads in this
+    // module.
+    if (!signal?.aborted) {
+      console.warn("[eeg-viewer] readOverview failed:", err);
+    }
     return null;
   }
 }

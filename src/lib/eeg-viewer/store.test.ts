@@ -7,6 +7,7 @@ import {
   parseChannels,
   predictedViewLevelCount,
   readLevel0,
+  readOverview,
   readWindow,
   retryingFetch,
   windowDataBytes,
@@ -894,5 +895,43 @@ describe("abort propagation into the interactive path (website#208)", () => {
       await pending;
     });
     expect(settled).toBe("rejected"); // aborted, not resolved with a dropped-in-flight result
+  });
+
+  it("readOverview resolves to null (never rejects, never hangs) once the signal aborts the minimap read", async () => {
+    const { handler: openHandler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+    });
+    let opened: Awaited<ReturnType<typeof openRecording>> | undefined;
+    await withFetch(openHandler, async () => {
+      opened = await openRecording("https://example.test/store/");
+      await opened.groups[0].viewLevelsReady;
+      await opened.eventsReady;
+    });
+    const g = opened?.groups[0];
+    if (!g) throw new Error("test setup: group did not open");
+    // Otherwise readOverview short-circuits to null without ever reading --
+    // the abort has to interrupt a genuine in-flight zarr.get.
+    expect(g.viewLevels.length).toBeGreaterThan(0);
+
+    const hangingFetch = (async () => new Promise<Response>(() => {})) as typeof fetch;
+    const controller = new AbortController();
+    let settled: "resolved" | "rejected" | "pending" = "pending";
+    let result: Float32Array | null | undefined;
+    await withFetch(hangingFetch, async () => {
+      const pending = readOverview(g, controller.signal).then((data) => {
+        settled = "resolved";
+        result = data;
+      });
+      await Promise.resolve();
+      expect(settled).toBe("pending"); // genuinely in flight, not already settled
+      controller.abort();
+      await pending;
+    });
+    // readOverview swallows every failure (including an abort) and resolves
+    // to null rather than throwing -- same contract it always had, now also
+    // true for a caller-driven cancellation.
+    expect(settled).toBe("resolved");
+    expect(result).toBeNull();
   });
 });
