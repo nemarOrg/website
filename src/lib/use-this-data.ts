@@ -280,7 +280,14 @@ function buildLicenseSection(input: UseThisDataInput): UseThisDataSection {
   }
 
   const authorNames = (input.metadata.authors ?? []).map((a) => a.name).filter(Boolean);
-  const doi = input.metadata.external_links.dataset_doi ?? null;
+  // Optional-chained despite the type saying both objects are required: this
+  // module's header promises it never throws on sparse input, and these are
+  // upstream documents, not values this repo constructs. `metadata.json` for
+  // a `ds*` or freshly imported dataset has shipped without an
+  // `external_links` object at all, and a missing `provenance` would take the
+  // whole page down (Astro drops content whose render throws) rather than
+  // costing one citation field.
+  const doi = input.metadata.external_links?.dataset_doi ?? null;
   // datasetCitation is null-safe (no authors / no doi / no date all degrade
   // cleanly — see cite.test.ts), so this item is always present.
   //
@@ -293,21 +300,27 @@ function buildLicenseSection(input: UseThisDataInput): UseThisDataSection {
     authors: authorNames,
     name: input.metadata.name,
     version: publishedVersion(input),
-    date: input.metadata.provenance.publish_date,
+    date: input.metadata.provenance?.publish_date ?? null,
     doi,
     id: input.id,
   });
   items.push({ key: "license-citation", label: "Recommended citation", value: apa });
 
-  let refIndex = 0;
+  // Collected before labelling so the numbering is decided knowing the total:
+  // a lone reference reads "Reference", and two or more read "Reference 1" /
+  // "Reference 2". The output used to mix the two ("Reference" then
+  // "Reference 2"), which reads like a missing first item.
+  const referenceUrls: string[] = [];
   for (const rid of input.metadata.related_identifiers ?? []) {
     if (rid.relation_type !== "References" || rid.identifier_type !== "DOI") continue;
     const url = doiUrl(rid.identifier);
     if (!url) continue;
-    refIndex += 1;
+    referenceUrls.push(url);
+  }
+  for (const [index, url] of referenceUrls.entries()) {
     items.push({
-      key: `license-reference-${refIndex}`,
-      label: refIndex === 1 ? "Reference" : `Reference ${refIndex}`,
+      key: `license-reference-${index + 1}`,
+      label: referenceUrls.length === 1 ? "Reference" : `Reference ${index + 1}`,
       value: url,
       href: url,
     });

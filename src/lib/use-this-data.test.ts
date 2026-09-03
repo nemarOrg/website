@@ -303,6 +303,30 @@ describe("buildUseThisData — References vs IsReferencedBy (website#286)", () =
     expect(refs.map((r) => r.value)).toContain("https://doi.org/10.1038/sdata.2017.40");
   });
 
+  it("numbers every reference label when there is more than one (website#294 fix 12)", () => {
+    // The labels used to read "Reference" then "Reference 2", which looks
+    // like the numbering lost its first entry.
+    const model = buildUseThisData(nm000103());
+    const license = model.sections.find((s) => s.id === "license");
+    const refs = license?.items.filter((i) => i.key.startsWith("license-reference-")) ?? [];
+    expect(refs.map((r) => r.label)).toEqual(["Reference 1", "Reference 2"]);
+  });
+
+  it("leaves a lone reference unnumbered (website#294 fix 12)", () => {
+    const input = nm000103();
+    const related = (input.metadata.related_identifiers ?? []).filter(
+      (r) => r.relation_type === "References" && r.identifier_type === "DOI",
+    );
+    expect(related.length).toBeGreaterThan(1);
+    const model = buildUseThisData({
+      ...input,
+      metadata: { ...input.metadata, related_identifiers: [related[0]] },
+    });
+    const license = model.sections.find((s) => s.id === "license");
+    const refs = license?.items.filter((i) => i.key.startsWith("license-reference-")) ?? [];
+    expect(refs.map((r) => r.label)).toEqual(["Reference"]);
+  });
+
   it("never surfaces on007753's IsReferencedBy DOIs as citable papers", () => {
     const model = buildUseThisData(on007753());
     const license = model.sections.find((s) => s.id === "license");
