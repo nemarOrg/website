@@ -17,8 +17,9 @@
  * shared constants in `og-chrome.ts`.
  */
 import { formatBytes, formatCount } from "./format";
-import { BRAND_CYAN, ELECTRODE_GOLD, INK, OG_DEFS, escapeXml } from "./og-chrome";
+import { BRAND_CYAN, ELECTRODE_GOLD, INK, OG_DEFS } from "./og-chrome";
 import type { HostedStats } from "./stats";
+import { escapeXml } from "./xml";
 
 /** Same three fields as the homepage hero's hosted totals. */
 export type SiteOgStats = HostedStats;
