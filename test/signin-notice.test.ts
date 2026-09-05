@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 // while passing locally under vitest.
 import NAV from "../src/components/Nav.astro?raw";
 import USER_MENU from "../src/components/UserMenu.astro?raw";
+import { SIGN_IN_TITLE } from "../src/lib/copy";
 import LOGIN_PAGE from "../src/pages/login.astro?raw";
 
 describe("/login anonymous-access notice", () => {
@@ -26,12 +27,28 @@ describe("/login anonymous-access notice", () => {
     );
   });
 
-  it("links back to Discover", () => {
+  it("links back to Discover, in the same tab", () => {
+    const tag = LOGIN_PAGE.match(/<a [^>]*class="signin__notice-cta"[^>]*>/)?.[0] ?? "";
+    expect(tag).toContain('href="/discover"');
+    expect(tag).not.toContain("target=");
     expect(LOGIN_PAGE).toMatch(/href="\/discover"[^>]*>\s*Browse datasets/);
   });
 
+  it("renders unconditionally, not gated behind the error banner", () => {
+    // Source matching cannot see a `{flag && (...)}` wrapper, which would hide
+    // the notice for everyone while every text assertion still passes. The
+    // notice follows the error banner as a plain sibling, so the source
+    // between the banner's closing `}` and the notice must open no expression.
+    const bannerStart = LOGIN_PAGE.indexOf("{errorMessage &&");
+    const bannerEnd = LOGIN_PAGE.indexOf("}", LOGIN_PAGE.indexOf("</p>", bannerStart));
+    const noticeStart = LOGIN_PAGE.indexOf('class="signin__notice"');
+    expect(bannerStart).toBeGreaterThan(-1);
+    expect(noticeStart).toBeGreaterThan(bannerEnd);
+    expect(LOGIN_PAGE.slice(bannerEnd + 1, noticeStart)).not.toContain("{");
+  });
+
   it("is a note region, not an alert", () => {
-    const tag = LOGIN_PAGE.match(/<div class="signin__notice"[^>]*>/)?.[0] ?? "";
+    const tag = LOGIN_PAGE.match(/<div [^>]*class="signin__notice"[^>]*>/)?.[0] ?? "";
     expect(tag).toContain('role="note"');
     expect(tag).not.toContain('role="alert"');
   });
@@ -46,17 +63,24 @@ describe("/login anonymous-access notice", () => {
 });
 
 describe("header Sign in link carries the same message", () => {
-  const SIGN_IN_MESSAGE = "You only need an account to upload data";
+  it("the shared tooltip copy states the upload-only need", () => {
+    expect(SIGN_IN_TITLE).toContain("You only need an account to upload data");
+    expect(SIGN_IN_TITLE).toContain("open to everyone");
+  });
 
-  it("Nav.astro defines the message and wires it onto the link's title", () => {
-    expect(NAV).toContain(SIGN_IN_MESSAGE);
-    const tag = NAV.match(/<a class="site-header__signin"[^>]*>/)?.[0] ?? "";
+  // Both components must bind the ONE shared constant; a local copy would let
+  // the two tooltips drift apart, which is the failure this file exists for.
+  it("Nav.astro imports the shared copy and wires it onto the link's title", () => {
+    expect(NAV).toMatch(/import \{ SIGN_IN_TITLE \} from "\.\.\/lib\/copy"/);
+    expect(NAV).not.toMatch(/const SIGN_IN_TITLE\b/);
+    const tag = NAV.match(/<a [^>]*class="site-header__signin"[^>]*>/)?.[0] ?? "";
     expect(tag).toMatch(/title=\{SIGN_IN_TITLE\}/);
   });
 
-  it("UserMenu.astro defines the message and wires it onto the link's title", () => {
-    expect(USER_MENU).toContain(SIGN_IN_MESSAGE);
-    const tag = USER_MENU.match(/<a class="user-menu__signin"[^>]*>/)?.[0] ?? "";
+  it("UserMenu.astro imports the shared copy and wires it onto the link's title", () => {
+    expect(USER_MENU).toMatch(/import \{ SIGN_IN_TITLE \} from "\.\.\/lib\/copy"/);
+    expect(USER_MENU).not.toMatch(/const SIGN_IN_TITLE\b/);
+    const tag = USER_MENU.match(/<a [^>]*class="user-menu__signin"[^>]*>/)?.[0] ?? "";
     expect(tag).toMatch(/title=\{SIGN_IN_TITLE\}/);
   });
 });
