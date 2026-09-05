@@ -59,6 +59,28 @@ const webSignin = webSigninEnabled();
 
         {errorMessage && <p class="signin__alert" role="alert">{errorMessage}</p>}
 
+        <div class="signin__notice" role="note">
+          <svg class="signin__notice-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3 4 7v5c0 4.4 3.2 8.4 8 9.5 4.8-1.1 8-5.1 8-9.5V7l-8-4z"/>
+            <path d="M9 12.5 11.2 15 15.5 9.8"/>
+          </svg>
+          <div class="signin__notice-body">
+            <p class="signin__notice-lede">
+              <strong>You only need an account to upload data</strong> (and, soon, to run compute).
+            </p>
+            <p class="signin__notice-sub">
+              Browsing, searching, and downloading every public dataset is open to
+              everyone &mdash; no sign-in required.
+            </p>
+            <a class="signin__notice-cta" href="/discover">
+              Browse datasets
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </a>
+          </div>
+        </div>
+
         {ORCID_SIGNIN_ENABLED && (
           <a class="signin__orcid" href={orcidHref}>
             <svg class="signin__orcid-icon" width="20" height="20" viewBox="0 0 256 256" aria-hidden="true">
@@ -348,6 +370,69 @@ nemar auth login</code></pre>
     border: 1px solid color-mix(in srgb, var(--color-danger) 32%, transparent);
     color: var(--color-fg);
     font-size: var(--fs-sm);
+  }
+
+  /* ---------- Anonymous-access reassurance (website#299) ---------- */
+  /* Reassurance, not a wall: teal-tinted like the other informational
+     asides in this file (.signin__soon, .signin__devchip), never the danger
+     palette used for .signin__alert above. */
+  .signin__notice {
+    display: flex;
+    gap: var(--space-4);
+    align-items: flex-start;
+    margin: 0 0 var(--space-6);
+    padding: var(--space-5);
+    border-radius: var(--radius-lg);
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 35%, transparent);
+    background: color-mix(in srgb, var(--brand-teal) 10%, transparent);
+  }
+  .signin__notice-icon {
+    flex-shrink: 0;
+    inline-size: 24px;
+    block-size: 24px;
+    margin-block-start: 2px;
+    color: var(--brand-teal);
+  }
+  .signin__notice-body {
+    display: grid;
+    gap: var(--space-2);
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .signin__notice-lede {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    line-height: var(--lh-snug);
+  }
+  .signin__notice-lede strong {
+    font-weight: var(--fw-semibold);
+  }
+  .signin__notice-sub {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .signin__notice-cta {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-block-start: var(--space-1);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+  }
+  .signin__notice-cta:hover {
+    text-decoration: underline;
+  }
+  .signin__notice-cta svg {
+    transition: transform 0.15s ease;
+  }
+  .signin__notice-cta:hover svg {
+    transform: translateX(2px);
   }
 
   /* ---------- ORCID button + divider ---------- */
@@ -647,6 +732,10 @@ nemar auth login</code></pre>
     }
     .signin__title {
       font-size: var(--fs-2xl);
+    }
+    .signin__notice {
+      padding: var(--space-4);
+      gap: var(--space-3);
     }
   }
 </style>

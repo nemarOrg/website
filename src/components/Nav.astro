@@ -1,5 +1,6 @@
 ---
 import { getSession } from "../lib/auth";
+import { SIGN_IN_TITLE } from "../lib/copy";
 import { appUrl, hostMode, marketingUrl } from "../lib/host";
 import Brand from "./Brand.astro";
 import ExternalLink from "./ExternalLink.astro";
@@ -88,7 +89,7 @@ const signInHref = appUrl("/login", url.hostname);
         showUserMenu ? (
           <UserMenu session={session} />
         ) : (
-          <a class="site-header__signin" href={signInHref}>Sign in</a>
+          <a class="site-header__signin" href={signInHref} title={SIGN_IN_TITLE}>Sign in</a>
         )
       }
     </div>
