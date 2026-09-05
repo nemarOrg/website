@@ -1,19 +1,23 @@
 /**
- * Placement guards for the "How to use the data (for agentic research)"
- * block.
+ * Placement and sizing guards for the "How to use the data (for agentic
+ * research)" block.
  *
  * These are source-level assertions rather than rendered-DOM ones on purpose:
- * the two things that regressed in v0.2.6 are both decisions expressed in
- * markup, and neither is reachable from the model tests in
- * `use-this-data.test.ts` (which cover the content) or the mirror tests in
- * `test/routes/dataset-md.test.ts` (which cover the markdown surface). The
- * component is an Astro file with no unit-test harness in this repo, so
- * reading the source is the honest cheap check. A rendered-DOM version of
- * these two assertions belongs in the Playwright spec tracked in #279.
+ * the things that regressed are decisions expressed in markup/CSS, and none
+ * are reachable from the model tests in `use-this-data.test.ts` (which cover
+ * the content) or the mirror tests in `test/routes/dataset-md.test.ts` (which
+ * cover the markdown surface). The component is an Astro file with no
+ * unit-test harness in this repo, so reading the source is the honest cheap
+ * check. A rendered-DOM version of these assertions belongs in the Playwright
+ * spec tracked in #279.
  *
- * What regressed: the block rendered expanded, immediately after the page
- * title, which pushed the README and the file tree about two screens down and
- * made agent-facing reference material the first thing a human read.
+ * What regressed, twice: v0.2.6 rendered the block expanded, immediately
+ * after the page title, which pushed the README and the file tree about two
+ * screens down and made agent-facing reference material the first thing a
+ * human read (#297 fixed placement). #297's fix still styled the collapsed
+ * summary as a headline -- `--fs-xl` semibold on an elevated card -- so it
+ * kept competing with human-facing content by size even after it moved to
+ * the end of the column (website#300).
  */
 
 import { describe, expect, it } from "vitest";
@@ -39,6 +43,35 @@ describe("UseThisData is a collapsed disclosure", () => {
     // would make this agent-only content a human cannot reach.
     expect(COMPONENT).not.toMatch(/\.use-this-data__body[^}]*display:\s*none/);
     expect(COMPONENT).not.toMatch(/\.use-this-data__body[^}]*position:\s*absolute/);
+  });
+});
+
+describe("UseThisData is sized as an endnote, not a card (website#300)", () => {
+  it("does not style the summary title above the page's base font size", () => {
+    const titleRule = COMPONENT.match(/\.use-this-data__summary-title\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(titleRule).not.toBe("");
+    // --fs-base and everything larger (--fs-lg, --fs-xl, ...) would make the
+    // collapsed line read as a headline again; only the two tokens smaller
+    // than the page default belong here.
+    expect(titleRule).toMatch(/--fs-(xs|sm)\b/);
+    expect(titleRule).not.toMatch(/--fs-(base|lg|xl|2xl|3xl|4xl|5xl|6xl)\b/);
+  });
+
+  it("does not style the summary hint above the page's base font size", () => {
+    const hintRule = COMPONENT.match(/\.use-this-data__summary-hint\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(hintRule).not.toBe("");
+    expect(hintRule).toMatch(/--fs-(xs|sm)\b/);
+    expect(hintRule).not.toMatch(/--fs-(base|lg|xl|2xl|3xl|4xl|5xl|6xl)\b/);
+  });
+
+  it("does not render the container as an elevated/bordered card", () => {
+    // `.use-this-data\s*\{` only matches the bare top-level selector: every
+    // other rule for this component has a `__part`, `[open]`, or descendant
+    // combinator between the class and the brace.
+    const containerRule = COMPONENT.match(/\.use-this-data\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(containerRule).not.toBe("");
+    expect(containerRule).not.toMatch(/background:\s*var\(--color-bg-elevated\)/);
+    expect(containerRule).not.toMatch(/border-radius/);
   });
 });
 
