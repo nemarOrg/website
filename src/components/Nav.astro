@@ -57,6 +57,11 @@ const links =
 
 const showUserMenu = mode !== "marketing";
 const signInHref = appUrl("/login", url.hostname);
+
+// Same message as the /login notice (website#299) and UserMenu.astro's
+// signed-out link — keep the three in sync if this copy changes.
+const SIGN_IN_TITLE =
+  "You only need an account to upload data (and, soon, to run compute). Browsing, searching, and downloading are open to everyone.";
 ---
 
 <header class="site-header">
@@ -88,7 +93,7 @@ const signInHref = appUrl("/login", url.hostname);
         showUserMenu ? (
           <UserMenu session={session} />
         ) : (
-          <a class="site-header__signin" href={signInHref}>Sign in</a>
+          <a class="site-header__signin" href={signInHref} title={SIGN_IN_TITLE}>Sign in</a>
         )
       }
     </div>

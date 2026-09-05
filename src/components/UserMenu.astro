@@ -7,6 +7,11 @@ interface Props {
 const { session } = Astro.props;
 
 const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
+
+// Same message as the /login notice (website#299) and Nav.astro's signed-out
+// link — keep the three in sync if this copy changes.
+const SIGN_IN_TITLE =
+  "You only need an account to upload data (and, soon, to run compute). Browsing, searching, and downloading are open to everyone.";
 ---
 
 {
@@ -55,7 +60,7 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
       </div>
     </details>
   ) : (
-    <a class="user-menu__signin" href="/login">Sign in</a>
+    <a class="user-menu__signin" href="/login" title={SIGN_IN_TITLE}>Sign in</a>
   )
 }
 
