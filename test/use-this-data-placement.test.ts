@@ -46,6 +46,9 @@ describe("UseThisData is a collapsed disclosure", () => {
   });
 });
 
+// These guards capture each rule as `.selector { ... }` and assume one
+// selector per brace group, which holds for this component's <style> today.
+// A grouped selector (`.a, .b { }`) would need the regexes revisited.
 describe("UseThisData is sized as an endnote, not a card (website#300)", () => {
   it("does not style the summary title above the page's base font size", () => {
     const titleRule = COMPONENT.match(/\.use-this-data__summary-title\s*\{[^}]*\}/)?.[0] ?? "";
@@ -55,6 +58,15 @@ describe("UseThisData is sized as an endnote, not a card (website#300)", () => {
     // than the page default belong here.
     expect(titleRule).toMatch(/--fs-(xs|sm)\b/);
     expect(titleRule).not.toMatch(/--fs-(base|lg|xl|2xl|3xl|4xl|5xl|6xl)\b/);
+  });
+
+  it("does not give the summary title headline weight", () => {
+    // The card treatment paired --fs-xl with --fw-semibold. A regression that
+    // restores the weight while keeping the small size still reads as a
+    // heading, so the weight is pinned separately from the size.
+    const titleRule = COMPONENT.match(/\.use-this-data__summary-title\s*\{[^}]*\}/)?.[0] ?? "";
+    expect(titleRule).not.toBe("");
+    expect(titleRule).not.toMatch(/--fw-(semibold|bold)\b/);
   });
 
   it("does not style the summary hint above the page's base font size", () => {
@@ -72,6 +84,10 @@ describe("UseThisData is sized as an endnote, not a card (website#300)", () => {
     expect(containerRule).not.toBe("");
     expect(containerRule).not.toMatch(/background:\s*var\(--color-bg-elevated\)/);
     expect(containerRule).not.toMatch(/border-radius/);
+    // Card-like inset came from a four-side `padding:` shorthand; the endnote
+    // keeps only a top inset, so the shorthand must not return either.
+    expect(containerRule).not.toMatch(/\bpadding:\s/);
+    expect(containerRule).toMatch(/padding-block-start/);
   });
 });
 
