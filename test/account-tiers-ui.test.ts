@@ -16,6 +16,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import USER_STATUS_BADGE from "../src/components/UserStatusBadge.astro?raw";
 // Vite's `?raw`, not node:fs — `astro check` type-checks every file under the
 // repo without node types, so a readFileSync here would fail typecheck in CI
 // while passing locally under vitest.
@@ -24,6 +25,7 @@ import USER_ADMIN_ROW from "../src/components/admin/UserAdminRow.astro?raw";
 import { uploadAccessMissingFields } from "../src/lib/account-tier";
 import { DOCS_ACCOUNT_SETTINGS_PATH, DOCS_UPLOAD_ACCESS_PATH } from "../src/lib/docs-base";
 import ADMIN_USERS from "../src/pages/admin/users.astro?raw";
+import ADMIN_USER_DETAIL from "../src/pages/admin/users/[username].astro?raw";
 import DASHBOARD from "../src/pages/dashboard.astro?raw";
 import LOGIN_PENDING from "../src/pages/login/pending.astro?raw";
 import LOGIN_VERIFY from "../src/pages/login/verify.astro?raw";
@@ -143,6 +145,37 @@ describe("the upload dropzone is gated on service_access alone", () => {
 });
 
 describe("onboarding", () => {
+  // The wiring, field by field. Swapping given/family, or passing
+  // `session.user.username` (which is absent on today's /auth/me) instead of
+  // the resolved `identity.username`, changes the page's behaviour and
+  // nothing else in the suite notices — `onboardingSteps` is pure and its own
+  // tests never see the call site.
+  it("feeds onboardingSteps the resolved identity, not the session's username", () => {
+    const call = ONBOARDING.match(/const steps = onboardingSteps\(\{[\s\S]*?\}\);/)?.[0] ?? "";
+    expect(call).not.toBe("");
+    expect(call).toContain("username: identity.username,");
+    // `session.user.username` is absent on /auth/me today, so passing it here
+    // would make `onboardingSteps` see `undefined` — "could not ask" — and
+    // silently skip the username step for every account.
+    expect(call).not.toContain("username: session.user.username");
+    expect(call).toContain("given_name: session.user.given_name,");
+    expect(call).toContain("family_name: session.user.family_name,");
+    expect(call).toContain("city: session.user.city,");
+    expect(call).toContain("country: session.user.country,");
+    // Without this the name step is raised for a verified iD, whose PATCH the
+    // backend refuses with `name_is_orcid_canonical`.
+    expect(call).toContain("orcid_verified: session.user.orcid_verified,");
+  });
+
+  it("resolves the identity from the session value, falling back to /users/me", () => {
+    // `fetchAccountIdentity` short-circuits on a defined first argument;
+    // passing anything else (or nothing) spends a request per render, or
+    // never asks at all.
+    expect(ONBOARDING).toContain(
+      "const identity = await fetchAccountIdentity(session.user.username, { cookieHeader });",
+    );
+  });
+
   it("is self-gating: it redirects onward when nothing is outstanding", () => {
     expect(ONBOARDING).toContain("onboardingSteps");
     expect(ONBOARDING).toMatch(/steps\.length === 0[\s\S]{0,120}Astro\.redirect\(next\)/);
@@ -169,11 +202,79 @@ describe("onboarding", () => {
     expect(ONBOARDING).toContain("orcid.org/my-orcid");
   });
 
+  it("renders the name read-only under a verified iD, never as an input", () => {
+    // The mirror of Settings' rule, and for the same reason: the backend
+    // answers 409 `name_is_orcid_canonical`, so an editable control would
+    // exist only to fail. The editable pair is gated on the step, which
+    // `onboardingSteps` never raises for a verified iD.
+    expect(ONBOARDING).toMatch(/\{needsName && \(\s*<fieldset/);
+    expect(ONBOARDING).toMatch(
+      /\{!needsName && nameIsOrcidCanonical && !nameMissingUnderOrcid && \(/,
+    );
+    expect(ONBOARDING).toContain(
+      "const nameIsOrcidCanonical = session.user.orcid_verified === true;",
+    );
+  });
+
+  it("does not field-scope username_locked, deliberately", () => {
+    // Settings scopes both `username_taken` and `username_locked` to the
+    // field. Here only `username_taken` is: an account that reaches
+    // /onboarding is by definition not yet approved (approval requires the
+    // username this page is asking for), so `username_locked` is unreachable
+    // and would be a branch nothing can exercise. It still renders, through
+    // the page-level message.
+    expect(ONBOARDING).toContain('code === "username_taken"');
+    expect(ONBOARDING).not.toContain('code === "username_locked"');
+    expect(ONBOARDING).toContain("profileErrorMessage");
+  });
+
   it("is where sign-in routes after a successful code", () => {
     expect(LOGIN_VERIFY).toContain("/onboarding?next=");
     // An unverified account goes to the dashboard's verify step, not to the
     // legacy "account under review" page.
     expect(LOGIN_VERIFY).not.toContain('location.href = "/login/pending"');
+  });
+});
+
+describe("the dashboard's setup prompt", () => {
+  it("feeds needsOnboarding the resolved identity, field by field", () => {
+    const call = DASHBOARD.match(/needsOnboarding\(\{[\s\S]*?\}\)/)?.[0] ?? "";
+    expect(call).not.toBe("");
+    expect(call).toContain("username: identity.username,");
+    expect(call).not.toContain("username: session.user.username");
+    expect(call).toContain("given_name: session.user.given_name,");
+    expect(call).toContain("family_name: session.user.family_name,");
+    expect(call).toContain("city: session.user.city,");
+    expect(call).toContain("country: session.user.country,");
+    expect(call).toContain("orcid_verified: session.user.orcid_verified,");
+  });
+
+  it("does not spend the identity lookup on a tier that cannot make it", () => {
+    // An unverified session gets a 403 from authMiddleware, so the call is a
+    // guaranteed round-trip to a refusal on every dashboard render.
+    expect(DASHBOARD).toMatch(
+      /tier === "unverified"\s*\?\s*\{ username: undefined \}\s*:\s*await fetchAccountIdentity\(/,
+    );
+    expect(DASHBOARD).toContain('tier !== "unverified" &&');
+  });
+});
+
+describe("welcome", () => {
+  it("leads with the verify step for an unverified account", () => {
+    expect(WELCOME).toContain('const isUnverified = tier === "unverified";');
+    expect(WELCOME).toMatch(/\{isUnverified && \(\s*<p class="welcome__notice"/);
+    // The step title and its CTA both change, not just the notice above them.
+    expect(WELCOME).toContain(
+      'isUnverified ? "Verify your email address" : "Your account is active"',
+    );
+    expect(WELCOME).toMatch(/isUnverified[\s\S]{0,200}label: "Enter your code"/);
+  });
+
+  it("offers upload only to the tier that can use it", () => {
+    // A base-tier account clicking "Upload my first dataset" lands on a page
+    // that can only tell it to ask for access; the CTA asks directly.
+    expect(WELCOME).toMatch(/\{tier === "upload" \?[\s\S]{0,400}href="\/upload"/);
+    expect(WELCOME).toMatch(/href="\/settings#upload-access"[\s\S]{0,120}Request upload access/);
   });
 });
 
@@ -293,8 +394,24 @@ describe("admin users queue", () => {
     expect(USER_ADMIN_ROW).toContain("data-user-id={user.id}");
   });
 
-  it("renders the backend's refusal message, not just its code", () => {
-    expect(ADMIN_USERS).toContain("friendlyApprove");
+  it("renders an approve refusal through the message-preferring renderer", () => {
+    // Both admin surfaces use the same pair, and which one they pick per
+    // action is the whole point — `adminActionErrorText` would return the
+    // "not eligible" headline and drop the sentence saying what to do.
+    for (const src of [ADMIN_USERS, ADMIN_USER_DETAIL]) {
+      expect(src).toContain("approveErrorText(err)");
+      expect(src).toContain("adminActionErrorText(err)");
+      expect(src).toMatch(/Couldn't approve: \$\{approveErrorText\(err\)\}/);
+    }
+  });
+
+  it("shares one approvability rule between the queue and the detail page", () => {
+    // It was a four-condition inline boolean in each; dropping the
+    // signup_source guard from one of them passed the whole suite.
+    for (const src of [USER_ADMIN_ROW, ADMIN_USER_DETAIL]) {
+      expect(src).toContain("canApproveUser(");
+      expect(src).not.toMatch(/status === "revoked_iam_pending" \|\|/);
+    }
   });
 
   it("shows a review card with everything the decision is about", () => {
@@ -322,6 +439,40 @@ describe("admin users queue", () => {
   it("shows the tier in the summary row", () => {
     expect(USER_ADMIN_ROW).toContain("<dt>Tier</dt>");
     expect(USER_ADMIN_ROW).toContain("ADMIN_TIER_LABELS[tier]");
+  });
+
+  it("labels the lifecycle statuses as tiers, not as queue positions", () => {
+    // `verified` read "Awaiting approval", which was true only while approval
+    // was what every account was waiting for. It is now the working base tier
+    // and most of the catalog sits there permanently; what an admin has a
+    // queue of is open upload-access requests, which is its own chip.
+    expect(USER_STATUS_BADGE).toContain('pending: "Email not verified"');
+    expect(USER_STATUS_BADGE).toContain('verified: "Base access"');
+    expect(USER_STATUS_BADGE).toContain('approved: "Upload access"');
+    expect(USER_STATUS_BADGE).not.toMatch(/verified: "Awaiting approval"/);
+    // Amber belongs on the one state with an outstanding action (the user's
+    // own); the base tier is a finished account, not a half-finished one.
+    // Sliced rather than matched through a character window, so a comment
+    // moving between the two does not have to be re-budgeted for.
+    const tones = USER_STATUS_BADGE.slice(
+      USER_STATUS_BADGE.indexOf("const TONES"),
+      USER_STATUS_BADGE.indexOf("const label ="),
+    );
+    expect(tones).toContain('pending: "warning"');
+    expect(tones).toContain('verified: "neutral"');
+  });
+
+  it("distinguishes a field that did not load from one the user left blank", () => {
+    // The review card is enriched by a per-row detail fetch that can fail or
+    // be over the bound. "—" for a field nobody filled in and "not loaded"
+    // for a field nobody asked for are different facts, and collapsing them
+    // would have an admin chasing a user over a 502.
+    expect(USER_ADMIN_ROW).toContain('{city || (detail ? "—" : "not loaded")}');
+    expect(USER_ADMIN_ROW).toContain('{country || (detail ? "—" : "not loaded")}');
+    expect(USER_ADMIN_ROW).toContain('{affiliation || (detail ? "—" : "not loaded")}');
+    expect(USER_ADMIN_ROW).toMatch(
+      /whyText \|\|\s*\(detail \? "They left this blank\." : "Not loaded/,
+    );
   });
 
   it("keeps revoke available on an approved account", () => {

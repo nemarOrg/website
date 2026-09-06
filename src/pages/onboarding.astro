@@ -38,6 +38,9 @@ if (session.user.status === "pending") {
 }
 
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+// The session value first: `fetchAccountIdentity` short-circuits on a defined
+// first argument, so the day `/auth/me` carries `username` this page stops
+// spending a request per render without another change here.
 const identity = await fetchAccountIdentity(session.user.username, { cookieHeader });
 
 const steps = onboardingSteps({
@@ -527,6 +530,13 @@ const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
           const text = profileErrorMessage(res.status, code, message);
           // A username collision is a field problem, not a page problem: put
           // it beside the input and leave focus where it can be fixed.
+          //
+          // `username_locked` is deliberately NOT scoped the same way, unlike
+          // in Settings: an account that reaches this page is by definition
+          // not approved yet (approval needs the username it is asking for),
+          // so that refusal is unreachable here and a field branch for it
+          // would be one nothing can exercise. It still renders, through the
+          // page-level message below.
           if (code === "username_taken" && usernameEl && usernameError) {
             usernameEl.setAttribute("aria-invalid", "true");
             usernameError.textContent = text;

@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { DashboardApiError } from "./dashboard-api";
 import {
   ADMIN_TIER_LABELS,
   type AdminUserListRow,
+  REVIEW_DETAIL_LIMIT,
+  adminActionErrorText,
   adminActionMessage,
   adminTier,
   adminUsersQuery,
+  approveErrorText,
   approveUserById,
+  canApproveUser,
   changeUserRole,
   deleteUserById,
   fetchAwaitingApprovalCount,
@@ -14,6 +19,7 @@ import {
   isAwaitingUploadApproval,
   isSelf,
   listAdminUsers,
+  loadReviewDetails,
   revokeUser,
 } from "./users-admin-api";
 
@@ -538,5 +544,215 @@ describe("adminActionMessage", () => {
   it("falls back to the status text when the body carried nothing", () => {
     expect(adminActionMessage(undefined, undefined, "Bad Gateway")).toBe("Bad Gateway");
     expect(adminActionMessage("  ", "  ", "Bad Gateway")).toBe("Bad Gateway");
+  });
+});
+
+describe("canApproveUser", () => {
+  // Mirrors `isApprovable` in nemar-cli backend/src/routes/admin/users.ts. It
+  // was a four-condition inline boolean in UserAdminRow.astro until
+  // website#301's review: dropping the signup_source guard — which offers
+  // Approve on every unverified CLI signup, for the backend to refuse —
+  // passed the whole suite.
+  it("approves a base-tier account waiting for the grant", () => {
+    expect(canApproveUser(row({ status: "verified" }))).toBe(true);
+  });
+
+  it("re-approves a revoked account, including a partial IAM revoke", () => {
+    expect(canApproveUser(row({ status: "revoked" }))).toBe(true);
+    expect(canApproveUser(row({ status: "revoked_iam_pending" }))).toBe(true);
+  });
+
+  it("approves a pending WEB signup, which ORCID has already identified", () => {
+    expect(canApproveUser(row({ status: "pending", signup_source: "web" }))).toBe(true);
+  });
+
+  it("does NOT approve a pending signup from any other source", () => {
+    // The allowance is specifically for the ORCID web flow. A CLI signup at
+    // `pending` has proved nothing yet, and the backend refuses it — offering
+    // the button would be walking an admin into a 400.
+    expect(canApproveUser(row({ status: "pending", signup_source: "cli" }))).toBe(false);
+    expect(canApproveUser(row({ status: "pending", signup_source: null }))).toBe(false);
+    expect(canApproveUser(row({ status: "pending" }))).toBe(false);
+  });
+
+  it("does not re-approve an already-approved account", () => {
+    expect(canApproveUser(row({ status: "approved" }))).toBe(false);
+  });
+
+  it("does not require a username", () => {
+    // Approval is keyed by numeric id precisely so a web row without one is
+    // reachable; gating this on `isActionable` would put those accounts back
+    // out of reach, which is the whole problem ADR 0040 had to solve.
+    expect(canApproveUser({ status: "verified", signup_source: "web" })).toBe(true);
+    expect(isActionable(row({ username: null }))).toBe(false);
+  });
+
+  it("does not second-guess the verified-email precondition", () => {
+    // `email_verified` on a listing row can be stale relative to a code the
+    // user redeemed a second ago, and the backend's refusal names exactly
+    // what to do. A button that silently is not there does not.
+    expect(canApproveUser(row({ status: "verified", email_verified: 0 }))).toBe(true);
+  });
+});
+
+describe("loadReviewDetails", () => {
+  function openRequest(id: number): AdminUserListRow {
+    return row({
+      id,
+      username: `user${id}`,
+      upload_access_requested_at: "2026-09-01 10:00:00",
+      service_access: 0,
+    });
+  }
+
+  function detailFetch(onCall?: (url: string) => void): typeof fetch {
+    return (async (url: string) => {
+      onCall?.(url);
+      return new Response(
+        JSON.stringify({ user: { ...row(), city: "London", description: "why" } }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+  }
+
+  it("fetches a detail for each open request", async () => {
+    const seen: string[] = [];
+    const out = await loadReviewDetails([openRequest(1), openRequest(2)], {
+      fetch: detailFetch((url) => seen.push(url)),
+    });
+    expect(seen).toHaveLength(2);
+    expect(out.details.size).toBe(2);
+    expect(out.details.get(1)?.city).toBe("London");
+    expect(out.failures).toBe(0);
+    expect(out.truncated).toBe(false);
+  });
+
+  it("fetches nothing for rows that are not open requests", async () => {
+    // An approved account keeps its `upload_access_requested_at` stamp as the
+    // record of when it asked, so keying the fan-out on the stamp alone would
+    // fetch a detail for every account that has ever asked.
+    const seen: string[] = [];
+    const out = await loadReviewDetails(
+      [row({ id: 1 }), row({ id: 2, upload_access_requested_at: "2026-09-01", service_access: 1 })],
+      { fetch: detailFetch((url) => seen.push(url)) },
+    );
+    expect(seen).toHaveLength(0);
+    expect(out.details.size).toBe(0);
+  });
+
+  it("bounds the fan-out and says so", async () => {
+    // The endpoint has no pagination, so nothing but this caps how many HTTP
+    // calls one render makes.
+    const seen: string[] = [];
+    const users = Array.from({ length: 5 }, (_, i) => openRequest(i + 1));
+    const out = await loadReviewDetails(users, {
+      limit: 2,
+      fetch: detailFetch((url) => seen.push(url)),
+    });
+    expect(seen).toHaveLength(2);
+    expect(out.details.size).toBe(2);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("is not truncated when the open requests fit", async () => {
+    const out = await loadReviewDetails([openRequest(1)], { limit: 2, fetch: detailFetch() });
+    expect(out.truncated).toBe(false);
+  });
+
+  it("defaults to REVIEW_DETAIL_LIMIT", async () => {
+    const seen: string[] = [];
+    const users = Array.from({ length: REVIEW_DETAIL_LIMIT + 3 }, (_, i) => openRequest(i + 1));
+    const out = await loadReviewDetails(users, { fetch: detailFetch((url) => seen.push(url)) });
+    expect(seen).toHaveLength(REVIEW_DETAIL_LIMIT);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("fails soft per row, and COUNTS the failure", async () => {
+    // A card silently missing its location and request text is
+    // indistinguishable from a user who supplied neither, so the count is
+    // what the page turns into a notice.
+    const failing = (async (url: string) => {
+      if (url.includes("user2")) throw new Error("upstream down");
+      return new Response(JSON.stringify({ user: row() }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+    const out = await loadReviewDetails([openRequest(1), openRequest(2), openRequest(3)], {
+      fetch: failing,
+    });
+    expect(out.details.size).toBe(2);
+    expect(out.details.has(2)).toBe(false);
+    expect(out.failures).toBe(1);
+  });
+
+  it("counts a non-ok detail response as a failure rather than throwing", async () => {
+    const notFound = (async () =>
+      new Response(JSON.stringify({ error: "User not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    const out = await loadReviewDetails([openRequest(1)], { fetch: notFound });
+    expect(out.failures).toBe(1);
+    expect(out.details.size).toBe(0);
+  });
+
+  it("skips a row with no username, which the detail route cannot address", async () => {
+    const seen: string[] = [];
+    const out = await loadReviewDetails(
+      [row({ id: 9, username: null, upload_access_requested_at: "2026-09-01", service_access: 0 })],
+      { fetch: detailFetch((url) => seen.push(url)) },
+    );
+    expect(seen).toHaveLength(0);
+    // Still counted as an open request for truncation purposes: an admin
+    // seeing a card with no detail needs to know why either way.
+    expect(out.truncated).toBe(false);
+    expect(out.failures).toBe(0);
+  });
+});
+
+describe("admin action error copy", () => {
+  const apiError = (message: string, code?: string) => new DashboardApiError(message, 400, code);
+
+  it("prefers the code on every route except approve", () => {
+    // These routes put the sentence in `error`, so the code IS the text and
+    // the message only wraps it in a prefix.
+    expect(
+      adminActionErrorText(apiError("Revoke failed: x", "Cannot revoke your own access")),
+    ).toBe("Cannot revoke your own access");
+  });
+
+  it("prefers the message on approve", () => {
+    // The difference these two functions exist for: an ineligible account
+    // answers a headline in `error` and the actionable half in `message`.
+    const err = apiError(
+      "User is not eligible for approval — User must verify their email address first",
+      "User is not eligible for approval",
+    );
+    expect(approveErrorText(err)).toContain("must verify their email address first");
+    expect(adminActionErrorText(err)).toBe("User is not eligible for approval");
+  });
+
+  it("translates transport codes on both, which are not human text", () => {
+    for (const render of [adminActionErrorText, approveErrorText]) {
+      expect(render(apiError("boom", "upstream_unreachable"))).toContain("Can't reach");
+      expect(render(apiError("boom", "unauthenticated"))).toContain("Sign in again");
+    }
+  });
+
+  it("falls back to the message when the body carried no code", () => {
+    expect(adminActionErrorText(apiError("Delete failed: Bad Gateway"))).toBe(
+      "Delete failed: Bad Gateway",
+    );
+    expect(approveErrorText(apiError("Approve failed: Bad Gateway"))).toBe(
+      "Approve failed: Bad Gateway",
+    );
+  });
+
+  it("handles a non-API throw on both", () => {
+    expect(adminActionErrorText(new Error("network down"))).toBe("network down");
+    expect(approveErrorText(new Error("network down"))).toBe("network down");
+    expect(adminActionErrorText("not an error")).toBe("Action failed.");
+    expect(approveErrorText(null)).toBe("Action failed.");
   });
 });
