@@ -63,7 +63,7 @@ function wireFor(missing: ReadonlySet<GapField>): readonly WireProfileGap[] {
   return [...missing].map((field) => ({ field, set_on: [] }));
 }
 
-/** All 2^7 subsets of the derivable fields. */
+/** All 2^8 subsets of the derivable fields (one per DERIVABLE entry). */
 function everySubset(): Array<Set<GapField>> {
   const out: Array<Set<GapField>> = [];
   for (let mask = 0; mask < 1 << DERIVABLE.length; mask += 1) {
@@ -79,7 +79,7 @@ function everySubset(): Array<Set<GapField>> {
 const SUBSETS = everySubset();
 
 describe("profileGaps: the derivation", () => {
-  it("raises exactly the missing fields, in table order, for all 128 combinations", () => {
+  it(`raises exactly the missing fields, in table order, for all ${SUBSETS.length} combinations`, () => {
     for (const missing of SUBSETS) {
       const expected = DERIVABLE.filter((f) => missing.has(f));
       expect(
@@ -210,7 +210,7 @@ describe("profileGaps: orcid_verified", () => {
 });
 
 describe("profileGaps: the wire form", () => {
-  it("produces byte-identical output to the derivation, for all 128 combinations", () => {
+  it(`produces byte-identical output to the derivation, for all ${SUBSETS.length} combinations`, () => {
     // The switchover to a backend-computed `profile_gaps` must be a deploy
     // and not a website change, so the two paths cannot be distinguishable
     // in the output. This is the assertion that keeps that true.
