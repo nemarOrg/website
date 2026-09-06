@@ -1,5 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
+import { ACCOUNT_COPY } from "../lib/account-copy";
 import { deriveAccountTier } from "../lib/account-tier";
 import { getSession } from "../lib/auth";
 import { DOCS_UPLOAD_ACCESS_PATH, resolveDocsBase } from "../lib/docs-base";
@@ -22,16 +23,18 @@ const steps: { title: string; body: string; cta?: { href: string; label: string 
     // 2: the iD proves the person, the emailed code proves the inbox), and
     // for it the honest first step is the code — NOT "wait for an admin",
     // which is what this said before and which named a queue nobody was in.
-    title: isUnverified ? "Verify your email address" : "Your account is active",
+    title: isUnverified
+      ? ACCOUNT_COPY["welcome.unverified.title"]
+      : ACCOUNT_COPY["welcome.active.title"],
     body: isUnverified
-      ? "Authorizing with ORCID created your NEMAR account and signed you in. One step left: enter the 6-digit code we emailed you. That activates the account — no admin approval is involved."
-      : "Authorizing with ORCID created your NEMAR account and signed you in. There is no separate sign-up step and no approval queue: browse, search, and your dashboard all work right now.",
+      ? ACCOUNT_COPY["welcome.unverified.body"]
+      : ACCOUNT_COPY["welcome.active.body"],
     ...(isUnverified ? { cta: { href: "/dashboard", label: "Enter your code" } } : {}),
   },
   {
-    title: "Ask for upload access when you're ready to contribute",
-    body: "Reading is open to every verified account. Uploading and compute need one extra grant, because an admin has to check your GitHub handle and location against export-control and local-jurisdiction rules first. You ask once, from Settings.",
-    cta: { href: uploadAccessDocsUrl, label: "How upload access works" },
+    title: ACCOUNT_COPY["welcome.upload_access.title"],
+    body: ACCOUNT_COPY["welcome.upload_access.body"],
+    cta: { href: uploadAccessDocsUrl, label: ACCOUNT_COPY["upload_access.docs_link"] },
   },
   {
     title: "Then upload a BIDS folder",
@@ -115,7 +118,7 @@ const steps: { title: string; body: string; cta?: { href: string; label: string 
         </a>
       ) : (
         <a class="welcome__cta welcome__cta--ghost" href="/settings#upload-access" data-welcome-cta>
-          Request upload access
+          {ACCOUNT_COPY["upload_access.request.cta"]}
         </a>
       )}
     </div>
