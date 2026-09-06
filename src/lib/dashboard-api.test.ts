@@ -47,9 +47,16 @@ function ds(overrides: Partial<Dataset> = {}): Dataset {
 /**
  * Build a discriminated-union PublicationStatus with the required fields for
  * the given branch. Tests below pass these through the helpers without
- * inspecting the timestamps; the helper only cares about `.status`.
+ * inspecting the timestamps.
+ *
+ * `blockReason` defaults to what a current backend writes for a failed BIDS
+ * run; website#304 made the blocked branch depend on it, so the cases that
+ * care pass their own.
  */
-function status(s: PublicationRequestStatus): PublicationStatus {
+function status(
+  s: PublicationRequestStatus,
+  blockReason = "bids_validation_failed",
+): PublicationStatus {
   const base = { dataset_id: "mock-1", requested_by: "alice@example.com" } as const;
   switch (s) {
     case "none":
@@ -85,7 +92,7 @@ function status(s: PublicationRequestStatus): PublicationStatus {
         status: "blocked",
         requested_at: "2026-05-20T00:00:00Z",
         blocked_at: "2026-05-21T00:00:00Z",
-        block_reason: "validation failed",
+        block_reason: blockReason,
       };
   }
 }
@@ -101,6 +108,27 @@ describe("derivePublishState", () => {
   });
   it("validation_failed when publish status is blocked", () => {
     expect(derivePublishState(ds(), status("blocked"))).toBe("validation_failed");
+  });
+
+  // website#304: the label follows the REASON, because the fix does.
+  it("reads a blocked request's reason rather than assuming validation", () => {
+    expect(derivePublishState(ds(), status("blocked", "min_requirements_failed"))).toBe(
+      "validation_failed",
+    );
+    expect(derivePublishState(ds(), status("blocked", "prescreen_failed"))).toBe(
+      "validation_failed",
+    );
+    // An account property, not a dataset one. "Validation failed" here sent
+    // owners to read CI logs that were green.
+    expect(derivePublishState(ds(), status("blocked", "owner_name_missing"))).toBe("name_required");
+  });
+
+  it("degrades an unrecognised reason to blocked rather than guessing", () => {
+    // `block_reason` is free TEXT on the backend and holds legacy values like
+    // this one; claiming a cause nothing established would be worse than
+    // saying only that the request is stopped.
+    expect(derivePublishState(ds(), status("blocked", "validation failed"))).toBe("blocked");
+    expect(derivePublishState(ds(), status("blocked", ""))).toBe("blocked");
   });
   it("denied when publish status is denied", () => {
     expect(derivePublishState(ds(), status("denied"))).toBe("denied");
@@ -127,6 +155,18 @@ describe("derivePublishState", () => {
   });
   it("draft when private + no DOI + status none", () => {
     expect(derivePublishState(ds(), status("none"))).toBe("draft");
+  });
+});
+
+describe("deriveAdminBadgeState follows the block reason too", () => {
+  // The admin queue and the owner card must not disagree about what a block
+  // is called; both go through `blockBadgeState`.
+  it("splits the account-shaped reason out of validation", () => {
+    expect(deriveAdminBadgeState(status("blocked", "owner_name_missing"))).toBe("name_required");
+    expect(deriveAdminBadgeState(status("blocked", "bids_validation_failed"))).toBe(
+      "validation_failed",
+    );
+    expect(deriveAdminBadgeState(status("blocked", "something-new"))).toBe("blocked");
   });
 });
 
@@ -173,8 +213,16 @@ describe("isPublishRequestable", () => {
   it("false when an admin is currently approving", () => {
     expect(isPublishRequestable(ds(), status("approving"))).toBe(false);
   });
-  it("false when blocked (must fix and re-upload before requesting again)", () => {
+  it("false when blocked on the dataset (must fix and re-upload first)", () => {
     expect(isPublishRequestable(ds(), status("blocked"))).toBe(false);
+    expect(isPublishRequestable(ds(), status("blocked", "min_requirements_failed"))).toBe(false);
+    expect(isPublishRequestable(ds(), status("blocked", "an-unknown-reason"))).toBe(false);
+  });
+  it("true when blocked on the ACCOUNT — the owner fixes it and re-requests", () => {
+    // website#304: nothing about the files changed, the backend re-checks the
+    // name on every request, and its own message ends "and re-request
+    // publication". Withholding the button is a dead end.
+    expect(isPublishRequestable(ds(), status("blocked", "owner_name_missing"))).toBe(true);
   });
   it("true when denied (owner can re-request after addressing feedback)", () => {
     expect(isPublishRequestable(ds(), status("denied"))).toBe(true);

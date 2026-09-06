@@ -6,6 +6,7 @@
  * automatically without broadening it to all `*.nemar.org` siblings.
  */
 import { dashboardApiBase, readError } from "./api-base";
+import { blockBadgeState, blockIsAccountFixable } from "./publication-block";
 import {
   DECORATIVE_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS,
@@ -57,13 +58,24 @@ export type PublicationRequestStatus =
 
 /**
  * The frontend's rendering state for a dataset on the dashboard, computed
- * from `visibility + concept_doi + publication_request.status`.
+ * from `visibility + concept_doi + publication_request.status` and, for a
+ * blocked request, its `block_reason`.
+ *
+ * `"blocked"` and `"name_required"` split off `"validation_failed"` in
+ * website#304. Every blocked request used to render "Validation failed",
+ * which was right for the reasons that mean the dataset failed a gate and
+ * wrong for `owner_name_missing`: that one is an account property, and the
+ * label sent owners to read CI logs that were green. See
+ * `./publication-block.ts` for the mapping and why an unknown reason lands
+ * on the neutral `"blocked"`.
  */
 export type DatasetPublishState =
   | "draft"
   | "awaiting_review"
   | "published"
   | "validation_failed"
+  | "name_required"
+  | "blocked"
   | "denied";
 
 /**
@@ -115,7 +127,17 @@ export type PublicationStatus =
       readonly status: "blocked";
       readonly requested_at: string;
       readonly blocked_at: string;
+      /** Free TEXT on the backend (migration 0015), so legacy values exist.
+       *  Kept as `string` rather than narrowed to the contract union for
+       *  exactly that reason — see `./publication-block.ts`. */
       readonly block_reason: string;
+      /** The backend's user-facing explanation (`blockMessage` in nemar-cli
+       *  `routes/datasets/publication.ts`). Present on every blocked status
+       *  payload; optional here because an older backend omitted it, and the
+       *  owner card renders nothing rather than a placeholder when it is
+       *  absent. It is the only place the fix is spelled out, which is why
+       *  #304 surfaces it instead of re-deriving copy from the reason code. */
+      readonly message?: string;
       readonly requested_by: string;
       readonly ci_url?: string;
     };
@@ -271,7 +293,7 @@ export function derivePublishState(
   // the dataset to public (or assigned a DOI), the surface is published
   // regardless of the publication-request row.
   if (dataset.visibility === "public" || dataset.concept_doi) return "published";
-  if (publishStatus?.status === "blocked") return "validation_failed";
+  if (publishStatus?.status === "blocked") return blockBadgeState(publishStatus.block_reason);
   if (publishStatus?.status === "denied") return "denied";
   // `"published"` here means the backend's publication_request row says
   // published but the dataset hasn't flipped yet — the orchestrator window.
@@ -297,7 +319,7 @@ export function deriveAdminBadgeState(
 ): DatasetPublishState {
   if (!publishStatus || publishStatus.status === "none") return "draft";
   if (publishStatus.status === "published") return "published";
-  if (publishStatus.status === "blocked") return "validation_failed";
+  if (publishStatus.status === "blocked") return blockBadgeState(publishStatus.block_reason);
   if (publishStatus.status === "denied") return "denied";
   return "awaiting_review";
 }
@@ -331,9 +353,18 @@ export function isPublishRequestable(
   ) {
     return false;
   }
-  // Blocked (BIDS validation failed) requires the owner to fix and re-upload
-  // before re-requesting. Denied (admin rejected with a reason) allows the
-  // owner to re-request after addressing the feedback.
-  if (publishStatus?.status === "blocked") return false;
+  // Blocked requires the owner to fix and re-upload before re-requesting.
+  // Denied (admin rejected with a reason) allows the owner to re-request
+  // after addressing the feedback.
+  //
+  // The one exception is a block whose fix is in the ACCOUNT rather than in
+  // the dataset (website#304). Nothing about the files changed, the backend
+  // re-checks the name on every request, and its own message ends "and
+  // re-request publication" — so withholding the button leaves an owner who
+  // has just fixed their name with no way to act on the instruction they
+  // were given.
+  if (publishStatus?.status === "blocked") {
+    return blockIsAccountFixable(publishStatus.block_reason);
+  }
   return true;
 }
