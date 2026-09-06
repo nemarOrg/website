@@ -80,7 +80,7 @@ jobs:
         with:
           repository: nemarOrg/nemar-cli
           path: nemar-cli-contract
-          sparse-checkout: shared/contract/account-copy.ts
+          sparse-checkout: /shared/contract/account-copy.ts
           sparse-checkout-cone-mode: false
           ref: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'main' || 'dev' }}
       - name: Vitest
