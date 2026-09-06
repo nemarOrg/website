@@ -13,6 +13,7 @@ import {
   type AdminUserListRow,
   type AdminUserRole,
   adminTier,
+  canApproveUser,
   isActionable,
   isAwaitingUploadApproval,
   isSelf,
@@ -42,22 +43,11 @@ const self = isSelf(user.id, sessionUserId);
 // Approval is by numeric id (`POST /admin/approve/by-id/:id`), so unlike
 // revoke and role-change it does NOT need a username — which is the point:
 // a web/ORCID row has none, and under nemar-cli ADR 0040 approval is the
-// only way it ever gets upload access.
-//
-// The eligible statuses mirror `isApprovable` in nemar-cli
-// `backend/src/routes/admin/users.ts`: `verified` and `revoked` always, plus
-// `pending` for an ORCID-verified web signup — and, since ADR 0040 phase 2,
-// a verified email in every case. The email check is NOT re-derived as a
-// gate here: `email_verified` on the listing can be stale relative to a code
-// the user redeemed a second ago, and the backend refuses with a message
-// naming exactly that ("User must verify their email address first"), which
-// is more useful than a button that silently isn't there. Self-approve is
-// not blocked server-side, so `self` deliberately does not gate this either.
-const canApprove =
-  user.status === "verified" ||
-  user.status === "revoked" ||
-  user.status === "revoked_iam_pending" ||
-  (user.status === "pending" && user.signup_source === "web");
+// only way it ever gets upload access. Self-approve is not blocked
+// server-side, so `self` deliberately does not gate this either.
+// `canApproveUser` carries the status rules and why two backend conditions
+// are left to the backend.
+const canApprove = canApproveUser(user);
 const canRevoke = actionable && user.status === "approved" && !self;
 // Role change requires status === "approved" server-side too (400 otherwise).
 const canChangeRole = isOwner && actionable && user.status === "approved" && !self;

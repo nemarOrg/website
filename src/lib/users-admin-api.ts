@@ -154,6 +154,43 @@ export function isAwaitingUploadApproval(
 }
 
 /**
+ * Whether an admin can approve this account (`POST /admin/approve/by-id/:id`).
+ *
+ * Mirrors `isApprovable` in nemar-cli `backend/src/routes/admin/users.ts`:
+ * `verified` and `revoked` always — `revoked_iam_pending` is the same
+ * DB-level "revoked" family for approval purposes — plus `pending` for an
+ * ORCID-verified WEB signup, which is the one status the backend admits from
+ * a source that has no username to be approved by.
+ *
+ * Two conditions the backend enforces are deliberately NOT mirrored here:
+ *
+ * - **A verified email.** Since nemar-cli ADR 0040 phase 2 approval requires
+ *   one from every signup source, but `email_verified` on a listing row can
+ *   be stale relative to a code the user redeemed a second ago. The backend
+ *   refuses with a message naming exactly that ("User must verify their email
+ *   address first"), which is more useful than a button that silently is not
+ *   there. The review card warns instead.
+ * - **A username.** Approval is keyed by numeric id precisely so a web row
+ *   without one is reachable, so this is not gated on `isActionable` the way
+ *   revoke and role change are.
+ *
+ * Extracted from `UserAdminRow.astro`, where it was a four-condition inline
+ * boolean that no test could reach: dropping the `signup_source` guard — which
+ * would offer Approve on every unverified CLI signup, for the backend to
+ * refuse — changed nothing observable in the suite.
+ */
+export function canApproveUser(user: Pick<AdminUserListRow, "status" | "signup_source">): boolean {
+  if (
+    user.status === "verified" ||
+    user.status === "revoked" ||
+    user.status === "revoked_iam_pending"
+  ) {
+    return true;
+  }
+  return user.status === "pending" && user.signup_source === "web";
+}
+
+/**
  * Human text for a failed admin action, combining the two halves the backend
  * sends. These routes put a readable sentence in `error` (see this file's
  * header) and, on the approve routes, a second more specific one in
@@ -523,4 +560,139 @@ export async function fetchAwaitingApprovalCount(init: Init = {}): Promise<numbe
     );
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Upload-access review details
+// ---------------------------------------------------------------------------
+
+/**
+ * How many open requests get their full review card in one render.
+ *
+ * The listing does not carry city, country, affiliation or the request text —
+ * `GET /admin/users` is an explicit column projection and only
+ * `GET /admin/users/:username` selects `u.*` — so each of those costs its own
+ * HTTP call. The queue is small by construction (a request is answered once
+ * and never re-opened, nemar-cli ADR 0042) but nothing in the API caps what
+ * comes back, so the fan-out is bounded here rather than trusted.
+ */
+export const REVIEW_DETAIL_LIMIT = 25;
+
+export interface ReviewDetails {
+  /** Keyed by `AdminUserListRow.id`. Absent for a row that was over the limit
+   *  or whose fetch failed; `UserAdminRow` renders every listed field either
+   *  way and only the enrichment goes missing. */
+  readonly details: ReadonlyMap<number, AdminUserDetail>;
+  /** Fetches that threw. Surfaced to the admin, because a card silently
+   *  missing its location and request text looks like a user who supplied
+   *  neither. */
+  readonly failures: number;
+  /** True when more open requests exist than the limit fetched. */
+  readonly truncated: boolean;
+}
+
+/**
+ * Fetch the review details for the open requests in a listing.
+ *
+ * Bounded and fail-soft, and the two are separate promises: the bound stops
+ * an unpaginated queue from fanning out unboundedly, and the fail-soft stops
+ * one bad row from costing the admin the Approve button on every other one.
+ * A failure is COUNTED rather than swallowed — `null` details and "the user
+ * left it blank" look identical on the card otherwise.
+ *
+ * Rows with no username are skipped: the detail route is username-keyed. In
+ * practice there are none here — a username is a precondition of the request
+ * itself (nemar-cli ADR 0042) — but the type allows it and the URL cannot.
+ */
+export async function loadReviewDetails(
+  users: readonly AdminUserListRow[],
+  init: Init & { readonly limit?: number } = {},
+): Promise<ReviewDetails> {
+  const limit = init.limit ?? REVIEW_DETAIL_LIMIT;
+  const open = users.filter(isAwaitingUploadApproval);
+  const fetchable = open.filter(
+    (u): u is AdminUserListRow & { username: string } =>
+      typeof u.username === "string" && u.username.length > 0,
+  );
+  const targets = fetchable.slice(0, limit);
+
+  const details = new Map<number, AdminUserDetail>();
+  let failures = 0;
+  await Promise.all(
+    targets.map(async (u) => {
+      try {
+        details.set(u.id, await getAdminUser(u.username, init));
+      } catch (err) {
+        console.warn(`[users-admin-api] review detail failed for ${u.username}`, err);
+        failures += 1;
+      }
+    }),
+  );
+
+  // Counted over the OPEN requests, not the fetchable ones: an admin who sees
+  // 30 cards and full detail on 25 needs to know about all five that are
+  // short, whether the reason was the bound or a missing username.
+  return { details, failures, truncated: open.length > limit };
+}
+
+// ---------------------------------------------------------------------------
+// Admin action error copy
+// ---------------------------------------------------------------------------
+
+/**
+ * Transport-level codes, which are the only ones that are NOT human text.
+ * Every `/admin/users*` route puts a readable sentence straight in `error`
+ * (see this file's header), so `code` is usually already the right thing to
+ * show; these two come from the proxy in front of them.
+ */
+const TRANSPORT_MESSAGES: Record<string, string> = {
+  upstream_unreachable: "Can't reach the user service. Try again in a moment.",
+  unauthenticated: "Sign in again to continue.",
+};
+
+/** The shape both renderers below read off a thrown `DashboardApiError`,
+ *  declared structurally so this module does not have to import the class
+ *  (it already imports it for throwing, but the renderers are also handed
+ *  plain `unknown` from a catch). */
+interface ApiFailure {
+  readonly code?: string;
+  readonly message: string;
+}
+
+function asApiFailure(err: unknown): ApiFailure | null {
+  if (!(err instanceof DashboardApiError)) return null;
+  return { code: err.code, message: err.message };
+}
+
+/**
+ * Copy for a failed admin action, for every route EXCEPT approve.
+ *
+ * Prefers `code`, because on these routes the code IS the sentence
+ * ("Cannot revoke your own access", "Owner access required") and the
+ * client-side `message` only wraps it in a prefix.
+ */
+export function adminActionErrorText(err: unknown): string {
+  const failure = asApiFailure(err);
+  if (!failure) return err instanceof Error ? err.message : "Action failed.";
+  if (failure.code && TRANSPORT_MESSAGES[failure.code]) return TRANSPORT_MESSAGES[failure.code];
+  return failure.code || failure.message;
+}
+
+/**
+ * Copy for a failed approve, which is the exception and the reason these are
+ * two functions rather than one.
+ *
+ * `approveUserById` already builds its message from BOTH halves of the body
+ * via {@link adminActionMessage}, and on the refusal that matters the useful
+ * half is the second one: an ineligible account answers
+ * `error: "User is not eligible for approval"` plus
+ * `message: "User must verify their email address first; approval cannot
+ * skip the inbox check"`. Preferring `code` here would return the headline
+ * and throw away the only sentence that says what to do.
+ */
+export function approveErrorText(err: unknown): string {
+  const failure = asApiFailure(err);
+  if (!failure) return adminActionErrorText(err);
+  if (failure.code && TRANSPORT_MESSAGES[failure.code]) return TRANSPORT_MESSAGES[failure.code];
+  return failure.message;
 }

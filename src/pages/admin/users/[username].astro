@@ -9,6 +9,7 @@ import { formatDate, formatRelativeTime } from "../../../lib/format";
 import {
   type AdminUserDetail,
   type AdminUserRole,
+  canApproveUser,
   getAdminUser,
   isActionable,
   isSelf,
@@ -57,19 +58,12 @@ const actionable = user ? isActionable(user) : false;
 // confirmation, so the UI needs to know up front. Self-approve is not
 // blocked server-side, so `self` deliberately does not gate `canApprove`.
 const self = user !== null && isSelf(user.id, session.user.id);
-// Mirrors `isApprovable` in nemar-cli backend/src/routes/admin/users.ts,
-// including the `pending` + web-signup allowance ADR 0040 phase 2 kept. It is
-// no longer gated on `actionable`: approval goes through the id-keyed route,
-// which is exactly what a username-less web account needs (this page is only
-// reachable for one that HAS a username, but the two call sites must not
-// diverge on which route they use). The verified-email precondition is left
-// to the backend, whose refusal names it.
-const canApprove =
-  user !== null &&
-  (user.status === "verified" ||
-    user.status === "revoked" ||
-    user.status === "revoked_iam_pending" ||
-    (user.status === "pending" && user.signup_source === "web"));
+// The same predicate the queue uses, so the two surfaces cannot diverge on
+// who is approvable — see `canApproveUser`. Not gated on `actionable`:
+// approval goes through the id-keyed route, which is what a username-less
+// web account needs (this page is only reachable for one that HAS a
+// username, but the two call sites must still pick the same route).
+const canApprove = user !== null && canApproveUser(user);
 const canRevoke = user !== null && actionable && user.status === "approved" && !self;
 const canChangeRole = user !== null && isOwner && actionable && user.status === "approved" && !self;
 const canDelete = user !== null && isOwner && !self;
@@ -450,31 +444,16 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
 
 <script>
   import {
+    adminActionErrorText,
+    approveErrorText,
     approveUserById,
     changeUserRole,
     deleteUserById,
     revokeUser,
   } from "../../../lib/users-admin-api";
-  import { DashboardApiError } from "../../../lib/dashboard-api";
   import type { AdminUserRole } from "../../../lib/users-admin-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
-
-  // See users.astro's script for why this map only covers proxy/transport
-  // codes — the users backend puts human-readable text straight in `.code`.
-  const FRIENDLY: Record<string, string> = {
-    upstream_unreachable: "Can't reach the user service. Try again in a moment.",
-    unauthenticated: "Sign in again to continue.",
-  };
-
-  function friendly(err: unknown): string {
-    if (err instanceof DashboardApiError) {
-      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
-      if (err.code) return err.code;
-      return err.message;
-    }
-    return err instanceof Error ? err.message : "Action failed.";
-  }
 
   function showError(msg: string): void {
     if (!errorEl) return;
@@ -561,16 +540,11 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
         try {
           await approveUserById(target.id);
         } catch (err) {
-          // Own catch so the refusal keeps the backend's second sentence —
-          // "User must verify their email address first" is the only part
-          // that says what to do about it. See users.astro's friendlyApprove.
-          showError(
-            `Couldn't approve: ${
-              err instanceof DashboardApiError && !(err.code && FRIENDLY[err.code])
-                ? err.message
-                : friendly(err)
-            }`,
-          );
+          // Own catch, and its own renderer: an approve refusal's useful half
+          // is the backend's `message` ("User must verify their email address
+          // first"), which `adminActionErrorText` would discard in favour of
+          // the `error` headline. See `approveErrorText`.
+          showError(`Couldn't approve: ${approveErrorText(err)}`);
           inFlight = false;
           return;
         }
@@ -593,7 +567,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
       }
       location.reload();
     } catch (err) {
-      showError(`Couldn't complete that action: ${friendly(err)}`);
+      showError(`Couldn't complete that action: ${adminActionErrorText(err)}`);
       inFlight = false;
     }
   });

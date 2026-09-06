@@ -6,12 +6,11 @@ import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
 import { DashboardApiError } from "../../lib/dashboard-api";
 import {
-  type AdminUserDetail,
   type AdminUserListRow,
   type AdminUserStatus,
-  getAdminUser,
-  isAwaitingUploadApproval,
+  REVIEW_DETAIL_LIMIT,
   listAdminUsers,
+  loadReviewDetails,
 } from "../../lib/users-admin-api";
 
 const session = getSession(Astro.locals);
@@ -78,34 +77,17 @@ try {
         : "Could not load users.";
 }
 
-// The review card needs city, country, affiliation and the why text, and the
-// listing does not carry them (`GET /admin/users` is an explicit column
-// projection; only `GET /admin/users/:username` selects `u.*`). So each open
-// request costs one detail fetch.
-//
-// Bounded and fail-soft, deliberately. Bounded because this fans out one HTTP
-// call per row and the queue is small by construction — a request is answered
-// once and never re-opened (nemar-cli ADR 0042) — but nothing in the API caps
-// what comes back. Fail-soft because a detail that does not load must cost the
-// admin the extra fields, not the Approve button: `UserAdminRow` renders every
-// listed field regardless and only the enrichment goes missing.
-const REVIEW_DETAIL_LIMIT = 25;
-const details = new Map<number, AdminUserDetail>();
-const reviewRows = users
-  .filter((u) => isAwaitingUploadApproval(u) && typeof u.username === "string" && u.username)
-  .slice(0, REVIEW_DETAIL_LIMIT);
-let detailFetchFailures = 0;
-await Promise.all(
-  reviewRows.map(async (u) => {
-    try {
-      details.set(u.id, await getAdminUser(u.username as string, { cookieHeader }));
-    } catch (err) {
-      console.warn(`[admin/users] review detail failed for ${u.username}`, err);
-      detailFetchFailures += 1;
-    }
-  }),
-);
-const reviewDetailTruncated = users.filter(isAwaitingUploadApproval).length > REVIEW_DETAIL_LIMIT;
+// The review card needs city, country, affiliation and the why text, which the
+// listing does not carry (`GET /admin/users` is an explicit column projection;
+// only `GET /admin/users/:username` selects `u.*`). So each open request costs
+// one detail fetch, bounded and fail-soft. Both properties live in
+// `loadReviewDetails` so they are testable without a rendered page; see it for
+// why the bound and the failure count are separate concerns.
+const {
+  details,
+  failures: detailFetchFailures,
+  truncated: reviewDetailTruncated,
+} = await loadReviewDetails(users, { cookieHeader });
 ---
 
 <AdminLayout title="Users" active="users" session={session}>
@@ -309,50 +291,16 @@ const reviewDetailTruncated = users.filter(isAwaitingUploadApproval).length > RE
 
 <script>
   import {
+    adminActionErrorText,
+    approveErrorText,
     approveUserById,
     changeUserRole,
     deleteUserById,
     revokeUser,
   } from "../../lib/users-admin-api";
-  import { DashboardApiError } from "../../lib/dashboard-api";
   import type { AdminUserRole } from "../../lib/users-admin-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
-
-  // The `/admin/users*` backend routes put a human-readable sentence
-  // directly in the error body (see users-admin-api.ts's file header) —
-  // `.code` is usually already the right thing to show. This map only
-  // covers proxy/transport-level codes, which aren't human text.
-  const FRIENDLY: Record<string, string> = {
-    upstream_unreachable: "Can't reach the user service. Try again in a moment.",
-    unauthenticated: "Sign in again to continue.",
-  };
-
-  function friendly(err: unknown): string {
-    if (err instanceof DashboardApiError) {
-      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
-      if (err.code) return err.code;
-      return err.message;
-    }
-    return err instanceof Error ? err.message : "Action failed.";
-  }
-
-  /**
-   * Approve refusals are the exception to the rule above. `approveUserById`
-   * already builds its message from BOTH halves of the body via
-   * `adminActionMessage`, and the useful half is the second one: an
-   * ineligible account answers `error: "User is not eligible for approval"`
-   * plus `message: "User must verify their email address first; approval
-   * cannot skip the inbox check"`. `friendly()` would return the code and
-   * throw away the sentence that says what to do.
-   */
-  function friendlyApprove(err: unknown): string {
-    if (err instanceof DashboardApiError) {
-      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
-      return err.message;
-    }
-    return friendly(err);
-  }
 
   function showError(msg: string): void {
     if (!errorEl) return;
@@ -460,7 +408,7 @@ const reviewDetailTruncated = users.filter(isAwaitingUploadApproval).length > RE
           // Its own catch so the refusal keeps the backend's second sentence
           // ("must verify their email address first"), which is the only part
           // that tells the admin what to do next.
-          showError(`Couldn't approve: ${friendlyApprove(err)}`);
+          showError(`Couldn't approve: ${approveErrorText(err)}`);
           inFlight = false;
           return;
         }
@@ -479,7 +427,7 @@ const reviewDetailTruncated = users.filter(isAwaitingUploadApproval).length > RE
       }
       location.reload();
     } catch (err) {
-      showError(`Couldn't complete that action: ${friendly(err)}`);
+      showError(`Couldn't complete that action: ${adminActionErrorText(err)}`);
       inFlight = false;
     }
   });
