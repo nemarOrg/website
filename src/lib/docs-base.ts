@@ -15,6 +15,20 @@
  */
 const PROD_DOCS_BASE = "https://docs.nemar.org";
 
+/**
+ * Doc pages the account surfaces link to (website#301). Named constants
+ * rather than inline strings because each is referenced from more than one
+ * page — Settings, `/upload`, `/onboarding` and the verify step all point at
+ * one of the two — and a slug typo in one of them is invisible until someone
+ * clicks it.
+ *
+ * Both live under `/web/`, the section of docs.nemar.org that covers the
+ * browser surface (as `/web/uploading/` and `/web/publication-review/`
+ * already do).
+ */
+export const DOCS_ACCOUNT_SETTINGS_PATH = "/web/account-settings/";
+export const DOCS_UPLOAD_ACCESS_PATH = "/web/upload-access/";
+
 export function resolveDocsBase(envOverride?: string): string {
   if (envOverride) return envOverride.replace(/\/$/, "");
   const fromEnv =
