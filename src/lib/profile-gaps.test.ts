@@ -245,6 +245,23 @@ describe("describeGap", () => {
     expect(describeGap(email)).toBe(
       "A verified email address is missing: needed to activate your account. Set it in the verify step on your dashboard or run `nemar auth resend-verification`.",
     );
+    // A deliberate change from `uploadAccessMissingFields`, which gave this
+    // entry no link at all. The verify step is a real destination now — it
+    // renders on /dashboard for the unverified tier (website#301) — so the
+    // line points there rather than naming a place and linking nowhere.
+    expect(email.href).toBe("/dashboard");
+  });
+
+  it("names the request, not publication, for the family name", () => {
+    // The nearest-wall rule again, asserted on the OTHER two-block field:
+    // `github_username` could pass by naming its first block for any reason,
+    // and a family name blocks a DOI just as surely.
+    const [family] = gapsForFields(["family_name"]);
+    expect(family.blocks).toEqual(["upload_access", "publication"]);
+    expect(describeGap(family)).toBe(
+      "Family name is missing: needed to request upload access. Set it in Settings or run `nemar auth profile set-name`.",
+    );
+    expect(describeGapBlocks(family)).toBe("upload access and publication");
   });
 
   it("falls back to a generic need for a gap that names no block", () => {

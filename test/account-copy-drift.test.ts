@@ -14,16 +14,21 @@
  * would fail for reasons that have nothing to do with drift. Text extraction
  * has one requirement in exchange, documented in `account-copy.ts` and
  * enforced by `account-copy.test.ts`: every value is a plain string literal.
- * `extractCopy` is checked against THIS repo's own copy module on every run,
- * so the reader is never trusted on the strength of a file nobody can see.
+ *
+ * **The comparison is tested on fixtures; the filesystem is the integration
+ * path.** `extractCopy` and `compareCopy` are pure and live in
+ * `./copy-drift.ts`, so all four outcomes are exercised on every run whether
+ * or not a nemar-cli checkout exists. Without that split, the only thing this
+ * file could prove on a machine without one was that it skipped.
  *
  * **Absent checkout skips, it does not fail.** CI clones only this repo, so
- * the comparison cannot run there; a hard failure would make the suite red on
- * every machine but a maintainer's.
+ * a hard failure would make the suite red on every machine but a
+ * maintainer's.
  */
 
 import { describe, expect, it } from "vitest";
 import { ACCOUNT_COPY } from "../src/lib/account-copy";
+import { compareCopy, extractCopy, formatDifference } from "./copy-drift";
 
 /**
  * `node:fs`, reached without a static import.
@@ -61,24 +66,7 @@ const CONTRACT_CANDIDATES = [
   "../../nemar-cli/shared/contract/account-copy.ts",
 ];
 
-/**
- * Pull `"key": "value"` pairs out of a TypeScript source file.
- *
- * Comments are stripped first so a key quoted in prose cannot become an
- * entry. A value that is not a plain string literal — a template literal, a
- * concatenation, a reference to a constant — is invisible to this, which is
- * why `account-copy.ts` forbids them and `account-copy.test.ts` enforces the
- * ban; a silently unread key would be a silently unchecked key.
- */
-function extractCopy(source: string): Map<string, string> {
-  const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^[ \t]*\/\/.*$/gm, " ");
-  const entries = new Map<string, string>();
-  const pattern = /"([A-Za-z0-9_.]+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
-  for (const match of withoutComments.matchAll(pattern)) {
-    entries.set(match[1], match[2].replace(/\\(.)/g, "$1"));
-  }
-  return entries;
-}
+const OURS = new Map(Object.entries(ACCOUNT_COPY));
 
 describe("the extractor", () => {
   it("reads this repo's own copy module back exactly", async () => {
@@ -112,6 +100,66 @@ describe("the extractor", () => {
   });
 });
 
+describe("compareCopy", () => {
+  const ours = new Map([
+    ["tier.base.label", "Base access"],
+    ["gaps.title", "What is still missing"],
+  ]);
+
+  it("reports a changed value as drift, and nothing else", () => {
+    const result = compareCopy(
+      ours,
+      new Map([
+        ["tier.base.label", "Basic access"],
+        ["gaps.title", "What is still missing"],
+      ]),
+    );
+    expect(result.changed).toEqual([
+      { key: "tier.base.label", ours: "Base access", contract: "Basic access" },
+    ]);
+    expect(result.unmirrored).toEqual([]);
+    expect(result.contractOnly).toEqual([]);
+  });
+
+  it("reports a contract-only key without calling it drift", () => {
+    // The CLI carries copy this repo has no surface for. Failing on it would
+    // make every CLI-side addition break the website's suite.
+    const result = compareCopy(ours, new Map([...ours, ["sandbox.intro", "Run nemar sandbox"]]));
+    expect(result.contractOnly).toEqual(["sandbox.intro"]);
+    expect(result.changed).toEqual([]);
+    expect(result.unmirrored).toEqual([]);
+  });
+
+  it("reports a website-only key as unmirrored", () => {
+    const result = compareCopy(ours, new Map([["tier.base.label", "Base access"]]));
+    expect(result.unmirrored).toEqual(["gaps.title"]);
+    expect(result.changed).toEqual([]);
+  });
+
+  it("calls every key unmirrored against an empty contract", () => {
+    // The shape of a contract file that exists but could not be parsed —
+    // every value a template literal, say. It must not read as "all clear".
+    const result = compareCopy(ours, new Map());
+    expect(result.unmirrored).toEqual(["tier.base.label", "gaps.title"]);
+    expect(result.changed).toEqual([]);
+    expect(result.contractOnly).toEqual([]);
+  });
+
+  it("says nothing when the two sides agree", () => {
+    const result = compareCopy(ours, new Map(ours));
+    expect(result).toEqual({ changed: [], unmirrored: [], contractOnly: [] });
+  });
+
+  it("formats a difference with both sides on their own line", () => {
+    expect(formatDifference({ key: "a.b", ours: "one", contract: "two" })).toContain(
+      "website:   one",
+    );
+    expect(formatDifference({ key: "a.b", ours: "one", contract: "two" })).toContain(
+      "nemar-cli: two",
+    );
+  });
+});
+
 describe("website copy vs the nemar-cli contract", () => {
   it("matches string for string on every shared key", async () => {
     const fs = await nodeFs();
@@ -121,43 +169,28 @@ describe("website copy vs the nemar-cli contract", () => {
 
     if (!found) {
       // Not a failure: CI has no nemar-cli checkout, and phase 8 has not
-      // created the contract file yet even where one exists.
+      // created the contract file yet even where one exists. The comparison
+      // itself is covered by the fixture tests above.
       console.info(
         `[account-copy drift] skipped: no nemar-cli contract found at any of ${CONTRACT_CANDIDATES.join(", ")} (relative to test/). Phase 8 creates shared/contract/account-copy.ts; this test compares against it as soon as it exists.`,
       );
       return;
     }
 
-    const contract = extractCopy(fs.readFileSync(found, "utf8"));
-    const ours = new Map(Object.entries(ACCOUNT_COPY));
+    const result = compareCopy(OURS, extractCopy(fs.readFileSync(found, "utf8")));
 
-    const changed: string[] = [];
-    const unmirrored: string[] = [];
-    for (const [key, value] of ours) {
-      if (!contract.has(key)) {
-        unmirrored.push(key);
-      } else if (contract.get(key) !== value) {
-        changed.push(`${key}\n    website:  ${value}\n    nemar-cli: ${contract.get(key)}`);
-      }
-    }
-
-    // Keys the CLI has and the website does not are NOT a failure: the
-    // contract also carries copy for surfaces this repo has no counterpart
-    // for (sandbox training, `nemar auth status` block headers). Reported so
-    // a genuinely web-relevant addition is visible rather than silent.
-    const cliOnly = [...contract.keys()].filter((key) => !ours.has(key));
-    if (cliOnly.length > 0) {
+    if (result.contractOnly.length > 0) {
       console.info(
-        `[account-copy drift] ${cliOnly.length} contract key(s) with no website counterpart: ${cliOnly.join(", ")}`,
+        `[account-copy drift] ${result.contractOnly.length} contract key(s) with no website counterpart: ${result.contractOnly.join(", ")}`,
       );
     }
 
     expect(
-      changed,
+      result.changed.map(formatDifference),
       `Copy drifted from ${found}. Update whichever side is wrong — the contract is the source of truth.`,
     ).toEqual([]);
     expect(
-      unmirrored,
+      result.unmirrored,
       `Keys missing from ${found}. Every website copy key is meant to be mirrored in the contract; add them there (or remove them here).`,
     ).toEqual([]);
   });

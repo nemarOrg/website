@@ -87,6 +87,33 @@ describe("buildDevUser", () => {
     expect(u.orcid_verified).toBe(false);
   });
 
+  it("gives @nemar.assigned a backend-chosen username and a complete profile", () => {
+    // The one-time change offer on /onboarding (nemar-cli#1268) only renders
+    // for an account whose username was ASSIGNED, and the page self-gates
+    // away when anything else is outstanding — so this persona must have a
+    // handle AND nothing else missing, or the offer is not what is on screen.
+    const u = buildDevUser("someone@nemar.assigned");
+    expect(u.username_auto_assigned).toBe(true);
+    expect(u.username).toBe("alovelace");
+    expect(u.city).toBe("London");
+    expect(u.country).toBe("United Kingdom");
+    expect(u.github_username).toBe("ada");
+    expect(u.given_name).toBe("Ada");
+    // Base tier, because the change is only available until an admin grants
+    // upload access.
+    expect(u.service_access).toBe(false);
+    expect(u.status).toBe("active");
+  });
+
+  it("marks no other persona's username as auto-assigned", () => {
+    // Absent means the user chose their own handle, which is every account on
+    // today's backend; a persona that leaked the flag would put the offer in
+    // front of them too.
+    for (const domain of ["nemar.base", "nemar.blank", "nemar.new", "nemar.asked", "example.com"]) {
+      expect(buildDevUser(`someone@${domain}`).username_auto_assigned, domain).toBeUndefined();
+    }
+  });
+
   it("gives @nemar.noname a verified iD and no name — the stuck state", () => {
     const u = buildDevUser("someone@nemar.noname");
     expect(u.orcid_verified).toBe(true);
