@@ -1,0 +1,404 @@
+---
+/**
+ * The one thing an unverified account can do (website#301; nemar-cli ADR
+ * 0040 phase 2): prove the inbox, and thereby reach the base tier.
+ *
+ * This replaces the "your account is still under admin review" copy that used
+ * to sit on `/dashboard` and `/upload`. That copy was wrong in the way that
+ * matters most — it named a next step nobody was going to take. An ORCID
+ * sign-up lands at `pending` with an emailed code waiting for it; no admin is
+ * queued behind that, and admin approval is a separate, later grant for
+ * uploading.
+ *
+ * Rendered on both surfaces (dashboard, upload) as the whole page body, not a
+ * banner on top of one: an unverified session cannot pass `authMiddleware`
+ * (nemar-cli `services/account-tier.ts`), so every dataset call underneath
+ * would 403 anyway. Withholding them is honest AND cheaper.
+ *
+ * Layout/CSS are self-contained per this repo's scoped-style convention
+ * (AGENTS.md) rather than shared with the pages that mount it.
+ */
+import { maskEmail } from "../lib/auth";
+import { DOCS_ACCOUNT_SETTINGS_PATH, resolveDocsBase } from "../lib/docs-base";
+
+interface Props {
+  /** The account's own address. Masked before render — the page is public
+   *  chrome around a signed-in session, and the full address adds nothing the
+   *  user does not already know. */
+  email: string;
+  /** What the surface underneath this step is for, so the copy can say what
+   *  verifying unlocks without the component knowing about either page. */
+  context: "dashboard" | "upload";
+}
+
+const { email, context } = Astro.props;
+const masked = maskEmail(email);
+const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
+const unlocks =
+  context === "upload"
+    ? "Verifying unlocks your dashboard and lets you request upload access."
+    : "Verifying unlocks your dashboard, settings, and the ability to request upload access.";
+---
+
+<section class="verify-step" data-verify-email-step aria-labelledby="verify-step-title">
+  <div class="verify-step__rail" aria-hidden="true"></div>
+
+  <header class="verify-step__head">
+    <p class="verify-step__eyebrow">One step left</p>
+    <h2 class="verify-step__title" id="verify-step-title">Verify your email address</h2>
+    <p class="verify-step__lede">
+      We need to confirm <strong>{masked}</strong> before your account is active.
+      {unlocks} No admin approval is involved &mdash; that is a separate grant you
+      ask for later, only if you want to upload.
+    </p>
+  </header>
+
+  <div class="verify-step__flow">
+    <div class="verify-step__row">
+      <button type="button" class="verify-step__btn verify-step__btn--ghost" data-verify-send>
+        Email me a code
+      </button>
+      <span class="verify-step__hint" data-verify-sent hidden>
+        Code sent. It expires in 10 minutes.
+      </span>
+    </div>
+
+    <form class="verify-step__form" data-verify-form hidden>
+      <label class="verify-step__field">
+        <span class="verify-step__label">Enter the 6-digit code</span>
+        <input
+          class="verify-step__input"
+          type="text"
+          inputmode="numeric"
+          maxlength="6"
+          autocomplete="one-time-code"
+          placeholder="123456"
+          aria-describedby="verify-step-msg"
+          data-verify-code
+        />
+      </label>
+      <button type="submit" class="verify-step__btn verify-step__btn--primary" data-verify-submit>
+        Verify
+      </button>
+    </form>
+
+    {/* Non-production only. The backend echoes `dev_code` outside production so
+        staging QA can finish the flow without an inbox; the same affordance
+        `/login/verify` already carries. A production response never has it. */}
+    <p class="verify-step__devchip" data-verify-devcode hidden role="note">
+      <span class="verify-step__devchip-tag">Test backend</span>
+      Code <code data-verify-devcode-value></code> &mdash; prefilled for you.
+    </p>
+
+    <p class="verify-step__msg" role="alert" id="verify-step-msg" data-verify-msg hidden></p>
+  </div>
+
+  <p class="verify-step__footnote">
+    Wrong address, or the code never arrives? <a href={accountDocsUrl} rel="external noopener">Account settings</a>
+    explains how to change it, or write to <a href="mailto:admin@nemar.org">admin@nemar.org</a>.
+  </p>
+</section>
+
+<style>
+  .verify-step {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+    display: grid;
+    gap: var(--space-5);
+    max-inline-size: 40rem;
+  }
+  .verify-step__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 2px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+    opacity: 0.6;
+  }
+  .verify-step__head {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .verify-step__eyebrow {
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .verify-step__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+  }
+  .verify-step__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .verify-step__flow {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .verify-step__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .verify-step__hint {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .verify-step__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+  }
+  .verify-step__form[hidden] {
+    display: none;
+  }
+  .verify-step__field {
+    display: grid;
+    gap: var(--space-2);
+    flex: 1 1 12rem;
+    min-inline-size: 0;
+  }
+  .verify-step__label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .verify-step__input {
+    inline-size: 100%;
+    min-block-size: 44px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--fs-lg);
+    letter-spacing: 0.3em;
+    text-align: center;
+  }
+  .verify-step__input:focus-visible {
+    outline: none;
+    border-color: var(--brand-teal);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .verify-step__btn {
+    min-block-size: 44px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .verify-step__btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .verify-step__btn--primary {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .verify-step__btn--primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .verify-step__btn--ghost {
+    background: transparent;
+    color: var(--color-fg);
+    border-color: var(--color-border-strong);
+  }
+  .verify-step__btn--ghost:hover:not(:disabled) {
+    background: var(--color-bg-subtle);
+  }
+  .verify-step__msg {
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+    color: var(--color-fg);
+  }
+  .verify-step__msg[hidden] {
+    display: none;
+  }
+  .verify-step__msg[data-tone="error"] {
+    color: var(--color-danger);
+  }
+  .verify-step__msg[data-tone="success"] {
+    color: var(--color-success);
+  }
+  .verify-step__devchip {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .verify-step__devchip[hidden] {
+    display: none;
+  }
+  .verify-step__devchip-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 8px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    font-weight: var(--fw-semibold);
+  }
+  .verify-step__devchip code {
+    font-family: var(--font-mono);
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .verify-step__footnote {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .verify-step__footnote a {
+    color: var(--color-link);
+  }
+
+  @media (max-width: 480px) {
+    .verify-step {
+      padding: var(--space-4);
+    }
+    .verify-step__form {
+      align-items: stretch;
+    }
+    .verify-step__btn {
+      inline-size: 100%;
+    }
+  }
+</style>
+
+<script>
+  import {
+    AccountApiError,
+    requestEmailVerificationCode,
+    verifyEmailCode,
+  } from "../lib/account-api";
+  import { verifyEmailFailure } from "../lib/account-tier";
+
+  const root = document.querySelector<HTMLElement>("[data-verify-email-step]");
+  if (root) {
+    const sendBtn = root.querySelector<HTMLButtonElement>("[data-verify-send]");
+    const sentHint = root.querySelector<HTMLElement>("[data-verify-sent]");
+    const form = root.querySelector<HTMLFormElement>("[data-verify-form]");
+    const codeInput = root.querySelector<HTMLInputElement>("[data-verify-code]");
+    const submitBtn = root.querySelector<HTMLButtonElement>("[data-verify-submit]");
+    const msg = root.querySelector<HTMLElement>("[data-verify-msg]");
+    const devChip = root.querySelector<HTMLElement>("[data-verify-devcode]");
+    const devValue = root.querySelector<HTMLElement>("[data-verify-devcode-value]");
+
+    const setMsg = (text: string, tone: "error" | "success"): void => {
+      if (!msg) return;
+      msg.textContent = text;
+      msg.dataset.tone = tone;
+      msg.hidden = false;
+    };
+    const clearMsg = (): void => {
+      if (!msg) return;
+      msg.hidden = true;
+      msg.textContent = "";
+    };
+
+    /** Back to "ask for a code": the one in hand can never work again. */
+    const requireNewCode = (): void => {
+      if (codeInput) codeInput.value = "";
+      if (form) form.hidden = true;
+      if (sentHint) sentHint.hidden = true;
+      if (devChip) devChip.hidden = true;
+      sendBtn?.focus();
+    };
+
+    sendBtn?.addEventListener("click", async () => {
+      if (!sendBtn) return;
+      sendBtn.disabled = true;
+      clearMsg();
+      try {
+        const result = await requestEmailVerificationCode();
+        if (result.already_verified) {
+          setMsg("This address is already verified. Reloading…", "success");
+          setTimeout(() => location.reload(), 700);
+          return;
+        }
+        if (form) form.hidden = false;
+        if (sentHint) sentHint.hidden = false;
+        sendBtn.textContent = "Send another code";
+        // Staging echoes the code so QA needs no inbox; production never
+        // ships this field.
+        if (result.dev_code && devChip && devValue) {
+          devValue.textContent = result.dev_code;
+          devChip.hidden = false;
+          if (codeInput) codeInput.value = result.dev_code;
+        } else if (result.dev_skip) {
+          setMsg(
+            "This address is not on the test allowlist, so no email was sent. Use an allowlisted account.",
+            "error",
+          );
+        }
+        codeInput?.focus();
+      } catch (err) {
+        const status = err instanceof AccountApiError ? err.status : 0;
+        const code = err instanceof AccountApiError ? err.code : undefined;
+        const detail = err instanceof AccountApiError ? err.message : undefined;
+        // The send endpoint answers 429 on the rate limiter and 503 when the
+        // mail could not be handed off; `verifyEmailFailure` covers both, and
+        // neither invalidates a code (there is none yet).
+        setMsg(verifyEmailFailure(status, code, detail).message, "error");
+      } finally {
+        sendBtn.disabled = false;
+      }
+    });
+
+    form?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const code = (codeInput?.value ?? "").replace(/\D/g, "");
+      if (!/^\d{6}$/.test(code)) {
+        setMsg("Enter the 6-digit code from your email.", "error");
+        return;
+      }
+      if (submitBtn) submitBtn.disabled = true;
+      clearMsg();
+      try {
+        await verifyEmailCode(code);
+        setMsg("Verified. Reloading…", "success");
+        // The tier changed, so the whole surface re-renders rather than one
+        // banner being swapped out.
+        setTimeout(() => location.reload(), 700);
+      } catch (err) {
+        const status = err instanceof AccountApiError ? err.status : 0;
+        const failure = verifyEmailFailure(
+          status,
+          err instanceof AccountApiError ? err.code : undefined,
+          err instanceof AccountApiError ? err.message : undefined,
+          err instanceof AccountApiError ? err.attemptsRemaining : undefined,
+        );
+        setMsg(failure.message, "error");
+        if (failure.needsNewCode) requireNewCode();
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+</script>
