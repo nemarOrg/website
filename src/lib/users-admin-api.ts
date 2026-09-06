@@ -278,6 +278,11 @@ export interface AdminUserDetail {
 export function gapAccountFromDetail(detail: AdminUserDetail): ProfileGapAccount {
   return {
     email_verified: detail.email_verified === 1,
+    // Uncollapsed (`AdminUserRole | null`, not the session's collapsed
+    // `"user" | "admin"`): `ProfileGapAccount["role"]` accepts both shapes so
+    // the `orcid_verified` gap's admin/owner exemption reads the same "admin"
+    // and "owner" whichever surface passed the account.
+    role: detail.role,
     username: detail.username,
     given_name: detail.given_name ?? null,
     family_name: detail.family_name ?? null,

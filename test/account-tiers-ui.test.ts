@@ -297,6 +297,7 @@ describe("Settings", () => {
       "username",
       "given_name",
       "family_name",
+      "orcid_verified",
       "github_username",
       "city",
       "country",
