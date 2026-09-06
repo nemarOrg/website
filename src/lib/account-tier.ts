@@ -50,6 +50,18 @@ export type AccountTier = "unverified" | "base" | "upload";
  * unverified there would show a verify-your-email step to accounts that have
  * nothing to verify.
  *
+ * `"disabled"` never reaches the upload tier, whatever `service_access` says.
+ * The pairing is not reachable from today's backend — `userStatusForDashboard`
+ * only ever answers `active` / `pending`, and revoke clears the grant along
+ * with the status (nemar-cli#1069) — but the two facts arrive as separate
+ * fields, so a stale or partially-written row can carry a grant next to a
+ * disabled status. Answering `"upload"` there would ship the dropzone to an
+ * account the backend will refuse; `"base"` gives it the read-only surface,
+ * which is what a disabled account should see. There is no fourth tier for
+ * it: nothing the website renders differs between "disabled" and "signed in
+ * without a grant", and adding one would put a state in every consumer's
+ * `Record` that none of them treats differently.
+ *
  * `null`/`undefined` (no session) is not a tier and callers must redirect to
  * sign-in before asking; it answers `"unverified"` so a caller that forgets
  * fails to the most restricted surface rather than the least.
@@ -57,6 +69,7 @@ export type AccountTier = "unverified" | "base" | "upload";
 export function deriveAccountTier(user: TierUser | null | undefined): AccountTier {
   if (!user) return "unverified";
   if (user.status === "pending") return "unverified";
+  if (user.status === "disabled") return "base";
   return user.service_access === true ? "upload" : "base";
 }
 
@@ -77,7 +90,10 @@ export type UploadAccessState =
 
 export function deriveUploadAccessState(user: TierUser | null | undefined): UploadAccessState {
   if (!user) return { kind: "not_requested" };
-  if (user.service_access === true) {
+  // Keyed on the derived tier, not on the raw flag, so a disabled account
+  // carrying a stale grant does not read as "Granted" in Settings while
+  // `deriveAccountTier` is calling it base.
+  if (deriveAccountTier(user) === "upload") {
     const at = nonBlank(user.service_access_granted_at);
     return at ? { kind: "granted", at } : { kind: "granted" };
   }

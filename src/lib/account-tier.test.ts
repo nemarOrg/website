@@ -64,10 +64,31 @@ describe("deriveAccountTier", () => {
     expect(deriveAccountTier(undefined)).toBe("unverified");
   });
 
-  it("treats a disabled account as base rather than upload", () => {
-    // `disabled` is not a tier this module models; what matters is that it
-    // never yields "upload" without the grant.
+  it("never gives a disabled account the upload tier, grant or no grant", () => {
+    // The pairing is not reachable from today's backend —
+    // `userStatusForDashboard` only answers active/pending, and revoke clears
+    // the grant with the status (nemar-cli#1069) — but the two arrive as
+    // separate fields, so a stale row can carry both. Answering "upload"
+    // there ships the dropzone to an account the backend will refuse.
     expect(deriveAccountTier({ status: "disabled" })).toBe("base");
+    expect(deriveAccountTier({ status: "disabled", service_access: true })).toBe("base");
+    // "base" and not a fourth tier: nothing the website renders differs
+    // between "disabled" and "signed in without a grant".
+    expect(deriveUploadPageState({ status: "disabled", service_access: true })).toBe(
+      "request_access",
+    );
+  });
+
+  it("does not report a disabled account's stale grant as Granted", () => {
+    // Settings would otherwise say "Upload access: Granted" on an account
+    // `deriveAccountTier` is simultaneously calling base.
+    expect(
+      deriveUploadAccessState({
+        status: "disabled",
+        service_access: true,
+        service_access_granted_at: "2026-08-01 09:00:00",
+      }),
+    ).toEqual({ kind: "not_requested" });
   });
 });
 
