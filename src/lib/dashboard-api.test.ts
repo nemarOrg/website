@@ -121,6 +121,14 @@ describe("derivePublishState", () => {
     // An account property, not a dataset one. "Validation failed" here sent
     // owners to read CI logs that were green.
     expect(derivePublishState(ds(), status("blocked", "owner_name_missing"))).toBe("name_required");
+    // Validation that has not finished is not validation that failed; the
+    // backend's message for both of these says to wait.
+    expect(derivePublishState(ds(), status("blocked", "bids_validation_pending"))).toBe(
+      "validation_pending",
+    );
+    expect(derivePublishState(ds(), status("blocked", "bids_validation_in_progress"))).toBe(
+      "validation_pending",
+    );
   });
 
   it("degrades an unrecognised reason to blocked rather than guessing", () => {
@@ -165,6 +173,9 @@ describe("deriveAdminBadgeState follows the block reason too", () => {
     expect(deriveAdminBadgeState(status("blocked", "owner_name_missing"))).toBe("name_required");
     expect(deriveAdminBadgeState(status("blocked", "bids_validation_failed"))).toBe(
       "validation_failed",
+    );
+    expect(deriveAdminBadgeState(status("blocked", "bids_validation_in_progress"))).toBe(
+      "validation_pending",
     );
     expect(deriveAdminBadgeState(status("blocked", "something-new"))).toBe("blocked");
   });
@@ -217,6 +228,9 @@ describe("isPublishRequestable", () => {
     expect(isPublishRequestable(ds(), status("blocked"))).toBe(false);
     expect(isPublishRequestable(ds(), status("blocked", "min_requirements_failed"))).toBe(false);
     expect(isPublishRequestable(ds(), status("blocked", "an-unknown-reason"))).toBe(false);
+    // Pending validation is a wait, not a re-request: the run the backend is
+    // waiting for is the one already in flight.
+    expect(isPublishRequestable(ds(), status("blocked", "bids_validation_pending"))).toBe(false);
   });
   it("true when blocked on the ACCOUNT — the owner fixes it and re-requests", () => {
     // website#304: nothing about the files changed, the backend re-checks the

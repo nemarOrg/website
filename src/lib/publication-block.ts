@@ -42,25 +42,38 @@ export const PUBLICATION_BLOCK_REASONS = [
 export type PublicationBlockReason = (typeof PUBLICATION_BLOCK_REASONS)[number];
 
 /**
- * The two badge states a block can produce.
+ * The four badge states a block can produce.
  *
- * `"validation_failed"` is the pre-existing one and keeps its meaning: the
- * dataset itself did not pass a gate, and the fix is in the repository.
- * `"name_required"` is new, because `owner_name_missing` is not about the
- * dataset at all — the owner fixes it in their account, and telling them
- * validation failed sends them to look at CI logs that are green.
+ * Each one exists because it answers a different question — "who fixes this,
+ * and by doing what" — and the badge sits directly above the backend's own
+ * message, so a label that contradicts that sentence is worse than a vague
+ * one.
  *
- * `"blocked"` is the honest answer for a value this build has never heard of:
- * the request IS blocked, and the backend's own `message` (rendered beside
- * the badge) is the thing that explains it. Guessing "Validation failed"
- * there would be asserting a cause nothing established.
+ * - `"validation_failed"` is the pre-existing state and keeps its meaning:
+ *   the dataset did not pass a gate, and the fix is in the repository.
+ * - `"validation_pending"` covers the two reasons whose message says to
+ *   WAIT — validation has not run, or is still running. Nothing has failed
+ *   and there is nothing to fix, so "Validation failed" over the top of
+ *   "please wait for CI to complete" told the owner two different things at
+ *   once.
+ * - `"name_required"` covers `owner_name_missing`, which is not about the
+ *   dataset at all — the owner fixes it in their account, and telling them
+ *   validation failed sends them to look at CI logs that are green.
+ * - `"blocked"` is the honest answer for a value this build has never heard
+ *   of: the request IS blocked, and the backend's `message` is what explains
+ *   it. Guessing a cause nothing established would be worse than saying only
+ *   that the request is stopped.
  */
-export type BlockBadgeState = "validation_failed" | "name_required" | "blocked";
+export type BlockBadgeState =
+  | "validation_failed"
+  | "validation_pending"
+  | "name_required"
+  | "blocked";
 
 const BLOCK_BADGE_STATES: Record<PublicationBlockReason, BlockBadgeState> = {
   bids_validation_failed: "validation_failed",
-  bids_validation_pending: "validation_failed",
-  bids_validation_in_progress: "validation_failed",
+  bids_validation_pending: "validation_pending",
+  bids_validation_in_progress: "validation_pending",
   prescreen_failed: "validation_failed",
   min_requirements_failed: "validation_failed",
   owner_name_missing: "name_required",

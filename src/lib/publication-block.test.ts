@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  type BlockBadgeState,
   PUBLICATION_BLOCK_REASONS,
   type PublicationBlockReason,
   blockBadgeState,
@@ -17,12 +18,18 @@ import {
 } from "./publication-block";
 
 describe("blockBadgeState", () => {
-  it("keeps 'Validation failed' for every reason about the DATASET", () => {
+  it("keeps 'Validation failed' for the reasons where a gate actually failed", () => {
     expect(blockBadgeState("bids_validation_failed")).toBe("validation_failed");
-    expect(blockBadgeState("bids_validation_pending")).toBe("validation_failed");
-    expect(blockBadgeState("bids_validation_in_progress")).toBe("validation_failed");
     expect(blockBadgeState("prescreen_failed")).toBe("validation_failed");
     expect(blockBadgeState("min_requirements_failed")).toBe("validation_failed");
+  });
+
+  it("separates validation that has not finished from validation that failed", () => {
+    // The backend's message for both of these says to WAIT ("has not run
+    // yet" / "is currently running"), so a "Validation failed" badge sat
+    // above a sentence telling the owner nothing was wrong yet.
+    expect(blockBadgeState("bids_validation_pending")).toBe("validation_pending");
+    expect(blockBadgeState("bids_validation_in_progress")).toBe("validation_pending");
   });
 
   it("gives owner_name_missing its own label", () => {
@@ -62,6 +69,28 @@ describe("blockBadgeState", () => {
       expect(blockBadgeState(reason), reason).not.toBe("blocked");
     }
     expect(PUBLICATION_BLOCK_REASONS).toHaveLength(6);
+  });
+
+  // Exhaustive the other way round: the whole point of splitting the states
+  // is that each reason lands where its MESSAGE points, so pin the full table
+  // rather than only its groups. A remapping shows up here by name.
+  it("maps every known reason to exactly one state", () => {
+    const expected: Record<PublicationBlockReason, BlockBadgeState> = {
+      bids_validation_failed: "validation_failed",
+      bids_validation_pending: "validation_pending",
+      bids_validation_in_progress: "validation_pending",
+      prescreen_failed: "validation_failed",
+      min_requirements_failed: "validation_failed",
+      owner_name_missing: "name_required",
+    };
+    for (const reason of PUBLICATION_BLOCK_REASONS) {
+      expect(blockBadgeState(reason), reason).toBe(expected[reason]);
+    }
+    // Every state except the unknown-reason fallback is reachable from a
+    // real reason; an unreachable one would be a label nothing can render.
+    expect(new Set(PUBLICATION_BLOCK_REASONS.map(blockBadgeState))).toEqual(
+      new Set(["validation_failed", "validation_pending", "name_required"]),
+    );
   });
 });
 

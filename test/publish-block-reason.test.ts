@@ -16,10 +16,13 @@ import PUBLISH_STATE_BADGE from "../src/components/PublishStateBadge.astro?raw";
 import { PUBLICATION_BLOCK_REASONS, blockBadgeState } from "../src/lib/publication-block";
 
 describe("PublishStateBadge labels every block state", () => {
-  it("carries the two labels the block reasons map to", () => {
+  it("carries a label for each state the block reasons map to", () => {
+    expect(PUBLISH_STATE_BADGE).toContain('validation_failed: "Validation failed"');
+    // Distinct from "Validation failed" on purpose: the message under this
+    // badge says to wait, and the two must not disagree.
+    expect(PUBLISH_STATE_BADGE).toContain('validation_pending: "Validation pending"');
     expect(PUBLISH_STATE_BADGE).toContain('name_required: "Name required"');
     expect(PUBLISH_STATE_BADGE).toContain('blocked: "Blocked"');
-    expect(PUBLISH_STATE_BADGE).toContain('validation_failed: "Validation failed"');
   });
 
   it("styles each of them, so a new state cannot land unstyled", () => {

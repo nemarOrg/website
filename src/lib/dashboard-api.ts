@@ -61,19 +61,21 @@ export type PublicationRequestStatus =
  * from `visibility + concept_doi + publication_request.status` and, for a
  * blocked request, its `block_reason`.
  *
- * `"blocked"` and `"name_required"` split off `"validation_failed"` in
- * website#304. Every blocked request used to render "Validation failed",
- * which was right for the reasons that mean the dataset failed a gate and
- * wrong for `owner_name_missing`: that one is an account property, and the
- * label sent owners to read CI logs that were green. See
- * `./publication-block.ts` for the mapping and why an unknown reason lands
- * on the neutral `"blocked"`.
+ * `"validation_pending"`, `"name_required"` and `"blocked"` split off
+ * `"validation_failed"` in website#304. Every blocked request used to render
+ * "Validation failed", which was right only for the reasons that mean the
+ * dataset failed a gate: `owner_name_missing` is an account property and sent
+ * owners to read CI logs that were green, and the two pending reasons mean
+ * validation has not finished, so the label contradicted the "please wait"
+ * message printed under it. See `./publication-block.ts` for the mapping and
+ * why an unknown reason lands on the neutral `"blocked"`.
  */
 export type DatasetPublishState =
   | "draft"
   | "awaiting_review"
   | "published"
   | "validation_failed"
+  | "validation_pending"
   | "name_required"
   | "blocked"
   | "denied";
