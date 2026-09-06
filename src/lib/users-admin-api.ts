@@ -60,19 +60,31 @@ type Init = {
 const BADGE_TIMEOUT_MS = 2000;
 
 /**
- * Row shape from `GET /admin/users`. A narrow, explicit column projection
- * (id, username, email, github_username, status, email_verified, role,
- * created_at, approved_at, revoked_at) — it does not carry profile fields
- * or `service_access`; use {@link getAdminUser} for those.
+ * Row shape from `GET /admin/users`.
+ *
+ * The projection widened with nemar-cli #1251 / #1253 (`signup_source`,
+ * `service_access`, `service_access_granted_at`, `given_name`,
+ * `family_name`, `orcid`, `upload_access_requested_at`) so the awaiting-
+ * approval queue can be read off the listing rather than one detail fetch per
+ * row. It still does NOT carry city / country / affiliation / the why text —
+ * those are `u.*` on {@link getAdminUser} only.
+ *
+ * Every added field is optional, and none of them is given a default: a
+ * backend deployed before the widening omits the key, and coercing that
+ * absence to `0`/`null` would report an uploader as browse-only or an open
+ * request as never made. Absent means "this API cannot say"; the UI renders a
+ * third state (see {@link adminTier}).
  */
 export interface AdminUserListRow {
   readonly id: number;
   /**
    * NULL for ORCID/web signups that never set a username
-   * (nemarOrg/nemar-cli#1012, open). Every write endpoint below except
-   * {@link deleteUserById} is keyed by username, so a null-username row
-   * cannot be approved/revoked/role-changed through the admin API today —
-   * see {@link isActionable}.
+   * (nemarOrg/nemar-cli#1012). Every write endpoint below except
+   * {@link deleteUserById} and {@link approveUserById} is keyed by username,
+   * so a null-username row cannot be revoked or role-changed through the
+   * admin API — see {@link isActionable}. Approval is now reachable for them
+   * by id, which is what nemar-cli ADR 0042 needs: a web account's upload
+   * request has to be answerable.
    */
   readonly username: string | null;
   readonly email: string;
@@ -84,6 +96,82 @@ export interface AdminUserListRow {
   readonly created_at: string;
   readonly approved_at: string | null;
   readonly revoked_at: string | null;
+  readonly signup_source?: string | null;
+  /** INTEGER 0/1. `undefined` = a backend that predates nemar-cli #1251. */
+  readonly service_access?: number | null;
+  readonly service_access_granted_at?: string | null;
+  readonly given_name?: string | null;
+  readonly family_name?: string | null;
+  readonly orcid?: string | null;
+  /**
+   * When this account asked for upload access (nemar-cli ADR 0042, migration
+   * 0076). An OPEN request is this being set while `service_access` is 0;
+   * once approved the stamp stays as the record of when they asked, which is
+   * why {@link isAwaitingUploadApproval} reads both.
+   */
+  readonly upload_access_requested_at?: string | null;
+}
+
+/**
+ * The access tier of a listed account, as the queue renders it.
+ *
+ * `"unknown"` is a real third state, not a fallback for tidiness: a listing
+ * from a backend that predates `service_access` cannot say, and printing
+ * "browse" there would tell an admin an uploader has no grant.
+ */
+export type AdminTier = "upload" | "browse" | "unknown";
+
+export function adminTier(user: Pick<AdminUserListRow, "service_access">): AdminTier {
+  if (user.service_access === undefined || user.service_access === null) return "unknown";
+  return user.service_access === 1 ? "upload" : "browse";
+}
+
+export const ADMIN_TIER_LABELS: Record<AdminTier, string> = {
+  upload: "Upload",
+  browse: "Browse",
+  unknown: "Unknown",
+};
+
+/**
+ * True when this row has an OPEN upload-access request: it asked, and no
+ * admin has answered.
+ *
+ * The grant is what closes a request, so `service_access = 0` is the "still
+ * open" half rather than a second status column — the same predicate
+ * `?awaiting_approval=1` applies server-side. Recomputed client-side anyway
+ * so a row that arrives through another chip (a search, "All") still renders
+ * its review card.
+ *
+ * A row whose `service_access` the backend did not send is NOT awaiting
+ * approval: with the grant unknown, "asked and unanswered" cannot be
+ * established, and guessing yes would put approved accounts in the queue.
+ */
+export function isAwaitingUploadApproval(
+  user: Pick<AdminUserListRow, "service_access" | "upload_access_requested_at">,
+): boolean {
+  const requested = (user.upload_access_requested_at ?? "").trim().length > 0;
+  return requested && user.service_access === 0;
+}
+
+/**
+ * Human text for a failed admin action, combining the two halves the backend
+ * sends. These routes put a readable sentence in `error` (see this file's
+ * header) and, on the approve routes, a second more specific one in
+ * `message` — "User is not eligible for approval" plus "User must verify
+ * their email address first; approval cannot skip the inbox check". Showing
+ * only the first tells an admin nothing they can act on; showing only the
+ * second drops the headline. Joined when they differ, deduped when they
+ * don't.
+ */
+export function adminActionMessage(
+  code: string | undefined,
+  message: string | undefined,
+  fallback: string,
+): string {
+  const head = (code ?? "").trim();
+  const tail = (message ?? "").trim();
+  if (head && tail && head !== tail) return `${head} — ${tail}`;
+  return head || tail || fallback;
 }
 
 export interface AdminUserListResponse {
@@ -115,11 +203,20 @@ export interface AdminUserDetail {
   readonly city?: string | null;
   readonly country?: string | null;
   readonly affiliation?: string | null;
-  /** Tiered-access grant (ADR 0010 / nemar-cli#1013 Phase 1). The grant
-   *  queue UI is out of scope for this phase (nemar-cli#1023) — shown
-   *  read-only where present. */
+  /** Tiered-access grant (website ADR 0010; nemar-cli ADR 0040 makes admin
+   *  approval its single writer). */
   readonly service_access?: number;
   readonly service_access_granted_at?: string | null;
+  readonly upload_access_requested_at?: string | null;
+  readonly signup_source?: string | null;
+  /**
+   * The why text from the upload-access request. It reuses `users.description`
+   * (nemar-cli ADR 0042 — there is no request table, because there is no
+   * second request), so on a CLI account created before that it may instead
+   * hold the sign-up description. Rendered as the requester's own words
+   * either way, never parsed.
+   */
+  readonly description?: string | null;
   readonly dataset_count: number;
   readonly active_tokens: number;
 }
@@ -160,15 +257,38 @@ export function isSelf(userId: number, sessionUserId: string): boolean {
   return String(userId) === String(sessionUserId);
 }
 
-export async function listAdminUsers(
-  query: { status?: AdminUserStatus; role?: AdminUserRole; includeDeleted?: boolean } = {},
-  init: Init = {},
-): Promise<AdminUserListResponse> {
+/**
+ * Build the `GET /admin/users` query string. Exported so the parameter
+ * spelling is testable without a fetch: `awaiting_approval=1` is a
+ * server-side predicate (`upload_access_requested_at IS NOT NULL AND
+ * service_access = 0`) that cannot be computed from what the listing used to
+ * return, so getting the name or the value wrong silently returns every user
+ * instead of the queue.
+ */
+export function adminUsersQuery(query: {
+  status?: AdminUserStatus;
+  role?: AdminUserRole;
+  includeDeleted?: boolean;
+  awaitingApproval?: boolean;
+}): string {
   const params = new URLSearchParams();
   if (query.status) params.set("status", query.status);
   if (query.role) params.set("role", query.role);
   if (query.includeDeleted) params.set("include_deleted", "true");
-  const qs = params.toString();
+  if (query.awaitingApproval) params.set("awaiting_approval", "1");
+  return params.toString();
+}
+
+export async function listAdminUsers(
+  query: {
+    status?: AdminUserStatus;
+    role?: AdminUserRole;
+    includeDeleted?: boolean;
+    awaitingApproval?: boolean;
+  } = {},
+  init: Init = {},
+): Promise<AdminUserListResponse> {
+  const qs = adminUsersQuery(query);
   const url = `${dashboardApiBase(init.cookieHeader)}/admin/users${qs ? `?${qs}` : ""}`;
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = { Accept: "application/json" };
@@ -212,11 +332,39 @@ export async function getAdminUser(username: string, init: Init = {}): Promise<A
 
 export interface ApproveUserResult {
   readonly message: string;
-  readonly user: { readonly username: string; readonly email: string; readonly status: "approved" };
+  /** `username` is nullable because {@link approveUserById} can address a
+   *  web/ORCID row, which has none. `service_access` is echoed by the
+   *  repair path (an already-`approved` row that was missing the grant). */
+  readonly user: {
+    readonly username: string | null;
+    readonly email: string;
+    readonly status: "approved";
+    readonly service_access?: boolean;
+  };
+  /** Present on the repair path only: the status did not change, just the
+   *  grant, so no approval email was sent. */
+  readonly note?: string;
   readonly email_sent: boolean;
 }
 
-export async function approveUser(username: string, init: Init = {}): Promise<ApproveUserResult> {
+/**
+ * Approve by stable numeric id (`POST /admin/approve/by-id/:id`).
+ *
+ * The only approve client, deliberately. `POST /admin/approve/:username`
+ * still exists on the backend and is what the CLI uses, but it cannot address
+ * a web/ORCID account, whose `username` is NULL by design (nemar-cli
+ * migration 0026) — and under ADR 0040 approval IS the upload grant, so that
+ * account would have no way to be granted one. The id-keyed route works for
+ * CLI accounts identically, so keeping a second, weaker client here would
+ * only invite a caller to pick the one that cannot do the job.
+ *
+ * The thrown error carries the backend's own sentences rather than a prefixed
+ * one, because the message an admin needs here is specific: a `pending`
+ * account with `email_verified = 0` is refused with "User must verify their
+ * email address first; approval cannot skip the inbox check", which tells the
+ * admin exactly what to ask the user for. See {@link adminActionMessage}.
+ */
+export async function approveUserById(id: number, init: Init = {}): Promise<ApproveUserResult> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -224,13 +372,13 @@ export async function approveUser(username: string, init: Init = {}): Promise<Ap
   };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${dashboardApiBase(init.cookieHeader)}/admin/approve/${encodeURIComponent(username)}`,
+    `${dashboardApiBase(init.cookieHeader)}/admin/approve/by-id/${encodeURIComponent(String(id))}`,
     { method: "POST", headers, credentials: "include", body: "{}", signal: resolveSignal(init) },
   );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
-      `Approve failed: ${detail.message ?? detail.code ?? res.statusText}`,
+      adminActionMessage(detail.code, detail.message, res.statusText),
       res.status,
       detail.code,
     );
@@ -343,8 +491,15 @@ export async function deleteUserById(id: number, init: Init = {}): Promise<Delet
 }
 
 /**
- * Fail-soft count of users in the `"verified"` (awaiting-approval) status,
- * for the Users tab badge rendered by every admin page via `AdminLayout`.
+ * Fail-soft count of accounts with an OPEN upload-access request, for the
+ * Users tab badge rendered by every admin page via `AdminLayout`.
+ *
+ * This used to count `status = "verified"`, which was the best available
+ * approximation before nemar-cli ADR 0042: "verified with no grant" was every
+ * base-tier account, whether or not anyone in it wanted to upload — a badge
+ * reading several hundred, none of them actionable. `?awaiting_approval=1` is
+ * the real predicate.
+ *
  * Never throws — mirrors `fetchObservabilitySnapshot`'s contract in
  * `observability.ts` — because a transient nemar-cli hiccup must degrade to
  * "no badge shown" rather than break the shared admin shell on every page.
@@ -352,7 +507,7 @@ export async function deleteUserById(id: number, init: Init = {}): Promise<Delet
 export async function fetchAwaitingApprovalCount(init: Init = {}): Promise<number | null> {
   try {
     const { count } = await listAdminUsers(
-      { status: "verified" },
+      { awaitingApproval: true },
       { ...init, timeoutMs: init.timeoutMs ?? BADGE_TIMEOUT_MS },
     );
     return count;

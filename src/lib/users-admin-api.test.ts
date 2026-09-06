@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADMIN_TIER_LABELS,
   type AdminUserListRow,
-  approveUser,
+  adminActionMessage,
+  adminTier,
+  adminUsersQuery,
+  approveUserById,
   changeUserRole,
   deleteUserById,
   fetchAwaitingApprovalCount,
   getAdminUser,
   isActionable,
+  isAwaitingUploadApproval,
   isSelf,
   listAdminUsers,
   revokeUser,
@@ -172,38 +177,88 @@ describe("getAdminUser", () => {
   });
 });
 
-describe("approveUser", () => {
-  it("POSTs to /admin/approve/:username", async () => {
+describe("approveUserById", () => {
+  // Keyed by numeric id, not username, because a web/ORCID account has none
+  // (nemar-cli migration 0026) and under ADR 0040 approval is the only way it
+  // ever gets upload access. The username-keyed route could not address it.
+  it("POSTs to /admin/approve/by-id/:id", async () => {
     const fakeFetch = (async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/v1/admin/approve/alice");
+      expect(url).toBe("/api/v1/admin/approve/by-id/42");
       expect(init.method).toBe("POST");
       return new Response(
         JSON.stringify({
           message: "User alice has been approved",
-          user: { username: "alice", email: "alice@example.com", status: "approved" },
+          user: {
+            username: "alice",
+            email: "alice@example.com",
+            status: "approved",
+            service_access: true,
+          },
           email_sent: true,
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }) as unknown as typeof fetch;
-    const out = await approveUser("alice", { fetch: fakeFetch });
+    const out = await approveUserById(42, { fetch: fakeFetch });
     expect(out.user.status).toBe("approved");
+    expect(out.user.service_access).toBe(true);
   });
 
-  it("surfaces the backend's ineligibility reason", async () => {
+  it("reaches a row that has no username at all", async () => {
+    const fakeFetch = (async (url: string) => {
+      expect(url).toBe("/api/v1/admin/approve/by-id/99");
+      return new Response(
+        JSON.stringify({
+          message: "User approved",
+          user: { username: null, email: "web@example.com", status: "approved" },
+          email_sent: true,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    const out = await approveUserById(99, { fetch: fakeFetch });
+    expect(out.user.username).toBeNull();
+  });
+
+  it("keeps BOTH sentences of the unverified-email refusal", async () => {
+    // `error` is the headline and `message` says what to do about it. The
+    // shared `friendly()` in the admin pages renders `code` alone, which
+    // would drop the only actionable half — hence the combined message here.
     const fakeFetch = (async () =>
       new Response(
         JSON.stringify({
           error: "User is not eligible for approval",
           status: "pending",
-          message: "User needs to verify their email first",
+          message:
+            "User must verify their email address first; approval cannot skip the inbox check",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } },
       )) as unknown as typeof fetch;
-    await expect(approveUser("alice", { fetch: fakeFetch })).rejects.toMatchObject({
+    await expect(approveUserById(7, { fetch: fakeFetch })).rejects.toMatchObject({
       status: 400,
       code: "User is not eligible for approval",
+      message:
+        "User is not eligible for approval — User must verify their email address first; approval cannot skip the inbox check",
     });
+  });
+
+  it("surfaces the repair path's note when only the grant was written", async () => {
+    // An account already at `approved` with no grant is repaired rather than
+    // 409'd, so an admin has a way to fix a row whose status says approved
+    // while the upload gate says no.
+    const fakeFetch = (async () =>
+      new Response(
+        JSON.stringify({
+          message: "User alice already had status 'approved'; upload access granted",
+          note: "Only the upload grant was written",
+          user: { username: "alice", email: "a@b.org", status: "approved", service_access: true },
+          email_sent: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as unknown as typeof fetch;
+    const out = await approveUserById(1, { fetch: fakeFetch });
+    expect(out.note).toContain("Only the upload grant");
+    expect(out.email_sent).toBe(false);
   });
 });
 
@@ -315,9 +370,12 @@ describe("deleteUserById", () => {
 });
 
 describe("fetchAwaitingApprovalCount", () => {
-  it("returns the count of verified-status users", async () => {
+  // Counts OPEN upload-access requests, not the base tier. It used to send
+  // `?status=verified`, which since nemar-cli ADR 0040 is every browse-only
+  // account — a badge in the hundreds with nothing actionable behind it.
+  it("counts accounts with an open upload-access request", async () => {
     const fakeFetch = (async (url: string) => {
-      expect(url).toBe("/api/v1/admin/users?status=verified");
+      expect(url).toBe("/api/v1/admin/users?awaiting_approval=1");
       return new Response(JSON.stringify({ users: [row(), row()], count: 2 }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -364,8 +422,121 @@ describe("request deadlines", () => {
   });
 
   it("aborts a hung mutation rather than leaving the button stuck", async () => {
-    await expect(
-      approveUser("alice", { fetch: hangingFetch, timeoutMs: 10 }),
-    ).rejects.toMatchObject({ name: "TimeoutError" });
+    await expect(approveUserById(1, { fetch: hangingFetch, timeoutMs: 10 })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tier + upload-request derivations (website#301)
+// ---------------------------------------------------------------------------
+
+describe("adminUsersQuery", () => {
+  it("sends awaiting_approval=1 for the queue", () => {
+    // Spelled out because this is a server-side predicate over two columns —
+    // getting the name or the value wrong returns every user rather than an
+    // error, which reads as an enormous queue rather than a broken filter.
+    expect(adminUsersQuery({ awaitingApproval: true })).toBe("awaiting_approval=1");
+  });
+
+  it("omits the parameter entirely when the queue is not asked for", () => {
+    expect(adminUsersQuery({})).toBe("");
+    expect(adminUsersQuery({ awaitingApproval: false })).toBe("");
+  });
+
+  it("still carries the lifecycle filters, in a stable order", () => {
+    expect(adminUsersQuery({ status: "approved" })).toBe("status=approved");
+    expect(adminUsersQuery({ role: "admin" })).toBe("role=admin");
+    expect(adminUsersQuery({ includeDeleted: true })).toBe("include_deleted=true");
+    expect(adminUsersQuery({ status: "verified", role: "member", awaitingApproval: true })).toBe(
+      "status=verified&role=member&awaiting_approval=1",
+    );
+  });
+});
+
+describe("adminTier", () => {
+  it("separates an uploader from a browse-only account", () => {
+    expect(adminTier(row({ service_access: 1 }))).toBe("upload");
+    expect(adminTier(row({ service_access: 0 }))).toBe("browse");
+  });
+
+  it("reports unknown — not browse — when the backend did not say", () => {
+    // Coercing an absent key to 0 would tell an admin an uploader has no
+    // grant, which is the one wrong answer that looks plausible. A CLI
+    // talking to a pre-#1251 backend hits exactly this.
+    expect(adminTier(row({}))).toBe("unknown");
+    expect(adminTier(row({ service_access: null }))).toBe("unknown");
+    expect(ADMIN_TIER_LABELS.unknown).toBe("Unknown");
+  });
+});
+
+describe("isAwaitingUploadApproval", () => {
+  it("is true for a request stamp with no grant", () => {
+    expect(
+      isAwaitingUploadApproval(
+        row({ upload_access_requested_at: "2026-09-01 10:00:00", service_access: 0 }),
+      ),
+    ).toBe(true);
+  });
+
+  it("is false once an admin has answered, even though the stamp stays", () => {
+    // The grant is what closes a request; the stamp survives as the record of
+    // when they asked, so an approved account must leave the queue.
+    expect(
+      isAwaitingUploadApproval(
+        row({ upload_access_requested_at: "2026-09-01 10:00:00", service_access: 1 }),
+      ),
+    ).toBe(false);
+  });
+
+  it("is false for an account that never asked", () => {
+    expect(isAwaitingUploadApproval(row({ service_access: 0 }))).toBe(false);
+    expect(
+      isAwaitingUploadApproval(row({ upload_access_requested_at: null, service_access: 0 })),
+    ).toBe(false);
+    expect(
+      isAwaitingUploadApproval(row({ upload_access_requested_at: "  ", service_access: 0 })),
+    ).toBe(false);
+  });
+
+  it("is false when the grant is unknown", () => {
+    // With `service_access` absent, "asked and unanswered" cannot be
+    // established; guessing yes would put approved accounts in the queue.
+    expect(isAwaitingUploadApproval(row({ upload_access_requested_at: "2026-09-01" }))).toBe(false);
+  });
+});
+
+describe("adminActionMessage", () => {
+  it("joins both halves of an approve refusal", () => {
+    expect(
+      adminActionMessage(
+        "User is not eligible for approval",
+        "User must verify their email address first; approval cannot skip the inbox check",
+        "Approve failed",
+      ),
+    ).toBe(
+      "User is not eligible for approval — User must verify their email address first; approval cannot skip the inbox check",
+    );
+  });
+
+  it("does not repeat itself when the two agree", () => {
+    expect(adminActionMessage("User not found", "User not found", "fallback")).toBe(
+      "User not found",
+    );
+  });
+
+  it("uses whichever half arrived", () => {
+    expect(adminActionMessage("User already approved", undefined, "fallback")).toBe(
+      "User already approved",
+    );
+    expect(adminActionMessage(undefined, "Something specific", "fallback")).toBe(
+      "Something specific",
+    );
+  });
+
+  it("falls back to the status text when the body carried nothing", () => {
+    expect(adminActionMessage(undefined, undefined, "Bad Gateway")).toBe("Bad Gateway");
+    expect(adminActionMessage("  ", "  ", "Bad Gateway")).toBe("Bad Gateway");
   });
 });

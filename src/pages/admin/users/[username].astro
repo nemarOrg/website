@@ -57,12 +57,19 @@ const actionable = user ? isActionable(user) : false;
 // confirmation, so the UI needs to know up front. Self-approve is not
 // blocked server-side, so `self` deliberately does not gate `canApprove`.
 const self = user !== null && isSelf(user.id, session.user.id);
+// Mirrors `isApprovable` in nemar-cli backend/src/routes/admin/users.ts,
+// including the `pending` + web-signup allowance ADR 0040 phase 2 kept. It is
+// no longer gated on `actionable`: approval goes through the id-keyed route,
+// which is exactly what a username-less web account needs (this page is only
+// reachable for one that HAS a username, but the two call sites must not
+// diverge on which route they use). The verified-email precondition is left
+// to the backend, whose refusal names it.
 const canApprove =
   user !== null &&
-  actionable &&
   (user.status === "verified" ||
     user.status === "revoked" ||
-    user.status === "revoked_iam_pending");
+    user.status === "revoked_iam_pending" ||
+    (user.status === "pending" && user.signup_source === "web"));
 const canRevoke = user !== null && actionable && user.status === "approved" && !self;
 const canChangeRole = user !== null && isOwner && actionable && user.status === "approved" && !self;
 const canDelete = user !== null && isOwner && !self;
@@ -139,8 +146,16 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
             <dd>{[user.city, user.country].filter(Boolean).join(", ") || "—"}</dd>
           </div>
           <div>
-            <dt>Service access</dt>
-            <dd>{user.service_access ? "Granted" : "Not granted"}</dd>
+            <dt>Upload access</dt>
+            <dd>
+              {user.service_access
+                ? `Granted${formatDate(user.service_access_granted_at ?? null) ? ` ${formatDate(user.service_access_granted_at ?? null)}` : ""}`
+                : "Not granted"}
+            </dd>
+          </div>
+          <div>
+            <dt>Upload access asked</dt>
+            <dd>{formatDate(user.upload_access_requested_at ?? null) || "—"}</dd>
           </div>
           <div>
             <dt>Datasets owned</dt>
@@ -170,7 +185,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
 
         <footer class="user-detail__actions">
           {canApprove && (
-            <button type="button" class="user-detail__btn user-detail__btn--primary" data-user-approve data-username={user.username}>
+            <button type="button" class="user-detail__btn user-detail__btn--primary" data-user-approve data-user-id={user.id}>
               Approve
             </button>
           )}
@@ -435,7 +450,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
 
 <script>
   import {
-    approveUser,
+    approveUserById,
     changeUserRole,
     deleteUserById,
     revokeUser,
@@ -473,7 +488,9 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
   }
 
   type PendingAction =
-    | { kind: "approve"; username: string }
+    // By numeric id: approval routes through `POST /admin/approve/by-id/:id`
+    // so this page and the queue use one path (nemar-cli ADR 0040).
+    | { kind: "approve"; id: number }
     | { kind: "revoke"; username: string }
     | { kind: "role"; username: string; role: AdminUserRole }
     | { kind: "delete"; id: number };
@@ -494,9 +511,10 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
 
   document.querySelectorAll<HTMLButtonElement>("[data-user-approve]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const username = btn.dataset.username;
-      if (!username) return;
-      queue({ kind: "approve", username });
+      const idRaw = btn.dataset.userId;
+      const id = idRaw ? Number.parseInt(idRaw, 10) : Number.NaN;
+      if (!Number.isInteger(id)) return;
+      queue({ kind: "approve", id });
       openDialog("admin-approve-user");
     });
   });
@@ -540,7 +558,22 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
     try {
       if (e.detail.dialogId === "admin-approve-user" && target.kind === "approve") {
         inFlight = true;
-        await approveUser(target.username);
+        try {
+          await approveUserById(target.id);
+        } catch (err) {
+          // Own catch so the refusal keeps the backend's second sentence —
+          // "User must verify their email address first" is the only part
+          // that says what to do about it. See users.astro's friendlyApprove.
+          showError(
+            `Couldn't approve: ${
+              err instanceof DashboardApiError && !(err.code && FRIENDLY[err.code])
+                ? err.message
+                : friendly(err)
+            }`,
+          );
+          inFlight = false;
+          return;
+        }
       } else if (e.detail.dialogId === "admin-revoke-user" && target.kind === "revoke") {
         inFlight = true;
         await revokeUser(target.username);

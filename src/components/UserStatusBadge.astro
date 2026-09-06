@@ -6,6 +6,13 @@
  * approved | revoked. `revoked_iam_pending` is a real backend value (a
  * revoke whose IAM cleanup partially failed) — it reads as "Revoked" with
  * the same danger tone since the account access is already gone.
+ *
+ * The labels name TIERS, not queue positions (website#301; nemar-cli ADR
+ * 0040). `verified` used to read "Awaiting approval", which was true only
+ * while approval was the thing every account was waiting for; it is now the
+ * working base tier and most of the catalog sits there permanently. What an
+ * admin has a queue of is open upload-access requests, which is a predicate
+ * over two other columns — see `isAwaitingUploadApproval`.
  */
 import type { AdminUserStatus } from "../lib/users-admin-api";
 
@@ -16,15 +23,18 @@ interface Props {
 const { status } = Astro.props;
 
 const LABELS: Record<AdminUserStatus, string> = {
-  pending: "Pending",
-  verified: "Awaiting approval",
-  approved: "Approved",
+  pending: "Email not verified",
+  verified: "Base access",
+  approved: "Upload access",
   revoked: "Revoked",
   revoked_iam_pending: "Revoked",
 };
 const TONES: Record<AdminUserStatus, "neutral" | "warning" | "success" | "danger"> = {
-  pending: "neutral",
-  verified: "warning",
+  // Amber for the one state with an outstanding action (the user's own), and
+  // neutral for the base tier, which is a finished account rather than a
+  // half-finished one.
+  pending: "warning",
+  verified: "neutral",
   approved: "success",
   revoked: "danger",
   revoked_iam_pending: "danger",
