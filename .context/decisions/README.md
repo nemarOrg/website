@@ -46,3 +46,4 @@ Add new entries here as you create ADRs:
 - ADR 0012 - [Recording navigation detaches the viewer from its inline row](0012-viewer-navigation-detaches-inline-row.md) (accepted)
 - ADR 0013 - [Viewer annotations are two BIDS kinds, stored locally only](0013-viewer-annotations-two-kinds-local-only.md) (accepted)
 - ADR 0014 - [The website renders three account tiers, and every one of them has something to do](0014-account-tier-surfaces.md) (accepted)
+- ADR 0015 - [Profile gaps come from one module, and their words from a mirrored copy contract](0015-profile-gaps-and-mirrored-copy.md) (accepted)
