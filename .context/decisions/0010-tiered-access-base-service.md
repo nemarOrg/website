@@ -1,6 +1,6 @@
 # ADR 0010: Tiered access — base (auto) vs service (admin-gated)
 
-**Status:** accepted
+**Status:** accepted; the auto-approve half superseded by nemar-cli ADR 0040 (see the Update below)
 **Date:** 2026-07-24
 **Owner:** Seyed Yahya Shirazi
 
@@ -78,3 +78,31 @@ may this dataset go public).
 - Admin portal epic website#158 (home of the Phase 2 grant/review UI).
 - Export-control intent already present: onboarding collects city/country "required for
   export-control screening".
+
+## Update — 2026-09-05
+
+**The two-tier split stands. The mechanism for reaching the first tier does not.**
+
+This ADR said base access is "granted automatically the moment ORCID sign-in completes",
+implemented by auto-approving the account to `status='approved'` on ORCID finalize. nemar-cli
+ADR 0040 supersedes that half, and nemar-cli migration 0075 has already undone it in the
+catalog:
+
+- An ORCID sign-up now lands at `status='pending'` with `email_verified=0` and an emailed
+  6-digit code. It reaches the base tier by redeeming that code, not by signing in. ORCID
+  proves the **person**; the code proves the **inbox**, and every notification, sign-in code
+  and upload-request thread goes to that address.
+- `status='approved'` is now the *service* tier alone, and admin approval is its single
+  writer (`status='approved'` iff `service_access=1`). The auto-approval that put new ORCID
+  accounts at `approved` is gone, which is what made the old invariant unstateable.
+
+Everything this ADR actually decided is unchanged: two tiers rather than one gate, the
+export-control review of GitHub handle plus city/country behind the service tier, publishing
+as a separate per-dataset check on top, and base access being open to anyone who can prove an
+identity. The Phase 2 obligation it recorded — "an admin surface to review + grant service
+access ... and a user-facing *request upload access*" — is what website#301 and nemar-cli ADR
+0042 delivered.
+
+What this changes for the website is recorded in ADR 0014, which is where the UI consequences
+live: `status` is now two-valued and *actionable* in both states, and "pending" no longer
+means an admin is looking at you.

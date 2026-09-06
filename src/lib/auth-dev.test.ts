@@ -45,6 +45,69 @@ describe("buildDevUser", () => {
     expect(u.role).toBe("user");
   });
 
+  // The account-tier personas (website#301). Each one exists because a state
+  // is otherwise unreachable locally: the dev session never touches the
+  // backend, so what `buildDevUser` returns is the whole world the page sees.
+  it("puts @nemar.pending at the unverified tier so the verify step renders", () => {
+    const u = buildDevUser("someone@nemar.pending");
+    expect(u.status).toBe("pending");
+    // Both roads out of `pending` set this flag on the backend, so the two
+    // move together here too — a persona that was pending AND verified would
+    // exercise a state the backend cannot produce.
+    expect(u.email_verified).toBe(false);
+    expect(u.service_access).toBe(false);
+  });
+
+  it("gives @nemar.asked an open upload-access request", () => {
+    const u = buildDevUser("someone@nemar.asked");
+    expect(u.status).toBe("active");
+    expect(u.service_access).toBe(false);
+    expect(u.upload_access_requested_at).toBeTruthy();
+  });
+
+  it("leaves every other base-tier persona with no open request", () => {
+    // Otherwise "not requested" — the state that carries the request CTA —
+    // would be unreachable.
+    expect(buildDevUser("someone@nemar.base").upload_access_requested_at).toBeUndefined();
+    expect(buildDevUser("someone@nemar.pending").upload_access_requested_at).toBeUndefined();
+  });
+
+  it("strips @nemar.new down to what /onboarding asks for", () => {
+    const u = buildDevUser("someone@nemar.new");
+    // Empty string, not absent: an absent username sends
+    // `fetchAccountIdentity` to /users/me, which no dev session can reach,
+    // and the step would then be skipped rather than rendered.
+    expect(u.username).toBe("");
+    expect(u.given_name).toBe("");
+    expect(u.family_name).toBe("");
+    expect(u.city).toBe("");
+    expect(u.country).toBe("");
+    // NOT ORCID-verified, deliberately: with a verified iD the name step is
+    // skipped by design, so this persona could not exercise it.
+    expect(u.orcid_verified).toBe(false);
+  });
+
+  it("gives @nemar.noname a verified iD and no name — the stuck state", () => {
+    const u = buildDevUser("someone@nemar.noname");
+    expect(u.orcid_verified).toBe(true);
+    expect(u.orcid).toBeTruthy();
+    expect(u.given_name).toBe("");
+    expect(u.family_name).toBe("");
+    // It keeps a username: the point of the persona is the NAME dead end, and
+    // a missing username would send onboarding down a different branch first.
+    expect(u.username).toBe("alovelace");
+  });
+
+  it("keeps every other persona named and verified", () => {
+    for (const email of ["alice@example.com", "someone@nemar.blank", "someone@nemar.base"]) {
+      const u = buildDevUser(email);
+      expect(u.given_name, email).toBe("Ada");
+      expect(u.family_name, email).toBe("Lovelace");
+      expect(u.status, email).toBe("active");
+      expect(u.email_verified, email).toBe(true);
+    }
+  });
+
   it("grants service access to the default persona", () => {
     expect(buildDevUser("alice@example.com").service_access).toBe(true);
   });

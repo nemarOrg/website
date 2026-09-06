@@ -5,17 +5,29 @@
  * project's scoped-style-duplication convention (AGENTS.md) rather than a
  * shared stylesheet.
  */
+import { fullName, isValidOrcid } from "../../lib/auth";
 import { formatDate, formatRelativeTime } from "../../lib/format";
 import {
+  ADMIN_TIER_LABELS,
+  type AdminUserDetail,
   type AdminUserListRow,
   type AdminUserRole,
+  adminTier,
+  canApproveUser,
   isActionable,
+  isAwaitingUploadApproval,
   isSelf,
 } from "../../lib/users-admin-api";
 import UserStatusBadge from "../UserStatusBadge.astro";
 
 interface Props {
   user: AdminUserListRow;
+  /** `GET /admin/users/:username`, fetched by the page for rows with an open
+   *  upload-access request. Null when there is none to fetch or when the
+   *  fetch failed — the review card then renders only what the listing
+   *  carries, which still includes everything the Approve decision is
+   *  formally about except location and the request text. */
+  detail?: AdminUserDetail | null;
   /** `session.user.backend_role === "owner"` — gates role-change + delete. */
   isOwner: boolean;
   /** `session.user.id` — compared via {@link isSelf} to suppress revoke,
@@ -25,18 +37,17 @@ interface Props {
   sessionUserId: string;
 }
 
-const { user, isOwner, sessionUserId } = Astro.props;
+const { user, detail = null, isOwner, sessionUserId } = Astro.props;
 const actionable = isActionable(user);
 const self = isSelf(user.id, sessionUserId);
-// Backend allows approving a "verified" user OR re-approving a "revoked"
-// one (see admin/users.ts POST /approve/:username); revoked_iam_pending is
-// the same DB-level "revoked" family for approval purposes. Self-approve is
-// not blocked server-side, so `self` deliberately does not gate this.
-const canApprove =
-  actionable &&
-  (user.status === "verified" ||
-    user.status === "revoked" ||
-    user.status === "revoked_iam_pending");
+// Approval is by numeric id (`POST /admin/approve/by-id/:id`), so unlike
+// revoke and role-change it does NOT need a username — which is the point:
+// a web/ORCID row has none, and under nemar-cli ADR 0040 approval is the
+// only way it ever gets upload access. Self-approve is not blocked
+// server-side, so `self` deliberately does not gate this either.
+// `canApproveUser` carries the status rules and why two backend conditions
+// are left to the backend.
+const canApprove = canApproveUser(user);
 const canRevoke = actionable && user.status === "approved" && !self;
 // Role change requires status === "approved" server-side too (400 otherwise).
 const canChangeRole = isOwner && actionable && user.status === "approved" && !self;
@@ -45,6 +56,25 @@ const currentRole: AdminUserRole = user.role ?? "member";
 const ROLE_OPTIONS: readonly AdminUserRole[] = ["member", "admin", "owner"];
 const createdDate = formatDate(user.created_at);
 const createdRelative = formatRelativeTime(user.created_at);
+const tier = adminTier(user);
+
+// The review card: what an admin is actually deciding on. Rendered only for
+// an OPEN request, because that is the only moment the person's details are
+// the question in front of them.
+const awaiting = isAwaitingUploadApproval(user);
+const requestedDate = formatDate(user.upload_access_requested_at ?? null);
+const requestedRelative = formatRelativeTime(user.upload_access_requested_at ?? null);
+const researcherName = fullName({
+  given_name: user.given_name ?? undefined,
+  family_name: user.family_name ?? undefined,
+});
+const orcid = (user.orcid ?? "").trim();
+// The four fields only the detail fetch carries.
+const city = (detail?.city ?? "").trim();
+const country = (detail?.country ?? "").trim();
+const affiliation = (detail?.affiliation ?? "").trim();
+const whyText = (detail?.description ?? "").trim();
+const emailVerified = user.email_verified === 1;
 ---
 
 <article class="user-row" data-user-row data-username={user.username ?? ""}>
@@ -66,16 +96,21 @@ const createdRelative = formatRelativeTime(user.created_at);
   {
     !actionable && (
       <p class="user-row__notice" role="note">
-        No username yet, so this account can't be approved, revoked, or role-changed here (
+        No username yet. Approving this account by id still works, but it can't be revoked or
+        role-changed until it picks one (
         <a href="https://github.com/nemarOrg/nemar-cli/issues/1012" target="_blank" rel="noopener noreferrer">
           nemar-cli#1012
         </a>
-        ).{canDelete ? " It can still be deleted below." : ""}
+        ).{canDelete ? " It can also be deleted below." : ""}
       </p>
     )
   }
 
   <dl class="user-row__meta">
+    <div>
+      <dt>Tier</dt>
+      <dd>{ADMIN_TIER_LABELS[tier]}</dd>
+    </div>
     <div>
       <dt>Role</dt>
       <dd>{currentRole}</dd>
@@ -89,6 +124,102 @@ const createdRelative = formatRelativeTime(user.created_at);
       <dd>{createdDate ? (createdRelative ? `${createdDate} (${createdRelative})` : createdDate) : "—"}</dd>
     </div>
   </dl>
+
+  {
+    awaiting && (
+      <section class="user-row__review" data-user-review>
+        <header class="user-row__review-head">
+          <h3 class="user-row__review-title">Upload-access request</h3>
+          <span class="user-row__review-date">
+            {requestedDate
+              ? requestedRelative
+                ? `Asked ${requestedDate} (${requestedRelative})`
+                : `Asked ${requestedDate}`
+              : "Asked (date unavailable)"}
+          </span>
+        </header>
+
+        {!emailVerified && (
+          <p class="user-row__notice" role="note">
+            This account hasn't verified its email address, so approval will be refused
+            until it does &mdash; the whole review happens over email. Ask them to enter the
+            code on their dashboard.
+          </p>
+        )}
+
+        <dl class="user-row__meta user-row__meta--review">
+          <div>
+            <dt>Name</dt>
+            <dd>{researcherName || "—"}</dd>
+          </div>
+          <div>
+            <dt>Username</dt>
+            <dd>{user.username ?? "—"}</dd>
+          </div>
+          <div>
+            <dt>Email</dt>
+            <dd>
+              {user.email}
+              {emailVerified ? (
+                <span class="user-row__verified"> verified</span>
+              ) : (
+                <span class="user-row__unverified"> unverified</span>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>ORCID</dt>
+            <dd>
+              {orcid && isValidOrcid(orcid) ? (
+                <a href={`https://orcid.org/${orcid}`} rel="external noopener" target="_blank">
+                  {orcid}
+                </a>
+              ) : (
+                orcid || "—"
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>GitHub</dt>
+            <dd>
+              {user.github_username ? (
+                <a
+                  href={`https://github.com/${user.github_username}`}
+                  rel="external noopener"
+                  target="_blank"
+                >
+                  {user.github_username}
+                </a>
+              ) : (
+                "—"
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>City</dt>
+            <dd>{city || (detail ? "—" : "not loaded")}</dd>
+          </div>
+          <div>
+            <dt>Country</dt>
+            <dd>{country || (detail ? "—" : "not loaded")}</dd>
+          </div>
+          <div>
+            <dt>Affiliation</dt>
+            <dd>{affiliation || (detail ? "—" : "not loaded")}</dd>
+          </div>
+        </dl>
+
+        <div class="user-row__why">
+          <p class="user-row__why-label">What they intend to upload</p>
+          {/* The requester's own prose, rendered as text. Never parsed and
+              never linkified: it is untrusted user input on an admin page. */}
+          <p class="user-row__why-text">
+            {whyText || (detail ? "They left this blank." : "Not loaded — open the user page to read it.")}
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   <footer class="user-row__actions">
     {
@@ -104,9 +235,9 @@ const createdRelative = formatRelativeTime(user.created_at);
           type="button"
           class="user-row__btn user-row__btn--primary"
           data-user-approve
-          data-username={user.username}
+          data-user-id={user.id}
         >
-          Approve
+          {awaiting ? "Approve upload access" : "Approve"}
         </button>
       )
     }
@@ -250,6 +381,74 @@ const createdRelative = formatRelativeTime(user.created_at);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .user-row__meta dd a {
+    color: var(--color-link);
+  }
+
+  /* ---------- Upload-access review card ---------- */
+  .user-row__review {
+    border: 1px solid var(--color-border-strong);
+    border-inline-start: 3px solid var(--brand-teal);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    padding: var(--space-4);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .user-row__review-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .user-row__review-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .user-row__review-date {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  /* The review grid holds full email addresses and affiliations, so it drops
+     the single-line ellipsis the summary meta row uses. */
+  .user-row__meta--review dd {
+    overflow: visible;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .user-row__verified {
+    color: var(--color-success);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+  }
+  .user-row__unverified {
+    color: var(--color-warning);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+  }
+  .user-row__why {
+    background: var(--color-bg-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+  }
+  .user-row__why-label {
+    margin: 0 0 var(--space-1);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .user-row__why-text {
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
   .user-row__actions {
     display: flex;

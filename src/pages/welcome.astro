@@ -1,6 +1,8 @@
 ---
 import Base from "../layouts/Base.astro";
+import { deriveAccountTier } from "../lib/account-tier";
 import { getSession } from "../lib/auth";
+import { DOCS_UPLOAD_ACCESS_PATH, resolveDocsBase } from "../lib/docs-base";
 
 const session = getSession(Astro.locals);
 // The welcome page is auth-gated: it's only meaningful for users who just
@@ -9,24 +11,27 @@ if (!session) {
   return Astro.redirect("/login?next=%2Fwelcome");
 }
 const firstName = session.user.email.split("@")[0] ?? "researcher";
-const isPending = session.user.status === "pending";
+const tier = deriveAccountTier(session.user);
+const isUnverified = tier === "unverified";
+const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
 
 const steps: { title: string; body: string; cta?: { href: string; label: string } }[] = [
   {
     // Two bodies because this page is shown to both kinds of new account.
-    // An ORCID web sign-up is auto-approved to base access on the spot
-    // (nemar-cli ADR 0010), so "no approval queue" is true for them. A
-    // `pending` account -- a legacy or CLI-path signup -- is still waiting on
-    // an admin, and the notice above this timeline says so. Asserting "active"
-    // unconditionally would contradict that notice on the same screen.
-    title: isPending ? "Your account was created" : "Your account is active",
-    body: isPending
-      ? "Authorizing with ORCID created your NEMAR account and signed you in. Browsing and search work now; the rest unlocks when an admin approves you."
+    // A brand-new ORCID sign-up lands unverified (nemar-cli ADR 0040 phase
+    // 2: the iD proves the person, the emailed code proves the inbox), and
+    // for it the honest first step is the code — NOT "wait for an admin",
+    // which is what this said before and which named a queue nobody was in.
+    title: isUnverified ? "Verify your email address" : "Your account is active",
+    body: isUnverified
+      ? "Authorizing with ORCID created your NEMAR account and signed you in. One step left: enter the 6-digit code we emailed you. That activates the account — no admin approval is involved."
       : "Authorizing with ORCID created your NEMAR account and signed you in. There is no separate sign-up step and no approval queue: browse, search, and your dashboard all work right now.",
+    ...(isUnverified ? { cta: { href: "/dashboard", label: "Enter your code" } } : {}),
   },
   {
     title: "Ask for upload access when you're ready to contribute",
-    body: "Reading is open to every ORCID account. Uploading and compute need one extra grant, because an admin has to check your GitHub handle and location against export-control and local-jurisdiction rules first.",
+    body: "Reading is open to every verified account. Uploading and compute need one extra grant, because an admin has to check your GitHub handle and location against export-control and local-jurisdiction rules first. You ask once, from Settings.",
+    cta: { href: uploadAccessDocsUrl, label: "How upload access works" },
   },
   {
     title: "Then upload a BIDS folder",
@@ -65,10 +70,11 @@ const steps: { title: string; body: string; cta?: { href: string; label: string 
         A quick orientation so you know what comes next. Revisit any of this in the
         <a href="https://docs.nemar.org">docs</a> later.
       </p>
-      {isPending && (
+      {isUnverified && (
         <p class="welcome__notice" role="status">
-          Your account is awaiting admin approval. You can browse and explore now;
-          uploads and publication requests unlock once you&rsquo;re approved.
+          Your email address isn&rsquo;t confirmed yet. Enter the code we sent you on your
+          <a href="/dashboard">dashboard</a> to activate the account &mdash; browsing and
+          search are open to everyone in the meantime.
         </p>
       )}
     </header>
@@ -103,9 +109,15 @@ const steps: { title: string; body: string; cta?: { href: string; label: string 
           <path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </a>
-      <a class="welcome__cta welcome__cta--ghost" href="/upload" data-welcome-cta>
-        Upload my first dataset
-      </a>
+      {tier === "upload" ? (
+        <a class="welcome__cta welcome__cta--ghost" href="/upload" data-welcome-cta>
+          Upload my first dataset
+        </a>
+      ) : (
+        <a class="welcome__cta welcome__cta--ghost" href="/settings#upload-access" data-welcome-cta>
+          Request upload access
+        </a>
+      )}
     </div>
   </section>
 </Base>
@@ -194,6 +206,10 @@ const steps: { title: string; body: string; cta?: { href: string; label: string 
   }
   .welcome__lede a {
     color: var(--color-link);
+  }
+  .welcome__notice a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
   }
   .welcome__notice {
     margin: var(--space-5) 0 0;

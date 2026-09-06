@@ -1,6 +1,20 @@
 ---
 import Base from "../layouts/Base.astro";
+import { fetchAccountIdentity } from "../lib/account-api";
+import {
+  USERNAME_MAX_LENGTH,
+  WHY_MAX_CHARS,
+  WHY_MIN_CHARS,
+  deriveAccountTier,
+  deriveUploadAccessState,
+} from "../lib/account-tier";
 import { fullName, getSession, isValidOrcid, maskEmail } from "../lib/auth";
+import {
+  DOCS_ACCOUNT_SETTINGS_PATH,
+  DOCS_UPLOAD_ACCESS_PATH,
+  resolveDocsBase,
+} from "../lib/docs-base";
+import { formatDate } from "../lib/format";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -28,7 +42,7 @@ const orcidError =
     ? ORCID_ERROR_MESSAGES[orcidErrorParam]
     : null;
 
-const { email, role, status } = session.user;
+const { email, role } = session.user;
 const name = fullName(session.user);
 const orcid = session.user.orcid;
 const orcidVerified = session.user.orcid_verified === true;
@@ -36,20 +50,55 @@ const githubUsername = session.user.github_username ?? "";
 const city = session.user.city ?? "";
 const country = session.user.country ?? "";
 const affiliation = session.user.affiliation ?? "";
-// Handle/username is the local part of the email — only shown as a secondary
-// field, never mislabeled as the display name (which is ORCID-canonical).
-const handle = email.split("@")[0] ?? "researcher";
 const profileComplete = city.length > 0 && country.length > 0;
 
-const statusLabel: Record<typeof status, string> = {
-  active: "Active",
-  pending: "Awaiting admin approval",
-  disabled: "Disabled",
+// Tier, not "status" (website#301). `/auth/me` reports `verified` and
+// `approved` alike as `"active"`, so the old three-value status row could
+// only ever say "Active" for two very different accounts — one that may
+// upload and one that may not. `service_access` is what separates them.
+const tier = deriveAccountTier(session.user);
+const uploadAccess = deriveUploadAccessState(session.user);
+const grantedDate = uploadAccess.kind === "granted" ? formatDate(uploadAccess.at) : "";
+const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAccess.at) : "";
+
+// `/auth/me` does not carry `username`; `fetchAccountIdentity` reads it from
+// `GET /users/me` and answers `undefined` when it cannot be asked (an
+// unverified session can't reach that route at all). Undefined renders as
+// "not set yet" copy WITHOUT claiming the account has none.
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const identity =
+  tier === "unverified"
+    ? { username: undefined }
+    : await fetchAccountIdentity(session.user.username, { cookieHeader });
+const username = identity.username ?? "";
+const usernameKnown = identity.username !== undefined;
+// Fixed once an admin has approved the account (409 `username_locked` from
+// PATCH /auth/profile). Under nemar-cli ADR 0040's invariant `approved` and
+// `service_access = 1` are the same thing, and `service_access` is the half
+// the session actually carries.
+const usernameLocked = session.user.service_access === true;
+
+const tierLabel: Record<typeof tier, string> = {
+  unverified: "Email not verified",
+  base: "Base access",
+  upload: "Upload access",
 };
 const roleLabel: Record<typeof role, string> = {
   admin: "Administrator",
   user: "Researcher",
 };
+
+// A verified ORCID iD owns the name (nemar-cli ADR 0042), so the fields below
+// are not editable — but the record can publish no name at all, and then the
+// account is stuck: it cannot publish (ADR 0041), and the upload-access
+// request refuses with `missing: ["given_name", "family_name"]` naming two
+// controls that do not exist for it. That was a dead end with no in-product
+// exit, so this is the state that gets its own explanation and its own way
+// out (re-link, or unlink and type one).
+const nameMissingUnderOrcid = orcidVerified && name.length === 0;
+
+const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
+const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
 ---
 
 <Base title="Settings" description="Your NEMAR account settings.">
@@ -60,33 +109,76 @@ const roleLabel: Record<typeof role, string> = {
       <p class="settings__eyebrow">Account</p>
       <h1 class="settings__title">Settings</h1>
       <p class="settings__lede">
-        Manage your name, email, ORCID iD, and profile. Your name comes from ORCID;
-        theme and privacy choices are stored on this device only.
+        Manage your username, name, email, ORCID iD, and upload access. Theme and
+        privacy choices are stored on this device only.
+        <a href={accountDocsUrl} rel="external noopener">What each setting does</a>.
       </p>
     </header>
 
     <div class="settings__grid">
-      <!-- Account block (#132 name, #133 email) -->
+      <!-- Account block (#132 name, #133 email, #301 username + name edit) -->
       <article class="card">
         <div class="card__rail" aria-hidden="true"></div>
         <header class="card__head">
           <h2 class="card__title">Your account</h2>
-          <p class="card__lede">Name is read-only and synced from ORCID.</p>
+          <p class="card__lede">
+            {orcidVerified
+              ? "Your name is read-only and synced from ORCID."
+              : "Your name is used to cite you on any DOI your datasets get."}
+          </p>
         </header>
         <dl class="kv">
-          <div class="kv__row">
+          {/* `id="account-name"` is on the ROW, not on an input, and the row
+              always renders. It is where `uploadAccessMissingFields` points
+              `given_name`/`family_name`, and an input id could not be: the
+              editable fields do not exist for a verified-ORCID account, which
+              is exactly the account the backend names those fields to. */}
+          <div class="kv__row" id="account-name">
             <dt>Name</dt>
             <dd>
               {name ? (
                 <span class="kv__name">{name}</span>
               ) : (
-                <span class="kv__muted">Not set — sign in with ORCID to sync it.</span>
+                <span class="kv__muted">Not set</span>
+              )}
+              {orcidVerified ? (
+                <p class="kv__note" data-name-orcid-note>
+                  From your verified ORCID record, and re-read on every sign-in — so it
+                  can&rsquo;t be edited here. Change it at
+                  {" "}<a href="https://orcid.org/my-orcid" rel="external noopener">orcid.org</a>
+                  {" "}and sign in again, or unlink the iD below.
+                </p>
+              ) : (
+                <button type="button" class="linkbtn" data-name-toggle>Edit name</button>
               )}
             </dd>
           </div>
           <div class="kv__row">
             <dt>Username</dt>
-            <dd><code>{handle}</code></dd>
+            <dd>
+              {usernameKnown ? (
+                username ? (
+                  <code>{username}</code>
+                ) : (
+                  <span class="kv__muted">Not set yet</span>
+                )
+              ) : (
+                <span class="kv__muted">Couldn&rsquo;t load — refresh to try again.</span>
+              )}
+              {usernameKnown && (
+                usernameLocked ? (
+                  <p class="kv__note" data-username-locked-note>
+                    Fixed now that your account is approved: it is what admins approve you
+                    by, and what the dataset repositories you own are attributed to. Ask an
+                    admin if it has to change.
+                  </p>
+                ) : (
+                  <button type="button" class="linkbtn" data-username-toggle>
+                    {username ? "Change" : "Choose a username"}
+                  </button>
+                )
+              )}
+            </dd>
           </div>
           <div class="kv__row">
             <dt>Email</dt>
@@ -102,12 +194,131 @@ const roleLabel: Record<typeof role, string> = {
             </dd>
           </div>
           <div class="kv__row">
-            <dt>Status</dt>
+            <dt>Access</dt>
             <dd>
-              <span class:list={["badge", `badge--status-${status}`]}>{statusLabel[status]}</span>
+              <span class:list={["badge", `badge--tier-${tier}`]}>{tierLabel[tier]}</span>
             </dd>
           </div>
         </dl>
+
+        {/* The stuck state: a verified iD whose record publishes no name.
+            Nothing else on this page addresses it — the fields are withheld
+            (the backend would 409 `name_is_orcid_canonical`) and the ORCID
+            card below explains linking, not this. Both exits are here:
+            re-link, which re-reads the record, and unlink, which hands the
+            account back its editable fields.
+
+            The re-link control is a real form because it is one — an
+            Origin-carrying POST, no JavaScript (nemar-cli ADR 0022). Unlink
+            needs the ORCID card's handler, and duplicating its button would
+            break it outright: the page's `$()` helper is `querySelector`, so
+            a second `[data-orcid-unlink]` would never be wired. It is linked
+            instead. */}
+        {nameMissingUnderOrcid && (
+          <div class="notice notice--warn" id="account-name-orcid" data-name-orcid-stuck>
+            <p class="notice__title">Your ORCID record doesn&rsquo;t publish a name</p>
+            <p class="notice__body">
+              NEMAR cites the person who deposited a dataset by name, never by username, so
+              your account needs one before it can publish or be granted upload access. Your
+              name comes from your verified ORCID iD and is re-read on every sign-in, which
+              is why it can&rsquo;t be typed here.
+            </p>
+            <p class="notice__body">
+              Make your name public at
+              {" "}<a href="https://orcid.org/my-orcid" rel="external noopener">orcid.org</a>
+              {" "}(Names &rsaquo; visibility <strong>Everyone</strong>), then re-link below or
+              sign in again. Or unlink the iD from the
+              {" "}<a href="#orcid-card">ORCID iD card</a> to type a name yourself.
+            </p>
+            <div class="flow__actions">
+              <form class="confirm__form" method="post" action="/auth/orcid/start?mode=relink&next=%2Fsettings">
+                <button type="submit" class="btn btn--primary">Re-link ORCID</button>
+              </form>
+              <a class="btn btn--ghost" href="#orcid-card">Go to ORCID settings</a>
+            </div>
+          </div>
+        )}
+
+        <!-- Username edit (#301). Editable until an admin approves the
+             account; the backend answers 409 `username_locked` after that,
+             which this form renders even if the session flag is stale. -->
+        {usernameKnown && !usernameLocked && (
+          <div class="flow" data-username-flow hidden>
+            <label class="field">
+              <span class="field__label">Username</span>
+              <input
+                id="account-username"
+                class="field__input"
+                type="text"
+                name="username"
+                autocomplete="username"
+                spellcheck="false"
+                autocapitalize="none"
+                maxlength={USERNAME_MAX_LENGTH}
+                value={username}
+                placeholder="alovelace"
+                data-username-input
+              />
+            </label>
+            <p class="flow__hint">
+              Letters, numbers, underscores and hyphens; 3&ndash;{USERNAME_MAX_LENGTH}
+              {" "}characters. You can change it until an admin grants you upload access,
+              after which it is fixed.
+            </p>
+            <div class="flow__actions">
+              <button type="button" class="btn btn--ghost" data-username-cancel>Cancel</button>
+              <button type="button" class="btn btn--primary" data-username-save>Save username</button>
+            </div>
+            <p class="flow__msg" role="alert" data-username-msg hidden></p>
+          </div>
+        )}
+
+        <!-- Name edit (#301). Only rendered without a verified ORCID iD: with
+             one the backend refuses the edit (`name_is_orcid_canonical`)
+             because the record is re-read on every sign-in and would
+             overwrite it. -->
+        {!orcidVerified && (
+          <div class="flow" data-name-flow hidden>
+            <div class="profile__grid2">
+              <label class="field">
+                <span class="field__label">Given name</span>
+                <input
+                  id="account-given-name"
+                  class="field__input"
+                  type="text"
+                  name="given_name"
+                  autocomplete="given-name"
+                  maxlength="100"
+                  value={session.user.given_name ?? ""}
+                  data-name-given
+                />
+              </label>
+              <label class="field">
+                <span class="field__label">Family name</span>
+                <input
+                  id="account-family-name"
+                  class="field__input"
+                  type="text"
+                  name="family_name"
+                  autocomplete="family-name"
+                  maxlength="100"
+                  value={session.user.family_name ?? ""}
+                  data-name-family
+                />
+              </label>
+            </div>
+            <p class="flow__hint">
+              Publishing a dataset needs a real name: a DOI cites a person, never a
+              username. Linking a verified ORCID iD later replaces this with the name on
+              your ORCID record.
+            </p>
+            <div class="flow__actions">
+              <button type="button" class="btn btn--ghost" data-name-cancel>Cancel</button>
+              <button type="button" class="btn btn--primary" data-name-save>Save name</button>
+            </div>
+            <p class="flow__msg" role="alert" data-name-msg hidden></p>
+          </div>
+        )}
 
         <!-- Email change flow (#133) -->
         <div class="flow" data-email-flow hidden>
@@ -152,7 +363,7 @@ const roleLabel: Record<typeof role, string> = {
       </article>
 
       <!-- ORCID block (#132 surface, #134 manage) -->
-      <article class="card">
+      <article class="card" id="orcid-card">
         <div class="card__rail" aria-hidden="true"></div>
         <header class="card__head">
           <h2 class="card__title">ORCID iD</h2>
@@ -228,11 +439,17 @@ const roleLabel: Record<typeof role, string> = {
         )}
 
         <form class="profile" data-profile-form>
+          {/* The ids are load-bearing: `uploadAccessMissingFields` in
+              lib/account-tier.ts links a refused upload-access request
+              straight at the field it named, so a rename here without one
+              there produces a link that scrolls nowhere. Guarded by
+              test/account-tiers-ui.test.ts. */}
           <label class="field">
             <span class="field__label">GitHub handle <span class="field__req">required to publish</span></span>
             <div class="field__prefixed">
               <span class="field__prefix">@</span>
               <input
+                id="profile-github"
                 class="field__input"
                 type="text"
                 name="github_username"
@@ -247,11 +464,11 @@ const roleLabel: Record<typeof role, string> = {
           <div class="profile__grid2">
             <label class="field">
               <span class="field__label">City <span class="field__req">required</span></span>
-              <input class="field__input" type="text" name="city" autocomplete="address-level2" value={city} data-profile-city />
+              <input id="profile-city" class="field__input" type="text" name="city" autocomplete="address-level2" value={city} data-profile-city />
             </label>
             <label class="field">
               <span class="field__label">Country <span class="field__req">required</span></span>
-              <input class="field__input" type="text" name="country" autocomplete="country-name" value={country} data-profile-country />
+              <input id="profile-country" class="field__input" type="text" name="country" autocomplete="country-name" value={country} data-profile-country />
             </label>
           </div>
           <label class="field">
@@ -263,6 +480,111 @@ const roleLabel: Record<typeof role, string> = {
             <button type="submit" class="btn btn--primary" data-profile-save>Save profile</button>
           </div>
         </form>
+      </article>
+
+      <!-- Upload access (#301; nemar-cli ADRs 0040 + 0042). Deliberately its
+           own card, and deliberately not phrased as a status the account
+           "fails": browsing, downloading and the dashboard all work without
+           it. What it gates is contributing data and, later, compute. -->
+      <article class="card card--wide" id="upload-access">
+        <div class="card__rail" aria-hidden="true"></div>
+        <header class="card__head">
+          <h2 class="card__title">Upload access</h2>
+          <p class="card__lede">
+            A one-time admin grant. Reviewed against export-control and
+            local-jurisdiction rules.
+          </p>
+        </header>
+
+        <dl class="kv">
+          <div class="kv__row">
+            <dt>Status</dt>
+            <dd data-upload-access-state={uploadAccess.kind}>
+              {uploadAccess.kind === "granted" && (
+                <>
+                  <span class="badge badge--tier-upload">Granted</span>
+                  {grantedDate && <span class="kv__muted"> on {grantedDate}</span>}
+                </>
+              )}
+              {uploadAccess.kind === "requested" && (
+                <>
+                  <span class="badge badge--status-pending">Requested</span>
+                  {requestedDate && <span class="kv__muted"> on {requestedDate}</span>}
+                </>
+              )}
+              {uploadAccess.kind === "not_requested" && (
+                <span class="badge">Not requested</span>
+              )}
+            </dd>
+          </div>
+        </dl>
+
+        {uploadAccess.kind === "granted" && (
+          <p class="upload-access__body">
+            You can upload datasets from the <a href="/upload">upload page</a>. Publishing
+            one is a separate, per-dataset review you start from your dashboard.
+          </p>
+        )}
+
+        {uploadAccess.kind === "requested" && (
+          <p class="upload-access__body">
+            An admin is reviewing your request. We&rsquo;ll email you when there&rsquo;s a
+            decision; nothing else needs doing. Keeping your profile below up to date makes
+            that review quicker.
+          </p>
+        )}
+
+        {tier === "unverified" && (
+          <p class="upload-access__body">
+            Verify your email address first &mdash; the review happens over email. The
+            verify step is on your <a href="/dashboard">dashboard</a>.
+          </p>
+        )}
+
+        {tier === "base" && uploadAccess.kind === "not_requested" && (
+          <form class="upload-access__form" data-upload-access-form>
+            <p class="upload-access__body">
+              Tell us what you plan to deposit. An admin reviews this alongside your name,
+              username, GitHub handle and location, then grants access once.
+            </p>
+            <label class="field">
+              <span class="field__label">
+                What do you intend to upload?
+                <span class="field__req">{WHY_MIN_CHARS}&ndash;{WHY_MAX_CHARS} characters</span>
+              </span>
+              <textarea
+                id="upload-access-why"
+                class="field__input field__input--textarea"
+                name="why"
+                rows="4"
+                maxlength={WHY_MAX_CHARS}
+                placeholder="e.g. Resting-state EEG from 40 adults collected at our lab in 2025, already in BIDS."
+                data-upload-access-why
+              ></textarea>
+            </label>
+            <p class="flow__hint">
+              <span data-upload-access-count>0</span> / {WHY_MAX_CHARS} characters
+            </p>
+
+            {/* Populated from the refusal's `missing` array: one link per
+                field the request still needs, pointing at that field. */}
+            <div class="upload-access__missing" data-upload-access-missing hidden>
+              <p class="upload-access__missing-title">Finish these first:</p>
+              <ul class="upload-access__missing-list" data-upload-access-missing-list></ul>
+            </div>
+
+            <div class="flow__actions flow__actions--end">
+              <button type="submit" class="btn btn--primary" data-upload-access-submit>
+                Request upload access
+              </button>
+            </div>
+            <p class="flow__msg" role="alert" data-upload-access-msg hidden></p>
+          </form>
+        )}
+
+        <p class="upload-access__footnote">
+          <a href={uploadAccessDocsUrl} rel="external noopener">How upload access works</a>
+        </p>
       </article>
 
       <!-- Appearance block -->
@@ -450,6 +772,13 @@ const roleLabel: Record<typeof role, string> = {
   .card--danger:hover {
     border-color: color-mix(in srgb, var(--color-danger) 35%, var(--card-border));
   }
+  /* The upload-access card carries a form and a linked field list, so it
+     spans both columns rather than being squeezed into one. */
+  @media (min-width: 720px) {
+    .card--wide {
+      grid-column: 1 / -1;
+    }
+  }
   .card__head {
     margin-block-end: var(--space-4);
   }
@@ -492,6 +821,15 @@ const roleLabel: Record<typeof role, string> = {
   .kv__muted {
     color: var(--color-fg-subtle);
     font-size: var(--fs-xs);
+  }
+  .kv__note {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-normal);
+  }
+  .kv__note a {
+    color: var(--color-link);
   }
   .kv__email {
     display: inline-flex;
@@ -622,6 +960,15 @@ const roleLabel: Record<typeof role, string> = {
     letter-spacing: 0.4em;
     text-align: center;
   }
+  .field__input--textarea {
+    min-block-size: 6rem;
+    padding: var(--space-3);
+    resize: vertical;
+    line-height: var(--lh-normal);
+  }
+  .field__input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
   .field__prefixed {
     display: flex;
     align-items: stretch;
@@ -727,6 +1074,22 @@ const roleLabel: Record<typeof role, string> = {
     border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
     color: color-mix(in srgb, var(--color-warning) 82%, var(--color-fg));
   }
+  .notice__title {
+    margin: 0 0 var(--space-2);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .notice__body {
+    margin: 0 0 var(--space-3);
+    color: var(--color-fg);
+    line-height: var(--lh-relaxed);
+  }
+  .notice__body:last-of-type {
+    margin-block-end: var(--space-4);
+  }
+  .notice__body a {
+    color: var(--color-link);
+  }
 
   /* ---------- Badges ---------- */
   .badge {
@@ -750,6 +1113,72 @@ const roleLabel: Record<typeof role, string> = {
     border-color: color-mix(in srgb, var(--brand-teal) 35%, transparent);
     color: color-mix(in srgb, var(--brand-teal) 80%, var(--color-fg));
   }
+  /* Tier pills (#301). Base access is a working account, so it reads as
+     informational teal rather than the amber "something is pending" tone;
+     only the unverified tier — the one with an action attached — is amber. */
+  .badge--tier-upload {
+    background: color-mix(in srgb, var(--color-success) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+    color: var(--color-success);
+  }
+  .badge--tier-base {
+    background: color-mix(in srgb, var(--brand-teal) 14%, transparent);
+    border-color: color-mix(in srgb, var(--brand-teal) 35%, transparent);
+    color: color-mix(in srgb, var(--brand-teal) 80%, var(--color-fg));
+  }
+  .badge--tier-unverified {
+    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+    color: var(--color-warning);
+  }
+
+  /* ---------- Upload access ---------- */
+  .upload-access__body {
+    margin: var(--space-3) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 62ch;
+  }
+  .upload-access__body a,
+  .upload-access__footnote a {
+    color: var(--color-link);
+  }
+  .upload-access__form {
+    margin-block-start: var(--space-3);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .upload-access__missing {
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+  }
+  .upload-access__missing[hidden] {
+    display: none;
+  }
+  .upload-access__missing-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .upload-access__missing-list {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+  }
+  .upload-access__missing-list a {
+    color: var(--color-link);
+  }
+  .upload-access__footnote {
+    margin: var(--space-4) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+
   .badge--status-active {
     background: color-mix(in srgb, var(--color-success) 12%, transparent);
     border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
@@ -922,6 +1351,15 @@ const roleLabel: Record<typeof role, string> = {
 </style>
 
 <script>
+  import { AccountApiError, requestUploadAccess } from "../lib/account-api";
+  import {
+    profileErrorMessage,
+    uploadAccessErrorMessage,
+    uploadAccessMissingFields,
+    validateUsername,
+    validateWhy,
+  } from "../lib/account-tier";
+
   // ---- Small helpers ----
   const $ = <T extends HTMLElement>(sel: string): T | null => document.querySelector<T>(sel);
 
@@ -958,6 +1396,47 @@ const roleLabel: Record<typeof role, string> = {
     } catch {
       return undefined;
     }
+  }
+
+  /** The backend's `{ error, message }` pair off a failed PATCH. Both halves,
+   *  because `profileErrorMessage` prefers the sentence the backend wrote
+   *  (only it knows which handle was taken) and falls back to the code. */
+  async function readProfileError(
+    res: Response,
+  ): Promise<{ code?: string; message?: string }> {
+    try {
+      const data = (await res.clone().json()) as { error?: string; message?: string };
+      return {
+        code: typeof data.error === "string" ? data.error : undefined,
+        message: typeof data.message === "string" ? data.message : undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  /** PATCH a sparse profile update and reload on success. Shared by the
+   *  username and name flows so they cannot drift on error handling. */
+  async function patchProfile(
+    payload: Record<string, string>,
+    msgEl: HTMLElement | null,
+    onFieldError?: (code: string | undefined, text: string) => boolean,
+  ): Promise<void> {
+    const res = await fetch("/api/auth/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const { code, message } = await readProfileError(res);
+      const text = profileErrorMessage(res.status, code, message);
+      if (onFieldError?.(code, text)) return;
+      setMsg(msgEl, text, "error");
+      return;
+    }
+    setMsg(msgEl, "Saved. Reloading…", "success");
+    setTimeout(() => location.reload(), 700);
   }
 
   // ================= Email change (#133) =================
@@ -1065,6 +1544,187 @@ const roleLabel: Record<typeof role, string> = {
     });
   })();
 
+  // ================= Username (#301) =================
+  (() => {
+    const toggle = $("[data-username-toggle]");
+    const flow = $("[data-username-flow]");
+    const input = $<HTMLInputElement>("[data-username-input]");
+    const msg = $("[data-username-msg]");
+    if (!toggle || !flow || !input) return;
+
+    const original = input.value;
+    toggle.addEventListener("click", () => {
+      flow.hidden = !flow.hidden;
+      clearMsg(msg);
+      if (!flow.hidden) input.focus();
+    });
+    $("[data-username-cancel]")?.addEventListener("click", () => {
+      input.value = original;
+      input.removeAttribute("aria-invalid");
+      flow.hidden = true;
+      clearMsg(msg);
+    });
+
+    $("[data-username-save]")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const value = input.value.trim();
+      // Same rule the backend applies, so a malformed handle never costs a
+      // round trip. Uniqueness is not checkable here — nothing reserves a
+      // name — so `username_taken` still has to be handled below.
+      const problem = validateUsername(value);
+      if (problem) {
+        input.setAttribute("aria-invalid", "true");
+        setMsg(msg, problem.message, "error");
+        return;
+      }
+      input.removeAttribute("aria-invalid");
+      btn.disabled = true;
+      clearMsg(msg);
+      try {
+        await patchProfile({ username: value }, msg, (code, text) => {
+          if (code !== "username_taken" && code !== "username_locked") return false;
+          input.setAttribute("aria-invalid", "true");
+          setMsg(msg, text, "error");
+          input.focus();
+          input.select();
+          return true;
+        });
+      } catch {
+        setMsg(msg, "Network error. Check your connection.", "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  // ================= Name (#301) =================
+  // Only mounted when no verified ORCID iD is linked — with one the fields
+  // are not rendered at all, because the backend refuses the edit and the
+  // record would overwrite it on the next sign-in anyway.
+  (() => {
+    const toggle = $("[data-name-toggle]");
+    const flow = $("[data-name-flow]");
+    const given = $<HTMLInputElement>("[data-name-given]");
+    const family = $<HTMLInputElement>("[data-name-family]");
+    const msg = $("[data-name-msg]");
+    if (!toggle || !flow || !given || !family) return;
+
+    const originals = { given: given.value, family: family.value };
+    toggle.addEventListener("click", () => {
+      flow.hidden = !flow.hidden;
+      clearMsg(msg);
+      if (!flow.hidden) given.focus();
+    });
+    $("[data-name-cancel]")?.addEventListener("click", () => {
+      given.value = originals.given;
+      family.value = originals.family;
+      flow.hidden = true;
+      clearMsg(msg);
+    });
+
+    $("[data-name-save]")?.addEventListener("click", async (e) => {
+      const btn = e.currentTarget as HTMLButtonElement;
+      const g = given.value.trim();
+      const f = family.value.trim();
+      // Both halves or neither: the backend refuses an empty one field by
+      // field, and a DOI needs the pair.
+      if (g.length === 0 || f.length === 0) {
+        setMsg(msg, "Enter both a given name and a family name.", "error");
+        return;
+      }
+      btn.disabled = true;
+      clearMsg(msg);
+      try {
+        await patchProfile({ given_name: g, family_name: f }, msg);
+      } catch {
+        setMsg(msg, "Network error. Check your connection.", "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  // ================= Upload access request (#301) =================
+  (() => {
+    const form = $<HTMLFormElement>("[data-upload-access-form]");
+    if (!form) return;
+    const why = $<HTMLTextAreaElement>("[data-upload-access-why]");
+    const count = $("[data-upload-access-count]");
+    const msg = $("[data-upload-access-msg]");
+    const missingBox = $("[data-upload-access-missing]");
+    const missingList = $("[data-upload-access-missing-list]");
+    const submit = $<HTMLButtonElement>("[data-upload-access-submit]");
+
+    const updateCount = (): void => {
+      if (count && why) count.textContent = String(why.value.trim().length);
+    };
+    why?.addEventListener("input", updateCount);
+    updateCount();
+
+    const clearMissing = (): void => {
+      if (missingBox) missingBox.hidden = true;
+      if (missingList) missingList.textContent = "";
+    };
+
+    /** Render the refusal's `missing` array as links to the fields that need
+     *  filling. Entries with no Settings field of their own (`why`,
+     *  `email_verified`) render as plain text rather than as a link to
+     *  nowhere. */
+    const showMissing = (missing: readonly string[]): void => {
+      if (!missingBox || !missingList || missing.length === 0) return;
+      missingList.textContent = "";
+      for (const field of uploadAccessMissingFields(missing)) {
+        const li = document.createElement("li");
+        if (field.href) {
+          const a = document.createElement("a");
+          a.href = field.href;
+          a.textContent = field.label;
+          li.appendChild(a);
+        } else {
+          li.textContent = field.label;
+        }
+        missingList.appendChild(li);
+      }
+      missingBox.hidden = false;
+    };
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearMsg(msg);
+      clearMissing();
+      const text = (why?.value ?? "").trim();
+      const problem = validateWhy(text);
+      if (problem) {
+        why?.setAttribute("aria-invalid", "true");
+        setMsg(msg, problem, "error");
+        why?.focus();
+        return;
+      }
+      why?.removeAttribute("aria-invalid");
+      if (submit) submit.disabled = true;
+      try {
+        const result = await requestUploadAccess(text);
+        setMsg(
+          msg,
+          result.already_requested
+            ? "You already have a request open — an admin has it. Reloading…"
+            : "Request sent. An admin will review it and email you. Reloading…",
+          "success",
+        );
+        // The card's state changes, so re-render the page rather than
+        // patching one badge.
+        setTimeout(() => location.reload(), 900);
+      } catch (err) {
+        const status = err instanceof AccountApiError ? err.status : 0;
+        const code = err instanceof AccountApiError ? err.code : undefined;
+        const detail = err instanceof AccountApiError ? err.message : undefined;
+        setMsg(msg, uploadAccessErrorMessage(status, code, detail), "error");
+        if (err instanceof AccountApiError) showMissing(err.missing);
+        if (submit) submit.disabled = false;
+      }
+    });
+  })();
+
   // ================= ORCID manage (#134) =================
   (() => {
     const relinkBtn = $("[data-orcid-relink]");
@@ -1151,7 +1811,12 @@ const roleLabel: Record<typeof role, string> = {
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          setMsg(msg, messageForStatus(res.status, await readCode(res)), "error");
+          // `profileErrorMessage`, not `messageForStatus`: this PATCH can now
+          // come back with `city_required` / `country_required` /
+          // `github_in_use`, which the generic status map renders as
+          // "Something went wrong" and this one names.
+          const { code, message } = await readProfileError(res);
+          setMsg(msg, profileErrorMessage(res.status, code, message), "error");
           return;
         }
         setMsg(msg, "Profile saved.", "success");

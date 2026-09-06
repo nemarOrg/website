@@ -57,6 +57,10 @@ const MARKETING_HOSTS: ReadonlySet<string> = new Set([
 const APP_ROUTE_PREFIXES: readonly string[] = [
   "/login",
   "/welcome",
+  // Post-sign-in account setup (website#301): username, name, location. App
+  // host only for the same reason /settings is — it reads and PATCHes the
+  // session's own account through the `Domain=app.nemar.org` cookie.
+  "/onboarding",
   "/dashboard",
   "/upload",
   "/admin",

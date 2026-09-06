@@ -485,6 +485,10 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   withOptional.backend_role = backendRole;
   withOptional.given_name = str(user.given_name);
   withOptional.family_name = str(user.family_name);
+  // Not selected by the backend's `publicUser` today (nemar-cli epic #1250
+  // phase 3) — read opportunistically so the field lands the day it is, and
+  // resolved from GET /users/me until then (see `fetchAccountIdentity`).
+  withOptional.username = str(user.username);
   withOptional.orcid = str(user.orcid);
   if (typeof user.orcid_verified === "boolean") withOptional.orcid_verified = user.orcid_verified;
   withOptional.github_username = str(user.github_username);
@@ -497,6 +501,15 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   if (typeof user.service_access === "boolean") {
     withOptional.service_access = user.service_access;
   }
+  // Boolean-only for the same reason: a truthy string must not be read as
+  // "this inbox is proved". `undefined` stays "unknown" and no surface treats
+  // it as `false` (the verify step keys on `status === "pending"`).
+  if (typeof user.email_verified === "boolean") {
+    withOptional.email_verified = user.email_verified;
+  }
+  // Timestamps the backend does not send yet; see AuthUser's field docs.
+  withOptional.service_access_granted_at = str(user.service_access_granted_at);
+  withOptional.upload_access_requested_at = str(user.upload_access_requested_at);
   // Drop keys that resolved to undefined so the object stays clean (and the
   // existing `toEqual` assertions on the minimal shape keep passing).
   for (const k of Object.keys(withOptional) as (keyof AuthUser)[]) {

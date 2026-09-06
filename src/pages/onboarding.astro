@@ -1,0 +1,560 @@
+---
+/**
+ * Post-sign-in account setup (website#301; nemar-cli ADR 0042).
+ *
+ * Three things a brand-new ORCID account lacks and cannot be reviewed
+ * without: a username (NULL by design on every web signup, nemar-cli
+ * migration 0026), a researcher name (ADR 0041 — a DOI cites a person, not a
+ * handle), and a location (the export-control screening inputs, website ADR
+ * 0010).
+ *
+ * **Self-gating.** The page resolves what is actually outstanding and
+ * redirects onward when nothing is, so sign-in flows can route here
+ * unconditionally instead of each re-deriving the condition. That is the
+ * whole reason it is a page rather than a step inside `/welcome`: `/welcome`
+ * is a static orientation, and putting a conditional form in it would mean
+ * every caller had to know whether the form would appear.
+ */
+import Base from "../layouts/Base.astro";
+import { fetchAccountIdentity, fetchUsernameSuggestion } from "../lib/account-api";
+import { USERNAME_MAX_LENGTH, onboardingSteps } from "../lib/account-tier";
+import { getSession, safeRedirectPath } from "../lib/auth";
+import { DOCS_ACCOUNT_SETTINGS_PATH, resolveDocsBase } from "../lib/docs-base";
+
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/onboarding")}`);
+}
+
+const url = new URL(Astro.request.url);
+const next = safeRedirectPath(url.searchParams.get("next")) || "/dashboard";
+
+// An unverified account has nothing to set up: `authMiddleware` refuses its
+// cookie outright (nemar-cli services/account-tier.ts), so the lookups below
+// would 403 and every PATCH would too. Verifying is the only move, and the
+// dashboard is where that step lives.
+if (session.user.status === "pending") {
+  return Astro.redirect("/dashboard");
+}
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+// The session value first: `fetchAccountIdentity` short-circuits on a defined
+// first argument, so the day `/auth/me` carries `username` this page stops
+// spending a request per render without another change here.
+const identity = await fetchAccountIdentity(session.user.username, { cookieHeader });
+
+const steps = onboardingSteps({
+  username: identity.username,
+  given_name: session.user.given_name,
+  family_name: session.user.family_name,
+  city: session.user.city,
+  country: session.user.country,
+  orcid_verified: session.user.orcid_verified,
+});
+
+// Nothing outstanding: hand the visitor straight on. Keeps every caller free
+// to link here without first asking whether there is anything to do.
+if (steps.length === 0) {
+  return Astro.redirect(next);
+}
+
+const needsUsername = steps.includes("username");
+const needsName = steps.includes("name");
+const needsLocation = steps.includes("location");
+
+// Only fetched when it will be used: the endpoint costs a name-fold plus a
+// LIKE scan, and an account that already has a handle has no use for one.
+const suggestion = needsUsername
+  ? await fetchUsernameSuggestion({ cookieHeader })
+  : { suggestion: null, based_on: "unavailable" as const };
+
+// The name is ORCID-canonical while a verified iD is linked: the record is
+// re-read on every sign-in and `PATCH /auth/profile` answers 409
+// `name_is_orcid_canonical`. So when a name is missing AND the iD is
+// verified, this page explains rather than asks — `onboardingSteps` has
+// already left that step out.
+const nameIsOrcidCanonical = session.user.orcid_verified === true;
+const nameMissingUnderOrcid =
+  nameIsOrcidCanonical &&
+  ((session.user.given_name ?? "").trim().length === 0 ||
+    (session.user.family_name ?? "").trim().length === 0);
+
+const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
+---
+
+<Base title="Finish setting up" description="Choose a username and confirm your details.">
+  <section class="onboarding">
+    <header class="onboarding__head">
+      <p class="onboarding__eyebrow">Account setup</p>
+      <h1 class="onboarding__title">Finish setting up your account</h1>
+      <p class="onboarding__lede">
+        A few details NEMAR needs before you can be listed as a dataset owner. It
+        takes a moment, and you only do it once. You can change any of this later in
+        <a href="/settings">Settings</a>.
+      </p>
+    </header>
+
+    {nameMissingUnderOrcid && (
+      <p class="onboarding__notice" role="note">
+        Your ORCID record doesn&rsquo;t publish a name, so we can&rsquo;t read one from it.
+        NEMAR needs a real name to cite you on a DOI. Make the name public on your
+        <a href="https://orcid.org/my-orcid" rel="external noopener">ORCID record</a>
+        and sign in again, or unlink the iD in <a href="/settings">Settings</a> to type
+        one here.
+      </p>
+    )}
+
+    <form class="onboarding__form" data-onboarding-form>
+      {needsUsername && (
+        <fieldset class="onboarding__group">
+          <legend class="onboarding__legend">Choose a username</legend>
+          <p class="onboarding__help">
+            This is how admins and collaborators refer to your account, and how your
+            dataset repositories are attributed. Letters, numbers, underscores and
+            hyphens; 3&ndash;{USERNAME_MAX_LENGTH} characters. You can change it until an
+            admin grants you upload access, after which it is fixed.
+          </p>
+          <label class="field">
+            <span class="field__label">Username</span>
+            <input
+              class="field__input"
+              type="text"
+              name="username"
+              autocomplete="username"
+              spellcheck="false"
+              autocapitalize="none"
+              maxlength={USERNAME_MAX_LENGTH}
+              value={suggestion.suggestion ?? ""}
+              placeholder="alovelace"
+              required
+              data-onboarding-username
+            />
+          </label>
+          {suggestion.based_on === "name" ? (
+            <p class="onboarding__help onboarding__help--muted" data-username-source>
+              Suggested from your name. Edit it if you&rsquo;d rather have something else.
+            </p>
+          ) : (
+            <p class="onboarding__help onboarding__help--muted" data-username-source>
+              We couldn&rsquo;t suggest one from your name, so pick a handle you like.
+            </p>
+          )}
+          <p class="onboarding__fielderror" role="alert" data-username-error hidden></p>
+        </fieldset>
+      )}
+
+      {needsName && (
+        <fieldset class="onboarding__group">
+          <legend class="onboarding__legend">Confirm your name</legend>
+          <p class="onboarding__help">
+            Used to cite you on any DOI your datasets are given, so it should be the
+            name you publish under.
+          </p>
+          <div class="onboarding__grid2">
+            <label class="field">
+              <span class="field__label">Given name</span>
+              <input
+                class="field__input"
+                type="text"
+                name="given_name"
+                autocomplete="given-name"
+                maxlength="100"
+                value={session.user.given_name ?? ""}
+                required
+                data-onboarding-given
+              />
+            </label>
+            <label class="field">
+              <span class="field__label">Family name</span>
+              <input
+                class="field__input"
+                type="text"
+                name="family_name"
+                autocomplete="family-name"
+                maxlength="100"
+                value={session.user.family_name ?? ""}
+                required
+                data-onboarding-family
+              />
+            </label>
+          </div>
+        </fieldset>
+      )}
+
+      {!needsName && nameIsOrcidCanonical && !nameMissingUnderOrcid && (
+        <fieldset class="onboarding__group">
+          <legend class="onboarding__legend">Your name</legend>
+          <p class="onboarding__help">
+            <strong>{[session.user.given_name, session.user.family_name].filter(Boolean).join(" ")}</strong>,
+            read from your verified ORCID record. It refreshes on every sign-in, so it
+            is not editable here &mdash; change it at
+            <a href="https://orcid.org/my-orcid" rel="external noopener">orcid.org</a>
+            and sign in again.
+          </p>
+        </fieldset>
+      )}
+
+      {needsLocation && (
+        <fieldset class="onboarding__group">
+          <legend class="onboarding__legend">Where are you based?</legend>
+          <p class="onboarding__help">
+            NEMAR screens where contributed data comes from against export-control and
+            local-jurisdiction rules, so an admin needs your city and country before
+            granting upload access.
+          </p>
+          <div class="onboarding__grid2">
+            <label class="field">
+              <span class="field__label">City</span>
+              <input
+                class="field__input"
+                type="text"
+                name="city"
+                autocomplete="address-level2"
+                maxlength="120"
+                value={session.user.city ?? ""}
+                required
+                data-onboarding-city
+              />
+            </label>
+            <label class="field">
+              <span class="field__label">Country</span>
+              <input
+                class="field__input"
+                type="text"
+                name="country"
+                autocomplete="country-name"
+                maxlength="120"
+                value={session.user.country ?? ""}
+                required
+                data-onboarding-country
+              />
+            </label>
+          </div>
+        </fieldset>
+      )}
+
+      <p class="onboarding__msg" role="alert" data-onboarding-msg hidden></p>
+
+      <div class="onboarding__actions">
+        <a class="onboarding__skip" href={next}>Skip for now</a>
+        <button type="submit" class="onboarding__submit" data-onboarding-submit>
+          Save and continue
+        </button>
+      </div>
+      <input type="hidden" data-onboarding-next value={next} />
+    </form>
+
+    <p class="onboarding__footnote">
+      What each field is for, and how to change it later, is in
+      <a href={accountDocsUrl} rel="external noopener">Account settings</a>.
+    </p>
+  </section>
+</Base>
+
+<style>
+  .onboarding {
+    max-inline-size: 44rem;
+    margin: 0 auto;
+    padding: var(--space-12) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .onboarding__head {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .onboarding__eyebrow {
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: var(--fs-xs);
+    color: var(--brand-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .onboarding__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(var(--fs-2xl), 4vw, var(--fs-3xl));
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+  }
+  .onboarding__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .onboarding__lede a,
+  .onboarding__notice a,
+  .onboarding__help a,
+  .onboarding__footnote a {
+    color: var(--color-link);
+  }
+  .onboarding__notice {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    border-radius: var(--radius-md);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .onboarding__form {
+    display: grid;
+    gap: var(--space-5);
+  }
+  .onboarding__group {
+    margin: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-elevated);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .onboarding__legend {
+    padding: 0 var(--space-2);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .onboarding__help {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .onboarding__help--muted {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .onboarding__fielderror {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--fs-xs);
+  }
+  .onboarding__fielderror[hidden] {
+    display: none;
+  }
+  .onboarding__grid2 {
+    display: grid;
+    gap: var(--space-4);
+  }
+  @media (min-width: 480px) {
+    .onboarding__grid2 {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .field__input {
+    inline-size: 100%;
+    min-block-size: 44px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--brand-teal);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-teal) 18%, transparent);
+  }
+  .field__input[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
+  .onboarding__msg {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-danger);
+  }
+  .onboarding__msg[hidden] {
+    display: none;
+  }
+  .onboarding__msg[data-tone="success"] {
+    color: var(--color-success);
+  }
+  .onboarding__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-4);
+  }
+  .onboarding__skip {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .onboarding__submit {
+    min-block-size: 44px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--brand-navy);
+    background: var(--brand-navy);
+    color: #f8fafc;
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .onboarding__submit:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--brand-navy) 84%, var(--brand-teal));
+  }
+  .onboarding__submit:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .onboarding__footnote {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  @media (max-width: 480px) {
+    .onboarding__actions {
+      justify-content: stretch;
+    }
+    .onboarding__submit {
+      inline-size: 100%;
+    }
+  }
+</style>
+
+<script>
+  import { profileErrorMessage, validateUsername } from "../lib/account-tier";
+
+  const form = document.querySelector<HTMLFormElement>("[data-onboarding-form]");
+  if (form) {
+    const usernameEl = form.querySelector<HTMLInputElement>("[data-onboarding-username]");
+    const usernameError = form.querySelector<HTMLElement>("[data-username-error]");
+    const givenEl = form.querySelector<HTMLInputElement>("[data-onboarding-given]");
+    const familyEl = form.querySelector<HTMLInputElement>("[data-onboarding-family]");
+    const cityEl = form.querySelector<HTMLInputElement>("[data-onboarding-city]");
+    const countryEl = form.querySelector<HTMLInputElement>("[data-onboarding-country]");
+    const msg = form.querySelector<HTMLElement>("[data-onboarding-msg]");
+    const submit = form.querySelector<HTMLButtonElement>("[data-onboarding-submit]");
+    const nextEl = form.querySelector<HTMLInputElement>("[data-onboarding-next]");
+    const next = nextEl?.value || "/dashboard";
+
+    const setMsg = (text: string, tone: "error" | "success"): void => {
+      if (!msg) return;
+      msg.textContent = text;
+      msg.dataset.tone = tone;
+      msg.hidden = false;
+    };
+    const clearMsg = (): void => {
+      if (!msg) return;
+      msg.hidden = true;
+      msg.textContent = "";
+    };
+
+    /** Live format check, mirroring the backend's `validateUsernameFormat`.
+     *  Uniqueness is NOT checked here: the suggestion endpoint reserves
+     *  nothing, so the only honest answer comes from the PATCH. */
+    const checkUsername = (): boolean => {
+      if (!usernameEl) return true;
+      const problem = validateUsername(usernameEl.value);
+      if (problem && usernameEl.value.trim().length > 0) {
+        usernameEl.setAttribute("aria-invalid", "true");
+        if (usernameError) {
+          usernameError.textContent = problem.message;
+          usernameError.hidden = false;
+        }
+        return false;
+      }
+      usernameEl.removeAttribute("aria-invalid");
+      if (usernameError) {
+        usernameError.hidden = true;
+        usernameError.textContent = "";
+      }
+      return !problem;
+    };
+
+    usernameEl?.addEventListener("input", checkUsername);
+    usernameEl?.addEventListener("blur", checkUsername);
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearMsg();
+      if (usernameEl && !checkUsername()) {
+        usernameEl.focus();
+        return;
+      }
+
+      // Sparse PATCH: only the fields this page actually rendered, and only
+      // when non-empty. Sending an empty `city` would be refused with
+      // `city_required` rather than treated as "leave it alone".
+      const payload: Record<string, string> = {};
+      const put = (key: string, el: HTMLInputElement | null): void => {
+        const value = (el?.value ?? "").trim();
+        if (value.length > 0) payload[key] = value;
+      };
+      put("username", usernameEl);
+      put("given_name", givenEl);
+      put("family_name", familyEl);
+      put("city", cityEl);
+      put("country", countryEl);
+
+      if (Object.keys(payload).length === 0) {
+        setMsg("Fill in the fields above, or skip for now.", "error");
+        return;
+      }
+
+      if (submit) submit.disabled = true;
+      try {
+        const res = await fetch("/api/auth/profile", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          let code: string | undefined;
+          let message: string | undefined;
+          try {
+            const body = (await res.json()) as { error?: string; message?: string };
+            code = typeof body.error === "string" ? body.error : undefined;
+            message = typeof body.message === "string" ? body.message : undefined;
+          } catch {
+            /* non-JSON body: fall back to the status-based copy */
+          }
+          const text = profileErrorMessage(res.status, code, message);
+          // A username collision is a field problem, not a page problem: put
+          // it beside the input and leave focus where it can be fixed.
+          //
+          // `username_locked` is deliberately NOT scoped the same way, unlike
+          // in Settings: an account that reaches this page is by definition
+          // not approved yet (approval needs the username it is asking for),
+          // so that refusal is unreachable here and a field branch for it
+          // would be one nothing can exercise. It still renders, through the
+          // page-level message below.
+          if (code === "username_taken" && usernameEl && usernameError) {
+            usernameEl.setAttribute("aria-invalid", "true");
+            usernameError.textContent = text;
+            usernameError.hidden = false;
+            usernameEl.focus();
+            usernameEl.select();
+          } else {
+            setMsg(text, "error");
+          }
+          return;
+        }
+        setMsg("Saved. Taking you on…", "success");
+        location.href = next;
+      } catch {
+        setMsg("Network error. Check your connection.", "error");
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    });
+  }
+</script>

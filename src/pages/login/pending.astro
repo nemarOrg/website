@@ -1,20 +1,33 @@
 ---
+/**
+ * Legacy landing for an unverified account.
+ *
+ * Nothing routes here any more (website#301): an account that has not
+ * redeemed its emailed code lands on `/dashboard`, where the verify step
+ * lives. The page is kept because browsers and bookmarks still hold the URL
+ * from before, and its copy is corrected rather than left saying an admin is
+ * reviewing something — under nemar-cli ADR 0040 nobody is. Admin approval
+ * exists, but it grants UPLOAD access and is asked for from Settings, long
+ * after this point.
+ */
 import Base from "../../layouts/Base.astro";
 ---
 
-<Base title="Account under review" description="Your NEMAR account is being reviewed by an admin.">
+<Base title="Verify your email" description="Confirm your email address to activate your NEMAR account.">
   <section class="login-shell">
     <div class="login-card">
-      <h1 class="login-card__heading">Account under review</h1>
+      <h1 class="login-card__heading">Verify your email address</h1>
       <p class="login-card__lede">
-        Thanks for signing up. A NEMAR admin will review your account shortly and you&rsquo;ll get an
-        email once it&rsquo;s approved. You can close this tab in the meantime.
+        Thanks for signing up. One step left: enter the 6-digit code we emailed you. That
+        activates your account on the spot &mdash; there is no approval queue to wait in.
       </p>
       <p class="login-card__lede">
-        If you don&rsquo;t hear back within a few business days, write to <a href="mailto:admin@nemar.org">admin@nemar.org</a>.
+        <a href="/dashboard">Go to your dashboard</a> to enter the code, or ask for a new
+        one there if it never arrived.
       </p>
       <p class="login-card__fineprint">
-        Already approved? <a href="/login">Sign in again</a>.
+        Stuck? Write to <a href="mailto:admin@nemar.org">admin@nemar.org</a>, or
+        <a href="/login">sign in again</a>.
       </p>
     </div>
   </section>
