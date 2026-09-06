@@ -91,8 +91,12 @@ const blockFixInSettings = blockIsAccountFixable(blockReason);
         </p>
       )}
       <p class="my-dataset-card__block-links">
+        {/* `#account-name` is the Name ROW, which always renders (website#306):
+            the given/family inputs exist only for an account with no verified
+            ORCID iD, and `owner_name_missing` reaches exactly the other kind
+            too. Inert until #306 lands, which is the safe direction. */}
         {blockFixInSettings && (
-          <a class="my-dataset-card__block-link" href="/settings#account-given-name">
+          <a class="my-dataset-card__block-link" href="/settings#account-name">
             Set your name in Settings
           </a>
         )}

@@ -97,6 +97,17 @@ describe("the owner's card explains a block", () => {
     expect(MY_DATASET_CARD).toMatch(/\{blockFixInSettings && \(\s*<a/);
   });
 
+  it("links the Name ROW, the one anchor that always renders", () => {
+    // website#306 made `#account-name` canonical for exactly this reason: the
+    // given/family INPUTS render only for an account with no verified ORCID
+    // iD, and `owner_name_missing` reaches the other kind too — a verified iD
+    // whose record publishes no name. Linking an input id sent that person,
+    // the one this panel is written for, to an anchor not on the page.
+    expect(MY_DATASET_CARD).toContain('href="/settings#account-name"');
+    expect(MY_DATASET_CARD).not.toContain("#account-given-name");
+    expect(MY_DATASET_CARD).not.toContain("#account-family-name");
+  });
+
   it("links the CI run only when the backend supplied one", () => {
     // `ci_url` is withheld for a dataset with no repo, and for a reason that
     // has nothing to do with the repository there is no run to look at.
