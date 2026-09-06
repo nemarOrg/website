@@ -297,6 +297,7 @@ describe("Settings", () => {
       "username",
       "given_name",
       "family_name",
+      "orcid_verified",
       "github_username",
       "city",
       "country",
@@ -361,6 +362,12 @@ describe("Settings", () => {
     // intent is never minted on a GET).
     expect(SETTINGS).toMatch(
       /data-name-orcid-stuck[\s\S]{0,2000}method="post" action="\/auth\/orcid\/start\?mode=relink/,
+    );
+    // The unlinked card's first link is the documented GET entry point for
+    // linking an iD to this session (nemar-cli auth-orcid.ts: mode=link);
+    // a GET can never mint relink intent, so this stays a plain anchor.
+    expect(SETTINGS).toMatch(
+      /orcid orcid--empty[\s\S]{0,800}href="\/auth\/orcid\/start\?mode=link&next=%2Fsettings"/,
     );
     // Exit two: unlink, which needs the ORCID card's handler. The button is
     // NOT duplicated — the page's `$()` is querySelector, so a second

@@ -36,12 +36,19 @@
  * (nothing is stored until the form is submitted); `email_verified` is
  * derivable and is derived, from `status` / `email_verified`.
  *
- * **ORCID is not a gap on the web.** The matrix lists it as required at CLI
- * signup and as the source of the name, but a web account is created by an
- * emailed code and can hold every tier without one, so raising it here would
- * ask for something nothing is waiting on. It changes where the NAME is set
- * (see the `.orcid` set-on variants), and that is its whole effect on this
- * list.
+ * **A verified ORCID iD is a gap, and in practice it is a CLI-only one.**
+ * ORCID OAuth is the only account-creation path on the web (ADR 0008), so
+ * every web signup already carries a verified iD by the time it can reach
+ * this list; this row only ever fires for a CLI-created account that never
+ * linked one. It still blocks `upload_access` like any other field here — an
+ * admin needs the provenance signal before granting the tier — and it moves
+ * where the NAME is set once linked (see the `.orcid` set-on variants), same
+ * as before. **`admin` and `owner` accounts are exempt**, because they
+ * predate having any web-signup path of their own and the alternative is
+ * locking an operator out of the account that runs the review queue; the
+ * exemption is interim until nemar-cli's service-account kind (epic
+ * nemar-cli#1272) gives that population a real answer instead of a role
+ * check standing in for one.
  */
 
 import { ACCOUNT_COPY, type AccountCopyKey, fillCopy } from "./account-copy";
@@ -65,6 +72,7 @@ export type GapField =
   | "username"
   | "given_name"
   | "family_name"
+  | "orcid_verified"
   | "github_username"
   | "city"
   | "country"
@@ -143,6 +151,18 @@ const GAP_DEFINITIONS: Record<GapField, GapDefinition> = {
     webKey: "gap.field.family_name.set_on.web",
     cliKey: "gap.field.family_name.set_on.cli",
     orcidWebKey: "gap.field.family_name.set_on.web.orcid",
+    derivable: true,
+  },
+  orcid_verified: {
+    // A CLI-only gap in practice: every web signup already has a verified iD
+    // (ORCID OAuth is the only web creation path, ADR 0008). `admin` / `owner`
+    // accounts are exempt — see the module doc header for why, and for the
+    // epic that is meant to replace the exemption with a real answer.
+    blocks: ["upload_access"],
+    href: "/settings#orcid-card",
+    labelKey: "gap.field.orcid_verified.label",
+    webKey: "gap.field.orcid_verified.set_on.web",
+    cliKey: "gap.field.orcid_verified.set_on.cli",
     derivable: true,
   },
   github_username: {
@@ -234,6 +254,18 @@ export interface ProfileGapAccount {
   readonly profile_gaps?: readonly WireProfileGap[];
   /** `"pending"` is the unverified tier (nemar-cli ADR 0040). */
   readonly status?: string;
+  /**
+   * Widened past `AuthUser["role"]` (`"user" | "admin"`, already collapsed
+   * from the backend's owner/admin/member by `parseAuthMeResponse`) to also
+   * accept the admin surfaces' uncollapsed `AdminUserRole`
+   * (`"owner" | "admin" | "member"`, or `null`): {@link gapAccountFromDetail}
+   * in `users-admin-api.ts` passes an `AdminUserDetail` row straight through,
+   * and either shape has to name "admin" and "owner" the same way for the
+   * `orcid_verified` exemption below. `undefined`/`null` counts as a regular
+   * user, never as exempt — a role this build cannot read is not a reason to
+   * skip the gap.
+   */
+  readonly role?: "user" | "admin" | "owner" | "member" | null;
   readonly email_verified?: boolean;
   /**
    * `string | null` rather than optional, and `undefined` means something
@@ -256,6 +288,13 @@ export interface ProfileGapAccount {
 
 function isBlank(value: string | null | undefined): boolean {
   return (value ?? "").trim().length === 0;
+}
+
+/** True for the two roles the `orcid_verified` gap does not apply to. See the
+ *  module doc header for why: interim, until nemar-cli's service-account kind
+ *  (epic nemar-cli#1272) replaces the role check with its own answer. */
+function isExemptRole(role: ProfileGapAccount["role"]): boolean {
+  return role === "admin" || role === "owner";
 }
 
 /** Resolve one field name into a renderable gap. `orcidVerified` moves the
@@ -380,6 +419,16 @@ function derivedGapFields(account: ProfileGapAccount): GapField[] {
   // where it is set, not whether it is needed.
   if (isBlank(account.given_name)) fields.push("given_name");
   if (isBlank(account.family_name)) fields.push("family_name");
+  // `!== true` rather than `=== false`: unlike `email_verified`, an absent
+  // flag here is not "an older backend that predates it" — every account
+  // this build can see already carries the field (see the module doc header)
+  // — so treating `undefined` as verified would silently exempt exactly the
+  // CLI-created rows the gap exists for. `admin` / `owner` are exempt
+  // regardless; a missing role is not, since it just means this build could
+  // not read one.
+  if (account.orcid_verified !== true && !isExemptRole(account.role)) {
+    fields.push("orcid_verified");
+  }
   if (isBlank(account.github_username)) fields.push("github_username");
   if (isBlank(account.city)) fields.push("city");
   if (isBlank(account.country)) fields.push("country");

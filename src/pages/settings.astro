@@ -467,7 +467,15 @@ const requestedLede = requestedDate
         ) : (
           <div class="orcid orcid--empty">
             <p class="orcid__prompt">No ORCID iD linked yet. Linking verifies your identity and keeps your name in sync.</p>
-            <a class="btn btn--primary" href="/auth/orcid/start?next=%2Fsettings">Connect your ORCID</a>
+            {/* `mode=link` is the documented entry point for linking a session
+                that has no iD yet (nemar-cli backend/src/routes/auth-orcid.ts:
+                "Linking is initiated via GET /auth/orcid/start?mode=link").
+                An authenticated GET links to the CURRENT session's account
+                regardless of mode -- the callback checks the session cookie
+                before it looks at `mode` -- so this was harmless without the
+                param too, but spelling it out matches the documented contract
+                instead of relying on that fallback. */}
+            <a class="btn btn--primary" href="/auth/orcid/start?mode=link&next=%2Fsettings">Connect your ORCID</a>
           </div>
         )}
       </article>

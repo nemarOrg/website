@@ -798,6 +798,29 @@ describe("gapAccountFromDetail", () => {
     expect(gapAccountFromDetail(detail({ orcid_verified: null })).orcid_verified).toBe(false);
   });
 
+  it("passes the raw admin role through, uncollapsed", () => {
+    // `role` on `AdminUserDetail` is the backend's owner/admin/member, unlike
+    // the session's collapsed user/admin — the orcid_verified exemption below
+    // needs "owner" to survive, which the session shape can never carry.
+    expect(gapAccountFromDetail(detail({ role: "owner" })).role).toBe("owner");
+    expect(gapAccountFromDetail(detail({ role: "admin" })).role).toBe("admin");
+    expect(gapAccountFromDetail(detail({ role: "member" })).role).toBe("member");
+    expect(gapAccountFromDetail(detail({ role: null })).role).toBeNull();
+  });
+
+  it("raises the orcid_verified gap for an unlinked member, not for owner or admin", () => {
+    expect(
+      profileGaps(gapAccountFromDetail(detail({ orcid_verified: 0, role: "member" }))).map(
+        (g) => g.field,
+      ),
+    ).toContain("orcid_verified");
+    for (const role of ["owner", "admin"] as const) {
+      expect(
+        profileGaps(gapAccountFromDetail(detail({ orcid_verified: 0, role }))).map((g) => g.field),
+      ).not.toContain("orcid_verified");
+    }
+  });
+
   it("raises the email gap for an unverified inbox and not for a verified one", () => {
     // The mapping through to the rendered list, because that is what an
     // inverted boolean actually breaks.

@@ -15,12 +15,17 @@ import {
 } from "./profile-gaps";
 
 /** Every field the derivation can raise, in table order. `why` is in the
- *  table but is never account state, so it is not part of the sweep. */
+ *  table but is never account state, so it is not part of the sweep.
+ *  `orcid_verified` is included here as a plain missing/present toggle; its
+ *  role exemption is a separate axis, covered by its own tests below rather
+ *  than folded into this sweep (256 combinations already, and a role axis on
+ *  top would multiply that for no more coverage of the RULE). */
 const DERIVABLE: readonly GapField[] = [
   "email_verified",
   "username",
   "given_name",
   "family_name",
+  "orcid_verified",
   "github_username",
   "city",
   "country",
@@ -41,6 +46,9 @@ function accountMissing(missing: ReadonlySet<GapField>): ProfileGapAccount {
     username: missing.has("username") ? null : "alovelace",
     given_name: missing.has("given_name") ? "" : "Ada",
     family_name: missing.has("family_name") ? "  " : "Lovelace",
+    // No `role` set: undefined counts as a regular user (not exempt), so this
+    // toggle alone decides whether the gap fires, same as every other field.
+    orcid_verified: !missing.has("orcid_verified"),
     github_username: missing.has("github_username") ? null : "alovelace",
     city: missing.has("city") ? "   " : "London",
     country: missing.has("country") ? "" : "United Kingdom",
@@ -55,7 +63,7 @@ function wireFor(missing: ReadonlySet<GapField>): readonly WireProfileGap[] {
   return [...missing].map((field) => ({ field, set_on: [] }));
 }
 
-/** All 2^7 subsets of the derivable fields. */
+/** All 2^8 subsets of the derivable fields (one per DERIVABLE entry). */
 function everySubset(): Array<Set<GapField>> {
   const out: Array<Set<GapField>> = [];
   for (let mask = 0; mask < 1 << DERIVABLE.length; mask += 1) {
@@ -71,7 +79,7 @@ function everySubset(): Array<Set<GapField>> {
 const SUBSETS = everySubset();
 
 describe("profileGaps: the derivation", () => {
-  it("raises exactly the missing fields, in table order, for all 128 combinations", () => {
+  it(`raises exactly the missing fields, in table order, for all ${SUBSETS.length} combinations`, () => {
     for (const missing of SUBSETS) {
       const expected = DERIVABLE.filter((f) => missing.has(f));
       expect(
@@ -126,8 +134,83 @@ describe("profileGaps: the derivation", () => {
   });
 });
 
+describe("profileGaps: orcid_verified", () => {
+  it("is present for a regular account with orcid_verified false or undefined", () => {
+    expect(
+      profileGaps({ status: "active", email_verified: true, orcid_verified: false }).map(
+        (g) => g.field,
+      ),
+    ).toContain("orcid_verified");
+    expect(
+      // `orcid_verified` entirely absent from the account, same as a CLI
+      // signup that never linked one.
+      profileGaps({ status: "active", email_verified: true }).map((g) => g.field),
+    ).toContain("orcid_verified");
+  });
+
+  it("is absent once orcid_verified is true", () => {
+    expect(
+      profileGaps({ status: "active", email_verified: true, orcid_verified: true }).map(
+        (g) => g.field,
+      ),
+    ).not.toContain("orcid_verified");
+  });
+
+  it("is absent for admin and owner regardless of orcid_verified", () => {
+    // Interim exemption (see the module doc header): an operator role predates
+    // any web-signup path of its own, and the alternative is locking an admin
+    // out of the account that runs the review queue.
+    for (const role of ["admin", "owner"] as const) {
+      expect(
+        profileGaps({
+          status: "active",
+          email_verified: true,
+          orcid_verified: false,
+          role,
+        }).map((g) => g.field),
+      ).not.toContain("orcid_verified");
+    }
+  });
+
+  it("does not exempt a missing role, or the plain member/user roles", () => {
+    // A role this build cannot read is not a reason to skip the gap — that
+    // would silently exempt the population the gap exists for.
+    for (const role of [undefined, "user", "member"] as const) {
+      expect(
+        profileGaps({ status: "active", email_verified: true, orcid_verified: false, role }).map(
+          (g) => g.field,
+        ),
+      ).toContain("orcid_verified");
+    }
+  });
+
+  it("sits immediately after family_name and before github_username", () => {
+    const missing = new Set<GapField>(["family_name", "orcid_verified", "github_username"]);
+    expect(profileGaps(accountMissing(missing)).map((g) => g.field)).toEqual([
+      "family_name",
+      "orcid_verified",
+      "github_username",
+    ]);
+    expect(GAP_FIELDS.indexOf("orcid_verified")).toBe(GAP_FIELDS.indexOf("family_name") + 1);
+    expect(GAP_FIELDS.indexOf("github_username")).toBe(GAP_FIELDS.indexOf("orcid_verified") + 1);
+  });
+
+  it("blocks only upload access", () => {
+    const [gap] = gapsForFields(["orcid_verified"]);
+    expect(gap.blocks).toEqual(["upload_access"]);
+  });
+
+  it("prints the exact sentence", () => {
+    const [gap] = gapsForFields(["orcid_verified"]);
+    expect(describeGap(gap)).toBe(
+      "Verified ORCID iD is missing: needed to request upload access. Set it in Settings or run `nemar auth profile orcid link`.",
+    );
+    expect(gap.href).toBe("/settings#orcid-card");
+  });
+});
+
 describe("profileGaps: the wire form", () => {
-  it("produces byte-identical output to the derivation, for all 128 combinations", () => {
+  it(`produces byte-identical output to the derivation, for all ${SUBSETS.length} combinations`, () => {
     // The switchover to a backend-computed `profile_gaps` must be a deploy
     // and not a website change, so the two paths cannot be distinguishable
     // in the output. This is the assertion that keeps that true.
@@ -280,15 +363,15 @@ describe("gapsForFields: the refusal's `missing` array", () => {
 
   it("links each account field at the Settings control that owns it", () => {
     expect(
-      gapsForFields(["username", "github_username", "city", "country"]).map((g) => [
-        g.field,
-        g.href,
-      ]),
+      gapsForFields(["username", "github_username", "city", "country", "orcid_verified"]).map(
+        (g) => [g.field, g.href],
+      ),
     ).toEqual([
       ["username", "/settings#account-username"],
       ["github_username", "/settings#profile-github"],
       ["city", "/settings#profile-city"],
       ["country", "/settings#profile-country"],
+      ["orcid_verified", "/settings#orcid-card"],
     ]);
   });
 

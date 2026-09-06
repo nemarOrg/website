@@ -93,3 +93,45 @@ a note, because CI clones only this repo.
   for at all), nemar-cli ADRs 0040 / 0041 / 0042.
 - `backend/src/services/upload-access.ts` in nemar-cli — the refusal vocabulary and the
   order `missing` is built in, which the table's order matches.
+
+## Update — 2026-09-06
+
+**A new row: an unverified ORCID iD blocks the upload-access request.** `orcid_verified` joins
+the matrix immediately after `family_name` and before `github_username`, with
+`blocks: ["upload_access"]` only. The decision this ADR made — "ORCID is not a gap on the
+web" — is corrected rather than reversed: it was true for the wrong reason. The website's
+only account-creation path is ORCID OAuth (ADR 0008), so every WEB signup already carries a
+verified iD by construction and this row can never fire for one. It was never true for a
+CLI-created account, which can reach every tier without linking one, and that gap belonged in
+the matrix the moment nemar-cli#1268 started closing it (epic #1250 phase 9,
+nemar-cli#1271). `src/lib/profile-gaps.ts`'s `ProfileGapAccount` already carried
+`orcid_verified` — it fed the two name fields' `.orcid` set-on variant — so this row cost a
+table entry, three copy keys (`gap.field.orcid_verified.label` /
+`.set_on.web` / `.set_on.cli`), and nothing else on the wire side: `/auth/me` already reports
+the flag boolean-only (`parseAuthMeResponse` in `src/middleware.ts`).
+
+**`admin` and `owner` accounts are exempt**, on a widened `ProfileGapAccount.role` that
+accepts both the session's collapsed `"user" | "admin"` and the admin surfaces' uncollapsed
+`AdminUserRole` (`"owner" | "admin" | "member"`, or `null` — `gapAccountFromDetail` in
+`users-admin-api.ts` now passes it through). A missing role is NOT exempt — the same
+absent-means-regular-user rule the rest of the table already used for booleans, applied here
+to a role that could not be read. The exemption is interim: today's operator accounts predate
+having any web-signup path of their own, and the alternative was locking an admin out of the
+account that runs the review queue over a field nothing upstream of this decision asked them
+to fill in. It is meant to be replaced, not kept — nemar-cli's service-account kind (epic
+"ORCID-first CLI sign-in and service accounts", nemar-cli#1272) is where an operator identity
+gets a real answer instead of a role check standing in for one; when that lands, this
+exemption should be reconsidered rather than assumed permanent.
+
+The href is `/settings#orcid-card` — the ROW id the ORCID card on Settings already carried
+(website#128 / #132), not a new anchor. That card already rendered an unlinked state with a
+"Connect your ORCID" link; the fix alongside this row was adding `mode=link` to that link's
+query string, matching the documented entry point in nemar-cli's
+`backend/src/routes/auth-orcid.ts` ("Linking is initiated via `GET /auth/orcid/start?mode=link`").
+The callback links to whichever account the session cookie resolves to regardless of `mode`
+for an authenticated request, so the omission was not a live bug — but the explicit param
+matches the contract instead of relying on that fallback, and does not touch the relink flow
+(`mode=relink`, POST-only, ADR 0022), which this row does not touch either.
+
+The decision above otherwise stands: one table, wire-first with a derivation fallback, copy
+mirrored to nemar-cli's contract and checked by the drift test.
