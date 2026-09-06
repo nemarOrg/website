@@ -29,6 +29,12 @@
  *    a string.
  * 3. *Keys are stable and dotted.* They are the mirroring contract; renaming
  *    one is a change on both sides.
+ * 4. *Every key here has a consumer.* The mirroring is not symmetric: the
+ *    nemar-cli contract legitimately carries keys this repo has no surface
+ *    for (sandbox training, `nemar auth status` headings), and the drift test
+ *    reports those as a note. A key on THIS side with nothing reading it is a
+ *    different thing — copy that cannot be seen, kept in step with another
+ *    repo for nothing — so `account-copy.test.ts` fails on one.
  *
  * What is deliberately NOT here:
  *
@@ -56,10 +62,12 @@ export const ACCOUNT_COPY = {
   "tier.base.label": "Base access",
   "tier.upload.label": "Upload access",
   "tier.unverified.lede": "Verify your email address to activate your account.",
-  "tier.base.lede":
-    "Browsing, searching and downloading are open to your account already. Uploading needs one extra grant: an admin checks your GitHub handle and location against export-control and local-jurisdiction rules, once.",
-  "tier.upload.lede":
-    "Your account can upload datasets. Publishing one is a separate, per-dataset review you start from your dashboard.",
+  // No `tier.base.lede` / `tier.upload.lede`: nothing renders a one-line
+  // description of those two tiers. The base tier's explanation is
+  // `upload_access.invite.body` on the card that offers the next step, and
+  // the upload tier's is `upload_access.granted.body`. Adding a second
+  // sentence for each would mean two keys to keep in step for one fact. See
+  // the every-key-has-a-consumer rule in the header.
 
   // -------------------------------------------------------------------------
   // Upload access (nemar-cli ADR 0042: one request, one admin answer)
@@ -111,7 +119,10 @@ export const ACCOUNT_COPY = {
   "gap.sentence": "{label} is missing: needed {blocks}.",
   "gap.set_on.both": "Set it in {web} or run `{cli}`.",
   "gap.set_on.web": "Set it in {web}.",
-  "gap.set_on.cli": "Run `{cli}`.",
+  // There is no command-only template. Every field in the table has a web
+  // location — the CLI half is what a field can lack (a name owned by a
+  // verified ORCID record) — so a `Run {cli}.` sentence would be one no gap
+  // could reach.
   "gap.blocks.verified": "to activate your account",
   "gap.blocks.upload_access": "to request upload access",
   "gap.blocks.publication": "to publish a dataset",

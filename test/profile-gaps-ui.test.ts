@@ -19,6 +19,7 @@ import PROFILE_NUDGE from "../src/components/ProfileNudge.astro?raw";
 // repo without node types, so a readFileSync here would fail typecheck in CI
 // while passing locally under vitest.
 import USER_ADMIN_ROW from "../src/components/admin/UserAdminRow.astro?raw";
+import { ACCOUNT_COPY } from "../src/lib/account-copy";
 import ADMIN_USER_DETAIL from "../src/pages/admin/users/[username].astro?raw";
 import DASHBOARD from "../src/pages/dashboard.astro?raw";
 import ONBOARDING from "../src/pages/onboarding.astro?raw";
@@ -36,6 +37,69 @@ const SURFACES: ReadonlyArray<[string, string]> = [
   ["admin/UserAdminRow.astro", USER_ADMIN_ROW],
   ["admin/users/[username].astro", ADMIN_USER_DETAIL],
 ];
+
+/**
+ * Every `.astro` and `.ts` source under `src/`, as text, minus the copy table
+ * itself and the unit tests beside it.
+ *
+ * Eager and raw so the consumer check below can grep the whole tree: a key is
+ * "used" when some page, component or lib names it, and there is no cheaper
+ * way to ask that question than looking. `account-copy.ts` is excluded
+ * because it is the definition — including it would make every key trivially
+ * used, which is the exact failure this is here to catch.
+ */
+const SRC_FILES: Record<string, string> = {
+  ...(import.meta.glob("../src/pages/**/*.astro", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>),
+  ...(import.meta.glob("../src/components/**/*.astro", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>),
+  ...(import.meta.glob("../src/layouts/**/*.astro", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>),
+  ...(import.meta.glob("../src/lib/*.ts", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>),
+};
+
+const CONSUMER_SOURCES = Object.entries(SRC_FILES)
+  .filter(([path]) => !path.endsWith("/account-copy.ts") && !path.endsWith(".test.ts"))
+  .map(([, source]) => source)
+  .join("\n");
+
+describe("every copy key has a consumer", () => {
+  it("finds each key named by a page, component or lib", () => {
+    // The mirroring is not symmetric. nemar-cli's contract may carry keys
+    // this repo has no surface for — the drift test reports those as a note —
+    // but a key on THIS side that nothing reads is copy nobody can see, kept
+    // in step with another repo for nothing. Four such keys shipped in the
+    // first draft of this branch.
+    const orphans = Object.keys(ACCOUNT_COPY).filter(
+      (key) => !CONSUMER_SOURCES.includes(`"${key}"`),
+    );
+    expect(
+      orphans,
+      "unused copy keys: consume them or delete them (see account-copy.ts rule 4)",
+    ).toEqual([]);
+  });
+
+  it("is actually reading sources, not an empty haystack", () => {
+    // A glob that resolved to nothing would make the check above pass for
+    // every key at once, which is the one way it could be silently useless.
+    expect(Object.keys(SRC_FILES).length).toBeGreaterThan(20);
+    expect(CONSUMER_SOURCES).toContain('ACCOUNT_COPY["gaps.title"]');
+    expect(CONSUMER_SOURCES).not.toContain("the copy table. Read it through");
+  });
+});
 
 describe("wording comes from one source", () => {
   it.each(SURFACES)("%s reads its account copy from the module", (_name, src) => {
@@ -119,6 +183,40 @@ describe("Settings", () => {
     expect(SETTINGS).toContain("gapsForFields(missing, { orcidVerified })");
     expect(SETTINGS).toContain("describeGap(gap)");
     expect(SETTINGS).toContain("gapTail(gap)");
+  });
+
+  it("renders a positive empty state instead of vanishing", () => {
+    // A block that only appears while something is wrong makes its own
+    // absence ambiguous: "nothing outstanding" and "this build does not
+    // check" look identical from the outside.
+    expect(SETTINGS).toContain("data-account-gaps-none");
+    expect(SETTINGS).toContain('ACCOUNT_COPY["gaps.none"]');
+    expect(SETTINGS).toMatch(/gaps\.length === 0 \? \(/);
+    // Not wrapped in a `gaps.length > 0 &&` guard any more.
+    expect(SETTINGS).not.toContain("{gaps.length > 0 && (");
+  });
+
+  it("names the upload page once in the granted paragraph", () => {
+    // The copy sentence already says "from the upload page"; the link used to
+    // repeat the noun and left the paragraph ending on a dangling duplicate
+    // after the publishing clause.
+    // Anchored on the paragraph, not on the branch: `uploadAccess.kind ===
+    // "granted"` also opens the status badge above it.
+    const block = SETTINGS.match(
+      /\{uploadAccess\.kind === "granted" && \(\s*<p class="upload-access__body">([\s\S]*?)<\/p>/,
+    )?.[1];
+    expect(block, "granted branch not found in settings.astro").toBeTruthy();
+    const rendered = (block as string)
+      .replace(
+        /\{ACCOUNT_COPY\["upload_access\.granted\.body"\]\}/,
+        ACCOUNT_COPY["upload_access.granted.body"],
+      )
+      .replace(/\{" "\}/g, " ")
+      .replace(/<[^>]*>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(rendered).toBe(`${ACCOUNT_COPY["upload_access.granted.body"]} Upload now.`);
+    expect(rendered.match(/upload page/gi)).toHaveLength(1);
   });
 
   it("tells the browser script whether a verified iD owns the name", () => {

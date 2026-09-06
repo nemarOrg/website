@@ -149,10 +149,18 @@ const requestedLede = requestedDate
             per gap, each naming what it blocks and where it is set. The label
             links at the control below (or at orcid.org, for a name the record
             owns); the rest of the line is the sentence `describeGap`
-            composes, word for word. */}
-        {gaps.length > 0 && (
-          <div class="gaps" data-account-gaps>
-            <p class="gaps__title">{ACCOUNT_COPY["gaps.title"]}</p>
+            composes, word for word.
+
+            It renders when there is nothing outstanding too. A block that
+            only ever appears while something is wrong makes its own absence
+            ambiguous — "complete" and "this build does not check" look
+            identical — and this is the page a user lands on to find out
+            where they stand. */}
+        <div class="gaps" data-account-gaps>
+          <p class="gaps__title">{ACCOUNT_COPY["gaps.title"]}</p>
+          {gaps.length === 0 ? (
+            <p class="gaps__none" data-account-gaps-none>{ACCOUNT_COPY["gaps.none"]}</p>
+          ) : (
             <ul class="gaps__list" role="list">
               {gaps.map((gap) => (
                 <li>
@@ -164,8 +172,8 @@ const requestedLede = requestedDate
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
 
         <dl class="kv">
           {/* `id="account-name"` is on the ROW, not on an input, and the row
@@ -560,10 +568,14 @@ const requestedLede = requestedDate
           </div>
         </dl>
 
+        {/* The link text is deliberately NOT "Go to the upload page": the
+            copy sentence already names it, and repeating the noun after the
+            publishing clause left the paragraph ending on a dangling
+            duplicate. "Upload now" is the action, not the destination. */}
         {uploadAccess.kind === "granted" && (
           <p class="upload-access__body">
             {ACCOUNT_COPY["upload_access.granted.body"]}
-            {" "}<a href="/upload">Go to the upload page</a>.
+            {" "}<a href="/upload">Upload now</a>.
           </p>
         )}
 
@@ -1231,6 +1243,11 @@ const requestedLede = requestedDate
   .gaps__field {
     font-weight: var(--fw-semibold);
     color: var(--color-fg);
+  }
+  .gaps__none {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
   }
   .upload-access__missing {
     border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
