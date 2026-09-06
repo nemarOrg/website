@@ -4,6 +4,11 @@
  * `${apiBase}/auth/me` to resolve the current user from a request's cookie.
  */
 
+// Type-only, so this stays a leaf module at runtime: `profile-gaps.ts`
+// describes its own account shape structurally rather than importing
+// `AuthUser`, and nothing here imports it back.
+import type { WireProfileGap } from "./profile-gaps";
+
 export interface AuthUser {
   readonly id: string;
   readonly email: string;
@@ -73,6 +78,27 @@ export interface AuthUser {
    */
   readonly service_access_granted_at?: string;
   readonly upload_access_requested_at?: string;
+  /**
+   * The server-computed profile-gap list (nemar-cli#1268, epic #1250 phase
+   * 8): one entry per field the account is still missing, with what it blocks
+   * and where it is set. **Not on `/auth/me` yet** — `./profile-gaps.ts`
+   * derives the identical list from the fields above until it is, and uses
+   * this verbatim the day it appears.
+   *
+   * An empty ARRAY is a real answer ("nothing is missing"); `undefined` means
+   * the backend does not compute it yet. The two must not be collapsed, which
+   * is why this is optional rather than defaulted to `[]`.
+   */
+  readonly profile_gaps?: readonly WireProfileGap[];
+  /**
+   * True when the backend picked this account's username for it rather than
+   * the user choosing one (nemar-cli#1268: an account whose username is NULL
+   * gets one assigned from its name at the next successful sign-in, so it
+   * cannot stay NULL if onboarding is abandoned). `/onboarding` offers the
+   * one-time change when it is set. Absent means false — an account that
+   * chose its own handle, or a backend that predates the assignment.
+   */
+  readonly username_auto_assigned?: boolean;
 }
 
 /**

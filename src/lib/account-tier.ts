@@ -23,6 +23,7 @@
  * derivation helpers.
  */
 
+import { ACCOUNT_COPY } from "./account-copy";
 import type { AuthUser } from "./auth";
 import { canUpload } from "./profile";
 
@@ -259,68 +260,29 @@ export function validateUsername(
 export const WHY_MIN_CHARS = 20;
 export const WHY_MAX_CHARS = 500;
 
-/** The client-side refusal for the why text, or null when it will pass. */
+/** The client-side refusal for the why text, or null when it will pass.
+ *  The sentence itself is `account-copy.ts`'s, so the form's hint, this
+ *  refusal and the CLI's prompt are one string; `account-copy.test.ts` fails
+ *  if the numbers in it stop matching the bounds above. */
 export function validateWhy(raw: string): string | null {
   const text = raw.trim();
   if (text.length < WHY_MIN_CHARS || text.length > WHY_MAX_CHARS) {
-    return `Describe what you intend to upload in ${WHY_MIN_CHARS}-${WHY_MAX_CHARS} characters`;
+    return ACCOUNT_COPY["upload_access.request.why_hint"];
   }
   return null;
 }
 
 /**
- * One entry of the backend's `missing` array, resolved to something a person
- * can click.
+ * The `missing` array's labels, anchors and sentences now live in
+ * `./profile-gaps.ts` (website#309).
  *
- * `href` is null for the two entries that are not Settings fields: `why` is
- * the textarea the user is already looking at, and `email_verified` is the
- * verify step, which has its own surface. Rendering those as links to a field
- * that does not exist would be worse than rendering them as plain text.
+ * `uploadAccessMissingFields` used to resolve them here, from a table of its
+ * own. It was folded into the profile-gap matrix because the same eight field
+ * names arrive by two roads — a refused request's `missing`, and the account's
+ * own outstanding fields — and describing them twice is exactly how the
+ * refusal and the nudge come to word the same fact differently. Callers want
+ * `gapsForFields(missing)` plus `describeGap`.
  */
-export interface UploadAccessMissingField {
-  readonly field: string;
-  readonly label: string;
-  readonly href: string | null;
-}
-
-/** Settings anchors for every account field the request endpoint can name.
- *  Kept beside the ids the Settings markup actually carries; a rename on
- *  either side without the other shows up as a link that scrolls nowhere,
- *  which `test/account-tiers-ui.test.ts` guards. */
-const MISSING_FIELD_TARGETS: Record<string, { label: string; href: string | null }> = {
-  why: { label: "a description of what you intend to upload", href: null },
-  email_verified: { label: "a verified email address", href: null },
-  username: { label: "Username", href: "/settings#account-username" },
-  // Both name halves point at the Name ROW, not at the two inputs. The inputs
-  // exist only for an account with no verified ORCID iD (with one, the
-  // backend refuses the edit), and the account the request endpoint names
-  // these fields to can be exactly the other kind: a verified iD whose record
-  // publishes no name. Linking `#account-given-name` sent that person to an
-  // anchor that is not on the page. The row always renders, and carries the
-  // stuck-state explanation and its two exits when that is the situation.
-  given_name: { label: "Given name", href: "/settings#account-name" },
-  family_name: { label: "Family name", href: "/settings#account-name" },
-  github_username: { label: "GitHub handle", href: "/settings#profile-github" },
-  city: { label: "City", href: "/settings#profile-city" },
-  country: { label: "Country", href: "/settings#profile-country" },
-};
-
-/**
- * Resolve the backend's `missing` array into labelled, linkable fields.
- *
- * An unrecognised entry degrades to its own name with no link rather than
- * being dropped: the vocabulary is a closed union on the backend today, but
- * silently swallowing a value it grows tomorrow would tell the user their
- * request failed for no reason at all.
- */
-export function uploadAccessMissingFields(missing: readonly string[]): UploadAccessMissingField[] {
-  return missing.map((field) => {
-    const known = MISSING_FIELD_TARGETS[field];
-    return known
-      ? { field, label: known.label, href: known.href }
-      : { field, label: field, href: null };
-  });
-}
 
 /**
  * Human copy for a refused upload-access request.
@@ -339,7 +301,7 @@ export function uploadAccessErrorMessage(
   if (backendMessage && backendMessage.trim().length > 0) return backendMessage;
   switch (code) {
     case "why_required":
-      return `Describe what you intend to upload in ${WHY_MIN_CHARS}-${WHY_MAX_CHARS} characters`;
+      return ACCOUNT_COPY["upload_access.request.why_hint"];
     case "email_not_verified":
       return "Verify your email address first; the review happens over email.";
     case "profile_incomplete":

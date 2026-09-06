@@ -6,6 +6,7 @@ import ProfileNudge from "../components/ProfileNudge.astro";
 import VerifyEmailStep from "../components/VerifyEmailStep.astro";
 import Base from "../layouts/Base.astro";
 import { fetchAccountIdentity } from "../lib/account-api";
+import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
 import { deriveAccountTier, deriveUploadAccessState, needsOnboarding } from "../lib/account-tier";
 import { getSession } from "../lib/auth";
 import { isCollaboratorManager } from "../lib/collaborators-api";
@@ -17,7 +18,7 @@ import {
 } from "../lib/dashboard-api";
 import { DOCS_UPLOAD_ACCESS_PATH, resolveDocsBase } from "../lib/docs-base";
 import { formatDate } from "../lib/format";
-import { missingProfileFields } from "../lib/profile";
+import { profileGaps } from "../lib/profile-gaps";
 import type { Dataset } from "../lib/types";
 
 const session = getSession(Astro.locals);
@@ -82,11 +83,6 @@ await Promise.all(
   }),
 );
 
-// #226: nudge, never a gate. The city/country requirement is enforced by the
-// upload-access request endpoint itself, so dismissing the banner cannot get
-// anyone past it.
-const missingProfile = tier === "unverified" ? [] : missingProfileFields(session.user);
-
 // One extra call, and only for a tier that can make it: `/auth/me` does not
 // carry `username`, and without it the setup prompt cannot tell a brand-new
 // ORCID account from a finished one. Fail-soft — `fetchAccountIdentity`
@@ -96,6 +92,15 @@ const identity =
   tier === "unverified"
     ? { username: undefined }
     : await fetchAccountIdentity(session.user.username, { cookieHeader });
+// #226 / website#309: a nudge, never a gate. One line per outstanding field,
+// each naming what it blocks — the same sentences the upload-access refusal
+// and `nemar auth status` print. `profileGaps` reads the backend's
+// `profile_gaps` when /auth/me carries it and derives the identical list
+// until then; the resolved username is spread in because /auth/me does not
+// report one yet (undefined there means "could not ask", which does not raise
+// the gap).
+const gaps =
+  tier === "unverified" ? [] : profileGaps({ ...session.user, username: identity.username });
 const showSetupPrompt =
   tier !== "unverified" &&
   needsOnboarding({
@@ -108,6 +113,11 @@ const showSetupPrompt =
   });
 
 const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAccess.at) : "";
+// One sentence, dated when the backend told us when. `upload_access_requested_at`
+// is not on /auth/me yet, so the undated form is what renders today.
+const requestedLede = requestedDate
+  ? fillCopy(ACCOUNT_COPY["upload_access.requested.lede_dated"], { date: requestedDate })
+  : ACCOUNT_COPY["upload_access.requested.lede"];
 ---
 
 <Base
@@ -120,7 +130,7 @@ const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAcces
         <h1 class="dashboard-header__title">My datasets</h1>
         <p class="dashboard-header__lede">
           {tier === "unverified"
-            ? "Verify your email address to activate your account."
+            ? ACCOUNT_COPY["tier.unverified.lede"]
             : total === 0
               ? "No datasets yet."
               : `${total} dataset${total === 1 ? "" : "s"} owned by you.`}
@@ -149,16 +159,14 @@ const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAcces
         not check. */}
     {tier === "base" && uploadAccess.kind === "not_requested" && (
       <div class="dashboard-tier" role="note">
-        <h2 class="dashboard-tier__title">Want to contribute a dataset?</h2>
-        <p class="dashboard-tier__body">
-          Browsing, searching and downloading are open to your account already. Uploading
-          needs one extra grant: an admin checks your GitHub handle and location against
-          export-control and local-jurisdiction rules, once.
-        </p>
+        <h2 class="dashboard-tier__title">{ACCOUNT_COPY["upload_access.invite.title"]}</h2>
+        <p class="dashboard-tier__body">{ACCOUNT_COPY["upload_access.invite.body"]}</p>
         <p class="dashboard-tier__actions">
-          <a class="dashboard-tier__cta" href="/settings#upload-access">Request upload access</a>
+          <a class="dashboard-tier__cta" href="/settings#upload-access">
+            {ACCOUNT_COPY["upload_access.request.cta"]}
+          </a>
           <a class="dashboard-tier__link" href={uploadAccessDocsUrl} rel="external noopener">
-            How upload access works
+            {ACCOUNT_COPY["upload_access.docs_link"]}
           </a>
         </p>
       </div>
@@ -166,21 +174,19 @@ const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAcces
 
     {tier === "base" && uploadAccess.kind === "requested" && (
       <div class="dashboard-tier" role="note">
-        <h2 class="dashboard-tier__title">Upload access requested</h2>
+        <h2 class="dashboard-tier__title">{ACCOUNT_COPY["upload_access.requested.title"]}</h2>
         <p class="dashboard-tier__body">
-          {requestedDate
-            ? `An admin is reviewing your request from ${requestedDate}. `
-            : "An admin is reviewing your request. "}
-          We&rsquo;ll email you when there&rsquo;s a decision. Everything else on your account
-          keeps working in the meantime.
+          {requestedLede} {ACCOUNT_COPY["upload_access.requested.body"]}
         </p>
         <p class="dashboard-tier__actions">
-          <a class="dashboard-tier__link" href="/settings#upload-access">See the request</a>
+          <a class="dashboard-tier__link" href="/settings#upload-access">
+            {ACCOUNT_COPY["upload_access.requested.cta"]}
+          </a>
         </p>
       </div>
     )}
 
-    <ProfileNudge missing={missingProfile} userId={session.user.id} />
+    <ProfileNudge gaps={gaps} userId={session.user.id} />
 
     {listError && (
       <p class="dashboard-error" role="alert">{listError}</p>

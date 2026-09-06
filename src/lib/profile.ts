@@ -1,9 +1,17 @@
 /**
  * Profile completeness (#226).
  *
- * One definition of "complete", shared by the dashboard nudge, the upload
- * gate, and Settings, so the three surfaces can never disagree about what
- * they are asking for.
+ * One definition of "complete" for the two things that still ask a yes/no
+ * question about it: `canUpload` (ADR 0011's warn branch on `/upload`) and
+ * the field list that branch names.
+ *
+ * **It is no longer what tells a user WHAT is missing.** That is
+ * `./profile-gaps.ts` since website#309 — one line per field, saying what it
+ * blocks and where it is set, in the sentence the CLI and the upload-access
+ * refusal also print. The dashboard nudge used `missingProfileFields` plus
+ * `formatFieldList` and had to guess a single consequence for the whole set;
+ * the gap list states one per field instead. Anything that needs to
+ * ENUMERATE gaps belongs there, not here.
  *
  * The two tiers are deliberately different in strength:
  *
@@ -39,7 +47,12 @@ export const PROFILE_FIELD_LABELS: Record<ProfileField, string> = {
 /** Fields that must be present before a real (non-sandbox) upload. */
 export const UPLOAD_REQUIRED_FIELDS: readonly ProfileField[] = ["city", "country"];
 
-/** Every field the nudge asks about, in prompt order. */
+/** The default set for {@link missingProfileFields} — the three self-service
+ *  columns, in prompt order. It was the dashboard nudge's list until
+ *  website#309 moved that surface to `./profile-gaps.ts`; it stays as the
+ *  default because `missingProfileFields` is still the "which of these are
+ *  blank" primitive, and a default of "all of them" is the only one that is
+ *  not a surprise. */
 export const NUDGED_FIELDS: readonly ProfileField[] = ["city", "country", "github_username"];
 
 function isBlank(value: string | undefined): boolean {

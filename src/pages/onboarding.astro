@@ -17,6 +17,7 @@
  */
 import Base from "../layouts/Base.astro";
 import { fetchAccountIdentity, fetchUsernameSuggestion } from "../lib/account-api";
+import { ACCOUNT_COPY } from "../lib/account-copy";
 import { USERNAME_MAX_LENGTH, onboardingSteps } from "../lib/account-tier";
 import { getSession, safeRedirectPath } from "../lib/auth";
 import { DOCS_ACCOUNT_SETTINGS_PATH, resolveDocsBase } from "../lib/docs-base";
@@ -52,13 +53,28 @@ const steps = onboardingSteps({
   orcid_verified: session.user.orcid_verified,
 });
 
+// The backend assigned this account's username rather than the user choosing
+// it (nemar-cli#1268: a NULL username is filled from the name at the next
+// successful sign-in, so an abandoned onboarding cannot leave it NULL). The
+// account is entitled to change it once, and this is where that offer lives —
+// so an assigned username is a reason to render the page even when
+// `onboardingSteps` has nothing outstanding.
+//
+// It resolves to false on every backend that does not send the flag, which is
+// every backend today, so nothing about this page changes until phase 8 ships.
+// The offer stands until the user acts on it or the backend clears the flag;
+// "Skip for now" is the way past it in the meantime.
+const usernameAssigned =
+  session.user.username_auto_assigned === true && (identity.username ?? "").trim().length > 0;
+
 // Nothing outstanding: hand the visitor straight on. Keeps every caller free
 // to link here without first asking whether there is anything to do.
-if (steps.length === 0) {
+if (steps.length === 0 && !usernameAssigned) {
   return Astro.redirect(next);
 }
 
 const needsUsername = steps.includes("username");
+const showUsername = needsUsername || usernameAssigned;
 const needsName = steps.includes("name");
 const needsLocation = steps.includes("location");
 
@@ -105,17 +121,28 @@ const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
     )}
 
     <form class="onboarding__form" data-onboarding-form>
-      {needsUsername && (
+      {showUsername && (
         <fieldset class="onboarding__group">
-          <legend class="onboarding__legend">Choose a username</legend>
+          <legend class="onboarding__legend">
+            {usernameAssigned
+              ? ACCOUNT_COPY["onboarding.username.auto_assigned.title"]
+              : "Choose a username"}
+          </legend>
           <p class="onboarding__help">
-            This is how admins and collaborators refer to your account, and how your
-            dataset repositories are attributed. Letters, numbers, underscores and
-            hyphens; 3&ndash;{USERNAME_MAX_LENGTH} characters. You can change it until an
-            admin grants you upload access, after which it is fixed.
+            {usernameAssigned
+              ? ACCOUNT_COPY["onboarding.username.auto_assigned.body"]
+              : "This is how admins and collaborators refer to your account, and how your dataset repositories are attributed. You can change it until an admin grants you upload access, after which it is fixed."}
+            {" "}Letters, numbers, underscores and hyphens; 3&ndash;{USERNAME_MAX_LENGTH}
+            {" "}characters.
           </p>
           <label class="field">
             <span class="field__label">Username</span>
+            {/* `data-username-owned` says the value in the box is the
+                account's CURRENT handle rather than an unclaimed suggestion.
+                The submit handler uses it to leave `username` out of the
+                PATCH when it has not been edited: re-sending the handle the
+                row already holds risks a `username_taken` collision with
+                itself, for no change. */}
             <input
               class="field__input"
               type="text"
@@ -124,13 +151,18 @@ const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
               spellcheck="false"
               autocapitalize="none"
               maxlength={USERNAME_MAX_LENGTH}
-              value={suggestion.suggestion ?? ""}
+              value={usernameAssigned ? (identity.username ?? "") : (suggestion.suggestion ?? "")}
               placeholder="alovelace"
               required
               data-onboarding-username
+              data-username-owned={usernameAssigned ? "true" : "false"}
             />
           </label>
-          {suggestion.based_on === "name" ? (
+          {usernameAssigned ? (
+            <p class="onboarding__help onboarding__help--muted" data-username-source>
+              Keep it and continue, or type a different one.
+            </p>
+          ) : suggestion.based_on === "name" ? (
             <p class="onboarding__help onboarding__help--muted" data-username-source>
               Suggested from your name. Edit it if you&rsquo;d rather have something else.
             </p>
@@ -498,13 +530,27 @@ const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
         const value = (el?.value ?? "").trim();
         if (value.length > 0) payload[key] = value;
       };
-      put("username", usernameEl);
+      // An assigned username that has not been edited is left out: the row
+      // already holds it, so re-sending it changes nothing and risks a
+      // self-collision. A suggestion is always sent — nothing has reserved it.
+      const usernameOwned = usernameEl?.dataset.usernameOwned === "true";
+      const usernameUnchanged =
+        usernameOwned && (usernameEl?.value ?? "").trim() === (usernameEl?.defaultValue ?? "").trim();
+      if (!usernameUnchanged) put("username", usernameEl);
       put("given_name", givenEl);
       put("family_name", familyEl);
       put("city", cityEl);
       put("country", countryEl);
 
       if (Object.keys(payload).length === 0) {
+        // Nothing to write. For an account that was only offered the one-time
+        // username change and kept the one it was given, that is an ACCEPTANCE,
+        // not an empty form — sending it on is the right answer, and refusing
+        // it would strand the account on this page.
+        if (usernameUnchanged) {
+          location.href = next;
+          return;
+        }
         setMsg("Fill in the fields above, or skip for now.", "error");
         return;
       }

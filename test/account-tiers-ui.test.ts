@@ -22,8 +22,9 @@ import USER_STATUS_BADGE from "../src/components/UserStatusBadge.astro?raw";
 // while passing locally under vitest.
 import VERIFY_STEP from "../src/components/VerifyEmailStep.astro?raw";
 import USER_ADMIN_ROW from "../src/components/admin/UserAdminRow.astro?raw";
-import { uploadAccessMissingFields } from "../src/lib/account-tier";
+import { ACCOUNT_COPY } from "../src/lib/account-copy";
 import { DOCS_ACCOUNT_SETTINGS_PATH, DOCS_UPLOAD_ACCESS_PATH } from "../src/lib/docs-base";
+import { gapsForFields } from "../src/lib/profile-gaps";
 import ADMIN_USERS from "../src/pages/admin/users.astro?raw";
 import ADMIN_USER_DETAIL from "../src/pages/admin/users/[username].astro?raw";
 import DASHBOARD from "../src/pages/dashboard.astro?raw";
@@ -189,7 +190,11 @@ describe("onboarding", () => {
 
   it("prefills the username from the suggestion endpoint", () => {
     expect(ONBOARDING).toContain("fetchUsernameSuggestion");
-    expect(ONBOARDING).toContain('value={suggestion.suggestion ?? ""}');
+    // The suggestion fills the box for an account with no username; an
+    // account whose username was ASSIGNED for it (website#309) gets that
+    // handle instead, so the value is a ternary over the two.
+    expect(ONBOARDING).toContain('suggestion.suggestion ?? ""');
+    expect(ONBOARDING).toContain('usernameAssigned ? (identity.username ?? "")');
   });
 
   it("validates the username live and handles the 409 at the field", () => {
@@ -264,9 +269,12 @@ describe("welcome", () => {
     expect(WELCOME).toContain('const isUnverified = tier === "unverified";');
     expect(WELCOME).toMatch(/\{isUnverified && \(\s*<p class="welcome__notice"/);
     // The step title and its CTA both change, not just the notice above them.
-    expect(WELCOME).toContain(
-      'isUnverified ? "Verify your email address" : "Your account is active"',
-    );
+    // The two titles moved into `account-copy.ts` (website#309), so the page
+    // is asserted on the KEYS and the module on the words.
+    expect(WELCOME).toContain('ACCOUNT_COPY["welcome.unverified.title"]');
+    expect(WELCOME).toContain('ACCOUNT_COPY["welcome.active.title"]');
+    expect(ACCOUNT_COPY["welcome.unverified.title"]).toBe("Verify your email address");
+    expect(ACCOUNT_COPY["welcome.active.title"]).toBe("Your account is active");
     expect(WELCOME).toMatch(/isUnverified[\s\S]{0,200}label: "Enter your code"/);
   });
 
@@ -274,15 +282,18 @@ describe("welcome", () => {
     // A base-tier account clicking "Upload my first dataset" lands on a page
     // that can only tell it to ask for access; the CTA asks directly.
     expect(WELCOME).toMatch(/\{tier === "upload" \?[\s\S]{0,400}href="\/upload"/);
-    expect(WELCOME).toMatch(/href="\/settings#upload-access"[\s\S]{0,120}Request upload access/);
+    expect(WELCOME).toMatch(
+      /href="\/settings#upload-access"[\s\S]{0,160}ACCOUNT_COPY\["upload_access\.request\.cta"\]/,
+    );
+    expect(ACCOUNT_COPY["upload_access.request.cta"]).toBe("Request upload access");
   });
 });
 
 describe("Settings", () => {
   it("carries the ids the missing-field links point at", () => {
-    // `uploadAccessMissingFields` builds `/settings#<id>` hrefs; a rename on
+    // `gapsForFields` builds `/settings#<id>` hrefs; a rename on
     // either side produces a link that scrolls nowhere.
-    const anchors = uploadAccessMissingFields([
+    const anchors = gapsForFields([
       "username",
       "given_name",
       "family_name",
@@ -312,14 +323,14 @@ describe("Settings", () => {
 
   it("offers the request flow only to a base-tier account with no open request", () => {
     expect(SETTINGS).toMatch(
-      /\{tier === "base" && uploadAccess\.kind === "not_requested" && \(\s*<form class="upload-access__form"/,
+      /\{tier === "base" && uploadAccess\.kind === "not_requested" && \(\s*<form\s+class="upload-access__form"/,
     );
   });
 
   it("renders the refusal's missing list as links", () => {
-    expect(SETTINGS).toContain("uploadAccessMissingFields");
+    expect(SETTINGS).toContain("gapsForFields");
     expect(SETTINGS).toContain("data-upload-access-missing-list");
-    expect(SETTINGS).toMatch(/createElement\("a"\)[\s\S]{0,120}a\.href = field\.href/);
+    expect(SETTINGS).toMatch(/createElement\("a"\)[\s\S]{0,120}a\.href = gap\.href/);
   });
 
   it("locks the username once the grant is held, and explains why", () => {
@@ -368,7 +379,7 @@ describe("Settings", () => {
     // An input id could not serve here: the inputs are exactly what a
     // verified-ORCID account does not get.
     expect(SETTINGS).toContain('class="kv__row" id="account-name"');
-    for (const field of uploadAccessMissingFields(["given_name", "family_name"])) {
+    for (const field of gapsForFields(["given_name", "family_name"])) {
       expect(field.href, field.field).toBe("/settings#account-name");
     }
   });

@@ -1,6 +1,7 @@
 ---
 import Base from "../layouts/Base.astro";
 import { fetchAccountIdentity } from "../lib/account-api";
+import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
 import {
   USERNAME_MAX_LENGTH,
   WHY_MAX_CHARS,
@@ -16,6 +17,7 @@ import {
 } from "../lib/docs-base";
 import { formatDate } from "../lib/format";
 import { IDENTITY_CONFLICT_MESSAGES } from "../lib/identity-errors";
+import { gapTail, profileGaps } from "../lib/profile-gaps";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -83,9 +85,9 @@ const usernameKnown = identity.username !== undefined;
 const usernameLocked = session.user.service_access === true;
 
 const tierLabel: Record<typeof tier, string> = {
-  unverified: "Email not verified",
-  base: "Base access",
-  upload: "Upload access",
+  unverified: ACCOUNT_COPY["tier.unverified.label"],
+  base: ACCOUNT_COPY["tier.base.label"],
+  upload: ACCOUNT_COPY["tier.upload.label"],
 };
 const roleLabel: Record<typeof role, string> = {
   admin: "Administrator",
@@ -103,6 +105,17 @@ const nameMissingUnderOrcid = orcidVerified && name.length === 0;
 
 const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
 const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
+
+// Everything this account is still missing, in one list at the top of the
+// account card (website#309) — the same list the dashboard nudge shows, the
+// same one an admin sees on the review card, and the same sentences a refused
+// upload-access request comes back with. The point of putting it HERE is that
+// Settings is where almost every one of them is fixed, so the list and the
+// controls are on one screen.
+const gaps = profileGaps({ ...session.user, username: identity.username });
+const requestedLede = requestedDate
+  ? fillCopy(ACCOUNT_COPY["upload_access.requested.lede_dated"], { date: requestedDate })
+  : ACCOUNT_COPY["upload_access.requested.lede"];
 ---
 
 <Base title="Settings" description="Your NEMAR account settings.">
@@ -131,6 +144,37 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
               : "Your name is used to cite you on any DOI your datasets get."}
           </p>
         </header>
+
+        {/* What is still missing, before anything else on the card: one line
+            per gap, each naming what it blocks and where it is set. The label
+            links at the control below (or at orcid.org, for a name the record
+            owns); the rest of the line is the sentence `describeGap`
+            composes, word for word.
+
+            It renders when there is nothing outstanding too. A block that
+            only ever appears while something is wrong makes its own absence
+            ambiguous — "complete" and "this build does not check" look
+            identical — and this is the page a user lands on to find out
+            where they stand. */}
+        <div class="gaps" data-account-gaps>
+          <p class="gaps__title">{ACCOUNT_COPY["gaps.title"]}</p>
+          {gaps.length === 0 ? (
+            <p class="gaps__none" data-account-gaps-none>{ACCOUNT_COPY["gaps.none"]}</p>
+          ) : (
+            <ul class="gaps__list" role="list">
+              {gaps.map((gap) => (
+                <li>
+                  {gap.href ? (
+                    <a href={gap.href}>{gap.label}</a>
+                  ) : (
+                    <span class="gaps__field">{gap.label}</span>
+                  )}{" "}{gapTail(gap)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         <dl class="kv">
           {/* `id="account-name"` is on the ROW, not on an input, and the row
               always renders. It is where `uploadAccessMissingFields` points
@@ -493,11 +537,8 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
       <article class="card card--wide" id="upload-access">
         <div class="card__rail" aria-hidden="true"></div>
         <header class="card__head">
-          <h2 class="card__title">Upload access</h2>
-          <p class="card__lede">
-            A one-time admin grant. Reviewed against export-control and
-            local-jurisdiction rules.
-          </p>
+          <h2 class="card__title">{ACCOUNT_COPY["upload_access.section.title"]}</h2>
+          <p class="card__lede">{ACCOUNT_COPY["upload_access.section.lede"]}</p>
         </header>
 
         <dl class="kv">
@@ -506,54 +547,65 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
             <dd data-upload-access-state={uploadAccess.kind}>
               {uploadAccess.kind === "granted" && (
                 <>
-                  <span class="badge badge--tier-upload">Granted</span>
+                  <span class="badge badge--tier-upload">
+                    {ACCOUNT_COPY["upload_access.state.granted"]}
+                  </span>
                   {grantedDate && <span class="kv__muted"> on {grantedDate}</span>}
                 </>
               )}
               {uploadAccess.kind === "requested" && (
                 <>
-                  <span class="badge badge--status-pending">Requested</span>
+                  <span class="badge badge--status-pending">
+                    {ACCOUNT_COPY["upload_access.state.requested"]}
+                  </span>
                   {requestedDate && <span class="kv__muted"> on {requestedDate}</span>}
                 </>
               )}
               {uploadAccess.kind === "not_requested" && (
-                <span class="badge">Not requested</span>
+                <span class="badge">{ACCOUNT_COPY["upload_access.state.not_requested"]}</span>
               )}
             </dd>
           </div>
         </dl>
 
+        {/* The link text is deliberately NOT "Go to the upload page": the
+            copy sentence already names it, and repeating the noun after the
+            publishing clause left the paragraph ending on a dangling
+            duplicate. "Upload now" is the action, not the destination. */}
         {uploadAccess.kind === "granted" && (
           <p class="upload-access__body">
-            You can upload datasets from the <a href="/upload">upload page</a>. Publishing
-            one is a separate, per-dataset review you start from your dashboard.
+            {ACCOUNT_COPY["upload_access.granted.body"]}
+            {" "}<a href="/upload">Upload now</a>.
           </p>
         )}
 
         {uploadAccess.kind === "requested" && (
           <p class="upload-access__body">
-            An admin is reviewing your request. We&rsquo;ll email you when there&rsquo;s a
-            decision; nothing else needs doing. Keeping your profile below up to date makes
-            that review quicker.
+            {requestedLede} {ACCOUNT_COPY["upload_access.requested.body"]}
           </p>
         )}
 
         {tier === "unverified" && (
           <p class="upload-access__body">
-            Verify your email address first &mdash; the review happens over email. The
-            verify step is on your <a href="/dashboard">dashboard</a>.
+            {ACCOUNT_COPY["upload_access.unverified.body"]}
+            {" "}The verify step is on your <a href="/dashboard">dashboard</a>.
           </p>
         )}
 
+        <!-- `data-orcid-verified` on the form is read by the refusal renderer
+             in the script below: a verified iD moves the two name halves'
+             "set it in" from Settings to the ORCID record, and a browser
+             script has no session to ask. -->
         {tier === "base" && uploadAccess.kind === "not_requested" && (
-          <form class="upload-access__form" data-upload-access-form>
-            <p class="upload-access__body">
-              Tell us what you plan to deposit. An admin reviews this alongside your name,
-              username, GitHub handle and location, then grants access once.
-            </p>
+          <form
+            class="upload-access__form"
+            data-upload-access-form
+            data-orcid-verified={orcidVerified ? "true" : "false"}
+          >
+            <p class="upload-access__body">{ACCOUNT_COPY["upload_access.request.form_body"]}</p>
             <label class="field">
               <span class="field__label">
-                What do you intend to upload?
+                {ACCOUNT_COPY["upload_access.request.why_label"]}
                 <span class="field__req">{WHY_MIN_CHARS}&ndash;{WHY_MAX_CHARS} characters</span>
               </span>
               <textarea
@@ -573,13 +625,13 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
             {/* Populated from the refusal's `missing` array: one link per
                 field the request still needs, pointing at that field. */}
             <div class="upload-access__missing" data-upload-access-missing hidden>
-              <p class="upload-access__missing-title">Finish these first:</p>
+              <p class="upload-access__missing-title">{ACCOUNT_COPY["gaps.request.title"]}</p>
               <ul class="upload-access__missing-list" data-upload-access-missing-list></ul>
             </div>
 
             <div class="flow__actions flow__actions--end">
               <button type="submit" class="btn btn--primary" data-upload-access-submit>
-                Request upload access
+                {ACCOUNT_COPY["upload_access.request.cta"]}
               </button>
             </div>
             <p class="flow__msg" role="alert" data-upload-access-msg hidden></p>
@@ -587,7 +639,9 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
         )}
 
         <p class="upload-access__footnote">
-          <a href={uploadAccessDocsUrl} rel="external noopener">How upload access works</a>
+          <a href={uploadAccessDocsUrl} rel="external noopener">
+            {ACCOUNT_COPY["upload_access.docs_link"]}
+          </a>
         </p>
       </article>
 
@@ -1153,6 +1207,48 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
     display: grid;
     gap: var(--space-3);
   }
+  /* The gap list at the top of the account card (website#309). Neutral, not
+     amber: nothing has failed, and the same list renders for a brand-new
+     account that has done nothing wrong. */
+  .gaps {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-inline-start: 3px solid var(--brand-teal);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-fg) 3%, transparent);
+  }
+  .gaps__title {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .gaps__list {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+    list-style: disc;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    /* The sentences carry a backticked command, which has no break
+       opportunity of its own on a narrow screen. */
+    overflow-wrap: anywhere;
+  }
+  .gaps__list a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .gaps__field {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .gaps__none {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
   .upload-access__missing {
     border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
     background: color-mix(in srgb, var(--color-warning) 10%, transparent);
@@ -1173,9 +1269,14 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
     display: grid;
     gap: var(--space-1);
     font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    /* Full sentences since website#309, one carrying a backticked command:
+       let them wrap anywhere rather than widening the card. */
+    overflow-wrap: anywhere;
   }
   .upload-access__missing-list a {
     color: var(--color-link);
+    font-weight: var(--fw-semibold);
   }
   .upload-access__footnote {
     margin: var(--space-4) 0 0;
@@ -1359,10 +1460,10 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
   import {
     profileErrorMessage,
     uploadAccessErrorMessage,
-    uploadAccessMissingFields,
     validateUsername,
     validateWhy,
   } from "../lib/account-tier";
+  import { describeGap, gapTail, gapsForFields } from "../lib/profile-gaps";
 
   // ---- Small helpers ----
   const $ = <T extends HTMLElement>(sel: string): T | null => document.querySelector<T>(sel);
@@ -1670,22 +1771,34 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
       if (missingList) missingList.textContent = "";
     };
 
-    /** Render the refusal's `missing` array as links to the fields that need
-     *  filling. Entries with no Settings field of their own (`why`,
-     *  `email_verified`) render as plain text rather than as a link to
-     *  nowhere. */
+    // A verified ORCID iD owns the name, so a refusal naming `given_name` /
+    // `family_name` must point at orcid.org rather than at fields this
+    // account does not get. The server rendered the answer onto the form.
+    const orcidVerified = form.dataset.orcidVerified === "true";
+
+    /** Render the refusal's `missing` array as one line per field: the label
+     *  linked at the control that owns it, then the rest of `describeGap`'s
+     *  sentence — what the field blocks and where it is set. Word for word
+     *  what the dashboard nudge, `/upload` and `nemar auth status` print, so
+     *  a user who has already read this once does not have to re-parse it.
+     *  Entries with no Settings field of their own (`why` is the textarea
+     *  above; `email_verified` has its own surface) render as plain text
+     *  rather than as a link to nowhere. */
     const showMissing = (missing: readonly string[]): void => {
       if (!missingBox || !missingList || missing.length === 0) return;
       missingList.textContent = "";
-      for (const field of uploadAccessMissingFields(missing)) {
+      for (const gap of gapsForFields(missing, { orcidVerified })) {
         const li = document.createElement("li");
-        if (field.href) {
+        if (gap.href) {
           const a = document.createElement("a");
-          a.href = field.href;
-          a.textContent = field.label;
+          a.href = gap.href;
+          a.textContent = gap.label;
           li.appendChild(a);
+          // textContent, never innerHTML: the tail is our own copy, but the
+          // label beside it is keyed off a backend-supplied field name.
+          li.appendChild(document.createTextNode(` ${gapTail(gap)}`));
         } else {
-          li.textContent = field.label;
+          li.textContent = describeGap(gap);
         }
         missingList.appendChild(li);
       }
