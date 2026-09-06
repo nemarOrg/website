@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DashboardApiError } from "./dashboard-api";
+import { profileGaps } from "./profile-gaps";
 import {
   ADMIN_TIER_LABELS,
+  type AdminUserDetail,
   type AdminUserListRow,
   REVIEW_DETAIL_LIMIT,
   adminActionErrorText,
@@ -14,6 +16,7 @@ import {
   changeUserRole,
   deleteUserById,
   fetchAwaitingApprovalCount,
+  gapAccountFromDetail,
   getAdminUser,
   isActionable,
   isAwaitingUploadApproval,
@@ -754,5 +757,100 @@ describe("admin action error copy", () => {
     expect(approveErrorText(new Error("network down"))).toBe("network down");
     expect(adminActionErrorText("not an error")).toBe("Action failed.");
     expect(approveErrorText(null)).toBe("Action failed.");
+  });
+});
+
+function detail(overrides: Partial<AdminUserDetail> = {}): AdminUserDetail {
+  return {
+    id: 42,
+    username: "alice",
+    email: "alice@example.com",
+    github_username: "alice",
+    status: "verified",
+    email_verified: 1,
+    role: "member",
+    created_at: "2026-01-01 00:00:00",
+    approved_at: null,
+    revoked_at: null,
+    given_name: "Ada",
+    family_name: "Lovelace",
+    orcid: "0000-0002-1825-0097",
+    orcid_verified: 1,
+    city: "London",
+    country: "United Kingdom",
+    affiliation: "Analytical Engine Lab",
+    dataset_count: 0,
+    active_tokens: 1,
+    ...overrides,
+  };
+}
+
+describe("gapAccountFromDetail", () => {
+  it("turns D1's 0/1 integers into the booleans the gap rules read", () => {
+    // D1 has no boolean type, so these arrive as INTEGERs. An inverted or
+    // truthy-coerced mapping here reads a verified inbox as unproved (or
+    // worse, the reverse) on the one screen an admin approves from.
+    expect(gapAccountFromDetail(detail({ email_verified: 1 })).email_verified).toBe(true);
+    expect(gapAccountFromDetail(detail({ email_verified: 0 })).email_verified).toBe(false);
+    expect(gapAccountFromDetail(detail({ orcid_verified: 1 })).orcid_verified).toBe(true);
+    expect(gapAccountFromDetail(detail({ orcid_verified: 0 })).orcid_verified).toBe(false);
+    // A column the backend did not send is not a verified anything.
+    expect(gapAccountFromDetail(detail({ orcid_verified: null })).orcid_verified).toBe(false);
+  });
+
+  it("raises the email gap for an unverified inbox and not for a verified one", () => {
+    // The mapping through to the rendered list, because that is what an
+    // inverted boolean actually breaks.
+    expect(
+      profileGaps(gapAccountFromDetail(detail({ email_verified: 0 }))).map((g) => g.field),
+    ).toEqual(["email_verified"]);
+    expect(profileGaps(gapAccountFromDetail(detail({ email_verified: 1 })))).toEqual([]);
+  });
+
+  it("normalises the optional string columns to null, never undefined", () => {
+    // `undefined` means "could not ask" for the username and nothing else,
+    // so the other four must arrive as an explicit null — a column that is
+    // NULL in D1 is a field the user left blank, and the gap is real.
+    const account = gapAccountFromDetail(
+      detail({ given_name: null, family_name: undefined, city: null, country: undefined }),
+    );
+    expect(account.given_name).toBeNull();
+    expect(account.family_name).toBeNull();
+    expect(account.city).toBeNull();
+    expect(account.country).toBeNull();
+    expect(profileGaps(account).map((g) => g.field)).toEqual([
+      "given_name",
+      "family_name",
+      "city",
+      "country",
+    ]);
+  });
+
+  it("passes a NULL username through as a gap, not as unknown", () => {
+    // The detail row always answers the question, unlike `/auth/me`, so a
+    // null here is "this web account never picked one" — which is exactly
+    // what an admin approving by id needs to see.
+    expect(gapAccountFromDetail(detail({ username: null })).username).toBeNull();
+    expect(
+      profileGaps(gapAccountFromDetail(detail({ username: null }))).map((g) => g.field),
+    ).toEqual(["username"]);
+  });
+
+  it("moves the name gaps to ORCID when the iD is verified", () => {
+    const gaps = profileGaps(
+      gapAccountFromDetail(detail({ given_name: null, family_name: null, orcid_verified: 1 })),
+    );
+    expect(gaps.map((g) => g.href)).toEqual([
+      "https://orcid.org/my-orcid",
+      "https://orcid.org/my-orcid",
+    ]);
+  });
+
+  it("never reads the admin lifecycle status as an account tier", () => {
+    // `verified` / `approved` / `revoked` are the admin vocabulary, not the
+    // session's "pending" — passing one through would raise the email gap
+    // for every base-tier row in the queue.
+    expect(gapAccountFromDetail(detail({ status: "pending" }))).not.toHaveProperty("status");
+    expect(profileGaps(gapAccountFromDetail(detail({ status: "pending" })))).toEqual([]);
   });
 });

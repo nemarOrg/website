@@ -174,6 +174,98 @@ describe("parseAuthMeResponse", () => {
     }
   });
 
+  // The two nemar-cli phase 8 fields (#1268). Neither is on `/auth/me` today,
+  // so these pin the parser against the shape it will meet AND against
+  // today's, where both must stay absent.
+  it("keeps username_auto_assigned only when it is a real boolean", () => {
+    const base = { id: "u_11", email: "ua@example.com", role: "member", status: "active" };
+    expect(
+      parseAuthMeResponse({ user: { ...base, username_auto_assigned: true } })?.user,
+    ).toMatchObject({ username_auto_assigned: true });
+    // false must survive: it is the backend saying the user chose their own
+    // handle, which is not the same as a backend that cannot say.
+    expect(
+      parseAuthMeResponse({ user: { ...base, username_auto_assigned: false } })?.user,
+    ).toMatchObject({ username_auto_assigned: false });
+    // A truthy non-boolean must not make /onboarding tell someone their
+    // username was picked for them.
+    for (const bad of ["yes", 1, "true", {}]) {
+      expect(
+        parseAuthMeResponse({ user: { ...base, username_auto_assigned: bad } })?.user,
+        `${JSON.stringify(bad)} must not be read as true`,
+      ).not.toHaveProperty("username_auto_assigned");
+    }
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("username_auto_assigned");
+  });
+
+  it("attaches profile_gaps only for an array, and keeps an empty one", () => {
+    const base = { id: "u_12", email: "pg@example.com", role: "member", status: "active" };
+    expect(
+      parseAuthMeResponse({
+        user: {
+          ...base,
+          profile_gaps: [{ field: "city", blocks: ["upload_access"], set_on: ["settings"] }],
+        },
+      })?.user,
+    ).toMatchObject({
+      profile_gaps: [{ field: "city", blocks: ["upload_access"], set_on: ["settings"] }],
+    });
+
+    // `[]` is the backend saying nothing is missing, and it is NOT the same
+    // as absent — `profileGaps` honours the empty array verbatim and derives
+    // its own list when the key is missing. Collapsing the two would have a
+    // complete account fall back to a derivation that could disagree.
+    const empty = parseAuthMeResponse({ user: { ...base, profile_gaps: [] } })?.user;
+    expect(empty).toHaveProperty("profile_gaps");
+    expect(empty?.profile_gaps).toEqual([]);
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("profile_gaps");
+
+    // A non-array leaves the key absent rather than half-parsed: derivation
+    // is the honest fallback for a shape this build cannot read.
+    for (const bad of ["city", 1, {}, null]) {
+      expect(
+        parseAuthMeResponse({ user: { ...base, profile_gaps: bad } })?.user,
+        `${JSON.stringify(bad)} is not a gap list`,
+      ).not.toHaveProperty("profile_gaps");
+    }
+  });
+
+  it("drops profile_gaps entries with no string field, and keeps the rest", () => {
+    const base = { id: "u_13", email: "pg2@example.com", role: "member", status: "active" };
+    const out = parseAuthMeResponse({
+      user: {
+        ...base,
+        profile_gaps: [
+          { blocks: ["upload_access"] },
+          null,
+          "city",
+          { field: 7 },
+          { field: "city" },
+        ],
+      },
+    })?.user;
+    expect(out?.profile_gaps).toEqual([{ field: "city", blocks: undefined, set_on: undefined }]);
+  });
+
+  it("filters non-string blocks and set_on values", () => {
+    const base = { id: "u_14", email: "pg3@example.com", role: "member", status: "active" };
+    const out = parseAuthMeResponse({
+      user: {
+        ...base,
+        profile_gaps: [
+          { field: "city", blocks: ["upload_access", 3, null], set_on: ["settings", {}] },
+          // Not arrays at all: the key resolves to undefined, and the gap
+          // still renders from this build's own table.
+          { field: "username", blocks: "upload_access", set_on: 4 },
+        ],
+      },
+    })?.user;
+    expect(out?.profile_gaps).toEqual([
+      { field: "city", blocks: ["upload_access"], set_on: ["settings"] },
+      { field: "username", blocks: undefined, set_on: undefined },
+    ]);
+  });
+
   it("omits blank / wrong-typed optional fields (sparse /auth/me)", () => {
     const out = parseAuthMeResponse({
       user: {
