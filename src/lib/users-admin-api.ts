@@ -26,6 +26,7 @@
  */
 import { dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError } from "./dashboard-api";
+import type { ProfileGapAccount } from "./profile-gaps";
 import { resolveSignal } from "./request-deadline";
 
 /**
@@ -256,6 +257,35 @@ export interface AdminUserDetail {
   readonly description?: string | null;
   readonly dataset_count: number;
   readonly active_tokens: number;
+}
+
+/**
+ * The account shape `profileGaps` reads, from an admin detail row
+ * (website#309), so the review card and the user page report exactly what the
+ * account holder is told on their own dashboard.
+ *
+ * Built from the DETAIL row and never from a listing row: `GET /admin/users`
+ * is an explicit column projection that carries no city or country, and a
+ * field the listing does not select is not a field the user left blank —
+ * reading one as the other would have an admin chasing someone over a column
+ * nobody asked for.
+ *
+ * `status` is deliberately not passed. The admin lifecycle vocabulary
+ * (`pending` / `verified` / `approved` / `revoked`) is not the session's
+ * two-state one, and `email_verified` already carries the only fact the gap
+ * list needs from it.
+ */
+export function gapAccountFromDetail(detail: AdminUserDetail): ProfileGapAccount {
+  return {
+    email_verified: detail.email_verified === 1,
+    username: detail.username,
+    given_name: detail.given_name ?? null,
+    family_name: detail.family_name ?? null,
+    orcid_verified: detail.orcid_verified === 1,
+    github_username: detail.github_username,
+    city: detail.city ?? null,
+    country: detail.country ?? null,
+  };
 }
 
 interface AdminUserDetailResponse {

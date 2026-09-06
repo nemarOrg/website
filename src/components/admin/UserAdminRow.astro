@@ -5,8 +5,10 @@
  * project's scoped-style-duplication convention (AGENTS.md) rather than a
  * shared stylesheet.
  */
+import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
 import { fullName, isValidOrcid } from "../../lib/auth";
 import { formatDate, formatRelativeTime } from "../../lib/format";
+import { describeGapBlocks, profileGaps } from "../../lib/profile-gaps";
 import {
   ADMIN_TIER_LABELS,
   type AdminUserDetail,
@@ -14,6 +16,7 @@ import {
   type AdminUserRole,
   adminTier,
   canApproveUser,
+  gapAccountFromDetail,
   isActionable,
   isAwaitingUploadApproval,
   isSelf,
@@ -75,6 +78,18 @@ const country = (detail?.country ?? "").trim();
 const affiliation = (detail?.affiliation ?? "").trim();
 const whyText = (detail?.description ?? "").trim();
 const emailVerified = user.email_verified === 1;
+
+// What the requester is still missing, from the same module their own
+// dashboard reads (website#309), so an admin sees the refusal before making
+// it rather than after. `null` means the detail fetch did not land — the
+// listing carries no city or country, and a field nobody asked for is not a
+// field the user left blank.
+//
+// Approval stays available either way. The backend owns that decision (it
+// refuses an unverified email with a sentence saying so), and an admin
+// granting access to an account with an outstanding field is a judgement
+// this card informs rather than one it should block.
+const reviewGaps = detail ? profileGaps(gapAccountFromDetail(detail)) : null;
 ---
 
 <article class="user-row" data-user-row data-username={user.username ?? ""}>
@@ -208,6 +223,26 @@ const emailVerified = user.email_verified === 1;
             <dd>{affiliation || (detail ? "—" : "not loaded")}</dd>
           </div>
         </dl>
+
+        <div class="user-row__gaps" data-user-gaps>
+          <p class="user-row__gaps-label">{ACCOUNT_COPY["gaps.admin.title"]}</p>
+          {reviewGaps === null ? (
+            <p class="user-row__gaps-empty">{ACCOUNT_COPY["gaps.admin.not_loaded"]}</p>
+          ) : reviewGaps.length === 0 ? (
+            <p class="user-row__gaps-empty">{ACCOUNT_COPY["gaps.admin.none"]}</p>
+          ) : (
+            <ul class="user-row__gaps-list" role="list">
+              {reviewGaps.map((gap) => (
+                <li>
+                  {fillCopy(ACCOUNT_COPY["gaps.admin.item"], {
+                    label: gap.label,
+                    blocks: describeGapBlocks(gap),
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         <div class="user-row__why">
           <p class="user-row__why-label">What they intend to upload</p>
@@ -429,6 +464,35 @@ const emailVerified = user.email_verified === 1;
     color: var(--color-warning);
     font-size: var(--fs-xs);
     font-weight: var(--fw-medium);
+  }
+  /* The gap list on the review card: what the account is still missing, and
+     what each one blocks. Reports, never instructs — the admin is not the
+     person who can fill these in. */
+  .user-row__gaps {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .user-row__gaps-label {
+    margin: 0;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+  }
+  .user-row__gaps-empty {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .user-row__gaps-list {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+    list-style: disc;
+    font-size: var(--fs-sm);
+    color: var(--color-warning);
+    overflow-wrap: anywhere;
   }
   .user-row__why {
     background: var(--color-bg-subtle);

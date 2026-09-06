@@ -2,14 +2,17 @@
 import ConfirmDialog from "../../../components/ConfirmDialog.astro";
 import UserStatusBadge from "../../../components/UserStatusBadge.astro";
 import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { ACCOUNT_COPY, fillCopy } from "../../../lib/account-copy";
 import { adminGate } from "../../../lib/admin-guard";
 import { getSession } from "../../../lib/auth";
 import { DashboardApiError } from "../../../lib/dashboard-api";
 import { formatDate, formatRelativeTime } from "../../../lib/format";
+import { describeGapBlocks, profileGaps } from "../../../lib/profile-gaps";
 import {
   type AdminUserDetail,
   type AdminUserRole,
   canApproveUser,
+  gapAccountFromDetail,
   getAdminUser,
   isActionable,
   isSelf,
@@ -71,6 +74,12 @@ const currentRole: AdminUserRole = user?.role ?? "member";
 const ROLE_OPTIONS: readonly AdminUserRole[] = ["member", "admin", "owner"];
 
 const displayName = user ? [user.given_name, user.family_name].filter(Boolean).join(" ") : "";
+
+// The same gap list the account holder sees on their own dashboard
+// (website#309). This page always has the full detail row, so unlike the
+// queue's review card there is no "not loaded" state to distinguish.
+// Reported, never enforced: approve stays available and the backend decides.
+const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
 ---
 
 <AdminLayout title={user?.username ? `User: ${user.username}` : "User"} active="users" session={session}>
@@ -176,6 +185,24 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
             <dd>{formatRelativeTime(user.revoked_at ?? user.approved_at ?? user.created_at) || "—"}</dd>
           </div>
         </dl>
+
+        <section class="user-detail__gaps" data-user-gaps>
+          <h3 class="user-detail__gaps-title">{ACCOUNT_COPY["gaps.admin.title"]}</h3>
+          {gaps.length === 0 ? (
+            <p class="user-detail__gaps-empty">{ACCOUNT_COPY["gaps.admin.none"]}</p>
+          ) : (
+            <ul class="user-detail__gaps-list" role="list">
+              {gaps.map((gap) => (
+                <li>
+                  {fillCopy(ACCOUNT_COPY["gaps.admin.item"], {
+                    label: gap.label,
+                    blocks: describeGapBlocks(gap),
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
         <footer class="user-detail__actions">
           {canApprove && (
@@ -375,6 +402,36 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
     margin: 0;
     color: var(--color-fg);
     font-size: var(--fs-sm);
+  }
+  /* Mirrors `.user-row__gaps*` in UserAdminRow.astro — scoped styles do not
+     cross component boundaries, so the pair is duplicated on purpose (see
+     AGENTS.md). Keep them in sync. */
+  .user-detail__gaps {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .user-detail__gaps-title {
+    margin: 0;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+  }
+  .user-detail__gaps-empty {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .user-detail__gaps-list {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+    list-style: disc;
+    font-size: var(--fs-sm);
+    color: var(--color-warning);
+    overflow-wrap: anywhere;
   }
   .user-detail__actions {
     display: flex;
