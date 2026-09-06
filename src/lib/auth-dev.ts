@@ -120,6 +120,11 @@ export async function verifyDevSession(token: string): Promise<AuthSession | nul
  * - `@nemar.new` has no username and no name, so `/onboarding` renders every
  *   step. It is deliberately NOT ORCID-verified: with a verified iD the name
  *   step is skipped by design (nemar-cli ADR 0042).
+ * - `@nemar.noname` is the stuck state: a VERIFIED ORCID iD whose record
+ *   publishes no name. It is the one combination in which neither the name
+ *   fields nor the onboarding name step render, so Settings' stuck-state
+ *   explanation is the only surface that addresses it — and the only way to
+ *   see that block locally.
  */
 export function buildDevUser(email: string): AuthUser {
   const lower = email.trim().toLowerCase();
@@ -132,6 +137,10 @@ export function buildDevUser(email: string): AuthUser {
   const unverified = lower.endsWith("@nemar.pending");
   const asked = lower.endsWith("@nemar.asked");
   const fresh = lower.endsWith("@nemar.new");
+  // Verified iD, no name: the dead end Settings' `nameMissingUnderOrcid`
+  // block exists for. Keeps its grant, because the state is reachable from
+  // any tier and the block does not depend on one.
+  const orcidNoName = lower.endsWith("@nemar.noname");
   const baseTier = lower.endsWith("@nemar.base") || unverified || asked || fresh;
   const blankProfile = lower.endsWith("@nemar.blank") || baseTier;
   return {
@@ -152,8 +161,8 @@ export function buildDevUser(email: string): AuthUser {
     // these from /auth/me instead; this block is dev-only (gated on DEV).
     // `@nemar.new` has neither a name nor a verified iD, which is the only
     // combination in which onboarding may ask for one.
-    given_name: fresh ? "" : "Ada",
-    family_name: fresh ? "" : "Lovelace",
+    given_name: fresh || orcidNoName ? "" : "Ada",
+    family_name: fresh || orcidNoName ? "" : "Lovelace",
     orcid: fresh ? "" : "0000-0002-1825-0097",
     orcid_verified: !fresh,
     // The self-service fields, blank for the incomplete-profile persona.

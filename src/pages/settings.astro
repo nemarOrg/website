@@ -88,6 +88,15 @@ const roleLabel: Record<typeof role, string> = {
   user: "Researcher",
 };
 
+// A verified ORCID iD owns the name (nemar-cli ADR 0042), so the fields below
+// are not editable — but the record can publish no name at all, and then the
+// account is stuck: it cannot publish (ADR 0041), and the upload-access
+// request refuses with `missing: ["given_name", "family_name"]` naming two
+// controls that do not exist for it. That was a dead end with no in-product
+// exit, so this is the state that gets its own explanation and its own way
+// out (re-link, or unlink and type one).
+const nameMissingUnderOrcid = orcidVerified && name.length === 0;
+
 const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
 const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
 ---
@@ -119,7 +128,12 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
           </p>
         </header>
         <dl class="kv">
-          <div class="kv__row">
+          {/* `id="account-name"` is on the ROW, not on an input, and the row
+              always renders. It is where `uploadAccessMissingFields` points
+              `given_name`/`family_name`, and an input id could not be: the
+              editable fields do not exist for a verified-ORCID account, which
+              is exactly the account the backend names those fields to. */}
+          <div class="kv__row" id="account-name">
             <dt>Name</dt>
             <dd>
               {name ? (
@@ -186,6 +200,44 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
             </dd>
           </div>
         </dl>
+
+        {/* The stuck state: a verified iD whose record publishes no name.
+            Nothing else on this page addresses it — the fields are withheld
+            (the backend would 409 `name_is_orcid_canonical`) and the ORCID
+            card below explains linking, not this. Both exits are here:
+            re-link, which re-reads the record, and unlink, which hands the
+            account back its editable fields.
+
+            The re-link control is a real form because it is one — an
+            Origin-carrying POST, no JavaScript (nemar-cli ADR 0022). Unlink
+            needs the ORCID card's handler, and duplicating its button would
+            break it outright: the page's `$()` helper is `querySelector`, so
+            a second `[data-orcid-unlink]` would never be wired. It is linked
+            instead. */}
+        {nameMissingUnderOrcid && (
+          <div class="notice notice--warn" id="account-name-orcid" data-name-orcid-stuck>
+            <p class="notice__title">Your ORCID record doesn&rsquo;t publish a name</p>
+            <p class="notice__body">
+              NEMAR cites the person who deposited a dataset by name, never by username, so
+              your account needs one before it can publish or be granted upload access. Your
+              name comes from your verified ORCID iD and is re-read on every sign-in, which
+              is why it can&rsquo;t be typed here.
+            </p>
+            <p class="notice__body">
+              Make your name public at
+              {" "}<a href="https://orcid.org/my-orcid" rel="external noopener">orcid.org</a>
+              {" "}(Names &rsaquo; visibility <strong>Everyone</strong>), then re-link below or
+              sign in again. Or unlink the iD from the
+              {" "}<a href="#orcid-card">ORCID iD card</a> to type a name yourself.
+            </p>
+            <div class="flow__actions">
+              <form class="confirm__form" method="post" action="/auth/orcid/start?mode=relink&next=%2Fsettings">
+                <button type="submit" class="btn btn--primary">Re-link ORCID</button>
+              </form>
+              <a class="btn btn--ghost" href="#orcid-card">Go to ORCID settings</a>
+            </div>
+          </div>
+        )}
 
         <!-- Username edit (#301). Editable until an admin approves the
              account; the backend answers 409 `username_locked` after that,
@@ -311,7 +363,7 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
       </article>
 
       <!-- ORCID block (#132 surface, #134 manage) -->
-      <article class="card">
+      <article class="card" id="orcid-card">
         <div class="card__rail" aria-hidden="true"></div>
         <header class="card__head">
           <h2 class="card__title">ORCID iD</h2>
@@ -1021,6 +1073,22 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
     background: color-mix(in srgb, var(--color-warning) 12%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
     color: color-mix(in srgb, var(--color-warning) 82%, var(--color-fg));
+  }
+  .notice__title {
+    margin: 0 0 var(--space-2);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .notice__body {
+    margin: 0 0 var(--space-3);
+    color: var(--color-fg);
+    line-height: var(--lh-relaxed);
+  }
+  .notice__body:last-of-type {
+    margin-block-end: var(--space-4);
+  }
+  .notice__body a {
+    color: var(--color-link);
   }
 
   /* ---------- Badges ---------- */

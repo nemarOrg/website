@@ -275,8 +275,15 @@ const MISSING_FIELD_TARGETS: Record<string, { label: string; href: string | null
   why: { label: "a description of what you intend to upload", href: null },
   email_verified: { label: "a verified email address", href: null },
   username: { label: "Username", href: "/settings#account-username" },
-  given_name: { label: "Given name", href: "/settings#account-given-name" },
-  family_name: { label: "Family name", href: "/settings#account-family-name" },
+  // Both name halves point at the Name ROW, not at the two inputs. The inputs
+  // exist only for an account with no verified ORCID iD (with one, the
+  // backend refuses the edit), and the account the request endpoint names
+  // these fields to can be exactly the other kind: a verified iD whose record
+  // publishes no name. Linking `#account-given-name` sent that person to an
+  // anchor that is not on the page. The row always renders, and carries the
+  // stuck-state explanation and its two exits when that is the situation.
+  given_name: { label: "Given name", href: "/settings#account-name" },
+  family_name: { label: "Family name", href: "/settings#account-name" },
   github_username: { label: "GitHub handle", href: "/settings#profile-github" },
   city: { label: "City", href: "/settings#profile-city" },
   country: { label: "Country", href: "/settings#profile-country" },

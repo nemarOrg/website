@@ -316,8 +316,13 @@ describe("uploadAccessMissingFields", () => {
   it("links the account-card fields too", () => {
     expect(uploadAccessMissingFields(["username", "given_name", "family_name"])).toEqual([
       { field: "username", label: "Username", href: "/settings#account-username" },
-      { field: "given_name", label: "Given name", href: "/settings#account-given-name" },
-      { field: "family_name", label: "Family name", href: "/settings#account-family-name" },
+      // Both name halves point at the ROW, not at the two inputs. The inputs
+      // render only for an account with NO verified ORCID iD, and the account
+      // the backend names these fields to can be exactly the other kind — a
+      // verified iD whose record publishes no name. Linking an input id sent
+      // that person to an anchor that is not on the page.
+      { field: "given_name", label: "Given name", href: "/settings#account-name" },
+      { field: "family_name", label: "Family name", href: "/settings#account-name" },
     ]);
   });
 

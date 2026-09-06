@@ -236,6 +236,42 @@ describe("Settings", () => {
     expect(SETTINGS).toContain("data-name-orcid-note");
   });
 
+  it("gives a verified iD with no published name a way out", () => {
+    // The dead end: the fields are withheld, `/onboarding` skips the name
+    // step and self-gates away, and the upload-access refusal names
+    // given_name/family_name — two controls that do not exist for this
+    // account. Settings is the only surface left, so it has to carry both
+    // exits.
+    expect(SETTINGS).toContain("const nameMissingUnderOrcid = orcidVerified && name.length === 0;");
+    expect(SETTINGS).toMatch(/\{nameMissingUnderOrcid && \(/);
+    expect(SETTINGS).toContain("data-name-orcid-stuck");
+    // Exit one: re-link, as a real form POST (nemar-cli ADR 0022 — relink
+    // intent is never minted on a GET).
+    expect(SETTINGS).toMatch(
+      /data-name-orcid-stuck[\s\S]{0,2000}method="post" action="\/auth\/orcid\/start\?mode=relink/,
+    );
+    // Exit two: unlink, which needs the ORCID card's handler. The button is
+    // NOT duplicated — the page's `$()` is querySelector, so a second
+    // `[data-orcid-unlink]` would silently never be wired — so the block
+    // links to the card that owns it.
+    expect(SETTINGS).toContain('id="orcid-card"');
+    expect(SETTINGS).toMatch(/data-name-orcid-stuck[\s\S]{0,2000}href="#orcid-card"/);
+    // The bare trigger attribute, exactly once. The lookahead excludes
+    // `data-orcid-unlink-confirm` / `-do` (different attributes) and the two
+    // `[data-orcid-unlink]` selector spellings in the comment and the script.
+    const unlinkTriggers = SETTINGS.match(/data-orcid-unlink(?![-\]\w])/g) ?? [];
+    expect(unlinkTriggers).toHaveLength(1);
+  });
+
+  it("anchors the name links on the row, which always renders", () => {
+    // An input id could not serve here: the inputs are exactly what a
+    // verified-ORCID account does not get.
+    expect(SETTINGS).toContain('class="kv__row" id="account-name"');
+    for (const field of uploadAccessMissingFields(["given_name", "family_name"])) {
+      expect(field.href, field.field).toBe("/settings#account-name");
+    }
+  });
+
   it("reports the tier rather than a two-value status", () => {
     expect(SETTINGS).toContain("deriveAccountTier");
     expect(SETTINGS).toContain("tierLabel");
