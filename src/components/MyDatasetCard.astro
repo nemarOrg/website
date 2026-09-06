@@ -30,18 +30,26 @@ const githubUrl = dataset.github_repo ? `https://github.com/${dataset.github_rep
 // Until now only the admin queue rendered anything about a block, so the
 // person who could actually fix it got a red badge and no sentence.
 //
+// **Gated on the STATUS, not on the reason.** `block_reason` is a nullable
+// free-TEXT column (nemar-cli migration 0015), so a row that predates it — or
+// a status payload that omitted it — is genuinely blocked with nothing to
+// quote. Keying the panel on the reason meant exactly those rows got the
+// "Blocked" badge with no explanation under it at all, which is the failure
+// this whole change exists to fix. `blockBadgeState` already answers
+// "blocked" for a null reason; the panel now agrees with it.
+//
 // The text is the BACKEND's (`blockMessage` in nemar-cli
 // `routes/datasets/publication.ts`), not a local re-derivation from the reason
 // code: it is the one place the fix is spelled out, it changes with the
 // backend rather than with a deploy of this site, and for `owner_name_missing`
 // it names both routes to a name depending on whether the account has a
 // verified ORCID link — a distinction this card cannot see.
-const blockReason = publishStatus?.status === "blocked" ? publishStatus.block_reason : null;
-const blockMessage =
-  publishStatus?.status === "blocked" ? (publishStatus.message ?? "").trim() : "";
+const isBlocked = publishStatus?.status === "blocked";
+const blockReason = isBlocked ? (publishStatus.block_reason ?? "").trim() : "";
+const blockMessage = isBlocked ? (publishStatus.message ?? "").trim() : "";
 // A CI link only exists for the reasons that are about the repository; the
 // backend already withholds `ci_url` when there is no repo.
-const blockCiUrl = publishStatus?.status === "blocked" ? publishStatus.ci_url : undefined;
+const blockCiUrl = isBlocked ? publishStatus.ci_url : undefined;
 const blockFixInSettings = blockIsAccountFixable(blockReason);
 ---
 
@@ -62,17 +70,24 @@ const blockFixInSettings = blockIsAccountFixable(blockReason);
 
   {description && <p class="my-dataset-card__description">{description}</p>}
 
-  {blockReason && (
+  {isBlocked && (
     <div class="my-dataset-card__block" role="note">
       {blockMessage ? (
         <p class="my-dataset-card__block-text">{blockMessage}</p>
-      ) : (
+      ) : blockReason ? (
         /* An older backend sent no message. Show the raw code rather than
            inventing a sentence for it — the admin queue has always done the
            same, and a wrong explanation is worse than a bare reason. */
         <p class="my-dataset-card__block-text">
           Publication is blocked (<code>{blockReason}</code>). Contact an admin if this is
           unexpected.
+        </p>
+      ) : (
+        /* Neither a message nor a reason: the row is blocked and nothing on
+           the wire says why. Still say so — an owner who can see the badge
+           and nothing else has no way to know it is not their mistake. */
+        <p class="my-dataset-card__block-text">
+          Publication is blocked. Contact an admin if this is unexpected.
         </p>
       )}
       <p class="my-dataset-card__block-links">

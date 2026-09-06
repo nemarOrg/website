@@ -46,16 +46,50 @@ describe("the owner's card explains a block", () => {
 
   it("falls back to the raw reason when an older backend sent no message", () => {
     // A bare code an admin can be quoted beats an explanation nobody wrote.
-    expect(MY_DATASET_CARD).toMatch(/blockMessage \?[\s\S]{0,400}<code>\{blockReason\}<\/code>/);
+    expect(MY_DATASET_CARD).toContain("<code>{blockReason}</code>");
+  });
+
+  it("is gated on the blocked STATUS, not on there being a reason to quote", () => {
+    // `block_reason` is a nullable free-TEXT column (nemar-cli migration
+    // 0015), so a blocked row can carry no reason at all — and gating the
+    // panel on it left exactly those rows showing the "Blocked" badge with
+    // nothing under it, which is the failure this change exists to fix.
+    // `blockBadgeState(null)` already answers "blocked"; the panel agrees.
+    expect(MY_DATASET_CARD).toContain('const isBlocked = publishStatus?.status === "blocked";');
+    expect(MY_DATASET_CARD).toMatch(/\{isBlocked && \(\s*<div class="my-dataset-card__block"/);
+    // The reason must not be what opens the panel.
+    expect(MY_DATASET_CARD).not.toMatch(
+      /\{blockReason && \(\s*<div class="my-dataset-card__block"/,
+    );
   });
 
   it("renders nothing at all when the request is not blocked", () => {
-    // The panel is gated on the reason, not on the presence of a status: a
-    // draft or an awaiting-review card must not sprout an empty amber box.
-    expect(MY_DATASET_CARD).toMatch(/\{blockReason && \(\s*<div class="my-dataset-card__block"/);
+    // A draft or an awaiting-review card must not sprout an empty amber box,
+    // so the panel has exactly one guard and it is the status one asserted
+    // above. `isBlocked` is false for every other branch of the union.
+    const panelGuards = MY_DATASET_CARD.match(/<div class="my-dataset-card__block"/g) ?? [];
+    expect(panelGuards).toHaveLength(1);
+  });
+
+  it("still says something when neither a message nor a reason arrived", () => {
+    // Three branches, in decreasing order of what the wire told us: the
+    // backend's sentence, the bare code an admin can be quoted, and — when
+    // there is neither — a sentence that quotes nothing. An owner looking at
+    // a badge with no text has no way to know it is not their mistake.
     expect(MY_DATASET_CARD).toContain(
-      'const blockReason = publishStatus?.status === "blocked" ? publishStatus.block_reason : null;',
+      "Publication is blocked. Contact an admin if this is unexpected.",
     );
+    // Ordered by index rather than by a regex window: the branches are what
+    // matters, and a character budget between them is a number this test
+    // would have to keep re-guessing every time a comment moves.
+    const messageBranch = MY_DATASET_CARD.indexOf("blockMessage ? (");
+    const reasonBranch = MY_DATASET_CARD.indexOf(") : blockReason ? (");
+    const bareBranch = MY_DATASET_CARD.indexOf(
+      "Publication is blocked. Contact an admin if this is unexpected.",
+    );
+    expect(messageBranch).toBeGreaterThan(-1);
+    expect(reasonBranch).toBeGreaterThan(messageBranch);
+    expect(bareBranch).toBeGreaterThan(reasonBranch);
   });
 
   it("offers the Settings link only for an account-shaped block", () => {
