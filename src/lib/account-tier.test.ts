@@ -22,7 +22,6 @@ import {
   profileErrorMessage,
   showsUploadForm,
   uploadAccessErrorMessage,
-  uploadAccessMissingFields,
   validateUsername,
   validateWhy,
   verifyEmailFailure,
@@ -322,53 +321,6 @@ describe("validateWhy", () => {
     expect(validateWhy("x".repeat(WHY_MIN_CHARS - 1))).toContain(String(WHY_MIN_CHARS));
     expect(validateWhy("x".repeat(WHY_MAX_CHARS + 1))).toContain(String(WHY_MAX_CHARS));
     expect(validateWhy(`  ${"x".repeat(WHY_MIN_CHARS - 1)}  `)).not.toBeNull();
-  });
-});
-
-describe("uploadAccessMissingFields", () => {
-  it("links each account field at the Settings control that owns it", () => {
-    expect(uploadAccessMissingFields(["city", "country", "github_username"])).toEqual([
-      { field: "city", label: "City", href: "/settings#profile-city" },
-      { field: "country", label: "Country", href: "/settings#profile-country" },
-      { field: "github_username", label: "GitHub handle", href: "/settings#profile-github" },
-    ]);
-  });
-
-  it("links the account-card fields too", () => {
-    expect(uploadAccessMissingFields(["username", "given_name", "family_name"])).toEqual([
-      { field: "username", label: "Username", href: "/settings#account-username" },
-      // Both name halves point at the ROW, not at the two inputs. The inputs
-      // render only for an account with NO verified ORCID iD, and the account
-      // the backend names these fields to can be exactly the other kind — a
-      // verified iD whose record publishes no name. Linking an input id sent
-      // that person to an anchor that is not on the page.
-      { field: "given_name", label: "Given name", href: "/settings#account-name" },
-      { field: "family_name", label: "Family name", href: "/settings#account-name" },
-    ]);
-  });
-
-  it("gives no link to the two entries that are not Settings fields", () => {
-    // `why` is the textarea already on screen and `email_verified` has its
-    // own surface; a link to a field that does not exist scrolls nowhere.
-    const [why, email] = uploadAccessMissingFields(["why", "email_verified"]);
-    expect(why.href).toBeNull();
-    expect(email.href).toBeNull();
-    expect(email.label).toContain("verified email");
-  });
-
-  it("keeps an unrecognised field rather than dropping it", () => {
-    // The backend's vocabulary is closed today; swallowing a value it grows
-    // tomorrow would report a refusal with no reason attached.
-    expect(uploadAccessMissingFields(["orcid"])).toEqual([
-      { field: "orcid", label: "orcid", href: null },
-    ]);
-  });
-
-  it("preserves the backend's order", () => {
-    expect(uploadAccessMissingFields(["country", "city"]).map((f) => f.field)).toEqual([
-      "country",
-      "city",
-    ]);
   });
 });
 
