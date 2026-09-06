@@ -71,8 +71,22 @@ jobs:
           bun-version: latest
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      # Without this, test/account-copy-drift.test.ts finds no nemar-cli
+      # checkout beside it and used to log-and-pass, so CI enforced no
+      # parity at all between this repo's account copy and nemar-cli's
+      # contract. staging pairs with nemar-cli's dev branch, main with
+      # nemar-cli's main. No token needed; both repos are public.
+      - uses: actions/checkout@v4
+        with:
+          repository: nemarOrg/nemar-cli
+          path: nemar-cli-contract
+          sparse-checkout: shared/contract/account-copy.ts
+          sparse-checkout-cone-mode: false
+          ref: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'main' || 'dev' }}
       - name: Vitest
         run: bun run test
+        env:
+          NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
 
   build:
     name: build

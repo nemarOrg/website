@@ -46,3 +46,9 @@ pnpm-debug.log*
 # Playwright artifacts
 test-results/
 playwright-report/
+
+# CI's sparse checkout of nemar-cli's account-copy contract
+# (test/account-copy-drift.test.ts, .github/workflows/ci.yml). Never
+# hand-created locally; point NEMAR_CLI_ACCOUNT_COPY at a real checkout
+# instead.
+nemar-cli-contract/

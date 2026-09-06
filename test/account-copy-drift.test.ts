@@ -21,9 +21,21 @@
  * or not a nemar-cli checkout exists. Without that split, the only thing this
  * file could prove on a machine without one was that it skipped.
  *
- * **Absent checkout skips, it does not fail.** CI clones only this repo, so
- * a hard failure would make the suite red on every machine but a
- * maintainer's.
+ * **CI enforces this by checking out the contract file itself.**
+ * `.github/workflows/ci.yml`'s `test` job sparse-checks out nemar-cli's
+ * `shared/contract/account-copy.ts` alongside this repo and points
+ * `NEMAR_CLI_ACCOUNT_COPY` at it. When that env var is set, its path IS the
+ * contract for this run: a missing file there means the checkout step
+ * failed, so the comparison below FAILS loudly instead of skipping — a hard
+ * failure used to make the suite red on every machine but a maintainer's
+ * (nothing but that checkout ever set the var), which is exactly the bug
+ * this enforces against.
+ *
+ * Without the env var — a maintainer's machine, most likely — this falls
+ * back to searching `CONTRACT_CANDIDATES` for a sibling checkout exactly as
+ * before, and an absent one is a VISIBLE skip (`describe.skipIf`), not a
+ * silent pass: the run summary shows a skipped test rather than nothing at
+ * all.
  */
 
 import { describe, expect, it } from "vitest";
@@ -54,7 +66,24 @@ function pathFromUrl(url: URL): string {
 }
 
 /**
- * Where a nemar-cli checkout is expected to sit relative to this one.
+ * Resolve a possibly-relative path against the process's working directory.
+ *
+ * `NEMAR_CLI_ACCOUNT_COPY` names a path relative to the CI workspace root
+ * (`nemar-cli-contract/shared/contract/account-copy.ts`), not to this test
+ * file the way `CONTRACT_CANDIDATES` is. `process.cwd()` under `bun run
+ * test` — and under vitest generally, confirmed directly rather than
+ * assumed — is the repository root, the same directory `actions/checkout`
+ * puts both this repo and the sparse `nemar-cli-contract/` checkout under.
+ * An already-absolute value (the manual verification runs below use one) is
+ * returned unchanged.
+ */
+function resolveFromCwd(maybeRelative: string): string {
+  return maybeRelative.startsWith("/") ? maybeRelative : `${process.cwd()}/${maybeRelative}`;
+}
+
+/**
+ * Where a nemar-cli checkout is expected to sit relative to this one, used
+ * only when `NEMAR_CLI_ACCOUNT_COPY` is unset.
  *
  * Both repos live under one parent directory (`~/Documents/git/nemar/` on a
  * maintainer's machine, but nothing here depends on that name). The epic
@@ -68,12 +97,39 @@ const CONTRACT_CANDIDATES = [
 
 const OURS = new Map(Object.entries(ACCOUNT_COPY));
 
+// Resolved once, at module load, so `describe.skipIf` below has a plain
+// boolean to work with rather than something computed inside a test.
+const fs = await nodeFs();
+
+const NEMAR_CLI_ACCOUNT_COPY = process.env.NEMAR_CLI_ACCOUNT_COPY;
+const STRICT_CONTRACT_PATH = NEMAR_CLI_ACCOUNT_COPY
+  ? resolveFromCwd(NEMAR_CLI_ACCOUNT_COPY)
+  : undefined;
+const FOUND_CANDIDATE = STRICT_CONTRACT_PATH
+  ? undefined
+  : CONTRACT_CANDIDATES.map((rel) => pathFromUrl(new URL(rel, import.meta.url))).find((path) =>
+      fs.existsSync(path),
+    );
+const CONTRACT_PATH = STRICT_CONTRACT_PATH ?? FOUND_CANDIDATE;
+const CONTRACT_EXISTS = CONTRACT_PATH !== undefined && fs.existsSync(CONTRACT_PATH);
+
+// Skip only in soft mode (no env var) with nothing found. Strict mode never
+// skips: a missing file there is a failure, produced inside the test below
+// so it shows up as a failed assertion rather than a thrown-before-collection
+// error.
+const SHOULD_SKIP = !STRICT_CONTRACT_PATH && !CONTRACT_EXISTS;
+
+if (!STRICT_CONTRACT_PATH && !FOUND_CANDIDATE) {
+  console.info(
+    `[account-copy drift] skipped: no nemar-cli contract found at any of ${CONTRACT_CANDIDATES.join(", ")} (relative to test/), and NEMAR_CLI_ACCOUNT_COPY is unset. Phase 8 creates shared/contract/account-copy.ts; this test compares against it as soon as it exists, or set NEMAR_CLI_ACCOUNT_COPY to point at a checkout directly.`,
+  );
+}
+
 describe("the extractor", () => {
-  it("reads this repo's own copy module back exactly", async () => {
+  it("reads this repo's own copy module back exactly", () => {
     // The reader is the load-bearing half of the comparison below, and the
     // file it will be pointed at is one nobody in this repo can see. So it is
     // proved against a file of exactly that shape that everyone can: ours.
-    const fs = await nodeFs();
     const self = pathFromUrl(new URL("../src/lib/account-copy.ts", import.meta.url));
     expect(fs.existsSync(self)).toBe(true);
     const extracted = extractCopy(fs.readFileSync(self, "utf8"));
@@ -160,23 +216,21 @@ describe("compareCopy", () => {
   });
 });
 
-describe("website copy vs the nemar-cli contract", () => {
-  it("matches string for string on every shared key", async () => {
-    const fs = await nodeFs();
-    const found = CONTRACT_CANDIDATES.map((rel) => pathFromUrl(new URL(rel, import.meta.url))).find(
-      (path) => fs.existsSync(path),
-    );
-
-    if (!found) {
-      // Not a failure: CI has no nemar-cli checkout, and phase 8 has not
-      // created the contract file yet even where one exists. The comparison
-      // itself is covered by the fixture tests above.
-      console.info(
-        `[account-copy drift] skipped: no nemar-cli contract found at any of ${CONTRACT_CANDIDATES.join(", ")} (relative to test/). Phase 8 creates shared/contract/account-copy.ts; this test compares against it as soon as it exists.`,
+// `describe.skipIf` (not a per-`it` check) so every test declared inside —
+// today there is one, but the guard is on the block, not on being first —
+// is marked skipped in the run summary rather than silently absent.
+describe.skipIf(SHOULD_SKIP)("website copy vs the nemar-cli contract", () => {
+  it("matches string for string on every shared key", () => {
+    if (STRICT_CONTRACT_PATH && !CONTRACT_EXISTS) {
+      throw new Error(
+        `[account-copy drift] NEMAR_CLI_ACCOUNT_COPY=${NEMAR_CLI_ACCOUNT_COPY} resolved to ${STRICT_CONTRACT_PATH}, which does not exist. This test enforces the contract when the env var is set; it does not skip on a missing file. Check the sparse-checkout step in .github/workflows/ci.yml.`,
       );
-      return;
     }
 
+    // SHOULD_SKIP is false here (the describe block would not have run
+    // otherwise), and the strict-missing case threw above, so a path is
+    // guaranteed at this point.
+    const found = CONTRACT_PATH as string;
     const result = compareCopy(OURS, extractCopy(fs.readFileSync(found, "utf8")));
 
     if (result.contractOnly.length > 0) {
