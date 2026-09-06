@@ -2,6 +2,7 @@
 import Base from "../layouts/Base.astro";
 import { safeRedirectPath } from "../lib/auth";
 import { ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ETA, webSigninEnabled } from "../lib/flags";
+import { IDENTITY_CONFLICT_MESSAGES } from "../lib/identity-errors";
 
 const url = new URL(Astro.request.url);
 const next = safeRedirectPath(url.searchParams.get("next"));
@@ -15,7 +16,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   orcid_exchange: "We couldn't complete ORCID sign-in. Please try again.",
   orcid_error: "Something went wrong during ORCID sign-in. Please try again.",
   orcid_unavailable: "ORCID sign-in is temporarily unavailable. Please try again shortly.",
-  orcid_linked_other: "That ORCID iD is already linked to a different NEMAR account.",
+  // orcid_in_use / its deprecated alias orcid_already_linked, plus
+  // email_in_use and github_in_use, share one sentence regardless of which
+  // backend constraint noticed the collision (website#305).
+  ...IDENTITY_CONFLICT_MESSAGES,
   orcid_already_have: "Your account already has a different ORCID iD linked.",
   orcid_account: "We couldn't find an active account for that ORCID iD.",
   orcid_pending_expired: "Your ORCID sign-in session expired. Please sign in with ORCID again.",

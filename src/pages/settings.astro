@@ -15,6 +15,7 @@ import {
   resolveDocsBase,
 } from "../lib/docs-base";
 import { formatDate } from "../lib/format";
+import { IDENTITY_CONFLICT_MESSAGES } from "../lib/identity-errors";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -25,7 +26,10 @@ if (!session) {
 // carries state.next=/settings). Only known ORCID codes render; anything else
 // is ignored rather than shown as a generic scare banner.
 const ORCID_ERROR_MESSAGES: Record<string, string> = {
-  orcid_linked_other: "That ORCID iD is already linked to a different NEMAR account.",
+  // orcid_in_use / its deprecated alias orcid_already_linked, orcid_linked_other,
+  // email_in_use, and github_in_use share one sentence regardless of which
+  // backend constraint noticed the collision (website#305).
+  ...IDENTITY_CONFLICT_MESSAGES,
   orcid_already_have:
     "Your account already has a different ORCID iD linked. Use Change / re-link to replace it.",
   orcid_denied: "The ORCID sign-in was cancelled. Nothing was changed.",

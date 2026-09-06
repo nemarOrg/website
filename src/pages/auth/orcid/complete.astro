@@ -236,6 +236,8 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
 </style>
 
 <script>
+  import { identityConflictMessage } from "../../../lib/identity-errors";
+
   const form = document.querySelector<HTMLFormElement>("[data-finish-form]");
   const emailEl = document.querySelector<HTMLInputElement>("[data-finish-email]");
   const cityEl = document.querySelector<HTMLInputElement>("[data-finish-city]");
@@ -244,18 +246,28 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
   const submitEl = document.querySelector<HTMLButtonElement>("[data-finish-submit]");
   const errorEl = document.querySelector<HTMLElement>("[data-finish-error]");
 
-  // Values are trusted static strings rendered via innerHTML (one carries an
-  // <a>). The lookup key `code` is never interpolated into them. Keep every
-  // value a compile-time constant -- never build one from a server value, or
-  // this becomes an XSS sink.
-  const MESSAGES: Record<string, string> = {
-    email_in_use:
-      "That email already has a NEMAR account. Sign in with it first, then link ORCID from settings.",
+  // Codes this page renders that aren't an identity-uniqueness conflict
+  // (those go through identityConflictMessage below). Values are trusted
+  // static strings rendered via innerHTML (one carries an <a>); the lookup
+  // key `code` is never interpolated into them. Keep every value a
+  // compile-time constant -- never build one from a server value, or this
+  // becomes an XSS sink. Object.hasOwn guards the lookup below against a
+  // prototype key (`constructor`, `toString`, ...) resolving to a function
+  // instead of `undefined` -- the same guard login.astro and settings.astro
+  // apply to their own ORCID error maps.
+  const EXTRA_MESSAGES: Record<string, string> = {
     orcid_pending_expired:
       'Your ORCID session expired. <a href="/auth/orcid/start">Sign in with ORCID</a> again to retry.',
-    orcid_already_linked: "This ORCID iD is already linked to an account. Try signing in instead.",
     invalid_email: "That doesn't look like an email address.",
   };
+
+  function messageForCode(code: string): string {
+    return (
+      identityConflictMessage(code) ??
+      (Object.hasOwn(EXTRA_MESSAGES, code) ? EXTRA_MESSAGES[code] : undefined) ??
+      "We couldn't finish creating your account. Try again in a moment."
+    );
+  }
 
   if (form && emailEl && cityEl && countryEl && submitEl && errorEl) {
     form.addEventListener("submit", async (e) => {
@@ -290,8 +302,7 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
         } catch {
           /* keep "unknown" */
         }
-        errorEl.innerHTML =
-          MESSAGES[code] ?? "We couldn't finish creating your account. Try again in a moment.";
+        errorEl.innerHTML = messageForCode(code);
         errorEl.hidden = false;
         submitEl.disabled = false;
       } catch (err) {
