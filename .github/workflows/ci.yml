@@ -74,15 +74,36 @@ jobs:
       # Without this, test/account-copy-drift.test.ts finds no nemar-cli
       # checkout beside it and used to log-and-pass, so CI enforced no
       # parity at all between this repo's account copy and nemar-cli's
-      # contract. staging pairs with nemar-cli's dev branch, main with
-      # nemar-cli's main. No token needed; both repos are public.
+      # contract. No token needed; both repos are public.
+      #
+      # REF PAIRING: always nemar-cli `dev`, never `main`, whatever this PR
+      # targets. The pre-release branches are the coupled pair — this repo's
+      # `staging` and nemar-cli's `dev` carry a copy change together — and
+      # `main` on either side is only a snapshot of them taken at the last
+      # release.
+      #
+      # Pinning `main` for a main-targeted PR, as this step did until #315,
+      # DEADLOCKS every coordinated release that touches the copy, and does so
+      # symmetrically: our release PR compares staging copy against nemar-cli's
+      # not-yet-promoted `main`, while nemar-cli's release PR compares its new
+      # contract against OUR not-yet-promoted `main`. Both go red, and neither
+      # can merge to give the other what it wants. Observed on the v0.2.8 /
+      # nemar-cli v0.9.16 release of epic nemarOrg/nemar-cli#1250, the first
+      # release after the gate landed (website#314, nemar-cli#1276).
+      #
+      # Comparing against `dev` keeps the gate non-vacuous: every copy change
+      # lands on `staging` or `dev` through a PR, and that PR is checked
+      # against the counterpart's live pre-release branch. A promotion PR
+      # re-checks the exact pair about to ship together.
+      #
+      # See nemar-cli ADR 0046.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
           path: nemar-cli-contract
           sparse-checkout: /shared/contract/account-copy.ts
           sparse-checkout-cone-mode: false
-          ref: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'main' || 'dev' }}
+          ref: dev
       - name: Vitest
         run: bun run test
         env:
