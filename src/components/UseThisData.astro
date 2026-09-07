@@ -18,6 +18,16 @@
  * clicking once, and nothing is hidden with `display: none` or off-screen
  * positioning. Do NOT switch this to `open` by default without re-checking
  * how far it pushes the README on a dataset with many references.
+ *
+ * SIZED AS AN ENDNOTE, NOT A CARD (website#300). #297 fixed placement
+ * (collapsed, last in the content column) but left the summary line styled
+ * like a headline -- `--fs-xl` semibold on an elevated card, the same visual
+ * weight as the README card above it -- so even collapsed it still competed
+ * with the human-facing content. The summary is now plain small text under a
+ * hairline rule, sized with the same tokens the body already used
+ * (`--fs-sm`/`--fs-xs`, both below `--fs-base`): a human notices it if they
+ * look, an agent reads the identical server-rendered strings regardless of
+ * font size.
  */
 import type { UseThisData } from "../lib/use-this-data";
 
@@ -63,36 +73,39 @@ const { model } = Astro.props;
 </details>
 
 <style>
+  /* Hairline rule instead of a bordered/elevated card -- an endnote reads as
+     a footer to the content above it, not as another card competing on the
+     same visual plane as the README/BidsTree cards. */
   .use-this-data {
-    padding: var(--space-4) var(--space-6);
-    margin-block-end: var(--space-6);
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--color-border);
   }
   .use-this-data__summary {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: var(--space-2) var(--space-3);
+    padding-block: var(--space-1);
     cursor: pointer;
   }
   /* The marker is the only affordance that this opens, so keep it. */
   .use-this-data__summary::marker,
   .use-this-data__summary::-webkit-details-marker {
-    color: var(--color-fg-muted);
+    color: var(--color-fg-subtle);
   }
+  /* One and two steps below --fs-base (1rem) -- the body already used these
+     two tokens; the summary now matches instead of outsizing it. */
   .use-this-data__summary-title {
-    font-size: var(--fs-xl);
-    font-weight: var(--fw-semibold);
-    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
   }
   .use-this-data__summary-hint {
-    font-size: var(--fs-sm);
-    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
   }
   .use-this-data[open] .use-this-data__summary {
-    margin-block-end: var(--space-5);
+    margin-block-end: var(--space-4);
   }
   .use-this-data__body {
     display: flex;

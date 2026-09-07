@@ -1,6 +1,6 @@
 # ADR 0011: Soften the upload profile gate for existing service-access users
 
-**Status:** accepted
+**Status:** accepted; the `block` branch superseded by ADR 0014 (see the Update below)
 **Date:** 2026-08-10
 **Owner:** Seyed Yahya Shirazi
 
@@ -64,3 +64,28 @@ boolean-only).
   (the enforcement that makes "warn" safe).
 - Amends the enforcement posture of #226; does not supersede ADR 0010 — the tier,
   the screening inputs, and the admin review are unchanged.
+
+## Update — 2026-09-05
+
+**`warn` survives for exactly the reason it was written. `block` is gone, because the
+population it guarded can no longer reach the form at all.**
+
+This ADR gave `/upload` two strengths, decided by `uploadGate`: a grant-holder with an
+incomplete profile gets the form plus an amber prompt (`warn`), and everyone else with an
+incomplete profile gets the form withheld (`block`). Under the tier model (website#301,
+nemar-cli ADR 0040) the second case has nothing left to decide: an account without
+`service_access` never sees the upload form, whatever its profile looks like, so withholding
+it from the subset with blank city/country answers a question nobody has reached. What that
+account sees instead is the request-upload-access CTA.
+
+City and country did not stop mattering — they moved to where they are actually needed. They
+are collected at `/onboarding`, and the upload-access request endpoint refuses a request
+missing either (nemar-cli `services/upload-access.ts`), which is a *harder* gate than this
+ADR's block ever was: it is enforced server-side rather than by which markup the page shipped.
+
+`uploadGate` was therefore deleted rather than left with one dead branch, and
+`deriveUploadPageState` in `src/lib/account-tier.ts` owns the decision, still keeping
+`canUpload` from `profile.ts` as the single definition of "complete". The measurement that
+justified `warn` is untouched: every production service-access account predates migrations
+0051/0052, so blocking grant-holders on two empty fields would still block 100% of the people
+authorized to upload.

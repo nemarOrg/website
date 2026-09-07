@@ -587,7 +587,10 @@ const masked = maskEmail(emailRaw);
         }
         const data = (await res.json()) as { user?: { status?: string } };
         if (data?.user?.status === "pending") {
-          location.href = "/login/pending";
+          // Unverified: the dashboard is where the verify-your-email step
+          // lives now (website#301). It used to be /login/pending, which said
+          // "an admin will review your account" — a queue nobody was in.
+          location.href = "/dashboard";
           return;
         }
         // First-verify redirect: show the welcome page unless the user has
@@ -598,7 +601,13 @@ const masked = maskEmail(emailRaw);
         } catch {
           /* localStorage may be unavailable; default to showing welcome. */
         }
-        location.href = firstVisit ? "/welcome" : nextPath || "/";
+        const destination = firstVisit ? "/welcome" : nextPath || "/";
+        // /onboarding is self-gating: it resolves what is actually missing
+        // (username, name, location) and redirects straight to `next` when
+        // nothing is, so routing through it unconditionally costs a finished
+        // account one redirect and saves this page from re-deriving a
+        // condition it cannot see (`/auth/me` carries no username).
+        location.href = `/onboarding?next=${encodeURIComponent(destination)}`;
       } catch (err) {
         // `fetch()` rejects on network failures, but `res.json()` parse
         // failures and any JS thrown inside the `if (!res.ok)` block also

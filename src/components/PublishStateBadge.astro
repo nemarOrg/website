@@ -1,4 +1,14 @@
 ---
+/**
+ * The badge on a dataset card and in the admin publication queue.
+ *
+ * Four of the eight states describe a blocked request (website#304), because
+ * "Validation failed" was only ever right for the blocks that mean the
+ * DATASET failed a gate. `owner_name_missing` is an account property,
+ * `validation_pending` is validation that has not finished rather than
+ * failed, and `blocked` is what an unrecognised reason gets — see
+ * `src/lib/publication-block.ts` for the mapping.
+ */
 import type { DatasetPublishState } from "../lib/dashboard-api";
 
 interface Props {
@@ -12,6 +22,9 @@ const LABELS: Record<DatasetPublishState, string> = {
   awaiting_review: "Awaiting review",
   published: "Published",
   validation_failed: "Validation failed",
+  validation_pending: "Validation pending",
+  name_required: "Name required",
+  blocked: "Blocked",
   denied: "Denied",
 };
 const label = LABELS[state];
@@ -53,6 +66,27 @@ const label = LABELS[state];
     color: var(--color-danger);
     background: color-mix(in srgb, var(--color-danger) 10%, transparent);
     border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  }
+  /* Amber, not red: CI has not finished, so nothing has failed and there is
+     nothing for the owner to do but wait. */
+  .publish-state-badge--validation_pending {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  /* Amber, not red: nothing is broken and nothing failed — the account is
+     one field short, and the owner fixes it in Settings in a minute. */
+  .publish-state-badge--name_required {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  /* The reason is unknown to this build, so the tone says "stopped" without
+     claiming a cause. */
+  .publish-state-badge--blocked {
+    color: var(--color-fg);
+    background: var(--color-bg-subtle);
+    border-color: var(--color-border-strong);
   }
   .publish-state-badge--denied {
     color: var(--color-danger);

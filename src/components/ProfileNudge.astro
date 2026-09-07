@@ -1,22 +1,33 @@
 ---
 /**
- * Dismissible dashboard banner for an incomplete profile (#226).
+ * Dismissible dashboard banner for an unfinished profile (#226, rebuilt for
+ * website#309).
  *
- * A nudge, not a gate — it never blocks anything on this page. The one hard
- * requirement (city + country before upload) is enforced on /upload itself,
- * server-side, so dismissing this cannot buy anyone past it.
+ * A nudge, not a gate — it never blocks anything on this page. The hard
+ * requirements are enforced where they matter: the upload-access request
+ * endpoint refuses a request missing any of these fields, so dismissing this
+ * cannot buy anyone past it.
+ *
+ * What changed in #309 is what it says. It used to name the missing fields
+ * and guess at one consequence for the set ("City and country are required
+ * before you can upload"); now it renders ONE LINE PER GAP from
+ * `profileGaps`, each saying what that field blocks and where to set it, in
+ * the exact sentence the CLI prints and the upload-access refusal repeats.
+ * A user who reads this line, then hits the refusal, then runs `nemar auth
+ * status` now sees the same words three times instead of three paraphrases.
  *
  * Dismissal is client-side and per-browser on purpose: it is a UI
  * preference, not account state, and storing it server-side would mean a
- * write endpoint and a migration for something a user can undo by filling
- * in the form. It re-appears if the set of missing fields changes, because
- * the storage key is derived from that set.
+ * write endpoint and a migration for something a user can undo by filling in
+ * the form. It re-appears if the set of gaps changes, because the storage key
+ * is derived from that set.
  */
-import { type ProfileField, formatFieldList } from "../lib/profile";
+import { ACCOUNT_COPY } from "../lib/account-copy";
+import { type ProfileGap, gapTail } from "../lib/profile-gaps";
 
 interface Props {
-  /** Missing fields, in prompt order. Renders nothing when empty. */
-  missing: readonly ProfileField[];
+  /** Outstanding gaps, in prompt order. Renders nothing when empty. */
+  gaps: readonly ProfileGap[];
   /**
    * Session user id. Scopes the dismissal so one account's choice cannot
    * suppress another's on a shared browser — reachable on test.nemar.org,
@@ -27,14 +38,17 @@ interface Props {
   userId: string;
 }
 
-const { missing, userId } = Astro.props;
-// Keyed on the user AND on the actual missing set, so filling in one field
+const { gaps, userId } = Astro.props;
+// Keyed on the user AND on the actual gap set, so filling in one field
 // re-surfaces the banner for whatever is still outstanding rather than
 // staying dismissed.
-const dismissKey = `nemar:profile-nudge:${userId}:${[...missing].sort().join(",")}`;
+const dismissKey = `nemar:profile-nudge:${userId}:${gaps
+  .map((gap) => gap.field)
+  .sort()
+  .join(",")}`;
 ---
 
-{missing.length > 0 && (
+{gaps.length > 0 && (
   <aside
     class="nudge"
     role="status"
@@ -43,15 +57,22 @@ const dismissKey = `nemar:profile-nudge:${userId}:${[...missing].sort().join(","
     hidden
   >
     <div class="nudge__body">
-      <p class="nudge__text">
-        Your profile is missing your {formatFieldList(missing)}.
-        {missing.includes("city") || missing.includes("country") ? (
-          <> City and country are required before you can upload a dataset.</>
-        ) : (
-          <> A GitHub handle is required when you publish.</>
-        )}
-      </p>
-      <a class="nudge__link" href="/settings">Complete your profile</a>
+      <p class="nudge__title">{ACCOUNT_COPY["gaps.nudge.title"]}</p>
+      <ul class="nudge__list" role="list">
+        {gaps.map((gap) => (
+          <li class="nudge__item">
+            {/* The label links at the field; the tail is the rest of the one
+                sentence `describeGap` composes, so the linked and the plain
+                renderings are word-for-word the same. */}
+            {gap.href ? (
+              <a class="nudge__field" href={gap.href}>{gap.label}</a>
+            ) : (
+              <span class="nudge__field">{gap.label}</span>
+            )}{" "}{gapTail(gap)}
+          </li>
+        ))}
+      </ul>
+      <a class="nudge__link" href="/settings">{ACCOUNT_COPY["gaps.nudge.cta"]}</a>
     </div>
     <button
       type="button"
@@ -88,20 +109,38 @@ const dismissKey = `nemar:profile-nudge:${userId}:${[...missing].sort().join(","
     display: none;
   }
   .nudge__body {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2) var(--space-3);
+    display: grid;
+    gap: var(--space-2);
     flex: 1;
     min-inline-size: 0;
   }
-  .nudge__text {
+  .nudge__title {
     margin: 0;
+    font-weight: var(--fw-semibold);
+  }
+  .nudge__list {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+    list-style: disc;
+  }
+  .nudge__item {
+    /* Long sentences with a backticked command in them; let them wrap
+       anywhere rather than pushing the card wide on a narrow screen. */
+    overflow-wrap: anywhere;
+    line-height: var(--lh-normal);
+  }
+  .nudge__field {
+    font-weight: var(--fw-semibold);
+  }
+  a.nudge__field {
+    color: var(--color-link);
   }
   .nudge__link {
     color: var(--color-link);
     font-weight: var(--fw-semibold);
-    white-space: nowrap;
+    justify-self: start;
   }
   .nudge__dismiss {
     flex-shrink: 0;

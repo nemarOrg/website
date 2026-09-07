@@ -485,6 +485,10 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   withOptional.backend_role = backendRole;
   withOptional.given_name = str(user.given_name);
   withOptional.family_name = str(user.family_name);
+  // Not selected by the backend's `publicUser` today (nemar-cli epic #1250
+  // phase 3) — read opportunistically so the field lands the day it is, and
+  // resolved from GET /users/me until then (see `fetchAccountIdentity`).
+  withOptional.username = str(user.username);
   withOptional.orcid = str(user.orcid);
   if (typeof user.orcid_verified === "boolean") withOptional.orcid_verified = user.orcid_verified;
   withOptional.github_username = str(user.github_username);
@@ -496,6 +500,45 @@ export function parseAuthMeResponse(raw: unknown): AuthSession | null {
   // gate (#236), so anything non-boolean is dropped rather than coerced.
   if (typeof user.service_access === "boolean") {
     withOptional.service_access = user.service_access;
+  }
+  // Boolean-only for the same reason: a truthy string must not be read as
+  // "this inbox is proved". `undefined` stays "unknown" and no surface treats
+  // it as `false` (the verify step keys on `status === "pending"`).
+  if (typeof user.email_verified === "boolean") {
+    withOptional.email_verified = user.email_verified;
+  }
+  // Timestamps the backend does not send yet; see AuthUser's field docs.
+  withOptional.service_access_granted_at = str(user.service_access_granted_at);
+  withOptional.upload_access_requested_at = str(user.upload_access_requested_at);
+  // Boolean-only, like the two flags above: a truthy string must not make
+  // /onboarding tell someone their username was picked for them.
+  if (typeof user.username_auto_assigned === "boolean") {
+    withOptional.username_auto_assigned = user.username_auto_assigned;
+  }
+  // The server-computed gap list (nemar-cli#1268). Attached only when it is
+  // an ARRAY, because that is the difference between "the backend says
+  // nothing is missing" (`[]`, honoured verbatim) and "the backend does not
+  // compute this yet" (absent, derived client-side by `profileGaps`).
+  // Entries are filtered to the ones carrying a string `field`; the rest of
+  // the shape is validated where it is read, so a vocabulary this build
+  // predates degrades to a rendered line rather than a dropped one.
+  if (Array.isArray(user.profile_gaps)) {
+    withOptional.profile_gaps = user.profile_gaps
+      .filter(
+        (entry): entry is { field: string } & Record<string, unknown> =>
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as { field?: unknown }).field === "string",
+      )
+      .map((entry) => ({
+        field: entry.field,
+        blocks: Array.isArray(entry.blocks)
+          ? entry.blocks.filter((b): b is string => typeof b === "string")
+          : undefined,
+        set_on: Array.isArray(entry.set_on)
+          ? entry.set_on.filter((s): s is string => typeof s === "string")
+          : undefined,
+      }));
   }
   // Drop keys that resolved to undefined so the object stays clean (and the
   // existing `toEqual` assertions on the minimal shape keep passing).

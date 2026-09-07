@@ -1,54 +1,78 @@
 ---
 import UploadDropzone from "../components/UploadDropzone.astro";
 import UploadProgress from "../components/UploadProgress.astro";
+import VerifyEmailStep from "../components/VerifyEmailStep.astro";
 import Base from "../layouts/Base.astro";
-import { getSession } from "../lib/auth";
-import { resolveDocsBase } from "../lib/docs-base";
+import { fetchAccountIdentity } from "../lib/account-api";
+import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
 import {
-  UPLOAD_REQUIRED_FIELDS,
-  formatFieldList,
-  missingProfileFields,
-  uploadGate,
-} from "../lib/profile";
+  deriveUploadAccessState,
+  deriveUploadPageState,
+  showsUploadForm,
+} from "../lib/account-tier";
+import { getSession } from "../lib/auth";
+import { DOCS_UPLOAD_ACCESS_PATH, resolveDocsBase } from "../lib/docs-base";
+import { formatDate } from "../lib/format";
+import { UPLOAD_REQUIRED_FIELDS, formatFieldList, missingProfileFields } from "../lib/profile";
+import { gapTail, gapsBlocking, profileGaps } from "../lib/profile-gaps";
 
 const session = getSession(Astro.locals);
 if (!session) {
   return Astro.redirect(`/login?next=${encodeURIComponent("/upload")}`);
 }
 
-const pendingNotice =
-  session.user.status === "pending"
-    ? "Your account is still under admin review. Uploads will start working as soon as you're approved."
-    : null;
-
-// #226: city and country are the export-control screening inputs for the
-// service-access tier (ADR 0010). Checked here rather than in the client
-// because when the form is withheld it must not ship at all — a client-side
-// check would ship the dropzone and hide it. Deliberately not a redirect:
-// landing on /settings with no explanation reads as a bug.
+// The dropzone is gated on `service_access` and nothing else (website#301).
 //
-// The gate lands in two strengths (#236, ADR 0011). Users WITHOUT a
-// service-access grant get the hard gate: the form is withheld until the
-// export-control prompt is answered. Users an admin already granted service
-// access get the form plus a prominent, non-blocking warning — every
-// existing uploader predates the profile columns, so the hard gate would
-// have blocked 100% of the accounts actually authorized to upload.
+// That is a deliberate narrowing of what used to happen here. Before nemar-cli
+// ADR 0040 an ungranted account with an incomplete profile got a hard gate
+// asking for city and country (#226, softened for grant-holders by website ADR
+// 0011). Under the tier model an ungranted account cannot upload at all, so
+// asking it for two profile fields answered a question nobody had reached yet;
+// city and country are now collected at `/onboarding` and re-checked by the
+// upload-access request endpoint, which is where they actually matter. ADR
+// 0011's "warn" branch survives unchanged, and for its original reason: every
+// account granted before migrations 0051/0052 has empty profile columns, and
+// blocking them would block exactly the population the tier admits.
 //
-// This gate is NOT a mirror of a server-side one. The backend gates real
-// uploads on `service_access` + `sandbox_completed`
-// (`backend/src/services/upload-gate.ts`, nemar-cli#1013 Phase 1); city and
-// country are the inputs an admin *reviews* before granting service access,
-// and nothing rejects an upload for missing them. So this page is the only
-// place the profile requirement is surfaced — which is also why the "warn"
-// branch never weakens access control: an unauthorized upload still dies at
-// the backend gate regardless of what renders here.
-// `uploadGate` is the decision; `missingForUpload` only names the fields
-// for the copy. Deriving the state from the helper rather than re-deriving
-// it inline is the point of the module — a second definition here would be
-// free to drift from it.
-const gate = uploadGate(session.user);
+// Checked here rather than in the client because a withheld form must not
+// ship at all — a client-side check would send the dropzone and then hide it.
+// Deliberately not a redirect either: landing on /settings with no
+// explanation reads as a bug.
+//
+// None of this is access control. The backend gate
+// (`backend/src/services/upload-gate.ts`) decides who may really upload, and
+// it reads `service_access` plus — on the CLI channel only — the sandbox run.
+// Sandbox training is CLI-only under ADR 0040, which is why nothing on this
+// page mentions it.
+const uploadState = deriveUploadPageState(session.user);
+const uploadAccess = deriveUploadAccessState(session.user);
+const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAccess.at) : "";
+// Only names the fields for the "warn" copy; `uploadState` is the decision.
 const missingForUpload = missingProfileFields(session.user, UPLOAD_REQUIRED_FIELDS);
 const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
+const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
+
+// What would stop the request this page is about to send someone off to make
+// (website#309). Listed BEFORE the request link rather than after the
+// refusal, so the round trip through Settings happens once instead of twice —
+// and in the same sentences the refusal itself would have used.
+//
+// The identity lookup is spent only on the one state that renders the list:
+// `/auth/me` does not carry `username`, and without it the username gap
+// cannot be told from an unknown one. Every other state either has the grant
+// already or has an answered request.
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const identity =
+  uploadState === "request_access"
+    ? await fetchAccountIdentity(session.user.username, { cookieHeader })
+    : { username: undefined };
+const requestGaps =
+  uploadState === "request_access"
+    ? gapsBlocking(profileGaps({ ...session.user, username: identity.username }), "upload_access")
+    : [];
+const requestedLede = requestedDate
+  ? fillCopy(ACCOUNT_COPY["upload_access.requested.lede_dated"], { date: requestedDate })
+  : ACCOUNT_COPY["upload_access.requested.lede"];
 ---
 
 <Base title="Upload a dataset" description="Upload your BIDS dataset to NEMAR.">
@@ -56,36 +80,72 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     <header class="upload-header">
       <h1 class="upload-header__title">Contribute your dataset</h1>
       <p class="upload-header__lede">
-        Drop a BIDS folder, we&rsquo;ll check the structure in your browser, then upload
-        the files straight to NEMAR&rsquo;s storage. BIDS validation runs on the dataset
-        repository once the upload completes.
+        {showsUploadForm(uploadState)
+          ? "Drop a BIDS folder, we'll check the structure in your browser, then upload the files straight to NEMAR's storage. BIDS validation runs on the dataset repository once the upload completes."
+          : "Uploading is the one thing a NEMAR account needs a grant for. Here is where yours stands."}
       </p>
     </header>
 
-    {pendingNotice && (
-      <p class="upload-pending" role="status">{pendingNotice}</p>
+    {uploadState === "verify_email" && (
+      <VerifyEmailStep email={session.user.email} context="upload" />
     )}
 
-    {/* No live-region role: this is server-rendered and present on load, so
-        role="alert" would interrupt a screen reader the moment the page
-        opens. The h2 is the first thing after the page title, which is where
-        someone expecting an upload form will land anyway. */}
-    {gate === "block" && (
+    {/* No live-region role on any of the states below: they are
+        server-rendered and present on load, so role="alert" would interrupt a
+        screen reader the moment the page opens. The h2 is the first thing
+        after the page title, which is where someone expecting an upload form
+        will land anyway. */}
+    {uploadState === "request_access" && (
       <div class="upload-gate">
-        <h2 class="upload-gate__title">Add your {formatFieldList(missingForUpload)} first</h2>
-        <p class="upload-gate__text">
-          NEMAR screens where contributed data comes from before accepting an upload,
-          so your {formatFieldList(missingForUpload)} {missingForUpload.length === 1 ? "is" : "are"}
-          {" "}required on your profile. It takes a moment, and you only do it once.
+        <h2 class="upload-gate__title">{ACCOUNT_COPY["upload_access.gate.title"]}</h2>
+        <p class="upload-gate__text">{ACCOUNT_COPY["upload_access.gate.body"]}</p>
+        {requestGaps.length > 0 && (
+          <div class="upload-gate__gaps">
+            <p class="upload-gate__gaps-title">{ACCOUNT_COPY["gaps.upload.title"]}</p>
+            <ul class="upload-gate__gaps-list" role="list">
+              {requestGaps.map((gap) => (
+                <li>
+                  {gap.href ? (
+                    <a href={gap.href}>{gap.label}</a>
+                  ) : (
+                    <span class="upload-gate__gaps-field">{gap.label}</span>
+                  )}{" "}{gapTail(gap)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <a class="upload-gate__cta" href="/settings#upload-access">
+          {ACCOUNT_COPY["upload_access.request.cta"]}
+        </a>
+        <p class="upload-gate__footnote">
+          <a href={uploadAccessDocsUrl} rel="external noopener">
+            {ACCOUNT_COPY["upload_access.docs_link"]}
+          </a>
         </p>
-        <a class="upload-gate__cta" href="/settings">Go to Settings</a>
+      </div>
+    )}
+
+    {uploadState === "access_requested" && (
+      <div class="upload-gate">
+        <h2 class="upload-gate__title">{ACCOUNT_COPY["upload_access.requested.title"]}</h2>
+        <p class="upload-gate__text">
+          {requestedLede} {ACCOUNT_COPY["upload_access.requested.body.upload"]}
+        </p>
+        <a class="upload-gate__cta" href="/settings#upload-access">
+          {ACCOUNT_COPY["upload_access.requested.cta"]}
+        </a>
+        <p class="upload-gate__footnote">
+          <a href={uploadAccessDocsUrl} rel="external noopener">
+            {ACCOUNT_COPY["upload_access.docs_link"]}
+          </a>
+        </p>
       </div>
     )}
 
     {/* Softened landing for existing service-access holders (#236, ADR
-        0011): same fields, same Settings link, but the form stays usable.
-        Same no-live-region reasoning as the hard gate above. */}
-    {gate === "warn" && (
+        0011): same fields, same Settings link, but the form stays usable. */}
+    {uploadState === "warn" && (
       <div class="upload-warn">
         <h2 class="upload-warn__title">
           Please add your {formatFieldList(missingForUpload)} to your profile
@@ -100,7 +160,7 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
       </div>
     )}
 
-    {gate !== "block" && (
+    {showsUploadForm(uploadState) && (
     <form class="upload-form" data-upload-form>
       <div class="field">
         <label for="dataset-name" class="field__label">Dataset name</label>
@@ -289,10 +349,50 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
+  /* The gap list: one line per field that would refuse the request. Sits
+     between the explanation and the CTA, so it is read before the click. */
+  .upload-gate__gaps {
+    display: grid;
+    gap: var(--space-2);
+    max-inline-size: 60ch;
+  }
+  .upload-gate__gaps-title {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .upload-gate__gaps-list {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+    list-style: disc;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    /* Sentences carry a backticked command; wrap anywhere rather than
+       pushing the card wide on a narrow screen. */
+    overflow-wrap: anywhere;
+  }
+  .upload-gate__gaps-list a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .upload-gate__gaps-field {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .upload-gate__footnote {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .upload-gate__footnote a {
+    color: var(--color-link);
+  }
   /* Non-blocking sibling of .upload-gate (#236): same structure, but amber
-     like .upload-pending / the dashboard ProfileNudge, because the form
-     below it stays live. --color-warning is theme-tuned in tokens.css, so
-     the color-mix tints track light and dark automatically. */
+     like the dashboard ProfileNudge, because the form below it stays live.
+     --color-warning is theme-tuned in tokens.css, so the color-mix tints
+     track light and dark automatically. */
   .upload-warn {
     display: flex;
     flex-direction: column;
@@ -326,14 +426,6 @@ const contributorTermsUrl = `${resolveDocsBase()}/policies/contributor-terms/`;
   .upload-warn__cta:focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
-  }
-  .upload-pending {
-    background: color-mix(in srgb, var(--color-warning) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
-    color: var(--color-fg);
-    border-radius: var(--radius-md);
-    padding: var(--space-3) var(--space-4);
-    font-size: var(--fs-sm);
   }
   .upload-form {
     display: grid;

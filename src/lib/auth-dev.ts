@@ -108,10 +108,26 @@ export async function verifyDevSession(token: string): Promise<AuthSession | nul
  *   banner (#236) are exercisable. This mirrors the real grandfathered
  *   population: every production service-access account predates the
  *   profile columns.
- * - `@nemar.base` gets an empty profile WITHOUT service access, so the hard
- *   /upload gate (the "block" branch of `uploadGate`) stays reachable
- *   locally. Without it the mock always looks either complete or
- *   grandfathered and the block state could not be reached.
+ * - `@nemar.base` gets an empty profile WITHOUT service access — the base
+ *   tier, so `/upload`'s "request upload access" landing and the dashboard's
+ *   tier card stay reachable locally.
+ * - `@nemar.pending` is `status: "pending"`: the unverified tier, so the
+ *   verify-your-email step on `/dashboard` and `/upload` can be exercised
+ *   (the dev proxies at `/api/auth/email/verify*` accept `123456` and
+ *   re-issue the session at `"active"`).
+ * - `@nemar.asked` is the base tier with an open upload-access request, so
+ *   the "waiting on an admin" states render without a backend.
+ * - `@nemar.new` has no username and no name, so `/onboarding` renders every
+ *   step. It is deliberately NOT ORCID-verified: with a verified iD the name
+ *   step is skipped by design (nemar-cli ADR 0042).
+ * - `@nemar.assigned` is the base tier with a username the BACKEND chose
+ *   (`username_auto_assigned`, nemar-cli#1268): `/onboarding` renders the
+ *   one-time change offer, which is the only state that reaches it.
+ * - `@nemar.noname` is the stuck state: a VERIFIED ORCID iD whose record
+ *   publishes no name. It is the one combination in which neither the name
+ *   fields nor the onboarding name step render, so Settings' stuck-state
+ *   explanation is the only surface that addresses it — and the only way to
+ *   see that block locally.
  */
 export function buildDevUser(email: string): AuthUser {
   const lower = email.trim().toLowerCase();
@@ -121,20 +137,45 @@ export function buildDevUser(email: string): AuthUser {
     .toLowerCase();
   const isAdmin =
     lower.endsWith("@nemar.admin") || (adminOverride.length > 0 && lower === adminOverride);
-  const baseTier = lower.endsWith("@nemar.base");
-  const blankProfile = lower.endsWith("@nemar.blank") || baseTier;
+  const unverified = lower.endsWith("@nemar.pending");
+  const asked = lower.endsWith("@nemar.asked");
+  const fresh = lower.endsWith("@nemar.new");
+  // A username the backend picked from the name at sign-in rather than the
+  // user choosing one. The account is otherwise complete, so /onboarding's
+  // self-gating redirect is exactly what the offer has to survive.
+  const assignedUsername = lower.endsWith("@nemar.assigned");
+  // Verified iD, no name: the dead end Settings' `nameMissingUnderOrcid`
+  // block exists for. Keeps its grant, because the state is reachable from
+  // any tier and the block does not depend on one.
+  const orcidNoName = lower.endsWith("@nemar.noname");
+  const baseTier =
+    lower.endsWith("@nemar.base") || unverified || asked || fresh || assignedUsername;
+  // The assigned-username persona keeps a filled profile on purpose: with
+  // gaps outstanding /onboarding would render anyway, and the offer would
+  // not be the thing under test.
+  const blankProfile = (lower.endsWith("@nemar.blank") || baseTier) && !assignedUsername;
   return {
     id: `dev-${lower.replace(/[^a-z0-9]/g, "_")}`,
     email: lower,
     role: isAdmin ? "admin" : "user",
-    status: "active",
+    status: unverified ? "pending" : "active",
+    // Every road out of `pending` sets this (nemar-cli ADR 0040 phase 2), so
+    // the two move together here as well.
+    email_verified: !unverified,
+    // NULL on a real ORCID/web signup until onboarding fills it in. Empty
+    // string rather than omitted so the local session still ANSWERS the
+    // question — an omitted key sends `fetchAccountIdentity` to `/users/me`,
+    // which no dev session can reach.
+    username: fresh ? "" : "alovelace",
     // Sample ORCID-canonical + profile fields so the Settings surface renders
     // its populated states locally without a real backend. Production reads
     // these from /auth/me instead; this block is dev-only (gated on DEV).
-    given_name: "Ada",
-    family_name: "Lovelace",
-    orcid: "0000-0002-1825-0097",
-    orcid_verified: true,
+    // `@nemar.new` has neither a name nor a verified iD, which is the only
+    // combination in which onboarding may ask for one.
+    given_name: fresh || orcidNoName ? "" : "Ada",
+    family_name: fresh || orcidNoName ? "" : "Lovelace",
+    orcid: fresh ? "" : "0000-0002-1825-0097",
+    orcid_verified: !fresh,
     // The self-service fields, blank for the incomplete-profile persona.
     // Empty string rather than undefined mirrors what the backend returns
     // for a column that exists but was never filled in.
@@ -142,9 +183,16 @@ export function buildDevUser(email: string): AuthUser {
     city: blankProfile ? "" : "London",
     country: blankProfile ? "" : "United Kingdom",
     affiliation: blankProfile ? "" : "Analytical Engine Lab",
-    // Tiered access (ADR 0010): granted for every persona except
-    // `@nemar.base`, whose whole purpose is exercising the ungranted state.
+    // Tiered access (ADR 0010): granted for every persona except the
+    // base-tier ones, whose whole purpose is exercising the ungranted states.
     service_access: !baseTier,
+    // An open upload-access request (nemar-cli ADR 0042). Only `@nemar.asked`
+    // has one; every other base-tier persona sits at "not requested" so the
+    // request CTA is the state that renders.
+    ...(asked ? { upload_access_requested_at: "2026-09-01 10:00:00" } : {}),
+    // Absent means "the user chose their own handle", which is every other
+    // persona and every account on today's backend.
+    ...(assignedUsername ? { username_auto_assigned: true } : {}),
   };
 }
 

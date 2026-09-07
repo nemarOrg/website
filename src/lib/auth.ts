@@ -4,10 +4,23 @@
  * `${apiBase}/auth/me` to resolve the current user from a request's cookie.
  */
 
+// Type-only, so this stays a leaf module at runtime: `profile-gaps.ts`
+// describes its own account shape structurally rather than importing
+// `AuthUser`, and nothing here imports it back.
+import type { WireProfileGap } from "./profile-gaps";
+
 export interface AuthUser {
   readonly id: string;
   readonly email: string;
   readonly role: "user" | "admin";
+  /**
+   * Two-state, and both states mean something the page can act on since
+   * nemar-cli ADR 0040: the backend maps `verified` AND `approved` to
+   * `"active"`, so `"pending"` now means exactly one thing — the email
+   * address has not been confirmed, and confirming it is the only thing
+   * this account can do. What it does NOT say is whether the account may
+   * upload; that is {@link AuthUser.service_access}, reported separately.
+   */
   readonly status: "active" | "pending" | "disabled";
   // Uncollapsed backend role (owner > admin > member), alongside the
   // website's collapsed `role` above. `parseAuthMeResponse` in
@@ -17,8 +30,25 @@ export interface AuthUser {
   // rollback of public/DOI datasets), so this carries the raw value too.
   readonly backend_role?: "owner" | "admin" | "member";
   // ---- Optional profile fields (backend may not populate them yet) ----
+  /**
+   * Login handle. **Not on `/auth/me` as of nemar-cli epic #1250 phase 3** —
+   * `publicUser` in `backend/src/routes/auth-web.ts` does not select it. It
+   * is parsed here anyway so the field lands for free if the backend adds it,
+   * and `fetchAccountIdentity` in `./account-api.ts` reads it from
+   * `GET /users/me` (which does carry it) in the meantime. `undefined` is
+   * therefore "not known from this source", never "the account has none".
+   */
+  readonly username?: string;
+  /**
+   * Whether the emailed 6-digit code has been redeemed (nemar-cli ADR 0040
+   * phase 2). Boolean-only like `service_access`; absent from an older
+   * backend, where `undefined` means "unknown", never "no".
+   */
+  readonly email_verified?: boolean;
   // Name is canonical from ORCID (given/family backfilled on every login,
-  // nemar-cli#836); the website never lets the user edit it here.
+  // nemar-cli#836) and editable here only when no verified iD is linked
+  // (nemar-cli ADR 0042; PATCH /auth/profile 409s `name_is_orcid_canonical`
+  // otherwise).
   readonly given_name?: string;
   readonly family_name?: string;
   // Linked ORCID iD (bare `0000-0000-0000-0000`, no URL) + verified flag.
@@ -37,6 +67,38 @@ export interface AuthUser {
   // are already authorized to upload). Absent when the backend predates the
   // field — treat undefined as "not granted", never as "granted".
   readonly service_access?: boolean;
+  /**
+   * When an admin granted upload access, and when the account asked for it
+   * (nemar-cli ADR 0042, migration 0076). **Neither is on `/auth/me` as of
+   * epic #1250 phase 3** — both are on `GET /admin/users` rows only — so
+   * Settings renders the undated form of each state until they appear, and
+   * the request endpoint's own `requested_at` fills the second one in for
+   * the session that just asked. Parsed here so they land for free if the
+   * backend adds them.
+   */
+  readonly service_access_granted_at?: string;
+  readonly upload_access_requested_at?: string;
+  /**
+   * The server-computed profile-gap list (nemar-cli#1268, epic #1250 phase
+   * 8): one entry per field the account is still missing, with what it blocks
+   * and where it is set. **Not on `/auth/me` yet** — `./profile-gaps.ts`
+   * derives the identical list from the fields above until it is, and uses
+   * this verbatim the day it appears.
+   *
+   * An empty ARRAY is a real answer ("nothing is missing"); `undefined` means
+   * the backend does not compute it yet. The two must not be collapsed, which
+   * is why this is optional rather than defaulted to `[]`.
+   */
+  readonly profile_gaps?: readonly WireProfileGap[];
+  /**
+   * True when the backend picked this account's username for it rather than
+   * the user choosing one (nemar-cli#1268: an account whose username is NULL
+   * gets one assigned from its name at the next successful sign-in, so it
+   * cannot stay NULL if onboarding is abandoned). `/onboarding` offers the
+   * one-time change when it is set. Absent means false — an account that
+   * chose its own handle, or a backend that predates the assignment.
+   */
+  readonly username_auto_assigned?: boolean;
 }
 
 /**

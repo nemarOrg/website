@@ -100,6 +100,172 @@ describe("parseAuthMeResponse", () => {
     expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("service_access");
   });
 
+  // The four fields website#301 added. Three of them are NOT on `/auth/me`
+  // today (`publicUser` selects neither `username` nor either timestamp), so
+  // these pin the parser against the shape it will meet when they arrive —
+  // and, just as importantly, against today's shape, where every one of them
+  // must stay absent rather than becoming an empty string.
+  it("keeps email_verified only when it is a real boolean", () => {
+    const base = { id: "u_8", email: "ev@example.com", role: "member", status: "active" };
+    expect(parseAuthMeResponse({ user: { ...base, email_verified: true } })?.user).toMatchObject({
+      email_verified: true,
+    });
+    // false must survive: it is a fact about the inbox, and dropping it would
+    // be indistinguishable from an older backend that cannot say.
+    expect(parseAuthMeResponse({ user: { ...base, email_verified: false } })?.user).toMatchObject({
+      email_verified: false,
+    });
+    // A truthy non-boolean must not read as "this inbox is proved".
+    expect(parseAuthMeResponse({ user: { ...base, email_verified: 1 } })?.user).not.toHaveProperty(
+      "email_verified",
+    );
+    expect(
+      parseAuthMeResponse({ user: { ...base, email_verified: "yes" } })?.user,
+    ).not.toHaveProperty("email_verified");
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("email_verified");
+  });
+
+  it("picks up username when the backend sends one, and stays absent when it does not", () => {
+    const base = { id: "u_9", email: "un@example.com", role: "member", status: "active" };
+    expect(parseAuthMeResponse({ user: { ...base, username: "alovelace" } })?.user).toMatchObject({
+      username: "alovelace",
+    });
+    expect(parseAuthMeResponse({ user: { ...base, username: "  ada  " } })?.user).toMatchObject({
+      username: "ada",
+    });
+    // Absent is what production sends today, and it MUST stay absent: the
+    // onboarding gate reads `undefined` as "could not ask" and `null`/"" as
+    // "the account has none", and the two lead to different prompts.
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("username");
+    // A JSON null, or a blank string, is not a usable handle either — the
+    // /users/me lookup is what distinguishes those, not this parser.
+    expect(parseAuthMeResponse({ user: { ...base, username: null } })?.user).not.toHaveProperty(
+      "username",
+    );
+    expect(parseAuthMeResponse({ user: { ...base, username: "   " } })?.user).not.toHaveProperty(
+      "username",
+    );
+  });
+
+  it("coerces the two access timestamps as trimmed strings only", () => {
+    const base = { id: "u_10", email: "ts@example.com", role: "member", status: "active" };
+    expect(
+      parseAuthMeResponse({
+        user: {
+          ...base,
+          service_access_granted_at: " 2026-08-01 09:00:00 ",
+          upload_access_requested_at: "2026-09-01 10:00:00",
+        },
+      })?.user,
+    ).toMatchObject({
+      service_access_granted_at: "2026-08-01 09:00:00",
+      upload_access_requested_at: "2026-09-01 10:00:00",
+    });
+    // Neither is on /auth/me yet, so absent is the shape that ships — and it
+    // has to stay absent, because Settings renders the undated state on it.
+    for (const key of ["service_access_granted_at", "upload_access_requested_at"] as const) {
+      expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty(key);
+      expect(parseAuthMeResponse({ user: { ...base, [key]: null } })?.user).not.toHaveProperty(key);
+      expect(parseAuthMeResponse({ user: { ...base, [key]: "" } })?.user).not.toHaveProperty(key);
+      // A number is not a timestamp this app can render.
+      expect(
+        parseAuthMeResponse({ user: { ...base, [key]: 1756_000_000 } })?.user,
+      ).not.toHaveProperty(key);
+    }
+  });
+
+  // The two nemar-cli phase 8 fields (#1268). Neither is on `/auth/me` today,
+  // so these pin the parser against the shape it will meet AND against
+  // today's, where both must stay absent.
+  it("keeps username_auto_assigned only when it is a real boolean", () => {
+    const base = { id: "u_11", email: "ua@example.com", role: "member", status: "active" };
+    expect(
+      parseAuthMeResponse({ user: { ...base, username_auto_assigned: true } })?.user,
+    ).toMatchObject({ username_auto_assigned: true });
+    // false must survive: it is the backend saying the user chose their own
+    // handle, which is not the same as a backend that cannot say.
+    expect(
+      parseAuthMeResponse({ user: { ...base, username_auto_assigned: false } })?.user,
+    ).toMatchObject({ username_auto_assigned: false });
+    // A truthy non-boolean must not make /onboarding tell someone their
+    // username was picked for them.
+    for (const bad of ["yes", 1, "true", {}]) {
+      expect(
+        parseAuthMeResponse({ user: { ...base, username_auto_assigned: bad } })?.user,
+        `${JSON.stringify(bad)} must not be read as true`,
+      ).not.toHaveProperty("username_auto_assigned");
+    }
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("username_auto_assigned");
+  });
+
+  it("attaches profile_gaps only for an array, and keeps an empty one", () => {
+    const base = { id: "u_12", email: "pg@example.com", role: "member", status: "active" };
+    expect(
+      parseAuthMeResponse({
+        user: {
+          ...base,
+          profile_gaps: [{ field: "city", blocks: ["upload_access"], set_on: ["settings"] }],
+        },
+      })?.user,
+    ).toMatchObject({
+      profile_gaps: [{ field: "city", blocks: ["upload_access"], set_on: ["settings"] }],
+    });
+
+    // `[]` is the backend saying nothing is missing, and it is NOT the same
+    // as absent — `profileGaps` honours the empty array verbatim and derives
+    // its own list when the key is missing. Collapsing the two would have a
+    // complete account fall back to a derivation that could disagree.
+    const empty = parseAuthMeResponse({ user: { ...base, profile_gaps: [] } })?.user;
+    expect(empty).toHaveProperty("profile_gaps");
+    expect(empty?.profile_gaps).toEqual([]);
+    expect(parseAuthMeResponse({ user: base })?.user).not.toHaveProperty("profile_gaps");
+
+    // A non-array leaves the key absent rather than half-parsed: derivation
+    // is the honest fallback for a shape this build cannot read.
+    for (const bad of ["city", 1, {}, null]) {
+      expect(
+        parseAuthMeResponse({ user: { ...base, profile_gaps: bad } })?.user,
+        `${JSON.stringify(bad)} is not a gap list`,
+      ).not.toHaveProperty("profile_gaps");
+    }
+  });
+
+  it("drops profile_gaps entries with no string field, and keeps the rest", () => {
+    const base = { id: "u_13", email: "pg2@example.com", role: "member", status: "active" };
+    const out = parseAuthMeResponse({
+      user: {
+        ...base,
+        profile_gaps: [
+          { blocks: ["upload_access"] },
+          null,
+          "city",
+          { field: 7 },
+          { field: "city" },
+        ],
+      },
+    })?.user;
+    expect(out?.profile_gaps).toEqual([{ field: "city", blocks: undefined, set_on: undefined }]);
+  });
+
+  it("filters non-string blocks and set_on values", () => {
+    const base = { id: "u_14", email: "pg3@example.com", role: "member", status: "active" };
+    const out = parseAuthMeResponse({
+      user: {
+        ...base,
+        profile_gaps: [
+          { field: "city", blocks: ["upload_access", 3, null], set_on: ["settings", {}] },
+          // Not arrays at all: the key resolves to undefined, and the gap
+          // still renders from this build's own table.
+          { field: "username", blocks: "upload_access", set_on: 4 },
+        ],
+      },
+    })?.user;
+    expect(out?.profile_gaps).toEqual([
+      { field: "city", blocks: ["upload_access"], set_on: ["settings"] },
+      { field: "username", blocks: undefined, set_on: undefined },
+    ]);
+  });
+
   it("omits blank / wrong-typed optional fields (sparse /auth/me)", () => {
     const out = parseAuthMeResponse({
       user: {

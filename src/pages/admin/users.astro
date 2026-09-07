@@ -8,7 +8,9 @@ import { DashboardApiError } from "../../lib/dashboard-api";
 import {
   type AdminUserListRow,
   type AdminUserStatus,
+  REVIEW_DETAIL_LIMIT,
   listAdminUsers,
+  loadReviewDetails,
 } from "../../lib/users-admin-api";
 
 const session = getSession(Astro.locals);
@@ -24,14 +26,21 @@ if (!session) {
 }
 const isOwner = session.user.backend_role === "owner";
 
-// Status filter chips. Distinct from `AdminUserStatus`: "all" is a
-// website-only sentinel (no `status=` param sent at all), not a value the
-// backend recognizes.
-type StatusFilterValue = AdminUserStatus | "all";
-const CHIPS: ReadonlyArray<{ value: StatusFilterValue; label: string }> = [
-  { value: "verified", label: "Awaiting approval" },
-  { value: "pending", label: "Pending" },
-  { value: "approved", label: "Approved" },
+// Filter chips. Two website-only sentinels here, neither a `status` value:
+// "awaiting" sends `?awaiting_approval=1` (a server-side predicate over two
+// columns, not a status), and "all" sends nothing at all.
+//
+// The lifecycle labels changed with nemar-cli ADR 0040 because the statuses
+// stopped meaning what they used to. `verified` is no longer "waiting for an
+// admin" — it is the working base tier, and most of the catalog sits there
+// permanently and happily. What an admin actually has a queue of is open
+// UPLOAD-access requests, which is its own chip and the default view.
+type ChipValue = AdminUserStatus | "all" | "awaiting";
+const CHIPS: ReadonlyArray<{ value: ChipValue; label: string }> = [
+  { value: "awaiting", label: "Awaiting approval" },
+  { value: "pending", label: "Unverified email" },
+  { value: "verified", label: "Base access" },
+  { value: "approved", label: "Upload access" },
   { value: "revoked", label: "Revoked" },
   { value: "all", label: "All" },
 ];
@@ -41,21 +50,23 @@ const url = new URL(Astro.request.url);
 const rawStatus = url.searchParams.get("status");
 // The endpoint has no pagination and returns every matching row (~600 in
 // the dev mirror) — defaulting to an unfiltered dump would be a
-// multi-hundred-row unbounded fetch on every page load. "Awaiting
-// approval" (status=verified) is the working queue, so it's the default
-// both with no `status` param and with an unrecognized one.
-const effectiveChip: StatusFilterValue =
-  rawStatus && KNOWN_VALUES.has(rawStatus as StatusFilterValue)
-    ? (rawStatus as StatusFilterValue)
-    : "verified";
-const statusQuery: AdminUserStatus | undefined =
-  effectiveChip === "all" ? undefined : effectiveChip;
+// multi-hundred-row unbounded fetch on every page load. The awaiting-approval
+// queue is the working view, so it's the default both with no `status` param
+// and with an unrecognized one.
+const effectiveChip: ChipValue =
+  rawStatus && KNOWN_VALUES.has(rawStatus as ChipValue) ? (rawStatus as ChipValue) : "awaiting";
+const listQuery =
+  effectiveChip === "awaiting"
+    ? { awaitingApproval: true }
+    : effectiveChip === "all"
+      ? {}
+      : { status: effectiveChip as AdminUserStatus };
 
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 let users: readonly AdminUserListRow[] = [];
 let listError: string | null = null;
 try {
-  const result = await listAdminUsers(statusQuery ? { status: statusQuery } : {}, { cookieHeader });
+  const result = await listAdminUsers(listQuery, { cookieHeader });
   users = result.users;
 } catch (err) {
   listError =
@@ -65,20 +76,33 @@ try {
         ? err.message
         : "Could not load users.";
 }
+
+// The review card needs city, country, affiliation and the why text, which the
+// listing does not carry (`GET /admin/users` is an explicit column projection;
+// only `GET /admin/users/:username` selects `u.*`). So each open request costs
+// one detail fetch, bounded and fail-soft. Both properties live in
+// `loadReviewDetails` so they are testable without a rendered page; see it for
+// why the bound and the failure count are separate concerns.
+const {
+  details,
+  failures: detailFetchFailures,
+  truncated: reviewDetailTruncated,
+} = await loadReviewDetails(users, { cookieHeader });
 ---
 
 <AdminLayout title="Users" active="users" session={session}>
   <Fragment slot="lede">
-    Signup approvals and account management. The default view is the awaiting-approval queue;
-    switch chips to see other lifecycle stages. This endpoint has no server-side pagination, so
+    Upload-access approvals and account management. The default view is the awaiting-approval
+    queue: accounts that have asked for upload access and not yet been answered. Approving one
+    grants upload access; revoking takes it away. This endpoint has no server-side pagination, so
     each chip fetches its whole matching set — use the search box below to narrow a large view
     client-side rather than picking "All" by default.
   </Fragment>
 
-  <nav class="admin-filters" aria-label="Filter by status">
+  <nav class="admin-filters" aria-label="Filter users">
     {
       CHIPS.map((chip) => {
-        const href = chip.value === "verified" ? "/admin/users" : `/admin/users?status=${chip.value}`;
+        const href = chip.value === "awaiting" ? "/admin/users" : `/admin/users?status=${chip.value}`;
         const active = effectiveChip === chip.value;
         return (
           <a class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]} href={href}>
@@ -88,6 +112,20 @@ try {
       })
     }
   </nav>
+
+  {detailFetchFailures > 0 && (
+    <p class="admin-action-error" role="status">
+      Review details didn&rsquo;t load for {detailFetchFailures} request{detailFetchFailures === 1 ? "" : "s"}.
+      Those cards show what the listing carries; open the user page for the rest.
+    </p>
+  )}
+
+  {reviewDetailTruncated && (
+    <p class="admin-action-error" role="status">
+      Showing full review details for the first {REVIEW_DETAIL_LIMIT} open requests. The rest are
+      listed without their location and request text — open each user page to read those.
+    </p>
+  )}
 
   <input
     type="search"
@@ -103,13 +141,25 @@ try {
     !listError && users.length === 0 ? (
       <div class="admin-empty">
         <h2 class="admin-empty__title">No users in this view</h2>
-        <p class="admin-empty__body">Try a different status chip.</p>
+        <p class="admin-empty__body">
+          {effectiveChip === "awaiting"
+            ? "Nobody is waiting on an upload-access decision. Requests appear here as they come in."
+            : "Try a different chip."}
+        </p>
       </div>
     ) : (
       <ul class="admin-list" role="list" data-user-list>
         {users.map((u) => (
-          <li data-user-list-item data-search-key={`${u.email} ${u.username ?? ""}`.toLowerCase()}>
-            <UserAdminRow user={u} isOwner={isOwner} sessionUserId={session.user.id} />
+          <li
+            data-user-list-item
+            data-search-key={`${u.email} ${u.username ?? ""} ${u.given_name ?? ""} ${u.family_name ?? ""}`.toLowerCase()}
+          >
+            <UserAdminRow
+              user={u}
+              detail={details.get(u.id) ?? null}
+              isOwner={isOwner}
+              sessionUserId={session.user.id}
+            />
           </li>
         ))}
       </ul>
@@ -123,8 +173,8 @@ try {
 
   <ConfirmDialog
     dialogId="admin-approve-user"
-    title="Approve this user?"
-    body="They gain platform access immediately and get a notification email."
+    title="Grant upload access?"
+    body="This approves the account and grants upload access — the export-control review you just read. They get a notification email. It can be revoked later."
     confirmLabel="Approve"
     confirmTone="primary"
   />
@@ -132,7 +182,7 @@ try {
   <ConfirmDialog
     dialogId="admin-revoke-user"
     title="Revoke this user's access?"
-    body="Their API tokens are revoked, S3 access is removed, and they're pulled from every dataset repo they can reach. They get a notification email."
+    body="Upload access is cleared, their API tokens are revoked, S3 access is removed, and they're pulled from every dataset repo they can reach. They get a notification email."
     confirmLabel="Revoke access"
     confirmTone="danger"
     requireTyping="REVOKE"
@@ -241,33 +291,16 @@ try {
 
 <script>
   import {
-    approveUser,
+    adminActionErrorText,
+    approveErrorText,
+    approveUserById,
     changeUserRole,
     deleteUserById,
     revokeUser,
   } from "../../lib/users-admin-api";
-  import { DashboardApiError } from "../../lib/dashboard-api";
   import type { AdminUserRole } from "../../lib/users-admin-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
-
-  // The `/admin/users*` backend routes put a human-readable sentence
-  // directly in the error body (see users-admin-api.ts's file header) —
-  // `.code` is usually already the right thing to show. This map only
-  // covers proxy/transport-level codes, which aren't human text.
-  const FRIENDLY: Record<string, string> = {
-    upstream_unreachable: "Can't reach the user service. Try again in a moment.",
-    unauthenticated: "Sign in again to continue.",
-  };
-
-  function friendly(err: unknown): string {
-    if (err instanceof DashboardApiError) {
-      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
-      if (err.code) return err.code;
-      return err.message;
-    }
-    return err instanceof Error ? err.message : "Action failed.";
-  }
 
   function showError(msg: string): void {
     if (!errorEl) return;
@@ -298,7 +331,10 @@ try {
   searchInput?.addEventListener("input", applySearch);
 
   type PendingAction =
-    | { kind: "approve"; username: string }
+    // Approval is keyed by numeric id, not username: a web/ORCID account has
+    // no username, and under nemar-cli ADR 0040 approval is what grants it
+    // upload access, so the id-keyed route is the only one that reaches it.
+    | { kind: "approve"; id: number }
     | { kind: "revoke"; username: string }
     | { kind: "role"; username: string; role: AdminUserRole }
     | { kind: "delete"; id: number };
@@ -319,9 +355,10 @@ try {
 
   document.querySelectorAll<HTMLButtonElement>("[data-user-approve]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const username = btn.dataset.username;
-      if (!username) return;
-      queue({ kind: "approve", username });
+      const idRaw = btn.dataset.userId;
+      const id = idRaw ? Number.parseInt(idRaw, 10) : Number.NaN;
+      if (!Number.isInteger(id)) return;
+      queue({ kind: "approve", id });
       openDialog("admin-approve-user");
     });
   });
@@ -365,7 +402,16 @@ try {
     try {
       if (e.detail.dialogId === "admin-approve-user" && target.kind === "approve") {
         inFlight = true;
-        await approveUser(target.username);
+        try {
+          await approveUserById(target.id);
+        } catch (err) {
+          // Its own catch so the refusal keeps the backend's second sentence
+          // ("must verify their email address first"), which is the only part
+          // that tells the admin what to do next.
+          showError(`Couldn't approve: ${approveErrorText(err)}`);
+          inFlight = false;
+          return;
+        }
       } else if (e.detail.dialogId === "admin-revoke-user" && target.kind === "revoke") {
         inFlight = true;
         await revokeUser(target.username);
@@ -381,7 +427,7 @@ try {
       }
       location.reload();
     } catch (err) {
-      showError(`Couldn't complete that action: ${friendly(err)}`);
+      showError(`Couldn't complete that action: ${adminActionErrorText(err)}`);
       inFlight = false;
     }
   });

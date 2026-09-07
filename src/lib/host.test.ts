@@ -48,6 +48,10 @@ describe("isAppRoute", () => {
     "/login/verify",
     "/login/pending",
     "/welcome",
+    // Post-sign-in account setup (website#301). App host only, like
+    // /settings: it reads and PATCHes the session's own account through the
+    // Domain=app.nemar.org cookie.
+    "/onboarding",
     "/dashboard",
     "/upload",
     "/upload/success",

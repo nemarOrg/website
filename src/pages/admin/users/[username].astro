@@ -2,13 +2,17 @@
 import ConfirmDialog from "../../../components/ConfirmDialog.astro";
 import UserStatusBadge from "../../../components/UserStatusBadge.astro";
 import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { ACCOUNT_COPY, fillCopy } from "../../../lib/account-copy";
 import { adminGate } from "../../../lib/admin-guard";
 import { getSession } from "../../../lib/auth";
 import { DashboardApiError } from "../../../lib/dashboard-api";
 import { formatDate, formatRelativeTime } from "../../../lib/format";
+import { describeGapBlocks, profileGaps } from "../../../lib/profile-gaps";
 import {
   type AdminUserDetail,
   type AdminUserRole,
+  canApproveUser,
+  gapAccountFromDetail,
   getAdminUser,
   isActionable,
   isSelf,
@@ -57,12 +61,12 @@ const actionable = user ? isActionable(user) : false;
 // confirmation, so the UI needs to know up front. Self-approve is not
 // blocked server-side, so `self` deliberately does not gate `canApprove`.
 const self = user !== null && isSelf(user.id, session.user.id);
-const canApprove =
-  user !== null &&
-  actionable &&
-  (user.status === "verified" ||
-    user.status === "revoked" ||
-    user.status === "revoked_iam_pending");
+// The same predicate the queue uses, so the two surfaces cannot diverge on
+// who is approvable — see `canApproveUser`. Not gated on `actionable`:
+// approval goes through the id-keyed route, which is what a username-less
+// web account needs (this page is only reachable for one that HAS a
+// username, but the two call sites must still pick the same route).
+const canApprove = user !== null && canApproveUser(user);
 const canRevoke = user !== null && actionable && user.status === "approved" && !self;
 const canChangeRole = user !== null && isOwner && actionable && user.status === "approved" && !self;
 const canDelete = user !== null && isOwner && !self;
@@ -70,6 +74,12 @@ const currentRole: AdminUserRole = user?.role ?? "member";
 const ROLE_OPTIONS: readonly AdminUserRole[] = ["member", "admin", "owner"];
 
 const displayName = user ? [user.given_name, user.family_name].filter(Boolean).join(" ") : "";
+
+// The same gap list the account holder sees on their own dashboard
+// (website#309). This page always has the full detail row, so unlike the
+// queue's review card there is no "not loaded" state to distinguish.
+// Reported, never enforced: approve stays available and the backend decides.
+const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
 ---
 
 <AdminLayout title={user?.username ? `User: ${user.username}` : "User"} active="users" session={session}>
@@ -139,8 +149,16 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
             <dd>{[user.city, user.country].filter(Boolean).join(", ") || "—"}</dd>
           </div>
           <div>
-            <dt>Service access</dt>
-            <dd>{user.service_access ? "Granted" : "Not granted"}</dd>
+            <dt>Upload access</dt>
+            <dd>
+              {user.service_access
+                ? `Granted${formatDate(user.service_access_granted_at ?? null) ? ` ${formatDate(user.service_access_granted_at ?? null)}` : ""}`
+                : "Not granted"}
+            </dd>
+          </div>
+          <div>
+            <dt>Upload access asked</dt>
+            <dd>{formatDate(user.upload_access_requested_at ?? null) || "—"}</dd>
           </div>
           <div>
             <dt>Datasets owned</dt>
@@ -168,9 +186,27 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
           </div>
         </dl>
 
+        <section class="user-detail__gaps" data-user-gaps>
+          <h3 class="user-detail__gaps-title">{ACCOUNT_COPY["gaps.admin.title"]}</h3>
+          {gaps.length === 0 ? (
+            <p class="user-detail__gaps-empty">{ACCOUNT_COPY["gaps.admin.none"]}</p>
+          ) : (
+            <ul class="user-detail__gaps-list" role="list">
+              {gaps.map((gap) => (
+                <li>
+                  {fillCopy(ACCOUNT_COPY["gaps.admin.item"], {
+                    label: gap.label,
+                    blocks: describeGapBlocks(gap),
+                  })}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
         <footer class="user-detail__actions">
           {canApprove && (
-            <button type="button" class="user-detail__btn user-detail__btn--primary" data-user-approve data-username={user.username}>
+            <button type="button" class="user-detail__btn user-detail__btn--primary" data-user-approve data-user-id={user.id}>
               Approve
             </button>
           )}
@@ -367,6 +403,36 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
     color: var(--color-fg);
     font-size: var(--fs-sm);
   }
+  /* Mirrors `.user-row__gaps*` in UserAdminRow.astro — scoped styles do not
+     cross component boundaries, so the pair is duplicated on purpose (see
+     AGENTS.md). Keep them in sync. */
+  .user-detail__gaps {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .user-detail__gaps-title {
+    margin: 0;
+    font-size: var(--fs-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-semibold);
+  }
+  .user-detail__gaps-empty {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .user-detail__gaps-list {
+    margin: 0;
+    padding: 0 0 0 var(--space-4);
+    display: grid;
+    gap: var(--space-1);
+    list-style: disc;
+    font-size: var(--fs-sm);
+    color: var(--color-warning);
+    overflow-wrap: anywhere;
+  }
   .user-detail__actions {
     display: flex;
     flex-wrap: wrap;
@@ -435,31 +501,16 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
 
 <script>
   import {
-    approveUser,
+    adminActionErrorText,
+    approveErrorText,
+    approveUserById,
     changeUserRole,
     deleteUserById,
     revokeUser,
   } from "../../../lib/users-admin-api";
-  import { DashboardApiError } from "../../../lib/dashboard-api";
   import type { AdminUserRole } from "../../../lib/users-admin-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
-
-  // See users.astro's script for why this map only covers proxy/transport
-  // codes — the users backend puts human-readable text straight in `.code`.
-  const FRIENDLY: Record<string, string> = {
-    upstream_unreachable: "Can't reach the user service. Try again in a moment.",
-    unauthenticated: "Sign in again to continue.",
-  };
-
-  function friendly(err: unknown): string {
-    if (err instanceof DashboardApiError) {
-      if (err.code && FRIENDLY[err.code]) return FRIENDLY[err.code];
-      if (err.code) return err.code;
-      return err.message;
-    }
-    return err instanceof Error ? err.message : "Action failed.";
-  }
 
   function showError(msg: string): void {
     if (!errorEl) return;
@@ -473,7 +524,9 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
   }
 
   type PendingAction =
-    | { kind: "approve"; username: string }
+    // By numeric id: approval routes through `POST /admin/approve/by-id/:id`
+    // so this page and the queue use one path (nemar-cli ADR 0040).
+    | { kind: "approve"; id: number }
     | { kind: "revoke"; username: string }
     | { kind: "role"; username: string; role: AdminUserRole }
     | { kind: "delete"; id: number };
@@ -494,9 +547,10 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
 
   document.querySelectorAll<HTMLButtonElement>("[data-user-approve]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const username = btn.dataset.username;
-      if (!username) return;
-      queue({ kind: "approve", username });
+      const idRaw = btn.dataset.userId;
+      const id = idRaw ? Number.parseInt(idRaw, 10) : Number.NaN;
+      if (!Number.isInteger(id)) return;
+      queue({ kind: "approve", id });
       openDialog("admin-approve-user");
     });
   });
@@ -540,7 +594,17 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
     try {
       if (e.detail.dialogId === "admin-approve-user" && target.kind === "approve") {
         inFlight = true;
-        await approveUser(target.username);
+        try {
+          await approveUserById(target.id);
+        } catch (err) {
+          // Own catch, and its own renderer: an approve refusal's useful half
+          // is the backend's `message` ("User must verify their email address
+          // first"), which `adminActionErrorText` would discard in favour of
+          // the `error` headline. See `approveErrorText`.
+          showError(`Couldn't approve: ${approveErrorText(err)}`);
+          inFlight = false;
+          return;
+        }
       } else if (e.detail.dialogId === "admin-revoke-user" && target.kind === "revoke") {
         inFlight = true;
         await revokeUser(target.username);
@@ -560,7 +624,7 @@ const displayName = user ? [user.given_name, user.family_name].filter(Boolean).j
       }
       location.reload();
     } catch (err) {
-      showError(`Couldn't complete that action: ${friendly(err)}`);
+      showError(`Couldn't complete that action: ${adminActionErrorText(err)}`);
       inFlight = false;
     }
   });

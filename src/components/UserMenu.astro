@@ -1,5 +1,6 @@
 ---
 import type { AuthSession } from "../lib/auth";
+import { SIGN_IN_TITLE } from "../lib/copy";
 
 interface Props {
   session: AuthSession | null;
@@ -55,7 +56,7 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
       </div>
     </details>
   ) : (
-    <a class="user-menu__signin" href="/login">Sign in</a>
+    <a class="user-menu__signin" href="/login" title={SIGN_IN_TITLE}>Sign in</a>
   )
 }
 

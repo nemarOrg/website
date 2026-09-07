@@ -3,7 +3,11 @@ import ConfirmDialog from "../components/ConfirmDialog.astro";
 import DashboardTour from "../components/DashboardTour.astro";
 import MyDatasetCard from "../components/MyDatasetCard.astro";
 import ProfileNudge from "../components/ProfileNudge.astro";
+import VerifyEmailStep from "../components/VerifyEmailStep.astro";
 import Base from "../layouts/Base.astro";
+import { fetchAccountIdentity } from "../lib/account-api";
+import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
+import { deriveAccountTier, deriveUploadAccessState, needsOnboarding } from "../lib/account-tier";
 import { getSession } from "../lib/auth";
 import { isCollaboratorManager } from "../lib/collaborators-api";
 import {
@@ -12,7 +16,9 @@ import {
   getPublishStatus,
   listMyDatasets,
 } from "../lib/dashboard-api";
-import { missingProfileFields } from "../lib/profile";
+import { DOCS_UPLOAD_ACCESS_PATH, resolveDocsBase } from "../lib/docs-base";
+import { formatDate } from "../lib/format";
+import { profileGaps } from "../lib/profile-gaps";
 import type { Dataset } from "../lib/types";
 
 const session = getSession(Astro.locals);
@@ -27,20 +33,31 @@ const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0"
 // SSR: forward the request's cookie so the backend resolves the session.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 
+// Tier decides what this page IS, not just what banner sits on top of it
+// (website#301). An unverified account cannot pass `authMiddleware` at all
+// (nemar-cli services/account-tier.ts), so every call below would 403 —
+// skipping them is both honest and cheaper than rendering a list of errors
+// under a notice the user can act on.
+const tier = deriveAccountTier(session.user);
+const uploadAccess = deriveUploadAccessState(session.user);
+const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
+
 let datasets: Dataset[] = [];
 let total = 0;
 let listError: string | null = null;
-try {
-  const result = await listMyDatasets({ limit, offset }, { cookieHeader });
-  datasets = result.datasets;
-  total = result.total_count;
-} catch (err) {
-  listError =
-    err instanceof DashboardApiError
-      ? `Could not load your datasets (${err.status}). Try refreshing.`
-      : err instanceof Error
-        ? err.message
-        : "Could not load your datasets.";
+if (tier !== "unverified") {
+  try {
+    const result = await listMyDatasets({ limit, offset }, { cookieHeader });
+    datasets = result.datasets;
+    total = result.total_count;
+  } catch (err) {
+    listError =
+      err instanceof DashboardApiError
+        ? `Could not load your datasets (${err.status}). Try refreshing.`
+        : err instanceof Error
+          ? err.message
+          : "Could not load your datasets.";
+  }
 }
 
 // Fan-out publish-status lookups in parallel: one request per visible
@@ -66,14 +83,41 @@ await Promise.all(
   }),
 );
 
-const pendingNotice =
-  session.user.status === "pending"
-    ? "Your account is still under admin review. Most actions are locked until you're approved."
-    : null;
+// One extra call, and only for a tier that can make it: `/auth/me` does not
+// carry `username`, and without it the setup prompt cannot tell a brand-new
+// ORCID account from a finished one. Fail-soft — `fetchAccountIdentity`
+// answers `undefined` on any failure and `onboardingSteps` treats that as
+// "cannot say", never as "missing".
+const identity =
+  tier === "unverified"
+    ? { username: undefined }
+    : await fetchAccountIdentity(session.user.username, { cookieHeader });
+// #226 / website#309: a nudge, never a gate. One line per outstanding field,
+// each naming what it blocks — the same sentences the upload-access refusal
+// and `nemar auth status` print. `profileGaps` reads the backend's
+// `profile_gaps` when /auth/me carries it and derives the identical list
+// until then; the resolved username is spread in because /auth/me does not
+// report one yet (undefined there means "could not ask", which does not raise
+// the gap).
+const gaps =
+  tier === "unverified" ? [] : profileGaps({ ...session.user, username: identity.username });
+const showSetupPrompt =
+  tier !== "unverified" &&
+  needsOnboarding({
+    username: identity.username,
+    given_name: session.user.given_name,
+    family_name: session.user.family_name,
+    city: session.user.city,
+    country: session.user.country,
+    orcid_verified: session.user.orcid_verified,
+  });
 
-// #226: nudge, never a gate. The hard city/country requirement is enforced
-// on /upload itself, so dismissing the banner cannot get anyone past it.
-const missingProfile = missingProfileFields(session.user);
+const requestedDate = uploadAccess.kind === "requested" ? formatDate(uploadAccess.at) : "";
+// One sentence, dated when the backend told us when. `upload_access_requested_at`
+// is not on /auth/me yet, so the undated form is what renders today.
+const requestedLede = requestedDate
+  ? fillCopy(ACCOUNT_COPY["upload_access.requested.lede_dated"], { date: requestedDate })
+  : ACCOUNT_COPY["upload_access.requested.lede"];
 ---
 
 <Base
@@ -85,19 +129,64 @@ const missingProfile = missingProfileFields(session.user);
       <div>
         <h1 class="dashboard-header__title">My datasets</h1>
         <p class="dashboard-header__lede">
-          {total === 0
-            ? "No datasets yet."
-            : `${total} dataset${total === 1 ? "" : "s"} owned by you.`}
+          {tier === "unverified"
+            ? ACCOUNT_COPY["tier.unverified.lede"]
+            : total === 0
+              ? "No datasets yet."
+              : `${total} dataset${total === 1 ? "" : "s"} owned by you.`}
         </p>
       </div>
-      <a class="dashboard-header__cta" href="/upload" data-tour-target="upload">Upload dataset</a>
+      {tier === "upload" && (
+        <a class="dashboard-header__cta" href="/upload" data-tour-target="upload">Upload dataset</a>
+      )}
     </header>
 
-    {pendingNotice && (
-      <p class="dashboard-notice" role="status">{pendingNotice}</p>
+    {tier === "unverified" ? (
+      <VerifyEmailStep email={session.user.email} context="dashboard" />
+    ) : (
+    <>
+    {showSetupPrompt && (
+      <p class="dashboard-notice" role="status">
+        Your account setup isn&rsquo;t finished &mdash; NEMAR still needs a username, your
+        name, or where you&rsquo;re based. <a href="/onboarding?next=%2Fdashboard">Finish setting up</a>.
+      </p>
     )}
 
-    <ProfileNudge missing={missingProfile} userId={session.user.id} />
+    {/* Tier-aware, and deliberately not a warning: the base tier is a
+        working account, not a degraded one. Nothing here mentions sandbox
+        training — that is CLI-only (nemar-cli ADR 0040) and naming it would
+        send a browser user to a terminal for a step the web upload gate does
+        not check. */}
+    {tier === "base" && uploadAccess.kind === "not_requested" && (
+      <div class="dashboard-tier" role="note">
+        <h2 class="dashboard-tier__title">{ACCOUNT_COPY["upload_access.invite.title"]}</h2>
+        <p class="dashboard-tier__body">{ACCOUNT_COPY["upload_access.invite.body"]}</p>
+        <p class="dashboard-tier__actions">
+          <a class="dashboard-tier__cta" href="/settings#upload-access">
+            {ACCOUNT_COPY["upload_access.request.cta"]}
+          </a>
+          <a class="dashboard-tier__link" href={uploadAccessDocsUrl} rel="external noopener">
+            {ACCOUNT_COPY["upload_access.docs_link"]}
+          </a>
+        </p>
+      </div>
+    )}
+
+    {tier === "base" && uploadAccess.kind === "requested" && (
+      <div class="dashboard-tier" role="note">
+        <h2 class="dashboard-tier__title">{ACCOUNT_COPY["upload_access.requested.title"]}</h2>
+        <p class="dashboard-tier__body">
+          {requestedLede} {ACCOUNT_COPY["upload_access.requested.body"]}
+        </p>
+        <p class="dashboard-tier__actions">
+          <a class="dashboard-tier__link" href="/settings#upload-access">
+            {ACCOUNT_COPY["upload_access.requested.cta"]}
+          </a>
+        </p>
+      </div>
+    )}
+
+    <ProfileNudge gaps={gaps} userId={session.user.id} />
 
     {listError && (
       <p class="dashboard-error" role="alert">{listError}</p>
@@ -118,10 +207,19 @@ const missingProfile = missingProfileFields(session.user);
     {!listError && datasets.length === 0 ? (
       <div class="dashboard-empty">
         <h2 class="dashboard-empty__title">You haven&rsquo;t uploaded any datasets yet</h2>
-        <p class="dashboard-empty__body">
-          Drop a BIDS folder on the upload page and we&rsquo;ll create your first dataset.
-        </p>
-        <a class="dashboard-empty__cta" href="/upload">Upload your first dataset</a>
+        {tier === "upload" ? (
+          <>
+            <p class="dashboard-empty__body">
+              Drop a BIDS folder on the upload page and we&rsquo;ll create your first dataset.
+            </p>
+            <a class="dashboard-empty__cta" href="/upload">Upload your first dataset</a>
+          </>
+        ) : (
+          <p class="dashboard-empty__body">
+            Datasets you upload will appear here once an admin grants your account upload
+            access.
+          </p>
+        )}
       </div>
     ) : (
       <ul class="dashboard-list" role="list">
@@ -139,6 +237,8 @@ const missingProfile = missingProfileFields(session.user);
     )}
 
     <p class="dashboard-action-error" role="alert" data-dashboard-action-error hidden></p>
+    </>
+    )}
   </section>
 
   <ConfirmDialog
@@ -213,6 +313,61 @@ const missingProfile = missingProfileFields(session.user);
     color: var(--color-fg);
     border-radius: var(--radius-md);
     padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .dashboard-notice a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  /* Tier card: informational, not a warning. Neutral surface with the brand
+     rail rather than the amber notice treatment, because the base tier is a
+     working account and amber would read as "something is wrong". */
+  .dashboard-tier {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-inline-start: 3px solid var(--brand-teal);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    gap: var(--space-2);
+  }
+  .dashboard-tier__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+  }
+  .dashboard-tier__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 56ch;
+  }
+  .dashboard-tier__actions {
+    margin: var(--space-1) 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
+  }
+  .dashboard-tier__cta {
+    min-block-size: 40px;
+    padding: 0 var(--space-5);
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-pill);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+  }
+  .dashboard-tier__cta:hover {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .dashboard-tier__link {
+    color: var(--color-link);
     font-size: var(--fs-sm);
   }
   .dashboard-error {
