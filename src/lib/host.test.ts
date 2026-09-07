@@ -68,6 +68,9 @@ describe("isAppRoute", () => {
     "/api/v1/admin/publish/requests",
     "/dataset/nm000103/collaborators",
     "/dataset/nm000103/collaborators/",
+    // CLI device-authorization page (epic #1272 phase 2).
+    "/cli/authorize",
+    "/cli/authorize/",
   ])("treats %s as app", (path) => {
     expect(isAppRoute(path)).toBe(true);
   });
@@ -91,6 +94,9 @@ describe("isAppRoute", () => {
   it("doesn't match prefix-collisions", () => {
     expect(isAppRoute("/loginish")).toBe(false);
     expect(isAppRoute("/dashboard-help")).toBe(false);
+    // "/cli" as a bare prefix must not swallow an unrelated route that merely
+    // starts with the same three letters.
+    expect(isAppRoute("/climate")).toBe(false);
   });
 });
 
@@ -175,6 +181,32 @@ describe("getCrossHostRedirect", () => {
     expect(getCrossHostRedirect(url(APP_HOST, "/discover?modality=eeg&limit=10"))).toBe(
       `${MARKETING_BASE_URL}/discover?modality=eeg&limit=10`,
     );
+  });
+
+  // epic #1272 phase 2 (nemarOrg/website#316): the CLI's device-authorization
+  // page. An anonymous visitor hitting the marketing host with the code from
+  // their terminal must land on the app host with the code intact — the
+  // whole point of classifying `/cli` as an app route.
+  it("redirects the CLI authorize page to the app host, with or without a session, keeping the code", () => {
+    expect(getCrossHostRedirect(url(MARKETING_HOST, "/cli/authorize?code=BCDF-GHJK"))).toBe(
+      `https://${APP_HOST}/cli/authorize?code=BCDF-GHJK`,
+    );
+    expect(
+      getCrossHostRedirect(url(BETA_HOST, "/cli/authorize?code=BCDF-GHJK"), { hasSession: false }),
+    ).toBe(`https://${APP_HOST}/cli/authorize?code=BCDF-GHJK`);
+    expect(
+      getCrossHostRedirect(url(MARKETING_HOST, "/cli/authorize?code=BCDF-GHJK"), {
+        hasSession: true,
+      }),
+    ).toBe(`https://${APP_HOST}/cli/authorize?code=BCDF-GHJK`);
+  });
+
+  it("never redirects the CLI authorize page once already on the app host", () => {
+    expect(getCrossHostRedirect(url(APP_HOST, "/cli/authorize?code=BCDF-GHJK"))).toBeNull();
+  });
+
+  it("never redirects the CLI authorize page in single-host mode (test.nemar.org)", () => {
+    expect(getCrossHostRedirect(url("test.nemar.org", "/cli/authorize?code=BCDF-GHJK"))).toBeNull();
   });
 });
 
