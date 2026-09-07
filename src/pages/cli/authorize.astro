@@ -31,18 +31,37 @@ import {
 import { decideDeviceCodeDev, lookupDeviceCodeDev } from "../../lib/device-authorize-dev";
 import { formatDate } from "../../lib/format";
 
-// Per-user, per-request: this page must never be served from a shared cache
-// (the confirm view names an account and a machine).
+/**
+ * `Astro.redirect()` builds a brand-new `Response` from scratch
+ * (`new Response(null, { status, headers: { Location: path } })`, see
+ * Astro's `createAstroPagePartial`/`getAPIContext` in
+ * `node_modules/astro/dist/core/fetch/fetch-state.js`) — it does NOT merge
+ * `Astro.response.headers` onto that response, so the page-level
+ * `Astro.response.headers.set("Cache-Control", "no-store")` below only ever
+ * reaches the final rendered page, never an early-return redirect. Every
+ * redirect this page issues carries per-account state (a confirm/deny
+ * outcome, a signed-out bounce with `next=`), so every one of them needs its
+ * own `no-store` — this helper is that, and every redirect on this page goes
+ * through it rather than a bare `Astro.redirect(`.
+ */
+function noStoreRedirect(location: string, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: { Location: location, "Cache-Control": "no-store" },
+  });
+}
+
 Astro.response.headers.set("Cache-Control", "no-store");
 
 const url = new URL(Astro.request.url);
 const here = `${url.pathname}${url.search}`;
 
 const session = getSession(Astro.locals);
-// No session at all: decision 2's guard. `/login`'s own `next` handling
-// (safeRedirectPath) is what resolves this on the way back.
+// No session at all: bounce to sign-in before any lookup runs. `/login`'s
+// own `next` handling (safeRedirectPath) is what resolves this on the way
+// back.
 if (!session) {
-  return Astro.redirect(`/login?next=${encodeURIComponent(here)}`);
+  return noStoreRedirect(`/login?next=${encodeURIComponent(here)}`);
 }
 
 const sessionRequiredRedirect = `/login?error=session_required&next=${encodeURIComponent(here)}`;
@@ -52,21 +71,21 @@ let view: AuthorizeViewState;
 if (Astro.request.method === "POST") {
   const origin = Astro.request.headers.get("origin");
   if (origin !== Astro.url.origin) {
-    return new Response("Forbidden", { status: 403 });
+    return new Response("Forbidden", { status: 403, headers: { "Cache-Control": "no-store" } });
   }
   const contentType = (Astro.request.headers.get("content-type") ?? "").toLowerCase();
   if (
     !contentType.includes("application/x-www-form-urlencoded") &&
     !contentType.includes("multipart/form-data")
   ) {
-    return new Response("Bad Request", { status: 400 });
+    return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
   let form: FormData;
   try {
     form = await Astro.request.formData();
   } catch {
-    return new Response("Bad Request", { status: 400 });
+    return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
   const codeField = form.get("code");
@@ -77,7 +96,7 @@ if (Astro.request.method === "POST") {
   const machine = typeof machineField === "string" ? machineField : "";
 
   if (!intent || !hasCode(code)) {
-    return new Response("Bad Request", { status: 400 });
+    return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
   const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
@@ -87,10 +106,10 @@ if (Astro.request.method === "POST") {
 
   const outcome = decisionView(result, intent, code, machine, "/cli/authorize");
   if (outcome.kind === "redirect") {
-    return Astro.redirect(outcome.location, 303);
+    return noStoreRedirect(outcome.location, 303);
   }
   if (outcome.kind === "signed_out") {
-    return Astro.redirect(sessionRequiredRedirect);
+    return noStoreRedirect(sessionRequiredRedirect);
   }
   view = outcome;
 } else {
@@ -108,7 +127,7 @@ if (Astro.request.method === "POST") {
         : await lookupDeviceCode(codeParam, { cookieHeader });
       const lookupView = authorizeView(result, here);
       if (lookupView.kind === "signed_out") {
-        return Astro.redirect(sessionRequiredRedirect);
+        return noStoreRedirect(sessionRequiredRedirect);
       }
       view = lookupView;
     }
