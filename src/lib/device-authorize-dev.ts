@@ -37,6 +37,13 @@ interface DevDeviceCode {
   status: DeviceCodeStatus;
 }
 
+/** Mirrors the backend's live-key cap (`MAX_LIVE_API_KEYS`,
+ *  `shared/contract/device-auth.ts`) so the dev store's `too_many_keys`
+ *  refusal is reachable without minting 25 real rows against a live API.
+ *  Declared before `DEV_MESSAGES` (below) so that object can interpolate it
+ *  rather than carrying its own hardcoded copy of the number. */
+export const MAX_LIVE_API_KEYS_DEV = 25;
+
 /** Sentences transcribed verbatim from nemar-cli's
  *  `shared/contract/device-auth.ts` (`DEVICE_AUTH_MESSAGES`), so a dev-mode
  *  render is indistinguishable from a real backend refusal. Not imported —
@@ -52,11 +59,28 @@ const DEV_MESSAGES = {
     "This sign-in was declined in the browser. Run `nemar auth login` again if that was a mistake.",
   account_pending:
     "Verify your email address first. Check your inbox for the NEMAR verification code, then authorize again.",
+  account_revoked:
+    "Your NEMAR account access has been revoked. Contact the NEMAR team if you think this is a mistake.",
   key_not_found:
     "That key was not found on this account, or it is already revoked. Run `nemar auth keys` to see the active ones.",
-  too_many_keys:
-    "This account already has 25 active keys. Revoke one in Settings on nemar.org or with `nemar auth keys`, then try again.",
+  too_many_keys: `This account already has ${MAX_LIVE_API_KEYS_DEV} active keys. Revoke one in Settings on nemar.org or with \`nemar auth keys\`, then try again.`,
 } as const;
+
+/**
+ * The account-level refusal a `"pending"` or `"disabled"` persona gets,
+ * mirroring the backend's `accountRefusal(status, identityConflict)`
+ * (`services/device-auth.ts`): `pending` -> `account_pending`,
+ * anything else non-active -> `account_revoked` (this dev store has no
+ * identity-conflict persona, so that third backend branch never fires
+ * here). `null` for an active account — nothing to refuse.
+ */
+function accountRefusalCode(
+  status: "active" | "pending" | "disabled",
+): "account_pending" | "account_revoked" | null {
+  if (status === "pending") return "account_pending";
+  if (status === "disabled") return "account_revoked";
+  return null;
+}
 
 const HTTP_STATUS_FOR_CODE_REFUSAL: Readonly<
   Record<"device_code_expired" | "device_code_used" | "device_code_denied", number>
@@ -117,11 +141,6 @@ export interface DevApiKeySummary {
   readonly current: boolean;
 }
 
-/** Mirrors the backend's live-key cap (`MAX_LIVE_API_KEYS`,
- *  `shared/contract/device-auth.ts`) so the dev store's `too_many_keys`
- *  refusal is reachable without minting 25 real rows against a live API. */
-export const MAX_LIVE_API_KEYS_DEV = 25;
-
 function seedApiKeys(): DevApiKeySummary[] {
   return [
     {
@@ -177,8 +196,10 @@ function refusal(code: keyof typeof DEV_MESSAGES, status: number): DevResult {
 
 /** `GET /auth/device/lookup` stand-in. `user` is the dev session's own
  *  persona: a `"pending"` status yields the SAME `account_pending` nested
- *  refusal a real unverified account gets from the backend (decision 5),
- *  reachable via `@nemar.pending` regardless of which live code is looked up. */
+ *  refusal a real unverified account gets from the backend, and
+ *  `"disabled"` yields `account_revoked` — both reachable regardless of
+ *  which live code is looked up, matching the real lookup route's
+ *  unconditional `accountRefusal` check. */
 export function lookupDeviceCodeDev(
   code: string,
   user: { readonly status: "active" | "pending" | "disabled" },
@@ -196,10 +217,10 @@ export function lookupDeviceCodeDev(
 
   // Live pending. Account-level refusal nests inside a 200, exactly like the
   // real lookup route.
-  const accountRefusal =
-    user.status === "pending"
-      ? { code: "account_pending", message: DEV_MESSAGES.account_pending }
-      : null;
+  const accountCode = accountRefusalCode(user.status);
+  const accountRefusal = accountCode
+    ? { code: accountCode, message: DEV_MESSAGES[accountCode] }
+    : null;
 
   return {
     status: 200,
@@ -214,7 +235,15 @@ export function lookupDeviceCodeDev(
   };
 }
 
-/** `POST /auth/device/{confirm,deny}` stand-in. */
+/**
+ * `POST /auth/device/{confirm,deny}` stand-in.
+ *
+ * The account-level gate applies to `authorize` only, matching the
+ * backend: `POST /auth/device/confirm` checks `accountRefusal` before
+ * touching the row, but `POST /auth/device/deny` performs no account check
+ * at all ("Any signed-in account may deny", `routes/auth-device.ts`) — a
+ * pending or disabled account can still decline a sign-in it did not start.
+ */
 export function decideDeviceCodeDev(
   intent: "authorize" | "deny",
   code: string,
@@ -230,9 +259,10 @@ export function decideDeviceCodeDev(
     return refusal("device_code_used", HTTP_STATUS_FOR_CODE_REFUSAL.device_code_used);
   if (row.status === "denied")
     return refusal("device_code_denied", HTTP_STATUS_FOR_CODE_REFUSAL.device_code_denied);
-  if (user.status === "pending") return refusal("device_code_used", 403);
 
   if (intent === "authorize") {
+    const accountCode = accountRefusalCode(user.status);
+    if (accountCode) return refusal(accountCode, 403);
     row.status = "consumed";
     return { status: 200, body: { ok: true, machine_name: row.machineName } };
   }
