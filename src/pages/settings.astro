@@ -1,4 +1,5 @@
 ---
+import ConfirmDialog from "../components/ConfirmDialog.astro";
 import Base from "../layouts/Base.astro";
 import { fetchAccountIdentity } from "../lib/account-api";
 import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
@@ -10,6 +11,8 @@ import {
   deriveUploadAccessState,
 } from "../lib/account-tier";
 import { fullName, getSession, isValidOrcid, maskEmail } from "../lib/auth";
+import { listApiKeys } from "../lib/device-auth-api";
+import { listApiKeysDev } from "../lib/device-authorize-dev";
 import {
   DOCS_ACCOUNT_SETTINGS_PATH,
   DOCS_UPLOAD_ACCESS_PATH,
@@ -116,6 +119,42 @@ const gaps = profileGaps({ ...session.user, username: identity.username });
 const requestedLede = requestedDate
   ? fillCopy(ACCOUNT_COPY["upload_access.requested.lede_dated"], { date: requestedDate })
   : ACCOUNT_COPY["upload_access.requested.lede"];
+
+// CLI keys card (epic #1272 phase 2, nemarOrg/website#316; nemar-cli ADR
+// 0047). The list is fetched server-side here with `Origin: Astro.url.origin`
+// pinned — the cookie path 403s "Origin not allowed" without one — rather
+// than proxied through a browser-side GET (see `api/auth/keys.ts`'s header
+// comment for why only the two mutations get a route). An unverified
+// account skips the fetch entirely: it cannot reach `/auth/keys` at all
+// (nemar-cli's `resolveKeysActor` refuses a non-active cookie session), so
+// asking would only ever produce a refusal to render around.
+interface ApiKeyRow {
+  readonly id: number;
+  readonly name: string | null;
+  readonly prefix: string;
+  readonly created_at: string;
+  readonly last_used_at: string | null;
+}
+let keysState: "unverified" | "ok" | "unavailable" = "unverified";
+let keys: ApiKeyRow[] = [];
+if (tier !== "unverified") {
+  if (import.meta.env.DEV) {
+    keys = listApiKeysDev().keys;
+    keysState = "ok";
+  } else {
+    const keysResult = await listApiKeys({ cookieHeader, origin: Astro.url.origin });
+    const keysBody =
+      keysResult.status === 200 && keysResult.body && typeof keysResult.body === "object"
+        ? (keysResult.body as { keys?: unknown }).keys
+        : undefined;
+    if (Array.isArray(keysBody)) {
+      keys = keysBody as ApiKeyRow[];
+      keysState = "ok";
+    } else {
+      keysState = "unavailable";
+    }
+  }
+}
 ---
 
 <Base title="Settings" description="Your NEMAR account settings.">
@@ -653,6 +692,114 @@ const requestedLede = requestedDate
         </p>
       </article>
 
+      <!-- CLI keys (epic #1272 phase 2; nemarOrg/website#316; nemar-cli ADR
+           0047). Named API keys: one per machine signed in with
+           `nemar auth login`, plus any created here for a headless machine
+           that pastes the key in instead. -->
+      <article class="card card--wide" id="cli-keys">
+        <div class="card__rail" aria-hidden="true"></div>
+        <header class="card__head">
+          <h2 class="card__title">CLI keys</h2>
+          <p class="card__lede">
+            Machines signed in to the NEMAR CLI. Each key is named for the machine it
+            authenticates and can be revoked here at any time.
+          </p>
+        </header>
+
+        {keysState === "unavailable" && (
+          <p class="notice notice--warn" data-cli-keys-notice>
+            We couldn&rsquo;t load your keys. Reload this page to try again.
+          </p>
+        )}
+
+        {keysState === "unverified" && (
+          <p class="upload-access__body">
+            Verify your email to manage CLI keys. The verify step is on your
+            {" "}<a href="/dashboard">dashboard</a>.
+          </p>
+        )}
+
+        {keysState === "ok" && (
+          <>
+            {keys.length === 0 ? (
+              <p class="upload-access__body" data-cli-keys-empty>
+                No keys yet. Run <code>nemar auth login</code> on the machine you want to sign
+                in. Create a key here only for a machine that cannot open a browser, then paste
+                it into the CLI with <code>nemar auth login --key</code>.
+              </p>
+            ) : (
+              <ul class="cli-keys__list" role="list" data-cli-keys-list>
+                {keys.map((key) => (
+                  <li class="cli-keys__row" data-cli-keys-row data-key-id={key.id}>
+                    <div class="cli-keys__row-main">
+                      <span class="cli-keys__name">{key.name || "Unnamed key"}</span>
+                      <code class="cli-keys__prefix">{key.prefix}</code>
+                    </div>
+                    <div class="cli-keys__row-meta">
+                      <span>Created {formatDate(key.created_at) || key.created_at}</span>
+                      <span>
+                        Last used {key.last_used_at ? formatDate(key.last_used_at) || key.last_used_at : "Never"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn--danger"
+                      data-key-revoke
+                      data-key-id={key.id}
+                      data-key-name={key.name || "Unnamed key"}
+                    >
+                      Revoke
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <p class="flow__msg" role="alert" data-cli-keys-revoke-msg hidden></p>
+
+            <div class="flow" data-key-create-flow>
+              <form class="cli-keys__create" data-key-create-form>
+                <label class="field">
+                  <span class="field__label">Name this key</span>
+                  <input
+                    class="field__input"
+                    type="text"
+                    name="name"
+                    required
+                    maxlength="64"
+                    placeholder="build-box"
+                    data-key-name-input
+                  />
+                </label>
+                <div class="flow__actions">
+                  <button type="submit" class="btn btn--primary" data-key-create-submit>
+                    Create key
+                  </button>
+                </div>
+                <p class="flow__msg" role="alert" data-key-create-msg hidden></p>
+              </form>
+
+              <div class="cli-keys__reveal" data-key-reveal hidden>
+                <label class="field">
+                  <span class="field__label">Your new key</span>
+                  <input
+                    class="field__input field__input--code"
+                    type="text"
+                    readonly
+                    data-key-reveal-input
+                  />
+                </label>
+                <p class="flow__hint">Store it now. It will not be shown again.</p>
+                <div class="flow__actions">
+                  <button type="button" class="btn btn--ghost" data-key-reveal-copy>Copy</button>
+                  <button type="button" class="btn btn--primary" data-key-reveal-done>Done</button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </article>
+
       <!-- Appearance block -->
       <article class="card">
         <div class="card__rail" aria-hidden="true"></div>
@@ -727,6 +874,14 @@ const requestedLede = requestedDate
       </article>
     </div>
   </section>
+
+  <ConfirmDialog
+    dialogId="settings-revoke-key"
+    title="Revoke this key?"
+    body="Any machine signed in with this key is immediately signed out of the NEMAR CLI. This can't be undone."
+    confirmLabel="Revoke key"
+    confirmTone="danger"
+  />
 </Base>
 
 <style>
@@ -1292,6 +1447,68 @@ const requestedLede = requestedDate
     color: var(--color-fg-subtle);
   }
 
+  /* ---------- CLI keys (epic #1272 phase 2) ---------- */
+  .cli-keys__list {
+    margin: 0 0 var(--space-5);
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .cli-keys__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+  }
+  .cli-keys__row-main {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex: 1 1 12rem;
+    min-inline-size: 0;
+  }
+  .cli-keys__name {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .cli-keys__prefix {
+    font-family: var(--font-mono);
+    background: var(--color-bg);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .cli-keys__row-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    flex: 1 1 10rem;
+  }
+  .cli-keys__create {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .cli-keys__reveal {
+    margin-block-start: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-success) 6%, var(--color-bg));
+    display: grid;
+    gap: var(--space-3);
+  }
+  .cli-keys__reveal[hidden] {
+    display: none;
+  }
+
   .badge--status-active {
     background: color-mix(in srgb, var(--color-success) 12%, transparent);
     border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
@@ -1492,6 +1709,18 @@ const requestedLede = requestedDate
   // endpoint isn't deployed yet (these ship ahead of nemar-cli); say so plainly
   // rather than showing a raw error.
   function messageForStatus(status: number, code?: string): string {
+    // CLI-keys refusals (epic #1272 phase 2): checked before the generic
+    // 404/409 branches below, which assume those statuses mean "this
+    // endpoint isn't deployed yet" — true for the older self-service routes
+    // that shipped ahead of nemar-cli, but not for `/auth/keys`, whose 404
+    // and 409 are real, wire-carried refusals from a backend that already
+    // has this route (nemar-cli ADR 0047, epic #1272 phase 1).
+    if (code === "key_not_found") {
+      return "That key wasn't found, or it's already revoked. Reloading…";
+    }
+    if (code === "too_many_keys") {
+      return "You've reached the limit of 25 active keys. Revoke one below first.";
+    }
     if (status === 404 || status === 501) return "This isn't available yet — check back soon.";
     if (status === 401) return "Your session expired. Sign in again.";
     if (status === 409 && code === "same_email") return "That's already your email address.";
@@ -1953,6 +2182,115 @@ const requestedLede = requestedDate
         setMsg(msg, "Network error. Check your connection.", "error");
       } finally {
         if (btn) btn.disabled = false;
+      }
+    });
+  })();
+
+  // ================= CLI keys (epic #1272 phase 2) =================
+  (() => {
+    const createForm = $<HTMLFormElement>("[data-key-create-form]");
+    const nameInput = $<HTMLInputElement>("[data-key-name-input]");
+    const createMsg = $("[data-key-create-msg]");
+    const createBtn = $<HTMLButtonElement>("[data-key-create-submit]");
+    const revealPanel = $("[data-key-reveal]");
+    const revealInput = $<HTMLInputElement>("[data-key-reveal-input]");
+    const revealCopyBtn = $<HTMLButtonElement>("[data-key-reveal-copy]");
+    const revealDoneBtn = $<HTMLButtonElement>("[data-key-reveal-done]");
+    const revokeMsg = $("[data-cli-keys-revoke-msg]");
+
+    createForm?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = (nameInput?.value ?? "").trim();
+      if (!name) {
+        setMsg(createMsg, "Name this key.", "error");
+        return;
+      }
+      if (createBtn) createBtn.disabled = true;
+      clearMsg(createMsg);
+      try {
+        const res = await fetch("/api/auth/keys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const { code } = await readProfileError(res);
+          setMsg(createMsg, messageForStatus(res.status, code), "error");
+          return;
+        }
+        const data = (await res.json()) as { api_key?: unknown };
+        if (revealInput && typeof data.api_key === "string") {
+          revealInput.value = data.api_key;
+        }
+        if (createForm) createForm.hidden = true;
+        if (revealPanel) revealPanel.hidden = false;
+      } catch {
+        setMsg(createMsg, "Network error. Check your connection.", "error");
+      } finally {
+        if (createBtn) createBtn.disabled = false;
+      }
+    });
+
+    revealCopyBtn?.addEventListener("click", async () => {
+      if (!revealInput) return;
+      try {
+        await navigator.clipboard.writeText(revealInput.value);
+        revealCopyBtn.textContent = "Copied";
+        setTimeout(() => {
+          revealCopyBtn.textContent = "Copy";
+        }, 1500);
+      } catch {
+        // Clipboard access denied or unavailable in this browser context.
+        // The value is still visible and selectable in the readonly input,
+        // so falling back to select() is a real, if less convenient, path
+        // to the same outcome rather than a dead button.
+        revealInput.select();
+      }
+    });
+
+    revealDoneBtn?.addEventListener("click", () => {
+      location.reload();
+    });
+
+    // Revoke, behind ConfirmDialog: the click that opens it only records
+    // which row is pending, since the dialog's own confirm event carries no
+    // payload of its own (the same `pending` pattern dashboard.astro uses
+    // for its two ConfirmDialogs).
+    let pendingRevoke: { id: string; name: string } | null = null;
+
+    document.querySelectorAll<HTMLButtonElement>("[data-key-revoke]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.keyId;
+        if (!id) return;
+        pendingRevoke = { id, name: btn.dataset.keyName ?? "Unnamed key" };
+        clearMsg(revokeMsg);
+        document.dispatchEvent(
+          new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", {
+            detail: { dialogId: "settings-revoke-key" },
+          }),
+        );
+      });
+    });
+
+    document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+      const e = evt as CustomEvent<{ dialogId: string }>;
+      if (e.detail.dialogId !== "settings-revoke-key" || !pendingRevoke) return;
+      const target = pendingRevoke;
+      pendingRevoke = null;
+      try {
+        const res = await fetch(`/api/auth/keys/${encodeURIComponent(target.id)}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const { code } = await readProfileError(res);
+          setMsg(revokeMsg, messageForStatus(res.status, code), "error");
+          return;
+        }
+        location.reload();
+      } catch {
+        setMsg(revokeMsg, "Network error. Check your connection.", "error");
       }
     });
   })();

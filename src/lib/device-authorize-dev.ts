@@ -143,16 +143,26 @@ function seedApiKeys(): DevApiKeySummary[] {
   ];
 }
 
-let deviceCodes = seedDeviceCodes();
-let apiKeys = seedApiKeys();
+// `/* @__PURE__ */` on every call to a seed function: without it, a
+// production build that eliminates every real call site (every one of them
+// is behind `import.meta.env.DEV`) still leaves these two top-level
+// assignments behind as bare, unassigned calls — Rollup won't drop a
+// function call whose result goes unused unless it can prove the call
+// itself is side-effect-free, and a plain user-defined function does not
+// carry that proof on its own. Confirmed against `dist/_worker.js` (no
+// `/* @__PURE__ */` left `seedDeviceCodes` — dev-only machine names and
+// codes — as a live top-level statement, machine names and codes included,
+// even though nothing in the production bundle ever called it).
+let deviceCodes = /* @__PURE__ */ seedDeviceCodes();
+let apiKeys = /* @__PURE__ */ seedApiKeys();
 let nextKeyId = 3;
 
 /** Resets both stores to their seeded fixtures. Test-only — `astro dev`
  *  itself never calls this, since a real dev session wants its mutations
  *  (confirm/deny, key create/revoke) to persist across requests. */
 export function resetDeviceAuthorizeDevStore(): void {
-  deviceCodes = seedDeviceCodes();
-  apiKeys = seedApiKeys();
+  deviceCodes = /* @__PURE__ */ seedDeviceCodes();
+  apiKeys = /* @__PURE__ */ seedApiKeys();
   nextKeyId = 3;
 }
 
