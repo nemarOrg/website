@@ -173,11 +173,12 @@ src/
     dataset/[id]/collaborators.astro  per-dataset collaborator management (app host)
     login.astro login/*.astro signup.astro welcome.astro    sign-in (ORCID + email code) + onboarding
     auth/orcid/{start.ts,callback.ts,complete.astro}        ORCID OAuth proxy flow
-    api/auth/**                       session-backed proxies: code, email change, profile, unlink, logout
+    cli/authorize.astro               device-auth grant confirm/deny page (epic #1272 phase 2; app host)
+    api/auth/**                       session-backed proxies: code, email change, profile, unlink, logout, keys
     api/v1/[...path].ts               generic authenticated API proxy
     dashboard.astro                   my-datasets list + publish status (app host)
     upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + direct-to-storage PUTs)
-    settings.astro                    account: name/email/ORCID/GitHub/profile self-service
+    settings.astro                    account: name/email/ORCID/GitHub/profile self-service; CLI keys card
     admin/publication-requests.astro  admin-only (role=admin; 404s for others)
     about.astro support.astro community.astro
     og/** robots.txt.ts 404.astro
@@ -187,6 +188,9 @@ src/
     data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
     auth.ts auth-dev.ts auth-proxy.ts orcid-proxy.ts   session types/helpers, dev mock session, backend proxies
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
+    device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
+    device-authorize.ts               pure view model for /cli/authorize (no mirrored refusal vocabulary)
+    device-authorize-dev.ts           astro-dev stand-in for the device-auth + keys backend (epic #1272 phase 2)
     bids-precheck.ts                  hand-rolled client-side BIDS structural pre-check (upload)
     flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
     host.ts                           two-host route classification + noindex/production host logic
@@ -339,6 +343,17 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
 - **Staging D1 is not synthetic:** `nemar-db-dev` is a partial production
   mirror (~722 datasets, ~600 users with real emails, live RESEND key).
   Don't run bulk operations against it casually.
+- **The CLI device-auth flow points at test.nemar.org on staging, by construction.**
+  `nemar-cli`'s dev worker sets `APP_BASE_URL=https://test.nemar.org`,
+  so `POST /auth/device/start`'s `verification_uri`
+  (and the `verification_uri_complete` the CLI opens in a browser)
+  already resolve to `/cli/authorize` on THIS repo's staging deploy —
+  no website-side environment branch needed.
+  `test.nemar.org` runs in single-host mode (see the Branch ↔ environment map above),
+  so the `getCrossHostRedirect` concerns ADR 0016 documents for production are inert there;
+  the page and the Settings CLI-keys card still exercise the real confirm/deny/list calls
+  end-to-end because both forward `Astro.url.origin`,
+  which the backend's Origin allow-list accepts for any `*.nemar.org` host.
 
 ## Development Workflow
 

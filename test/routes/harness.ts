@@ -76,18 +76,29 @@ export async function withFetch<T>(
  * observable as a real `Response`. The cast is the seam: an `APIContext`
  * carries a dozen fields these routes never read, and constructing them would
  * assert nothing.
+ *
+ * `init` and `locals` are optional and additive (website#316's
+ * `api-auth-keys.test.ts` is the first caller that needs either — a POST/DELETE
+ * body and headers, and a DEV-branch route that reads `context.locals.session`
+ * before touching the network). Every existing caller passes neither and is
+ * unaffected: `new Request(url)` defaults to a GET with no body exactly as
+ * before, and an omitted `locals` leaves `context.locals` `undefined`, which
+ * is what every route tested so far already ran against.
  */
 export async function callRoute(
   route: APIRoute,
   url: string,
   params: Record<string, string | undefined> = {},
+  init?: RequestInit,
+  locals?: Partial<App.Locals>,
 ): Promise<Response> {
-  const request = new Request(url);
+  const request = new Request(url, init);
   const context = {
     request,
     url: new URL(url),
     params,
     props: {},
+    locals,
     redirect: (path: string, status = 302) =>
       new Response(null, { status, headers: { Location: path } }),
   } as unknown as APIContext;

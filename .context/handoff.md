@@ -1,6 +1,85 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-08-03.
+**Last session:** 2026-09-07.
+
+## 2026-09-07 — CLI device-authorize page + Settings keys card (epic #1272 phase 2)
+
+Implemented on `feature/issue-316-cli-authorize` (worktree `website-cli-authorize`),
+tracking nemarOrg/website#316 and nemar-cli #1282,
+against the epic branch's phase-1 backend (nemar-cli ADR 0047, PR #1287).
+Pushed as nemarOrg/website#317.
+Not yet merged to `staging` — the lead reviews and merges this PR.
+
+- **`/cli/authorize`** — the page a person lands on to authorize `nemar auth login` on a new machine.
+  Server-rendered, no client script:
+  a `method="get"` form for a code typed by hand,
+  a `method="post"` form with `Authorize`/`Deny` buttons once a live code resolves,
+  and a post-redirect-get (`303`) after either decision so a refresh can never re-submit.
+  `src/lib/device-auth-api.ts` is the wire client
+  (never throws; `{ status, body } | { status: "network" }`);
+  `src/lib/device-authorize.ts` is the pure view model,
+  mirroring no refusal-code vocabulary (ADR 0005) —
+  every sentence a person reads comes verbatim off the wire.
+  `src/lib/device-authorize-dev.ts` stands in for the backend under `astro dev`.
+- **`/cli` joined `APP_ROUTE_PREFIXES`** in `src/lib/host.ts` —
+  otherwise an anonymous first hit on the app host 301s to `nemar.org` first,
+  costing an extra redirect hop through the marketing host before landing back on `/login`.
+- **Settings gained a "CLI keys" card** (`id="cli-keys"`, between `#upload-access` and Appearance):
+  the list is fetched server-side with `Origin: Astro.url.origin` pinned
+  (the cookie path 403s `"Origin not allowed"` without one);
+  create and revoke go through new same-origin routes
+  (`api/auth/keys.ts`, `api/auth/keys/[id].ts`);
+  revoke sits behind `ConfirmDialog`.
+- **`next` now survives a brand-new ORCID sign-up mid-flow**:
+  `auth/orcid/complete.astro` reads `?next=` and finishes at `/dashboard?next=...`
+  instead of `/welcome` when set;
+  `dashboard.astro` forwards it to `VerifyEmailStep`,
+  which navigates there on success instead of reloading.
+  The backend half — appending `?next=` to the `/auth/orcid/complete` redirect —
+  is phase 3's PR, in the CLI repo;
+  this side is ready for it and behaves exactly as before until it lands.
+- **ADR 0016** records two non-obvious constraints:
+  Origin must be pinned to `Astro.url.origin` (never a hardcoded production host)
+  on every cookie-path call this page or the keys card makes,
+  and the confirm/deny POST always ends in a redirect or an in-place refusal render,
+  never a plain re-render that could re-submit the form.
+- **Build hygiene**: the dev-store seed calls
+  (`seedDeviceCodes`/`seedApiKeys` in `device-authorize-dev.ts`)
+  needed `/* @__PURE__ */` annotations —
+  without them, Rollup kept the calls as bare unassigned statements in the production bundle
+  (dev-only machine names and codes included),
+  even though every real call site is behind `import.meta.env.DEV` and gets eliminated.
+  Confirmed clean: `dist/_worker.js/index.js` carries none of
+  `dev-laptop`, `dev-desktop`, `dev-headless`, `nmr_dv*`, `seedDeviceCodes`, or `seedApiKeys`
+  after `bun run build`.
+
+**Review round (same day, before merge)**: four review agents found real gaps, all fixed as
+separate commits on the same branch.
+`Astro.redirect()` builds a fresh `Response` and does not merge `Astro.response.headers`,
+so every redirect on `/cli/authorize` needed its own `no-store`
+(a `noStoreRedirect` helper now carries it, plus the bare 403/400 responses).
+The Settings key-create handler now parses the response body in its own try/catch
+(separate from the fetch itself),
+requires a non-empty `api_key` before opening the reveal panel,
+and never reports a 2xx-but-unreadable body as a network error.
+The dev store's `decideDeviceCodeDev` now gates the account check on `authorize` only —
+`deny` is ungated, matching the backend's real `POST /auth/device/deny` route —
+and answers `account_revoked` for a `disabled` persona, not just `account_pending` for `pending`.
+`decisionView` now validates `ok === true` on a 200 body rather than accepting any object,
+and every `unavailable` state carries a `reason` (`network` / `server` / `malformed`)
+that is logged, with a machine-aware done-view sentence
+("Your terminal on `<machine>` will finish signing in on its own").
+ADR 0016's Context and Decision sections had two factual errors,
+now corrected rather than left to an Update note since the PR had not yet merged:
+confirm/deny are cookie-only via `webSessionMiddleware` and call `isAllowedOrigin` directly
+(only `/auth/keys` goes through `resolveActingAccount`),
+and the predicted staging 403 from a pinned Origin does not reproduce —
+`isAllowedOrigin` accepts any `*.nemar.org` host today, `app.nemar.org` included.
+
+Gates run clean from the worktree: `bun run lint`, `bun run typecheck` (0 errors), `bun run test`,
+`bun run build`, and the dev-store-string bundle check.
+End-to-end confirm with a real ORCID account needs `api-test.nemar.org`,
+which only deploys from nemar-cli `dev` — recorded on #1282 once the epic reaches there.
 
 ## 2026-08-03 — funder fix + profile completeness (v0.2.4)
 

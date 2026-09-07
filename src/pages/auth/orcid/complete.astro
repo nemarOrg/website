@@ -1,5 +1,6 @@
 ---
 import Base from "../../../layouts/Base.astro";
+import { safeRedirectPath } from "../../../lib/auth";
 
 // Brand-new ORCID signup, step 2: ORCID verified the iD but returns no email,
 // and users.email is required, so we collect it here. The verified iD rides in
@@ -13,6 +14,18 @@ import Base from "../../../layouts/Base.astro";
 if (!Astro.cookies.has("nemar_orcid_pending")) {
   return Astro.redirect("/login?error=orcid_pending_expired");
 }
+
+// epic #1272 phase 2 (nemarOrg/website#316): a brand-new ORCID sign-up must
+// not lose `next` — e.g. someone who arrived here from `/cli/authorize`
+// needs to land back there once their account exists. The backend does not
+// append `?next=` to this page's redirect yet (that's phase 3's PR); this
+// reads it defensively so the moment it does, the trip completes with no
+// further website change. Finishing this step still leaves the account
+// unverified, so the destination is `/dashboard`, where the verify-email
+// step lives — `?next=` rides along and `VerifyEmailStep` picks it up from
+// there. `next === "/"` (the safe default for "none supplied") keeps the
+// existing `/welcome` landing unchanged.
+const next = safeRedirectPath(new URL(Astro.request.url).searchParams.get("next"));
 ---
 
 <Base
@@ -38,7 +51,7 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
         </p>
       </header>
 
-      <form class="finish__form" data-finish-form>
+      <form class="finish__form" data-finish-form data-next={next}>
         <label class="field">
           <span class="field__label">Email</span>
           <input
@@ -292,7 +305,15 @@ if (!Astro.cookies.has("nemar_orcid_pending")) {
           body: JSON.stringify({ email, city, country, affiliation }),
         });
         if (res.ok) {
-          location.href = "/welcome";
+          // epic #1272 phase 2: a brand-new account is still unverified, so
+          // `next` (when this page was reached with one — e.g. from
+          // `/cli/authorize`) lands on `/dashboard`, where the verify-email
+          // step lives and reads `?next=` off its own query string.
+          // `nextPath === "/"` is the ordinary case (no `next` supplied),
+          // which keeps the existing `/welcome` landing.
+          const nextPath = form.dataset.next ?? "/";
+          location.href =
+            nextPath !== "/" ? `/dashboard?next=${encodeURIComponent(nextPath)}` : "/welcome";
           return;
         }
         let code = "unknown";

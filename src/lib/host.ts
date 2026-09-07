@@ -57,6 +57,18 @@ const MARKETING_HOSTS: ReadonlySet<string> = new Set([
 const APP_ROUTE_PREFIXES: readonly string[] = [
   "/login",
   "/welcome",
+  // CLI device-authorization page (epic #1272 phase 2, nemarOrg/website#316).
+  // The `verification_uri` the backend hands the CLI points at
+  // `${APP_BASE_URL}/cli/authorize`, which is `app.nemar.org` in production
+  // (`appBase()` in nemar-cli's `backend/src/services/environment.ts`) — so
+  // an anonymous first hit on this route already lands on the app host.
+  // Without this classification `getCrossHostRedirect` would see a
+  // marketing-shaped path on the app host and 301 it to `nemar.org` first.
+  // An anonymous visitor has no session to lose there — the cost is only a
+  // pointless extra redirect hop through the marketing host before landing
+  // back on `/login` (which itself redirects to the app host), and this
+  // classification is what avoids it.
+  "/cli",
   // Post-sign-in account setup (website#301): username, name, location. App
   // host only for the same reason /settings is — it reads and PATCHes the
   // session's own account through the `Domain=app.nemar.org` cookie.

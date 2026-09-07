@@ -8,7 +8,7 @@ import Base from "../layouts/Base.astro";
 import { fetchAccountIdentity } from "../lib/account-api";
 import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
 import { deriveAccountTier, deriveUploadAccessState, needsOnboarding } from "../lib/account-tier";
-import { getSession } from "../lib/auth";
+import { getSession, safeRedirectPath } from "../lib/auth";
 import { isCollaboratorManager } from "../lib/collaborators-api";
 import {
   DashboardApiError,
@@ -29,6 +29,14 @@ if (!session) {
 const url = new URL(Astro.request.url);
 const limit = 50;
 const offset = Math.max(0, Number.parseInt(url.searchParams.get("offset") ?? "0", 10) || 0);
+// epic #1272 phase 2 (nemarOrg/website#316): a brand-new ORCID sign-up can
+// arrive here with `?next=` still attached (from `complete.astro`, itself
+// carrying it from wherever verification was interrupted — e.g.
+// `/cli/authorize`). `next === "/"` is the ordinary case (no return trip
+// pending) and is passed through as `undefined` so `VerifyEmailStep` falls
+// back to its default reload-in-place behavior.
+const next = safeRedirectPath(url.searchParams.get("next"));
+const verifyNext = next !== "/" ? next : undefined;
 
 // SSR: forward the request's cookie so the backend resolves the session.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
@@ -142,7 +150,7 @@ const requestedLede = requestedDate
     </header>
 
     {tier === "unverified" ? (
-      <VerifyEmailStep email={session.user.email} context="dashboard" />
+      <VerifyEmailStep email={session.user.email} context="dashboard" next={verifyNext} />
     ) : (
     <>
     {showSetupPrompt && (
