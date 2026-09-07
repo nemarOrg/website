@@ -25,6 +25,18 @@ export interface NextStep {
   readonly label: string;
 }
 
+/**
+ * Why this page could not render a wire-shaped answer: `"network"` when the
+ * fetch itself never got a response, `"server"` for a 5xx, `"malformed"`
+ * for a 2xx/4xx whose body did not match the shape this page knows how to
+ * read — which is exactly the case ADR 0016 describes for a `403` with no
+ * `message` (`{ error: "Origin not allowed" }`). `"server"` and
+ * `"malformed"` share one user-facing sentence (nothing an end user did
+ * wrong, in either case) but are logged and typed separately, because they
+ * mean different things to whoever reads the log.
+ */
+export type UnavailableReason = "network" | "server" | "malformed";
+
 export type AuthorizeViewState =
   | { readonly kind: "enter_code" }
   | {
@@ -42,7 +54,7 @@ export type AuthorizeViewState =
       readonly nextStep?: NextStep;
     }
   | { readonly kind: "signed_out" }
-  | { readonly kind: "unavailable" }
+  | { readonly kind: "unavailable"; readonly reason: UnavailableReason }
   | { readonly kind: "done"; readonly done: "authorized" | "denied"; readonly machine?: string };
 
 export type DecisionOutcome =
@@ -74,9 +86,37 @@ export const AUTHORIZE_COPY = {
     authorized: "Done. You can close this tab. Your terminal will finish signing in on its own.",
     denied: "Nothing was authorized.",
   },
-  unavailable: "We couldn't reach NEMAR. Reload this page to try again.",
-  signedOut: "Sign in to continue.",
+  unavailable: {
+    network: "We couldn't reach NEMAR. Reload this page to try again.",
+    // Covers both "server" and "malformed" (decision: one sentence for
+    // "nothing you did wrong, we couldn't make sense of NEMAR's answer").
+    error:
+      "NEMAR answered with an error. Try again in a moment, and if it keeps happening tell us at support@nemar.org.",
+  },
 } as const;
+
+/** The done view's sentence, machine-aware when the redirect that produced
+ *  it carried one (`decisionView`'s hidden `machine` form field, threaded
+ *  through the query string — see `doneViewFromQuery`). Falls back to the
+ *  machine-less sentence when it did not (an old bookmark from before this
+ *  field existed, or a `deny` whose hidden field was blank). */
+export function doneMessage(done: "authorized" | "denied", machine?: string): string {
+  if (done === "authorized") {
+    return machine
+      ? `Done. You can close this tab. Your terminal on ${machine} will finish signing in on its own.`
+      : AUTHORIZE_COPY.done.authorized;
+  }
+  return machine
+    ? `Declined the sign-in from ${machine}. Nothing was authorized.`
+    : AUTHORIZE_COPY.done.denied;
+}
+
+/** The sentence for an `unavailable` view's reason. */
+export function unavailableMessage(reason: UnavailableReason): string {
+  return reason === "network"
+    ? AUTHORIZE_COPY.unavailable.network
+    : AUTHORIZE_COPY.unavailable.error;
+}
 
 /**
  * A non-empty code up to 64 characters — the only shape this page checks
@@ -151,11 +191,17 @@ function refusalFrom(body: unknown): { code?: string; message: string } | null {
 }
 
 /** Shared by {@link authorizeView} and {@link decisionView}: every status this
- *  page cannot make sense of as a wire-shaped answer becomes `unavailable`. */
-function transportFailureView(result: RawResult): AuthorizeViewState | null {
-  if (result.status === "network") return { kind: "unavailable" };
+ *  page cannot make sense of as a wire-shaped answer becomes `unavailable`.
+ *  `label` identifies the caller in the log line — the caller passes a
+ *  fixed string of its own rather than this function inferring one, since
+ *  it is the one thing a plain status/body pair cannot carry. */
+function transportFailureView(result: RawResult, label: string): AuthorizeViewState | null {
+  if (result.status === "network") return { kind: "unavailable", reason: "network" };
   if (result.status === 401) return { kind: "signed_out" };
-  if (result.status >= 500) return { kind: "unavailable" };
+  if (result.status >= 500) {
+    console.warn(`[device-authorize] ${label}: upstream answered ${result.status}`);
+    return { kind: "unavailable", reason: "server" };
+  }
   return null;
 }
 
@@ -166,6 +212,20 @@ function transportFailureView(result: RawResult): AuthorizeViewState | null {
  *  check would — so every read past that point goes through here instead. */
 function bodyOf(result: RawResult): unknown {
   return result.status === "network" ? null : result.body;
+}
+
+/** Every place below that gives up and renders `unavailable` for a response
+ *  shape it does not recognize logs the status and body together before
+ *  doing so — this is exactly the "Origin not allowed" 403 case ADR 0016
+ *  documents (a body that shares a real refusal's HTTP status but carries
+ *  none of its fields), and a silent `unavailable` would make that
+ *  indistinguishable from a genuine backend hiccup in the logs. */
+function malformed(label: string, result: RawResult): AuthorizeViewState {
+  console.warn(`[device-authorize] ${label}: unrecognised response shape`, {
+    status: result.status,
+    body: bodyOf(result),
+  });
+  return { kind: "unavailable", reason: "malformed" };
 }
 
 /**
@@ -180,18 +240,18 @@ function bodyOf(result: RawResult): unknown {
  * carries as the real HTTP status rather than nesting it.
  */
 export function authorizeView(result: RawResult, here: string): AuthorizeViewState {
-  const transport = transportFailureView(result);
+  const transport = transportFailureView(result, "authorizeView");
   if (transport) return transport;
 
   if (result.status === 200) {
     const body = result.body;
-    if (!body || typeof body !== "object") return { kind: "unavailable" };
+    if (!body || typeof body !== "object") return malformed("authorizeView", result);
     const rec = body as Record<string, unknown>;
     const refusalRaw = rec.refusal;
     if (refusalRaw && typeof refusalRaw === "object") {
       const refusal = refusalRaw as Record<string, unknown>;
       const message = typeof refusal.message === "string" ? refusal.message : "";
-      if (!message) return { kind: "unavailable" };
+      if (!message) return malformed("authorizeView/refusal", result);
       const code = typeof refusal.code === "string" ? refusal.code : undefined;
       return {
         kind: "refused",
@@ -207,7 +267,7 @@ export function authorizeView(result: RawResult, here: string): AuthorizeViewSta
     const expiresIn = typeof rec.expires_in === "number" ? rec.expires_in : Number.NaN;
     const accountRaw = rec.account;
     if (!userCode || !machineName || !accountRaw || typeof accountRaw !== "object") {
-      return { kind: "unavailable" };
+      return malformed("authorizeView/confirm", result);
     }
     const account = accountRaw as Record<string, unknown>;
     return {
@@ -227,7 +287,7 @@ export function authorizeView(result: RawResult, here: string): AuthorizeViewSta
   // expired, 409 used/denied). `refusalFrom` requires `message`, so an
   // unrecognized or malformed error body still falls through to unavailable.
   const refusal = refusalFrom(bodyOf(result));
-  if (!refusal) return { kind: "unavailable" };
+  if (!refusal) return malformed("authorizeView/code-refusal", result);
   return {
     kind: "refused",
     message: refusal.message,
@@ -261,10 +321,18 @@ export function decisionView(
   machineName: string,
   authorizePath: string,
 ): DecisionOutcome {
-  const transport = transportFailureView(result);
+  const transport = transportFailureView(result, "decisionView");
   if (transport) return transport;
 
   if (result.status === 200) {
+    // `deviceConfirmResponseSchema` / the deny route's body are both
+    // `{ ok: true, ... }`; validating `ok === true` (rather than merely
+    // "the body is an object") is what tells a real success apart from a
+    // 200 this page cannot otherwise make sense of.
+    const body = result.body;
+    if (!body || typeof body !== "object" || (body as Record<string, unknown>).ok !== true) {
+      return malformed("decisionView", result);
+    }
     const params = new URLSearchParams({
       code,
       done: intent === "authorize" ? "authorized" : "denied",
@@ -274,7 +342,7 @@ export function decisionView(
   }
 
   const refusal = refusalFrom(bodyOf(result));
-  if (!refusal) return { kind: "unavailable" };
+  if (!refusal) return malformed("decisionView/code-refusal", result);
   return {
     kind: "refused",
     message: refusal.message,

@@ -25,8 +25,10 @@ import {
   type AuthorizeViewState,
   authorizeView,
   decisionView,
+  doneMessage,
   doneViewFromQuery,
   hasCode,
+  unavailableMessage,
 } from "../../lib/device-authorize";
 import { decideDeviceCodeDev, lookupDeviceCodeDev } from "../../lib/device-authorize-dev";
 import { formatDate } from "../../lib/format";
@@ -71,6 +73,9 @@ let view: AuthorizeViewState;
 if (Astro.request.method === "POST") {
   const origin = Astro.request.headers.get("origin");
   if (origin !== Astro.url.origin) {
+    console.warn(
+      `[cli/authorize] POST rejected: Origin ${origin ?? "(none)"} !== ${Astro.url.origin}`,
+    );
     return new Response("Forbidden", { status: 403, headers: { "Cache-Control": "no-store" } });
   }
   const contentType = (Astro.request.headers.get("content-type") ?? "").toLowerCase();
@@ -78,13 +83,15 @@ if (Astro.request.method === "POST") {
     !contentType.includes("application/x-www-form-urlencoded") &&
     !contentType.includes("multipart/form-data")
   ) {
+    console.warn(`[cli/authorize] POST rejected: unexpected content-type "${contentType}"`);
     return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
   let form: FormData;
   try {
     form = await Astro.request.formData();
-  } catch {
+  } catch (err) {
+    console.warn("[cli/authorize] POST rejected: formData() failed", err);
     return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
@@ -96,6 +103,9 @@ if (Astro.request.method === "POST") {
   const machine = typeof machineField === "string" ? machineField : "";
 
   if (!intent || !hasCode(code)) {
+    console.warn(
+      `[cli/authorize] POST rejected: intent=${String(intentField)} code=${code ? "(present)" : "(missing)"}`,
+    );
     return new Response("Bad Request", { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
@@ -250,16 +260,14 @@ if (Astro.request.method === "POST") {
       {view.kind === "unavailable" && (
         <header class="finish__head">
           <h1 class="finish__title">Something went wrong</h1>
-          <p class="finish__lede">{AUTHORIZE_COPY.unavailable}</p>
+          <p class="finish__lede">{unavailableMessage(view.reason)}</p>
         </header>
       )}
 
       {view.kind === "done" && (
         <header class="finish__head">
           <h1 class="finish__title">{view.done === "authorized" ? "You're signed in" : "Declined"}</h1>
-          <p class="finish__lede">
-            {view.done === "authorized" ? AUTHORIZE_COPY.done.authorized : AUTHORIZE_COPY.done.denied}
-          </p>
+          <p class="finish__lede">{doneMessage(view.done, view.machine)}</p>
         </header>
       )}
     </article>

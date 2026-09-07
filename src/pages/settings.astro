@@ -151,6 +151,10 @@ if (tier !== "unverified") {
       keys = keysBody as ApiKeyRow[];
       keysState = "ok";
     } else {
+      console.warn(
+        `[settings] CLI keys list unavailable: status=${keysResult.status}`,
+        keysResult.status === "network" ? undefined : keysResult.body,
+      );
       keysState = "unavailable";
     }
   }

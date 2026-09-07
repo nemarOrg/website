@@ -54,12 +54,28 @@ export type DeviceApiResult<T> =
   | { readonly status: number; readonly body: T | null }
   | { readonly status: "network" };
 
-async function readJsonBody(res: Response): Promise<unknown> {
+async function readJsonBody(res: Response, label: string): Promise<unknown> {
   try {
     return await res.json();
-  } catch {
+  } catch (err) {
+    // A SyntaxError means the body just isn't JSON — the caller
+    // (`./device-authorize.ts`) already classifies that as its own
+    // "malformed" case and logs status + body there. Anything else here
+    // (a body-stream read failure, say) is unusual enough to log at the
+    // point it actually happened.
+    if (!(err instanceof SyntaxError)) {
+      console.warn(`[device-auth-api] ${label}: failed to read response body`, err);
+    }
     return null;
   }
+}
+
+/** Whether a caught fetch error is the deadline this module always sets via
+ *  `resolveSignal` (as opposed to a DNS failure, a refused connection, or a
+ *  torn connection) — worth naming in the log line since a timeout usually
+ *  means "the backend is slow", not "the backend is down". */
+function isTimeout(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "TimeoutError";
 }
 
 /**
@@ -85,8 +101,12 @@ export async function lookupDeviceCode(
         signal: resolveSignal(init),
       },
     );
-    return { status: res.status, body: await readJsonBody(res) };
-  } catch {
+    return { status: res.status, body: await readJsonBody(res, "lookupDeviceCode") };
+  } catch (err) {
+    console.warn(
+      `[device-auth-api] lookupDeviceCode failed${isTimeout(err) ? " (timeout)" : ""}`,
+      err,
+    );
     return { status: "network" };
   }
 }
@@ -122,8 +142,12 @@ export async function decideDeviceCode(
       // uses for `requestUploadAccess`, which also writes through a gate.
       signal: resolveSignal(init, 15_000),
     });
-    return { status: res.status, body: await readJsonBody(res) };
-  } catch {
+    return { status: res.status, body: await readJsonBody(res, `decideDeviceCode(${intent})`) };
+  } catch (err) {
+    console.warn(
+      `[device-auth-api] decideDeviceCode(${intent}) failed${isTimeout(err) ? " (timeout)" : ""}`,
+      err,
+    );
     return { status: "network" };
   }
 }
@@ -144,8 +168,9 @@ export async function listApiKeys(init: DeviceAuthMutationInit): Promise<DeviceA
       headers,
       signal: resolveSignal(init),
     });
-    return { status: res.status, body: await readJsonBody(res) };
-  } catch {
+    return { status: res.status, body: await readJsonBody(res, "listApiKeys") };
+  } catch (err) {
+    console.warn(`[device-auth-api] listApiKeys failed${isTimeout(err) ? " (timeout)" : ""}`, err);
     return { status: "network" };
   }
 }
