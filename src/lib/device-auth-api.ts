@@ -1,0 +1,151 @@
+/**
+ * Device-authorization API client (epic #1272 phase 2, nemarOrg/website#316).
+ * The three calls the `/cli/authorize` page and the Settings CLI-keys card
+ * need against the backend's device-authorization grant (nemar-cli ADR
+ * 0047): read what a code names, decide it, and list live keys.
+ *
+ * `/cli/authorize` renders server-rendered forms with no client script
+ * (decision 2 of the phase-2 plan), so every one of these runs during SSR —
+ * `init.cookieHeader` is always the request's own `Cookie` header, forwarded
+ * so the backend resolves the same web session the browser is signed into.
+ *
+ * Two different Origin postures, both load-bearing:
+ * - {@link lookupDeviceCode} is a GET and carries no Origin at all — the
+ *   backend's `/auth/device/lookup` route never checks one.
+ * - {@link decideDeviceCode} and {@link listApiKeys} are gated by
+ *   `resolveActingAccount`'s cookie-path Origin allow-list on the backend
+ *   (`isAllowedOrigin`), so callers must pin `Astro.url.origin` — never a
+ *   hardcoded production host, so staging's `test.nemar.org` passes the
+ *   allow-list too (it accepts any `*.nemar.org` origin).
+ *
+ * No local error-code normalizer or mirrored vocabulary here (ADR 0005,
+ * 0015): this module only moves bytes. Reading `error`/`message` out of a
+ * response body and deciding what to render is `./device-authorize.ts`'s job.
+ *
+ * Never throws. A rejected fetch (network failure, timeout) becomes
+ * `{ status: "network" }` so a caller can render "we couldn't reach NEMAR"
+ * without a try/catch of its own — the same shape `account-api.ts` uses for
+ * `fetchUsernameSuggestion`'s fail-soft path, generalized into the return
+ * type here since every caller on this page needs it.
+ */
+
+import { apiBase } from "./api-base";
+import { type DeadlineInit, resolveSignal } from "./request-deadline";
+
+/** Every call takes an optional `fetch` override (the `account-api.test.ts`
+ *  handed-in-fetch pattern) and the SSR request's own Cookie header. */
+export interface DeviceAuthInit extends DeadlineInit {
+  readonly fetch?: typeof fetch;
+  readonly cookieHeader?: string;
+}
+
+/** The two Origin-gated calls additionally require the page's own origin. */
+export interface DeviceAuthMutationInit extends DeviceAuthInit {
+  readonly origin: string;
+}
+
+/**
+ * Every call's result: the real HTTP status plus its parsed JSON body (`null`
+ * when the body could not be parsed as JSON), or the network sentinel when
+ * the fetch itself never got a response. Never throws — see the module
+ * comment — so a caller always gets one of these two shapes back.
+ */
+export type DeviceApiResult<T> =
+  | { readonly status: number; readonly body: T | null }
+  | { readonly status: "network" };
+
+async function readJsonBody(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `GET /auth/device/lookup?code=...`. Cookie + Accept only, no Origin (the
+ * backend route never checks one for this GET). Whatever the account can or
+ * cannot do with the code rides in the 200 body's `refusal` field, not the
+ * HTTP status — only a code the backend has never issued, or one that has
+ * expired/been used/been denied, answers with a non-200 status.
+ */
+export async function lookupDeviceCode(
+  code: string,
+  init: DeviceAuthInit = {},
+): Promise<DeviceApiResult<unknown>> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  try {
+    const res = await fetchImpl(
+      `${apiBase()}/auth/device/lookup?code=${encodeURIComponent(code)}`,
+      {
+        method: "GET",
+        headers,
+        signal: resolveSignal(init),
+      },
+    );
+    return { status: res.status, body: await readJsonBody(res) };
+  } catch {
+    return { status: "network" };
+  }
+}
+
+/** The page's own vocabulary ("Authorize" / "Deny" buttons); mapped onto the
+ *  backend's `/auth/device/confirm` and `/auth/device/deny` routes below. */
+export type DeviceAuthIntent = "authorize" | "deny";
+
+/**
+ * `POST /auth/device/{confirm,deny}`. Cookie + Origin + JSON body `{ code }`,
+ * matching the backend's `zValidator("json", ...)` guard, which 400s any
+ * other content type.
+ */
+export async function decideDeviceCode(
+  intent: DeviceAuthIntent,
+  code: string,
+  init: DeviceAuthMutationInit,
+): Promise<DeviceApiResult<unknown>> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    Origin: init.origin,
+  };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const path = intent === "authorize" ? "confirm" : "deny";
+  try {
+    const res = await fetchImpl(`${apiBase()}/auth/device/${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ code }),
+      // A mutation, not a read: the mutate-sized deadline `account-api.ts`
+      // uses for `requestUploadAccess`, which also writes through a gate.
+      signal: resolveSignal(init, 15_000),
+    });
+    return { status: res.status, body: await readJsonBody(res) };
+  } catch {
+    return { status: "network" };
+  }
+}
+
+/**
+ * `GET /auth/keys`. Cookie + Origin: the cookie path 403s `"Origin not
+ * allowed"` without one (`resolveActingAccount`'s Origin allow-list on the
+ * backend), so a server-side GET must pin one explicitly — a server-side
+ * Worker fetch carries no Origin of its own, unlike a browser request.
+ */
+export async function listApiKeys(init: DeviceAuthMutationInit): Promise<DeviceApiResult<unknown>> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json", Origin: init.origin };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  try {
+    const res = await fetchImpl(`${apiBase()}/auth/keys`, {
+      method: "GET",
+      headers,
+      signal: resolveSignal(init),
+    });
+    return { status: res.status, body: await readJsonBody(res) };
+  } catch {
+    return { status: "network" };
+  }
+}
