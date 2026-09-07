@@ -127,6 +127,17 @@ describe("decideDeviceCode", () => {
       }),
     ).toEqual({ status: "network" });
   });
+
+  it("becomes body: null for a non-JSON response", async () => {
+    const fetchImpl = (async () =>
+      new Response("not json", { status: 200 })) as unknown as typeof fetch;
+    expect(
+      await decideDeviceCode("authorize", "BCDF-GHJK", {
+        fetch: fetchImpl,
+        origin: "https://app.nemar.org",
+      }),
+    ).toEqual({ status: 200, body: null });
+  });
 });
 
 describe("listApiKeys", () => {
@@ -149,6 +160,15 @@ describe("listApiKeys", () => {
     const fetchImpl = (() => Promise.reject(new Error("network"))) as unknown as typeof fetch;
     expect(await listApiKeys({ fetch: fetchImpl, origin: "https://app.nemar.org" })).toEqual({
       status: "network",
+    });
+  });
+
+  it("becomes body: null for a non-JSON response", async () => {
+    const fetchImpl = (async () =>
+      new Response("not json", { status: 200 })) as unknown as typeof fetch;
+    expect(await listApiKeys({ fetch: fetchImpl, origin: "https://app.nemar.org" })).toEqual({
+      status: 200,
+      body: null,
     });
   });
 });

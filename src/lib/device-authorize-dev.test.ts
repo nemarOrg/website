@@ -18,6 +18,7 @@ import {
 
 const ACTIVE = { status: "active" as const };
 const PENDING = { status: "pending" as const };
+const DISABLED = { status: "disabled" as const };
 
 beforeEach(() => {
   resetDeviceAuthorizeDevStore();
@@ -62,6 +63,14 @@ describe("lookupDeviceCodeDev", () => {
     expect(body.refusal?.code).toBe("account_pending");
     expect(body.refusal?.message).toMatch(/verify your email/i);
   });
+
+  it("a disabled persona gets a nested account_revoked refusal on a live code", () => {
+    const result = lookupDeviceCodeDev("BCDF-GHJK", DISABLED);
+    expect(result.status).toBe(200);
+    const body = result.body as { refusal: { code: string; message: string } | null };
+    expect(body.refusal?.code).toBe("account_revoked");
+    expect(body.refusal?.message).toMatch(/revoked/i);
+  });
 });
 
 describe("decideDeviceCodeDev", () => {
@@ -81,14 +90,37 @@ describe("decideDeviceCodeDev", () => {
   it("refuses an unknown code", () => {
     expect(decideDeviceCodeDev("authorize", "ZZZZ-9999", ACTIVE).status).toBe(404);
   });
+
+  it("a pending persona is refused account_pending on authorize only", () => {
+    const authorized = decideDeviceCodeDev("authorize", "BCDF-GHJK", PENDING);
+    expect(authorized.status).toBe(403);
+    expect((authorized.body as { error: string }).error).toBe("account_pending");
+    // The code is still live — the gate refused the ACCOUNT, not the code.
+    expect(lookupDeviceCodeDev("BCDF-GHJK", ACTIVE).status).toBe(200);
+  });
+
+  it("a pending persona can still deny — matching the backend's ungated deny route", () => {
+    const denied = decideDeviceCodeDev("deny", "BCDF-GHJK", PENDING);
+    expect(denied).toEqual({ status: 200, body: { ok: true } });
+    expect(lookupDeviceCodeDev("BCDF-GHJK", ACTIVE).status).toBe(409); // now denied
+  });
+
+  it("a disabled persona is refused account_revoked on authorize only", () => {
+    const authorized = decideDeviceCodeDev("authorize", "BCDF-GHJK", DISABLED);
+    expect(authorized.status).toBe(403);
+    expect((authorized.body as { error: string }).error).toBe("account_revoked");
+    expect(lookupDeviceCodeDev("BCDF-GHJK", ACTIVE).status).toBe(200);
+  });
+
+  it("a disabled persona can still deny", () => {
+    const denied = decideDeviceCodeDev("deny", "BCDF-GHJK", DISABLED);
+    expect(denied).toEqual({ status: 200, body: { ok: true } });
+  });
 });
 
 describe("listApiKeysDev / createApiKeyDev / revokeApiKeyDev", () => {
-  it("seeds exactly two keys", () => {
+  it("seeds exactly two keys, and creating one adds a third", () => {
     expect(listApiKeysDev().keys).toHaveLength(2);
-  });
-
-  it("creates a key and reflects it in the list", () => {
     const created = createApiKeyDev("build-box");
     expect(created.status).toBe(200);
     const body = created.body as { api_key: string; key: { name: string | null } };
@@ -101,7 +133,7 @@ describe("listApiKeysDev / createApiKeyDev / revokeApiKeyDev", () => {
     expect(createApiKeyDev("   ").status).toBe(400);
   });
 
-  it("enforces the 25-key cap", () => {
+  it("enforces the live-key cap, and the refusal names it rather than a hardcoded 25", () => {
     for (let i = 0; i < 30; i++) {
       createApiKeyDev(`machine-${i}`);
     }
@@ -110,7 +142,9 @@ describe("listApiKeysDev / createApiKeyDev / revokeApiKeyDev", () => {
     expect(keys.length).toBe(MAX_LIVE_API_KEYS_DEV);
     const overflow = createApiKeyDev("one-too-many");
     expect(overflow.status).toBe(409);
-    expect((overflow.body as { error: string }).error).toBe("too_many_keys");
+    const body = overflow.body as { error: string; message: string };
+    expect(body.error).toBe("too_many_keys");
+    expect(body.message).toContain(String(MAX_LIVE_API_KEYS_DEV));
   });
 
   it("revokes a seeded key", () => {

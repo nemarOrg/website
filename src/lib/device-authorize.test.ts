@@ -12,9 +12,11 @@ import {
   AUTHORIZE_COPY,
   authorizeView,
   decisionView,
+  doneMessage,
   doneViewFromQuery,
   hasCode,
   nextStepFor,
+  unavailableMessage,
 } from "./device-authorize";
 
 const HERE = "/cli/authorize?code=BCDF-GHJK";
@@ -84,6 +86,31 @@ describe("authorizeView — 200 (lookup succeeded)", () => {
       code: "BCDF-GHJK",
       machineName: "laptop.local",
       account: { username: null, emailMasked: "a***@b.org" },
+      requestedAt: "2026-09-06T10:00:00.000Z",
+      minutesLeft: 8,
+    });
+  });
+
+  it("renders confirm with a real username when the account has one", () => {
+    const view = authorizeView(
+      {
+        status: 200,
+        body: {
+          user_code: "BCDF-GHJK",
+          machine_name: "laptop.local",
+          requested_at: "2026-09-06T10:00:00.000Z",
+          expires_in: 480,
+          account: { username: "ada", email_masked: "a***@b.org" },
+          refusal: null,
+        },
+      },
+      HERE,
+    );
+    expect(view).toEqual({
+      kind: "confirm",
+      code: "BCDF-GHJK",
+      machineName: "laptop.local",
+      account: { username: "ada", emailMasked: "a***@b.org" },
       requestedAt: "2026-09-06T10:00:00.000Z",
       minutesLeft: 8,
     });
@@ -244,21 +271,31 @@ describe("authorizeView — transport failures", () => {
     });
   });
 
-  it("500 becomes unavailable", () => {
-    expect(authorizeView({ status: 500, body: null }, HERE)).toEqual({ kind: "unavailable" });
+  it("500 becomes unavailable with reason server", () => {
+    expect(authorizeView({ status: 500, body: null }, HERE)).toEqual({
+      kind: "unavailable",
+      reason: "server",
+    });
   });
 
-  it("the network sentinel becomes unavailable", () => {
-    expect(authorizeView({ status: "network" }, HERE)).toEqual({ kind: "unavailable" });
+  it("the network sentinel becomes unavailable with reason network", () => {
+    expect(authorizeView({ status: "network" }, HERE)).toEqual({
+      kind: "unavailable",
+      reason: "network",
+    });
   });
 
-  it("an unparseable 200 body becomes unavailable", () => {
-    expect(authorizeView({ status: 200, body: null }, HERE)).toEqual({ kind: "unavailable" });
+  it("an unparseable 200 body becomes unavailable with reason malformed", () => {
+    expect(authorizeView({ status: 200, body: null }, HERE)).toEqual({
+      kind: "unavailable",
+      reason: "malformed",
+    });
   });
 
   it("a 403 with no message (Origin not allowed) becomes unavailable, not a rendered refusal", () => {
     expect(authorizeView({ status: 403, body: { error: "Origin not allowed" } }, HERE)).toEqual({
       kind: "unavailable",
+      reason: "malformed",
     });
   });
 });
@@ -323,16 +360,79 @@ describe("decisionView", () => {
     });
   });
 
+  it("404 device_code_unknown renders with the enter-code form", () => {
+    const message =
+      "That code was not found. Check the code shown in your terminal, or run `nemar auth login` again for a new one.";
+    const outcome = decisionView(
+      { status: 404, body: { error: "device_code_unknown", message } },
+      "authorize",
+      "BCDF-GHJK",
+      "x",
+      "/cli/authorize",
+    );
+    expect(outcome).toEqual({
+      kind: "refused",
+      message,
+      showEnterCodeForm: true,
+      nextStep: undefined,
+    });
+  });
+
+  it("410 device_code_expired renders verbatim", () => {
+    const message = "The code expired. Run `nemar auth login` again for a new one.";
+    const outcome = decisionView(
+      { status: 410, body: { error: "device_code_expired", message } },
+      "authorize",
+      "BCDF-GHJK",
+      "x",
+      "/cli/authorize",
+    );
+    expect(outcome).toEqual({
+      kind: "refused",
+      message,
+      showEnterCodeForm: false,
+      nextStep: undefined,
+    });
+  });
+
+  it("a malformed 200 body (no ok field) becomes unavailable, not a false success", () => {
+    expect(
+      decisionView({ status: 200, body: null }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
+    ).toEqual({ kind: "unavailable", reason: "malformed" });
+    expect(
+      decisionView({ status: 200, body: {} }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
+    ).toEqual({ kind: "unavailable", reason: "malformed" });
+    expect(
+      decisionView(
+        { status: 200, body: { ok: false } },
+        "authorize",
+        "BCDF-GHJK",
+        "x",
+        "/cli/authorize",
+      ),
+    ).toEqual({ kind: "unavailable", reason: "malformed" });
+  });
+
+  it("a deny 200 with no machine name in the body is a real success", () => {
+    // { ok: true } with nothing else is exactly what /auth/device/deny answers.
+    expect(
+      decisionView({ status: 200, body: { ok: true } }, "deny", "BCDF-GHJK", "x", "/cli/authorize"),
+    ).toEqual({
+      kind: "redirect",
+      location: "/cli/authorize?code=BCDF-GHJK&done=denied&machine=x",
+    });
+  });
+
   it("401 becomes signed_out; the network sentinel and 500 become unavailable", () => {
     expect(
       decisionView({ status: 401, body: {} }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
     ).toEqual({ kind: "signed_out" });
     expect(
       decisionView({ status: "network" }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
-    ).toEqual({ kind: "unavailable" });
+    ).toEqual({ kind: "unavailable", reason: "network" });
     expect(
       decisionView({ status: 500, body: null }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
-    ).toEqual({ kind: "unavailable" });
+    ).toEqual({ kind: "unavailable", reason: "server" });
   });
 });
 
@@ -368,9 +468,42 @@ describe("doneViewFromQuery", () => {
   });
 });
 
+describe("doneMessage", () => {
+  it("names the machine when one is given", () => {
+    expect(doneMessage("authorized", "laptop.local")).toBe(
+      "Done. You can close this tab. Your terminal on laptop.local will finish signing in on its own.",
+    );
+    expect(doneMessage("denied", "laptop.local")).toBe(
+      "Declined the sign-in from laptop.local. Nothing was authorized.",
+    );
+  });
+
+  it("falls back to the machine-less sentence when none is given", () => {
+    expect(doneMessage("authorized")).toBe(AUTHORIZE_COPY.done.authorized);
+    expect(doneMessage("denied")).toBe(AUTHORIZE_COPY.done.denied);
+    expect(doneMessage("authorized", "")).toBe(AUTHORIZE_COPY.done.authorized);
+  });
+});
+
+describe("unavailableMessage", () => {
+  it("network gets its own sentence", () => {
+    expect(unavailableMessage("network")).toBe(AUTHORIZE_COPY.unavailable.network);
+  });
+
+  it("server and malformed share the same sentence", () => {
+    expect(unavailableMessage("server")).toBe(AUTHORIZE_COPY.unavailable.error);
+    expect(unavailableMessage("malformed")).toBe(AUTHORIZE_COPY.unavailable.error);
+    expect(unavailableMessage("server")).toBe(unavailableMessage("malformed"));
+  });
+});
+
 describe("AUTHORIZE_COPY", () => {
   it("is a local framing-copy object, distinct from ACCOUNT_COPY", () => {
     expect(AUTHORIZE_COPY.confirm.questionCommand).toBe("nemar auth login");
     expect(AUTHORIZE_COPY.done.authorized).toMatch(/close this tab/i);
+  });
+
+  it("carries no signedOut key — nothing on the page ever rendered it", () => {
+    expect(Object.hasOwn(AUTHORIZE_COPY, "signedOut")).toBe(false);
   });
 });
