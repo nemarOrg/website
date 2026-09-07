@@ -61,6 +61,20 @@ async function nodeFs(): Promise<{
   return await import(/* @vite-ignore */ specifier);
 }
 
+/**
+ * `node:process`, reached the same way and for the same reason as `nodeFs`:
+ * with no `@types/node` in this project the bare `process` global is not
+ * declared either, so `astro check` rejects `process.cwd()` and
+ * `process.env` in CI while vitest resolves them fine locally.
+ */
+async function nodeProcess(): Promise<{
+  cwd(): string;
+  env: Record<string, string | undefined>;
+}> {
+  const specifier = "node:process";
+  return await import(/* @vite-ignore */ specifier);
+}
+
 function pathFromUrl(url: URL): string {
   return decodeURIComponent(url.pathname);
 }
@@ -70,15 +84,16 @@ function pathFromUrl(url: URL): string {
  *
  * `NEMAR_CLI_ACCOUNT_COPY` names a path relative to the CI workspace root
  * (`nemar-cli-contract/shared/contract/account-copy.ts`), not to this test
- * file the way `CONTRACT_CANDIDATES` is. `process.cwd()` under `bun run
- * test` — and under vitest generally, confirmed directly rather than
- * assumed — is the repository root, the same directory `actions/checkout`
- * puts both this repo and the sparse `nemar-cli-contract/` checkout under.
+ * file the way `CONTRACT_CANDIDATES` is. The `cwd` passed in is
+ * `process.cwd()`, which under `bun run test` — and under vitest generally,
+ * confirmed directly rather than assumed — is the repository root, the same
+ * directory `actions/checkout` puts both this repo and the sparse
+ * `nemar-cli-contract/` checkout under.
  * An already-absolute value (the manual verification runs below use one) is
  * returned unchanged.
  */
-function resolveFromCwd(maybeRelative: string): string {
-  return maybeRelative.startsWith("/") ? maybeRelative : `${process.cwd()}/${maybeRelative}`;
+function resolveFromCwd(maybeRelative: string, cwd: string): string {
+  return maybeRelative.startsWith("/") ? maybeRelative : `${cwd}/${maybeRelative}`;
 }
 
 /**
@@ -100,10 +115,11 @@ const OURS = new Map(Object.entries(ACCOUNT_COPY));
 // Resolved once, at module load, so `describe.skipIf` below has a plain
 // boolean to work with rather than something computed inside a test.
 const fs = await nodeFs();
+const proc = await nodeProcess();
 
-const NEMAR_CLI_ACCOUNT_COPY = process.env.NEMAR_CLI_ACCOUNT_COPY;
+const NEMAR_CLI_ACCOUNT_COPY = proc.env.NEMAR_CLI_ACCOUNT_COPY;
 const STRICT_CONTRACT_PATH = NEMAR_CLI_ACCOUNT_COPY
-  ? resolveFromCwd(NEMAR_CLI_ACCOUNT_COPY)
+  ? resolveFromCwd(NEMAR_CLI_ACCOUNT_COPY, proc.cwd())
   : undefined;
 const FOUND_CANDIDATE = STRICT_CONTRACT_PATH
   ? undefined
