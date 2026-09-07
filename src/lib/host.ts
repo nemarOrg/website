@@ -63,9 +63,11 @@ const APP_ROUTE_PREFIXES: readonly string[] = [
   // (`appBase()` in nemar-cli's `backend/src/services/environment.ts`) — so
   // an anonymous first hit on this route already lands on the app host.
   // Without this classification `getCrossHostRedirect` would see a
-  // marketing-shaped path on the app host and 301 it to `nemar.org`, where
-  // no `Domain=app.nemar.org` session cookie exists, losing the `?code=`
-  // round trip's session context for no reason.
+  // marketing-shaped path on the app host and 301 it to `nemar.org` first.
+  // An anonymous visitor has no session to lose there — the cost is only a
+  // pointless extra redirect hop through the marketing host before landing
+  // back on `/login` (which itself redirects to the app host), and this
+  // classification is what avoids it.
   "/cli",
   // Post-sign-in account setup (website#301): username, name, location. App
   // host only for the same reason /settings is — it reads and PATCHes the

@@ -4,23 +4,26 @@
  * need against the backend's device-authorization grant (nemar-cli ADR
  * 0047): read what a code names, decide it, and list live keys.
  *
- * `/cli/authorize` renders server-rendered forms with no client script
- * (decision 2 of the phase-2 plan), so every one of these runs during SSR —
- * `init.cookieHeader` is always the request's own `Cookie` header, forwarded
- * so the backend resolves the same web session the browser is signed into.
+ * `/cli/authorize` renders entirely server-side, with real form POSTs and
+ * no client script, so every one of these runs during SSR — `init.cookieHeader`
+ * is always the request's own `Cookie` header, forwarded so the backend
+ * resolves the same web session the browser is signed into.
  *
  * Two different Origin postures, both load-bearing:
  * - {@link lookupDeviceCode} is a GET and carries no Origin at all — the
  *   backend's `/auth/device/lookup` route never checks one.
- * - {@link decideDeviceCode} and {@link listApiKeys} are gated by
- *   `resolveActingAccount`'s cookie-path Origin allow-list on the backend
- *   (`isAllowedOrigin`), so callers must pin `Astro.url.origin` — never a
- *   hardcoded production host, so staging's `test.nemar.org` passes the
- *   allow-list too (it accepts any `*.nemar.org` origin).
+ * - {@link decideDeviceCode} sits behind the backend's `webSessionMiddleware`
+ *   (cookie-only) and calls `isAllowedOrigin` directly; {@link listApiKeys}
+ *   goes through `resolveActingAccount` instead, which accepts either a
+ *   bearer token or Origin-checks the cookie path the same way. Either
+ *   route means callers must pin `Astro.url.origin` — never a hardcoded
+ *   production host, so staging's `test.nemar.org` passes the allow-list
+ *   too (it accepts any `*.nemar.org` origin).
  *
- * No local error-code normalizer or mirrored vocabulary here (ADR 0005,
- * 0015): this module only moves bytes. Reading `error`/`message` out of a
- * response body and deciding what to render is `./device-authorize.ts`'s job.
+ * No local error-code normalizer or mirrored vocabulary here (ADR 0005:
+ * reuse the backend, never reimplement it): this module only moves bytes.
+ * Reading `error`/`message` out of a response body and deciding what to
+ * render is `./device-authorize.ts`'s job.
  *
  * Never throws. A rejected fetch (network failure, timeout) becomes
  * `{ status: "network" }` so a caller can render "we couldn't reach NEMAR"

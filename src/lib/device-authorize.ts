@@ -3,11 +3,14 @@
  *
  * Maps a {@link DeviceApiResult} from `./device-auth-api.ts` onto exactly one
  * of the page's rendered states. No local refusal-code vocabulary is mirrored
- * here (ADR 0005, 0015): every sentence a person reads comes verbatim off the
- * wire (`body.message`), and the only thing this module decides is which
- * TEMPLATE renders that sentence and whether a next-step link accompanies it.
- * `AUTHORIZE_COPY` holds the page's own framing prose — the words around the
- * wire sentence, never a replacement for it.
+ * here (ADR 0005: reuse the backend, never reimplement it) — every sentence a
+ * person reads comes verbatim off the wire (`body.message`), and the only
+ * thing this module decides is which TEMPLATE renders that sentence and
+ * whether a next-step link accompanies it. `AUTHORIZE_COPY` holds the page's
+ * own framing prose — the words around the wire sentence, never a
+ * replacement for it, and unlike ADR 0015's mirrored account-tier copy this
+ * page has nothing of its own to drift: there is no local copy of the
+ * refusal sentences to keep in sync, only prose about them.
  *
  * `authorizeView` (a GET lookup) and `decisionView` (a POST confirm/deny)
  * share one state union so the page's markup does not need two render paths:
@@ -120,10 +123,11 @@ export function unavailableMessage(reason: UnavailableReason): string {
 
 /**
  * A non-empty code up to 64 characters — the only shape this page checks
- * itself (decision 4: no local normalizer). The backend's own
- * `normalizeUserCode` is the real validation; anything this rejects, or that
- * survives this and is still malformed, comes back from the backend as
- * `device_code_unknown` with the contract's own sentence.
+ * itself; no local normalizer, matching ADR 0005 (reuse the backend, never
+ * reimplement it). The backend's own `normalizeUserCode` is the real
+ * validation; anything this rejects, or that survives this and is still
+ * malformed, comes back from the backend as `device_code_unknown` with the
+ * contract's own sentence.
  */
 export function hasCode(code: string | null | undefined): code is string {
   if (typeof code !== "string") return false;
@@ -179,7 +183,7 @@ type RawResult =
  *  answers 403 with NO `message`, the same status four real refusal codes
  *  use (`account_pending`, `account_revoked`, `identity_conflict`,
  *  `service_account`). Requiring `message` distinguishes them without this
- *  module mirroring the refusal-code vocabulary (ADR 0005, 0015). */
+ *  module mirroring the refusal-code vocabulary (ADR 0005). */
 function refusalFrom(body: unknown): { code?: string; message: string } | null {
   if (!body || typeof body !== "object") return null;
   const rec = body as Record<string, unknown>;

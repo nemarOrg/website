@@ -17,11 +17,15 @@ plus a Settings card for the paste-key fallback
 Two backend behaviors are not obvious from the route list alone
 and would otherwise be rediscovered by trial and error:
 
-- `POST /auth/device/{confirm,deny}` and `GET /auth/keys` both run through the backend's `resolveActingAccount`,
-  which Origin-allow-lists the **cookie** path only
-  (a bearer token carries no ambient credential a forged cross-site request could ride along on; a cookie does).
-  A **server-side** GET or POST built by this Worker carries no `Origin` header of its own — unlike a browser's own fetch —
-  so if this page or the Settings card do not set one explicitly,
+- `POST /auth/device/{confirm,deny}` sit behind `webSessionMiddleware` (cookie-only —
+  there is no bearer-token path for a browser confirming or denying a sign-in)
+  and call `isAllowedOrigin` directly.
+  `GET/POST/DELETE /auth/keys` go through `resolveActingAccount` instead,
+  which accepts either the CLI's bearer token or Origin-checks the cookie path the same way.
+  Either route means the same thing for this page: a bearer token carries no ambient credential
+  a forged cross-site request could ride along on, so only the cookie path is Origin-gated at all.
+  A **server-side** GET or POST built by this Worker carries no `Origin` header of its own —
+  unlike a browser's own fetch — so if this page or the Settings card do not set one explicitly,
   every one of these calls 403s with `"Origin not allowed"`,
   indistinguishable at first glance from a real refusal.
 - `machine_name` on a `device_codes` row is client-supplied text from the CLI's own `POST /device/start` body,
@@ -33,10 +37,13 @@ and would otherwise be rediscovered by trial and error:
 
 **The page forwards `Astro.url.origin` as the upstream `Origin`, never a hardcoded production host.**
 Both the confirm/deny POST and the Settings key list's server-side GET set `Origin: Astro.url.origin`.
-Because the backend's allow-list accepts any `*.nemar.org` origin,
-this one line works unchanged on `app.nemar.org` (production) and `test.nemar.org` (staging) —
-pinning `https://app.nemar.org` instead would silently 403 every staging QA pass
-while looking identical to a real refusal in the logs.
+This reports the request's real origin rather than a guess,
+and it does not depend on the backend's allow-list staying a wildcard:
+`isAllowedOrigin` today accepts any `*.nemar.org` host, including `app.nemar.org`,
+so a pinned production origin would in fact still pass on staging under the current allow-list —
+`forwardAuthMutation` already relies on exactly that fallback elsewhere in this repo.
+Forwarding the true origin is correct regardless of how that allow-list is shaped later,
+which a pinned value is not.
 
 **The confirm/deny POST always ends in a `Response`:
 a 303 redirect on success, or the refused/unavailable view rendered in place on failure —
@@ -47,7 +54,7 @@ so a refresh of the result page is inert rather than re-authorizing or re-denyin
 
 **`machine_name` is rendered exclusively through Astro's default-escaping `{}` interpolation,
 never `set:html` or a client script.**
-The page ships no `<script>` tag at all (decision 2 of the phase-2 plan: real form POSTs only),
+The page ships no `<script>` tag at all — every branch is server-rendered with real form POSTs —
 which is what makes "never `set:html`" free to hold —
 there is no client-side rendering path for it to leak through.
 
@@ -66,10 +73,12 @@ there is no client-side rendering path for it to leak through.
 ## Alternatives considered
 
 - **Pin `Origin: https://app.nemar.org` unconditionally.**
-  Simpler, but breaks every staging QA pass silently
-  (test.nemar.org's confirm/deny/list calls would all 403)
-  and re-introduces exactly the kind of environment-specific literal
-  `.context/decisions/README.md`'s ADR discipline exists to catch before it ships twice.
+  Under today's wildcard allow-list (`isAllowedOrigin` accepts any `*.nemar.org` host)
+  this does not actually 403 on staging —
+  `forwardAuthMutation` relies on exactly that fallback elsewhere in this repo, and it works.
+  Rejected anyway: forwarding the request's own origin reports the truth instead of a guess,
+  and stops being correct-by-coincidence the moment the allow-list narrows
+  to a per-environment exact match.
 - **302 the confirm/deny success instead of 303.**
   302 does not guarantee the browser turns a POST into a GET on the follow-up request
   (some older clients replay the method);

@@ -344,14 +344,15 @@ branch, so it gets its own custom domain and its own `SESSION_SECRET`.
   mirror (~722 datasets, ~600 users with real emails, live RESEND key).
   Don't run bulk operations against it casually.
 - **The CLI device-auth flow points at test.nemar.org on staging, by construction.**
-  `nemar-cli`'s dev worker sets `APP_BASE_URL=https://test.nemar.org`, so
-  `POST /auth/device/start`'s `verification_uri` (and the `verification_uri_complete`
-  the CLI opens in a browser) already resolve to `/cli/authorize` on THIS repo's
-  staging deploy — no website-side environment branch needed. `test.nemar.org`
-  runs in single-host mode (see the Branch ↔ environment map above), so the
-  `getCrossHostRedirect` concerns ADR 0016 documents for production are inert
-  there; the page and the Settings CLI-keys card still exercise the real
-  confirm/deny/list calls end-to-end because both forward `Astro.url.origin`,
+  `nemar-cli`'s dev worker sets `APP_BASE_URL=https://test.nemar.org`,
+  so `POST /auth/device/start`'s `verification_uri`
+  (and the `verification_uri_complete` the CLI opens in a browser)
+  already resolve to `/cli/authorize` on THIS repo's staging deploy —
+  no website-side environment branch needed.
+  `test.nemar.org` runs in single-host mode (see the Branch ↔ environment map above),
+  so the `getCrossHostRedirect` concerns ADR 0016 documents for production are inert there;
+  the page and the Settings CLI-keys card still exercise the real confirm/deny/list calls
+  end-to-end because both forward `Astro.url.origin`,
   which the backend's Origin allow-list accepts for any `*.nemar.org` host.
 
 ## Development Workflow

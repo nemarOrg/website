@@ -6,16 +6,15 @@
  * into NEMAR in their browser opens it, sees which machine is asking and
  * for which account, and authorizes or denies.
  *
- * Server-rendered with real form POSTs and NO client script (decision 2):
- * every branch below is frontmatter, and the two success outcomes end in a
- * 303 post-redirect-get so a refresh of the confirm/deny result never
+ * Server-rendered with real form POSTs and no client script: every branch
+ * below is frontmatter, and the two success outcomes end in a 303
+ * post-redirect-get so a refresh of the confirm/deny result never
  * re-submits the form.
  *
  * Astro 6's `security.checkOrigin` (on by default for `output: "server"`)
  * already 403s a cross-origin form POST before this file's code runs; the
  * explicit Origin + content-type checks below are this page's own second
- * gate, matching the plan's requirement that a malformed or forged POST
- * never reaches the decide call.
+ * gate, so a malformed or forged POST never reaches the decide call.
  */
 import Base from "../../layouts/Base.astro";
 import { getSession } from "../../lib/auth";

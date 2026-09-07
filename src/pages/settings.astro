@@ -128,6 +128,12 @@ const requestedLede = requestedDate
 // account skips the fetch entirely: it cannot reach `/auth/keys` at all
 // (nemar-cli's `resolveKeysActor` refuses a non-active cookie session), so
 // asking would only ever produce a refusal to render around.
+//
+// `tier !== "unverified"` still fetches for a `disabled` account —
+// `deriveAccountTier` maps `disabled` to `"base"`, not `"unverified"` — and
+// the backend refuses that the same way (403), landing on `keysState ===
+// "unavailable"`. Defensive rather than reachable today: no account carries
+// `status: "disabled"` yet.
 interface ApiKeyRow {
   readonly id: number;
   readonly name: string | null;
