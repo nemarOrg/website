@@ -249,7 +249,7 @@ describe("authorizeView — transport failures", () => {
   });
 
   it("the network sentinel becomes unavailable", () => {
-    expect(authorizeView({ status: "network", body: null }, HERE)).toEqual({ kind: "unavailable" });
+    expect(authorizeView({ status: "network" }, HERE)).toEqual({ kind: "unavailable" });
   });
 
   it("an unparseable 200 body becomes unavailable", () => {
@@ -328,13 +328,7 @@ describe("decisionView", () => {
       decisionView({ status: 401, body: {} }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
     ).toEqual({ kind: "signed_out" });
     expect(
-      decisionView(
-        { status: "network", body: null },
-        "authorize",
-        "BCDF-GHJK",
-        "x",
-        "/cli/authorize",
-      ),
+      decisionView({ status: "network" }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),
     ).toEqual({ kind: "unavailable" });
     expect(
       decisionView({ status: 500, body: null }, "authorize", "BCDF-GHJK", "x", "/cli/authorize"),

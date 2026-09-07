@@ -1,0 +1,420 @@
+---
+/**
+ * The page a person lands on to authorize `nemar auth login` on a new
+ * machine (epic #1272 phase 2, nemarOrg/website#316; nemar-cli ADR 0047).
+ * The CLI prints this page's URL plus a short code; a person already signed
+ * into NEMAR in their browser opens it, sees which machine is asking and
+ * for which account, and authorizes or denies.
+ *
+ * Server-rendered with real form POSTs and NO client script (decision 2):
+ * every branch below is frontmatter, and the two success outcomes end in a
+ * 303 post-redirect-get so a refresh of the confirm/deny result never
+ * re-submits the form.
+ *
+ * Astro 6's `security.checkOrigin` (on by default for `output: "server"`)
+ * already 403s a cross-origin form POST before this file's code runs; the
+ * explicit Origin + content-type checks below are this page's own second
+ * gate, matching the plan's requirement that a malformed or forged POST
+ * never reaches the decide call.
+ */
+import Base from "../../layouts/Base.astro";
+import { getSession } from "../../lib/auth";
+import { decideDeviceCode, lookupDeviceCode } from "../../lib/device-auth-api";
+import {
+  AUTHORIZE_COPY,
+  type AuthorizeViewState,
+  authorizeView,
+  decisionView,
+  doneViewFromQuery,
+  hasCode,
+} from "../../lib/device-authorize";
+import { decideDeviceCodeDev, lookupDeviceCodeDev } from "../../lib/device-authorize-dev";
+import { formatDate } from "../../lib/format";
+
+// Per-user, per-request: this page must never be served from a shared cache
+// (the confirm view names an account and a machine).
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const url = new URL(Astro.request.url);
+const here = `${url.pathname}${url.search}`;
+
+const session = getSession(Astro.locals);
+// No session at all: decision 2's guard. `/login`'s own `next` handling
+// (safeRedirectPath) is what resolves this on the way back.
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent(here)}`);
+}
+
+const sessionRequiredRedirect = `/login?error=session_required&next=${encodeURIComponent(here)}`;
+
+let view: AuthorizeViewState;
+
+if (Astro.request.method === "POST") {
+  const origin = Astro.request.headers.get("origin");
+  if (origin !== Astro.url.origin) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  const contentType = (Astro.request.headers.get("content-type") ?? "").toLowerCase();
+  if (
+    !contentType.includes("application/x-www-form-urlencoded") &&
+    !contentType.includes("multipart/form-data")
+  ) {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  let form: FormData;
+  try {
+    form = await Astro.request.formData();
+  } catch {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  const codeField = form.get("code");
+  const intentField = form.get("intent");
+  const machineField = form.get("machine");
+  const code = typeof codeField === "string" ? codeField.trim() : "";
+  const intent = intentField === "authorize" || intentField === "deny" ? intentField : null;
+  const machine = typeof machineField === "string" ? machineField : "";
+
+  if (!intent || !hasCode(code)) {
+    return new Response("Bad Request", { status: 400 });
+  }
+
+  const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+  const result = import.meta.env.DEV
+    ? decideDeviceCodeDev(intent, code, session.user)
+    : await decideDeviceCode(intent, code, { cookieHeader, origin: Astro.url.origin });
+
+  const outcome = decisionView(result, intent, code, machine, "/cli/authorize");
+  if (outcome.kind === "redirect") {
+    return Astro.redirect(outcome.location, 303);
+  }
+  if (outcome.kind === "signed_out") {
+    return Astro.redirect(sessionRequiredRedirect);
+  }
+  view = outcome;
+} else {
+  const doneView = doneViewFromQuery(url.searchParams);
+  if (doneView) {
+    view = doneView;
+  } else {
+    const codeParam = (url.searchParams.get("code") ?? "").trim();
+    if (!hasCode(codeParam)) {
+      view = { kind: "enter_code" };
+    } else {
+      const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+      const result = import.meta.env.DEV
+        ? lookupDeviceCodeDev(codeParam, session.user)
+        : await lookupDeviceCode(codeParam, { cookieHeader });
+      const lookupView = authorizeView(result, here);
+      if (lookupView.kind === "signed_out") {
+        return Astro.redirect(sessionRequiredRedirect);
+      }
+      view = lookupView;
+    }
+  }
+}
+---
+
+<Base title="Authorize sign-in" description="Authorize a NEMAR CLI sign-in on a new machine.">
+  <section class="finish">
+    <article class="finish__panel">
+      <div class="finish__rail" aria-hidden="true"></div>
+
+      {view.kind === "enter_code" && (
+        <>
+          <header class="finish__head">
+            <h1 class="finish__title">{AUTHORIZE_COPY.enterCode.title}</h1>
+            <p class="finish__lede">{AUTHORIZE_COPY.enterCode.lede}</p>
+          </header>
+          <form class="finish__form" method="get" action="/cli/authorize">
+            <label class="field">
+              <span class="field__label">{AUTHORIZE_COPY.enterCode.label}</span>
+              <input
+                class="field__input authorize__code-input"
+                type="text"
+                name="code"
+                maxlength="64"
+                required
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                placeholder="BCDF-GHJK"
+              />
+            </label>
+            <button class="finish__submit" type="submit">{AUTHORIZE_COPY.enterCode.submit}</button>
+          </form>
+        </>
+      )}
+
+      {view.kind === "confirm" && (
+        <>
+          <header class="finish__head">
+            <span class="finish__badge">CLI sign-in</span>
+            <h1 class="finish__title">Authorize this sign-in?</h1>
+            <p class="finish__lede">
+              {AUTHORIZE_COPY.confirm.questionPrefix}{" "}
+              <code>{AUTHORIZE_COPY.confirm.questionCommand}</code>{" "}
+              {AUTHORIZE_COPY.confirm.questionSuffix} <strong>{view.machineName}</strong>?
+            </p>
+          </header>
+
+          <dl class="kv">
+            <div class="kv__row">
+              <dt>Code</dt>
+              <dd><code>{view.code}</code></dd>
+            </div>
+            <div class="kv__row">
+              <dt>Account</dt>
+              <dd>
+                {view.account.username ?? AUTHORIZE_COPY.confirm.noUsername}
+                <span class="kv__muted"> ({view.account.emailMasked})</span>
+              </dd>
+            </div>
+            <div class="kv__row">
+              <dt>Requested</dt>
+              <dd>{formatDate(view.requestedAt) || view.requestedAt}</dd>
+            </div>
+            <div class="kv__row">
+              <dt>Expires in</dt>
+              <dd>{view.minutesLeft} minute{view.minutesLeft === 1 ? "" : "s"}</dd>
+            </div>
+          </dl>
+
+          <form class="finish__form" method="post" action="/cli/authorize">
+            <input type="hidden" name="code" value={view.code} />
+            <input type="hidden" name="machine" value={view.machineName} />
+            <div class="authorize__actions">
+              <button class="finish__submit" type="submit" name="intent" value="authorize">
+                {AUTHORIZE_COPY.confirm.authorize}
+              </button>
+              <button class="authorize__deny" type="submit" name="intent" value="deny">
+                {AUTHORIZE_COPY.confirm.deny}
+              </button>
+            </div>
+            <p class="finish__note">{AUTHORIZE_COPY.confirm.denyHint}</p>
+          </form>
+        </>
+      )}
+
+      {view.kind === "refused" && (
+        <>
+          <header class="finish__head">
+            <h1 class="finish__title">Can&rsquo;t authorize that</h1>
+            <p class="finish__lede">{view.message}</p>
+          </header>
+          {view.nextStep && (
+            <p class="finish__note"><a href={view.nextStep.href}>{view.nextStep.label}</a></p>
+          )}
+          {view.showEnterCodeForm && (
+            <form class="finish__form" method="get" action="/cli/authorize">
+              <label class="field">
+                <span class="field__label">{AUTHORIZE_COPY.enterCode.label}</span>
+                <input
+                  class="field__input authorize__code-input"
+                  type="text"
+                  name="code"
+                  maxlength="64"
+                  required
+                  autocomplete="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                  placeholder="BCDF-GHJK"
+                />
+              </label>
+              <button class="finish__submit" type="submit">{AUTHORIZE_COPY.enterCode.submit}</button>
+            </form>
+          )}
+        </>
+      )}
+
+      {view.kind === "unavailable" && (
+        <header class="finish__head">
+          <h1 class="finish__title">Something went wrong</h1>
+          <p class="finish__lede">{AUTHORIZE_COPY.unavailable}</p>
+        </header>
+      )}
+
+      {view.kind === "done" && (
+        <header class="finish__head">
+          <h1 class="finish__title">{view.done === "authorized" ? "You're signed in" : "Declined"}</h1>
+          <p class="finish__lede">
+            {view.done === "authorized" ? AUTHORIZE_COPY.done.authorized : AUTHORIZE_COPY.done.denied}
+          </p>
+        </header>
+      )}
+    </article>
+  </section>
+</Base>
+
+<style>
+  /* Panel/rail chrome mirrors src/pages/auth/orcid/complete.astro's
+     .finish__panel / .finish__rail (Astro scoped styles do not cross
+     component boundaries, ADR 0004 — duplicated on purpose, kept in sync
+     by hand). Update both files together if either changes. */
+  .finish {
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+  }
+  .finish__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 30rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    overflow: hidden;
+    box-shadow: 0 24px 64px -32px rgb(15 23 42 / 25%);
+  }
+  .finish__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+  }
+  .finish__head {
+    margin-block-end: var(--space-6);
+  }
+  .finish__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    padding: 3px 10px;
+    margin-block-end: var(--space-4);
+  }
+  .finish__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+  }
+  .finish__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+  .finish__lede code {
+    font-family: var(--font-mono);
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    color: var(--color-fg);
+    font-size: 0.92em;
+  }
+  .finish__form {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .field {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .field__label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .field__input {
+    min-block-size: 48px;
+    padding: 12px var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+  }
+  .field__input:focus-visible {
+    outline: none;
+    border-color: var(--brand-teal);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-teal) 22%, transparent);
+  }
+  .authorize__code-input {
+    font-family: var(--font-mono);
+    letter-spacing: 0.15em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .finish__submit {
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: none;
+    background: var(--brand-navy);
+    color: #f8fafc;
+    font-weight: var(--fw-semibold);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .finish__note {
+    margin: 0;
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+  }
+  .finish__note a {
+    color: var(--color-link);
+  }
+
+  /* ---- Confirm view: key/value summary + dual submit buttons ---- */
+  .kv {
+    margin: 0 0 var(--space-6);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .kv__row {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+  .kv__row dt {
+    color: var(--color-fg-subtle);
+    font-weight: var(--fw-medium);
+  }
+  .kv__row dd {
+    margin: 0;
+    color: var(--color-fg);
+  }
+  .kv__row code {
+    font-family: var(--font-mono);
+    background: var(--color-bg-subtle);
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: 0.92em;
+  }
+  .kv__muted {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-xs);
+  }
+  .authorize__actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .authorize__deny {
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .authorize__deny:hover {
+    background: var(--color-bg-subtle);
+  }
+</style>

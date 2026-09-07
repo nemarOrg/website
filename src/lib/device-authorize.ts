@@ -120,10 +120,16 @@ export function nextStepFor(code: string, here: string): NextStep | undefined {
   return NEXT_STEP_FACTORIES[code](here);
 }
 
-interface RawResult {
-  readonly status: number | "network";
-  readonly body: unknown;
-}
+/**
+ * The shape both {@link authorizeView} and {@link decisionView} accept:
+ * structurally identical to `DeviceApiResult<unknown>` from
+ * `./device-auth-api.ts` and to the dev store's `DevResult`
+ * (`./device-authorize-dev.ts`), so either one can be passed straight
+ * through without an adapter.
+ */
+type RawResult =
+  | { readonly status: number; readonly body: unknown }
+  | { readonly status: "network" };
 
 /** A `{ error, message }` refusal body only counts as one when `message` is
  *  a non-empty string. This is what tells the backend's own device-auth
@@ -149,8 +155,17 @@ function refusalFrom(body: unknown): { code?: string; message: string } | null {
 function transportFailureView(result: RawResult): AuthorizeViewState | null {
   if (result.status === "network") return { kind: "unavailable" };
   if (result.status === 401) return { kind: "signed_out" };
-  if (typeof result.status === "number" && result.status >= 500) return { kind: "unavailable" };
+  if (result.status >= 500) return { kind: "unavailable" };
   return null;
+}
+
+/** The response body, or `null` for the network sentinel (which carries
+ *  none). A plain property access on `result.body` does not type-check once
+ *  a caller has only run it through {@link transportFailureView} — a
+ *  function call does not narrow the caller's own union the way an inline
+ *  check would — so every read past that point goes through here instead. */
+function bodyOf(result: RawResult): unknown {
+  return result.status === "network" ? null : result.body;
 }
 
 /**
@@ -211,7 +226,7 @@ export function authorizeView(result: RawResult, here: string): AuthorizeViewSta
   // Non-200, non-401, non-5xx: a code-level refusal (404 unknown, 410
   // expired, 409 used/denied). `refusalFrom` requires `message`, so an
   // unrecognized or malformed error body still falls through to unavailable.
-  const refusal = refusalFrom(result.body);
+  const refusal = refusalFrom(bodyOf(result));
   if (!refusal) return { kind: "unavailable" };
   return {
     kind: "refused",
@@ -258,7 +273,7 @@ export function decisionView(
     return { kind: "redirect", location: `${authorizePath}?${params.toString()}` };
   }
 
-  const refusal = refusalFrom(result.body);
+  const refusal = refusalFrom(bodyOf(result));
   if (!refusal) return { kind: "unavailable" };
   return {
     kind: "refused",
