@@ -3,42 +3,477 @@ import ExternalLink from "../components/ExternalLink.astro";
 import Base from "../layouts/Base.astro";
 ---
 
-<Base title="Support">
-  <section class="container page">
-    <h1>Support</h1>
-    <p>
-      NEMAR does not run a forum. For help using NEMAR, email
-      <a href="mailto:support@nemar.org">support@nemar.org</a>.
-    </p>
-    <p>
-      To report a bug or request a feature in the CLI, API, or backend, open
-      an issue on <ExternalLink href="https://github.com/nemarOrg/nemar-cli/issues">nemarOrg/nemar-cli</ExternalLink>.
-      For a problem with this site, open one on
-      <ExternalLink href="https://github.com/nemarOrg/website/issues">nemarOrg/website</ExternalLink>.
-    </p>
-    <p>
-      For a dataset-specific question, file an issue on that dataset's
-      GitHub repository, linked from its
-      <a href="/discover">dataset detail page</a>.
-    </p>
-  </section>
+<Base
+  title="Support NEMAR"
+  description="Find the right place to report a dataset problem, propose a fix, improve the website or CLI, or ask for help with NEMAR."
+>
+  <div class="support-page">
+    <section class="support-hero">
+      <div class="container support-hero__inner">
+        <div>
+          <p class="eyebrow">Help us make the archive better</p>
+          <h1>Report the problem where it lives.</h1>
+          <p class="lede">
+            NEMAR is built in public across dataset repositories, the CLI and backend, the website,
+            and the documentation. The fastest support is a specific issue or pull request in the
+            repository responsible for the thing you are looking at.
+          </p>
+          <a class="button button--primary" href="mailto:support@nemar.org">Email support@nemar.org</a>
+        </div>
+        <div class="support-hero__rule" aria-hidden="true">
+          <span>dataset</span>
+          <span>platform</span>
+          <span>website</span>
+          <span>docs</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-intro">
+          <p class="eyebrow">Choose a route</p>
+          <h2>One clear report is better than four vague ones.</h2>
+          <p>
+            If you are unsure, email us. Otherwise, choose the card that matches the object or
+            behavior you want changed.
+          </p>
+        </div>
+
+        <div class="route-grid">
+          <article class="route-card route-card--dataset">
+            <p class="route-number">01 · A specific dataset</p>
+            <h3>Dataset content, metadata, quality, or citation</h3>
+            <p>
+              Use the dataset's GitHub repository in <code>nemarDatasets</code>. The repository link
+              is available from the dataset detail page. This is the best place to report a wrong
+              description, missing file, metadata correction, quality concern, DOI detail, or a
+              concrete improvement to that dataset.
+            </p>
+            <p class="route-action"><a href="/discover">Find the dataset →</a></p>
+          </article>
+
+          <article class="route-card route-card--platform">
+            <p class="route-number">02 · The platform</p>
+            <h3>CLI, API, backend, upload, versioning, or conversion</h3>
+            <p>
+              Open an issue or pull request in <ExternalLink href="https://github.com/nemarOrg/nemar-cli/issues">nemarOrg/nemar-cli</ExternalLink> for systematic behavior: a command that fails, an API contract, authentication, a
+              publication workflow, DOI/versioning, or a Zarr conversion problem that affects more
+              than one dataset.
+            </p>
+            <p class="route-action"><ExternalLink href="https://github.com/nemarOrg/nemar-cli">Open the CLI and backend repository →</ExternalLink></p>
+          </article>
+
+          <article class="route-card route-card--website">
+            <p class="route-number">03 · This website</p>
+            <h3>Browser behavior, layout, routing, or sign-in</h3>
+            <p>
+              Use <ExternalLink href="https://github.com/nemarOrg/website/issues">nemarOrg/website</ExternalLink> for a broken page, confusing interaction, visual regression, redirect, account surface, or a browser-only problem. A pull request is welcome when you can propose the fix.
+            </p>
+            <p class="route-action"><ExternalLink href="https://github.com/nemarOrg/website">Open the website repository →</ExternalLink></p>
+          </article>
+
+          <article class="route-card route-card--docs">
+            <p class="route-number">04 · Documentation</p>
+            <h3>Missing, unclear, or incorrect guidance</h3>
+            <p>
+              Use <ExternalLink href="https://github.com/nemarOrg/docs/issues">nemarOrg/docs</ExternalLink> when a page is hard to follow, a link is broken, a command needs an example, or the platform contract needs explanation. Documentation issues improve the path for every future contributor.
+            </p>
+            <p class="route-action"><ExternalLink href="https://github.com/nemarOrg/docs">Open the docs repository →</ExternalLink></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--tint">
+      <div class="container narrow">
+        <div class="section-intro">
+          <p class="eyebrow">Issue or pull request?</p>
+          <h2>Both are useful; they do different jobs.</h2>
+        </div>
+        <div class="explain-grid">
+          <article class="explain-card">
+            <h3>Open an issue when…</h3>
+            <ul>
+              <li>you found a problem and want the maintainers to investigate;</li>
+              <li>you have an improvement idea but not a finished implementation;</li>
+              <li>the impact or correct solution still needs discussion.</li>
+            </ul>
+          </article>
+          <article class="explain-card">
+            <h3>Open a pull request when…</h3>
+            <ul>
+              <li>you can make a small, reviewable change yourself;</li>
+              <li>you are correcting documentation or a reproducible website issue;</li>
+              <li>the dataset owner or platform maintainer can review the proposed fix.</li>
+            </ul>
+          </article>
+        </div>
+        <p class="callout">
+          For dataset-specific changes, use the dataset repository even when the website is where
+          you noticed the problem. That keeps the correction beside the data, its owners, and its
+          version history.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container narrow report-section">
+        <div class="section-intro">
+          <p class="eyebrow">Make the report actionable</p>
+          <h2>Tell us what happened and what you expected.</h2>
+          <p>
+            A short, reproducible report helps a maintainer understand whether a problem belongs to
+            one dataset, one client, or the platform as a whole.
+          </p>
+        </div>
+        <div class="report-grid">
+          <div>
+            <h3>Useful details</h3>
+            <ul>
+              <li>dataset ID, version, or DOI, when relevant;</li>
+              <li>page URL, API route, command, or BIDS file path;</li>
+              <li>what you expected and what actually happened;</li>
+              <li>small reproduction steps and the error message;</li>
+              <li>browser, operating system, CLI version, or other relevant environment details;</li>
+              <li>a screenshot or log excerpt with sensitive values removed.</li>
+            </ul>
+          </div>
+          <div class="do-not-share">
+            <h3>Do not include</h3>
+            <ul>
+              <li>participant-level data or identifying information;</li>
+              <li>access tokens, passwords, private keys, or presigned URLs;</li>
+              <li>private data that is not already part of the public issue context.</li>
+            </ul>
+            <p>
+              For privacy, takedown, or other sensitive concerns, start with
+              <a href="mailto:support@nemar.org">support@nemar.org</a> and review the
+              <ExternalLink href="https://docs.nemar.org/policies/">NEMAR policies</ExternalLink>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--closing">
+      <div class="container closing-card">
+        <p class="eyebrow">Still not sure?</p>
+        <h2>Send us the context, and we will help route it.</h2>
+        <p>
+          Email <a href="mailto:support@nemar.org">support@nemar.org</a>. For a public,
+          dataset-specific problem, an issue or pull request is usually the fastest route because it
+          keeps the discussion attached to the thing being improved.
+        </p>
+        <div class="closing-actions">
+          <a class="button button--primary" href="mailto:support@nemar.org">Contact support</a>
+          <a class="button button--secondary" href="/about">Read how NEMAR works</a>
+        </div>
+      </div>
+    </section>
+  </div>
 </Base>
 
 <style>
-  .page {
-    padding-block: var(--space-12) var(--space-16);
-    max-inline-size: var(--max-width-prose);
+  .support-page {
+    overflow: hidden;
   }
-  .page h1 {
-    font-size: var(--fs-3xl);
-    margin-block-end: var(--space-6);
+
+  .support-hero {
+    background: linear-gradient(135deg, var(--brand-navy), color-mix(in srgb, var(--brand-purple) 55%, var(--brand-navy)));
+    color: var(--color-fg-inverse);
   }
-  .page p {
+
+  .support-hero__inner {
+    align-items: center;
+    display: grid;
+    gap: var(--space-12);
+    grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+    min-block-size: 480px;
+    padding-block: var(--space-16);
+  }
+
+  .eyebrow {
+    color: var(--brand-teal);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    letter-spacing: 0.12em;
+    line-height: var(--lh-snug);
+    margin: 0 0 var(--space-3);
+    text-transform: uppercase;
+  }
+
+  .support-hero h1 {
+    max-inline-size: 12ch;
+    margin: 0 0 var(--space-5);
+  }
+
+  .lede {
+    color: color-mix(in srgb, var(--color-fg-inverse) 82%, transparent);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 60ch;
+    margin: 0 0 var(--space-8);
+  }
+
+  .button {
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    display: inline-flex;
+    font-weight: var(--fw-semibold);
+    justify-content: center;
+    min-block-size: 2.75rem;
+    padding-inline: var(--space-5);
+    text-decoration: none;
+  }
+
+  .button--primary {
+    background: var(--brand-teal);
+    color: var(--brand-navy);
+  }
+
+  .button--primary:hover,
+  .button--primary:focus-visible {
+    background: var(--brand-gold-light);
+    color: var(--brand-navy);
+  }
+
+  .button--secondary {
+    background: transparent;
+    border-color: var(--color-border-strong);
+    color: var(--color-link);
+  }
+
+  .button--secondary:hover,
+  .button--secondary:focus-visible {
+    background: var(--color-bg);
+    border-color: var(--color-link);
+  }
+
+  .support-hero .button--primary {
+    background: var(--brand-gold-light);
+  }
+
+  .support-hero__rule {
+    border-inline-start: 1px solid color-mix(in srgb, var(--color-fg-inverse) 30%, transparent);
+    display: grid;
+    gap: var(--space-4);
+    padding-inline-start: var(--space-8);
+  }
+
+  .support-hero__rule span {
+    border-block-end: 1px solid color-mix(in srgb, var(--color-fg-inverse) 25%, transparent);
+    color: color-mix(in srgb, var(--color-fg-inverse) 84%, transparent);
+    font-family: var(--font-mono);
+    padding-block-end: var(--space-3);
+  }
+
+  .support-hero__rule span::before {
+    color: var(--brand-teal);
+    content: "↳";
+    margin-inline-end: var(--space-3);
+  }
+
+  .section {
+    padding-block: var(--space-20);
+  }
+
+  .section--tint {
+    background: var(--color-bg-elevated);
+  }
+
+  .section--closing {
+    padding-block: var(--space-12) var(--space-20);
+  }
+
+  .container {
+    max-width: var(--max-width-page);
+  }
+
+  .narrow {
+    max-inline-size: 980px;
+  }
+
+  .section-intro {
+    max-inline-size: 68ch;
+    margin-block-end: var(--space-10);
+  }
+
+  .section-intro h2 {
+    margin: 0 0 var(--space-4);
+  }
+
+  .section-intro p:not(.eyebrow) {
     color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
-    margin-block-end: var(--space-4);
+    margin: 0;
   }
-  .page p:last-child {
+
+  .route-grid {
+    display: grid;
+    gap: var(--space-6);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .route-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-block-start: 4px solid var(--brand-teal);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    min-block-size: 310px;
+    padding: var(--space-8);
+  }
+
+  .route-card--platform { border-block-start-color: var(--brand-gold); }
+  .route-card--website { border-block-start-color: var(--brand-purple); }
+  .route-card--docs { border-block-start-color: var(--brand-navy); }
+
+  .route-number {
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    margin: 0 0 var(--space-4);
+  }
+
+  .route-card h3,
+  .explain-card h3,
+  .report-grid h3 {
+    font-size: var(--fs-xl);
+    margin: 0 0 var(--space-3);
+  }
+
+  .route-card p:not(.route-number):not(.route-action),
+  .explain-card li,
+  .report-grid li,
+  .report-grid p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+
+  .route-card p:last-child {
     margin-block-end: 0;
+  }
+
+  .route-action {
+    margin-block: auto 0;
+    padding-block-start: var(--space-6);
+  }
+
+  .route-action a {
+    font-weight: var(--fw-semibold);
+  }
+
+  .explain-grid,
+  .report-grid {
+    display: grid;
+    gap: var(--space-6);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .explain-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-8);
+  }
+
+  .explain-card ul,
+  .report-grid ul {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+  }
+
+  .explain-card li + li,
+  .report-grid li + li {
+    margin-block-start: var(--space-3);
+  }
+
+  .callout {
+    border-inline-start: 4px solid var(--brand-gold);
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+    margin: var(--space-6) 0 0;
+    padding: var(--space-4) var(--space-5);
+  }
+
+  .report-section {
+    padding-block-end: var(--space-4);
+  }
+
+  .report-grid > div {
+    border-block-start: 3px solid var(--brand-teal);
+    padding-block-start: var(--space-5);
+  }
+
+  .report-grid .do-not-share {
+    border-block-start-color: var(--brand-gold);
+  }
+
+  .report-grid li + li {
+    margin-block-start: var(--space-3);
+  }
+
+  .report-grid p {
+    margin-block: var(--space-5) 0;
+  }
+
+  .closing-card {
+    background: var(--brand-navy);
+    border-radius: var(--radius-lg);
+    color: var(--color-fg-inverse);
+    padding: var(--space-10);
+  }
+
+  .closing-card h2 {
+    max-inline-size: 22ch;
+    margin: 0 0 var(--space-4);
+  }
+
+  .closing-card p:not(.eyebrow) {
+    color: color-mix(in srgb, var(--color-fg-inverse) 80%, transparent);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 68ch;
+  }
+
+  .closing-card a:not(.button) {
+    color: var(--brand-teal);
+  }
+
+  .closing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-block-start: var(--space-6);
+  }
+
+  @media (max-width: 760px) {
+    .support-hero__inner,
+    .route-grid,
+    .explain-grid,
+    .report-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .support-hero__inner {
+      min-block-size: auto;
+      padding-block: var(--space-12);
+    }
+
+    .support-hero__rule {
+      border-inline-start: 0;
+      border-block-start: 1px solid color-mix(in srgb, var(--color-fg-inverse) 30%, transparent);
+      padding-block-start: var(--space-6);
+      padding-inline-start: 0;
+    }
+
+    .route-card,
+    .explain-card,
+    .closing-card {
+      padding: var(--space-6);
+    }
   }
 </style>

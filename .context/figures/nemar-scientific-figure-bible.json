@@ -1,0 +1,163 @@
+{
+  "name": "NEMAR scientific figure system",
+  "version": "1.0.0",
+  "status": "working design brief",
+  "audience": "early graduate researchers and technical collaborators",
+  "purpose": "Explain NEMAR architecture, dataset lifecycle, DOI versioning, Zarr conversion, edge delivery, and the planned HPC path without turning a scientific resource into decorative marketing art.",
+  "non_negotiables": [
+    "Scientific clarity takes priority over spectacle.",
+    "No Mermaid diagrams.",
+    "No generated text, pseudo-writing, fake labels, fake numbers, fake logos, or invented endpoint names.",
+    "All scientific labels, arrows, legends, URLs, DOI examples, and version strings are added later as exact SVG text.",
+    "The real NEMAR logo and the word NEMAR appear as a small lockup in the lower-right corner of every final figure.",
+    "The lower-right lockup has clear space, sufficient contrast, and never overlaps scientific content.",
+    "Current systems and planned systems are visibly separated; roadmap elements are never presented as shipped features.",
+    "Canonical BIDS data is visually distinct from derived Zarr access and from future compute services."
+  ],
+  "format": {
+    "master": "SVG",
+    "comparison_substrate": "PNG",
+    "minimum_raster_width_px": 2400,
+    "aspect_ratio": "16:9",
+    "safe_margin_percent": 5,
+    "final_label_layer": "exact SVG text and vector geometry",
+    "export": "SVG plus PNG fallback"
+  },
+  "palette": {
+    "ink": "#0B1A3A",
+    "ink_deep": "#06112A",
+    "surface": "#10254A",
+    "surface_alt": "#163762",
+    "paper": "#FBFAF6",
+    "teal": "#5BBAD5",
+    "violet": "#A78BFA",
+    "gold": "#F4D06B",
+    "muted_text": "#A8BCD5",
+    "meaning": {
+      "ink": "canonical source, primary structure, stable contract",
+      "teal": "data movement, validation, conversion, streaming",
+      "violet": "people-facing discovery, reuse, analysis, agent access",
+      "gold": "review, citation, versioning, roadmap or planned work"
+    }
+  },
+  "typography": {
+    "family": "Inter",
+    "technical_family": "JetBrains Mono",
+    "rule": "Never ask image generation to render the scientific typography.",
+    "labels": "sentence case, short, concrete, one idea per line",
+    "headline": "large but restrained",
+    "micro_label": "small monospaced uppercase label only when it helps orientation"
+  },
+  "composition": {
+    "visual_language": "modern technical atlas: layered planes, quiet grid, precise connectors, controlled depth, and generous negative space",
+    "flow_direction": "left to right for source-to-reuse stories; top to bottom only for a deliberate lifecycle",
+    "geometry": "rounded panels, connected nodes, stable alignment, no ornamental 3D clutter",
+    "layout_constraints": [
+      "Place dividers at the midpoint of the available gutter; never crowd a panel border.",
+      "Align process arrows edge-to-edge on shared horizontal centerlines.",
+      "Make summary bars inherit the exact outer span of the elements they summarize."
+    ],
+    "standalone_title": {
+      "required": true,
+      "position": "upper-left safe area inside the frame",
+      "style": "one short descriptive line, readable when the PNG is detached from its page caption",
+      "rule": "Add the title to the SVG source so the SVG and PNG exports remain identical."
+    },
+    "depth": "subtle translucency and restrained glow; no neon cyberpunk treatment",
+    "background": "deep navy technical ground preferred for comparison variants; a light paper variant may be tested",
+    "logo_lockup": {
+      "position": "lower right",
+      "clear_space": "at least 2x the logo mark height from every content element",
+      "treatment": "actual NEMAR mark plus wordmark, monochrome or brand-safe two-tone",
+      "scale": "small and legible, never a dominant graphic"
+    }
+  },
+  "semantic_shapes": {
+    "canonical_source": "navy or blue plane with solid boundary",
+    "api_control_plane": "gold-edged contract node",
+    "derived_streaming": "teal-edged layered/chunked node",
+    "human_or_agent_surface": "violet-edged access node",
+    "review_or_doi": "gold capsule or citation node",
+    "planned_hpc": "gold roadmap lane with explicit planned marker"
+  },
+  "figure_set": [
+    {
+      "id": "system-map",
+      "question": "How do the website, CLI, API, data plane, Zarr plane, storage, DOI records, people, and agents fit together?",
+      "required_labels": [
+        "nemar-cli",
+        "NEMAR web",
+        "api.nemar.org",
+        "data.nemar.org",
+        "zarr.nemar.org",
+        "GitHub + S3",
+        "DOI record"
+      ],
+      "standalone_title": "NEMAR platform architecture",
+      "visual_story": "two client surfaces feed shared contracts, which expose canonical data and derived access layers"
+    },
+    {
+      "id": "dataset-lifecycle",
+      "question": "How does a dataset move from preparation to review, DOI release, reuse, and continuous improvement?",
+      "required_labels": [
+        "Prepare",
+        "Validate",
+        "Publish",
+        "Reuse",
+        "Improve",
+        "Concept DOI",
+        "Version DOI"
+      ],
+      "standalone_title": "NEMAR dataset lifecycle",
+      "visual_story": "a reviewed release becomes a stable citable state; a later pull request creates a new state"
+    },
+    {
+      "id": "edge-compute",
+      "question": "How can NEMAR support partial in-browser reads now and larger compute near the data later?",
+      "required_labels": [
+        "Canonical BIDS",
+        "Zarr conversion",
+        "Edge worker",
+        "Browser analysis",
+        "Tapis + One Science Place",
+        "Planned",
+        "Versioned derivative + DOI"
+      ],
+      "standalone_title": "BIDS to Zarr: edge and browser analysis",
+      "visual_story": "canonical files remain authoritative while derived chunks serve lightweight analysis and a planned HPC lane handles larger jobs"
+    }
+  ],
+  "image_generation_policy": {
+    "role": "visual substrate exploration only",
+    "allowed": [
+      "abstract signal paths",
+      "layered data planes",
+      "empty labeled-panel space",
+      "subtle grid and node geometry",
+      "calm scientific color relationships"
+    ],
+    "forbidden": [
+      "people as the primary subject",
+      "poster-like collage",
+      "stock illustration look",
+      "fake UI or fake dashboard text",
+      "unreadable labels presented as evidence",
+      "generic cloud/server clip art",
+      "dramatic lighting that obscures relationships"
+    ],
+    "finalization": "Choose a substrate only after comparison, then overlay exact SVG geometry, text, arrows, figure number, caption, and NEMAR lockup. If no substrate improves the exact vector schematic, ship the vector schematic without a raster substrate."
+  },
+  "comparison_rubric": {
+    "scale": "1 to 5",
+    "criteria": [
+      "scientific restraint",
+      "hierarchy",
+      "label-safe negative space",
+      "contrast and accessibility",
+      "relationship clarity",
+      "modernity without decoration",
+      "logo lockup compatibility"
+    ],
+    "ship_rule": "A candidate is not selected if it requires generated text to communicate the science, crowds the label layer, or makes a planned feature look current."
+  }
+}
