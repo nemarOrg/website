@@ -1,37 +1,1001 @@
 ---
+import ExternalLink from "../components/ExternalLink.astro";
 import Base from "../layouts/Base.astro";
 ---
 
-<Base title="About">
-  <section class="container page">
-    <h1>About NEMAR</h1>
-    <p>
-      NEMAR (Neuroelectromagnetic Data Archive and Tools Resource) is an
-      open-access archive of human EEG, MEG, iEEG, and EMG data shared by their
-      authors through OpenNeuro. NEMAR is funded by the National Institutes of
-      Health under award number NIMH R24MH120037.
-    </p>
-    <p>
-      Detailed mission, governance, and partnerships will move here from the
-      legacy nemar.org during the redesign. See
-      <a href="https://nemar.org/about/about-us">the legacy About page</a>
-      for current content.
-    </p>
-  </section>
+<Base
+  title="About NEMAR"
+  description="How NEMAR connects people, the nemar-cli, open neuroelectromagnetic data, machine-readable metadata, streaming Zarr stores, and reproducible computation."
+>
+  <div class="about-page">
+    <section class="about-hero">
+      <div class="container about-hero__inner">
+        <div class="about-hero__copy">
+          <p class="eyebrow">A data, tools, and compute resource</p>
+          <h1>A clearer path from brain recordings to reusable science.</h1>
+          <p class="lede">
+            NEMAR (the Neuroelectromagnetic Data Archive and Tools Resource) helps researchers
+            find, understand, assess, cite, and reuse human EEG, MEG, iEEG, and EMG data.
+          </p>
+          <div class="hero-actions">
+            <a class="button button--primary" href="/discover">Discover datasets</a>
+            <ExternalLink class="button button--secondary" href="https://docs.nemar.org/ecosystem/">Read the docs</ExternalLink>
+          </div>
+          <p class="hero-note">
+            NEMAR is supported by the National Institutes of Health and NIMH under award NIMH
+            R24MH120037, and our partnership with the <ExternalLink href="https://www.sdsc.edu/news/2026/PR20260526-Neuro-AI.html">San Diego Supercomputer Center (SDSC)</ExternalLink>
+            is central to closing the loop between open data and practical computation. The
+            <ExternalLink href="https://www.nsgportal.org/">Neuroscience Gateway (NSG)</ExternalLink>
+            gives the neuroscience community an established path to tools and high-performance
+            computing resources; NEMAR aims to make the dataset, version, and workflow connection
+            seamless. <ExternalLink href="https://reporter.nih.gov/project-details/10687858">See the NIH project record</ExternalLink>.
+          </p>
+        </div>
+        <div
+          class="about-hero__architecture"
+          aria-label="NEMAR architecture at a glance: canonical BIDS data feeds NEMAR contracts, which support the website, command-line client, and derived Zarr access. The current SDSC and NSG partnership provides a compute bridge; a planned NEMAR integration with Tapis and OneSciencePlace would connect those contracts to national HPC resources."
+        >
+          <div class="architecture-heading">
+            <span class="architecture-kicker">NEMAR at a glance</span>
+            <span class="architecture-status">current platform + roadmap</span>
+          </div>
+          <div class="architecture-flow">
+            <div class="architecture-node architecture-node--source">
+              <span class="architecture-node__label">SOURCE</span>
+              <strong>BIDS datasets</strong>
+              <span>canonical files + metadata</span>
+            </div>
+            <span class="architecture-arrow" aria-hidden="true">→</span>
+            <div class="architecture-node architecture-node--core">
+              <span class="architecture-node__label">CONTRACTS</span>
+              <strong>NEMAR</strong>
+              <span>catalog · manifests · DOI</span>
+            </div>
+            <span class="architecture-arrow" aria-hidden="true">→</span>
+            <div class="architecture-access">
+              <div>
+                <strong>nemar.org</strong>
+                <span>browser shell</span>
+              </div>
+              <div>
+                <strong>nemar-cli</strong>
+                <span>repeatable workflows</span>
+              </div>
+              <div>
+                <strong>zarr.nemar.org</strong>
+                <span>derived chunk reads</span>
+              </div>
+            </div>
+          </div>
+          <div class="architecture-roadmap">
+            <span class="architecture-node__label">COMPUTE BRIDGE</span>
+            <strong>SDSC + NSG partnership</strong>
+            <span class="architecture-roadmap__description">NEMAR aims to connect its dataset, version, and workflow contracts to these established compute resources.</span>
+            <span class="architecture-roadmap__planned">PLANNED NEMAR INTEGRATION · Tapis + OneSciencePlace → national HPC resources</span>
+          </div>
+          <p class="architecture-footnote">BIDS remains authoritative · derived access stays labeled</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container narrow">
+        <div class="section-intro">
+          <p class="eyebrow">Why NEMAR exists</p>
+          <h2>Make reuse feel like part of the research, not an afterthought.</h2>
+          <p>
+            A recording is more useful when another researcher can find it, tell what it contains,
+            check how it was prepared, access the files without guesswork, and cite the exact state
+            they used. NEMAR brings those pieces together around community standards such as BIDS,
+            reviewable metadata, quality information, and open interfaces.
+          </p>
+        </div>
+        <div class="mission-grid">
+          <article class="statement-card statement-card--mission">
+            <p class="card-kicker">Mission</p>
+            <h3>Make human neuroelectromagnetic data findable, understandable, citable, and reusable.</h3>
+            <p>
+              We do that by combining community standards with trustworthy metadata, quality
+              checks, open interfaces, and practical paths to computation.
+            </p>
+          </article>
+          <article class="statement-card statement-card--vision">
+            <p class="card-kicker">Vision</p>
+            <h3>Let a researcher inspect, analyze, and cite the right version without moving everything first.</h3>
+            <p>
+              Sharing data should open the next experiment: a better question, a more reproducible
+              analysis, or a useful derivative that can be shared in turn.
+            </p>
+          </article>
+        </div>
+        <p class="supporting-note">
+          This is open science as infrastructure: preserve publicly useful research data, make its
+          context legible, and improve the resource in public while keeping released versions
+          citable.
+        </p>
+      </div>
+    </section>
+
+    <section class="section section--tint">
+      <div class="container">
+        <div class="section-intro section-intro--wide">
+          <p class="eyebrow">The NEMAR mental model</p>
+          <h2>One system, many doors.</h2>
+          <p>
+            NEMAR is not only the website. The browser is a friendly shell around a command-line
+            client, shared backend contracts, canonical BIDS data, derived streaming stores, and
+            durable citation records. Each layer has a job, so a person or an agent can use the
+            surface that fits the work.
+          </p>
+        </div>
+
+        <figure class="figure-card">
+          <picture>
+            <source srcset="/figures/nemar-system-map.svg" type="image/svg+xml" />
+            <img
+              src="/figures/nemar-system-map.png"
+              alt="Diagram showing people and research agents using nemar-cli and the NEMAR web shell, which connect to the API and canonical data plane; data then feeds derived Zarr streaming, GitHub and S3 storage, and DOI records."
+              width="2400"
+              height="1494"
+              loading="lazy"
+              decoding="async"
+            />
+          </picture>
+          <figcaption>
+            <strong>Figure 1.</strong> NEMAR keeps the browser and future research agents close to
+            the same API, data, version, and citation contracts used by the CLI.
+          </figcaption>
+        </figure>
+
+        <div class="two-column-copy">
+          <article>
+            <p class="card-kicker">Why CLI-first?</p>
+            <h3>The strongest foundation is a repeatable one.</h3>
+            <p>
+              A command-line workflow can live in a script, run on a laptop or an HPC login node,
+              resume an interrupted transfer, inspect versions, and be reviewed alongside code.
+              That makes <code>nemar-cli</code> more than an upload utility: it is the durable
+              research workflow and the reference client for the platform.
+            </p>
+          </article>
+          <article>
+            <p class="card-kicker">Why a web shell?</p>
+            <h3>Discovery should not require installation.</h3>
+            <p>
+              The website is the fastest place to search, preview, assess, manage collaborators,
+              and start an exploration. It consumes the established backend rather than silently
+              creating a second source of truth. The CLI and web app share accounts, permissions,
+              and dataset state; they simply serve different moments in a research workflow.
+            </p>
+          </article>
+        </div>
+
+        <div class="table-wrap">
+          <table class="system-table">
+            <caption>Which NEMAR surface answers which question?</caption>
+            <thead>
+              <tr>
+                <th scope="col">Surface</th>
+                <th scope="col">Use it when you want to…</th>
+                <th scope="col">What it owns</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row"><code>nemar.org</code></th>
+                <td>discover, inspect, visualize, and manage data in a browser</td>
+                <td>the human-facing shell</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>nemar-cli</code></th>
+                <td>script upload, validation, download, versioning, and publication</td>
+                <td>the repeatable terminal workflow</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>api.nemar.org</code></th>
+                <td>search the catalog or use accounts, permissions, and workflow APIs</td>
+                <td>the control plane</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>data.nemar.org</code></th>
+                <td>read the canonical BIDS-shaped tree, metadata, manifests, and files</td>
+                <td>the data plane and source view</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>zarr.nemar.org</code></th>
+                <td>stream selected chunks of a converted recording for responsive analysis</td>
+                <td>a derived access layer, where conversion is available</td>
+              </tr>
+              <tr>
+                <th scope="row"><code>docs.nemar.org</code></th>
+                <td>learn the contracts, commands, policies, and machine-facing routes</td>
+                <td>shared explanations and reference</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="section-link"><a href="https://docs.nemar.org/ecosystem/">Read the ecosystem overview in the docs →</a></p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container narrow">
+        <div class="section-intro">
+          <p class="eyebrow">A dataset is a living scholarly object</p>
+          <h2>Review first. Cite clearly. Improve in public.</h2>
+          <p>
+            NEMAR treats publication as a checkpoint, not a finish line. A dataset can be private
+            while its authors prepare it, reviewed before release, and then improved through a
+            visible versioned change.
+          </p>
+        </div>
+        <div class="figure-copy-row">
+          <figure class="figure-card">
+            <picture>
+              <source srcset="/figures/nemar-dataset-lifecycle.svg" type="image/svg+xml" />
+              <img
+                src="/figures/nemar-dataset-lifecycle.png"
+                alt="Five-stage dataset lifecycle: prepare BIDS files, validate structure and metadata, publish after review with a DOI, reuse through search and analysis, and improve through a pull request that creates a new version. The publish step creates concept and version DOIs."
+                width="2400"
+                height="1494"
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+            <figcaption>
+              <strong>Figure 2.</strong> A release creates a citable state; later improvements are
+              reviewable changes that become a new state rather than a silent rewrite.
+            </figcaption>
+          </figure>
+
+          <div class="callout callout--doi figure-copy">
+            <p class="card-kicker">Why NEMAR mints its own DOI</p>
+            <h3>A stable handle for the dataset, plus a precise handle for every release.</h3>
+            <p>
+              NEMAR mints identifiers in its own <code>10.82901/NEMAR</code> namespace through EZID
+              and publishes a DataCite record. The concept DOI identifies the dataset as a continuing
+              scholarly object. A version DOI identifies one released state, including its version
+              number, landing page, and immutable file manifest.
+            </p>
+            <p>
+              That record is meant to be much fuller than a bare pointer to a repository. When the
+              source metadata supports it, the citation can connect authors, ORCIDs, and
+              affiliations; an abstract and acknowledgement text; MeSH-validated keywords; funding;
+              related identifiers; license; issued and collection dates; formats; sizes; and the
+              relations between a concept and its versions. The DOI stays stable while the landing
+              page and structured metadata can be corrected or enriched.
+            </p>
+            <p>
+              After a DOI release, changes go through a reviewed pull request and become a new
+              citable version. This is how FAIR practice and continuous improvement reinforce one
+              another: old analyses keep a precise reference, while the community gets a public path
+              to make the data clearer and more useful.
+            </p>
+            <p class="section-link"><a href="https://docs.nemar.org/platform/doi-and-versioning/">See the DOI and versioning contract →</a></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section--tint">
+      <div class="container narrow">
+        <div class="section-intro">
+          <p class="eyebrow">Compute without moving everything</p>
+          <h2>From canonical files to in-browser analysis.</h2>
+          <p>
+            The canonical archive is BIDS-shaped. For large signal files, NEMAR can create a
+            derived Zarr store: a chunked representation that lets the reader request a small
+            window instead of downloading an entire recording. An edge Worker at
+            <code>zarr.nemar.org</code> provides the browser-facing gateway, CORS handling, and
+            caching, so the viewer can ask for only the chunks it needs.
+          </p>
+          <p>
+            The original BIDS file remains authoritative. Zarr conversion can be pending or fail
+            for an individual recording, and the index should make that coverage visible. This
+            separation lets us build lightweight in-browser inspection now while preserving a
+            trustworthy source archive underneath.
+          </p>
+        </div>
+        <div class="figure-copy-row">
+          <figure class="figure-card">
+            <picture>
+              <source srcset="/figures/nemar-edge-compute.svg" type="image/svg+xml" />
+              <img
+                src="/figures/nemar-edge-compute.png"
+                alt="Flow diagram from the canonical BIDS source archive through Zarr conversion and an edge worker to browser analysis; a planned NEMAR integration would use Tapis through OneSciencePlace to launch reproducible HPC jobs near the data and return versioned BIDS derivatives with their own DOI."
+                width="2400"
+                height="1494"
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+            <figcaption>
+              <strong>Figure 3.</strong> Zarr is a derived streaming layer for partial reads. A
+              planned NEMAR integration with Tapis through OneSciencePlace is a route for larger
+              reproducible jobs near national HPC resources, not a shipped one-click feature today.
+            </figcaption>
+          </figure>
+          <div class="roadmap-card figure-copy">
+            <p class="card-kicker">The compute roadmap</p>
+            <h3>Move the computation closer to the data.</h3>
+            <p>
+              This loop closes through partnership, not through a generic cloud promise. NEMAR
+              contributes structured, open, citable data; SDSC contributes the compute partnership
+              and operational expertise; and the <ExternalLink href="https://www.nsgportal.org/">Neuroscience Gateway (NSG)</ExternalLink>
+              gives researchers an established route to neuroscience tools and high-performance
+              computing resources.
+            </p>
+            <p>
+              Our next direction is to connect NEMAR to Tapis through
+              <ExternalLink href="https://www.onescienceplace.org/">OneSciencePlace</ExternalLink>.
+              OneSciencePlace is a platform developed by teams at UCLA, SDSC, and TACC that uses
+              Tapis for job and data lifecycle management. For NEMAR, this remains a planned API
+              bridge to national HPC infrastructure: a reproducible path from a dataset page to a
+              described job and, eventually, a versioned derivative that can be cited in its own right.
+            </p>
+            <p class="roadmap-label">Roadmap: planned, in development</p>
+            <p class="section-link"><ExternalLink href="https://tapis-project.org/documentation/">Learn about Tapis →</ExternalLink></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container narrow">
+        <div class="section-intro">
+          <p class="eyebrow">Built for people and agents</p>
+          <h2>Open science should be legible to software, too.</h2>
+          <p>
+            Agentic research is not only about publishing code. It means making code repositories,
+            webpages, metadata, manifests, and each dataset understandable to scripts and
+            LLM-based research agents. NEMAR therefore pairs a human browser with stable URLs,
+            machine-readable JSON, BIDS paths, checksums, schema.org Dataset metadata, markdown
+            mirrors, and <a href="/llms.txt"><code>/llms.txt</code></a>.
+          </p>
+        </div>
+        <div class="agent-grid">
+          <article class="info-card">
+            <h3>Readable by default</h3>
+            <p>
+              A dataset page explains what it is, links to its files and version, exposes structured
+              metadata, and tells a reader how to cite and license it. The same page has a markdown
+              mirror for tools that do not need a visual browser.
+            </p>
+          </article>
+          <article class="info-card">
+            <h3>AI assistance with boundaries</h3>
+            <p>
+              Models may help propose descriptions, methods, keywords, related identifiers, or
+              validation findings from README files and structural metadata. Human and
+              administrative review remains authoritative; AI output does not publish data by
+              itself or replace controlled vocabularies.
+            </p>
+          </article>
+          <article class="info-card">
+            <h3>Useful at the edge</h3>
+            <p>
+              APIs, manifests, stable BIDS paths, and derived Zarr chunks let an agent or a browser
+              ask for the smallest useful piece of a dataset before choosing whether to download
+              or compute more.
+            </p>
+          </article>
+        </div>
+        <p class="section-link"><a href="https://docs.nemar.org/platform/for-agents/">Read the guide for agents →</a></p>
+      </div>
+    </section>
+
+    <section class="section section--closing">
+      <div class="container closing-card">
+        <p class="eyebrow">Keep exploring</p>
+        <h2>Start with the surface that fits your question.</h2>
+        <div class="closing-links">
+          <a href="/discover">Browse datasets <span aria-hidden="true">→</span></a>
+          <ExternalLink href="https://docs.nemar.org/cli/getting-started/quickstart/">Try the CLI <span aria-hidden="true">→</span></ExternalLink>
+          <ExternalLink href="https://docs.nemar.org/platform/">Read the platform contracts <span aria-hidden="true">→</span></ExternalLink>
+          <a href="/support">Get support or contribute <span aria-hidden="true">→</span></a>
+        </div>
+      </div>
+    </section>
+  </div>
 </Base>
 
 <style>
-  .page {
-    padding-block: var(--space-12) var(--space-16);
-    max-inline-size: var(--max-width-prose);
+  .about-page {
+    overflow: hidden;
   }
-  .page h1 {
-    font-size: var(--fs-3xl);
-    margin-block-end: var(--space-6);
+
+  .about-hero {
+    background:
+      radial-gradient(circle at 82% 18%, color-mix(in srgb, var(--brand-teal) 18%, transparent), transparent 35%),
+      linear-gradient(135deg, var(--color-bg) 0%, var(--color-bg-elevated) 100%);
+    border-block-end: 1px solid var(--color-border);
   }
-  .page p {
+
+  .about-hero__inner {
+    min-block-size: min(680px, calc(100dvh - var(--header-height)));
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+    align-items: center;
+    gap: var(--space-12);
+    padding-block: var(--space-16);
+  }
+
+  .about-hero__copy {
+    max-inline-size: 660px;
+  }
+
+  .eyebrow,
+  .card-kicker {
+    color: var(--brand-purple);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-bold);
+    letter-spacing: 0.12em;
+    line-height: var(--lh-snug);
+    margin: 0 0 var(--space-3);
+    text-transform: uppercase;
+  }
+
+  .about-hero h1 {
+    max-inline-size: 12ch;
+    margin: 0 0 var(--space-6);
+  }
+
+  .lede {
+    color: var(--color-fg-muted);
+    font-size: clamp(var(--fs-lg), 2vw, var(--fs-2xl));
+    line-height: var(--lh-relaxed);
+    max-inline-size: 54ch;
+    margin: 0;
+  }
+
+  .hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-block: var(--space-8) var(--space-5);
+  }
+
+  .button {
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: var(--radius-pill);
+    display: inline-flex;
+    font-weight: var(--fw-semibold);
+    justify-content: center;
+    min-block-size: 2.75rem;
+    padding-inline: var(--space-5);
+    text-decoration: none;
+  }
+
+  .button--primary {
+    background: var(--brand-accent);
+    color: var(--brand-navy);
+  }
+
+  .button--primary:hover,
+  .button--primary:focus-visible {
+    background: var(--brand-purple);
+    color: var(--color-fg-inverse);
+  }
+
+  .button--secondary {
+    background: transparent;
+    border-color: var(--color-border-strong);
+    color: var(--color-link);
+  }
+
+  .button--secondary:hover,
+  .button--secondary:focus-visible {
+    background: var(--color-bg);
+    border-color: var(--color-link);
+  }
+
+  .hero-note,
+  .supporting-note,
+  .roadmap-label {
+    color: var(--color-fg-subtle);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+  }
+
+  .hero-note {
+    max-inline-size: 68ch;
+    margin: 0;
+  }
+
+  .about-hero__architecture {
+    background:
+      linear-gradient(145deg, color-mix(in srgb, var(--brand-navy) 96%, var(--color-bg)), var(--brand-navy));
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 40%, var(--color-border));
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    color: var(--color-fg-inverse);
+    justify-self: end;
+    max-inline-size: 560px;
+    padding: var(--space-6);
+    width: 100%;
+  }
+
+  .architecture-heading,
+  .architecture-flow,
+  .architecture-roadmap {
+    display: flex;
+  }
+
+  .architecture-heading {
+    align-items: baseline;
+    border-block-end: 1px solid color-mix(in srgb, var(--color-fg-inverse) 16%, transparent);
+    gap: var(--space-3);
+    justify-content: space-between;
+    padding-block-end: var(--space-4);
+  }
+
+  .architecture-kicker,
+  .architecture-node__label {
+    color: var(--brand-teal);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: var(--fw-bold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .architecture-status {
+    color: color-mix(in srgb, var(--color-fg-inverse) 64%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+  }
+
+  .architecture-flow {
+    align-items: center;
+    gap: var(--space-2);
+    padding-block: var(--space-6);
+  }
+
+  .architecture-node {
+    border: 1px solid color-mix(in srgb, var(--color-fg-inverse) 32%, transparent);
+    border-radius: var(--radius-md);
+    display: grid;
+    gap: 0.35rem;
+    min-block-size: 126px;
+    padding: var(--space-4);
+  }
+
+  .architecture-node strong,
+  .architecture-access strong,
+  .architecture-roadmap strong {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-snug);
+  }
+
+  .architecture-node > span:last-child,
+  .architecture-access span {
+    color: color-mix(in srgb, var(--color-fg-inverse) 70%, transparent);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+  }
+
+  .architecture-node--source {
+    border-color: color-mix(in srgb, var(--color-fg-inverse) 60%, transparent);
+    flex: 1 1 30%;
+  }
+
+  .architecture-node--core {
+    border-color: var(--brand-teal);
+    flex: 1 1 30%;
+  }
+
+  .architecture-node--core .architecture-node__label {
+    color: var(--brand-gold);
+  }
+
+  .architecture-arrow {
+    color: var(--brand-teal);
+    flex: 0 0 auto;
+    font-size: var(--fs-xl);
+    line-height: 1;
+  }
+
+  .architecture-access {
+    display: grid;
+    flex: 1 1 40%;
+    gap: 0.45rem;
+  }
+
+  .architecture-access > div {
+    align-items: baseline;
+    border-inline-start: 2px solid var(--brand-purple);
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+    padding: 0.55rem 0.65rem;
+  }
+
+  .architecture-access strong {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+  }
+
+  .architecture-access span {
+    text-align: end;
+  }
+
+  .architecture-roadmap {
+    align-items: baseline;
+    background: color-mix(in srgb, var(--brand-gold) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-gold) 70%, transparent);
+    border-radius: var(--radius-md);
+    flex-wrap: wrap;
+    gap: 0.45rem 0.75rem;
+    padding: var(--space-4);
+  }
+
+  .architecture-roadmap .architecture-node__label {
+    color: var(--brand-gold);
+  }
+
+  .architecture-roadmap strong {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+  }
+
+  .architecture-roadmap__description,
+  .architecture-roadmap__planned {
+    flex-basis: 100%;
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+    padding-inline-start: 0;
+  }
+
+  .architecture-roadmap__description {
+    color: color-mix(in srgb, var(--color-fg-inverse) 70%, transparent);
+  }
+
+  .architecture-roadmap__planned {
+    border-block-start: 1px solid color-mix(in srgb, var(--brand-gold) 35%, transparent);
+    color: var(--brand-gold);
+    padding-block-start: 0.65rem;
+  }
+
+  .architecture-footnote {
+    color: color-mix(in srgb, var(--color-fg-inverse) 56%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    line-height: var(--lh-relaxed);
+    margin: var(--space-4) 0 0;
+    text-align: center;
+  }
+
+  .section {
+    padding-block: var(--space-20);
+  }
+
+  .section--tint {
+    background: var(--color-bg-elevated);
+  }
+
+  .section--closing {
+    padding-block: var(--space-12) var(--space-20);
+  }
+
+  .narrow {
+    max-inline-size: 980px;
+  }
+
+  .section-intro {
+    max-inline-size: 68ch;
+    margin-block-end: var(--space-10);
+  }
+
+  .section-intro--wide {
+    max-inline-size: 78ch;
+  }
+
+  .section-intro h2 {
+    margin: 0 0 var(--space-4);
+  }
+
+  .section-intro p:not(.eyebrow) {
     color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
-    margin-block-end: var(--space-4);
+    margin: 0;
+  }
+
+  .mission-grid,
+  .agent-grid,
+  .two-column-copy {
+    display: grid;
+    gap: var(--space-6);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .statement-card,
+  .info-card,
+  .roadmap-card,
+  .callout,
+  .closing-card {
+    border-block-start: 1px solid var(--color-border-strong);
+    padding-block-start: var(--space-5);
+  }
+
+  .statement-card {
+    border-block-start-width: 3px;
+  }
+
+  .statement-card h3,
+  .info-card h3,
+  .roadmap-card h3,
+  .callout h3 {
+    font-size: var(--fs-xl);
+    margin: 0 0 var(--space-3);
+  }
+
+  .statement-card p:last-child,
+  .info-card p:last-child,
+  .roadmap-card p:last-child,
+  .callout p:last-child {
+    margin-block-end: 0;
+  }
+
+  .statement-card p:not(.card-kicker),
+  .info-card p,
+  .roadmap-card p,
+  .callout p,
+  .two-column-copy p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+
+  .supporting-note {
+    margin: var(--space-6) 0 0;
+  }
+
+  .figure-card {
+    border-block-start: 1px solid var(--color-border-strong);
+    margin: 0 0 var(--space-10);
+  }
+
+  .figure-copy-row {
+    align-items: start;
+    display: grid;
+    gap: var(--space-8);
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+    margin-block-end: var(--space-10);
+  }
+
+  .figure-copy-row .figure-card,
+  .figure-copy-row .figure-copy {
+    margin: 0;
+  }
+
+  .figure-copy {
+    align-self: start;
+  }
+
+  .figure-card picture,
+  .figure-card img {
+    display: block;
+    width: 100%;
+  }
+
+  .figure-card img {
+    height: auto;
+  }
+
+  .figure-card figcaption {
+    border-block-start: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    padding: var(--space-4) var(--space-6);
+  }
+
+  .two-column-copy {
+    margin-block-end: var(--space-10);
+  }
+
+  .two-column-copy article {
+    border-inline-start: 3px solid var(--brand-teal);
+    padding-inline-start: var(--space-5);
+  }
+
+  .two-column-copy article:last-child {
+    border-inline-start-color: var(--brand-purple);
+  }
+
+  .two-column-copy h3 {
+    font-size: var(--fs-xl);
+    margin: 0 0 var(--space-3);
+  }
+
+  .two-column-copy p {
+    margin-block: 0;
+  }
+
+  .table-wrap {
+    border-block: 1px solid var(--color-border-strong);
+    overflow-x: auto;
+  }
+
+  .system-table {
+    border-collapse: collapse;
+    min-inline-size: 700px;
+    width: 100%;
+  }
+
+  .system-table caption {
+    color: var(--color-fg);
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    padding: var(--space-5) 0;
+    text-align: start;
+  }
+
+  .system-table th,
+  .system-table td {
+    border-block-start: 1px solid var(--color-border);
+    padding: var(--space-4) var(--space-5);
+    text-align: start;
+    vertical-align: top;
+  }
+
+  .system-table thead th {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+
+  .system-table tbody th {
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+    white-space: nowrap;
+  }
+
+  .system-table td {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+
+  .system-table code {
+    color: var(--brand-purple);
+  }
+
+  .section-link {
+    margin-block: var(--space-5) 0;
+  }
+
+  .section-link a {
+    font-weight: var(--fw-semibold);
+  }
+
+  .callout {
+    border-block-start-width: 3px;
+  }
+
+  .callout code,
+  .roadmap-card code {
+    color: var(--brand-purple);
+  }
+
+  .roadmap-card {
+    border-block-start-width: 3px;
+  }
+
+  .roadmap-label {
+    font-weight: var(--fw-semibold);
+    margin-block-start: var(--space-5);
+  }
+
+  .closing-card {
+    border-block-start: 0;
+    color: var(--color-fg-inverse);
+    padding-block: var(--space-8);
+  }
+
+  .section--closing {
+    background: var(--brand-navy);
+  }
+
+  .closing-card .eyebrow {
+    color: var(--brand-teal);
+  }
+
+  .closing-card h2 {
+    max-inline-size: 22ch;
+    margin-block-end: var(--space-8);
+  }
+
+  .closing-links {
+    display: grid;
+    gap: var(--space-3) var(--space-8);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .closing-links a {
+    border-block-end: 1px solid color-mix(in srgb, var(--color-fg-inverse) 25%, transparent);
+    color: var(--color-fg-inverse);
+    display: flex;
+    font-weight: var(--fw-semibold);
+    justify-content: space-between;
+    padding-block: var(--space-3);
+    text-decoration: none;
+  }
+
+  .closing-links a:hover,
+  .closing-links a:focus-visible {
+    border-block-end-color: var(--brand-teal);
+    color: var(--brand-teal);
+  }
+
+  @media (max-width: 820px) {
+    .about-hero__inner {
+      grid-template-columns: 1fr;
+      min-block-size: auto;
+    }
+
+    .about-hero__architecture {
+      justify-self: start;
+      max-inline-size: 560px;
+    }
+
+    .agent-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .figure-copy-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .section {
+      padding-block: var(--space-16);
+    }
+
+    .about-hero__inner {
+      padding-block: var(--space-12);
+    }
+
+    .about-hero h1 {
+      max-inline-size: none;
+    }
+
+    .architecture-flow {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .architecture-arrow {
+      transform: rotate(90deg);
+    }
+
+    .architecture-node {
+      min-block-size: auto;
+    }
+
+    .architecture-access > div {
+      align-items: center;
+    }
+
+    .mission-grid,
+    .two-column-copy,
+    .closing-links {
+      grid-template-columns: 1fr;
+    }
+
+    .statement-card,
+    .info-card,
+    .roadmap-card,
+    .callout,
+    .closing-card {
+      padding: var(--space-6);
+    }
   }
 </style>

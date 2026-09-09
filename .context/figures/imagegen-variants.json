@@ -1,0 +1,49 @@
+{
+  "bible": ".context/figures/nemar-scientific-figure-bible.json",
+  "purpose": "Compare restrained visual substrates before choosing whether an image-generation layer adds value to the exact SVG masters.",
+  "variants": [
+    {
+      "id": "technical-atlas",
+      "name": "Technical atlas",
+      "prompt": "Strict scientific information-design substrate for the NEMAR neuroinformatics platform. Wide 16:9 landscape, deep navy technical ground, quiet fine grid, three or four large aligned empty planes with clean rounded boundaries, thin teal and violet signal paths connecting them, restrained warm-gold citation accents, small precise data tiles, subtle depth only. Leave generous empty space inside and around the planes for exact vector labels to be overlaid later. Modern technical atlas, calm, rigorous, editorial, high contrast. No text, no letters, no numbers, no logos, no watermark, no fake UI, no people, no server-room illustration, no clip art, no cyberpunk glow, no poster collage, no pseudo-writing.",
+      "best_for": "system map and edge-compute figure",
+      "risk": "May feel too abstract if the planes are not clearly separated."
+    },
+    {
+      "id": "signal-lanes",
+      "name": "Signal lanes",
+      "prompt": "Strict scientific diagram substrate for an open human neuroelectromagnetic data archive. Wide 16:9 landscape, pale ivory paper ground with a disciplined navy coordinate grid, four horizontal lanes, coherent EEG-like waveform ribbons moving left to right through carefully aligned empty nodes and layered data blocks. Use only deep navy, muted teal, indigo-violet, warm gold, and pale blue. Leave a clean lower-right quiet zone for an exact NEMAR logo lockup and leave blank label-safe areas inside each node. Contemporary journal figure aesthetic, precise, restrained, reproducible-looking. No text, no letters, no numbers, no logos, no watermark, no fake UI, no decorative people, no photorealism, no pseudo-writing.",
+      "best_for": "Zarr conversion and browser/HPC flow",
+      "risk": "Light background may reduce contrast in dark-mode contexts."
+    },
+    {
+      "id": "citation-loop",
+      "name": "Citation loop",
+      "prompt": "Strict modern scientific schematic substrate for dataset lifecycle and DOI versioning. Wide 16:9 landscape, dark navy ground, one clear continuous circular-to-linear lifecycle path with five empty aligned milestone nodes, compact gold citation nodes below the publication milestone, teal validation accents, violet reuse accents, subtle grid and fine connector geometry. The composition must look like a real research infrastructure figure, not marketing art. Leave generous space for exact labels and a small lower-right NEMAR logo lockup to be overlaid later. No text, no letters, no numbers, no logos, no watermark, no fake UI, no people, no 3D clip art, no poster collage, no pseudo-writing.",
+      "best_for": "dataset lifecycle figure",
+      "risk": "Circular geometry can imply a different versioning order if the overlay is not explicit."
+    }
+  ],
+  "comparison": [
+    {
+      "id": "technical-atlas",
+      "result": "reference only",
+      "reason": "The dark technical direction was useful as a mood reference, but exact SVG geometry remains clearer and safer for labels, endpoints, and planned/current boundaries."
+    },
+    {
+      "id": "signal-lanes",
+      "result": "rejected",
+      "reason": "It read as a conventional repeated lane flowchart and did not add enough scientific or architectural meaning."
+    },
+    {
+      "id": "citation-loop",
+      "result": "not generated",
+      "reason": "The exact lifecycle structure was clearer to author directly after the first substrate comparison."
+    },
+    {
+      "id": "deterministic-svg",
+      "result": "selected",
+      "reason": "One consistent modern technical-atlas system with exact text, exact relationships, high-resolution PNG fallback, and the real NEMAR lockup in the lower-right corner."
+    }
+  ]
+}
