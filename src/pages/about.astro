@@ -27,16 +27,53 @@ import Base from "../layouts/Base.astro";
             is central to closing the loop between open data and practical computation. The
             <ExternalLink href="https://www.nsgportal.org/">Neuroscience Gateway (NSG)</ExternalLink>
             gives the neuroscience community an established path to tools and high-performance
-            computing resources. <ExternalLink href="https://reporter.nih.gov/project-details/10687858">See the NIH project record</ExternalLink>.
+            computing resources; NEMAR aims to make the dataset, version, and workflow connection
+            seamless. <ExternalLink href="https://reporter.nih.gov/project-details/10687858">See the NIH project record</ExternalLink>.
           </p>
         </div>
-        <div class="about-hero__signal" aria-hidden="true">
-          <span class="signal-line signal-line--one"></span>
-          <span class="signal-line signal-line--two"></span>
-          <span class="signal-node signal-node--one"></span>
-          <span class="signal-node signal-node--two"></span>
-          <span class="signal-node signal-node--three"></span>
-          <span class="signal-caption">open data<br />shared methods<br />citable releases</span>
+        <div
+          class="about-hero__architecture"
+          aria-label="NEMAR architecture at a glance: canonical BIDS data feeds NEMAR contracts, which support the website, command-line client, and derived Zarr access. The current SDSC and NSG partnership provides a compute bridge; a planned NEMAR integration with Tapis and OneSciencePlace would connect those contracts to national HPC resources."
+        >
+          <div class="architecture-heading">
+            <span class="architecture-kicker">NEMAR at a glance</span>
+            <span class="architecture-status">current platform + roadmap</span>
+          </div>
+          <div class="architecture-flow">
+            <div class="architecture-node architecture-node--source">
+              <span class="architecture-node__label">SOURCE</span>
+              <strong>BIDS datasets</strong>
+              <span>canonical files + metadata</span>
+            </div>
+            <span class="architecture-arrow" aria-hidden="true">→</span>
+            <div class="architecture-node architecture-node--core">
+              <span class="architecture-node__label">CONTRACTS</span>
+              <strong>NEMAR</strong>
+              <span>catalog · manifests · DOI</span>
+            </div>
+            <span class="architecture-arrow" aria-hidden="true">→</span>
+            <div class="architecture-access">
+              <div>
+                <strong>nemar.org</strong>
+                <span>browser shell</span>
+              </div>
+              <div>
+                <strong>nemar-cli</strong>
+                <span>repeatable workflows</span>
+              </div>
+              <div>
+                <strong>zarr.nemar.org</strong>
+                <span>derived chunk reads</span>
+              </div>
+            </div>
+          </div>
+          <div class="architecture-roadmap">
+            <span class="architecture-node__label">COMPUTE BRIDGE</span>
+            <strong>SDSC + NSG partnership</strong>
+            <span class="architecture-roadmap__description">NEMAR aims to connect its dataset, version, and workflow contracts to these established compute resources.</span>
+            <span class="architecture-roadmap__planned">PLANNED NEMAR INTEGRATION · Tapis + OneSciencePlace → national HPC resources</span>
+          </div>
+          <p class="architecture-footnote">BIDS remains authoritative · derived access stays labeled</p>
         </div>
       </div>
     </section>
@@ -192,47 +229,50 @@ import Base from "../layouts/Base.astro";
             visible versioned change.
           </p>
         </div>
-        <figure class="figure-card">
-          <picture>
-            <source srcset="/figures/nemar-dataset-lifecycle.svg" type="image/svg+xml" />
-            <img
-              src="/figures/nemar-dataset-lifecycle.png"
-              alt="Five-stage dataset lifecycle: prepare BIDS files, validate structure and metadata, publish after review with a DOI, reuse through search and analysis, and improve through a pull request that creates a new version. The publish step creates concept and version DOIs."
-              width="2400"
-              height="1494"
-              loading="lazy"
-              decoding="async"
-            />
-          </picture>
-          <figcaption>
-            <strong>Figure 2.</strong> A release creates a citable state; later improvements are
-            reviewable changes that become a new state rather than a silent rewrite.
-          </figcaption>
-        </figure>
+        <div class="figure-copy-row">
+          <figure class="figure-card">
+            <picture>
+              <source srcset="/figures/nemar-dataset-lifecycle.svg" type="image/svg+xml" />
+              <img
+                src="/figures/nemar-dataset-lifecycle.png"
+                alt="Five-stage dataset lifecycle: prepare BIDS files, validate structure and metadata, publish after review with a DOI, reuse through search and analysis, and improve through a pull request that creates a new version. The publish step creates concept and version DOIs."
+                width="2400"
+                height="1494"
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+            <figcaption>
+              <strong>Figure 2.</strong> A release creates a citable state; later improvements are
+              reviewable changes that become a new state rather than a silent rewrite.
+            </figcaption>
+          </figure>
 
-        <div class="callout callout--doi">
-          <p class="card-kicker">Why NEMAR mints its own DOI</p>
-          <h3>A stable handle for the dataset, plus a precise handle for every release.</h3>
-          <p>
-            NEMAR mints identifiers in its own <code>10.82901/NEMAR</code> namespace through EZID
-            and publishes a DataCite record. The concept DOI identifies the dataset as a continuing
-            scholarly object. A version DOI identifies one released state, including its version
-            number, landing page, and immutable file manifest.
-          </p>
-          <p>
-            That record is meant to be much fuller than a bare pointer to a repository. When the
-            source metadata supports it, the citation can connect authors and ORCIDs, abstract and
-            methods, MeSH-validated keywords, funding, related publications, license, dates,
-            formats, sizes, and the relations between a concept and its versions. The DOI stays
-            stable while the landing page and structured metadata can be corrected or enriched.
-          </p>
-          <p>
-            After a DOI release, changes go through a reviewed pull request and become a new
-            citable version. This is how FAIR practice and continuous improvement reinforce one
-            another: old analyses keep a precise reference, while the community gets a public path
-            to make the data clearer and more useful.
-          </p>
-          <p class="section-link"><a href="https://docs.nemar.org/platform/doi-and-versioning/">See the DOI and versioning contract →</a></p>
+          <div class="callout callout--doi figure-copy">
+            <p class="card-kicker">Why NEMAR mints its own DOI</p>
+            <h3>A stable handle for the dataset, plus a precise handle for every release.</h3>
+            <p>
+              NEMAR mints identifiers in its own <code>10.82901/NEMAR</code> namespace through EZID
+              and publishes a DataCite record. The concept DOI identifies the dataset as a continuing
+              scholarly object. A version DOI identifies one released state, including its version
+              number, landing page, and immutable file manifest.
+            </p>
+            <p>
+              That record is meant to be much fuller than a bare pointer to a repository. When the
+              source metadata supports it, the citation can connect authors, ORCIDs, and
+              affiliations; an abstract and acknowledgement text; MeSH-validated keywords; funding;
+              related identifiers; license; issued and collection dates; formats; sizes; and the
+              relations between a concept and its versions. The DOI stays stable while the landing
+              page and structured metadata can be corrected or enriched.
+            </p>
+            <p>
+              After a DOI release, changes go through a reviewed pull request and become a new
+              citable version. This is how FAIR practice and continuous improvement reinforce one
+              another: old analyses keep a precise reference, while the community gets a public path
+              to make the data clearer and more useful.
+            </p>
+            <p class="section-link"><a href="https://docs.nemar.org/platform/doi-and-versioning/">See the DOI and versioning contract →</a></p>
+          </div>
         </div>
       </div>
     </section>
@@ -256,42 +296,46 @@ import Base from "../layouts/Base.astro";
             trustworthy source archive underneath.
           </p>
         </div>
-        <figure class="figure-card">
-          <picture>
-            <source srcset="/figures/nemar-edge-compute.svg" type="image/svg+xml" />
-            <img
-              src="/figures/nemar-edge-compute.png"
-              alt="Flow diagram from the canonical BIDS source archive through Zarr conversion and an edge worker to browser analysis; a planned branch uses Tapis and One Science Place to launch reproducible HPC jobs near the data and return versioned BIDS derivatives with their own DOI."
-              width="2400"
-              height="1494"
-              loading="lazy"
-              decoding="async"
-            />
-          </picture>
-          <figcaption>
-            <strong>Figure 3.</strong> Zarr is a derived streaming layer for partial reads. Tapis +
-            One Science Place is a planned route for larger reproducible jobs near national HPC
-            resources, not a shipped one-click feature today.
-          </figcaption>
-        </figure>
-        <div class="roadmap-card">
-          <p class="card-kicker">The compute roadmap</p>
-          <h3>Move the computation closer to the data.</h3>
-          <p>
-            This loop closes through partnership, not through a generic cloud promise. NEMAR
-            contributes structured, open, citable data; SDSC contributes the compute partnership
-            and operational expertise; and the <ExternalLink href="https://www.nsgportal.org/">Neuroscience Gateway (NSG)</ExternalLink>
-            gives researchers an established route to neuroscience tools and high-performance
-            computing resources.
-          </p>
-          <p>
-            Our next direction is to use Tapis, through the planned One Science Place environment
-            at SDSC, as an API bridge to national HPC infrastructure. The goal is a reproducible
-            path from a dataset page to a described job and, eventually, a versioned derivative
-            that can be cited in its own right.
-          </p>
-          <p class="roadmap-label">Roadmap: planned, in development</p>
-          <p class="section-link"><ExternalLink href="https://tapis-project.org/documentation/">Learn about Tapis →</ExternalLink></p>
+        <div class="figure-copy-row">
+          <figure class="figure-card">
+            <picture>
+              <source srcset="/figures/nemar-edge-compute.svg" type="image/svg+xml" />
+              <img
+                src="/figures/nemar-edge-compute.png"
+                alt="Flow diagram from the canonical BIDS source archive through Zarr conversion and an edge worker to browser analysis; a planned NEMAR integration would use Tapis through OneSciencePlace to launch reproducible HPC jobs near the data and return versioned BIDS derivatives with their own DOI."
+                width="2400"
+                height="1494"
+                loading="lazy"
+                decoding="async"
+              />
+            </picture>
+            <figcaption>
+              <strong>Figure 3.</strong> Zarr is a derived streaming layer for partial reads. A
+              planned NEMAR integration with Tapis through OneSciencePlace is a route for larger
+              reproducible jobs near national HPC resources, not a shipped one-click feature today.
+            </figcaption>
+          </figure>
+          <div class="roadmap-card figure-copy">
+            <p class="card-kicker">The compute roadmap</p>
+            <h3>Move the computation closer to the data.</h3>
+            <p>
+              This loop closes through partnership, not through a generic cloud promise. NEMAR
+              contributes structured, open, citable data; SDSC contributes the compute partnership
+              and operational expertise; and the <ExternalLink href="https://www.nsgportal.org/">Neuroscience Gateway (NSG)</ExternalLink>
+              gives researchers an established route to neuroscience tools and high-performance
+              computing resources.
+            </p>
+            <p>
+              Our next direction is to connect NEMAR to Tapis through
+              <ExternalLink href="https://www.onescienceplace.org/">OneSciencePlace</ExternalLink>.
+              OneSciencePlace is a platform developed by teams at UCLA, SDSC, and TACC that uses
+              Tapis for job and data lifecycle management. For NEMAR, this remains a planned API
+              bridge to national HPC infrastructure: a reproducible path from a dataset page to a
+              described job and, eventually, a versioned derivative that can be cited in its own right.
+            </p>
+            <p class="roadmap-label">Roadmap: planned, in development</p>
+            <p class="section-link"><ExternalLink href="https://tapis-project.org/documentation/">Learn about Tapis →</ExternalLink></p>
+          </div>
         </div>
       </div>
     </section>
@@ -459,61 +503,167 @@ import Base from "../layouts/Base.astro";
     margin: 0;
   }
 
-  .about-hero__signal {
-    aspect-ratio: 1;
+  .about-hero__architecture {
     background:
-      radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--brand-teal) 18%, transparent) 0 14%, transparent 15%),
-      repeating-radial-gradient(circle at 50% 50%, transparent 0 42px, color-mix(in srgb, var(--brand-teal) 22%, transparent) 43px 44px),
-      var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: 50%;
+      linear-gradient(145deg, color-mix(in srgb, var(--brand-navy) 96%, var(--color-bg)), var(--brand-navy));
+    border: 1px solid color-mix(in srgb, var(--brand-teal) 40%, var(--color-border));
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
-    max-inline-size: 460px;
-    min-block-size: 300px;
-    position: relative;
-    width: 100%;
+    color: var(--color-fg-inverse);
     justify-self: end;
+    max-inline-size: 560px;
+    padding: var(--space-6);
+    width: 100%;
   }
 
-  .signal-line {
-    block-size: 48%;
-    border-block-start: 3px solid var(--brand-teal);
-    border-radius: 50%;
-    inset-block-start: 36%;
-    inset-inline-start: 8%;
-    position: absolute;
-    transform: rotate(-12deg);
-    width: 84%;
+  .architecture-heading,
+  .architecture-flow,
+  .architecture-roadmap {
+    display: flex;
   }
 
-  .signal-line--two {
-    border-color: var(--brand-purple);
-    inset-block-start: 43%;
-    transform: rotate(13deg);
+  .architecture-heading {
+    align-items: baseline;
+    border-block-end: 1px solid color-mix(in srgb, var(--color-fg-inverse) 16%, transparent);
+    gap: var(--space-3);
+    justify-content: space-between;
+    padding-block-end: var(--space-4);
   }
 
-  .signal-node {
-    background: var(--brand-gold);
-    border: 4px solid var(--color-bg);
-    border-radius: 50%;
-    block-size: 1rem;
-    box-shadow: 0 0 0 1px var(--brand-gold);
-    position: absolute;
-    inline-size: 1rem;
-  }
-
-  .signal-node--one { inset-block-start: 31%; inset-inline-start: 26%; }
-  .signal-node--two { inset-block-start: 48%; inset-inline-start: 51%; }
-  .signal-node--three { inset-block-start: 35%; inset-inline-start: 75%; }
-
-  .signal-caption {
-    color: var(--color-fg-muted);
+  .architecture-kicker,
+  .architecture-node__label {
+    color: var(--brand-teal);
     font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: var(--fw-bold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .architecture-status {
+    color: color-mix(in srgb, var(--color-fg-inverse) 64%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+  }
+
+  .architecture-flow {
+    align-items: center;
+    gap: var(--space-2);
+    padding-block: var(--space-6);
+  }
+
+  .architecture-node {
+    border: 1px solid color-mix(in srgb, var(--color-fg-inverse) 32%, transparent);
+    border-radius: var(--radius-md);
+    display: grid;
+    gap: 0.35rem;
+    min-block-size: 126px;
+    padding: var(--space-4);
+  }
+
+  .architecture-node strong,
+  .architecture-access strong,
+  .architecture-roadmap strong {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    line-height: var(--lh-snug);
+  }
+
+  .architecture-node > span:last-child,
+  .architecture-access span {
+    color: color-mix(in srgb, var(--color-fg-inverse) 70%, transparent);
     font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+  }
+
+  .architecture-node--source {
+    border-color: color-mix(in srgb, var(--color-fg-inverse) 60%, transparent);
+    flex: 1 1 30%;
+  }
+
+  .architecture-node--core {
+    border-color: var(--brand-teal);
+    flex: 1 1 30%;
+  }
+
+  .architecture-node--core .architecture-node__label {
+    color: var(--brand-gold);
+  }
+
+  .architecture-arrow {
+    color: var(--brand-teal);
+    flex: 0 0 auto;
+    font-size: var(--fs-xl);
+    line-height: 1;
+  }
+
+  .architecture-access {
+    display: grid;
+    flex: 1 1 40%;
+    gap: 0.45rem;
+  }
+
+  .architecture-access > div {
+    align-items: baseline;
+    border-inline-start: 2px solid var(--brand-purple);
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+    padding: 0.55rem 0.65rem;
+  }
+
+  .architecture-access strong {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+  }
+
+  .architecture-access span {
+    text-align: end;
+  }
+
+  .architecture-roadmap {
+    align-items: baseline;
+    background: color-mix(in srgb, var(--brand-gold) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-gold) 70%, transparent);
+    border-radius: var(--radius-md);
+    flex-wrap: wrap;
+    gap: 0.45rem 0.75rem;
+    padding: var(--space-4);
+  }
+
+  .architecture-roadmap .architecture-node__label {
+    color: var(--brand-gold);
+  }
+
+  .architecture-roadmap strong {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+  }
+
+  .architecture-roadmap__description,
+  .architecture-roadmap__planned {
+    flex-basis: 100%;
+    font-size: var(--fs-xs);
+    line-height: var(--lh-snug);
+    padding-inline-start: 0;
+  }
+
+  .architecture-roadmap__description {
+    color: color-mix(in srgb, var(--color-fg-inverse) 70%, transparent);
+  }
+
+  .architecture-roadmap__planned {
+    border-block-start: 1px solid color-mix(in srgb, var(--brand-gold) 35%, transparent);
+    color: var(--brand-gold);
+    padding-block-start: 0.65rem;
+  }
+
+  .architecture-footnote {
+    color: color-mix(in srgb, var(--color-fg-inverse) 56%, transparent);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
     line-height: var(--lh-relaxed);
-    position: absolute;
-    inset-block-end: 18%;
-    inset-inline: 0;
+    margin: var(--space-4) 0 0;
     text-align: center;
   }
 
@@ -569,19 +719,12 @@ import Base from "../layouts/Base.astro";
   .roadmap-card,
   .callout,
   .closing-card {
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-sm);
-    padding: var(--space-8);
+    border-block-start: 1px solid var(--color-border-strong);
+    padding-block-start: var(--space-5);
   }
 
   .statement-card {
-    border-block-start: 4px solid var(--brand-teal);
-  }
-
-  .statement-card--vision {
-    border-block-start-color: var(--brand-purple);
+    border-block-start-width: 3px;
   }
 
   .statement-card h3,
@@ -613,11 +756,25 @@ import Base from "../layouts/Base.astro";
   }
 
   .figure-card {
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-block-start: 1px solid var(--color-border-strong);
     margin: 0 0 var(--space-10);
-    overflow: hidden;
+  }
+
+  .figure-copy-row {
+    align-items: start;
+    display: grid;
+    gap: var(--space-8);
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+    margin-block-end: var(--space-10);
+  }
+
+  .figure-copy-row .figure-card,
+  .figure-copy-row .figure-copy {
+    margin: 0;
+  }
+
+  .figure-copy {
+    align-self: start;
   }
 
   .figure-card picture,
@@ -661,8 +818,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .table-wrap {
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
+    border-block: 1px solid var(--color-border-strong);
     overflow-x: auto;
   }
 
@@ -673,12 +829,11 @@ import Base from "../layouts/Base.astro";
   }
 
   .system-table caption {
-    background: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-display);
     font-size: var(--fs-lg);
     font-weight: var(--fw-semibold);
-    padding: var(--space-5) var(--space-6);
+    padding: var(--space-5) 0;
     text-align: start;
   }
 
@@ -721,11 +876,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .callout {
-    border-inline-start: 4px solid var(--brand-gold);
-  }
-
-  .callout--doi {
-    background: color-mix(in srgb, var(--brand-gold) 7%, var(--color-bg));
+    border-block-start-width: 3px;
   }
 
   .callout code,
@@ -734,8 +885,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .roadmap-card {
-    border-block-start: 4px solid var(--brand-gold);
-    margin-block-start: var(--space-8);
+    border-block-start-width: 3px;
   }
 
   .roadmap-label {
@@ -744,10 +894,13 @@ import Base from "../layouts/Base.astro";
   }
 
   .closing-card {
-    background:
-      linear-gradient(135deg, color-mix(in srgb, var(--brand-navy) 95%, var(--color-bg)), var(--brand-navy));
-    border: 0;
+    border-block-start: 0;
     color: var(--color-fg-inverse);
+    padding-block: var(--space-8);
+  }
+
+  .section--closing {
+    background: var(--brand-navy);
   }
 
   .closing-card .eyebrow {
@@ -787,12 +940,16 @@ import Base from "../layouts/Base.astro";
       min-block-size: auto;
     }
 
-    .about-hero__signal {
+    .about-hero__architecture {
       justify-self: start;
-      max-inline-size: 380px;
+      max-inline-size: 560px;
     }
 
     .agent-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .figure-copy-row {
       grid-template-columns: 1fr;
     }
   }
@@ -808,6 +965,23 @@ import Base from "../layouts/Base.astro";
 
     .about-hero h1 {
       max-inline-size: none;
+    }
+
+    .architecture-flow {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .architecture-arrow {
+      transform: rotate(90deg);
+    }
+
+    .architecture-node {
+      min-block-size: auto;
+    }
+
+    .architecture-access > div {
+      align-items: center;
     }
 
     .mission-grid,

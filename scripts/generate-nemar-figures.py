@@ -219,7 +219,7 @@ def edge_and_compute() -> Canvas:
     edge = panel(x=90, y=34, text="Edge worker\nCORS + cache", stroke=TEAL, width=35, height=23, font_size=8.4)
     browser = panel(x=132, y=34, text="Browser analysis\nread needed chunks", stroke=VIOLET, width=40, height=23, font_size=8.0)
     note = panel(x=7, y=68, text="BIDS stays authoritative.\nZarr is a derived access layer.", stroke=MUTED, width=70, height=18, font_size=8.0)
-    roadmap = panel(x=89, y=68, text="PLANNED · Tapis + One Science Place\nreproducible HPC near the data", stroke=GOLD, width=82, height=18, font_size=7.8)
+    roadmap = panel(x=89, y=68, text="PLANNED NEMAR INTEGRATION\nTapis via OneSciencePlace · national HPC", stroke=GOLD, width=82, height=18, font_size=7.3)
     output = panel(x=89, y=94, text="Versioned derivative + DOI", stroke=GOLD, width=55, height=9, font_size=7.6, padding=1.2)
 
     connectors = result.layer("connectors")

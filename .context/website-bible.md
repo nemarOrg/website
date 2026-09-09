@@ -124,10 +124,11 @@ resource for neuroscience tools and high-performance computing access; link to
 make open, structured, citable data easier to connect to that compute path.
 
 Our roadmap is to use Tapis as a web-friendly API bridge to national HPC
-infrastructure, in the context of the planned One Science Place environment at
-SDSC. The intended user experience is: choose a dataset and a reproducible
-workflow, submit a job near the data, monitor it, and bring back a described
-result.
+infrastructure through OneSciencePlace. OneSciencePlace is a platform whose
+teams include UCLA, SDSC, and TACC and which uses Tapis for job and data
+lifecycle management. The intended user experience is: choose a dataset and a
+reproducible workflow, submit a job near the data, monitor it, and bring back a
+described result.
 
 This integration is planned, not shipped. Public copy must not describe a
 one-click Tapis launch as a current feature. When it arrives, outputs should
@@ -148,10 +149,11 @@ Explain the two related identifiers this way:
   landing page, and immutable file manifest.
 
 The NEMAR record is intentionally fuller than a bare repository pointer. It
-can connect authors and ORCIDs, abstract and methods, MeSH-validated keywords,
-funding, related publications, license, dates, formats, sizes, version, and
-relations between concept and release. A DOI is the stable handle; the landing
-page and structured metadata can be corrected or enriched as curation improves.
+can connect authors, ORCIDs, and affiliations; an abstract and acknowledgement
+text; MeSH-validated keywords; funding; related identifiers; license; issued
+and collection dates; formats, sizes, version, and relations between concept
+and release. A DOI is the stable handle; the landing page and structured
+metadata can be corrected or enriched as curation improves.
 
 After publication, changes go through a reviewed pull request and become a new
 version. This gives the archive a useful balance: stable citations for work
@@ -218,8 +220,10 @@ figures use the same visual vocabulary:
 - indigo-violet for people-facing exploration and reuse;
 - warm gold for review, citation, and future/roadmap callouts;
 - soft ivory backgrounds and pale tinted surfaces on website pages;
-- rounded rectangles, generous whitespace, 2–3 px visual strokes, and short
-  labels in sentence case.
+- restrained rules, generous whitespace, 2–3 px visual strokes where they carry
+  meaning, and short labels in sentence case. Avoid repeated rounded cards or
+  decorative gradients; use a framed panel only when it clarifies a system
+  boundary or a call to action.
 
 Diagrams are deterministic SVG masters with high-resolution PNG exports. Do not
 use Mermaid. Keep labels as real text, provide meaningful alt text and a

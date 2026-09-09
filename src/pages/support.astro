@@ -30,55 +30,77 @@ import Base from "../layouts/Base.astro";
     </section>
 
     <section class="section">
-      <div class="container">
+      <div class="container narrow">
         <div class="section-intro">
           <p class="eyebrow">Choose a route</p>
           <h2>One clear report is better than four vague ones.</h2>
           <p>
-            If you are unsure, email us. Otherwise, choose the card that matches the object or
+            If you are unsure, email us. Otherwise, choose the route that matches the object or
             behavior you want changed.
           </p>
         </div>
 
-        <div class="route-grid">
-          <article class="route-card route-card--dataset">
-            <p class="route-number">01 · A specific dataset</p>
-            <h3>Dataset content, metadata, quality, or citation</h3>
-            <p>
-              Use the dataset's GitHub repository in <code>nemarDatasets</code>. The repository link
-              is available from the dataset detail page. This is the best place to report a wrong
-              description, missing file, metadata correction, quality concern, DOI detail, or a
-              concrete improvement to that dataset.
-            </p>
+        <div class="route-list">
+          <article class="route-item">
+            <p class="route-number">01</p>
+            <div class="route-content">
+              <p class="route-scope">A specific dataset</p>
+              <h3>Dataset content, metadata, quality, or citation</h3>
+              <p>
+                Use the dataset's GitHub repository in <code>nemarDatasets</code>. The repository
+                link is available from the dataset detail page. This is the best place to report a
+                wrong description, missing file, metadata correction, quality concern, DOI detail,
+                or a concrete improvement to that dataset.
+              </p>
+            </div>
             <p class="route-action"><a href="/discover">Find the dataset →</a></p>
           </article>
 
-          <article class="route-card route-card--platform">
-            <p class="route-number">02 · The platform</p>
-            <h3>CLI, API, backend, upload, versioning, or conversion</h3>
-            <p>
-              Open an issue or pull request in <ExternalLink href="https://github.com/nemarOrg/nemar-cli/issues">nemarOrg/nemar-cli</ExternalLink> for systematic behavior: a command that fails, an API contract, authentication, a
-              publication workflow, DOI/versioning, or a Zarr conversion problem that affects more
-              than one dataset.
-            </p>
+          <article class="route-item">
+            <p class="route-number">02</p>
+            <div class="route-content">
+              <p class="route-scope">The platform</p>
+              <h3>CLI, API, backend, upload, versioning, or conversion</h3>
+              <p>
+                Open an issue or pull request in
+                <ExternalLink href="https://github.com/nemarOrg/nemar-cli/issues">nemarOrg/nemar-cli</ExternalLink>
+                for systematic behavior: a command that fails, an API contract, authentication, a
+                publication workflow, DOI/versioning, or a Zarr conversion problem that affects
+                more than one dataset.
+              </p>
+            </div>
             <p class="route-action"><ExternalLink href="https://github.com/nemarOrg/nemar-cli">Open the CLI and backend repository →</ExternalLink></p>
           </article>
 
-          <article class="route-card route-card--website">
-            <p class="route-number">03 · This website</p>
-            <h3>Browser behavior, layout, routing, or sign-in</h3>
-            <p>
-              Use <ExternalLink href="https://github.com/nemarOrg/website/issues">nemarOrg/website</ExternalLink> for a broken page, confusing interaction, visual regression, redirect, account surface, or a browser-only problem. A pull request is welcome when you can propose the fix.
-            </p>
+          <article class="route-item">
+            <p class="route-number">03</p>
+            <div class="route-content">
+              <p class="route-scope">This website</p>
+              <h3>Browser behavior, layout, routing, or sign-in</h3>
+              <p>
+                Use
+                <ExternalLink href="https://github.com/nemarOrg/website/issues">nemarOrg/website</ExternalLink>
+                for a broken page, confusing interaction, visual regression, redirect, account
+                surface, or a browser-only problem. A pull request is welcome when you can propose
+                the fix.
+              </p>
+            </div>
             <p class="route-action"><ExternalLink href="https://github.com/nemarOrg/website">Open the website repository →</ExternalLink></p>
           </article>
 
-          <article class="route-card route-card--docs">
-            <p class="route-number">04 · Documentation</p>
-            <h3>Missing, unclear, or incorrect guidance</h3>
-            <p>
-              Use <ExternalLink href="https://github.com/nemarOrg/docs/issues">nemarOrg/docs</ExternalLink> when a page is hard to follow, a link is broken, a command needs an example, or the platform contract needs explanation. Documentation issues improve the path for every future contributor.
-            </p>
+          <article class="route-item">
+            <p class="route-number">04</p>
+            <div class="route-content">
+              <p class="route-scope">Documentation</p>
+              <h3>Missing, unclear, or incorrect guidance</h3>
+              <p>
+                Use
+                <ExternalLink href="https://github.com/nemarOrg/docs/issues">nemarOrg/docs</ExternalLink>
+                when a page is hard to follow, a link is broken, a command needs an example, or the
+                platform contract needs explanation. Documentation issues improve the path for
+                every future contributor.
+              </p>
+            </div>
             <p class="route-action"><ExternalLink href="https://github.com/nemarOrg/docs">Open the docs repository →</ExternalLink></p>
           </article>
         </div>
@@ -310,43 +332,45 @@ import Base from "../layouts/Base.astro";
     margin: 0;
   }
 
-  .route-grid {
+  .route-list {
+    border-block: 1px solid var(--color-border-strong);
+  }
+
+  .route-item {
     display: grid;
-    gap: var(--space-6);
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-8);
+    grid-template-columns: 3rem minmax(0, 1fr) minmax(190px, auto);
+    padding-block: var(--space-8);
   }
 
-  .route-card {
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-block-start: 4px solid var(--brand-teal);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-sm);
-    display: flex;
-    flex-direction: column;
-    min-block-size: 310px;
-    padding: var(--space-8);
+  .route-item + .route-item {
+    border-block-start: 1px solid var(--color-border);
   }
-
-  .route-card--platform { border-block-start-color: var(--brand-gold); }
-  .route-card--website { border-block-start-color: var(--brand-purple); }
-  .route-card--docs { border-block-start-color: var(--brand-navy); }
 
   .route-number {
+    color: var(--brand-teal);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    margin: 0.2rem 0 0;
+  }
+
+  .route-scope {
     color: var(--color-fg-subtle);
     font-family: var(--font-mono);
     font-size: var(--fs-xs);
-    margin: 0 0 var(--space-4);
+    letter-spacing: 0.08em;
+    margin: 0 0 var(--space-2);
+    text-transform: uppercase;
   }
 
-  .route-card h3,
+  .route-content h3,
   .explain-card h3,
   .report-grid h3 {
     font-size: var(--fs-xl);
     margin: 0 0 var(--space-3);
   }
 
-  .route-card p:not(.route-number):not(.route-action),
+  .route-content > p:not(.route-scope),
   .explain-card li,
   .report-grid li,
   .report-grid p {
@@ -354,13 +378,14 @@ import Base from "../layouts/Base.astro";
     line-height: var(--lh-relaxed);
   }
 
-  .route-card p:last-child {
+  .route-content > p:last-child {
     margin-block-end: 0;
   }
 
   .route-action {
-    margin-block: auto 0;
-    padding-block-start: var(--space-6);
+    align-self: end;
+    margin: 0;
+    text-align: end;
   }
 
   .route-action a {
@@ -375,10 +400,8 @@ import Base from "../layouts/Base.astro";
   }
 
   .explain-card {
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-8);
+    border-block-start: 3px solid var(--color-border-strong);
+    padding-block-start: var(--space-5);
   }
 
   .explain-card ul,
@@ -393,11 +416,11 @@ import Base from "../layouts/Base.astro";
   }
 
   .callout {
-    border-inline-start: 4px solid var(--brand-gold);
+    border-block-start: 1px solid var(--color-border-strong);
     color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
     margin: var(--space-6) 0 0;
-    padding: var(--space-4) var(--space-5);
+    padding: var(--space-5) 0 0;
   }
 
   .report-section {
@@ -422,10 +445,8 @@ import Base from "../layouts/Base.astro";
   }
 
   .closing-card {
-    background: var(--brand-navy);
-    border-radius: var(--radius-lg);
-    color: var(--color-fg-inverse);
-    padding: var(--space-10);
+    border-block-start: 1px solid var(--color-border-strong);
+    padding-block-start: var(--space-8);
   }
 
   .closing-card h2 {
@@ -434,13 +455,13 @@ import Base from "../layouts/Base.astro";
   }
 
   .closing-card p:not(.eyebrow) {
-    color: color-mix(in srgb, var(--color-fg-inverse) 80%, transparent);
+    color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
     max-inline-size: 68ch;
   }
 
   .closing-card a:not(.button) {
-    color: var(--brand-teal);
+    color: var(--color-link);
   }
 
   .closing-actions {
@@ -452,10 +473,19 @@ import Base from "../layouts/Base.astro";
 
   @media (max-width: 760px) {
     .support-hero__inner,
-    .route-grid,
     .explain-grid,
     .report-grid {
       grid-template-columns: 1fr;
+    }
+
+    .route-item {
+      grid-template-columns: 2.25rem minmax(0, 1fr);
+      padding-block: var(--space-6);
+    }
+
+    .route-action {
+      grid-column: 2;
+      text-align: start;
     }
 
     .support-hero__inner {
@@ -470,10 +500,5 @@ import Base from "../layouts/Base.astro";
       padding-inline-start: 0;
     }
 
-    .route-card,
-    .explain-card,
-    .closing-card {
-      padding: var(--space-6);
-    }
   }
 </style>
