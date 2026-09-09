@@ -40,6 +40,32 @@
       "gold": "review, citation, versioning, roadmap or planned work"
     }
   },
+  "theme_variants": {
+    "light": {
+      "ground": "#F7F8FB",
+      "surface": "#FFFFFF",
+      "surface_alt": "#EEF1F6",
+      "text": "#0F172A",
+      "muted_text": "#475569",
+      "teal": "#0E7490",
+      "violet": "#603CBA",
+      "gold": "#B8860B",
+      "grid": "#CBD5E1",
+      "role": "default for the website and light presentation slides"
+    },
+    "dark": {
+      "ground": "#06112A",
+      "surface": "#10254A",
+      "surface_alt": "#163762",
+      "text": "#F5F7FB",
+      "muted_text": "#A8BCD5",
+      "teal": "#5BBAD5",
+      "violet": "#A78BFA",
+      "gold": "#F4D06B",
+      "grid": "#214064",
+      "role": "matched variant for dark contexts"
+    }
+  },
   "typography": {
     "family": "Inter",
     "technical_family": "JetBrains Mono",
@@ -64,7 +90,7 @@
       "rule": "Add the title to the SVG source so the SVG and PNG exports remain identical."
     },
     "depth": "subtle translucency and restrained glow; no neon cyberpunk treatment",
-    "background": "deep navy technical ground preferred for comparison variants; a light paper variant may be tested",
+    "background": "light paper ground is the default for the website and presentations; a matched deep navy variant is available for dark contexts",
     "logo_lockup": {
       "position": "lower right",
       "clear_space": "at least 2x the logo mark height from every content element",
@@ -94,7 +120,7 @@
         "DOI record"
       ],
       "standalone_title": "NEMAR platform architecture",
-      "visual_story": "two client surfaces feed shared contracts, which expose canonical data and derived access layers"
+      "visual_story": "two client surfaces feed shared contracts, which expose canonical data and derived access layers; researcher contributions and OpenNeuro mirrors are both visible in the platform story"
     },
     {
       "id": "dataset-lifecycle",

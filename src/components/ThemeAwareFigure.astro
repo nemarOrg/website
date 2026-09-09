@@ -1,0 +1,33 @@
+---
+interface Props {
+  lightSvg: string;
+  darkSvg: string;
+  lightPng: string;
+  darkPng: string;
+  alt: string;
+  width: number;
+  height: number;
+  loading?: "eager" | "lazy";
+}
+
+const { lightSvg, darkSvg, lightPng, darkPng, alt, width, height, loading = "lazy" } = Astro.props;
+---
+
+<picture class="theme-aware-figure">
+  <source
+    data-theme-light={lightSvg}
+    data-theme-dark={darkSvg}
+    srcset={lightSvg}
+    type="image/svg+xml"
+  />
+  <img
+    data-theme-light={lightPng}
+    data-theme-dark={darkPng}
+    src={lightPng}
+    alt={alt}
+    width={width}
+    height={height}
+    loading={loading}
+    decoding="async"
+  />
+</picture>

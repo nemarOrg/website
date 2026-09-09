@@ -213,13 +213,16 @@ secrets.
 ## Visual system
 
 Use the website tokens as the source of truth for interface styling. Standalone
-figures use the same visual vocabulary:
+figures use the same visual vocabulary, with a light paper variant as the
+default for the website and presentations and a matched dark variant for dark
+contexts:
 
 - deep navy for canonical/source or primary structure;
 - teal for data movement, conversion, and streaming;
 - indigo-violet for people-facing exploration and reuse;
 - warm gold for review, citation, and future/roadmap callouts;
-- soft ivory backgrounds and pale tinted surfaces on website pages;
+- soft ivory backgrounds and pale tinted surfaces on website pages and light
+  presentation slides;
 - restrained rules, generous whitespace, 2–3 px visual strokes where they carry
   meaning, and short labels in sentence case. Avoid repeated rounded cards or
   decorative gradients; use a framed panel only when it clarifies a system
@@ -229,19 +232,25 @@ Diagrams are deterministic SVG masters with high-resolution PNG exports. Do not
 use Mermaid. Keep labels as real text, provide meaningful alt text and a
 caption, avoid decorative arrows that imply unsupported dependencies, and make
 the current/planned boundary visible in the figure itself. The selected visual
-language is a modern dark technical atlas: quiet grid, aligned rounded panels,
+language is a modern technical atlas: quiet grid, aligned rounded panels,
 precise connectors, restrained depth, and an exact NEMAR lockup at lower right.
-Image generation was used only to compare visual substrates; the final figures
-use exact SVG geometry and typography because a strict science resource cannot
-delegate labels or relationships to a generative image.
+Light and dark variants keep the same geometry and semantics; only the surface
+and contrast palette changes. Image generation was used only to compare visual
+substrates; the final figures use exact SVG geometry and typography because a
+strict science resource cannot delegate labels or relationships to a
+generative image.
 
 Current shared assets:
 
-- `public/figures/nemar-system-map.svg` and `.png` — layers and clients;
-- `public/figures/nemar-dataset-lifecycle.svg` and `.png` — review, DOI, and
-  version loop;
-- `public/figures/nemar-edge-compute.svg` and `.png` — Zarr/edge flow and
-  planned HPC direction.
+- `public/figures/nemar-system-map-light.svg` and `.png` — light layers and
+  clients;
+- `public/figures/nemar-dataset-lifecycle-light.svg` and `.png` — light review,
+  DOI, and version loop;
+- `public/figures/nemar-edge-compute-light.svg` and `.png` — light Zarr/edge
+  flow and planned HPC direction;
+- the matching `-dark.svg` and `-dark.png` files — dark-theme variants with the
+  same geometry and labels; the unsuffixed SVG/PNG names remain light defaults
+  for existing links.
 
 ## Source discipline
 
