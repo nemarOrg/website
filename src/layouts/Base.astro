@@ -171,6 +171,37 @@ const absoluteFallbackImage = fallbackImage
     </main>
     {!bareLayout && <Footer />}
     <CookieNotice />
+    <script is:inline>
+      // Keep external SVG/PNG figures synchronized with the site's explicit
+      // theme choice as well as the device color-scheme preference. The light
+      // asset is the no-script default so detached pages remain readable.
+      (() => {
+        const root = document.documentElement;
+        const media = window.matchMedia("(prefers-color-scheme: dark)");
+
+        function syncThemeFigures() {
+          const useDark =
+            root.getAttribute("data-theme") === "dark" ||
+            (!root.hasAttribute("data-theme") && media.matches);
+
+          for (const element of document.querySelectorAll("[data-theme-light][data-theme-dark]")) {
+            const asset = useDark ? element.getAttribute("data-theme-dark") : element.getAttribute("data-theme-light");
+            if (!asset) continue;
+            const attribute = element.hasAttribute("srcset") ? "srcset" : "src";
+            if (element.getAttribute(attribute) !== asset) {
+              element.setAttribute(attribute, asset);
+            }
+          }
+        }
+
+        syncThemeFigures();
+        new MutationObserver(syncThemeFigures).observe(root, {
+          attributes: true,
+          attributeFilter: ["data-theme"],
+        });
+        media.addEventListener?.("change", syncThemeFigures);
+      })();
+    </script>
   </body>
 </html>
 
