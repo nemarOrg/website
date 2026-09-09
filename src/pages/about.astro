@@ -1,5 +1,6 @@
 ---
 import ExternalLink from "../components/ExternalLink.astro";
+import ThemeAwareFigure from "../components/ThemeAwareFigure.astro";
 import Base from "../layouts/Base.astro";
 ---
 
@@ -33,7 +34,7 @@ import Base from "../layouts/Base.astro";
         </div>
         <div
           class="about-hero__architecture"
-          aria-label="NEMAR architecture at a glance: canonical BIDS data feeds NEMAR contracts, which support the website, command-line client, and derived Zarr access. The current SDSC and NSG partnership provides a compute bridge; a planned NEMAR integration with Tapis and OneSciencePlace would connect those contracts to national HPC resources."
+          aria-label="NEMAR architecture at a glance: researcher-contributed and OpenNeuro-mirrored BIDS data feed NEMAR contracts, which support the website, command-line client, and derived Zarr access. The current SDSC and NSG partnership provides a compute bridge; a planned NEMAR integration with Tapis and OneSciencePlace would connect those contracts to national HPC resources."
         >
           <div class="architecture-heading">
             <span class="architecture-kicker">NEMAR at a glance</span>
@@ -43,7 +44,7 @@ import Base from "../layouts/Base.astro";
             <div class="architecture-node architecture-node--source">
               <span class="architecture-node__label">SOURCE</span>
               <strong>BIDS datasets</strong>
-              <span>canonical files + metadata</span>
+              <span>researcher contributions<br />+ OpenNeuro mirrors</span>
             </div>
             <span class="architecture-arrow" aria-hidden="true">→</span>
             <div class="architecture-node architecture-node--core">
@@ -130,17 +131,15 @@ import Base from "../layouts/Base.astro";
         </div>
 
         <figure class="figure-card">
-          <picture>
-            <source srcset="/figures/nemar-system-map.svg" type="image/svg+xml" />
-            <img
-              src="/figures/nemar-system-map.png"
-              alt="Diagram showing people and research agents using nemar-cli and the NEMAR web shell, which connect to the API and canonical data plane; data then feeds derived Zarr streaming, GitHub and S3 storage, and DOI records."
-              width="2400"
-              height="1494"
-              loading="lazy"
-              decoding="async"
-            />
-          </picture>
+          <ThemeAwareFigure
+            lightSvg="/figures/nemar-system-map-light.svg"
+            darkSvg="/figures/nemar-system-map-dark.svg"
+            lightPng="/figures/nemar-system-map-light.png"
+            darkPng="/figures/nemar-system-map-dark.png"
+            alt="Diagram showing people and research agents using nemar-cli and the NEMAR web shell, which connect to the API and canonical data plane; data then feeds derived Zarr streaming, GitHub and S3 storage, and DOI records."
+            width={2400}
+            height={1494}
+          />
           <figcaption>
             <strong>Figure 1.</strong> NEMAR keeps the browser and future research agents close to
             the same API, data, version, and citation contracts used by the CLI.
@@ -231,17 +230,15 @@ import Base from "../layouts/Base.astro";
         </div>
         <div class="figure-copy-row">
           <figure class="figure-card">
-            <picture>
-              <source srcset="/figures/nemar-dataset-lifecycle.svg" type="image/svg+xml" />
-              <img
-                src="/figures/nemar-dataset-lifecycle.png"
-                alt="Five-stage dataset lifecycle: prepare BIDS files, validate structure and metadata, publish after review with a DOI, reuse through search and analysis, and improve through a pull request that creates a new version. The publish step creates concept and version DOIs."
-                width="2400"
-                height="1494"
-                loading="lazy"
-                decoding="async"
-              />
-            </picture>
+            <ThemeAwareFigure
+              lightSvg="/figures/nemar-dataset-lifecycle-light.svg"
+              darkSvg="/figures/nemar-dataset-lifecycle-dark.svg"
+              lightPng="/figures/nemar-dataset-lifecycle-light.png"
+              darkPng="/figures/nemar-dataset-lifecycle-dark.png"
+              alt="Five-stage dataset lifecycle: prepare BIDS files, validate structure and metadata, publish after review with a DOI, reuse through search and analysis, and improve through a pull request that creates a new version. The publish step creates concept and version DOIs."
+              width={2400}
+              height={1494}
+            />
             <figcaption>
               <strong>Figure 2.</strong> A release creates a citable state; later improvements are
               reviewable changes that become a new state rather than a silent rewrite.
@@ -298,17 +295,15 @@ import Base from "../layouts/Base.astro";
         </div>
         <div class="figure-copy-row">
           <figure class="figure-card">
-            <picture>
-              <source srcset="/figures/nemar-edge-compute.svg" type="image/svg+xml" />
-              <img
-                src="/figures/nemar-edge-compute.png"
-                alt="Flow diagram from the canonical BIDS source archive through Zarr conversion and an edge worker to browser analysis; a planned NEMAR integration would use Tapis through OneSciencePlace to launch reproducible HPC jobs near the data and return versioned BIDS derivatives with their own DOI."
-                width="2400"
-                height="1494"
-                loading="lazy"
-                decoding="async"
-              />
-            </picture>
+            <ThemeAwareFigure
+              lightSvg="/figures/nemar-edge-compute-light.svg"
+              darkSvg="/figures/nemar-edge-compute-dark.svg"
+              lightPng="/figures/nemar-edge-compute-light.png"
+              darkPng="/figures/nemar-edge-compute-dark.png"
+              alt="Flow diagram from the canonical BIDS source archive through Zarr conversion and an edge worker to browser analysis; a planned NEMAR integration would use Tapis through OneSciencePlace to launch reproducible HPC jobs near the data and return versioned BIDS derivatives with their own DOI."
+              width={2400}
+              height={1494}
+            />
             <figcaption>
               <strong>Figure 3.</strong> Zarr is a derived streaming layer for partial reads. A
               planned NEMAR integration with Tapis through OneSciencePlace is a route for larger
@@ -548,7 +543,9 @@ import Base from "../layouts/Base.astro";
 
   .architecture-flow {
     align-items: center;
+    display: grid;
     gap: var(--space-2);
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1.35fr);
     padding-block: var(--space-6);
   }
 
@@ -578,12 +575,12 @@ import Base from "../layouts/Base.astro";
 
   .architecture-node--source {
     border-color: color-mix(in srgb, var(--color-fg-inverse) 60%, transparent);
-    flex: 1 1 30%;
+    min-inline-size: 0;
   }
 
   .architecture-node--core {
     border-color: var(--brand-teal);
-    flex: 1 1 30%;
+    min-inline-size: 0;
   }
 
   .architecture-node--core .architecture-node__label {
@@ -599,16 +596,14 @@ import Base from "../layouts/Base.astro";
 
   .architecture-access {
     display: grid;
-    flex: 1 1 40%;
     gap: 0.45rem;
+    min-inline-size: 0;
   }
 
   .architecture-access > div {
-    align-items: baseline;
+    display: grid;
+    gap: 0.15rem;
     border-inline-start: 2px solid var(--brand-purple);
-    display: flex;
-    gap: 0.5rem;
-    justify-content: space-between;
     padding: 0.55rem 0.65rem;
   }
 
@@ -618,7 +613,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .architecture-access span {
-    text-align: end;
+    text-align: start;
   }
 
   .architecture-roadmap {
@@ -969,6 +964,7 @@ import Base from "../layouts/Base.astro";
 
     .architecture-flow {
       align-items: stretch;
+      display: flex;
       flex-direction: column;
     }
 
@@ -981,7 +977,7 @@ import Base from "../layouts/Base.astro";
     }
 
     .architecture-access > div {
-      align-items: center;
+      align-items: flex-start;
     }
 
     .mission-grid,
