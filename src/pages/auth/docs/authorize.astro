@@ -1,0 +1,159 @@
+---
+/**
+ * Middle hop of the docs-site admin handoff (nemarOrg/nemar-cli#1338).
+ *
+ * `docs.nemar.org/admin/*` is admin-only, but the docs site is a separate host and the session
+ * cookie is scoped `Domain=app.nemar.org` on purpose (see the module comment in `src/lib/host.ts`),
+ * so it cannot authenticate the docs host at all. The docs host gets a credential of its own
+ * instead: a Pages Function there 302s an unauthenticated visitor to this page, this page proves
+ * the visitor is an admin and asks the backend for a one-time code, and the docs callback exchanges
+ * that code for a docs-scoped cookie. This is the only hop that already holds the app session,
+ * which is why the admin proof happens here.
+ *
+ * Server-rendered with no client script: every branch below is frontmatter, and the success path
+ * never renders at all. The only rendered state is the error panel at the bottom.
+ *
+ * The route is `/auth/...`, NOT `/docs/...`: `getRetiredRedirect` in `src/lib/host.ts` 301s `/docs`
+ * and `/docs/*` to docs.nemar.org before any other routing runs, so a `/docs/authorize` page would
+ * bounce straight back to the docs host and the handoff would never complete. `/auth` is already in
+ * `APP_ROUTE_PREFIXES`, so `isAppRoute("/auth/docs/authorize")` is true and no host.ts change is
+ * needed — this page must be on the app host, since that is the only host the session cookie
+ * reaches.
+ */
+import Base from "../../../layouts/Base.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { apiBase } from "../../../lib/api-base";
+import { getSession } from "../../../lib/auth";
+import { requestDocsGrant } from "../../../lib/docs-auth-api";
+import {
+  DOCS_AUTHORIZE_COPY,
+  docsCallbackUrl,
+  docsGrantOutcome,
+  docsHandoffTarget,
+  safeDocsNext,
+} from "../../../lib/docs-authorize";
+
+/**
+ * `Astro.redirect()` builds a brand-new `Response` and does NOT merge `Astro.response.headers`
+ * onto it, so the page-level `no-store` below only ever reaches the rendered page — never an early
+ * return. Every redirect here carries per-visitor state (a one-time code, a signed-out bounce with
+ * `next=`), so each one needs its own `no-store`. Same helper, same reason, as
+ * `src/pages/cli/authorize.astro`.
+ */
+function noStoreRedirect(location: string, status = 302): Response {
+  return new Response(null, {
+    status,
+    headers: { Location: location, "Cache-Control": "no-store" },
+  });
+}
+
+Astro.response.headers.set("Cache-Control", "no-store");
+
+const url = new URL(Astro.request.url);
+// Path AND query, because the query is where the inner `next` lives. `adminGate` percent-encodes
+// whatever it is handed into its own `next=`, so passing only the pathname would strand a visitor
+// on the docs admin index after sign-in instead of the page they asked for — which is the entire
+// reason the parameter is threaded through this flow.
+const here = `${url.pathname}${url.search}`;
+
+const session = getSession(Astro.locals);
+// The same gate every `/admin` page uses: no session bounces to sign-in with a return address,
+// a signed-in non-admin gets `/404` rather than a 403 so the admin surface is not disclosed.
+const gateRedirect = adminGate(session, here);
+if (gateRedirect) {
+  return noStoreRedirect(gateRedirect);
+}
+
+// Checked BEFORE the grant is minted, not after. On a deployment where the docs base is not
+// configured and the API is not production -- staging, a preview, local -- a grant minted here could
+// only ever be spent against the production docs host, which never saw it. Refusing afterwards would
+// still have written the row and still have sent the visitor to the wrong host.
+const handoff = docsHandoffTarget(apiBase(), import.meta.env.PUBLIC_DOCS_BASE_URL ?? null);
+
+if (handoff.kind === "ready") {
+  const docsBase = handoff.docsBase;
+  const next = safeDocsNext(url.searchParams.get("next"), docsBase);
+
+  const outcome = docsGrantOutcome(
+    await requestDocsGrant({
+      cookieHeader: Astro.request.headers.get("cookie") ?? undefined,
+      origin: Astro.url.origin,
+    }),
+  );
+
+  if (outcome.kind === "handoff") {
+    return noStoreRedirect(docsCallbackUrl(docsBase, outcome.code, next));
+  }
+  // The backend disagrees with the gate above about this session -- the cookie was accepted by
+  // `/auth/me` on the way in and refused here (expired in between, or revoked mid-flight). Treated
+  // as no session at all, which is what it now is.
+  if (outcome.kind === "signed_out") {
+    return noStoreRedirect(`/login?error=session_required&next=${encodeURIComponent(here)}`);
+  }
+  // Signed in, not an admin. The backend answers 404 rather than 403 for exactly the reason
+  // `adminGate` does, and this forwards that verdict unchanged.
+  if (outcome.kind === "not_found") {
+    return noStoreRedirect("/404");
+  }
+  // `unavailable`: the one outcome with nothing for the visitor to act on and nothing safe to say
+  // about why. A 503 rather than a 200, so an auth-path outage is visible to uptime monitoring
+  // instead of reading as a page that rendered fine. Both halves of the docs side answer honestly
+  // for the same reason (503 from the gate, 400 from the callback).
+  Astro.response.status = 503;
+} else {
+  console.warn(`[docs-authorize] refusing the handoff: ${handoff.reason}`);
+  Astro.response.status = 503;
+}
+---
+
+<Base title="Docs sign-in" description="Sign in to the NEMAR documentation site.">
+  <section class="handoff">
+    <article class="handoff__panel">
+      <div class="handoff__rail" aria-hidden="true"></div>
+      <h1 class="handoff__title">{DOCS_AUTHORIZE_COPY.errorTitle}</h1>
+      <p class="handoff__lede">{DOCS_AUTHORIZE_COPY.errorBody}</p>
+    </article>
+  </section>
+</Base>
+
+<style>
+  /* Trimmed from `.finish` in `src/pages/cli/authorize.astro` and
+     `src/pages/auth/orcid/complete.astro`: this page has one state and no form, so it carries the
+     panel, rail, title and lede rules only. */
+  .handoff {
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+  }
+  .handoff__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 30rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    overflow: hidden;
+    box-shadow: 0 24px 64px -32px rgb(15 23 42 / 25%);
+  }
+  .handoff__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+  }
+  .handoff__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+  }
+  .handoff__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+</style>
