@@ -356,6 +356,12 @@ Astro.response.headers.set(
             <DatasetTabs datasetId={id} version={selectedVersion} />
             {selectedVersion && (
               <>
+                {/* Why a `?view=` deep link opened no viewer (website#326).
+                    Filled and revealed client-side; stays hidden for every
+                    visitor who did not arrive on such a link. Above the
+                    coverage panel and the tree because it explains why the
+                    thing the visitor was sent to see is not on screen. */}
+                <p class="detail__view-notice" data-view-link-notice role="status" hidden></p>
                 {/* Populated client-side once the tree's own index.json fetch
                     resolves (website#277 decision 2) -- no separate API call.
                     Starts hidden; stays hidden for a dataset with no Zarr data. */}
@@ -421,11 +427,14 @@ Astro.response.headers.set(
   import {
     NAV_ORDER_CHANGED_EVENT,
     type RecordingEntry,
+    VIEW_PARAM,
     buildRecordingList,
     firstRecording,
+    formatViewSpec,
     orderedRecordings,
     readNavOrder,
     recordingPosition,
+    resolveViewParam,
     selectRecording,
     stepRecording,
     subjectValues,
@@ -1659,6 +1668,10 @@ Astro.response.headers.set(
    * cannot be driven.
    */
   function syncEegNavControls(): void {
+    // First, and outside every early return below: the URL has to track the
+    // recording even for a dataset with too few of them to show any controls.
+    syncEegViewerLinkState();
+    clearEegCopyStatus();
     const nav = eegNavEl("[data-eegv-nav]");
     const subSel = eegNavEl<HTMLSelectElement>("[data-eegv-nav-sub]");
     const taskSel = eegNavEl<HTMLSelectElement>("[data-eegv-nav-task]");
@@ -1713,6 +1726,166 @@ Astro.response.headers.set(
     prev.setAttribute("aria-label", prevLabel);
     next.setAttribute("aria-label", nextLabel);
     nav.hidden = false;
+  }
+
+  // --- Deep links (website#326) ---------------------------------------------
+  // `?view=sub-01_task-rest` opens the viewer on a named recording, so an
+  // external catalog (EBRAINS asked for this at COST Action INDoS) can point at
+  // a subject and a task rather than only at the dataset page. The parameter is
+  // written back as the user navigates, which makes the address bar the link to
+  // share and the copy-link control below a convenience rather than the only
+  // way to obtain one.
+  //
+  // Entirely client-side: the SSR'd HTML does not depend on the parameter (the
+  // recording list comes from the Zarr index, which is fetched in the browser),
+  // which is why `src/middleware.ts` drops it from the edge cache key.
+
+  /**
+   * Reflect the live viewer in the URL and in the copy-link control, both of
+   * which follow one condition: the dialog is open on a live viewer.
+   *
+   * `?view=` names the recording on screen and disappears when nothing is on
+   * screen. `replaceState`, not `pushState`: stepping through twelve runs should
+   * not leave twelve entries for the back button to walk out through, and
+   * Escape or the corner X is how the user leaves the dialog.
+   *
+   * Only the dialog counts. An inline viewer under a tree row is a glance
+   * rather than a destination, and a link that reopened it as a modal would
+   * describe something other than what the sharer was looking at.
+   *
+   * Note the URL ends up naming what is actually **shown**, which for a relaxed
+   * match is not what the incoming link asked for: arriving on
+   * `?view=sub-01_task-nope` rewrites the parameter to the recording that
+   * resolved. That is the honest form — the address bar should describe the
+   * screen — and it means a visitor can pass on a link that lands where theirs
+   * did not.
+   */
+  function syncEegViewerLinkState(): void {
+    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+    const share = document.querySelector<HTMLElement>("[data-eegv-share]");
+    const live = eegLive;
+    const showing = Boolean(dialog?.open && live);
+    if (share) share.hidden = !showing;
+    const url = new URL(window.location.href);
+    if (showing && live) {
+      // `formatViewSpec` falls back to the path itself for a recording that
+      // names no entities, so a non-BIDS dataset still gets a working link.
+      const current = currentEegRecording();
+      url.searchParams.set(VIEW_PARAM, current ? formatViewSpec(current) : live.path);
+    } else {
+      url.searchParams.delete(VIEW_PARAM);
+    }
+    // Guarded: this runs on every nav sync, and an unchanged `replaceState`
+    // still rewrites the history entry for no reason.
+    if (url.toString() !== window.location.href) {
+      history.replaceState(history.state, "", url.toString());
+    }
+  }
+
+  /** The deep link for the recording on screen, absolute so it can be pasted
+   *  anywhere. Null when no viewer is live. */
+  function currentEegViewerLink(): string | null {
+    const live = eegLive;
+    if (!live) return null;
+    const current = currentEegRecording();
+    const url = new URL(window.location.href);
+    url.searchParams.set(VIEW_PARAM, current ? formatViewSpec(current) : live.path);
+    return url.toString();
+  }
+
+  /** Pending reset of the copy-link confirmation. */
+  let eegCopyStatusTimer = 0;
+
+  /** Drop the copy confirmation. Called on every nav sync as well as on the
+   *  timer, so a "Copied" left over from the previous recording can never
+   *  appear to describe the current one. */
+  function clearEegCopyStatus(): void {
+    window.clearTimeout(eegCopyStatusTimer);
+    const status = eegNavEl("[data-eegv-copy-status]");
+    if (status) status.textContent = "";
+  }
+
+  /**
+   * Put the current recording's deep link on the clipboard.
+   *
+   * The failure path is not an error state: `navigator.clipboard` is absent in
+   * an insecure context and can reject on a permission policy, and in both
+   * cases `syncEegViewerLinkState` has already put the identical link in the
+   * address bar — so the message points there rather than apologizing.
+   */
+  async function copyEegViewerLink(): Promise<void> {
+    const status = eegNavEl("[data-eegv-copy-status]");
+    const link = currentEegViewerLink();
+    if (!link || !status) return;
+    let message = "Link copied";
+    try {
+      await navigator.clipboard.writeText(link);
+    } catch (err) {
+      console.warn("[eeg-viewer] clipboard write failed", err);
+      message = "Couldn't copy — the link is in the address bar";
+    }
+    window.clearTimeout(eegCopyStatusTimer);
+    status.textContent = message;
+    eegCopyStatusTimer = window.setTimeout(clearEegCopyStatus, 5000);
+  }
+
+  /**
+   * Say why a `?view=` link opened nothing, in the page rather than only in the
+   * console.
+   *
+   * A partner-facing URL that silently no-ops is the worst outcome here: the
+   * visitor cannot tell a dataset that lacks the subject from a viewer that
+   * failed to load, and whoever published the link never hears about it. The
+   * notice names the value that missed so the sender can fix it.
+   */
+  function showViewParamNotice(raw: string, reason: string): void {
+    const notice = document.querySelector<HTMLElement>("[data-view-link-notice]");
+    if (!notice) return;
+    notice.textContent = `This link asked for ${raw} — ${reason} Showing the dataset instead.`;
+    notice.hidden = false;
+  }
+
+  /**
+   * Honour a `?view=` parameter on page load by opening the enlarge dialog on
+   * the recording it names.
+   *
+   * Waits on the same per-section index promise the tree rows wait on, so this
+   * costs no extra request: `hydrateTree` already has the fetch in flight by
+   * the time this runs. Resolution (and its deliberate refusal to relax down to
+   * "somebody else's recording") lives in `resolveViewParam`.
+   */
+  async function openViewParamRecording(): Promise<void> {
+    const raw = new URL(window.location.href).searchParams.get(VIEW_PARAM);
+    if (!raw) return;
+    const section = document.querySelector<HTMLElement>("[data-tree-defer]");
+    if (!section) {
+      // No file tree on the page at all — an unpublished dataset, or one with
+      // no selected version. Nothing to open, and the page already explains
+      // why it has no files.
+      return;
+    }
+    await zarrReadyBySection.get(section);
+    const state = zarrBySection.get(section);
+    const datasetId = section.dataset.id;
+    const version = section.dataset.version;
+    if (!datasetId || !version) return;
+    if (!state || state.paths.size === 0) {
+      showViewParamNotice(raw, "this dataset has no recordings the viewer can open yet.");
+      return;
+    }
+    const recordings = buildRecordingList(state.paths);
+    const target = resolveViewParam(recordings, raw, readNavOrder());
+    if (!target) {
+      showViewParamNotice(raw, "no recording in this dataset matches it.");
+      return;
+    }
+    await openRecordingInDialog(target, {
+      datasetId,
+      version,
+      recordings,
+      zarrToken: state.token,
+      zarr: state,
+    });
   }
 
   /** Warm the neighbours' store metadata, the same warmup a hovered tree row
@@ -1929,6 +2102,9 @@ Astro.response.headers.set(
     if (target) void navigateEegViewer(target);
     else syncEegNavControls();
   });
+  eegNavEl<HTMLButtonElement>("[data-eegv-copy-link]")?.addEventListener("click", () => {
+    void copyEegViewerLink();
+  });
   // The gear setting lives inside the viewer instance; it announces a change
   // rather than reaching into this chrome (the two are separately mounted).
   document.addEventListener(NAV_ORDER_CHANGED_EVENT, () => syncEegNavControls());
@@ -1953,6 +2129,11 @@ Astro.response.headers.set(
     const live = eegLive;
     const nav = document.querySelector<HTMLElement>("[data-eegv-nav]");
     if (nav) nav.hidden = true; // the controls only make sense in the dialog
+    // Drop `?view=` (website#326): the dialog is the only surface the parameter
+    // describes, so leaving it behind would make a reload reopen something the
+    // user just dismissed. Safe this early — `dialog.open` is already false by
+    // the time the `close` event fires, whichever branch below runs.
+    syncEegViewerLinkState();
     if (live?.detached) {
       // The user navigated away from the row this viewer came from, so there
       // is nothing to hand back to (see `navigateEegViewer`): closing the
@@ -2242,6 +2423,11 @@ Astro.response.headers.set(
   document
     .querySelectorAll<HTMLElement>("[data-tree-defer]")
     .forEach((el) => void hydrateTree(el));
+  // A `?view=` deep link (website#326), after the line above and not before it:
+  // `hydrateTree` registers the section's index promise synchronously, so the
+  // opener has something to await and shares that one fetch rather than issuing
+  // its own. No-op for a visitor who arrived without the parameter.
+  void openViewParamRecording();
 </script>
 
 <style>
@@ -2327,6 +2513,20 @@ Astro.response.headers.set(
     gap: var(--space-3);
     align-items: center;
     margin-block-start: var(--space-2);
+  }
+  /* Deep-link miss notice (website#326). Toned as information rather than an
+     error: the link is wrong, the page is fine, and the dataset below it is
+     still worth reading. `overflow-wrap` because the message quotes a value
+     that came from a URL and may have no spaces in it. */
+  .detail__view-notice {
+    margin-block: 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
   }
   .detail__body {
     margin-block-start: var(--space-8);

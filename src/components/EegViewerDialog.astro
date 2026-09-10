@@ -69,6 +69,28 @@ import DialogCloseButton from "./DialogCloseButton.astro";
             aria-label="Next recording">&rsaquo;</button>
         </div>
       </div>
+      {/* Copy link (website#326). A SIBLING of `.eegv-nav`, not a child of it:
+          the nav group hides itself for a dataset with fewer than two
+          recordings, and such a dataset is precisely one whose single recording
+          someone might want to link to. Its own visibility follows "a live
+          viewer is in the dialog", which is a weaker condition.
+
+          The page keeps `?view=` in the address bar as the user navigates, so
+          this control is a convenience rather than the only route to a link —
+          which is what makes "the link is in the address bar" an honest
+          fallback when the Clipboard API is missing (an insecure context) or
+          refuses. The live region is separate from the button's own label so
+          the label never changes out from under a screen reader mid-press. */}
+      <div class="eegv-share" data-eegv-share hidden>
+        <button
+          type="button"
+          class="eegv-nav__btn eegv-nav__btn--wide"
+          data-eegv-copy-link
+          title="Copy a link that opens this recording"
+          aria-describedby="eegv-copy-status">Copy link</button>
+        <span class="eegv-share__status" id="eegv-copy-status" data-eegv-copy-status role="status"
+        ></span>
+      </div>
     </div>
     {/* No `aria-live` (dropped in website#217): what lands here is a live
         viewer, whose cursor readout and legend update continuously and would
@@ -211,6 +233,33 @@ import DialogCloseButton from "./DialogCloseButton.astro";
   .eegv-nav__btn:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+  /* Copy link (website#326). Matches `.eegv-nav`'s chrome sizing so the head
+     reads as one row of controls rather than two tiers. */
+  .eegv-share {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-xs);
+  }
+  /* As with `.eegv-nav`: `display: flex` outranks the UA's `hidden` rule, so
+     the hidden state has to be restated. */
+  .eegv-share[hidden] {
+    display: none;
+  }
+  /* Wider than the single-glyph step buttons because it holds a word. */
+  .eegv-nav__btn--wide {
+    padding-inline: var(--space-3);
+    font-size: var(--fs-xs);
+  }
+  .eegv-share__status {
+    color: var(--color-fg-muted);
+  }
+  /* Takes no space while empty, so the button does not shift when a message
+     appears and disappears. */
+  .eegv-share__status:empty {
+    display: none;
   }
   .eegv-nav__sel:focus-visible,
   .eegv-nav__btn:focus-visible {
