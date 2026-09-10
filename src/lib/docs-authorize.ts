@@ -64,6 +64,49 @@ export const DOCS_AUTHORIZE_COPY = {
     "We couldn't complete sign-in for the documentation site. Try again in a moment, and if it keeps happening tell us at support@nemar.org.",
 } as const;
 
+/** The production hosts. A handoff is only coherent when both halves name the same
+ *  environment, which is what {@link docsHandoffTarget} checks. */
+const PROD_API_BASE = "https://api.nemar.org";
+const PROD_DOCS_BASE = "https://docs.nemar.org";
+
+export type DocsHandoffTarget =
+  | { readonly kind: "ready"; readonly docsBase: string }
+  | { readonly kind: "misconfigured"; readonly reason: string };
+
+/**
+ * Which docs host this deployment may hand off to, or a refusal.
+ *
+ * This exists because the two halves of the handoff resolve their hosts from DIFFERENT variables,
+ * and only one of them is set outside production. `PUBLIC_DOCS_BASE_URL` is deliberately unset on
+ * staging (there is no `docs-test.nemar.org`; see `./docs-base.ts`), while `PUBLIC_API_BASE_URL`
+ * IS set, to `api-test.nemar.org`. Without this check, a staging visitor got the worst available
+ * outcome: the page minted a real grant row in the staging database, then redirected to the
+ * PRODUCTION docs host, whose Pages Function spends the code against the PRODUCTION API, which has
+ * never seen it. The visitor lands on a 400 whose only link points at the production app host, so a
+ * staging walkthrough silently ends up validating production, and every attempt leaves an
+ * unredeemable row behind.
+ *
+ * So the rule is: an explicitly configured docs base is always honoured, because an operator who
+ * sets it has said what they mean; otherwise the handoff is only offered when the API is production
+ * too. Refusing BEFORE the grant is minted is the point — a refusal afterwards would still have
+ * written the row and still have sent the visitor to the wrong host.
+ *
+ * The day a docs staging host appears, setting `PUBLIC_DOCS_BASE_URL` in `deploy-test.yml` makes
+ * this return `ready` with no code change, which is exactly what `docs-base.ts` promises.
+ */
+export function docsHandoffTarget(
+  apiBaseUrl: string,
+  configuredDocsBase: string | null | undefined,
+): DocsHandoffTarget {
+  const trim = (v: string) => v.replace(/\/$/, "");
+  if (configuredDocsBase) return { kind: "ready", docsBase: trim(configuredDocsBase) };
+  if (trim(apiBaseUrl) === PROD_API_BASE) return { kind: "ready", docsBase: PROD_DOCS_BASE };
+  return {
+    kind: "misconfigured",
+    reason: `PUBLIC_DOCS_BASE_URL is unset and the API is ${trim(apiBaseUrl)}, not production; a grant minted here could only be spent against the production docs host, which never saw it`,
+  };
+}
+
 /**
  * True when any character would be stripped, or would terminate a header, before a `Location`
  * value is parsed. `\r` and `\n` are the header-injection pair; the rest matter because parsers
@@ -215,7 +258,12 @@ export function docsGrantOutcome(result: RawResult): DocsGrantOutcome {
         ? ((body as Record<string, unknown>).code as string)
         : "";
     if (code.length === 0) {
-      console.warn("[docs-authorize] grant answered 200 with no usable code", { body });
+      // Keys only, never the body. Nothing reachable here contains a usable code today, but this
+      // IS the grant endpoint: if its shape ever changed (a nested `{ grant: { code } }`, or a
+      // `code` that arrived as a number) this line would put a live credential in the Worker log.
+      console.warn("[docs-authorize] grant answered 200 with no usable code", {
+        keys: body && typeof body === "object" ? Object.keys(body) : typeof body,
+      });
       return { kind: "unavailable" };
     }
     return { kind: "handoff", code };

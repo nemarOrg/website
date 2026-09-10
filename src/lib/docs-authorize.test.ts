@@ -4,6 +4,7 @@ import {
   DOCS_DEFAULT_NEXT,
   docsCallbackUrl,
   docsGrantOutcome,
+  docsHandoffTarget,
   safeDocsNext,
 } from "./docs-authorize";
 import { getCrossHostRedirect, getRetiredRedirect, isAppRoute } from "./host";
@@ -321,5 +322,52 @@ describe("docsGrantOutcome", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe("docsHandoffTarget", () => {
+  // The defect this closes: staging sets PUBLIC_API_BASE_URL but deliberately does NOT set
+  // PUBLIC_DOCS_BASE_URL, so the page used to mint a grant against the staging database and then
+  // redirect to the PRODUCTION docs host, which spends the code against the production API. The
+  // visitor ended a staging walkthrough on a production 400 page, and every attempt left an
+  // unredeemable grant row behind.
+  it("refuses when the API is staging and no docs base is configured", () => {
+    const target = docsHandoffTarget("https://api-test.nemar.org", null);
+    expect(target.kind).toBe("misconfigured");
+  });
+
+  it("refuses on a preview or local API base too", () => {
+    expect(docsHandoffTarget("http://localhost:8787", null).kind).toBe("misconfigured");
+    expect(docsHandoffTarget("https://nemar-api-dev.sccn-org.workers.dev", null).kind).toBe(
+      "misconfigured",
+    );
+  });
+
+  it("allows the production pairing", () => {
+    const target = docsHandoffTarget("https://api.nemar.org", null);
+    expect(target).toEqual({ kind: "ready", docsBase: "https://docs.nemar.org" });
+  });
+
+  it("honours an explicitly configured docs base, whatever the API is", () => {
+    // The day docs-test.nemar.org exists, setting the variable is the whole change.
+    expect(docsHandoffTarget("https://api-test.nemar.org", "https://docs-test.nemar.org")).toEqual({
+      kind: "ready",
+      docsBase: "https://docs-test.nemar.org",
+    });
+  });
+
+  it("tolerates a trailing slash on either value", () => {
+    expect(docsHandoffTarget("https://api.nemar.org/", null).kind).toBe("ready");
+    expect(docsHandoffTarget("https://api-test.nemar.org", "https://d.example/")).toEqual({
+      kind: "ready",
+      docsBase: "https://d.example",
+    });
+  });
+
+  it("names the reason it refused, for the log", () => {
+    const target = docsHandoffTarget("https://api-test.nemar.org", null);
+    if (target.kind !== "misconfigured") throw new Error("expected a refusal");
+    expect(target.reason).toContain("PUBLIC_DOCS_BASE_URL");
+    expect(target.reason).toContain("api-test.nemar.org");
   });
 });
