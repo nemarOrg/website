@@ -3,6 +3,7 @@ import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
+import { edgeCacheUrl } from "./lib/edge-cache";
 import {
   getCrossHostRedirect,
   getLegacyRedirect,
@@ -220,8 +221,10 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
  *      search results next to production. See `isNoindexHost` in
  *      `lib/host.ts`; `robots.txt.ts` covers the crawler-side signal.
  *
- * The cache key is the full request URL, so query-string filters on /discover
- * get their own entries. App-host requests fan out one extra HTTP call to
+ * The cache key is the request URL minus any parameter only the browser reads
+ * (`edgeCacheUrl`, website#326), so query-string filters on /discover get their
+ * own entries but the dataset page's `?view=` deep links share one.
+ * App-host requests fan out one extra HTTP call to
  * /auth/me; that overhead is acceptable since the cache is bypassed for
  * authed traffic anyway. Marketing-host requests never call /auth/me
  * regardless of any cookies present.
@@ -330,7 +333,13 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   });
   if (!cache) return withSecurityHeaders(await next(), url.pathname, noindex);
 
-  const cached = await cache.match(request);
+  // Normalized key (website#326): a parameter only the browser reads must not
+  // fragment the cache. Same object when there is nothing to strip, so the
+  // common request pays neither an allocation nor a key change.
+  const cacheUrl = edgeCacheUrl(request.url);
+  const cacheKey = cacheUrl === request.url ? request : new Request(cacheUrl, request);
+
+  const cached = await cache.match(cacheKey);
   if (cached) {
     const headers = new Headers(cached.headers);
     headers.set("x-nemar-cache", "HIT");
@@ -347,7 +356,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     const clone = response.clone();
     type EdgeCtx = { waitUntil?: (p: Promise<unknown>) => void };
     const ctx = (context.locals as { runtime?: { ctx?: EdgeCtx } } | undefined)?.runtime?.ctx;
-    const putPromise = cache.put(request, clone).catch(() => {
+    const putPromise = cache.put(cacheKey, clone).catch(() => {
       /* cache.put rejects on Vary:* / Range responses — drop silently. */
     });
     if (ctx && typeof ctx.waitUntil === "function") {

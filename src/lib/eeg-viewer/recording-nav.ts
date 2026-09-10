@@ -298,6 +298,145 @@ export function selectRecording(
   return (prefer === "sub" ? (bySub ?? byTask) : (byTask ?? bySub)) ?? null;
 }
 
+// --- Deep links (website#326) ------------------------------------------------
+// A `?view=` parameter on the dataset page opens the viewer on a named
+// recording, so an external catalog (EBRAINS, asked for this at COST Action
+// INDoS) can point at a subject and task rather than only at the dataset.
+//
+// The parameter carries BIDS entity syntax — `sub-01_task-rest_run-1` — which
+// is what a partner generating links from their own metadata already writes,
+// and which the parser above already knows how to read.
+
+/** Query parameter naming the recording to open. */
+export const VIEW_PARAM = "view";
+
+/** The entities a `?view=` value asked for. Every key is optional: a link is
+ *  free to be as specific as the metadata behind it allows. */
+export type RecordingSpec = Partial<Record<keyof RecordingEntities, string>>;
+
+/**
+ * Cap on the parameter length. Entity strings are short (a long real one is
+ * ~60 characters), the value arrives from outside, and nothing downstream
+ * benefits from parsing more — so refuse rather than work through it.
+ */
+const MAX_VIEW_PARAM_LENGTH = 256;
+
+/**
+ * Entities named by a `?view=` value, or null when it names none.
+ *
+ * Delegates to `parseRecordingPath`, which buys tolerance for free: a bare
+ * entity string (`sub-01_task-rest`), a full filename pasted from the tree
+ * (`sub-01_task-rest_eeg.set` — the suffix chunk carries no dash and is
+ * ignored), and a complete BIDS path all parse to the same spec.
+ */
+export function parseViewSpec(raw: string | null | undefined): RecordingSpec | null {
+  const value = raw?.trim();
+  if (!value || value.length > MAX_VIEW_PARAM_LENGTH) return null;
+  const entry = parseRecordingPath(value);
+  if (!entry.parsed) return null;
+  const spec: RecordingSpec = {};
+  for (const key of TRACKED) {
+    const found = entry[key];
+    if (found !== null) spec[key] = found;
+  }
+  return spec;
+}
+
+/**
+ * A recording as a `?view=` value — the inverse of `parseViewSpec`, and what
+ * the dialog's copy-link control emits.
+ *
+ * Falls back to the raw path for a recording that names no entities at all, so
+ * a non-BIDS dataset still gets a shareable link; `resolveViewParam` matches
+ * such a value by path before it tries to parse it.
+ */
+export function formatViewSpec(entry: RecordingEntry): string {
+  const chunks: string[] = [];
+  for (const key of TRACKED) {
+    const value = entry[key];
+    if (value !== null) chunks.push(`${key}-${value}`);
+  }
+  return chunks.length > 0 ? chunks.join("_") : entry.path;
+}
+
+/**
+ * Label equality for a link's entity value: exact, or equal once leading zeros
+ * are dropped from a purely numeric label.
+ *
+ * The tolerance is there because the two sides of a deep link are written by
+ * different people. A partner generating `sub-1` from a participant table
+ * should reach `sub-01`, and having that land on "no such recording" would make
+ * the feature look broken over a zero. Compared textually rather than
+ * numerically so a long digit string cannot collide through float precision.
+ */
+function sameLabel(actual: string | null, wanted: string): boolean {
+  if (actual === null) return false;
+  if (actual === wanted) return true;
+  if (!/^\d+$/.test(actual) || !/^\d+$/.test(wanted)) return false;
+  return actual.replace(/^0+/, "") === wanted.replace(/^0+/, "");
+}
+
+/**
+ * The recording a spec names, relaxing until something matches.
+ *
+ * Entities are considered in nesting order (`sub`, `ses`, `task`, `acq`, `run`,
+ * `recording`) regardless of the order the link wrote them, and relaxation
+ * drops the **least** significant one first: `sub-01_task-rest` on a subject
+ * who never ran `rest` opens that subject's first recording.
+ *
+ * Two deliberate limits:
+ * - It never relaxes to an empty spec, so a link naming a subject the dataset
+ *   does not have returns null instead of silently opening someone else's
+ *   recording. A partner-facing link is better visibly wrong than quietly
+ *   pointed at the wrong data.
+ * - Exact label matches win over leading-zero-tolerant ones at every step, so
+ *   the tolerance can only ever add a match, never redirect one.
+ *
+ * This is why `selectRecording` is not reused: its relaxation preserves the
+ * coordinate the user just picked in a dropdown, which is right for an
+ * interactive pick and wrong for a link, and it knows only `sub` and `task`.
+ */
+export function matchRecordingSpec(
+  list: RecordingEntry[],
+  spec: RecordingSpec,
+  order: NavOrder = DEFAULT_NAV_ORDER,
+): RecordingEntry | null {
+  const keys = TRACKED.filter((key) => spec[key] !== undefined);
+  if (keys.length === 0) return null;
+  const ordered = orderedRecordings(list, order);
+  for (let cut = keys.length; cut > 0; cut--) {
+    const wanted = keys.slice(0, cut);
+    const exact = ordered.find((e) => wanted.every((key) => e[key] === spec[key]));
+    if (exact) return exact;
+    const loose = ordered.find((e) =>
+      wanted.every((key) => sameLabel(e[key], spec[key] as string)),
+    );
+    if (loose) return loose;
+  }
+  return null;
+}
+
+/**
+ * The recording a `?view=` value resolves to, or null when the dataset has
+ * nothing it asked for.
+ *
+ * Tries an exact path match first: that is what a value copied out of the file
+ * tree looks like, and it is the only thing that can resolve a link to a
+ * recording whose path carries no entities at all.
+ */
+export function resolveViewParam(
+  list: RecordingEntry[],
+  raw: string | null | undefined,
+  order: NavOrder = DEFAULT_NAV_ORDER,
+): RecordingEntry | null {
+  const value = raw?.trim();
+  if (!value || value.length > MAX_VIEW_PARAM_LENGTH) return null;
+  const byPath = list.find((e) => e.path === value);
+  if (byPath) return byPath;
+  const spec = parseViewSpec(value);
+  return spec ? matchRecordingSpec(list, spec, order) : null;
+}
+
 /** A stored value, or null when it is not one of the known orders. */
 export function normalizeNavOrder(raw: unknown): NavOrder | null {
   return typeof raw === "string" && (NAV_ORDERS as readonly string[]).includes(raw)

@@ -5,12 +5,16 @@ import {
   type RecordingEntry,
   buildRecordingList,
   firstRecording,
+  formatViewSpec,
+  matchRecordingSpec,
   naturalCompare,
   normalizeNavOrder,
   orderedRecordings,
   parseRecordingPath,
+  parseViewSpec,
   readNavOrder,
   recordingPosition,
+  resolveViewParam,
   selectRecording,
   stepRecording,
   subjectValues,
@@ -428,6 +432,186 @@ describe("selectRecording", () => {
 
   it("returns null for an empty list", () => {
     expect(selectRecording([], { sub: "01" })).toBeNull();
+  });
+});
+
+describe("parseViewSpec", () => {
+  it("reads a bare entity string", () => {
+    expect(parseViewSpec("sub-01_task-rest_run-1")).toEqual({
+      sub: "01",
+      task: "rest",
+      run: "1",
+    });
+  });
+
+  it("reads entities written out of nesting order", () => {
+    expect(parseViewSpec("task-rest_sub-01")).toEqual({ sub: "01", task: "rest" });
+  });
+
+  it("tolerates a full filename pasted from the file tree", () => {
+    expect(parseViewSpec("sub-01_task-rest_eeg.set")).toEqual({ sub: "01", task: "rest" });
+  });
+
+  it("tolerates a complete BIDS path", () => {
+    expect(parseViewSpec("sub-01/ses-02/eeg/sub-01_ses-02_task-rest_eeg.set")).toEqual({
+      sub: "01",
+      ses: "02",
+      task: "rest",
+    });
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(parseViewSpec("  sub-01  ")).toEqual({ sub: "01" });
+  });
+
+  it("returns null for a value naming no entities", () => {
+    expect(parseViewSpec("rest")).toBeNull();
+    expect(parseViewSpec("")).toBeNull();
+    expect(parseViewSpec("   ")).toBeNull();
+    expect(parseViewSpec(null)).toBeNull();
+    expect(parseViewSpec(undefined)).toBeNull();
+  });
+
+  it("refuses an over-long value rather than parsing it", () => {
+    expect(parseViewSpec(`sub-01_task-${"x".repeat(300)}`)).toBeNull();
+  });
+
+  it("ignores entities it does not track", () => {
+    expect(parseViewSpec("sub-01_split-02_desc-clean")).toEqual({ sub: "01" });
+  });
+});
+
+describe("formatViewSpec", () => {
+  it("emits entities in nesting order", () => {
+    const entry = parseRecordingPath(
+      "sub-01/ses-02/eeg/sub-01_ses-02_task-rest_acq-hd_run-03_eeg.set",
+    );
+    expect(formatViewSpec(entry)).toBe("sub-01_ses-02_task-rest_acq-hd_run-03");
+  });
+
+  it("round-trips through parseViewSpec", () => {
+    const entry = parseRecordingPath("sub-01/eeg/sub-01_task-oddball_run-02_eeg.set");
+    expect(parseViewSpec(formatViewSpec(entry))).toEqual({
+      sub: "01",
+      task: "oddball",
+      run: "02",
+    });
+  });
+
+  it("falls back to the path for a recording with no entities", () => {
+    const entry = parseRecordingPath("raw/session1/recording.edf");
+    expect(formatViewSpec(entry)).toBe("raw/session1/recording.edf");
+  });
+});
+
+describe("matchRecordingSpec", () => {
+  const list = buildRecordingList(TWO_TASKS);
+  const sessioned = buildRecordingList(SESSIONED);
+
+  it("resolves a fully specified recording", () => {
+    expect(matchRecordingSpec(list, { sub: "01", task: "oddball", run: "02" })?.path).toBe(
+      "sub-01/eeg/sub-01_task-oddball_run-02_eeg.set",
+    );
+  });
+
+  it("resolves a subject to their first recording in the nav order", () => {
+    expect(matchRecordingSpec(list, { sub: "02" })?.path).toBe(
+      "sub-02/eeg/sub-02_task-oddball_run-01_eeg.set",
+    );
+  });
+
+  it("resolves a task alone to the first recording of that task", () => {
+    expect(matchRecordingSpec(list, { task: "rest" })?.path).toBe(
+      "sub-01/eeg/sub-01_task-rest_eeg.set",
+    );
+  });
+
+  it("honours the requested nav order", () => {
+    expect(matchRecordingSpec(sessioned, { task: "oddball" }, "subjects")?.path).toBe(
+      "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_run-01_eeg.bdf",
+    );
+  });
+
+  it("drops the least significant entity to keep the subject", () => {
+    // sub-02 has no run-02 of anything; the subject survives, the run does not.
+    expect(matchRecordingSpec(list, { sub: "02", task: "oddball", run: "02" })?.path).toBe(
+      "sub-02/eeg/sub-02_task-oddball_run-01_eeg.set",
+    );
+  });
+
+  it("drops a task the subject never ran rather than changing subject", () => {
+    const single = buildRecordingList(["sub-01/eeg/sub-01_task-rest_eeg.set"]);
+    expect(matchRecordingSpec(single, { sub: "01", task: "oddball" })?.path).toBe(
+      "sub-01/eeg/sub-01_task-rest_eeg.set",
+    );
+  });
+
+  it("returns null rather than opening another subject's recording", () => {
+    // The relaxation stops before the spec empties, so a subject the dataset
+    // does not have never resolves to whoever happens to have run the task.
+    expect(matchRecordingSpec(list, { sub: "99", task: "rest" })).toBeNull();
+    expect(matchRecordingSpec(list, { sub: "99" })).toBeNull();
+  });
+
+  it("matches a numeric label across leading zeros", () => {
+    expect(matchRecordingSpec(list, { sub: "1", task: "rest" })?.path).toBe(
+      "sub-01/eeg/sub-01_task-rest_eeg.set",
+    );
+    expect(matchRecordingSpec(sessioned, { sub: "1", ses: "2" })?.path).toBe(
+      "sub-01/ses-02/eeg/sub-01_ses-02_task-oddball_run-01_eeg.bdf",
+    );
+  });
+
+  it("prefers an exact label over a zero-tolerant one", () => {
+    // A dataset carrying both `sub-1` and `sub-01` must not have one link
+    // silently resolve to the other.
+    const both = buildRecordingList([
+      "sub-01/eeg/sub-01_task-rest_eeg.set",
+      "sub-1/eeg/sub-1_task-rest_eeg.set",
+    ]);
+    expect(matchRecordingSpec(both, { sub: "1" })?.path).toBe("sub-1/eeg/sub-1_task-rest_eeg.set");
+    expect(matchRecordingSpec(both, { sub: "01" })?.path).toBe(
+      "sub-01/eeg/sub-01_task-rest_eeg.set",
+    );
+  });
+
+  it("does not stretch the tolerance to non-numeric labels", () => {
+    expect(matchRecordingSpec(list, { sub: "01", task: "REST" })?.task).toBe("oddball");
+  });
+
+  it("returns null for an empty spec or an empty list", () => {
+    expect(matchRecordingSpec(list, {})).toBeNull();
+    expect(matchRecordingSpec([], { sub: "01" })).toBeNull();
+  });
+});
+
+describe("resolveViewParam", () => {
+  const list = buildRecordingList(TWO_TASKS);
+
+  it("resolves an entity string", () => {
+    expect(resolveViewParam(list, "sub-02_task-rest")?.path).toBe(
+      "sub-02/eeg/sub-02_task-rest_eeg.set",
+    );
+  });
+
+  it("resolves an exact path", () => {
+    expect(resolveViewParam(list, "sub-01/eeg/sub-01_task-oddball_run-02_eeg.set")?.path).toBe(
+      "sub-01/eeg/sub-01_task-oddball_run-02_eeg.set",
+    );
+  });
+
+  it("resolves a path that carries no entities at all", () => {
+    // The `formatViewSpec` fallback for a non-BIDS dataset has to come back in.
+    const raw = buildRecordingList(["raw/session1/recording.edf"]);
+    const link = formatViewSpec(raw[0]);
+    expect(resolveViewParam(raw, link)?.path).toBe("raw/session1/recording.edf");
+  });
+
+  it("returns null for a missing, empty or unmatchable value", () => {
+    expect(resolveViewParam(list, null)).toBeNull();
+    expect(resolveViewParam(list, "")).toBeNull();
+    expect(resolveViewParam(list, "not-an-entity-string")).toBeNull();
+    expect(resolveViewParam(list, "sub-99")).toBeNull();
   });
 });
 
