@@ -17,11 +17,21 @@
  *
  * The `next` validation is the important one. A visitor arrives carrying an attacker-supplied
  * `next`, and the value ends up in a `Location` header pointed at another host, so this is an
- * open-redirect boundary rather than a tidiness check. It is written as two independent gates —
- * a string-shape gate and a URL-resolution gate — because the two see different attacks: the
- * string gate catches what a `Location` header parser would do with a raw control character,
- * and the resolution gate catches the WHATWG normalizations a string view misses (a backslash
- * that is really a path separator, a percent-encoded `..`).
+ * open-redirect boundary rather than a tidiness check. It is written as two independent gates,
+ * a string-shape gate and a URL-resolution gate.
+ *
+ * BE HONEST ABOUT WHICH ONE DECIDES. The string gate does all of the deciding: it requires the
+ * value to literally begin with `/admin/`, in both its literal and its once-decoded form, so a
+ * backslash, a protocol-relative `//host`, an absolute URL, a control character and every
+ * spelling of `..` are all refused before the resolver ever runs. Searched over the input space,
+ * the set of values the string gate accepts and the resolution gate then refuses is empty. The
+ * resolution gate is kept as belt and braces, and it decides exactly one real case: a `docsBase`
+ * that does not parse, which `docsHandoffTarget` now refuses upstream anyway.
+ *
+ * This comment used to claim the reverse, that the resolver caught a backslash and a
+ * percent-encoded `..` the string view missed. It does not, and that rationale was transplanted
+ * from `safeRedirectPath`, whose prefix rule is only `/`. Anyone trimming the string gate on the
+ * strength of the old wording would have removed the half that actually enforces this.
  */
 
 import { resolveDocsBase } from "./docs-base";
@@ -74,6 +84,47 @@ export type DocsHandoffTarget =
   | { readonly kind: "misconfigured"; readonly reason: string };
 
 /**
+ * Whether an operator-supplied docs base is a host this deployment may hand a live grant code to.
+ *
+ * An absolute `https://` URL on `nemar.org` or a subdomain of it, carrying no path, query or
+ * fragment. Everything else is refused, because {@link docsHandoffTarget} honors a configured
+ * value without further question and the value ends up as the ORIGIN of a `Location` header that
+ * carries a one-time code.
+ *
+ * The shape this exists to catch is a missing scheme, which is the likeliest env typo and the one
+ * with the worst outcome. `PUBLIC_DOCS_BASE_URL="docs-test.nemar.org"` used to be accepted as
+ * `ready`; `docsCallbackUrl` then produced a RELATIVE `Location`, so the browser resolved it
+ * against this page's own URL and the code landed at
+ * `https://app.nemar.org/auth/docs/docs-test.nemar.org/__docs-auth/callback?code=...` -- a live
+ * grant written into the app host's access log, its 404 page URL and any `Referer` that page
+ * sends, on a host that cannot spend it. `new URL(value)` is what separates the two cases: it
+ * throws on a bare hostname and succeeds on an absolute URL.
+ *
+ * `http:` is refused off-loopback: the docs cookie is `Secure` and `__Host-` prefixed, so a
+ * plaintext origin could never complete the handoff anyway, and minting a code toward one only
+ * puts it on the wire in the clear.
+ */
+function isUsableDocsBase(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  // The same host rule the backend applies to an Origin (`isAllowedOrigin` in
+  // `backend/src/services/web-session.ts`): a NEMAR host over https, or loopback for local dev,
+  // where a code cannot leave the machine. Deliberately narrow, because there is no legitimate
+  // third-party docs host and a typo pointing at one would hand it a live grant code.
+  const loopback = host === "localhost" || host === "127.0.0.1";
+  if (!loopback && url.protocol !== "https:") return false;
+  if (!loopback && host !== "nemar.org" && !host.endsWith(".nemar.org")) return false;
+  // A base carrying a path would put the callback somewhere the docs Function does not serve, and
+  // a query or fragment would be silently dropped by `docsCallbackUrl`'s own query building.
+  return (url.pathname === "/" || url.pathname === "") && !url.search && !url.hash;
+}
+
+/**
  * Which docs host this deployment may hand off to, or a refusal.
  *
  * This exists because the two halves of the handoff resolve their hosts from DIFFERENT variables,
@@ -86,7 +137,7 @@ export type DocsHandoffTarget =
  * staging walkthrough silently ends up validating production, and every attempt leaves an
  * unredeemable row behind.
  *
- * So the rule is: an explicitly configured docs base is always honoured, because an operator who
+ * So the rule is: an explicitly configured docs base is always honored, because an operator who
  * sets it has said what they mean; otherwise the handoff is only offered when the API is production
  * too. Refusing BEFORE the grant is minted is the point — a refusal afterwards would still have
  * written the row and still have sent the visitor to the wrong host.
@@ -99,7 +150,18 @@ export function docsHandoffTarget(
   configuredDocsBase: string | null | undefined,
 ): DocsHandoffTarget {
   const trim = (v: string) => v.replace(/\/$/, "");
-  if (configuredDocsBase) return { kind: "ready", docsBase: trim(configuredDocsBase) };
+  if (configuredDocsBase) {
+    // Validated rather than trusted. An operator who sets this has said what they mean, but a
+    // value that is not an absolute https URL on a NEMAR host cannot be what they meant, and
+    // honoring it mints a real code toward a host that can never spend it.
+    if (!isUsableDocsBase(configuredDocsBase)) {
+      return {
+        kind: "misconfigured",
+        reason: `PUBLIC_DOCS_BASE_URL is ${JSON.stringify(configuredDocsBase)}, which is not an absolute https URL on a nemar.org host; a grant minted here would be redirected to a host that cannot spend it`,
+      };
+    }
+    return { kind: "ready", docsBase: trim(configuredDocsBase) };
+  }
   if (trim(apiBaseUrl) === PROD_API_BASE) return { kind: "ready", docsBase: PROD_DOCS_BASE };
   return {
     kind: "misconfigured",
@@ -162,6 +224,13 @@ function isPlainAdminPath(value: string): boolean {
  * a protocol-relative URL wearing an encoding and only the decoded view sees that. Both forms
  * must pass, so a value whose two views disagree (`/%61dmin/x`, an admin path only after
  * decoding) is refused rather than guessed at.
+ *
+ * REFUSES SOME LEGITIMATE INPUT, deliberately, and this is the place that says so. The control
+ * character and backslash checks run over the WHOLE value, query string included, and over the
+ * decoded view as well, so `/admin/x?q=a%5Cb` and `/admin/x?q=%0A` are both downgraded to
+ * {@link DOCS_DEFAULT_NEXT} even though they are same-origin admin paths. Nothing on the docs
+ * admin tree carries a query today (it is static Starlight output), so this costs nothing now.
+ * If that changes, this is the rule to revisit, not the caller.
  *
  * `docsBase` is injectable for the same reason `resolveDocsBase` takes an override: the resolved
  * origin is what gate two compares against, and a test should not have to reach through

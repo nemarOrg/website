@@ -196,6 +196,17 @@ describe("safeDocsNext: absent, malformed and oversized input", () => {
     expect(safeDocsNext(nearLimit, DOCS)).toBe(nearLimit);
   });
 
+  it("pins the exact boundary, since off by one is the only way the cap breaks", () => {
+    // 512 is MAX_NEXT_LENGTH. Testing 400 and 600 leaves the constant free to drift by one in
+    // either direction without a single test noticing.
+    const at = `/admin/${"a".repeat(512 - "/admin/".length)}`;
+    expect(at.length).toBe(512);
+    expect(safeDocsNext(at, DOCS)).toBe(at);
+    const over = `${at}a`;
+    expect(over.length).toBe(513);
+    expect(safeDocsNext(over, DOCS)).toBe(DOCS_DEFAULT_NEXT);
+  });
+
   it("defaults when the docs base itself will not parse", () => {
     // Misconfigured `PUBLIC_DOCS_BASE_URL`. The gate fails closed rather than throwing at render.
     expect(safeDocsNext("/admin/x", "not-a-url")).toBe(DOCS_DEFAULT_NEXT);
@@ -348,7 +359,7 @@ describe("docsHandoffTarget", () => {
     expect(target).toEqual({ kind: "ready", docsBase: "https://docs.nemar.org" });
   });
 
-  it("honours an explicitly configured docs base, whatever the API is", () => {
+  it("honors an explicitly configured docs base, whatever the API is", () => {
     // The day docs-test.nemar.org exists, setting the variable is the whole change.
     expect(docsHandoffTarget("https://api-test.nemar.org", "https://docs-test.nemar.org")).toEqual({
       kind: "ready",
@@ -358,10 +369,62 @@ describe("docsHandoffTarget", () => {
 
   it("tolerates a trailing slash on either value", () => {
     expect(docsHandoffTarget("https://api.nemar.org/", null).kind).toBe("ready");
-    expect(docsHandoffTarget("https://api-test.nemar.org", "https://d.example/")).toEqual({
+    expect(docsHandoffTarget("https://api-test.nemar.org", "https://docs-test.nemar.org/")).toEqual(
+      { kind: "ready", docsBase: "https://docs-test.nemar.org" },
+    );
+  });
+
+  // A configured base is honored without further question, so it has to be a base that can
+  // actually receive the redirect. The shape that matters is a MISSING SCHEME, which is the
+  // likeliest env typo and the one with the worst outcome: `docsCallbackUrl` then emits a
+  // RELATIVE Location, the browser resolves it against this page's own URL, and a live one-time
+  // grant code lands at https://app.nemar.org/auth/docs/<the-value>/__docs-auth/callback?code=...
+  // -- in the app host's access log, its 404 page URL, and any Referer that page sends.
+  //
+  // Latent until someone sets the variable, which is exactly what the module docstring describes
+  // as "the whole change" the day a docs staging host appears.
+  it("refuses a docs base with no scheme, before any grant is minted", () => {
+    const target = docsHandoffTarget("https://api-test.nemar.org", "docs-test.nemar.org");
+    expect(target.kind).toBe("misconfigured");
+  });
+
+  it("refuses a docs base that is not a NEMAR host", () => {
+    expect(docsHandoffTarget("https://api.nemar.org", "https://d.example").kind).toBe(
+      "misconfigured",
+    );
+    // Not a subdomain of nemar.org, however much it looks like one.
+    expect(docsHandoffTarget("https://api.nemar.org", "https://nemar.org.evil.test").kind).toBe(
+      "misconfigured",
+    );
+  });
+
+  it("refuses plaintext off loopback, and a base carrying a path, query or fragment", () => {
+    expect(docsHandoffTarget("https://api.nemar.org", "http://docs.nemar.org").kind).toBe(
+      "misconfigured",
+    );
+    expect(docsHandoffTarget("https://api.nemar.org", "https://docs.nemar.org/docs").kind).toBe(
+      "misconfigured",
+    );
+    expect(docsHandoffTarget("https://api.nemar.org", "https://docs.nemar.org/?a=1").kind).toBe(
+      "misconfigured",
+    );
+    expect(docsHandoffTarget("https://api.nemar.org", "https://docs.nemar.org/#x").kind).toBe(
+      "misconfigured",
+    );
+  });
+
+  it("allows loopback, so a local run can point at a docs server on this machine", () => {
+    expect(docsHandoffTarget("http://localhost:8787", "http://localhost:4321")).toEqual({
       kind: "ready",
-      docsBase: "https://d.example",
+      docsBase: "http://localhost:4321",
     });
+  });
+
+  it("names the refused value in the reason, for the log", () => {
+    const target = docsHandoffTarget("https://api.nemar.org", "docs-test.nemar.org");
+    if (target.kind !== "misconfigured") throw new Error("expected a refusal");
+    expect(target.reason).toContain("docs-test.nemar.org");
+    expect(target.reason).toContain("absolute https URL");
   });
 
   it("names the reason it refused, for the log", () => {
