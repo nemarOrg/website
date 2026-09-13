@@ -97,17 +97,26 @@ jobs:
       # re-checks the exact pair about to ship together.
       #
       # See nemar-cli ADR 0046.
+      #
+      # The same sparse checkout now serves a SECOND drift test,
+      # test/docs-auth-contract-drift.test.ts, against
+      # shared/contract/docs-auth.ts. Everything above applies to it unchanged:
+      # same repo, same `dev` ref pairing, same reason. Adding a path to the
+      # sparse-checkout list is the whole cost of covering another contract.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
           path: nemar-cli-contract
-          sparse-checkout: /shared/contract/account-copy.ts
+          sparse-checkout: |
+            /shared/contract/account-copy.ts
+            /shared/contract/docs-auth.ts
           sparse-checkout-cone-mode: false
           ref: dev
       - name: Vitest
         run: bun run test
         env:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
+          NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
 
   build:
     name: build
