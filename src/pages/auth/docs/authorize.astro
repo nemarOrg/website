@@ -99,10 +99,21 @@ if (handoff.kind === "ready") {
   // about why. A 503 rather than a 200, so an auth-path outage is visible to uptime monitoring
   // instead of reading as a page that rendered fine. Both halves of the docs side answer honestly
   // for the same reason (503 from the gate, 400 from the callback).
-  Astro.response.status = 503;
+  //
+  // Written as an explicit branch rather than a fall-through so there is real code carrying the
+  // word: the UI test used to anchor its assertion on the comment above, which meant a reword
+  // could have failed it and a logic change could not.
+  if (outcome.kind === "unavailable") {
+    Astro.response.status = 503;
+  }
 } else {
+  // A DIFFERENT status from the 503 above, and the distinction is the point. `unavailable` is
+  // transient and recovers on its own; a misconfigured deployment is a standing, deliberate
+  // refusal that will never recover without an operator, and on staging EVERY hit to this page is
+  // one. Answering both 503 would bury the real auth-path outage the 503 was chosen to surface
+  // under constant staging noise. 501 reads correctly: this deployment does not offer the handoff.
   console.warn(`[docs-authorize] refusing the handoff: ${handoff.reason}`);
-  Astro.response.status = 503;
+  Astro.response.status = 501;
 }
 ---
 

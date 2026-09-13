@@ -35,6 +35,16 @@ describe("the environment check runs before anything is minted", () => {
     );
   });
 
+  it("proves the visitor is an admin before it asks for a code", () => {
+    // `adminGate` runs first, so a signed-out visitor and a signed-in non-admin never reach the
+    // grant call at all. Same two-indexOf shape as the ready-before-grant check below, and the
+    // same reason: the ordering is the security property, and nothing else pins it.
+    const gateAt = DOCS_AUTHORIZE_PAGE.indexOf("adminGate(session, here)");
+    const grantAt = DOCS_AUTHORIZE_PAGE.indexOf("await requestDocsGrant(");
+    expect(gateAt).toBeGreaterThan(-1);
+    expect(grantAt).toBeGreaterThan(gateAt);
+  });
+
   it("only calls the backend inside the ready branch", () => {
     // The order is the whole point: a grant minted on a deployment whose docs base is production
     // while its API is not could only be spent against a database that never saw it, and the
@@ -45,8 +55,12 @@ describe("the environment check runs before anything is minted", () => {
     expect(grantAt).toBeGreaterThan(readyAt);
   });
 
-  it("answers 503 rather than 200 when it refuses", () => {
-    expect(DOCS_AUTHORIZE_PAGE).toMatch(/handoff\.reason[\s\S]{0,120}Astro\.response\.status = 503/);
+  it("answers 501 when it refuses, distinct from the transient 503", () => {
+    // Two different failures must not share a status. `unavailable` is transient and recovers on
+    // its own; a misconfigured deployment is a standing refusal that never will, and on staging
+    // EVERY hit to this page is one. Sharing 503 buries the real auth-path outage under staging
+    // noise, which is the opposite of why that 503 was chosen.
+    expect(DOCS_AUTHORIZE_PAGE).toMatch(/handoff\.reason[\s\S]{0,120}Astro\.response\.status = 501/);
   });
 });
 
@@ -84,7 +98,14 @@ describe("each outcome maps to one destination", () => {
   });
 
   it("answers 503 for an unavailable backend instead of rendering a 200", () => {
-    expect(DOCS_AUTHORIZE_PAGE).toMatch(/unavailable[\s\S]{0,400}Astro\.response\.status = 503/);
+    // Anchored on the BRANCH, not on prose. This assertion used to match `unavailable` anywhere
+    // within 400 characters of the status line, and the only occurrence of that word in the page
+    // was a comment: the test passed because of a comment and would have gone red on a reword
+    // while staying green on a logic change. The page now carries an explicit
+    // `if (outcome.kind === "unavailable")` for the assertion to bind to.
+    expect(DOCS_AUTHORIZE_PAGE).toMatch(
+      /outcome\.kind === "unavailable"\s*\)\s*\{\s*Astro\.response\.status = 503/,
+    );
   });
 });
 
