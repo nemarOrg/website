@@ -12,13 +12,22 @@ interface Props {
    * the README directly from GitHub raw after page load. Cuts SSR critical
    * path by ~500–1500 ms and avoids the website worker entirely (the partial
    * endpoint pipeline that hosted /api/dataset/<id>/readme was retired in
-   * #76 — README now comes straight from raw.githubusercontent.com).
+   * #76; the README now comes from the data plane, see `dataBase` below).
    */
   defer?: boolean;
   datasetId?: string;
   version?: string | null;
-  /** owner/repo slug for the GitHub raw fetch. e.g. "nemarDatasets/on005514". */
-  githubRepo?: string | null;
+  /**
+   * Data-plane origin the README is fetched from, e.g. `https://data.nemar.org`.
+   *
+   * Replaces the old raw.githubusercontent.com fetch (nemarOrg/nemar-cli#1403
+   * built the broker that serves a dataset's git-tracked files, README
+   * included, whether its repository is public or private). That removes a
+   * third-party host from this page AND is what makes the panel work at all
+   * for a blinded deposit, whose repository is private and whose raw URL
+   * therefore 404s.
+   */
+  dataBase?: string | null;
   /** Optional fallback rendered if GitHub raw returns 404/error. Plain text
    *  from metadata.description; the client wraps it in a fallback-note shell. */
   fallbackDescription?: string | null;
@@ -31,14 +40,14 @@ const {
   defer = false,
   datasetId = null,
   version = null,
-  githubRepo = null,
+  dataBase = null,
   fallbackDescription = null,
 } = Astro.props;
 
 const html = !defer && source ? renderMarkdown(source) : null;
 const noscriptHref =
-  defer && githubRepo && version
-    ? `https://raw.githubusercontent.com/${githubRepo}/${encodeURIComponent(version)}/README.md`
+  defer && dataBase && datasetId && version
+    ? `${dataBase}/${datasetId}/${encodeURIComponent(version)}/README.md`
     : null;
 ---
 
@@ -48,7 +57,7 @@ const noscriptHref =
     data-readme-defer
     data-id={datasetId}
     data-version={version}
-    data-github-repo={githubRepo ?? ""}
+    data-data-base={dataBase ?? ""}
     data-fallback-desc={fallbackDescription ?? ""}
     aria-busy="true"
   >
