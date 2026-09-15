@@ -13,7 +13,6 @@ import Base from "../../layouts/Base.astro";
 import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
 import { apiBase } from "../../lib/api-base";
 import { datasetCitation } from "../../lib/cite";
-import { ORG_DATASETS } from "../../lib/constants";
 import {
   archiveZipUrl,
   getLandingOutcome,
@@ -156,7 +155,7 @@ const cite = datasetDoi
   : null;
 
 // README and BIDS tree hydrate client-side (see the <script> block at the
-// bottom of this file): README from raw.githubusercontent.com directly,
+// bottom of this file): README from the data plane,
 // tree from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636). SSR
 // critical path only awaits landing + metadata + catalog row + QA.
 
@@ -231,20 +230,21 @@ const signpostingLinks = buildSignposting({
 });
 Astro.response.headers.set("Link", signpostingLinkHeader(signpostingLinks));
 
-const githubUrl = metadata.external_links.github_url ?? `https://github.com/${ORG_DATASETS}/${id}`;
-// Owner/repo slug for the client-side GitHub raw fetch. Strips the
-// `https://github.com/` prefix + any trailing slash + any `.git` suffix
-// so raw.githubusercontent.com/<slug>/<version>/README.md resolves.
-// Falls back to `${ORG_DATASETS}/${id}` (the same default used for
-// githubUrl) when metadata doesn't specify a repo.
-// Trailing-slash strip MUST run before the `.git` strip — a URL ending in
-// `.git/` would otherwise leave `.git` in the slug because the `$` anchor
-// requires the literal to be the final char.
-const githubRepoSlug = githubUrl
-  .replace(/^https?:\/\/github\.com\//, "")
-  .replace(/\/$/, "")
-  .replace(/\.git$/, "");
-const issuesUrl = `${githubUrl}/issues`;
+// The dataset is a blinded deposit: served here exactly as any public
+// dataset is, while its repository stays private and its depositor is
+// withheld until publication (nemarOrg/nemar-cli#1408). The data plane says
+// so directly rather than leaving it to be inferred from empty authors --
+// "withheld" and "missing" look identical otherwise, and a reader who cannot
+// tell them apart concludes the record is broken.
+const anonymousDeposit = metadata.anonymous === true;
+
+// NO FALLBACK. This used to be
+// `metadata.external_links.github_url ?? <a fabricated nemarDatasets URL>`,
+// which made the server-side withholding useless: the backend nulls this field
+// for an anonymous deposit, and the page invented the URL straight back. Now an
+// absent URL means every GitHub route is absent, here and in ActionBar.
+const githubUrl = metadata.external_links.github_url;
+const issuesUrl = githubUrl ? `${githubUrl}/issues` : null;
 const openneuroId = provenance.kind === "derived" ? (provenance.originalDatasetId ?? null) : null;
 const archiveUrl = selectedVersion ? archiveZipUrl(id, selectedVersion) : null;
 const ogImageVersion = String(import.meta.env.CF_PAGES_COMMIT_SHA ?? "static-v1").slice(0, 12);
@@ -309,6 +309,14 @@ Astro.response.headers.set(
       )}
       <div class="detail__chips">
         {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
+        {anonymousDeposit && (
+          <Tag
+            kind="warning"
+            value="Anonymous deposit"
+            title="Under double-blind review: authorship is withheld until the paper is accepted."
+            size="md"
+          />
+        )}
         {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} size="md" />}
       </div>
       <div class="detail__actions">
@@ -334,10 +342,29 @@ Astro.response.headers.set(
 
     <div class="container detail__body">
       <div class="detail__main">
+        {anonymousDeposit && (
+          <div class="detail__anonymous" role="note">
+            <h2>Authorship is temporarily withheld</h2>
+            <p>
+              This dataset is deposited for double-blind peer review. The data is complete and
+              free to download, exactly as any other public dataset here; only the depositor's
+              identity is withheld, and the dataset repository stays private until the
+              associated paper is accepted. It will be attributed on release, and its DOI
+              becomes citable then.
+            </p>
+          </div>
+        )}
         {unpublished && (
           <div class="detail__unpublished">
             <h2>Not yet published</h2>
-            <p>This dataset has been registered but no published version is available yet. Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</p>
+            <p>
+              This dataset has been registered but no published version is available yet.
+              {githubUrl ? (
+                <Fragment> Check back later or visit the <a href={githubUrl} rel="external">dataset repository</a> for curation progress.</Fragment>
+              ) : (
+                <Fragment> Check back later for curation progress.</Fragment>
+              )}
+            </p>
           </div>
         )}
         {!unpublished && (
@@ -346,7 +373,7 @@ Astro.response.headers.set(
               defer
               datasetId={id}
               version={selectedVersion}
-              githubRepo={githubRepoSlug}
+              dataBase={resolveDataBase()}
               fallbackDescription={
                 metadata.description && metadata.description !== metadata.name
                   ? metadata.description
@@ -558,32 +585,35 @@ Astro.response.headers.set(
    * warm. The pipeline was the actual failure surface for the user-visible
    * "No description available" / "Manifest unavailable" placeholders.
    *
-   * Now: README comes from raw.githubusercontent.com via GitHub's CDN;
-   * tree comes from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636 /
-   * v0.8.37 — typically a small top-level JSON with real per-file sizes
-   * and native lazy-per-directory). No website worker in the chain.
+   * Now: README and tree BOTH come from data.nemar.org (nemar-cli#636 /
+   * v0.8.37 for the tree; #1403's broker for the README, which serves a
+   * dataset's git-tracked files whether its repository is public or private).
+   * No website worker in the chain, and no third-party content host either --
+   * the README used to come from raw.githubusercontent.com, which 404s for a
+   * blinded deposit and put GitHub in the page's critical path for every
+   * other dataset.
    */
 
   async function hydrateReadme(article: HTMLElement): Promise<void> {
     const datasetId = article.dataset.id;
     const version = article.dataset.version;
-    const repo = article.dataset.githubRepo;
+    const base = article.dataset.dataBase;
     const fallbackDesc = article.dataset.fallbackDesc ?? "";
     if (!datasetId || !version) return;
 
     let markdown: string | null = null;
-    if (repo) {
-      // Tagged version first. README content is per-version; the dataset
-      // repo's tag matches the published version label.
-      const rawUrl = `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(version)}/README.md`;
+    if (base) {
+      // README content is per-version, and the data plane addresses it by the
+      // same version label the rest of this page uses.
+      const readmeUrl = `${base}/${datasetId}/${encodeURIComponent(version)}/README.md`;
       try {
-        const res = await fetch(rawUrl);
+        const res = await fetch(readmeUrl);
         if (res.ok) {
           const text = await res.text();
           if (text.trim().length > 0) markdown = text;
         }
       } catch (err) {
-        console.warn(`[readme/${datasetId}] GitHub raw fetch failed:`, err);
+        console.warn(`[readme/${datasetId}] data-plane README fetch failed:`, err);
       }
     }
 
@@ -2565,6 +2595,20 @@ Astro.response.headers.set(
     margin-block-end: var(--space-2);
   }
   .detail__unpublished p {
+    color: var(--color-fg-muted);
+    line-height: var(--lh-relaxed);
+  }
+  .detail__anonymous {
+    padding: var(--space-6);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 5%, var(--color-bg));
+    border-radius: var(--radius-lg);
+  }
+  .detail__anonymous h2 {
+    font-size: var(--fs-lg);
+    margin-block-end: var(--space-2);
+  }
+  .detail__anonymous p {
     color: var(--color-fg-muted);
     line-height: var(--lh-relaxed);
   }

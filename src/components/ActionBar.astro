@@ -8,7 +8,13 @@ interface Props {
   version: string | null;
   archiveUrl: string | null;
   archive?: LandingArchive | null;
-  issuesUrl: string;
+  /**
+   * Null when the dataset has no reachable repository -- an anonymous deposit
+   * (nemarOrg/nemar-cli#1408) keeps its repo private until publication. The
+   * Issues button is gated on this too: it used to be `string`, so it always
+   * rendered and always pointed at `<repo>/issues`.
+   */
+  issuesUrl: string | null;
   githubUrl: string | null;
   openneuroId: string | null;
 }
@@ -28,7 +34,13 @@ const archiveReady = archive?.status === "ready";
 const archiveSkipReason = archive?.skip_reason ?? null;
 const archiveSizeGb =
   typeof archive?.size === "number" ? (archive.size / 1_000_000_000).toFixed(1) : null;
-const ghCloneUrl = githubUrl ?? `https://github.com/nemarDatasets/${ds}`;
+// NO FALLBACK. This used to be `githubUrl ?? \`https://github.com/nemarDatasets/${ds}\``,
+// which meant nulling the URL server-side changed nothing: the button
+// disappeared while the copyable clone commands below still handed the visitor
+// the repository address. An anonymous deposit's repo is private, so those
+// commands would fail for a reviewer AND disclose that a repo exists under a
+// predictable name. When there is no URL there are no git routes, full stop.
+const ghCloneUrl = githubUrl;
 
 // Resolve the data-plane host per environment (data.nemar.org on prod,
 // data-test.nemar.org on staging) so the copyable commands and direct link
@@ -38,8 +50,10 @@ const dataHost = new URL(dataBase).host;
 
 // Per-method commands, each separately copyable in the modal.
 const cliCmd = `nemar dataset download ${ds}`;
-const dataladCmd = `datalad clone ${ghCloneUrl} ${ds}\ncd ${ds} && datalad get .`;
-const annexCmd = `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .`;
+const dataladCmd = ghCloneUrl
+  ? `datalad clone ${ghCloneUrl} ${ds}\ncd ${ds} && datalad get .`
+  : null;
+const annexCmd = ghCloneUrl ? `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .` : null;
 const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt\nwget -xc -i urls.txt`;
 ---
 
@@ -78,14 +92,16 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     </svg>
     <span data-citations-label>Citations</span>
   </button>
-  <a class="action action--ghost" href={issuesUrl} rel="external">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10"/>
-      <line x1="12" y1="8" x2="12" y2="12"/>
-      <line x1="12" y1="16" x2="12" y2="16"/>
-    </svg>
-    Issues
-  </a>
+  {issuesUrl && (
+    <a class="action action--ghost" href={issuesUrl} rel="external">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12" y2="16"/>
+      </svg>
+      Issues
+    </a>
+  )}
   {githubUrl && (
     <a class="action action--ghost" href={githubUrl} rel="external">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -137,29 +153,33 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
       </div>
     </li>
 
-    <li>
-      <strong>DataLad</strong>
-      <p>
-        Clone the dataset repo and fetch file content on demand.
-        <a href={`${downloadGuideUrl}#datalad`} rel="external">Docs →</a>
-      </p>
-      <div class="dl-cmd">
-        <pre><code>{dataladCmd}</code></pre>
-        <button class="dl-cmd__copy" type="button" data-copy-text={dataladCmd} aria-label="Copy DataLad commands">Copy</button>
-      </div>
-    </li>
+    {dataladCmd && (
+      <li>
+        <strong>DataLad</strong>
+        <p>
+          Clone the dataset repo and fetch file content on demand.
+          <a href={`${downloadGuideUrl}#datalad`} rel="external">Docs →</a>
+        </p>
+        <div class="dl-cmd">
+          <pre><code>{dataladCmd}</code></pre>
+          <button class="dl-cmd__copy" type="button" data-copy-text={dataladCmd} aria-label="Copy DataLad commands">Copy</button>
+        </div>
+      </li>
+    )}
 
-    <li>
-      <strong>git-annex</strong>
-      <p>
-        Plain git + git-annex against the dataset repo.
-        <a href={`${downloadGuideUrl}#git-annex`} rel="external">Docs →</a>
-      </p>
-      <div class="dl-cmd">
-        <pre><code>{annexCmd}</code></pre>
-        <button class="dl-cmd__copy" type="button" data-copy-text={annexCmd} aria-label="Copy git-annex commands">Copy</button>
-      </div>
-    </li>
+    {annexCmd && (
+      <li>
+        <strong>git-annex</strong>
+        <p>
+          Plain git + git-annex against the dataset repo.
+          <a href={`${downloadGuideUrl}#git-annex`} rel="external">Docs →</a>
+        </p>
+        <div class="dl-cmd">
+          <pre><code>{annexCmd}</code></pre>
+          <button class="dl-cmd__copy" type="button" data-copy-text={annexCmd} aria-label="Copy git-annex commands">Copy</button>
+        </div>
+      </li>
+    )}
 
     <li>
       <strong>Direct files (wget / curl / rclone)</strong>

@@ -79,6 +79,16 @@ export interface NeuroschemaDataset {
   bids_version: string | null;
   license: string | null;
   authors: Author[];
+  /**
+   * The depositor is concealed until publication -- a blinded deposit for a
+   * double-blind venue (nemarOrg/nemar-cli#1408). `authors` is deliberately
+   * empty and `external_links` withholds both the repository and the DOI.
+   *
+   * Optional because older data-plane documents predate the field; absent
+   * means "not anonymous", which is the correct reading for every dataset
+   * published before this shipped.
+   */
+  anonymous?: boolean;
   keywords: string[];
   related_identifiers: RelatedIdentifier[];
   contributors: Author[];
