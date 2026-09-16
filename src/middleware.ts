@@ -38,8 +38,6 @@ import {
  *     page that loads the codecs) so every other page keeps the strict policy.
  *   - style-src 'unsafe-inline'   — Astro inline scoped <style> blocks.
  *   - connect-src *.nemar.org       — api/data/dashboard/zarr client fetches.
- *   - connect-src raw.githubusercontent.com — dataset/[id].astro fetches the
- *     per-version README.md straight from the GitHub raw host client-side.
  *   - connect-src S3 upload hosts (only on /upload — see routeNeedsS3Upload):
  *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
@@ -66,7 +64,11 @@ export function routeNeedsUnsafeEval(pathname: string): boolean {
 }
 
 /** Base connect-src for every route: same-site APIs plus the raw README host. */
-const CONNECT_SRC_BASE = "connect-src 'self' https://*.nemar.org https://raw.githubusercontent.com";
+// raw.githubusercontent.com was here for the client-side README fetch. That
+// fetch moved to the data plane (nemarOrg/nemar-cli#1403) because a blinded
+// deposit's repository is private and its raw URL 404s, so the allowance has
+// no consumer left. Do not re-add it without a fetch that needs it.
+const CONNECT_SRC_BASE = "connect-src 'self' https://*.nemar.org";
 
 /**
  * The upload page PUTs file bytes straight to S3 via presigned URLs

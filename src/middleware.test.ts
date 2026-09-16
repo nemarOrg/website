@@ -606,8 +606,9 @@ describe("security headers", () => {
 
   it("CSP allows the origins the client actually fetches (regression guards)", () => {
     const csp = SECURITY_HEADERS["Content-Security-Policy"];
-    // Client-side README fetch in dataset/[id].astro.
-    expect(csp).toContain("https://raw.githubusercontent.com");
+    // raw.githubusercontent.com is deliberately NOT allowed: the README fetch
+    // moved to the data plane, and a blinded deposit's raw URL 404s anyway.
+    expect(csp).not.toContain("raw.githubusercontent.com");
     // api / data / dashboard / zarr client fetches.
     expect(csp).toContain("https://*.nemar.org");
     // zarrita blosc/lz4/zstd WebAssembly codecs.
