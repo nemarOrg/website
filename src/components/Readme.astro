@@ -5,14 +5,17 @@ interface Props {
   /** SSR source. When provided, README is rendered inline. */
   source?: string | null;
   /** What origin produced the rendered content. `null` = manifest README (no banner). */
-  fallbackKind?: "github" | "description" | null;
-  githubUrl?: string | null;
+  fallbackKind?: "description" | null;
   /**
    * When true, render an empty skeleton + data attrs and let the client fetch
-   * the README directly from GitHub raw after page load. Cuts SSR critical
+   * the README from the DATA PLANE after page load. Cuts SSR critical
    * path by ~500–1500 ms and avoids the website worker entirely (the partial
    * endpoint pipeline that hosted /api/dataset/<id>/readme was retired in
-   * #76; the README now comes from the data plane, see `dataBase` below).
+   * #76).
+   *
+   * This used to fetch raw.githubusercontent.com directly. It must not again:
+   * a blinded deposit's repository is PRIVATE, so the raw URL 404s, and asking
+   * for it at all discloses that the repository exists. See `dataBase`.
    */
   defer?: boolean;
   datasetId?: string;
@@ -28,7 +31,7 @@ interface Props {
    * therefore 404s.
    */
   dataBase?: string | null;
-  /** Optional fallback rendered if GitHub raw returns 404/error. Plain text
+  /** Optional fallback rendered if the data-plane fetch 404s or errors. Plain text
    *  from metadata.description; the client wraps it in a fallback-note shell. */
   fallbackDescription?: string | null;
 }
@@ -36,7 +39,6 @@ interface Props {
 const {
   source = null,
   fallbackKind = null,
-  githubUrl = null,
   defer = false,
   datasetId = null,
   version = null,
@@ -74,17 +76,6 @@ const noscriptHref =
   </article>
 ) : (
   <article class="readme">
-    {html && fallbackKind === "github" && (
-      <div class="readme__fallback-note" role="note">
-        <strong>README from GitHub repository</strong>
-        <span>
-          This README isn't in the version manifest yet. Showing the latest
-          from
-          {githubUrl ? <a href={githubUrl} rel="external">{githubUrl.replace(/^https?:\/\//, "")}</a> : <span>the dataset repository</span>}
-          instead.
-        </span>
-      </div>
-    )}
     {html && fallbackKind === "description" && (
       <div class="readme__fallback-note" role="note">
         <strong>Description (from dataset metadata)</strong>
@@ -113,8 +104,7 @@ const noscriptHref =
         <p>
           This dataset doesn't ship a README and the BIDS metadata has no
           description either. The file tree below and the metadata panel on
-          the right are the authoritative description for now. The dataset's
-          GitHub repository may have curation notes added later.
+          the right are the authoritative description for now.
         </p>
       </div>
     )}

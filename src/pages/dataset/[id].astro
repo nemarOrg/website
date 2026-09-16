@@ -155,8 +155,9 @@ const cite = datasetDoi
   : null;
 
 // README and BIDS tree hydrate client-side (see the <script> block at the
-// bottom of this file): README from the data plane,
-// tree from data.nemar.org/<id>/<v>/?format=json (nemar-cli#636). SSR
+// bottom of this file): README from the data plane (never the GitHub raw host
+// -- a blinded deposit is private there), tree from
+// data.nemar.org/<id>/<v>/?format=json (nemar-cli#636). SSR
 // critical path only awaits landing + metadata + catalog row + QA.
 
 const provenance = detectProvenance(metadata, landing);
@@ -346,11 +347,16 @@ Astro.response.headers.set(
           <div class="detail__anonymous" role="note">
             <h2>Authorship is temporarily withheld</h2>
             <p>
-              This dataset is deposited for double-blind peer review. The data is complete and
-              free to download, exactly as any other public dataset here; only the depositor's
-              identity is withheld, and the dataset repository stays private until the
-              associated paper is accepted. It will be attributed on release, and its DOI
-              becomes citable then.
+              This dataset is deposited for double-blind peer review. The data is public and
+              downloadable, exactly as any other dataset here. NEMAR is withholding the fields
+              it publishes about the depositor, and the dataset repository stays private, until
+              the depositor restores attribution and publishes. It is attributed then, and its
+              DOI becomes citable then.
+            </p>
+            <p class="detail__anonymous-caveat">
+              NEMAR withholds what it publishes; it cannot vouch for the files themselves. The
+              README, <code>dataset_description.json</code> and the participants files are the
+              depositor's own and are served as written.
             </p>
           </div>
         )}
@@ -640,7 +646,7 @@ Astro.response.headers.set(
       return;
     }
 
-    article.innerHTML = `<div class="readme__empty"><h2>No description available</h2><p>This dataset doesn't ship a README and the BIDS metadata has no description either. The file tree below and the metadata panel on the right are the authoritative description for now. The dataset's GitHub repository may have curation notes added later.</p></div>`;
+    article.innerHTML = `<div class="readme__empty"><h2>No description available</h2><p>This dataset doesn't ship a README and the BIDS metadata has no description either. The file tree below and the metadata panel on the right are the authoritative description for now.</p></div>`;
   }
 
   /** The expand/collapse shell the Readme.astro non-defer branch uses,

@@ -105,9 +105,21 @@ describe("the state is visible and explained", () => {
   it("an explanation is rendered, so absent authors do not read as a broken record", () => {
     expect(datasetPageSource).toContain("{anonymousDeposit && (");
     expect(datasetPageSource).toContain("Authorship is temporarily withheld");
-    // It must say the data itself is complete, and that attribution is coming.
+    // It must frame anonymity as TEMPORARY and pre-publication, and must not
+    // promise more than NEMAR enforces. NEMAR withholds the fields it
+    // publishes; the README, dataset_description.json and the participants
+    // files are the depositor's own and are served as written, which the
+    // backend's own sweep classifies as `severity: "deposit"` precisely
+    // because NEMAR cannot blind them.
     expect(datasetPageSource).toMatch(/double-blind peer review/);
-    expect(datasetPageSource).toMatch(/attributed on release/);
+    expect(datasetPageSource).toMatch(/It is attributed then/);
+    expect(datasetPageSource).toMatch(/cannot vouch for the files themselves/);
+    // De-anonymization is a publication the DEPOSITOR performs. NEMAR neither
+    // observes nor performs paper acceptance, so the copy must not turn on it.
+    expect(datasetPageSource).not.toMatch(/until the associated paper is accepted/);
+    // "The data is complete" is a claim the platform declines to make
+    // elsewhere (ADR 0005, ADR 0064).
+    expect(datasetPageSource).not.toMatch(/The data is complete/);
   });
 
   it("a header chip carries the state above the fold", () => {
@@ -122,5 +134,94 @@ describe("the state is visible and explained", () => {
     expect(block.length).toBeGreaterThan(0);
     expect(block).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(block).toMatch(/var\(--color-warning\)/);
+  });
+});
+
+/**
+ * The other half of the property: a dataset that is NOT anonymous still gets
+ * everything back.
+ *
+ * Every test above asserts an ABSENCE. Absence is satisfiable by deleting the
+ * feature, so on their own they cannot tell "the fallback is gone" from "the
+ * GitHub affordance is gone for all 772 datasets". Changing one token in the
+ * page -- `githubUrl={githubUrl}` to `githubUrl={null}` -- passed all twelve,
+ * while removing the GitHub button and both clone commands from every dataset
+ * on the site.
+ *
+ * These are the controls. They are deliberately about the DERIVATION rather
+ * than the rendered markup, because the derivation is what the withholding
+ * acts on: null in, nothing out; a URL in, every affordance out.
+ */
+describe("a dataset with a repository still gets every GitHub affordance", () => {
+  /** The real derivations, transcribed from the sources under test. Kept as
+   *  functions so a control exercises the RULE, not a copy of the output. */
+  const issuesFrom = (githubUrl: string | null) => (githubUrl ? `${githubUrl}/issues` : null);
+  const dataladFrom = (ghCloneUrl: string | null, ds: string) =>
+    ghCloneUrl ? `datalad clone ${ghCloneUrl} ${ds}\ncd ${ds} && datalad get .` : null;
+  const annexFrom = (ghCloneUrl: string | null, ds: string) =>
+    ghCloneUrl ? `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .` : null;
+
+  const PUBLIC_URL = "https://github.com/nemarDatasets/nm000103";
+
+  it("a present URL produces issues and both clone commands", () => {
+    expect(issuesFrom(PUBLIC_URL)).toBe(`${PUBLIC_URL}/issues`);
+    expect(dataladFrom(PUBLIC_URL, "nm000103")).toContain(`datalad clone ${PUBLIC_URL}`);
+    expect(annexFrom(PUBLIC_URL, "nm000103")).toContain(`git clone ${PUBLIC_URL}`);
+  });
+
+  it("a withheld URL produces none of them", () => {
+    expect(issuesFrom(null)).toBeNull();
+    expect(dataladFrom(null, "nm000103")).toBeNull();
+    expect(annexFrom(null, "nm000103")).toBeNull();
+  });
+
+  it("the page passes the real URL to ActionBar, not a hardcoded null", () => {
+    // The mutation that defeated the original suite. `githubUrl={null}` would
+    // withhold the repository from every dataset, anonymous or not.
+    expect(datasetPageSource).toContain("githubUrl={githubUrl}");
+    expect(withoutComments(datasetPageSource)).not.toMatch(/githubUrl=\{null\}/);
+    expect(withoutComments(datasetPageSource)).not.toMatch(/issuesUrl=\{null\}/);
+  });
+
+  it("ActionBar derives the clone URL from the prop, not from the dataset id", () => {
+    expect(withoutComments(actionBarSource)).toContain("const ghCloneUrl = githubUrl;");
+  });
+});
+
+describe("the DOI follows the same rule as the repository", () => {
+  // Nothing in the original suite mentioned a DOI at all, though an anonymous
+  // deposit's DOI is `reserved` -- registered, not advertised, does not
+  // resolve -- and the backend nulls it for exactly that reason.
+  const citeFrom = (datasetDoi: string | null) => (datasetDoi ? `https://doi.org/${datasetDoi}` : null);
+
+  it("a withheld DOI produces no citation link", () => {
+    expect(citeFrom(null)).toBeNull();
+  });
+
+  it("a real DOI still does", () => {
+    expect(citeFrom("10.82901/nemar.nm000103")).toBe("https://doi.org/10.82901/nemar.nm000103");
+  });
+
+  it("the page takes the DOI straight from the data plane, with no fallback", () => {
+    expect(datasetPageSource).toContain("const datasetDoi = metadata.external_links.dataset_doi;");
+    expect(withoutComments(datasetPageSource)).not.toMatch(/dataset_doi\s*\?\?/);
+  });
+});
+
+describe("no retired GitHub route survives in the components this touched", () => {
+  it("Readme has no github fallback branch or url prop", () => {
+    // The component's whole changeset is "no GitHub route survives", and it
+    // still carried an unreachable `fallbackKind === "github"` branch that
+    // rendered a link. Unreachable is one edit away from reachable.
+    expect(withoutComments(readmeSource)).not.toMatch(/fallbackKind === "github"/);
+    expect(withoutComments(readmeSource)).not.toMatch(/githubUrl/);
+  });
+
+  it("neither empty state points the reader at a repository", () => {
+    // Two copies, SSR and client-injected, that must change together. Telling
+    // a reader to go find "the dataset's GitHub repository" confirms one
+    // exists under a predictable name -- the disclosure this PR removes.
+    expect(withoutComments(readmeSource)).not.toMatch(/GitHub repository may have curation/);
+    expect(withoutComments(datasetPageSource)).not.toMatch(/GitHub repository may have curation/);
   });
 });

@@ -84,9 +84,17 @@ export interface NeuroschemaDataset {
    * double-blind venue (nemarOrg/nemar-cli#1408). `authors` is deliberately
    * empty and `external_links` withholds both the repository and the DOI.
    *
-   * Optional because older data-plane documents predate the field; absent
-   * means "not anonymous", which is the correct reading for every dataset
-   * published before this shipped.
+   * Optional because older data-plane documents predate the field. The backend
+   * contract (`shared/contract/dataset.ts`) is explicit that absent means
+   * UNKNOWN, not "not anonymous", and a consumer that assumes otherwise is
+   * making the wrong-way assumption. Do not carry that assumption to a new
+   * call site.
+   *
+   * It is safe to render on `=== true` HERE for one specific reason: the flag
+   * and the withheld fields come from the SAME data-plane document, so a
+   * backend old enough to omit the flag is one that cannot mark anything
+   * anonymous either. Anywhere the flag and the fields could come from
+   * different versions, treat absent as unknown and say so to the reader.
    */
   anonymous?: boolean;
   keywords: string[];
