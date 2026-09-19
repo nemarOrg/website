@@ -106,7 +106,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
       <span class="site-footer__credits-label">A project of</span>
       <div class="site-footer__chips">
         <a
-          class="logo-chip logo-chip--maker"
+          class="logo-chip logo-chip--maker logo-chip--colorable"
           href="https://sccn.ucsd.edu"
           rel="external"
           aria-label="Swartz Center for Computational Neuroscience"
@@ -114,7 +114,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           <img src="/logos/sccn.svg" alt="SCCN" loading="lazy" />
         </a>
         <a
-          class="logo-chip logo-chip--maker logo-chip--sdsc"
+          class="logo-chip logo-chip--maker logo-chip--sdsc logo-chip--colorable"
           href="https://www.sdsc.edu"
           rel="external"
           aria-label="San Diego Supercomputer Center"
@@ -136,14 +136,30 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           <img src="/logos/nih.svg" alt="National Institutes of Health" loading="lazy" />
         </a>
         <a
-          class="logo-chip"
+          class="logo-chip logo-chip--colorable"
           href="https://aws.amazon.com/opendata/"
           rel="external"
           aria-label="Powered by AWS — AWS Open Data Sponsorship Program"
         >
           <img src="/logos/powered-by-aws.png" alt="Powered by AWS" loading="lazy" />
         </a>
-        <a class="logo-chip" href="https://openneuro.org" rel="external" aria-label="OpenNeuro">
+        {/* AWS is a funder (the Open Data Sponsorship Program); UCSD Library is
+            a partner, so it goes right after AWS rather than grouped with the
+            other tool/format partners below. */}
+        <a
+          class="logo-chip logo-chip--colorable"
+          href="https://library.ucsd.edu"
+          rel="external"
+          aria-label="UC San Diego Library"
+        >
+          <img src="/logos/ucsd-library.png" alt="UC San Diego Library" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--colorable"
+          href="https://openneuro.org"
+          rel="external"
+          aria-label="OpenNeuro"
+        >
           <img src="/logos/openneuro.png" alt="OpenNeuro" loading="lazy" />
         </a>
         <a
@@ -252,7 +268,9 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   }
   /* Credits band: SCCN + SDSC as the makers, then sponsors and partners. Logos
      are boxless and normalized to a single tone per theme (see `.logo-chip`
-     below); the NIH mark is exempted and kept in full color. */
+     below); the NIH mark is exempted and kept in full color, and the
+     genuinely multi-color marks reveal their real colors on hover (see
+     `.logo-chip--colorable`). */
   .site-footer__credits {
     margin-block-start: var(--space-12);
     padding-block-start: var(--space-10);
@@ -324,6 +342,35 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     }
   }
   :global(:root[data-theme="dark"]) .logo-chip img {
+    filter: brightness(0) invert(1);
+    opacity: 0.82;
+  }
+  /* Marks whose source file carries real color reveal it on hover/focus
+     instead of staying flattened: SDSC, AWS, OpenNeuro, and UCSD Library are
+     navy paired with a warm accent; SCCN is a single deep navy blue. BIDS and
+     HED are excluded on purpose: both are authored as flat black/white with
+     no brand hue underneath, so there's nothing for a hover reveal to show,
+     and they keep the always-legible normalized treatment.
+     Light theme only: on the dark footer background, every one of these
+     marks leans navy/dark ink, so un-filtering on hover just made them look
+     muddy against the already-dark background instead of popping. Dark theme
+     keeps the normalized silhouette even on hover (re-asserted below with
+     matching specificity, since it would otherwise lose to the plain hover
+     rule here by source order). */
+  .logo-chip--colorable:hover img,
+  .logo-chip--colorable:focus-visible img {
+    filter: none;
+    opacity: 1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .logo-chip--colorable:hover img,
+    :global(:root:not([data-theme="light"])) .logo-chip--colorable:focus-visible img {
+      filter: brightness(0) invert(1);
+      opacity: 0.82;
+    }
+  }
+  :global(:root[data-theme="dark"]) .logo-chip--colorable:hover img,
+  :global(:root[data-theme="dark"]) .logo-chip--colorable:focus-visible img {
     filter: brightness(0) invert(1);
     opacity: 0.82;
   }
