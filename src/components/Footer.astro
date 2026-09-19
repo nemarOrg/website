@@ -157,7 +157,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           rel="noopener noreferrer external"
           aria-label="UC San Diego Library"
         >
-          <img src="/logos/ucsd-library.png" alt="UC San Diego Library" loading="lazy" />
+          <img src="/logos/ucsd-library.png" alt="UCSD Library" loading="lazy" />
         </a>
         <a
           class="logo-chip logo-chip--colorable"
@@ -362,25 +362,15 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
      Light theme only: on the dark footer background, every one of these
      marks leans navy/dark ink, so un-filtering on hover just made them look
      muddy against the already-dark background instead of popping. Dark theme
-     keeps the normalized silhouette even on hover (re-asserted below with
-     matching specificity, since it would otherwise lose to the plain hover
-     rule here by source order). */
+     needs no extra override to stay on the normalized silhouette here: the
+     dark-theme `.logo-chip img` rule above already carries higher
+     specificity (an extra `:root[data-theme]` compound) than this plain
+     `.logo-chip--colorable:hover img` rule, so it keeps winning in the dark
+     regardless of hover. */
   .logo-chip--colorable:hover img,
   .logo-chip--colorable:focus-visible img {
     filter: none;
     opacity: 1;
-  }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme="light"])) .logo-chip--colorable:hover img,
-    :global(:root:not([data-theme="light"])) .logo-chip--colorable:focus-visible img {
-      filter: brightness(0) invert(1);
-      opacity: 0.82;
-    }
-  }
-  :global(:root[data-theme="dark"]) .logo-chip--colorable:hover img,
-  :global(:root[data-theme="dark"]) .logo-chip--colorable:focus-visible img {
-    filter: brightness(0) invert(1);
-    opacity: 0.82;
   }
   /* NIH is the federal funder: its official mark carries its own contrast and
      brand guidelines discourage recoloring, so it's exempt from the monochrome
