@@ -106,18 +106,20 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
       <span class="site-footer__credits-label">A project of</span>
       <div class="site-footer__chips">
         <a
-          class="logo-chip logo-chip--maker"
+          class="logo-chip logo-chip--maker logo-chip--colorable"
           href="https://sccn.ucsd.edu"
-          rel="external"
-          aria-label="Swartz Center for Computational Neuroscience"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="Swartz Center for Computational Neuroscience (opens in a new tab)"
         >
           <img src="/logos/sccn.svg" alt="SCCN" loading="lazy" />
         </a>
         <a
-          class="logo-chip logo-chip--maker logo-chip--sdsc"
+          class="logo-chip logo-chip--maker logo-chip--sdsc logo-chip--colorable"
           href="https://www.sdsc.edu"
-          rel="external"
-          aria-label="San Diego Supercomputer Center"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="San Diego Supercomputer Center (opens in a new tab)"
         >
           <img src="/logos/sdsc.svg" alt="SDSC" loading="lazy" />
         </a>
@@ -128,37 +130,68 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
       <span class="site-footer__credits-label">Sponsors and partners</span>
       <div class="site-footer__chips">
         <a
-          class="logo-chip logo-chip--asis"
+          class="logo-chip logo-chip--colorable"
           href="https://www.nih.gov"
-          rel="external"
-          aria-label="National Institutes of Health"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="National Institutes of Health (opens in a new tab)"
         >
           <img src="/logos/nih.svg" alt="National Institutes of Health" loading="lazy" />
         </a>
         <a
-          class="logo-chip"
+          class="logo-chip logo-chip--colorable"
           href="https://aws.amazon.com/opendata/"
-          rel="external"
-          aria-label="Powered by AWS — AWS Open Data Sponsorship Program"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="Powered by AWS — AWS Open Data Sponsorship Program (opens in a new tab)"
         >
           <img src="/logos/powered-by-aws.png" alt="Powered by AWS" loading="lazy" />
         </a>
-        <a class="logo-chip" href="https://openneuro.org" rel="external" aria-label="OpenNeuro">
+        {/* AWS is a funder (the Open Data Sponsorship Program); UCSD Library is
+            a partner, so it goes right after AWS rather than grouped with the
+            other tool/format partners below. */}
+        <a
+          class="logo-chip logo-chip--colorable"
+          href="https://library.ucsd.edu"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="UC San Diego Library (opens in a new tab)"
+        >
+          <img src="/logos/ucsd-library.png" alt="UCSD Library" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--ezid logo-chip--colorable"
+          href="https://ezid.cdlib.org"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="EZID (opens in a new tab)"
+        >
+          <img src="/logos/ezid.svg" alt="EZID" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--colorable"
+          href="https://openneuro.org"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="OpenNeuro (opens in a new tab)"
+        >
           <img src="/logos/openneuro.png" alt="OpenNeuro" loading="lazy" />
         </a>
         <a
           class="logo-chip"
           href="https://bids.neuroimaging.io"
-          rel="external"
-          aria-label="Brain Imaging Data Structure (BIDS)"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="Brain Imaging Data Structure (BIDS) (opens in a new tab)"
         >
           <img src="/logos/bids.svg" alt="BIDS" loading="lazy" />
         </a>
         <a
           class="logo-chip"
           href="https://www.hedtags.org"
-          rel="external"
-          aria-label="Hierarchical Event Descriptors (HED)"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="Hierarchical Event Descriptors (HED) (opens in a new tab)"
         >
           <img src="/logos/HED.svg" alt="HED" loading="lazy" />
         </a>
@@ -252,7 +285,9 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   }
   /* Credits band: SCCN + SDSC as the makers, then sponsors and partners. Logos
      are boxless and normalized to a single tone per theme (see `.logo-chip`
-     below); the NIH mark is exempted and kept in full color. */
+     below); the genuinely multi-color marks reveal their real colors on hover
+     (see `.logo-chip--colorable`) — NIH included, it carries no special-case
+     treatment here. */
   .site-footer__credits {
     margin-block-start: var(--space-12);
     padding-block-start: var(--space-10);
@@ -314,6 +349,14 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   .logo-chip--sdsc img {
     block-size: 30px;
   }
+  /* EZID's wordmark+tagline lockup is ~7.3:1, wider than every other mark
+     here fits under the shared 160px cap without object-fit:contain
+     letterboxing it down from 34px to ~22px tall. Full width at 34px is
+     ~248px; 250px gives it headroom to render at the same height as its
+     neighbors instead of shrinking. */
+  .logo-chip--ezid img {
+    max-inline-size: 250px;
+  }
   .site-footer__maker .site-footer__credits-label {
     margin-block-end: var(--space-2);
   }
@@ -327,20 +370,26 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     filter: brightness(0) invert(1);
     opacity: 0.82;
   }
-  /* NIH is the federal funder: its official mark carries its own contrast and
-     brand guidelines discourage recoloring, so it's exempt from the monochrome
-     normalization above and shown in full color on both themes. */
-  .logo-chip--asis img,
-  :global(:root[data-theme="dark"]) .logo-chip--asis img {
+  /* Marks whose source file carries real color reveal it on hover/focus
+     instead of staying flattened: SDSC, AWS, OpenNeuro, UCSD Library, and NIH
+     are navy/gray paired with a warm or blue accent; SCCN is a single deep
+     navy blue; EZID is a single teal (#05788C), its own brand color from
+     ezid.cdlib.org. BIDS and HED are excluded on purpose: both are authored
+     as flat black/white with no brand hue underneath, so there's nothing for
+     a hover reveal to show, and they keep the always-legible normalized
+     treatment.
+     Light theme only: on the dark footer background, every one of these
+     marks leans navy/dark ink, so un-filtering on hover just made them look
+     muddy against the already-dark background instead of popping. Dark theme
+     needs no extra override to stay on the normalized silhouette here: the
+     dark-theme `.logo-chip img` rule above already carries higher
+     specificity (an extra `:root[data-theme]` compound) than this plain
+     `.logo-chip--colorable:hover img` rule, so it keeps winning in the dark
+     regardless of hover. */
+  .logo-chip--colorable:hover img,
+  .logo-chip--colorable:focus-visible img {
     filter: none;
     opacity: 1;
-    block-size: 40px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :global(:root:not([data-theme="light"])) .logo-chip--asis img {
-      filter: none;
-      opacity: 1;
-    }
   }
   /* One continuous line reading left to right, flush with the left edge the
      rest of the footer already uses ("A project of", the nav headings) —
