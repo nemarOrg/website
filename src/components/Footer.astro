@@ -161,6 +161,15 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
         </a>
         <a
           class="logo-chip logo-chip--colorable"
+          href="https://ezid.cdlib.org"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="EZID"
+        >
+          <img src="/logos/ezid.svg" alt="EZID" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--colorable"
           href="https://openneuro.org"
           target="_blank"
           rel="noopener noreferrer external"
@@ -355,7 +364,8 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   }
   /* Marks whose source file carries real color reveal it on hover/focus
      instead of staying flattened: SDSC, AWS, OpenNeuro, and UCSD Library are
-     navy paired with a warm accent; SCCN is a single deep navy blue. BIDS and
+     navy paired with a warm accent; SCCN is a single deep navy blue; EZID is
+     a single teal (#05788C), its own brand color from ezid.cdlib.org. BIDS and
      HED are excluded on purpose: both are authored as flat black/white with
      no brand hue underneath, so there's nothing for a hover reveal to show,
      and they keep the always-legible normalized treatment.
