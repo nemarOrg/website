@@ -136,7 +136,16 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           rel="noopener noreferrer external"
           aria-label="National Institutes of Health"
         >
-          <img src="/logos/nih.svg" alt="National Institutes of Health" loading="lazy" />
+          {/* Two pre-colored assets, not a CSS filter swap: NIH brand guidelines
+              discourage recoloring, and the mark's "NIH" letters are cut out of
+              the box path (negative space, not a solid fill), so they take
+              whatever sits behind them. On the light footer that's the
+              gray box from nih.svg; on the dark footer, nih.svg's gray box
+              reads muddy against navy, so nih-dark.svg swaps in NIH's own
+              official reversed colors (white box, white chevron) and the same
+              cutout does the rest. */}
+          <img class="logo-chip__img--light" src="/logos/nih.svg" alt="National Institutes of Health" loading="lazy" />
+          <img class="logo-chip__img--dark" src="/logos/nih-dark.svg" alt="National Institutes of Health" loading="lazy" />
         </a>
         <a
           class="logo-chip logo-chip--colorable"
@@ -158,6 +167,15 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           aria-label="UC San Diego Library"
         >
           <img src="/logos/ucsd-library.png" alt="UCSD Library" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--colorable"
+          href="https://ezid.cdlib.org"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="EZID"
+        >
+          <img src="/logos/ezid.svg" alt="EZID" loading="lazy" />
         </a>
         <a
           class="logo-chip logo-chip--colorable"
@@ -355,7 +373,8 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   }
   /* Marks whose source file carries real color reveal it on hover/focus
      instead of staying flattened: SDSC, AWS, OpenNeuro, and UCSD Library are
-     navy paired with a warm accent; SCCN is a single deep navy blue. BIDS and
+     navy paired with a warm accent; SCCN is a single deep navy blue; EZID is
+     a single teal (#05788C), its own brand color from ezid.cdlib.org. BIDS and
      HED are excluded on purpose: both are authored as flat black/white with
      no brand hue underneath, so there's nothing for a hover reveal to show,
      and they keep the always-legible normalized treatment.
@@ -385,6 +404,30 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     :global(:root:not([data-theme="light"])) .logo-chip--asis img {
       filter: none;
       opacity: 1;
+    }
+  }
+  /* Light/dark NIH mark swap: see the comment by the two <img> tags above.
+     Default to the light-footer asset; dark theme swaps which one is
+     display:none rather than filtering either, since NIH's own reversed
+     colors (not an invert() approximation) are what the dark asset already
+     carries. Selectors repeat the "img" element (matching `.logo-chip img`'s
+     own specificity) so this display toggle isn't lost to that earlier rule's
+     `display: block`. */
+  .logo-chip--asis img.logo-chip__img--dark {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .logo-chip--asis img.logo-chip__img--light {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .logo-chip--asis img.logo-chip__img--dark {
+    display: block;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .logo-chip--asis img.logo-chip__img--light {
+      display: none;
+    }
+    :global(:root:not([data-theme="light"])) .logo-chip--asis img.logo-chip__img--dark {
+      display: block;
     }
   }
   /* One continuous line reading left to right, flush with the left edge the
