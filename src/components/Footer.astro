@@ -110,7 +110,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://sccn.ucsd.edu"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="Swartz Center for Computational Neuroscience"
+          aria-label="Swartz Center for Computational Neuroscience (opens in a new tab)"
         >
           <img src="/logos/sccn.svg" alt="SCCN" loading="lazy" />
         </a>
@@ -119,7 +119,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://www.sdsc.edu"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="San Diego Supercomputer Center"
+          aria-label="San Diego Supercomputer Center (opens in a new tab)"
         >
           <img src="/logos/sdsc.svg" alt="SDSC" loading="lazy" />
         </a>
@@ -134,7 +134,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://www.nih.gov"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="National Institutes of Health"
+          aria-label="National Institutes of Health (opens in a new tab)"
         >
           <img src="/logos/nih.svg" alt="National Institutes of Health" loading="lazy" />
         </a>
@@ -143,7 +143,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://aws.amazon.com/opendata/"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="Powered by AWS — AWS Open Data Sponsorship Program"
+          aria-label="Powered by AWS — AWS Open Data Sponsorship Program (opens in a new tab)"
         >
           <img src="/logos/powered-by-aws.png" alt="Powered by AWS" loading="lazy" />
         </a>
@@ -155,16 +155,16 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://library.ucsd.edu"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="UC San Diego Library"
+          aria-label="UC San Diego Library (opens in a new tab)"
         >
           <img src="/logos/ucsd-library.png" alt="UCSD Library" loading="lazy" />
         </a>
         <a
-          class="logo-chip logo-chip--colorable"
+          class="logo-chip logo-chip--ezid logo-chip--colorable"
           href="https://ezid.cdlib.org"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="EZID"
+          aria-label="EZID (opens in a new tab)"
         >
           <img src="/logos/ezid.svg" alt="EZID" loading="lazy" />
         </a>
@@ -173,7 +173,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://openneuro.org"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="OpenNeuro"
+          aria-label="OpenNeuro (opens in a new tab)"
         >
           <img src="/logos/openneuro.png" alt="OpenNeuro" loading="lazy" />
         </a>
@@ -182,7 +182,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://bids.neuroimaging.io"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="Brain Imaging Data Structure (BIDS)"
+          aria-label="Brain Imaging Data Structure (BIDS) (opens in a new tab)"
         >
           <img src="/logos/bids.svg" alt="BIDS" loading="lazy" />
         </a>
@@ -191,7 +191,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           href="https://www.hedtags.org"
           target="_blank"
           rel="noopener noreferrer external"
-          aria-label="Hierarchical Event Descriptors (HED)"
+          aria-label="Hierarchical Event Descriptors (HED) (opens in a new tab)"
         >
           <img src="/logos/HED.svg" alt="HED" loading="lazy" />
         </a>
@@ -285,9 +285,9 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   }
   /* Credits band: SCCN + SDSC as the makers, then sponsors and partners. Logos
      are boxless and normalized to a single tone per theme (see `.logo-chip`
-     below); the NIH mark is exempted and kept in full color, and the
-     genuinely multi-color marks reveal their real colors on hover (see
-     `.logo-chip--colorable`). */
+     below); the genuinely multi-color marks reveal their real colors on hover
+     (see `.logo-chip--colorable`) — NIH included, it carries no special-case
+     treatment here. */
   .site-footer__credits {
     margin-block-start: var(--space-12);
     padding-block-start: var(--space-10);
@@ -348,6 +348,14 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   }
   .logo-chip--sdsc img {
     block-size: 30px;
+  }
+  /* EZID's wordmark+tagline lockup is ~7.3:1, wider than every other mark
+     here fits under the shared 160px cap without object-fit:contain
+     letterboxing it down from 34px to ~22px tall. Full width at 34px is
+     ~248px; 250px gives it headroom to render at the same height as its
+     neighbors instead of shrinking. */
+  .logo-chip--ezid img {
+    max-inline-size: 250px;
   }
   .site-footer__maker .site-footer__credits-label {
     margin-block-end: var(--space-2);
