@@ -29,7 +29,7 @@ import { formatBytes, splitModalities } from "./format";
 import { ccLicenseUrl, conditionsOfAccess } from "./jsonld";
 import type { NeuroschemaDataset } from "./neuroschema";
 import type { Dataset } from "./types";
-import { zarrIndexUrl } from "./zarr-base";
+import { hasZarrCopy, zarrIndexUrl } from "./zarr-base";
 
 /**
  * The slice of the api.nemar.org catalog row this builder reads. Same
@@ -476,8 +476,8 @@ function buildAssessSection(input: UseThisDataInput): UseThisDataSection | null 
 
 /**
  * Zarr recipe, gated on the CATALOG ROW only — never an SSR fetch of
- * index.json (decision 1). `has_zarr` is documented as `zarr_status ===
- * "ready"` AND `(zarr_store_count ?? 0) > 0`; that is the gate here too. The
+ * index.json (decision 1). The gate is `hasZarrCopy`, which mirrors the
+ * backend's `has_zarr` predicate and is shared with the Zarr tag. The
  * index URL prefers the row's own `zarr_index_url` (derived server-side,
  * non-null only when ready) and falls back to `zarrIndexUrl(id)`.
  *
@@ -500,8 +500,7 @@ function buildAssessSection(input: UseThisDataInput): UseThisDataSection | null 
 function buildZarrSection(input: UseThisDataInput): UseThisDataSection | null {
   if (!publishedVersion(input)) return null;
   const row = input.catalogRow;
-  const hasZarr = row?.zarr_status === "ready" && (row?.zarr_store_count ?? 0) > 0;
-  if (!hasZarr) return null;
+  if (!hasZarrCopy(row)) return null;
 
   const indexUrl =
     trimmedOrNull(row?.zarr_index_url ?? null) ?? zarrIndexUrl(input.id, input.zarrBase);
