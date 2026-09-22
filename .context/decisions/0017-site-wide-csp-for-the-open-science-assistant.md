@@ -41,39 +41,6 @@ Widen `script-src`, `connect-src` and a new `worker-src` **on every route**, in
 `'unsafe-eval'` is **not** extended site-wide. It stays scoped to `/dataset/*` exactly as
 ADR 0009 left it.
 
-## Why site-wide, when every other widening here is route-scoped
-
-This is the weakest of the options considered, and it was chosen on product grounds rather
-than security ones. The assistant answers general questions and search from anywhere on the
-site, and does more on a dataset page where it can read that recording. Scoping it to
-`/dataset/*` would have been the tighter policy and would have made it unavailable exactly
-where most visitors arrive.
-
-The alternatives, for the record: `/dataset/*` only, which fits the data but hides the
-assistant from the landing page and search; and a dedicated `/assistant` route, which is
-the tightest blast radius but costs the contextual link to the dataset a person is looking
-at and makes them navigate away from the data to ask about it.
-
-What bounds the risk is not the route scope. It is that every added host is an exact
-origin rather than a wildcard, that the OSA workers appear in `connect-src` only and never
-in `script-src` (a host that can be talked to is a smaller grant than one that can run
-code), and that `'unsafe-eval'` is withheld.
-
-## The one thing deliberately left unmeasured
-
-Pyodide is Emscripten-based, and ADR 0009 records that the numcodecs Emscripten+embind glue
-needs `'unsafe-eval'` because its invoker functions go through the `Function` constructor,
-which `'wasm-unsafe-eval'` does not cover. Whether Pyodide's own glue hits the same wall has
-**not** been measured in a browser. Bun and Node do not enforce CSP, which is precisely why
-ADR 0009's failure reached production in the first place, so no test in this repository can
-answer it.
-
-It is therefore not granted. If the phase 2 spike measures that Pyodide needs it, extending
-`'unsafe-eval'` site-wide is a materially larger decision than this one and deserves its own
-record: it would take a relaxation this repository currently confines to a single route and
-apply it to the landing page and the upload page too. A unit test asserts its absence so
-that adding it has a failing assertion attached rather than arriving quietly.
-
 ## Consequences
 
 - The widget can load and run on every nemar.org page once it is embedded.
@@ -102,10 +69,43 @@ that adding it has a failing assertion attached rather than arriving quietly.
 - Browser execution is gated on an origin allowlist on the OSA side and degrades to
   explain-only elsewhere, so this policy makes execution possible on nemar.org rather than
   sufficient for it.
+- Whether Pyodide needs `'unsafe-eval'` is still unmeasured, so the runtime may yet fail in
+  a browser in a way no test here can predict. See the alternatives below.
 
-## References
+## Alternatives considered
+
+**Scope the widening to `/dataset/*`**, matching every other route-scoped grant in this
+file. Tighter, and rejected on product grounds rather than security ones: the assistant
+answers general questions and search from anywhere on the site, and does more on a dataset
+page where it can read that recording. This option would have made it unavailable exactly
+where most visitors arrive.
+
+**A dedicated `/assistant` route.** The tightest blast radius of the three, and rejected
+because it costs the contextual link to the dataset a person is looking at, making them
+navigate away from the data in order to ask about it.
+
+Site-wide is therefore the weakest of the three, and what bounds the risk is not the route
+scope. It is that every added host is an exact origin rather than a wildcard, that the OSA
+workers appear in `connect-src` only and never in `script-src` (a host that can be talked
+to is a smaller grant than one that can run code), and that `'unsafe-eval'` is withheld.
+
+**Granting `'unsafe-eval'` site-wide now, in anticipation.** Rejected as unmeasured.
+Pyodide is Emscripten-based, and ADR 0009 records that the numcodecs Emscripten and embind
+glue needs `'unsafe-eval'` because its invoker functions go through the `Function`
+constructor, which `'wasm-unsafe-eval'` does not cover. Whether Pyodide's own glue hits the
+same wall has **not** been measured in a browser. Bun and Node do not enforce CSP, which is
+precisely why ADR 0009's failure reached production in the first place, so no test in this
+repository can answer it. If the phase 2 spike measures that Pyodide needs it, that is a
+materially larger decision than this one and deserves its own record, since it would take a
+relaxation currently confined to a single route and apply it to the landing page and the
+upload page too. A unit test asserts its absence so that adding it has a failing assertion
+attached rather than arriving quietly.
+
+## Receipts
 
 - ADR 0009, the route-scoped `'unsafe-eval'` grant this deliberately does not widen.
 - OpenScience-Collective/osa#429, the browser-execution epic; #431, the Pyodide runtime
-  phase that owns the CSP spike; #436, the three-icon launcher this embed carries.
+  phase that owns the CSP spike; #436, the three-icon launcher this embed carries;
+  #437 and #438, the stable `widget.osc.earth` name.
+- nemarOrg/website#343, which tracks removing the two transitional `*.workers.dev` entries.
 - `src/middleware.ts` (`contentSecurityPolicy`), `src/middleware.test.ts`.

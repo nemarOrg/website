@@ -42,7 +42,7 @@ import {
  *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
  *   - script-src / connect-src cdn.jsdelivr.net, connect-src the OSA workers,
- *     worker-src blob: — the Open Science Assistant widget, embedded site-wide.
+ *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
  *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
  *
  * README-borne script injection is already blocked at the markdown sanitizer
@@ -128,6 +128,11 @@ const OSA_WIDGET_CDN = "https://cdn.jsdelivr.net";
  * and it moves if that account ever changes. That is not hypothetical, the OSA backend is
  * moving to SCCN. Once #437 is live in production and cached widgets have turned over,
  * drop the two `workers.dev` entries and keep only the `osc.earth` pair.
+ *
+ * "Turned over" has no natural end, so that removal is tracked as nemarOrg/website#343
+ * rather than left to whoever next reads this comment. The gating measurement, traffic to
+ * the old hostnames falling to zero, has to come from Cloudflare analytics on the OSA
+ * side; this repository cannot take it.
  *
  * Both environment pairs are listed because staging pages talk to the dev worker.
  */
