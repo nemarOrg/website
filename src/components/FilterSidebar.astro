@@ -26,18 +26,18 @@ interface Props {
 const { state, searchActive = false } = Astro.props;
 ---
 
+{/* `id` is the target of the results toolbar's `<select form=...>`: the
+    Sort by control lives above the list (website#346) but submits with this
+    form, so a re-sort carries any filter edit not yet applied, and Apply
+    keeps the chosen order. */}
 <form
+  id="discover-filters"
   class="filters"
   method="get"
   action="/discover"
   data-filter-form
   aria-label="Dataset filters"
 >
-  {/* Sort lives in the results toolbar (website#346) and applies on its own;
-      carry it here so applying filters keeps the chosen order. */}
-  {!searchActive && state.sort !== "newest" && (
-    <input type="hidden" name="sort" value={state.sort} />
-  )}
   <div class="filters__group">
     <h3>Modality</h3>
     <div class="filters__op">

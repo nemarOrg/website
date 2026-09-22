@@ -148,12 +148,6 @@ if (isSearch) {
   canonicalParams.delete("sort");
 }
 
-// The sort toolbar is its own GET form (website#346): it re-submits every
-// active filter as a hidden input and changes only `sort`, dropping `page` so
-// a re-sort starts from the first page.
-const sortCarryParams = filterStateToURL({ ...state, page: 1 });
-sortCarryParams.delete("sort");
-
 // Cache keyed on the full URL (query params) so each filter+page+query combo
 // gets its own edge entry. On error, never cache — a brief upstream hiccup
 // must not pin an error page at the edge for the SWR window. Search responses
@@ -186,44 +180,43 @@ Astro.response.headers.set(
             <span>{fetchError}</span>
           </div>
         )}
-        {!fetchError && (
-          <div class="discover__toolbar">
+        <div class="discover__toolbar">
+          {!fetchError && (
             <p class="discover__count">
               {isSearch
                 ? `${totalReturned.toLocaleString()} ${totalReturned === 1 ? "result" : "results"} for "${state.q}"`
                 : `Showing ${cards.length} of ${totalReturned.toLocaleString()} datasets`}
               {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
             </p>
-            {totalReturned > 0 && (
-              <form class="discover__sort" method="get" action="/discover" data-sort-form>
-                {!isSearch && [...sortCarryParams].map(([name, value]) => (
-                  <input type="hidden" name={name} value={value} />
+          )}
+          {/* Not a form of its own: the select joins the sidebar's filter form
+              through `form=`, so sorting submits the filters as they stand in
+              the sidebar (applied or not) and drops `page`. Rendered even with
+              zero results so that form never loses the current sort. */}
+          <div class="discover__sort">
+            <label for="discover-sort">Sort by</label>
+            {isSearch ? (
+              // The hybrid search endpoint ranks by relevance and takes no
+              // sort, so say so instead of offering orders it would ignore.
+              <select id="discover-sort" disabled>
+                <option selected>Relevance</option>
+              </select>
+            ) : (
+              <select id="discover-sort" name="sort" form="discover-filters" data-sort-select>
+                {SORT_OPTIONS.map((opt) => (
+                  <option value={opt.value} selected={state.sort === opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
-                <label for="discover-sort">Sort by</label>
-                {isSearch ? (
-                  // The hybrid search endpoint ranks by relevance and takes no
-                  // sort, so say so instead of offering orders it would ignore.
-                  <select id="discover-sort" disabled>
-                    <option selected>Relevance</option>
-                  </select>
-                ) : (
-                  <select id="discover-sort" name="sort">
-                    {SORT_OPTIONS.map((opt) => (
-                      <option value={opt.value} selected={state.sort === opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {!isSearch && (
-                  <noscript>
-                    <button type="submit" class="discover__sort-go">Sort</button>
-                  </noscript>
-                )}
-              </form>
+              </select>
+            )}
+            {!isSearch && (
+              <noscript>
+                <button type="submit" form="discover-filters" class="discover__sort-go">Sort</button>
+              </noscript>
             )}
           </div>
-        )}
+        </div>
         {!fetchError && cards.length === 0 && (
           <div class="discover__empty">
             {isSearch ? (
@@ -262,10 +255,10 @@ Astro.response.headers.set(
 
 <script>
   // Sort applies the moment it changes, like a shop's "Sort by" (website#346).
-  // Without JS the <noscript> button submits the same form.
-  for (const form of document.querySelectorAll<HTMLFormElement>("[data-sort-form]")) {
-    form.querySelector("select[name='sort']")?.addEventListener("change", () => form.requestSubmit());
-  }
+  // `select.form` is the sidebar's filter form (the select's `form=`
+  // attribute); without JS the <noscript> button submits that same form.
+  const sortSelect = document.querySelector<HTMLSelectElement>("[data-sort-select]");
+  sortSelect?.addEventListener("change", () => sortSelect.form?.requestSubmit());
 </script>
 
 <style>
