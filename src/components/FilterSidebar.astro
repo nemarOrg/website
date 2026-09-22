@@ -7,7 +7,6 @@ import {
   LICENSE_TIERS,
   MODALITY_CODES,
   MODALITY_LABELS,
-  SORT_OPTIONS,
 } from "../lib/types";
 import TagSeparator from "./TagSeparator.astro";
 
@@ -17,9 +16,9 @@ const DENSITY_OPTIONS = Object.entries(DENSITY_BUCKETS);
 interface Props {
   state: FilterState;
   /**
-   * When a freetext query is active, results are relevance-ranked by the
-   * hybrid search endpoint and the sort control has no effect, so we disable
-   * it with a hint rather than letting it silently no-op.
+   * When a freetext query is active, results come from the hybrid search
+   * endpoint, which can't filter by license, channels, or Zarr, so those
+   * controls are disabled with a hint rather than letting them silently no-op.
    */
   searchActive?: boolean;
 }
@@ -34,6 +33,11 @@ const { state, searchActive = false } = Astro.props;
   data-filter-form
   aria-label="Dataset filters"
 >
+  {/* Sort lives in the results toolbar (website#346) and applies on its own;
+      carry it here so applying filters keeps the chosen order. */}
+  {!searchActive && state.sort !== "newest" && (
+    <input type="hidden" name="sort" value={state.sort} />
+  )}
   <div class="filters__group">
     <h3>Modality</h3>
     <div class="filters__op">
@@ -231,20 +235,6 @@ const { state, searchActive = false } = Astro.props;
     </p>
   </div>
 
-  <div class="filters__group">
-    <h3>Sort</h3>
-    <select name="sort" disabled={searchActive}>
-      {SORT_OPTIONS.map((opt) => (
-        <option value={opt.value} selected={state.sort === opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-    {searchActive && (
-      <p class="filters__hint">Results are ranked by relevance while searching.</p>
-    )}
-  </div>
-
   <div class="filters__actions">
     <button type="submit" class="filters__apply">Apply</button>
     <a href="/discover" class="filters__reset">Reset</a>
@@ -326,7 +316,7 @@ const { state, searchActive = false } = Astro.props;
     height: 1px;
   }
   /* Disabled while a search query is active (the hybrid search endpoint can't
-     filter by license or Zarr). Mirrors the sort control's disabled treatment. */
+     filter by license or Zarr). Mirrors the selects' disabled treatment. */
   .chip--disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -468,12 +458,6 @@ const { state, searchActive = false } = Astro.props;
   }
   .filters__field--soon .soon-pill {
     margin-inline-start: auto;
-  }
-  .filters__hint {
-    margin-block-start: var(--space-2);
-    font-size: var(--fs-xs);
-    color: var(--color-fg-subtle);
-    line-height: var(--lh-snug);
   }
   .filters__actions {
     display: flex;
