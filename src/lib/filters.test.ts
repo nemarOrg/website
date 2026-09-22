@@ -100,15 +100,23 @@ describe("filterStateFromURL", () => {
     expect(s.hasDataQuality).toBe(true);
     expect(s.hasHed).toBe(true);
   });
-  it("parses has_zarr and has_zarr_verified (website#277)", () => {
-    const s = filterStateFromURL(new URLSearchParams("has_zarr=1&has_zarr_verified=1"));
-    expect(s.hasZarr).toBe(true);
-    expect(s.hasZarrVerified).toBe(true);
+  it("parses the Zarr chip and the viewer flag independently (website#346)", () => {
+    const both = filterStateFromURL(new URLSearchParams("has_zarr=1&has_viewer=1"));
+    expect(both.hasZarr).toBe(true);
+    expect(both.hasViewer).toBe(true);
+    const viewerOnly = filterStateFromURL(new URLSearchParams("has_viewer=1"));
+    expect(viewerOnly.hasZarr).toBe(false);
+    expect(viewerOnly.hasViewer).toBe(true);
   });
-  it("defaults has_zarr and has_zarr_verified to false", () => {
+  it("lands a legacy has_zarr_verified link on the viewer flag that replaced it", () => {
+    const s = filterStateFromURL(new URLSearchParams("has_zarr_verified=1"));
+    expect(s.hasViewer).toBe(true);
+    expect(s.hasZarr).toBe(false);
+  });
+  it("defaults has_zarr and has_viewer to false", () => {
     const s = filterStateFromURL(new URLSearchParams());
     expect(s.hasZarr).toBe(false);
-    expect(s.hasZarrVerified).toBe(false);
+    expect(s.hasViewer).toBe(false);
   });
   it("clamps page to >=1", () => {
     expect(filterStateFromURL(new URLSearchParams("page=0")).page).toBe(1);
@@ -178,20 +186,25 @@ describe("filterStateToURL", () => {
     const parsed = filterStateFromURL(filterStateToURL(s));
     expect(parsed).toEqual({ ...s, pageSize: 10 });
   });
-  it("serializes has_zarr and has_zarr_verified (website#277)", () => {
+  it("serializes has_zarr and has_viewer (website#346)", () => {
     const s = defaultFilterState();
     s.hasZarr = true;
-    s.hasZarrVerified = true;
+    s.hasViewer = true;
     const sp = filterStateToURL(s);
     expect(sp.get("has_zarr")).toBe("1");
-    expect(sp.get("has_zarr_verified")).toBe("1");
+    expect(sp.get("has_viewer")).toBe("1");
   });
-  it("roundtrips has_zarr and has_zarr_verified through URL, like has_hed", () => {
+  it("roundtrips has_zarr and has_viewer through URL, like has_hed", () => {
     const s = defaultFilterState();
     s.hasZarr = true;
     const parsed = filterStateFromURL(filterStateToURL(s));
     expect(parsed.hasZarr).toBe(true);
-    expect(parsed.hasZarrVerified).toBe(false);
+    expect(parsed.hasViewer).toBe(false);
+  });
+  it("re-serializes a legacy has_zarr_verified link as has_viewer", () => {
+    const sp = filterStateToURL(filterStateFromURL(new URLSearchParams("has_zarr_verified=1")));
+    expect(sp.get("has_viewer")).toBe("1");
+    expect(sp.has("has_zarr_verified")).toBe(false);
   });
 });
 
@@ -229,18 +242,22 @@ describe("filterStateToAPIQuery", () => {
   it("omits has_hed when the HED filter is off", () => {
     expect(filterStateToAPIQuery(defaultFilterState()).has_hed).toBeUndefined();
   });
-  it("passes has_zarr and has_zarr_verified server-side, like has_hed (website#277)", () => {
+  it("passes the Zarr chip server-side as has_zarr, like has_hed (website#277)", () => {
     const s = defaultFilterState();
     s.hasZarr = true;
-    s.hasZarrVerified = true;
-    const q = filterStateToAPIQuery(s);
-    expect(q.has_zarr).toBe(true);
-    expect(q.has_zarr_verified).toBe(true);
+    expect(filterStateToAPIQuery(s).has_zarr).toBe(true);
   });
-  it("omits has_zarr and has_zarr_verified when both are off", () => {
-    const q = filterStateToAPIQuery(defaultFilterState());
-    expect(q.has_zarr).toBeUndefined();
-    expect(q.has_zarr_verified).toBeUndefined();
+  it("sends the viewer flag as the same has_zarr predicate (the viewer reads Zarr)", () => {
+    const s = defaultFilterState();
+    s.hasViewer = true;
+    expect(filterStateToAPIQuery(s).has_zarr).toBe(true);
+  });
+  it("never sends the retired has_zarr_verified filter", () => {
+    const s = filterStateFromURL(new URLSearchParams("has_zarr_verified=1"));
+    expect(Object.keys(filterStateToAPIQuery(s))).not.toContain("has_zarr_verified");
+  });
+  it("omits has_zarr when both the chip and the viewer flag are off", () => {
+    expect(filterStateToAPIQuery(defaultFilterState()).has_zarr).toBeUndefined();
   });
 });
 
