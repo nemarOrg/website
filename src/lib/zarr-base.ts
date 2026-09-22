@@ -108,3 +108,19 @@ export function zarrKeyUrl(storeUrl: string, key: string): string {
 export function zarrIndexUrl(datasetId: string, base = zarrBase()): string {
   return `${base}/${encodeURIComponent(datasetId)}/zarr/index.json`;
 }
+
+/** The catalog-row fields that say whether a dataset has a Zarr copy. */
+export interface ZarrCopyFields {
+  zarr_status?: string | null;
+  zarr_store_count?: number | null;
+}
+
+/**
+ * Whether a catalog row has a viewable Zarr copy. Mirrors the backend's
+ * `?has_zarr=1` predicate (`zarr_status === "ready"` AND at least one store),
+ * which is what the Discover Zarr and viewer filters send, so the Zarr tag
+ * and the "Use this data" recipe mark exactly the rows those filters return.
+ */
+export function hasZarrCopy(row: ZarrCopyFields | null | undefined): boolean {
+  return row?.zarr_status === "ready" && (row.zarr_store_count ?? 0) > 0;
+}

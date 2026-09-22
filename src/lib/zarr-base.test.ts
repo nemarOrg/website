@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { storeRelPath, zarrCacheToken, zarrIndexUrl, zarrKeyUrl, zarrStoreUrl } from "./zarr-base";
+import {
+  hasZarrCopy,
+  storeRelPath,
+  zarrCacheToken,
+  zarrIndexUrl,
+  zarrKeyUrl,
+  zarrStoreUrl,
+} from "./zarr-base";
 
 const BASE = "https://zarr.nemar.org";
 
@@ -131,5 +138,28 @@ describe("zarrKeyUrl reuse safety", () => {
     expect(
       zarrKeyUrl("https://zarr.nemar.org/nm000132/zarr/sub-01_eeg.zarr?v=abc", "zarr.json"),
     ).toBe("https://zarr.nemar.org/nm000132/zarr/sub-01_eeg.zarr/zarr.json?v=abc");
+  });
+});
+
+// The four catalog-row shapes the live /datasets list carried on 2026-09-22:
+// ready with stores (the has_zarr=1 set), ready with none, a failed or pending
+// conversion that left stores behind, and a never-converted row.
+describe("hasZarrCopy (website#346)", () => {
+  it("is true only when the conversion is ready AND at least one store exists", () => {
+    expect(hasZarrCopy({ zarr_status: "ready", zarr_store_count: 12 })).toBe(true);
+  });
+  it("is false for a ready conversion with no stores", () => {
+    expect(hasZarrCopy({ zarr_status: "ready", zarr_store_count: 0 })).toBe(false);
+    expect(hasZarrCopy({ zarr_status: "ready", zarr_store_count: null })).toBe(false);
+  });
+  it("is false for a failed or pending conversion, even with stores left behind", () => {
+    expect(hasZarrCopy({ zarr_status: "failed", zarr_store_count: 4 })).toBe(false);
+    expect(hasZarrCopy({ zarr_status: "pending", zarr_store_count: 4 })).toBe(false);
+  });
+  it("is false for a never-converted row and for no row at all", () => {
+    expect(hasZarrCopy({ zarr_status: null, zarr_store_count: null })).toBe(false);
+    expect(hasZarrCopy({})).toBe(false);
+    expect(hasZarrCopy(null)).toBe(false);
+    expect(hasZarrCopy(undefined)).toBe(false);
   });
 });
