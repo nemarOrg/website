@@ -7,14 +7,10 @@ import {
   safeSnippet,
   splitModalities,
 } from "../lib/format";
-import {
-  ZARR_VERIFY_BLURB,
-  ZARR_VERIFY_LABELS,
-  ZARR_VERIFY_TAG_KIND,
-  isZarrVerifyStatus,
-} from "../lib/tags";
+import { zarrTag } from "../lib/tags";
 import type { Dataset } from "../lib/types";
 import Tag from "./Tag.astro";
+import TagSeparator from "./TagSeparator.astro";
 
 interface Props {
   dataset: Dataset;
@@ -33,15 +29,9 @@ const modalities = splitModalities(dataset.modalities);
 const byline = formatAuthorByline(dataset.authors) || dataset.owner_username || "NEMAR";
 const openneuroId = dataset.source === "openneuro" ? dataset.source_id : null;
 const detailHref = `/dataset/${encodeURIComponent(dataset.dataset_id)}`;
-// Zarr fidelity-sweep verdict badge (website#277). Null (never swept, or no
-// Zarr copy at all) renders nothing -- see ZARR_VERIFY_* in lib/tags.ts.
-const zarrBadge = isZarrVerifyStatus(dataset.zarr_verify_status)
-  ? {
-      label: ZARR_VERIFY_LABELS[dataset.zarr_verify_status],
-      blurb: ZARR_VERIFY_BLURB[dataset.zarr_verify_status],
-      kind: ZARR_VERIFY_TAG_KIND[dataset.zarr_verify_status],
-    }
-  : null;
+// Zarr tag (website#277, #346): shown for any row with a Zarr copy; null
+// renders nothing -- see zarrTag in lib/tags.ts.
+const zarr = zarrTag(dataset);
 
 interface Fact {
   label: string;
@@ -93,13 +83,17 @@ if (updated) {
         <span class="ds-card__id">{dataset.dataset_id}</span>
         <h3 class="ds-card__name">{dataset.name}</h3>
       </div>
-      {modalities.length > 0 || zarrBadge ? (
+      {modalities.length > 0 || zarr ? (
         <div class="ds-card__mods">
           {/* Non-clickable here: the whole card is already one <a>, so a
               nested filter link would be invalid HTML. Modality filtering
               lives on the detail page + the sidebar. */}
           {modalities.map((m) => <Tag kind="modality" value={m} />)}
-          {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} />}
+          {zarr && (
+            <TagSeparator show={modalities.length > 0}>
+              <Tag kind={zarr.kind} value={zarr.label} title={zarr.title} />
+            </TagSeparator>
+          )}
         </div>
       ) : (
         <span class="ds-card__mods-empty">Modalities pending</span>
