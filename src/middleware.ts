@@ -41,6 +41,9 @@ import {
  *   - connect-src S3 upload hosts (only on /upload — see routeNeedsS3Upload):
  *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
+ *   - script-src / connect-src cdn.jsdelivr.net, connect-src the OSA workers,
+ *     worker-src blob: — the Open Science Assistant widget, embedded site-wide.
+ *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
  *
  * README-borne script injection is already blocked at the markdown sanitizer
  * (it strips <script>, unit-tested), so this is defense-in-depth.
@@ -88,14 +91,65 @@ export function routeNeedsS3Upload(pathname: string): boolean {
 const S3_UPLOAD_HOSTS =
   "https://nemar.s3.us-east-2.amazonaws.com https://nemar-dev.s3.us-east-2.amazonaws.com";
 
+/**
+ * The Open Science Assistant widget, embedded site-wide (OpenScience-Collective/osa#436).
+ *
+ * Site-wide rather than route-scoped, unlike every other widening in this file, and that
+ * is a deliberate product decision rather than an oversight: the assistant answers
+ * general questions and search anywhere, and does more on a dataset page where it can
+ * read that recording. Scoping it to `/dataset/*` would have been the tighter policy and
+ * would have made it unavailable exactly where most visitors start.
+ *
+ * The widget script is served from jsDelivr, version-pinned and SRI-hashed by the
+ * embedder, which is also where its Pyodide runtime fetches packages from. One host
+ * therefore appears in both `script-src` and `connect-src`, for two different reasons.
+ */
+const OSA_WIDGET_CDN = "https://cdn.jsdelivr.net";
+
+/**
+ * The OSA edge worker the widget talks to: chat, and the browser-execution continuation
+ * (`/{community}/chat/resume`).
+ *
+ * These are `workers.dev` hostnames because that is what the widget actually calls; see
+ * `frontend/osa-chat-widget.js` in OpenScience-Collective/osa, which picks between them
+ * by page hostname. Pinning an account-scoped `*.workers.dev` name in a production CSP
+ * is brittle: it encodes a Cloudflare account subdomain in this repository's security
+ * policy, and it moves if that account ever changes. That is not hypothetical, the OSA
+ * backend is moving to SCCN, and when it does every chat request from nemar.org fails
+ * with a network-indistinguishable error until a pull request lands HERE and goes
+ * through staging and promotion. Tracked as OpenScience-Collective/osa#437: route the
+ * worker at a stable product-owned name so this list never has to change again.
+ * Both are listed because staging pages talk to the dev worker.
+ */
+const OSA_API_HOSTS =
+  "https://osa-worker.shirazi-10f.workers.dev https://osa-worker-dev.shirazi-10f.workers.dev";
+
+/**
+ * Where the assistant's Python runtime may run.
+ *
+ * Pyodide runs in a dedicated Web Worker created from a blob URL. `worker-src` has no
+ * default of its own: it falls back to `child-src` and then to `script-src`, which here
+ * is `'self'`, so a blob worker is refused and the failure is silent. The worker simply
+ * never starts, which looks like the runtime being slow rather than being blocked.
+ *
+ * NOT included, deliberately: `'unsafe-eval'`. Pyodide is Emscripten-based, and ADR 0009
+ * records that the numcodecs Emscripten+embind glue needs `'unsafe-eval'` because its
+ * invoker functions go through the Function constructor, which `'wasm-unsafe-eval'` does
+ * not cover. Whether Pyodide's own glue hits the same wall has NOT been measured in a
+ * browser. It is left out until it is, because adding it here would extend site-wide a
+ * relaxation this repository currently confines to `/dataset/*`, and that is a decision
+ * to take on evidence rather than on the resemblance between two Emscripten builds.
+ */
+const OSA_WORKER_SRC = "worker-src 'self' blob:";
+
 /** Build the Content-Security-Policy for a given request path. */
 export function contentSecurityPolicy(pathname: string): string {
   const scriptSrc = routeNeedsUnsafeEval(pathname)
     ? `${SCRIPT_SRC_BASE} 'unsafe-eval'`
     : SCRIPT_SRC_BASE;
   const connectSrc = routeNeedsS3Upload(pathname)
-    ? `${CONNECT_SRC_BASE} ${S3_UPLOAD_HOSTS}`
-    : CONNECT_SRC_BASE;
+    ? `${CONNECT_SRC_BASE} ${S3_UPLOAD_HOSTS} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`
+    : `${CONNECT_SRC_BASE} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`;
   return [
     "default-src 'self'",
     "base-uri 'self'",
@@ -104,8 +158,9 @@ export function contentSecurityPolicy(pathname: string): string {
     "img-src 'self' data:",
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    scriptSrc,
+    `${scriptSrc} ${OSA_WIDGET_CDN}`,
     connectSrc,
+    OSA_WORKER_SRC,
     "form-action 'self'",
   ].join("; ");
 }
