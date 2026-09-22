@@ -641,6 +641,82 @@ describe("security headers", () => {
     expect(SECURITY_HEADERS["Content-Security-Policy"]).not.toContain("'unsafe-eval'");
   });
 
+  it("carries the OSA widget allowances on EVERY route, not just one", () => {
+    // The assistant is embedded site-wide (OpenScience-Collective/osa#436),
+    // unlike every other widening in this file. Asserted across routes rather
+    // than on one, because "site-wide" is the property, and a route-scoped
+    // implementation would still pass a single-route check.
+    //
+    // Asserted against the connect-src directive specifically, not against the
+    // whole policy string. A host that landed in some other directive would
+    // satisfy a whole-string check while the browser still refused the fetch,
+    // which is the failure this test exists to catch.
+    for (const path of ["/", "/discover", "/dataset/nm000232", "/upload", "/datasets"]) {
+      const csp = contentSecurityPolicy(path);
+      const connectSrc = csp.split("; ").find((d) => d.startsWith("connect-src"))!;
+      expect(csp).toContain("https://cdn.jsdelivr.net");
+      expect(connectSrc).toContain("https://cdn.jsdelivr.net");
+      expect(connectSrc).toContain("https://osa-worker.shirazi-10f.workers.dev");
+      expect(connectSrc).toContain("https://osa-worker-dev.shirazi-10f.workers.dev");
+    }
+  });
+
+  it("allows the stable osc.earth widget hosts, not only the workers.dev ones", () => {
+    // OpenScience-Collective/osa#437 moves the widget onto product-owned names.
+    // Both pairs are listed during the transition: cached widget builds are
+    // SRI-pinned by embedders and keep calling the old hostnames, so dropping
+    // those early breaks chat on pages this repository does not control.
+    //
+    // The widget is mounted at widget.osc.earth/osa, but connect-src matches by
+    // ORIGIN and ignores the path, so the entry is the bare origin. Writing the
+    // path here would not narrow anything; it would silently match nothing.
+    for (const path of ["/", "/discover", "/dataset/nm000232"]) {
+      const connectSrc = contentSecurityPolicy(path)
+        .split("; ")
+        .find((d) => d.startsWith("connect-src"))!;
+      expect(connectSrc).toContain("https://widget.osc.earth");
+      expect(connectSrc).toContain("https://develop-widget.osc.earth");
+      expect(connectSrc).not.toContain("widget.osc.earth/osa");
+    }
+  });
+
+  it("names worker-src explicitly, because its fallback is silent", () => {
+    // worker-src has no default: it falls back to child-src, then script-src,
+    // which is 'self' here, so a blob worker is refused. Pyodide runs in one,
+    // and the failure mode is that the worker never starts, which reads as the
+    // runtime being slow rather than being blocked. Regression guard for a
+    // directive whose absence is invisible.
+    const csp = contentSecurityPolicy("/");
+    expect(csp).toContain("worker-src 'self' blob:");
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).toContain("worker-src 'self' blob:");
+  });
+
+  it("does NOT extend 'unsafe-eval' site-wide for the assistant", () => {
+    // Pyodide is Emscripten-based, like the numcodecs codecs that forced
+    // 'unsafe-eval' onto /dataset/*. Whether its own glue needs the same has
+    // not been measured in a browser, so it is not granted. This test exists to
+    // make adding it a deliberate act with a failing assertion attached, rather
+    // than something that arrives quietly alongside an unrelated widget change.
+    expect(contentSecurityPolicy("/")).not.toContain("'unsafe-eval'");
+    expect(contentSecurityPolicy("/discover")).not.toContain("'unsafe-eval'");
+    // The pre-existing viewer grant is untouched.
+    expect(contentSecurityPolicy("/dataset/nm000232")).toContain("'unsafe-eval'");
+  });
+
+  it("keeps the assistant hosts out of script-src where they do not belong", () => {
+    // jsDelivr serves the widget script AND is where its runtime fetches
+    // packages, so it is in both script-src and connect-src. The OSA workers
+    // are only ever fetched from, never executed, so they must not appear in
+    // script-src: a host that can only be talked to is a smaller grant than one
+    // that can also run code.
+    const scriptSrc = contentSecurityPolicy("/")
+      .split("; ")
+      .find((d) => d.startsWith("script-src"))!;
+    expect(scriptSrc).toContain("https://cdn.jsdelivr.net");
+    expect(scriptSrc).not.toContain("workers.dev");
+    expect(scriptSrc).not.toContain("widget.osc.earth");
+  });
+
   it("widens connect-src with the S3 hosts only on the upload route", () => {
     // Presigned PUTs go browser -> bucket directly; without these hosts in
     // connect-src the browser kills every PUT (the 2026-08-18 all-files
