@@ -1,0 +1,38 @@
+---
+/**
+ * Sets a pseudo-modality (the Zarr copy) off from the real modality tags or
+ * chips before it with a "|" (website#346). Wraps the slotted tag or chip so
+ * the rule and what follows it wrap onto a new line together; a rule left
+ * dangling at the end of the previous line would separate nothing.
+ *
+ * `show={false}` drops the rule but keeps the slot, for a row that has
+ * nothing before the pseudo-modality to separate it from. The rule is
+ * decorative; the slotted tag or chip carries its own label.
+ */
+interface Props {
+  show?: boolean;
+}
+
+const { show = true } = Astro.props;
+---
+
+<span class="tag-sep-group">
+  {show && <span class="tag-sep" aria-hidden="true"></span>}
+  <slot />
+</span>
+
+<style>
+  .tag-sep-group {
+    display: inline-flex;
+    align-items: stretch;
+    /* Match the spacing of the flex row this sits in. */
+    gap: inherit;
+  }
+  .tag-sep {
+    flex-shrink: 0;
+    inline-size: 1px;
+    margin-block: 3px;
+    margin-inline: var(--space-1);
+    background: var(--color-border-strong);
+  }
+</style>

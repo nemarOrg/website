@@ -8,6 +8,7 @@
  */
 
 import { LICENSE_TIERS, type LicenseTier, MODALITY_CODES, type ModalityCode } from "./types";
+import { type ZarrCopyFields, hasZarrCopy } from "./zarr-base";
 
 // --- Modality ---------------------------------------------------------------
 
@@ -115,11 +116,14 @@ export function licenseHref(license: string | null | undefined): string {
   return `/discover?license=${licenseTier(license)}`;
 }
 
-// --- Zarr verification badge (website#277) -----------------------------------
-// The badge surfaces `Dataset.zarr_verify_status` (nemar-cli#1181 phase 8): the
-// standing fidelity sweep's verdict for a dataset's Zarr copy. `null` means the
-// sweep hasn't reached this dataset yet (or it has no Zarr copy at all) and
-// renders nothing — see DatasetCard.astro / the dataset page header.
+// --- Zarr tag (website#277, #346) --------------------------------------------
+// A converted Zarr copy is not a recording modality, but it is how a dataset
+// opens in the signal viewer, so it gets a green tag set off from the
+// modality tags (and a matching chip in the Discover sidebar). The tag keys on
+// the copy EXISTING (`hasZarrCopy`), not on the fidelity sweep's verdict: the
+// sweep only reaches datasets with a `github_repo`, so gating on its verdict
+// hid the tag from every `on*` mirror. The verdict (nemar-cli#1181 phase 8)
+// moves into the tooltip; only a failed check changes the tag itself.
 
 export type ZarrVerifyStatus = "verified" | "failed" | "unverifiable";
 
@@ -133,37 +137,52 @@ export function isZarrVerifyStatus(value: unknown): value is ZarrVerifyStatus {
   return typeof value === "string" && ZARR_VERIFY_STATUSES.has(value);
 }
 
-export const ZARR_VERIFY_LABELS: Record<ZarrVerifyStatus, string> = {
-  verified: "Zarr verified",
-  // "failed" means the sweep RAN and found a real mismatch -- distinct from
-  // "unverifiable", where no check could run at all. "Zarr unverified" read
-  // as the same thing as "unverifiable"; "fidelity issue" names what
-  // actually happened (PR #278 review).
-  failed: "Zarr fidelity issue",
-  unverifiable: "Zarr unverifiable",
+/** The catalog-row fields the Zarr tag reads. */
+export interface ZarrTagFields extends ZarrCopyFields {
+  zarr_verify_status?: string | null;
+}
+
+export interface ZarrTagView {
+  label: string;
+  /** `Tag` kind: `positive` (green) for a served copy, `warning` (amber)
+   *  when the sweep ran and found a real mismatch (PR #278 review). */
+  kind: "positive" | "warning";
+  /** Tooltip: what the copy is, plus the sweep's verdict. */
+  title: string;
+}
+
+const ZARR_TAG_LEAD =
+  "A converted Zarr copy is available, so recordings open in the in-browser signal viewer.";
+
+/** The verdict sentence appended to the tooltip. `null` (never swept) and
+ *  "unverifiable" (no check could run) are both "not checked", never a
+ *  failure (mirrors `zarr-fidelity-sweep.ts`'s own verdict semantics). */
+const ZARR_VERDICT_NOTE: Record<"verified" | "unverifiable" | "unswept", string> = {
+  verified:
+    "Its channel counts match this dataset's own channels.tsv, checked by the standing fidelity sweep.",
+  unverifiable:
+    "The fidelity sweep couldn't reach a verdict for it, which does not mean it failed.",
+  unswept: "The fidelity sweep hasn't checked it yet.",
 };
 
-/** One-sentence tooltip per verdict (mirrors `zarr-fidelity-sweep.ts`'s own
- *  verdict semantics: "verified"/"failed" both mean a check actually ran;
- *  "unverifiable" means no verdict could be reached at all, which is NOT the
- *  same as a failed check). */
-export const ZARR_VERIFY_BLURB: Record<ZarrVerifyStatus, string> = {
-  verified:
-    "The converted viewer copy's channel counts match this dataset's own channels.tsv, checked by the standing fidelity sweep.",
-  failed:
-    "A sampled recording's converted channel count disagreed with this dataset's channels.tsv; the copy is still served but excluded from the verified filter until it's rechecked.",
-  unverifiable:
-    "The fidelity sweep hasn't reached a verdict yet (private dataset, or the check couldn't run) — this does not mean it failed.",
-};
+const ZARR_FAILED_TITLE =
+  "A converted Zarr copy is available, but a sampled recording's converted channel count disagreed with this dataset's channels.tsv; the copy is still served until it's rechecked.";
 
 /**
- * `Tag` kind per verdict (PR #278 review): `verified` is a passed check
- * (positive/green), `failed` is a check that ran and found a real issue
- * (warning/amber) -- not `neutral`, which is reserved for `unverifiable`
- * (no check could run at all, so there is nothing to warn about).
+ * The Zarr tag for a catalog row, or null when the row has no Zarr copy.
+ * Shared by the Discover card and the dataset page header.
  */
-export const ZARR_VERIFY_TAG_KIND: Record<ZarrVerifyStatus, "positive" | "warning" | "neutral"> = {
-  verified: "positive",
-  failed: "warning",
-  unverifiable: "neutral",
-};
+export function zarrTag(row: ZarrTagFields | null | undefined): ZarrTagView | null {
+  if (!row || !hasZarrCopy(row)) return null;
+  const verdict = isZarrVerifyStatus(row.zarr_verify_status) ? row.zarr_verify_status : null;
+  if (verdict === "failed") {
+    // "fidelity issue", not "unverified": the sweep RAN and found a mismatch,
+    // which must not read as a synonym for "no check could run".
+    return { label: "Zarr fidelity issue", kind: "warning", title: ZARR_FAILED_TITLE };
+  }
+  return {
+    label: "Zarr",
+    kind: "positive",
+    title: `${ZARR_TAG_LEAD} ${ZARR_VERDICT_NOTE[verdict ?? "unswept"]}`,
+  };
+}

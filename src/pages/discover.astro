@@ -19,7 +19,7 @@ import {
   filterStateToAPIQuery,
   filterStateToURL,
 } from "../lib/filters";
-import type { Dataset } from "../lib/types";
+import { type Dataset, SORT_OPTIONS } from "../lib/types";
 
 const url = new URL(Astro.request.url);
 const state = filterStateFromURL(url.searchParams);
@@ -36,10 +36,6 @@ const SEARCH_FETCH_LIMIT = 240;
 let cards: Array<{ dataset: Dataset; snippet?: string }> = [];
 let totalReturned = 0;
 let fetchError: string | null = null;
-// Which path served a search ("semantic" | "exact_id" | "text_fallback"),
-// surfaced subtly so the relevance-ranked (not date-sorted) order reads as
-// intentional. Null in browse mode.
-let searchMethod: string | null = null;
 
 // Cap every backend hop so a stalled upstream fails fast (and falls back)
 // instead of holding the SSR response until the Worker CPU limit kills it.
@@ -48,7 +44,6 @@ const signal = AbortSignal.timeout(8000);
 try {
   if (isSearch) {
     const res = await searchDatasets(state.q, { limit: SEARCH_FETCH_LIMIT, signal });
-    searchMethod = res.method;
     // The hybrid endpoint doesn't filter by modality/range, so every
     // selection is enforced client-side over the full ranked list (relevance
     // order preserved; the `sort` control is a no-op while searching).
@@ -171,20 +166,7 @@ Astro.response.headers.set(
 <Base title="Discover datasets">
   <section class="discover container">
     <header class="discover__head">
-      <div class="discover__head-row">
-        <h1>Discover datasets</h1>
-        {!fetchError && (
-          <p class="discover__count">
-            {isSearch
-              ? `${totalReturned.toLocaleString()} ${totalReturned === 1 ? "result" : "results"} for "${state.q}"`
-              : `Showing ${cards.length} of ${totalReturned.toLocaleString()} datasets`}
-            {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
-            {isSearch && searchMethod && totalReturned > 0 && (
-              <span class="discover__rank-note"> · ranked by relevance</span>
-            )}
-          </p>
-        )}
-      </div>
+      <h1>Discover datasets</h1>
       <SearchBar value={state.q} size="md" placeholder="Search by dataset name, ID, or description..." />
     </header>
     <div class="discover__layout">
@@ -198,6 +180,43 @@ Astro.response.headers.set(
             <span>{fetchError}</span>
           </div>
         )}
+        <div class="discover__toolbar">
+          {!fetchError && (
+            <p class="discover__count">
+              {isSearch
+                ? `${totalReturned.toLocaleString()} ${totalReturned === 1 ? "result" : "results"} for "${state.q}"`
+                : `Showing ${cards.length} of ${totalReturned.toLocaleString()} datasets`}
+              {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
+            </p>
+          )}
+          {/* Not a form of its own: the select joins the sidebar's filter form
+              through `form=`, so sorting submits the filters as they stand in
+              the sidebar (applied or not) and drops `page`. Rendered even with
+              zero results so that form never loses the current sort. */}
+          <div class="discover__sort">
+            <label for="discover-sort">Sort by</label>
+            {isSearch ? (
+              // The hybrid search endpoint ranks by relevance and takes no
+              // sort, so say so instead of offering orders it would ignore.
+              <select id="discover-sort" disabled>
+                <option selected>Relevance</option>
+              </select>
+            ) : (
+              <select id="discover-sort" name="sort" form="discover-filters" data-sort-select>
+                {SORT_OPTIONS.map((opt) => (
+                  <option value={opt.value} selected={state.sort === opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {!isSearch && (
+              <noscript>
+                <button type="submit" form="discover-filters" class="discover__sort-go">Sort</button>
+              </noscript>
+            )}
+          </div>
+        </div>
         {!fetchError && cards.length === 0 && (
           <div class="discover__empty">
             {isSearch ? (
@@ -234,6 +253,14 @@ Astro.response.headers.set(
   </section>
 </Base>
 
+<script>
+  // Sort applies the moment it changes, like a shop's "Sort by" (website#346).
+  // `select.form` is the sidebar's filter form (the select's `form=`
+  // attribute); without JS the <noscript> button submits that same form.
+  const sortSelect = document.querySelector<HTMLSelectElement>("[data-sort-select]");
+  sortSelect?.addEventListener("change", () => sortSelect.form?.requestSubmit());
+</script>
+
 <style>
   .discover {
     padding-block: var(--space-12) var(--space-16);
@@ -244,23 +271,52 @@ Astro.response.headers.set(
     flex-direction: column;
     gap: var(--space-4);
   }
-  .discover__head-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-4);
-    flex-wrap: wrap;
-  }
   .discover__head h1 {
     font-size: var(--fs-3xl);
+  }
+  .discover__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-4);
+    flex-wrap: wrap;
+    margin-block-end: var(--space-4);
   }
   .discover__count {
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
     font-family: var(--font-mono);
   }
-  .discover__rank-note {
-    color: var(--color-fg-subtle);
+  .discover__sort {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-inline-start: auto;
+  }
+  .discover__sort label {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    white-space: nowrap;
+  }
+  .discover__sort select {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .discover__sort select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .discover__sort-go {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-sm);
   }
   .discover__layout {
     display: grid;

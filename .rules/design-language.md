@@ -164,14 +164,21 @@ relying on hue alone (color-blind safety; the license text differs too).
 **Keyword** (`--keyword`) — free-text taxonomy, deliberately the quietest
 tag (sans, muted, subtle border).
 
-**Status** (`--color-success` / `--color-warning`) — a pass/flag verdict on
-something the site checked itself (not a taxonomy value), e.g. the Zarr
-fidelity-sweep badge: `positive` = verified, `warning` = an issue was
-found. Reuses the same palette tokens the StatusBadge-family components
-(`UserStatusBadge.astro`, `PublishStateBadge.astro`, `ImportStatusBadge.astro`)
-already use for pass/fail states — not new tag colors. A verdict the sweep
-could not reach at all (no check ran, which is not the same as a failed
-check) is `neutral`, not `warning` — it isn't a flagged issue.
+**Status** (`--color-success` / `--color-warning`) — a pass/flag state on
+something the site checked itself (not a taxonomy value). Reuses the same
+palette tokens the StatusBadge-family components (`UserStatusBadge.astro`,
+`PublishStateBadge.astro`, `ImportStatusBadge.astro`) already use for
+pass/fail states — not new tag colors.
+
+The Zarr tag is the main user (`zarrTag` in `src/lib/tags.ts`). A converted
+Zarr copy is not a modality, but it is how a dataset opens in the viewer, so
+it is treated like one: a `positive` (green) **Zarr** tag on every row with a
+Zarr copy, set off from the modality tags by a `TagSeparator` ("|"), and a
+matching green chip behind the same "|" in the Discover Modality group.
+It keys on the copy existing, never on the fidelity sweep's verdict (the sweep
+only reaches datasets with a GitHub repo, so gating on it hid the tag from
+every `on*` mirror). The verdict goes in the tooltip; only a check that ran
+and found a mismatch changes the tag, to `warning` "Zarr fidelity issue".
 
 Two deliberate near-overlaps, documented so they don't read as bugs: EMG
 (orange) and the non-commercial tier sit in the same warm region, and

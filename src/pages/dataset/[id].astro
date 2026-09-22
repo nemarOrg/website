@@ -7,6 +7,7 @@ import EegViewerDialog from "../../components/EegViewerDialog.astro";
 import ProvenanceToggle from "../../components/ProvenanceToggle.astro";
 import Readme from "../../components/Readme.astro";
 import Tag from "../../components/Tag.astro";
+import TagSeparator from "../../components/TagSeparator.astro";
 import UseThisData from "../../components/UseThisData.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
@@ -27,13 +28,7 @@ import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
 import { buildSignposting, signpostingLinkHeader } from "../../lib/signposting";
-import {
-  ZARR_VERIFY_BLURB,
-  ZARR_VERIFY_LABELS,
-  ZARR_VERIFY_TAG_KIND,
-  isZarrVerifyStatus,
-  modalityHref,
-} from "../../lib/tags";
+import { modalityHref, zarrTag } from "../../lib/tags";
 import { buildUseThisData, markdownMirrorUrl } from "../../lib/use-this-data";
 import { zarrBase } from "../../lib/zarr-base";
 
@@ -165,16 +160,9 @@ const modalities = enrichedMetadata.recording_modality.length
   ? enrichedMetadata.recording_modality
   : splitModalities("");
 
-// Zarr fidelity-sweep verdict badge (website#277). Null (never swept, or no
-// Zarr copy at all) renders nothing -- see ZARR_VERIFY_* in lib/tags.ts.
-const zarrVerifyStatus = catalogRow?.zarr_verify_status ?? null;
-const zarrBadge = isZarrVerifyStatus(zarrVerifyStatus)
-  ? {
-      label: ZARR_VERIFY_LABELS[zarrVerifyStatus],
-      blurb: ZARR_VERIFY_BLURB[zarrVerifyStatus],
-      kind: ZARR_VERIFY_TAG_KIND[zarrVerifyStatus],
-    }
-  : null;
+// Zarr tag (website#277, #346): shown for any row with a Zarr copy; null
+// renders nothing -- see zarrTag in lib/tags.ts.
+const zarr = zarrTag(catalogRow);
 
 // Server-rendered schema.org Dataset JSON-LD (website#156). Shares
 // `canonicalOriginFor` with Base.astro's `<link rel="canonical">` rather than
@@ -310,6 +298,11 @@ Astro.response.headers.set(
       )}
       <div class="detail__chips">
         {modalities.map((m) => <Tag kind="modality" value={m} href={modalityHref(m)} size="md" />)}
+        {zarr && (
+          <TagSeparator show={modalities.length > 0}>
+            <Tag kind={zarr.kind} value={zarr.label} title={zarr.title} size="md" />
+          </TagSeparator>
+        )}
         {anonymousDeposit && (
           <Tag
             kind="warning"
@@ -318,7 +311,6 @@ Astro.response.headers.set(
             size="md"
           />
         )}
-        {zarrBadge && <Tag kind={zarrBadge.kind} value={zarrBadge.label} title={zarrBadge.blurb} size="md" />}
       </div>
       <div class="detail__actions">
         <ActionBar

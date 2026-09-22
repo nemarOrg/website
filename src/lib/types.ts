@@ -261,9 +261,6 @@ export interface DatasetQuery {
   /** Only converted-to-Zarr datasets; server-side `?has_zarr=1`
    *  (nemar-cli#1181 phase 2). */
   has_zarr?: boolean;
-  /** Only datasets whose Zarr copy passed the fidelity sweep; server-side
-   *  `?has_zarr_verified=1` (nemar-cli#1181 phase 8). */
-  has_zarr_verified?: boolean;
   recent?: number; // days
   sort?: SortOption;
 }

@@ -7,8 +7,8 @@ import {
   LICENSE_TIERS,
   MODALITY_CODES,
   MODALITY_LABELS,
-  SORT_OPTIONS,
 } from "../lib/types";
+import TagSeparator from "./TagSeparator.astro";
 
 // Density presets in display order (insertion order of the record literal).
 const DENSITY_OPTIONS = Object.entries(DENSITY_BUCKETS);
@@ -16,9 +16,9 @@ const DENSITY_OPTIONS = Object.entries(DENSITY_BUCKETS);
 interface Props {
   state: FilterState;
   /**
-   * When a freetext query is active, results are relevance-ranked by the
-   * hybrid search endpoint and the sort control has no effect, so we disable
-   * it with a hint rather than letting it silently no-op.
+   * When a freetext query is active, results come from the hybrid search
+   * endpoint, which can't filter by license, channels, or Zarr, so those
+   * controls are disabled with a hint rather than letting them silently no-op.
    */
   searchActive?: boolean;
 }
@@ -26,7 +26,12 @@ interface Props {
 const { state, searchActive = false } = Astro.props;
 ---
 
+{/* `id` is the target of the results toolbar's `<select form=...>`: the
+    Sort by control lives above the list (website#346) but submits with this
+    form, so a re-sort carries any filter edit not yet applied, and Apply
+    keeps the chosen order. */}
 <form
+  id="discover-filters"
   class="filters"
   method="get"
   action="/discover"
@@ -70,6 +75,29 @@ const { state, searchActive = false } = Astro.props;
           </label>
         );
       })}
+      {/* Zarr is a converted data format, not a modality, but it matters as
+          much when choosing a dataset, so it sits in this row behind a "|".
+          It filters on its own and is never part of the OR/AND above. */}
+      <TagSeparator>
+        <label
+          class:list={[
+            "chip",
+            "chip--zarr",
+            state.hasZarr && "chip--on",
+            searchActive && "chip--disabled",
+          ]}
+          title="Only datasets with a converted Zarr copy of their recordings."
+        >
+          <input
+            type="checkbox"
+            name="has_zarr"
+            value="1"
+            checked={state.hasZarr}
+            disabled={searchActive}
+          />
+          <span>Zarr</span>
+        </label>
+      </TagSeparator>
     </div>
   </div>
 
@@ -147,31 +175,16 @@ const { state, searchActive = false } = Astro.props;
       <li>
         <label
           class:list={[searchActive && "flag--disabled"]}
-          title="Has an interactive Zarr signal viewer copy."
+          title="Recordings open in the in-browser signal viewer."
         >
           <input
             type="checkbox"
-            name="has_zarr"
+            name="has_viewer"
             value="1"
-            checked={state.hasZarr}
+            checked={state.hasViewer}
             disabled={searchActive}
           />
-          Has Zarr viewer
-        </label>
-      </li>
-      <li>
-        <label
-          class:list={[searchActive && "flag--disabled"]}
-          title="The Zarr viewer copy passed the standing fidelity verification sweep."
-        >
-          <input
-            type="checkbox"
-            name="has_zarr_verified"
-            value="1"
-            checked={state.hasZarrVerified}
-            disabled={searchActive}
-          />
-          Zarr viewer verified
+          Has viewer
         </label>
       </li>
       <li>
@@ -190,7 +203,7 @@ const { state, searchActive = false } = Astro.props;
     </ul>
     {searchActive && (
       <p class="filters__note">
-        Zarr filters aren't available while searching — clear the search box to filter by them.
+        The viewer and Zarr filters aren't available while searching — clear the search box to use them.
       </p>
     )}
   </div>
@@ -220,20 +233,6 @@ const { state, searchActive = false } = Astro.props;
         ? "Channel and montage filters apply while browsing — clear the search box to use them."
         : "Counts come from each dataset's channels.tsv / EEG sidecar; datasets without a resolvable montage are excluded."}
     </p>
-  </div>
-
-  <div class="filters__group">
-    <h3>Sort</h3>
-    <select name="sort" disabled={searchActive}>
-      {SORT_OPTIONS.map((opt) => (
-        <option value={opt.value} selected={state.sort === opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-    {searchActive && (
-      <p class="filters__hint">Results are ranked by relevance while searching.</p>
-    )}
   </div>
 
   <div class="filters__actions">
@@ -267,18 +266,21 @@ const { state, searchActive = false } = Astro.props;
     font-weight: var(--fw-semibold);
     margin: 0;
   }
+  /* A step smaller than the chips it governs (21px vs 28px), so it reads as
+     a setting on the modality row rather than one more chip. */
   .filters__op {
     display: inline-flex;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-pill);
     overflow: hidden;
-    padding: 2px;
+    padding: 1px;
     background: var(--color-bg);
     inline-size: fit-content;
   }
   .filters__op label {
-    padding: 4px 14px;
-    font-size: var(--fs-xs);
+    padding: 1px 10px;
+    font-size: calc(var(--fs-xs) - 1px);
+    line-height: 1.4;
     color: var(--color-fg-muted);
     cursor: pointer;
     border-radius: var(--radius-pill);
@@ -298,13 +300,15 @@ const { state, searchActive = false } = Astro.props;
     flex-wrap: wrap;
     gap: var(--space-2);
   }
+  /* Compact enough that the six modality chips and the Zarr chip fit the
+     280px rail in two rows, Zarr last (website#346); still 28px tall. */
   .chip {
     display: inline-flex;
     align-items: center;
-    padding: var(--space-2) var(--space-3);
+    padding: var(--space-1) var(--space-2);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
-    font-size: var(--fs-sm);
+    font-size: var(--fs-xs);
     cursor: pointer;
     transition: background 0.15s ease, border-color 0.15s ease;
     color: var(--color-fg-muted);
@@ -316,8 +320,8 @@ const { state, searchActive = false } = Astro.props;
     width: 1px;
     height: 1px;
   }
-  /* Disabled while a search query is active (license can't filter the hybrid
-     search endpoint). Mirrors the sort control's disabled treatment. */
+  /* Disabled while a search query is active (the hybrid search endpoint can't
+     filter by license or Zarr). Mirrors the selects' disabled treatment. */
   .chip--disabled {
     opacity: 0.5;
     cursor: not-allowed;
@@ -347,6 +351,8 @@ const { state, searchActive = false } = Astro.props;
   .chip--mod-nirs { --chip-color: var(--modality-nirs); }
   .chip--mod-motion { --chip-color: var(--modality-motion); }
   .chip--mod-other { --chip-color: var(--modality-other); }
+  /* Same green as the Zarr tag on cards (Tag.astro's `positive` kind). */
+  .chip--zarr { --chip-color: var(--color-success); }
   .chip--lic-public { --chip-color: var(--license-public); }
   .chip--lic-attribution { --chip-color: var(--license-attribution); }
   .chip--lic-sharealike { --chip-color: var(--license-sharealike); }
@@ -407,8 +413,8 @@ const { state, searchActive = false } = Astro.props;
     color: var(--color-fg-subtle);
     cursor: not-allowed;
   }
-  /* Temporarily disabled while a search query is active (client-side zarr
-     filtering isn't wired for the hybrid search endpoint yet). Distinct
+  /* Temporarily disabled while a search query is active (the viewer filter
+     isn't wired for the hybrid search endpoint yet, website#280). Distinct
      from .flag--soon (a not-yet-shipped feature): same muted treatment,
      different reason, so it doesn't read as "coming later" when it's
      really "clear the search box". */
@@ -457,12 +463,6 @@ const { state, searchActive = false } = Astro.props;
   }
   .filters__field--soon .soon-pill {
     margin-inline-start: auto;
-  }
-  .filters__hint {
-    margin-block-start: var(--space-2);
-    font-size: var(--fs-xs);
-    color: var(--color-fg-subtle);
-    line-height: var(--lh-snug);
   }
   .filters__actions {
     display: flex;

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  ZARR_VERIFY_BLURB,
-  ZARR_VERIFY_LABELS,
-  ZARR_VERIFY_TAG_KIND,
   isZarrVerifyStatus,
   keywordHref,
   licenseHref,
@@ -10,6 +7,7 @@ import {
   modalityFilterCode,
   modalityHref,
   modalityVariant,
+  zarrTag,
 } from "./tags";
 import { LICENSE_TIERS } from "./types";
 
@@ -178,28 +176,61 @@ describe("isZarrVerifyStatus (website#277)", () => {
     expect(isZarrVerifyStatus("pending")).toBe(false);
     expect(isZarrVerifyStatus("")).toBe(false);
   });
-  it("has a label and a tooltip blurb ending a single sentence for every status", () => {
-    for (const status of ["verified", "failed", "unverifiable"] as const) {
-      expect(ZARR_VERIFY_LABELS[status]).toBeTruthy();
-      const blurb = ZARR_VERIFY_BLURB[status];
-      expect(blurb.length).toBeGreaterThan(0);
-      expect(blurb.endsWith(".")).toBe(true);
+});
+
+describe("zarrTag (website#277, #346)", () => {
+  const ready = { zarr_status: "ready", zarr_store_count: 8 };
+
+  it("renders nothing for a row without a Zarr copy", () => {
+    expect(zarrTag(null)).toBeNull();
+    expect(zarrTag(undefined)).toBeNull();
+    expect(zarrTag({ zarr_status: "ready", zarr_store_count: 0 })).toBeNull();
+    expect(zarrTag({ zarr_status: null, zarr_store_count: null })).toBeNull();
+  });
+
+  it("keys on the copy existing, not on a sweep verdict (the on* mirrors carry none)", () => {
+    const tag = zarrTag({ ...ready, zarr_verify_status: null });
+    expect(tag).toMatchObject({ label: "Zarr", kind: "positive" });
+    expect(tag?.title).toContain("hasn't checked it yet");
+  });
+
+  it("stays a green Zarr tag for verified and unverifiable copies, verdict in the tooltip", () => {
+    const verified = zarrTag({ ...ready, zarr_verify_status: "verified" });
+    expect(verified).toMatchObject({ label: "Zarr", kind: "positive" });
+    expect(verified?.title).toContain("channels.tsv");
+    // unverifiable means no check could run, which must not read as failure.
+    const unverifiable = zarrTag({ ...ready, zarr_verify_status: "unverifiable" });
+    expect(unverifiable).toMatchObject({ label: "Zarr", kind: "positive" });
+    expect(unverifiable?.title).toContain("does not mean it failed");
+  });
+
+  it("flags a failed check as a fidelity issue in amber (PR #278 review)", () => {
+    expect(zarrTag({ ...ready, zarr_verify_status: "failed" })).toMatchObject({
+      label: "Zarr fidelity issue",
+      kind: "warning",
+    });
+  });
+
+  it("does not tag a failed conversion even when the sweep stamped it failed", () => {
+    // Live on 2026-09-22: one nm* row had zarr_status "failed" with stores
+    // left behind and a "failed" verdict. has_zarr=1 excludes it, so the tag
+    // must too.
+    expect(
+      zarrTag({ zarr_status: "failed", zarr_store_count: 3, zarr_verify_status: "failed" }),
+    ).toBeNull();
+  });
+
+  it("treats an unrecognized verdict string as not yet checked", () => {
+    expect(zarrTag({ ...ready, zarr_verify_status: "pending" })?.title).toContain(
+      "hasn't checked it yet",
+    );
+  });
+
+  it("writes every tooltip as whole sentences", () => {
+    for (const status of [null, "verified", "unverifiable", "failed"]) {
+      const title = zarrTag({ ...ready, zarr_verify_status: status })?.title ?? "";
+      expect(title.length).toBeGreaterThan(0);
+      expect(title.endsWith(".")).toBe(true);
     }
-  });
-
-  it("labels 'failed' as a fidelity issue, distinct from 'unverifiable' (PR #278 review)", () => {
-    // "failed" means the sweep RAN and found a mismatch; "unverifiable"
-    // means no check could run at all. The two must not read as synonyms.
-    expect(ZARR_VERIFY_LABELS.failed).toBe("Zarr fidelity issue");
-    expect(ZARR_VERIFY_LABELS.unverifiable).toBe("Zarr unverifiable");
-    expect(ZARR_VERIFY_LABELS.failed).not.toBe(ZARR_VERIFY_LABELS.unverifiable);
-  });
-
-  it("maps each verdict to the correct Tag kind: positive/warning/neutral", () => {
-    expect(ZARR_VERIFY_TAG_KIND.verified).toBe("positive");
-    expect(ZARR_VERIFY_TAG_KIND.failed).toBe("warning");
-    // unverifiable is NOT a warning -- no check ran, so there is nothing to
-    // flag; it stays neutral.
-    expect(ZARR_VERIFY_TAG_KIND.unverifiable).toBe("neutral");
   });
 });
