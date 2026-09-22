@@ -110,18 +110,29 @@ const OSA_WIDGET_CDN = "https://cdn.jsdelivr.net";
  * The OSA edge worker the widget talks to: chat, and the browser-execution continuation
  * (`/{community}/chat/resume`).
  *
- * These are `workers.dev` hostnames because that is what the widget actually calls; see
- * `frontend/osa-chat-widget.js` in OpenScience-Collective/osa, which picks between them
- * by page hostname. Pinning an account-scoped `*.workers.dev` name in a production CSP
- * is brittle: it encodes a Cloudflare account subdomain in this repository's security
- * policy, and it moves if that account ever changes. That is not hypothetical, the OSA
- * backend is moving to SCCN, and when it does every chat request from nemar.org fails
- * with a network-indistinguishable error until a pull request lands HERE and goes
- * through staging and promotion. Tracked as OpenScience-Collective/osa#437: route the
- * worker at a stable product-owned name so this list never has to change again.
- * Both are listed because staging pages talk to the dev worker.
+ * Four hosts, deliberately, and this list is expected to shrink.
+ *
+ * `widget.osc.earth` and `develop-widget.osc.earth` are the stable, product-owned names
+ * introduced by OpenScience-Collective/osa#437. The widget is mounted under the `/osa`
+ * path there rather than owning the hostname, so `widget.osc.earth` stays available for
+ * other widgets at their own paths later. A CSP `connect-src` entry matches by origin and
+ * ignores the path, so the path does not appear here.
+ *
+ * The two `*.workers.dev` hostnames are the old names, and they are still listed because
+ * cached widget builds keep calling them. Embedders pin SRI-hashed versions that persist
+ * indefinitely, so removing these before those builds age out would break chat on pages
+ * this repository does not control, with a network-indistinguishable error.
+ *
+ * Pinning an account-scoped `*.workers.dev` name in a production CSP is what #437 set out
+ * to end: it encodes a Cloudflare account subdomain in this repository's security policy,
+ * and it moves if that account ever changes. That is not hypothetical, the OSA backend is
+ * moving to SCCN. Once #437 is live in production and cached widgets have turned over,
+ * drop the two `workers.dev` entries and keep only the `osc.earth` pair.
+ *
+ * Both environment pairs are listed because staging pages talk to the dev worker.
  */
 const OSA_API_HOSTS =
+  "https://widget.osc.earth https://develop-widget.osc.earth " +
   "https://osa-worker.shirazi-10f.workers.dev https://osa-worker-dev.shirazi-10f.workers.dev";
 
 /**

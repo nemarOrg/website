@@ -646,11 +646,37 @@ describe("security headers", () => {
     // unlike every other widening in this file. Asserted across routes rather
     // than on one, because "site-wide" is the property, and a route-scoped
     // implementation would still pass a single-route check.
+    //
+    // Asserted against the connect-src directive specifically, not against the
+    // whole policy string. A host that landed in some other directive would
+    // satisfy a whole-string check while the browser still refused the fetch,
+    // which is the failure this test exists to catch.
     for (const path of ["/", "/discover", "/dataset/nm000232", "/upload", "/datasets"]) {
       const csp = contentSecurityPolicy(path);
+      const connectSrc = csp.split("; ").find((d) => d.startsWith("connect-src"))!;
       expect(csp).toContain("https://cdn.jsdelivr.net");
-      expect(csp).toContain("https://osa-worker.shirazi-10f.workers.dev");
-      expect(csp).toContain("https://osa-worker-dev.shirazi-10f.workers.dev");
+      expect(connectSrc).toContain("https://cdn.jsdelivr.net");
+      expect(connectSrc).toContain("https://osa-worker.shirazi-10f.workers.dev");
+      expect(connectSrc).toContain("https://osa-worker-dev.shirazi-10f.workers.dev");
+    }
+  });
+
+  it("allows the stable osc.earth widget hosts, not only the workers.dev ones", () => {
+    // OpenScience-Collective/osa#437 moves the widget onto product-owned names.
+    // Both pairs are listed during the transition: cached widget builds are
+    // SRI-pinned by embedders and keep calling the old hostnames, so dropping
+    // those early breaks chat on pages this repository does not control.
+    //
+    // The widget is mounted at widget.osc.earth/osa, but connect-src matches by
+    // ORIGIN and ignores the path, so the entry is the bare origin. Writing the
+    // path here would not narrow anything; it would silently match nothing.
+    for (const path of ["/", "/discover", "/dataset/nm000232"]) {
+      const connectSrc = contentSecurityPolicy(path)
+        .split("; ")
+        .find((d) => d.startsWith("connect-src"))!;
+      expect(connectSrc).toContain("https://widget.osc.earth");
+      expect(connectSrc).toContain("https://develop-widget.osc.earth");
+      expect(connectSrc).not.toContain("widget.osc.earth/osa");
     }
   });
 
@@ -688,6 +714,7 @@ describe("security headers", () => {
       .find((d) => d.startsWith("script-src"))!;
     expect(scriptSrc).toContain("https://cdn.jsdelivr.net");
     expect(scriptSrc).not.toContain("workers.dev");
+    expect(scriptSrc).not.toContain("widget.osc.earth");
   });
 
   it("widens connect-src with the S3 hosts only on the upload route", () => {

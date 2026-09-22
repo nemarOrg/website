@@ -78,15 +78,27 @@ that adding it has a failing assertion attached rather than arriving quietly.
 
 - The widget can load and run on every nemar.org page once it is embedded.
 - Zarr reads from the browser runtime already work, because the data plane is `*.nemar.org`.
-- The OSA worker hostnames are account-scoped `*.workers.dev` names, because that is what
-  the widget actually calls. Pinning those here encodes a Cloudflare account subdomain in
-  this repository's production security policy, and the OSA backend is moving to SCCN, so
-  this will break: when the worker answers on a different name, every chat request from
-  nemar.org fails with a network-indistinguishable error, and the fix is a pull request in
-  this repository through staging and promotion rather than a deploy over there.
-  OpenScience-Collective/osa#437 tracks routing the worker at a stable product-owned name
-  so this list never has to change again. Worth doing **before** the SCCN move, since
-  doing it during puts a cross-repository release on the critical path of a migration.
+- `connect-src` lists four OSA hosts, and is expected to shrink to two.
+  `https://widget.osc.earth` and `https://develop-widget.osc.earth` are the stable,
+  product-owned names delivered by OpenScience-Collective/osa#438, closing #437.
+  The widget is mounted at the `/osa` path on those hosts so the hostname stays free for
+  other widgets later; `connect-src` matches by origin and ignores the path, so the path
+  does not appear in the policy.
+- The two account-scoped `*.workers.dev` names are kept alongside them **during the
+  transition only**. Embedders pin SRI-hashed widget builds that persist indefinitely, and
+  those cached builds still call the old hostnames, so removing the entries as soon as the
+  new route is live would break chat on pages this repository does not control. Drop them
+  once the `osc.earth` route is live in production and cached builds have turned over.
+- Pinning an account-scoped `*.workers.dev` name in a production security policy is what
+  #437 set out to end: it encodes a Cloudflare account subdomain here, and the OSA backend
+  is moving to SCCN. Without the stable names, that migration would break every chat
+  request from nemar.org with a network-indistinguishable error, fixable only by a pull
+  request in this repository through staging and promotion rather than a deploy over
+  there. Landing the stable names **before** the SCCN move keeps a cross-repository
+  release off the critical path of that migration.
+- Ordering matters, in one direction only. Because both pairs are listed, this policy is
+  safe to promote before or after the `osc.earth` route goes live. Had it switched to the
+  new names alone, promoting it first would have broken chat until the route existed.
 - Browser execution is gated on an origin allowlist on the OSA side and degrades to
   explain-only elsewhere, so this policy makes execution possible on nemar.org rather than
   sufficient for it.
