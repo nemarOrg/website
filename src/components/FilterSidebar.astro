@@ -266,18 +266,21 @@ const { state, searchActive = false } = Astro.props;
     font-weight: var(--fw-semibold);
     margin: 0;
   }
+  /* A step smaller than the chips it governs (21px vs 28px), so it reads as
+     a setting on the modality row rather than one more chip. */
   .filters__op {
     display: inline-flex;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-pill);
     overflow: hidden;
-    padding: 2px;
+    padding: 1px;
     background: var(--color-bg);
     inline-size: fit-content;
   }
   .filters__op label {
-    padding: 4px 14px;
-    font-size: var(--fs-xs);
+    padding: 1px 10px;
+    font-size: calc(var(--fs-xs) - 1px);
+    line-height: 1.4;
     color: var(--color-fg-muted);
     cursor: pointer;
     border-radius: var(--radius-pill);
