@@ -49,3 +49,4 @@ Add new entries here as you create ADRs:
 - ADR 0015 - [Profile gaps come from one module, and their words from a mirrored copy contract](0015-profile-gaps-and-mirrored-copy.md) (accepted)
 - ADR 0016 - [The CLI device-authorize page pins its own Origin and always ends in a redirect](0016-cli-device-authorize-page.md) (accepted)
 - ADR 0017 - [Site-wide CSP allowances for the Open Science Assistant widget](0017-site-wide-csp-for-the-open-science-assistant.md) (accepted)
+- ADR 0018 - [Embed the Open Science Assistant widget site-wide, pinned per environment](0018-embed-osa-widget-site-wide.md) (accepted)
