@@ -41,6 +41,8 @@ import {
  *   - connect-src S3 upload hosts (only on /upload — see routeNeedsS3Upload):
  *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
+ *   - img-src also gets the two stable OSA hosts (OSA_LOGO_HOSTS): the widget's logo is the
+ *     one non-local, non-data: image on the site (nemarOrg/website ADR 0018).
  *   - script-src / connect-src cdn.jsdelivr.net, connect-src the OSA workers,
  *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
  *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
@@ -141,6 +143,21 @@ const OSA_API_HOSTS =
   "https://osa-worker.shirazi-10f.workers.dev https://osa-worker-dev.shirazi-10f.workers.dev";
 
 /**
+ * Where the widget's logo lives: `GET <apiEndpoint>/nemar/logo` on the OSA edge host, fetched
+ * by the widget itself once it initializes (nemarOrg/website ADR 0018, the PR that actually
+ * mounts the widget; ADR 0017 only pre-authorized script-src/connect-src/worker-src and did
+ * not anticipate this image fetch). `img-src` matches by origin and ignores the path, same as
+ * `connect-src` above, so only the bare origins appear here.
+ *
+ * Only the two stable `osc.earth` names, deliberately NOT the two transitional `*.workers.dev`
+ * ones also present in OSA_API_HOSTS: this repository's own `PUBLIC_OSA_API_ENDPOINT` (see
+ * `src/lib/osa-widget.ts`) is refused unless it is one of the two stable hosts, so nothing this
+ * build ever asks a `*.workers.dev` host for a logo. Adding that allowance would have no
+ * consumer, the same discipline CONNECT_SRC_BASE's comment on raw.githubusercontent.com applies.
+ */
+const OSA_LOGO_HOSTS = "https://widget.osc.earth https://develop-widget.osc.earth";
+
+/**
  * Where the assistant's Python runtime may run.
  *
  * Pyodide runs in a dedicated Web Worker created from a blob URL. `worker-src` has no
@@ -171,7 +188,7 @@ export function contentSecurityPolicy(pathname: string): string {
     "base-uri 'self'",
     "object-src 'none'",
     "frame-ancestors 'self'",
-    "img-src 'self' data:",
+    `img-src 'self' data: ${OSA_LOGO_HOSTS}`,
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     `${scriptSrc} ${OSA_WIDGET_CDN}`,

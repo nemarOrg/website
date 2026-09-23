@@ -18,3 +18,10 @@ PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
 # SESSION_SECRET is a server-only secret used to HMAC-sign the auth cookie.
 # Set it via `wrangler secret put SESSION_SECRET` or the Cloudflare Pages
 # dashboard. In local dev an insecure fallback is used; see src/lib/auth.ts.
+
+# PUBLIC_OSA_WIDGET_SRC / PUBLIC_OSA_WIDGET_INTEGRITY / PUBLIC_OSA_API_ENDPOINT (Open Science
+# Assistant widget, nemarOrg/website ADR 0018) are deliberately absent here. Unset renders
+# nothing (src/lib/osa-widget.ts), and that is production's intended state until an OSA release is
+# chosen and pinned. Turning it on is adding all three, with the production pin, to a build step
+# that actually reaches `astro build` (see deploy-test.yml's staging pin for the shape); like the
+# three vars above, an entry here alone would not do it; see wrangler.test.toml's header.
