@@ -43,6 +43,14 @@ jobs:
           PUBLIC_API_BASE_URL: https://api-test.nemar.org
           PUBLIC_DATA_BASE_URL: https://data-test.nemar.org
           PUBLIC_ZARR_BASE_URL: https://zarr-test.nemar.org
+          # Open Science Assistant widget (nemarOrg/website ADR 0018), ON for staging only.
+          # Pinned to an exact OSA commit with Subresource Integrity — see src/lib/osa-widget.ts
+          # for the validation these three are checked against. `wrangler.toml`/`release.yml`
+          # deliberately do NOT set these for production; leaving any one of them unset (here or
+          # there) renders nothing rather than a broken tag.
+          PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js
+          PUBLIC_OSA_WIDGET_INTEGRITY: sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk
+          PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
         run: bun run build
       # `wrangler pages deploy` rejects a custom config path outright ("Pages
       # does not support custom paths for the Wrangler configuration file"), so
