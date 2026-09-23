@@ -19,8 +19,8 @@ PUBLIC_DATA_BASE_URL = "https://data-test.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr-test.nemar.org"
 # Open Science Assistant widget (nemarOrg/website ADR 0018), reference only, with the same caveat as
 # above, the real values live in deploy-test.yml's build step.
-PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js"
-PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk"
+PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@3896c656cacded9de58f703458ef374482d443f3/frontend/osa-chat-widget.js"
+PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-Yy37KfbMs1QW2Z0BnsmS4vPnqzw1V02b5CGomTrP5bNoCJe9+Y4kr44NIqj1aE9R"
 PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
 
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
