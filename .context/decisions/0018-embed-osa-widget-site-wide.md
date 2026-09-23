@@ -43,9 +43,23 @@ returns `"disabled"` and `Base.astro` renders nothing, which is the state produc
 today. When all three are set and each one parses, it renders exactly one classic `<script>`
 tag carrying `src`, `integrity`, `crossorigin="anonymous"`, `data-no-auto-init`, and an `onload`
 handler that calls `setConfig({ communityId: 'nemar', apiEndpoint })` then `.init()`.
-`.github/workflows/deploy-test.yml` sets all three for the `staging` push, pinned to OSA commit
-`55178121ae6fa65ee5a501e53ca74de2a17a58d7`; `wrangler.toml`, `release.yml`, and `ci.yml` set
-none, so production stays off until someone deliberately pins a release there.
+`.github/workflows/deploy-test.yml` sets all three for the `staging` push, pinned to an exact OSA
+commit (first `55178121ae6fa65ee5a501e53ca74de2a17a58d7`, then `3896c656cacded9de58f703458ef374482d443f3`,
+which themes NEMAR's widget; the pin moves whenever staging should test a newer widget, and the
+integrity hash moves with it). `wrangler.toml`, `release.yml`, and `ci.yml` set none, so production
+stays off until someone deliberately pins a release there.
+The integrity value must be `sha384-` followed by exactly 64 base64 characters, the length every
+sha384 digest has, so a truncated or padded paste is refused rather than shipped as a tag the
+browser would then block.
+
+**The widget is site-wide except on credential pages.** `osaWidgetMarkup` renders nothing on
+`/cli/authorize`, `/login` (and below it), `/signup`, `/auth/*` and `/settings`, however fully it is
+configured (`OSA_WIDGET_EXCLUDED_PATHS`). Two reasons, either sufficient:
+`/cli/authorize?code=` carries a device code and `/login/verify?email=` an email address in the URL,
+and the widget's "Share page URL" option sends the current URL to OSA and on to the model provider;
+and a third-party script has no business on a page that asks the reader to approve access or holds
+their keys. Each entry matches itself and every path below it, never a sibling sharing its first
+letters, so `/loginx` or `/authors` would still carry the widget.
 
 `apiEndpoint` is passed explicitly rather than left to the widget's own environment detection.
 That detection only recognizes OSA's own demo hosts and `localhost` as non-production, so on
@@ -67,7 +81,7 @@ becoming the one misconfigured value in the codebase that can take the whole sit
 ## Consequences
 
 - `test.nemar.org` carries the assistant now, pinned to OSA commit
-  `55178121ae6fa65ee5a501e53ca74de2a17a58d7`, talking to the dev edge worker
+  `3896c656cacded9de58f703458ef374482d443f3`, talking to the dev edge worker
   (`develop-widget.osc.earth`). `nemar.org` carries nothing until a production
   `PUBLIC_OSA_*` triple is added to a build step that actually reaches `astro build`.
 - Staging's assistant reads PRODUCTION NEMAR data through `mcp.nemar.org` and `zarr.nemar.org`,
@@ -124,5 +138,5 @@ becoming the one misconfigured value in the codebase that can take the whole sit
 - `.github/workflows/deploy-test.yml` (the staging pin), `wrangler.toml` and
   `wrangler.test.toml` (the documentation-only mirrors of that pin, per the convention the
   other `PUBLIC_*` vars in those files already use).
-- OpenScience-Collective/osa commit `55178121ae6fa65ee5a501e53ca74de2a17a58d7`,
+- OpenScience-Collective/osa commit `3896c656cacded9de58f703458ef374482d443f3`,
   `frontend/osa-chat-widget.js`'s `data-no-auto-init` / `setConfig` / `init` contract.

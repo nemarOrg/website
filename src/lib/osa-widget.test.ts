@@ -2,13 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   OSA_API_ENDPOINTS,
   OSA_COMMUNITY_ID,
+  OSA_WIDGET_EXCLUDED_PATHS,
+  isOsaWidgetExcludedPath,
   osaWidgetMarkup,
   renderOsaWidgetScript,
   resolveOsaWidget,
 } from "./osa-widget";
 
-// A real 40-hex commit SHA and its matching sha384 SRI hash, both from this PR's staging pin
-// (nemarOrg/website ADR 0018): real values, not placeholders shaped like them.
+// A real 40-hex commit SHA and its matching sha384 SRI hash (an earlier staging pin, ADR 0018):
+// real values, not placeholders shaped like them.
 const VALID_SRC =
   "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js";
 const VALID_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk";
@@ -149,6 +151,8 @@ describe("resolveOsaWidget", () => {
       "FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk", // missing prefix
       "sha384-not base64 at all!!", // invalid base64 characters
       "sha384-", // empty digest
+      "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrP", // 63 characters, one short
+      "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPkA", // 65 characters, one long
     ];
     for (const integrity of bad) {
       const out = resolveOsaWidget({ src: VALID_SRC, integrity, apiEndpoint: VALID_ENDPOINT });
@@ -243,13 +247,13 @@ describe("osaWidgetMarkup", () => {
 
   it("renders nothing and logs nothing when disabled", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(osaWidgetMarkup({})).toBe("");
+    expect(osaWidgetMarkup("/", {})).toBe("");
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("renders nothing but warns clearly when misconfigured", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const html = osaWidgetMarkup({ src: VALID_SRC });
+    const html = osaWidgetMarkup("/", { src: VALID_SRC });
     expect(html).toBe("");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("[osa-widget]");
@@ -258,12 +262,52 @@ describe("osaWidgetMarkup", () => {
 
   it("renders the script tag and logs nothing when fully configured", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const html = osaWidgetMarkup({
+    const html = osaWidgetMarkup("/", {
       src: VALID_SRC,
       integrity: VALID_INTEGRITY,
       apiEndpoint: VALID_ENDPOINT,
     });
     expect(html).toContain("<script");
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  const configured = { src: VALID_SRC, integrity: VALID_INTEGRITY, apiEndpoint: VALID_ENDPOINT };
+
+  it("renders nothing on a credential page, however fully it is configured", () => {
+    // Each carries, or asks the reader to grant, something "Share page URL" must never send.
+    const credentialPages = [
+      "/cli/authorize",
+      "/login",
+      "/login/verify",
+      "/login/pending",
+      "/signup",
+      "/auth/docs/authorize",
+      "/auth/orcid/complete",
+      "/settings",
+    ];
+    for (const pathname of credentialPages) {
+      expect(osaWidgetMarkup(pathname, configured), pathname).toBe("");
+    }
+  });
+
+  it("still renders on pages that only share a prefix with one", () => {
+    for (const pathname of [
+      "/",
+      "/discover",
+      "/dataset/nm000103",
+      "/loginx",
+      "/settings-help",
+      "/authors",
+    ]) {
+      expect(isOsaWidgetExcludedPath(pathname), pathname).toBe(false);
+      expect(osaWidgetMarkup(pathname, configured), pathname).toContain("<script");
+    }
+  });
+
+  it("excludes every listed path, and each one's subpaths", () => {
+    for (const excluded of OSA_WIDGET_EXCLUDED_PATHS) {
+      expect(isOsaWidgetExcludedPath(excluded), excluded).toBe(true);
+      expect(isOsaWidgetExcludedPath(`${excluded}/anything`), excluded).toBe(true);
+    }
   });
 });

@@ -71,7 +71,8 @@ export type OsaApiEndpoint = (typeof OSA_API_ENDPOINTS)[number];
 const OSA_WIDGET_SRC_PATTERN =
   /^https:\/\/cdn\.jsdelivr\.net\/gh\/OpenScience-Collective\/osa@[0-9a-f]{40}\/frontend\/osa-chat-widget\.js$/;
 
-const OSA_WIDGET_INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/]+=*$/;
+// A sha384 digest is 48 bytes, which base64 always writes as exactly 64 characters, unpadded.
+const OSA_WIDGET_INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/]{64}$/;
 
 /** Explicit overrides for each variable, for tests. Any field left undefined falls back to the
  *  matching `PUBLIC_OSA_*` build variable, the same shape as `resolveDocsBase`'s single override
@@ -197,11 +198,34 @@ export function renderOsaWidgetScript(config: {
 }
 
 /**
+ * Pages the widget is never mounted on, even when it is configured: the ones that grant a
+ * credential or carry one in the URL. `/cli/authorize?code=` carries a device code and
+ * `/login/verify?email=` an email address, and the widget's "Share page URL" option sends the
+ * current URL to OSA and on to the model provider. A third-party script also has no business on
+ * a page that asks the reader to approve access. Each entry matches itself and every path below
+ * it, never a sibling that merely starts with the same letters (`/loginx` is not `/login`).
+ */
+export const OSA_WIDGET_EXCLUDED_PATHS = [
+  "/cli/authorize",
+  "/login",
+  "/signup",
+  "/auth",
+  "/settings",
+] as const;
+
+export function isOsaWidgetExcludedPath(pathname: string): boolean {
+  return OSA_WIDGET_EXCLUDED_PATHS.some(
+    (excluded) => pathname === excluded || pathname.startsWith(`${excluded}/`),
+  );
+}
+
+/**
  * What `Base.astro` actually calls: resolve, log a misconfiguration once per render, and render.
  * Returns `""` for both `"disabled"` and `"misconfigured"`; the layout embeds the result with
  * `set:html` unconditionally rather than branching on the resolution kind itself.
  */
-export function osaWidgetMarkup(overrides: OsaWidgetOverrides = {}): string {
+export function osaWidgetMarkup(pathname: string, overrides: OsaWidgetOverrides = {}): string {
+  if (isOsaWidgetExcludedPath(pathname)) return "";
   const resolution = resolveOsaWidget(overrides);
   if (resolution.kind === "ready") return renderOsaWidgetScript(resolution);
   if (resolution.kind === "misconfigured") {
