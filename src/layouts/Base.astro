@@ -5,6 +5,7 @@ import Nav from "../components/Nav.astro";
 import SiteNotices from "../components/SiteNotices.astro";
 import { resolveDataBase } from "../lib/data-base";
 import { canonicalOriginFor } from "../lib/host";
+import { osaWidgetMarkup } from "../lib/osa-widget";
 import "../styles/global.css";
 
 interface Props {
@@ -87,6 +88,12 @@ const absoluteFallbackImage = fallbackImage
     ? fallbackImage
     : new URL(fallbackImage, siteOrigin).toString()
   : null;
+
+// Open Science Assistant widget (ADR 0018), embedded site-wide via this one call so every page
+// this layout serves — including every AdminLayout page, which wraps Base — carries it. Renders
+// "" (nothing) unless all three PUBLIC_OSA_* build variables are set and well formed; see
+// `src/lib/osa-widget.ts` for the contract and why a bad value degrades rather than throwing.
+const osaWidget = osaWidgetMarkup();
 ---
 
 <!doctype html>
@@ -171,6 +178,11 @@ const absoluteFallbackImage = fallbackImage
     </main>
     {!bareLayout && <Footer />}
     <CookieNotice />
+    {/* Not gated on bareLayout: the assistant answers questions from anywhere on the site,
+        sign-in pages included (ADR 0017's site-wide rationale), and `osaWidget` is already ""
+        on every build that hasn't configured it, so this is a no-op string on every page until
+        deploy-test.yml's staging pin or a future production one is live. */}
+    {osaWidget && <Fragment set:html={osaWidget} />}
     <script is:inline>
       // Keep external SVG/PNG figures synchronized with the site's explicit
       // theme choice as well as the device color-scheme preference. The light
