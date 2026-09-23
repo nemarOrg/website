@@ -90,7 +90,7 @@ const absoluteFallbackImage = fallbackImage
   : null;
 
 // Open Science Assistant widget (ADR 0018), embedded site-wide via this one call so every page
-// this layout serves — including every AdminLayout page, which wraps Base — carries it. Renders
+// this layout serves (including every AdminLayout page, which wraps Base) carries it. Renders
 // "" (nothing) unless all three PUBLIC_OSA_* build variables are set and well formed; see
 // `src/lib/osa-widget.ts` for the contract and why a bad value degrades rather than throwing.
 const osaWidget = osaWidgetMarkup();

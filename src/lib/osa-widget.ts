@@ -9,10 +9,10 @@
  * Three build-time `PUBLIC_*` variables, inlined by Vite at `astro build` time exactly like
  * `PUBLIC_API_BASE_URL` (see `./api-base.ts`), gate the embed:
  *
- * - `PUBLIC_OSA_WIDGET_SRC` — a jsDelivr URL pinned to a full 40-character OSA commit SHA:
+ * - `PUBLIC_OSA_WIDGET_SRC`: a jsDelivr URL pinned to a full 40-character OSA commit SHA:
  *   `https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@<sha>/frontend/osa-chat-widget.js`.
- * - `PUBLIC_OSA_WIDGET_INTEGRITY` — the matching `sha384-` Subresource Integrity hash.
- * - `PUBLIC_OSA_API_ENDPOINT` — exactly one of the two OSA edge hosts in
+ * - `PUBLIC_OSA_WIDGET_INTEGRITY`: the matching `sha384-` Subresource Integrity hash.
+ * - `PUBLIC_OSA_API_ENDPOINT`: exactly one of the two OSA edge hosts in
  *   {@link OSA_API_ENDPOINTS}.
  *
  * All three or none. An operator who sets one but not the others has a half-wired build, not a
@@ -24,7 +24,7 @@
  * unset, `test.nemar.org` would silently talk to the production edge, defeating the reason
  * staging is pinned to the dev worker in the first place.
  *
- * The widget script is a CLASSIC script, deliberately — it reads `document.currentScript.src`
+ * The widget script is a CLASSIC script, deliberately: it reads `document.currentScript.src`
  * to find its own runtime bundle on the same jsDelivr path, and `document.currentScript` is
  * `null` inside a `type="module"` script. `data-no-auto-init` on that same tag defers startup
  * until the `onload` handler below calls `window.OSAChatWidget.setConfig(...)` and `.init()`
@@ -33,14 +33,14 @@
  * Nothing turns this on by default for `astro dev`, a Cloudflare Pages preview, or a local
  * `bun run build`: `wrangler.toml`/`release.yml`/`ci.yml` deliberately set none of the three
  * (ADR 0018), and there is no hardcoded fallback the way `apiBase()` falls back to
- * `https://api.nemar.org` — "unset" and "off" are the same state here on purpose. To see the
+ * `https://api.nemar.org`; "unset" and "off" are the same state here on purpose. To see the
  * widget locally, export the three staging values `.github/workflows/deploy-test.yml` uses
  * (or a production triple, once one is pinned) into the shell before `bun run dev` / `bun run
  * build`, e.g.:
  * `PUBLIC_OSA_WIDGET_SRC=... PUBLIC_OSA_WIDGET_INTEGRITY=... PUBLIC_OSA_API_ENDPOINT=... bun run dev`.
  *
  * A misconfigured value (set but malformed, or partially set) degrades to rendering nothing
- * and a `console.warn` naming the reason — never a thrown error and never a build failure. This
+ * and a `console.warn` naming the reason, never a thrown error and never a build failure. This
  * module's validation runs per-request inside the deployed Cloudflare Worker (`output:
  * "server"`), not while Vite bundles, so there is no build step for a bad value to fail; and a
  * component ADR 0017 already treats as optional should not be able to take the rest of the page
@@ -55,9 +55,9 @@
 export const OSA_COMMUNITY_ID = "nemar";
 
 /**
- * The only two hosts `PUBLIC_OSA_API_ENDPOINT` may name. Anything else — including either of
+ * The only two hosts `PUBLIC_OSA_API_ENDPOINT` may name. Anything else, including either of
  * the transitional `*.workers.dev` names `src/middleware.ts` still allows in `connect-src` for
- * cached widget builds elsewhere — is refused: a build pointed at an endpoint this list does
+ * cached widget builds elsewhere, is refused: a build pointed at an endpoint this list does
  * not include has no matching `img-src`/`connect-src` allowance and every widget fetch would be
  * silently blocked by the CSP this repository ships.
  */
@@ -74,7 +74,7 @@ const OSA_WIDGET_SRC_PATTERN =
 const OSA_WIDGET_INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/]+=*$/;
 
 /** Explicit overrides for each variable, for tests. Any field left undefined falls back to the
- *  matching `PUBLIC_OSA_*` build variable — same shape as `resolveDocsBase`'s single override
+ *  matching `PUBLIC_OSA_*` build variable, the same shape as `resolveDocsBase`'s single override
  *  in `./docs-base.ts`, widened to three fields. */
 export interface OsaWidgetOverrides {
   src?: string;
@@ -102,7 +102,7 @@ function envValue(name: OsaEnvKey): string | undefined {
 
 /**
  * Decide whether/how to render the widget from the three `PUBLIC_OSA_*` build variables (or the
- * given overrides, for tests). Pure — no logging, no rendering — mirroring
+ * given overrides, for tests). Pure (no logging, no rendering), mirroring
  * `docsHandoffTarget` in `./docs-authorize.ts`: the caller (Base.astro, or a test) decides what
  * to do with a `misconfigured` result.
  */
@@ -169,7 +169,7 @@ function escapeHtmlAttr(value: string): string {
 }
 
 /**
- * Escapes a value for embedding inside a single-quoted JS string literal. `<` is escaped too —
+ * Escapes a value for embedding inside a single-quoted JS string literal. `<` is escaped too:
  * defense in depth against the value ever spelling `</script>`, the same reasoning
  * `escapeJsonLdForScript` in `./jsonld.ts` documents for JSON-LD bodies.
  */
@@ -180,7 +180,7 @@ function escapeJsString(value: string): string {
 /**
  * Renders the one `<script>` tag the embed needs. `config.apiEndpoint` is already one of
  * {@link OSA_API_ENDPOINTS} by the time a `"ready"` resolution reaches here, but every value is
- * still escaped — a config object is not a promise about what a future caller passes it.
+ * still escaped: a config object is not a promise about what a future caller passes it.
  */
 export function renderOsaWidgetScript(config: {
   src: string;
@@ -198,7 +198,7 @@ export function renderOsaWidgetScript(config: {
 
 /**
  * What `Base.astro` actually calls: resolve, log a misconfiguration once per render, and render.
- * Returns `""` for both `"disabled"` and `"misconfigured"` — the layout embeds the result with
+ * Returns `""` for both `"disabled"` and `"misconfigured"`; the layout embeds the result with
  * `set:html` unconditionally rather than branching on the resolution kind itself.
  */
 export function osaWidgetMarkup(overrides: OsaWidgetOverrides = {}): string {

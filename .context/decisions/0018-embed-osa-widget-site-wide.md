@@ -30,10 +30,10 @@ different values per environment, not in either wrangler file.
 Add three build-time variables, read by one module (`src/lib/osa-widget.ts`) that
 `src/layouts/Base.astro` calls once per render:
 
-- `PUBLIC_OSA_WIDGET_SRC` — must be
+- `PUBLIC_OSA_WIDGET_SRC`: must be
   `https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@<40-hex commit>/frontend/osa-chat-widget.js`.
-- `PUBLIC_OSA_WIDGET_INTEGRITY` — must be `sha384-` followed by base64.
-- `PUBLIC_OSA_API_ENDPOINT` — must be exactly `https://widget.osc.earth/osa` or
+- `PUBLIC_OSA_WIDGET_INTEGRITY`: must be `sha384-` followed by base64.
+- `PUBLIC_OSA_API_ENDPOINT`: must be exactly `https://widget.osc.earth/osa` or
   `https://develop-widget.osc.earth/osa`.
 
 All three are required together. An operator who sets one but not the others has a half-wired

@@ -17,7 +17,7 @@ pages_build_output_dir = "./dist"
 PUBLIC_API_BASE_URL = "https://api-test.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data-test.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr-test.nemar.org"
-# Open Science Assistant widget (nemarOrg/website ADR 0018), reference only — same caveat as
+# Open Science Assistant widget (nemarOrg/website ADR 0018), reference only, with the same caveat as
 # above, the real values live in deploy-test.yml's build step.
 PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js"
 PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk"

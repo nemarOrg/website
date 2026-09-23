@@ -8,7 +8,7 @@ import {
 } from "./osa-widget";
 
 // A real 40-hex commit SHA and its matching sha384 SRI hash, both from this PR's staging pin
-// (nemarOrg/website ADR 0018) — real values, not placeholders shaped like them.
+// (nemarOrg/website ADR 0018): real values, not placeholders shaped like them.
 const VALID_SRC =
   "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js";
 const VALID_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk";
@@ -113,7 +113,7 @@ describe("resolveOsaWidget", () => {
       "https://evil.example.com/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js",
       // http, not https.
       "http://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js",
-      // Branch name instead of a commit SHA — the exact mistake pinning exists to prevent.
+      // Branch name instead of a commit SHA: the exact mistake pinning exists to prevent.
       "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@main/frontend/osa-chat-widget.js",
       // Short SHA (7 hex chars), not the full 40.
       "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@5517812/frontend/osa-chat-widget.js",
@@ -213,7 +213,7 @@ describe("renderOsaWidgetScript", () => {
       integrity: `${VALID_INTEGRITY}"onmouseover="x`,
       apiEndpoint: VALID_ENDPOINT,
     });
-    // Still exactly one real <script> tag — the payload's own "<script>" must have been
+    // Still exactly one real <script> tag; the payload's own "<script>" must have been
     // neutralized as text inside the src attribute, not parsed as a second element.
     expect((html.match(/<script/g) ?? []).length).toBe(1);
     expect(html).not.toContain('"><script>');

@@ -682,7 +682,7 @@ describe("security headers", () => {
 
   it("widens img-src with the two stable OSA hosts for the widget's logo", () => {
     // The widget's logo comes from <apiEndpoint>/nemar/logo on the OSA host, not from `self` or
-    // a `data:` URI, and ADR 0017 only widened script-src/connect-src/worker-src — it did not
+    // a `data:` URI, and ADR 0017 only widened script-src/connect-src/worker-src; it did not
     // anticipate this image fetch. Asserted against img-src specifically, not the whole policy
     // string, for the same reason the connect-src assertions above are: a host in the wrong
     // directive would pass a whole-string check while the browser still refused the image.
@@ -699,7 +699,7 @@ describe("security headers", () => {
   it("keeps the transitional workers.dev hosts out of img-src", () => {
     // This build's own PUBLIC_OSA_API_ENDPOINT (src/lib/osa-widget.ts) is refused unless it is
     // one of the two stable osc.earth hosts, so nothing this build ever asks a *.workers.dev
-    // host for a logo — widening img-src to include them would be an allowance with no
+    // host for a logo, so widening img-src to include them would be an allowance with no
     // consumer.
     const imgSrc = contentSecurityPolicy("/")
       .split("; ")

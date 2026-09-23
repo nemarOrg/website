@@ -41,7 +41,7 @@ import {
  *   - connect-src S3 upload hosts (only on /upload — see routeNeedsS3Upload):
  *     presigned PUTs go straight to the bucket, never through our origin.
  *   - img-src 'self' data:          — all images are local; markdown emits no <img>.
- *   - img-src also gets the two stable OSA hosts (OSA_LOGO_HOSTS) — the widget's logo is the
+ *   - img-src also gets the two stable OSA hosts (OSA_LOGO_HOSTS): the widget's logo is the
  *     one non-local, non-data: image on the site (nemarOrg/website ADR 0018).
  *   - script-src / connect-src cdn.jsdelivr.net, connect-src the OSA workers,
  *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
@@ -145,7 +145,7 @@ const OSA_API_HOSTS =
 /**
  * Where the widget's logo lives: `GET <apiEndpoint>/nemar/logo` on the OSA edge host, fetched
  * by the widget itself once it initializes (nemarOrg/website ADR 0018, the PR that actually
- * mounts the widget — ADR 0017 only pre-authorized script-src/connect-src/worker-src and did
+ * mounts the widget; ADR 0017 only pre-authorized script-src/connect-src/worker-src and did
  * not anticipate this image fetch). `img-src` matches by origin and ignores the path, same as
  * `connect-src` above, so only the bare origins appear here.
  *
