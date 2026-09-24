@@ -447,6 +447,7 @@ Astro.response.headers.set(
     unitsNoticeText,
     zarrAvailablePaths,
     zarrFailureReasonByPath,
+    zarrHasAnyStore,
     zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
@@ -670,6 +671,12 @@ Astro.response.headers.set(
           announceOsaDataset({ id: datasetId, zarr: false });
           return;
         }
+        // Computed FIRST and announced before any of the rendering below, which can throw
+        // (annotateZarrRows, renderZarrCoveragePanel, ...) -- the notebook button must settle
+        // to a real answer even if that rendering fails partway through, and "View data" below
+        // reads this exact same value so the two can never disagree with each other (PR review).
+        const hasZarr = zarrHasAnyStore(index);
+        announceOsaDataset({ id: datasetId, zarr: hasZarr });
         // A SUCCESSFULLY fetched+parsed index is not the same failure class as
         // a fetch/parse problem (the outer .catch below) -- a bug in applying
         // it (annotateZarrRows, renderZarrCoveragePanel, ...) is a rendering
@@ -694,10 +701,7 @@ Astro.response.headers.set(
           // hidden (its SSR default) when the index fetch fails or throws —
           // neither of those runs this callback.
           const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
-          if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
-          // Same already-resolved index decides the OSA widget's notebook button too (website#436):
-          // no second request, same "at least one store" rule "View data" uses above.
-          announceOsaDataset({ id: datasetId, zarr: state.paths.size > 0 });
+          if (viewDataBtn) viewDataBtn.hidden = !hasZarr;
           // Coverage panel (website#277 decision 2): same already-fetched index,
           // no new request. renderZarrCoveragePanel returns "" for a dataset
           // with no Zarr data at all, which leaves the slot hidden.
