@@ -220,3 +220,30 @@ No CSP change: nothing new is fetched or framed.
 - `src/lib/osa-theme.ts`, `src/lib/osa-theme.test.ts`.
 - `src/lib/osa-widget.ts` (the color scheme replay in `renderOsaWidgetScript`), `src/lib/osa-widget.test.ts`.
 - `src/layouts/Base.astro` (`followThemeForOsa`).
+
+## Update, 2026-09-24: the notebook tab
+
+The widget's notebook button now opens the hosted notebook inside the widget, as a tab of its own panel, rather than in a browser tab (OpenScience-Collective/osa#470, osa PR #474).
+The tab is a frame on the notebook site, `develop-notebook.osc.earth/osa` for staging and `notebook.osc.earth/osa` for production.
+
+**The CSP gains `frame-src 'self' https://notebook.osc.earth https://develop-notebook.osc.earth`**, on every route, as the widget is.
+Without it, frames fall back to `default-src 'self'` and the browser refuses the notebook; the widget then shows its "did not open here" fallback, with a link that opens the notebook in a browser tab.
+`'self'` keeps the same-origin frames `default-src` already allowed.
+The other half, which pages may frame the notebook, is the notebook site's own `frame-ancestors`, which admits nemar.org, www.nemar.org and test.nemar.org (osa ADR 0012).
+
+**`PUBLIC_OSA_NOTEBOOK_URL` must now name one of those two origins**, where before any absolute `https:` URL passed.
+The first version of this check had no host allowlist because a notebook in its own browser tab needed nothing from this site's policy; framing it made the host part of the policy.
+Both come from one list, `OSA_NOTEBOOK_ORIGINS` in `src/lib/osa-widget.ts`, which `src/middleware.ts` imports, so the accepted URL and the policy cannot disagree.
+
+**Staging's pin moves to osa commit `98ebf1d`**, the notebook tab and the capsule's smaller circles and motion.
+
+**Production is not ready for the tab.** `notebook.osc.earth` does not resolve yet: the notebook site deploys to production from osa's `main`, so it needs the OSA release first.
+Production's widget stays off in the meantime (see above), so nothing breaks; the production pin waits for both.
+
+### Receipts (update, the notebook tab)
+
+- OpenScience-Collective/osa#470, osa PR #474, merged as `98ebf1dd2a7ae75217851c5c65ccbe6e32ccacde`;
+  the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
+- `src/middleware.ts` (`OSA_FRAME_SRC`), `src/middleware.test.ts`.
+- `src/lib/osa-widget.ts` (`OSA_NOTEBOOK_ORIGINS`, `isKnownNotebookUrl`), `src/lib/osa-widget.test.ts`.
+- The notebook site's `frame-ancestors`, read from `develop-notebook.osc.earth` on 2026-09-24.
