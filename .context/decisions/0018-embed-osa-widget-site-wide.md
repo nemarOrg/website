@@ -286,3 +286,19 @@ An invalid label is dropped alone, here and in the widget, so it can never keep 
 - OpenScience-Collective/osa#477, osa PR #478, merged as `7092864064f3aad203008ee9f1bd9cfc4ee6675a`;
   the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
 - `src/lib/osa-dataset.ts` (`osaDatasetFacts`, the label rule), `src/lib/osa-dataset.test.ts`.
+
+## Update 2026-09-24: the pop-out carries the notebook
+
+The widget's pop-out window now has the panel's Chat and Notebook tabs, opens on the tab the reader was on,
+and loads the widget by its own address rather than as inline script (OpenScience-Collective/osa#470, osa PR #482).
+It is an `about:blank` window of this site's origin, so it runs under this site's own policy,
+and it copies the widget tag's `integrity` and `crossorigin`, so the pinned widget loads in it as it does on the page.
+
+**Staging's pin moves to osa commit `a300fd5`.** Nothing else on this site changes: the policy already allows the widget's host and the notebook frame, and the pop-out needs nothing more.
+
+### Receipts (update, the pop-out)
+
+- OpenScience-Collective/osa#470, osa PR #482, merged as `a300fd54ad96f8bad3a14ab0e0029fe4d47978d6`;
+  the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
+- osa's `frontend/browser-harness/popout-check.mjs` opens the pop-out in Chrome from both tabs under a policy without `'unsafe-inline'`,
+  on a plain and an SRI-pinned widget tag (49/49).
