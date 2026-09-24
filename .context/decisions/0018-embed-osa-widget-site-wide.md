@@ -143,15 +143,15 @@ becoming the one misconfigured value in the codebase that can take the whole sit
 
 ## Update — 2026-09-23
 
-OSA is adding a three-icon launcher (OpenScience-Collective/osa#436): chat, a notebook button, and HPC ("coming soon").
+OSA is adding a three-icon launcher (OpenScience-Collective/osa#436): chat, a notebook button, and high-performance computing (HPC) ("coming soon").
 The notebook button opens a hosted JupyterLite notebook for the dataset on screen, but only when that dataset has a Zarr copy;
 otherwise it shows disabled with the reason.
 Two additions carry that, both consistent with the decision above rather than changing it.
 
 **A fourth, genuinely optional build variable: `PUBLIC_OSA_NOTEBOOK_URL`.**
-Unlike the required triple, this one is not all-or-nothing: left unset, the widget falls back to its own default (`https://notebook.osc.earth/osa/`),
-validated the same way a malformed `PUBLIC_OSA_API_ENDPOINT` is (`resolveOsaWidget` returns `misconfigured` with a reason),
-but never gating whether the widget itself renders.
+Unlike the required triple, this one is not all-or-nothing, but "optional" only covers being UNSET: left unset, the widget falls back to its own default (`https://notebook.osc.earth/osa/`), and that never gates whether the widget renders.
+SET but malformed is a different case: it is validated the same way a malformed `PUBLIC_OSA_API_ENDPOINT` is, and a value that fails validation is refused (`resolveOsaWidget` returns `misconfigured`), which blanks the whole widget exactly like any other misconfigured `PUBLIC_OSA_*` value does.
+That is a deliberate choice, not an inconsistency: a typo in a value this deployment's own config sets should be loud and caught at once, especially on staging, rather than silently falling back to a host nobody chose and sending testers to the production notebook without anyone noticing.
 Staging sets it in `.github/workflows/deploy-test.yml` and `wrangler.test.toml` (reference only, same caveat as the other three) to `https://develop-notebook.osc.earth/osa/`, the dev JupyterLite host, next to the existing staging pin.
 The project is in the path because OSC names a plane shared across projects as a subdomain and the project as a path,
 as `api.osc.earth/osa` and `widget.osc.earth/osa` already are.

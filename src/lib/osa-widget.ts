@@ -21,10 +21,15 @@
  *
  * A fourth variable, `PUBLIC_OSA_NOTEBOOK_URL`, is genuinely optional rather than part of the
  * all-or-none triple: it is the base URL of the hosted JupyterLite site the widget's notebook
- * button (OSA issue #436, the three-icon launcher) opens against. Left unset, the widget falls
- * back to its own default (`https://notebook.osc.earth/osa/`). When set it must be an absolute
- * `https:` URL; a malformed value is refused exactly like a malformed `PUBLIC_OSA_API_ENDPOINT`,
- * because it never gates whether the widget itself renders (unlike the required triple).
+ * button (OSA issue #436, the three-icon launcher) opens against. UNSET is the ordinary, supported
+ * state and never gates whether the widget renders: the widget falls back to its own default
+ * (`https://notebook.osc.earth/osa/`). SET but malformed is a different case entirely: it must be
+ * an absolute `https:` URL, and a value that fails that check is refused exactly like a malformed
+ * `PUBLIC_OSA_API_ENDPOINT`, which blanks the whole widget the same way (`osaWidgetMarkup` returns
+ * `""`). That is a deliberate choice, not an oversight: a typo in a value this deployment's own
+ * config sets should be loud and caught at once, rather than silently falling back to a host
+ * nobody chose (see `resolveOsaWidget`'s inline comment on the `notebookUrl` read for why this
+ * still leaves production's fully-unset steady state untouched).
  *
  * `apiEndpoint` is passed explicitly rather than left to the widget's own environment
  * detection, which only treats OSA's own demo hosts and `localhost` as non-production. Left

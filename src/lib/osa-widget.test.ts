@@ -499,6 +499,32 @@ describe("osaWidgetMarkup", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("carries a configured notebookUrl through to the rendered script, end to end", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const html = osaWidgetMarkup("/", {
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: VALID_NOTEBOOK_URL,
+    });
+    expect(html).toContain(`notebookUrl:'${VALID_NOTEBOOK_URL}'`);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("renders nothing but warns clearly when notebookUrl is malformed, end to end", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const html = osaWidgetMarkup("/", {
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: "http://not-https.example.com",
+    });
+    expect(html).toBe("");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain("[osa-widget]");
+    expect(warn.mock.calls[0]?.[0]).toContain("PUBLIC_OSA_NOTEBOOK_URL");
+  });
+
   const configured = { src: VALID_SRC, integrity: VALID_INTEGRITY, apiEndpoint: VALID_ENDPOINT };
 
   it("renders nothing on a credential page, however fully it is configured", () => {
