@@ -333,6 +333,20 @@ describe("renderOsaWidgetScript", () => {
     expect(html).not.toContain("</script><script>evil()");
   });
 
+  // Mutation check for escapeJsString's OWN `<` -> `\u003C` step, at the JS layer rather than the
+  // HTML-attribute layer: `escapeHtmlAttr`'s own `<` -> `&lt;` step means every test above still
+  // passes even with escapeJsString's `<` handling deleted outright, because the outer HTML
+  // escaping masks the inner JS escaping's absence. Reversing only the HTML-attribute layer
+  // (`extractOnload`, which undoes `escapeHtmlAttr` and nothing else) exposes the raw JS text
+  // escapeJsString actually produced, where a surviving literal `<` (rather than the six
+  // characters `\u003C`) would be visible on its own.
+  it("escapes a literal < to \\u003C at the JS layer, independent of HTML-attribute escaping", () => {
+    const html = renderOsaWidgetScript({ ...config, apiEndpoint: "</script><script>evil()" });
+    const rawOnload = extractOnload(html);
+    expect(rawOnload).not.toContain("<");
+    expect(rawOnload).toContain("\\u003C/script>\\u003Cscript>evil()");
+  });
+
   it("omits notebookUrl from setConfig entirely when not given", () => {
     const html = renderOsaWidgetScript(config);
     expect(html).not.toContain("notebookUrl");
