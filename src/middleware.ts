@@ -11,6 +11,7 @@ import {
   hostMode,
   isNoindexHost,
 } from "./lib/host";
+import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -46,6 +47,7 @@ import {
  *   - script-src / connect-src cdn.jsdelivr.net, connect-src the OSA workers,
  *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
  *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
+ *   - frame-src the two notebook hosts, for the widget's notebook tab (OSA_FRAME_SRC).
  *
  * README-borne script injection is already blocked at the markdown sanitizer
  * (it strips <script>, unit-tested), so this is defense-in-depth.
@@ -175,6 +177,23 @@ const OSA_LOGO_HOSTS = "https://widget.osc.earth https://develop-widget.osc.eart
  */
 const OSA_WORKER_SRC = "worker-src 'self' blob:";
 
+/**
+ * Where the assistant's notebook tab may load from (OpenScience-Collective/osa#470): the widget
+ * shows the hosted JupyterLite notebook in a frame inside its own panel. With no `frame-src`,
+ * frames fall back to `child-src` and then to `default-src 'self'`, which refuses the notebook's
+ * host; the frame then loads the browser's error page, never reports ready, and the widget shows
+ * its "did not open here" fallback.
+ *
+ * Both deployments are listed, as OSA_API_HOSTS lists both workers, because staging points the
+ * widget at the develop notebook. The hosts come from OSA_NOTEBOOK_ORIGINS, the same list that
+ * `PUBLIC_OSA_NOTEBOOK_URL` is checked against, so the two cannot disagree. `'self'` keeps the
+ * same-origin frames `default-src` allowed before this directive existed.
+ *
+ * The notebook site decides the other half, which pages may frame it, with its own
+ * `frame-ancestors` (OSA ADR 0012): it admits the sites the widget runs on, nemar.org among them.
+ */
+const OSA_FRAME_SRC = `frame-src 'self' ${OSA_NOTEBOOK_ORIGINS.join(" ")}`;
+
 /** Build the Content-Security-Policy for a given request path. */
 export function contentSecurityPolicy(pathname: string): string {
   const scriptSrc = routeNeedsUnsafeEval(pathname)
@@ -194,6 +213,7 @@ export function contentSecurityPolicy(pathname: string): string {
     `${scriptSrc} ${OSA_WIDGET_CDN}`,
     connectSrc,
     OSA_WORKER_SRC,
+    OSA_FRAME_SRC,
     "form-action 'self'",
   ].join("; ");
 }

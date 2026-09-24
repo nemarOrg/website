@@ -2,6 +2,7 @@ import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
+import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
   SECURITY_HEADERS,
   applySecurityHeaders,
@@ -694,6 +695,24 @@ describe("security headers", () => {
       expect(imgSrc).toContain("https://widget.osc.earth");
       expect(imgSrc).toContain("https://develop-widget.osc.earth");
     }
+  });
+
+  it("allows the two notebook hosts in frame-src on every route, for the notebook tab", () => {
+    // The widget frames the hosted notebook inside its own panel (OpenScience-Collective/osa#470).
+    // With no frame-src, frames fall back to default-src 'self' and the notebook is refused.
+    // Asserted against frame-src itself, as the connect-src and img-src checks above are, and
+    // against OSA_NOTEBOOK_ORIGINS, the list PUBLIC_OSA_NOTEBOOK_URL is checked against, so the
+    // policy and the accepted URLs cannot disagree. The literal below pins the list itself.
+    for (const path of ["/", "/discover", "/dataset/nm000232", "/upload"]) {
+      const frameSrc = contentSecurityPolicy(path)
+        .split("; ")
+        .find((d) => d.startsWith("frame-src"));
+      expect(frameSrc, path).toBeDefined();
+      expect(frameSrc!.split(" ").slice(1), path).toEqual(["'self'", ...OSA_NOTEBOOK_ORIGINS]);
+    }
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).toContain(
+      "frame-src 'self' https://notebook.osc.earth https://develop-notebook.osc.earth",
+    );
   });
 
   it("keeps the transitional workers.dev hosts out of img-src", () => {
