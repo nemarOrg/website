@@ -82,6 +82,16 @@ describe("datasetSitemapEntries", () => {
     expect(datasetSitemapEntries([dsRow])).toHaveLength(0);
   });
 
+  it("excludes a sandbox xx-prefixed row, though the detail endpoint serves it", () => {
+    const base = fixtureRows[0];
+    // Active and public, as a staging exemplar is: only the prefix keeps it out.
+    const sandboxRow: Dataset = { ...base, dataset_id: "xx099904" };
+    expect(datasetSitemapEntries([sandboxRow])).toHaveLength(0);
+    expect(datasetSitemapEntries([base, sandboxRow]).map((e) => e.loc)).toEqual([
+      `${MARKETING_BASE_URL}/dataset/${base.dataset_id}`,
+    ]);
+  });
+
   it("includes a row with an unparseable timestamp, with no lastmod", () => {
     const base = fixtureRows[0];
     const badTimestampRow: Dataset = {
