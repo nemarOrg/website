@@ -8,7 +8,8 @@ describe("osaColorSchemeFor", () => {
   });
 
   it("is auto (follow the device) when the site follows the device", () => {
-    // The theme bootstrap and the theme button remove the attribute for "system".
+    // The page is served without the attribute, and the theme bootstrap sets it only for a stored
+    // light or dark choice; the theme button and Settings remove it when the reader picks "system".
     expect(osaColorSchemeFor(null)).toBe("auto");
     expect(osaColorSchemeFor(undefined)).toBe("auto");
   });

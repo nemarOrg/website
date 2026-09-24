@@ -185,8 +185,8 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
     {osaWidget && <Fragment set:html={osaWidget} />}
     <script>
       // Forwards the reader's later theme changes to the assistant widget (OSA #469); the
-      // widget's own onload handler reads the choice it starts with. A no-op on a page or build
-      // without the widget, since nothing then has a setColorScheme. See src/lib/osa-theme.ts.
+      // widget's own onload handler reads the choice it starts with. On a page or build without
+      // the widget the observer still runs but has nothing to tell. See src/lib/osa-theme.ts.
       import { followThemeForOsa } from "../lib/osa-theme";
 
       followThemeForOsa();

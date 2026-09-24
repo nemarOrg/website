@@ -462,8 +462,6 @@ describe("renderOsaWidgetScript", () => {
       return { widget, calls };
     }
 
-    /** Runs the generated `onload` JS against a real global object shaped like the browser's
-     *  `window`, carrying `OSAChatWidget` and (optionally) a recorded dataset announcement. */
     /** The one part of `document` the handler reads: `<html data-theme>`, the site's theme. */
     function pageWithTheme(dataTheme: string | null) {
       return {
@@ -473,6 +471,9 @@ describe("renderOsaWidgetScript", () => {
       };
     }
 
+    /** Runs the generated `onload` JS against a real global object shaped like the browser's
+     *  `window`, carrying `OSAChatWidget`, (optionally) a recorded dataset announcement, and a
+     *  `document` whose theme is absent unless the caller gives one. */
     function runOnload(html: string, win: Record<string, unknown>): void {
       const body = extractOnload(html);
       new Function("window", body)({ document: pageWithTheme(null), ...win });

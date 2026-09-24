@@ -206,6 +206,7 @@ This site's theme is `<html data-theme>`: `"light"` or `"dark"` when the reader 
 `renderOsaWidgetScript`'s `onload` handler reads the attribute itself and calls `setColorScheme` before `.init()`, so the panel opens in the reader's scheme.
 The theme bootstrap in `<head>` sets the attribute before either script runs, so, unlike the dataset context above, nothing needs recording on `window`: the attribute is the record.
 `followThemeForOsa`, run from `Base.astro`, forwards every later change (the theme button, Settings > Appearance) through a `MutationObserver` on the attribute, the way the theme button keeps its own label current.
+It runs on every page, including those without the widget, where it has nothing to tell.
 Both halves feature-detect `setColorScheme` and turn an exception from it into a warning, as the dataset replay does.
 
 **Staging's pin moves to osa commit `bb2d865`**, which also keeps the widget's chat input and Settings fields in the light panel's own colors on this site's dark theme; before it, the browser drew them dark inside the light panel.
@@ -215,7 +216,7 @@ No CSP change: nothing new is fetched or framed.
 ### Receipts (update, 2026-09-24)
 
 - OpenScience-Collective/osa#469, osa PR #472, merged as `bb2d865de0dd52c3f58e2db7e864affa43516567`;
-  the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
+  the Subresource Integrity (SRI) hash was computed from that commit's file and checked against the bytes jsDelivr serves.
 - `src/lib/osa-theme.ts`, `src/lib/osa-theme.test.ts`.
 - `src/lib/osa-widget.ts` (the color scheme replay in `renderOsaWidgetScript`), `src/lib/osa-widget.test.ts`.
 - `src/layouts/Base.astro` (`followThemeForOsa`).
