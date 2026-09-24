@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { OSA_DATASET_WINDOW_PROPERTY } from "./osa-dataset";
 import {
   OSA_API_ENDPOINTS,
   OSA_COMMUNITY_ID,
@@ -15,6 +16,28 @@ const VALID_SRC =
   "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js";
 const VALID_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk";
 const VALID_ENDPOINT = "https://develop-widget.osc.earth/osa";
+const VALID_NOTEBOOK_URL = "https://develop-notebook.osc.earth/";
+
+/**
+ * Reverses `escapeHtmlAttr` (unexported) well enough for these tests: the four entities that
+ * function emits, and nothing else. Order matters -- `&amp;` must unescape last, or a payload
+ * containing a literal `&amp;` would itself get corrupted -- so this mirrors the escaper's own
+ * ordering in reverse.
+ */
+function unescapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
+/** Pulls the raw (unescaped) `onload` JS out of a rendered widget `<script>` tag. */
+function extractOnload(html: string): string {
+  const match = html.match(/onload="([^"]*)"/);
+  if (!match) throw new Error(`no onload attribute found in: ${html}`);
+  return unescapeHtmlAttr(match[1]);
+}
 
 describe("resolveOsaWidget", () => {
   it("is disabled when none of the three variables are set", () => {
@@ -186,6 +209,77 @@ describe("resolveOsaWidget", () => {
       "https://develop-widget.osc.earth/osa",
     ]);
   });
+
+  // PUBLIC_OSA_NOTEBOOK_URL: genuinely optional, unlike the triple above, so its own tests are
+  // kept separate from the missing/partial-triple cases.
+  it("is ready with no notebookUrl field when PUBLIC_OSA_NOTEBOOK_URL is unset", () => {
+    const out = resolveOsaWidget({
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+    });
+    expect(out.kind).toBe("ready");
+    if (out.kind === "ready") {
+      expect(out.notebookUrl).toBeUndefined();
+      expect(out).not.toHaveProperty("notebookUrl");
+    }
+  });
+
+  it("carries a valid notebookUrl through to the ready result, trimmed", () => {
+    const out = resolveOsaWidget({
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: `  ${VALID_NOTEBOOK_URL}  `,
+    });
+    expect(out).toEqual({
+      kind: "ready",
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: VALID_NOTEBOOK_URL,
+    });
+  });
+
+  it("accepts the widget's own production notebook host too", () => {
+    const out = resolveOsaWidget({
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: "https://notebook.osc.earth/",
+    });
+    expect(out.kind).toBe("ready");
+  });
+
+  it("refuses a malformed notebookUrl even though the triple is fully valid", () => {
+    const bad = [
+      "notebook.osc.earth", // no scheme -- new URL() throws
+      "http://notebook.osc.earth/", // http, not https
+      "ftp://notebook.osc.earth/", // wrong scheme entirely
+    ];
+    for (const notebookUrl of bad) {
+      const out = resolveOsaWidget({
+        src: VALID_SRC,
+        integrity: VALID_INTEGRITY,
+        apiEndpoint: VALID_ENDPOINT,
+        notebookUrl,
+      });
+      expect(out.kind, notebookUrl).toBe("misconfigured");
+      if (out.kind === "misconfigured") {
+        expect(out.reason).toContain("PUBLIC_OSA_NOTEBOOK_URL");
+      }
+    }
+  });
+
+  it("is disabled when nothing at all is set, including notebookUrl", () => {
+    expect(resolveOsaWidget({ notebookUrl: "" })).toEqual({ kind: "disabled" });
+  });
+
+  it("does not misconfigure over a malformed notebookUrl when the triple is unset", () => {
+    // notebookUrl is meaningless without the widget itself being on; a stray value here while
+    // the triple is entirely absent leaves production's disabled steady state untouched.
+    expect(resolveOsaWidget({ notebookUrl: "not-a-url" })).toEqual({ kind: "disabled" });
+  });
 });
 
 describe("renderOsaWidgetScript", () => {
@@ -237,6 +331,119 @@ describe("renderOsaWidgetScript", () => {
   it("escapes a literal < in apiEndpoint (defense in depth against </script> injection)", () => {
     const html = renderOsaWidgetScript({ ...config, apiEndpoint: "</script><script>evil()" });
     expect(html).not.toContain("</script><script>evil()");
+  });
+
+  it("omits notebookUrl from setConfig entirely when not given", () => {
+    const html = renderOsaWidgetScript(config);
+    expect(html).not.toContain("notebookUrl");
+  });
+
+  it("carries notebookUrl in the same setConfig call when given", () => {
+    const html = renderOsaWidgetScript({ ...config, notebookUrl: VALID_NOTEBOOK_URL });
+    expect(html).toContain(`notebookUrl:'${VALID_NOTEBOOK_URL}'`);
+    // Same setConfig({...}) call as communityId/apiEndpoint, not a second call.
+    expect((html.match(/setConfig\(/g) ?? []).length).toBe(1);
+  });
+
+  it("escapes a single quote in notebookUrl so it cannot close the JS string literal", () => {
+    const html = renderOsaWidgetScript({
+      ...config,
+      notebookUrl: "https://evil.example.com/'});fetch('https://evil.example.com",
+    });
+    // The raw payload must never appear un-escaped inside the onload attribute.
+    expect(html).not.toContain("com/'});fetch(");
+    expect(html).toContain("com/\\'});fetch(");
+  });
+
+  it("escapes a literal < in notebookUrl (defense in depth against </script> injection)", () => {
+    const html = renderOsaWidgetScript({ ...config, notebookUrl: "</script><script>evil()" });
+    expect(html).not.toContain("</script><script>evil()");
+    expect((html.match(/<script/g) ?? []).length).toBe(1);
+  });
+
+  describe("the onload handler, executed", () => {
+    /** A real, hand-written stand-in for the widget's global object -- not a spy replacing the
+     *  code under test, the same "real-shape input" policy `freshStorage()` in
+     *  `notices-api.test.ts` follows for `Storage`. Records every call it receives so assertions
+     *  can inspect them, exactly the way the widget itself would receive and act on them. */
+    function fakeOsaChatWidget(withSetDataset: boolean) {
+      const calls: { setConfig: unknown[]; setDataset: unknown[]; init: number } = {
+        setConfig: [],
+        setDataset: [],
+        init: 0,
+      };
+      const widget: Record<string, unknown> = {
+        setConfig: (v: unknown) => calls.setConfig.push(v),
+        init: () => {
+          calls.init += 1;
+        },
+      };
+      if (withSetDataset) {
+        widget.setDataset = (v: unknown) => calls.setDataset.push(v);
+      }
+      return { widget, calls };
+    }
+
+    /** Runs the generated `onload` JS against a real global object shaped like the browser's
+     *  `window`, carrying `OSAChatWidget` and (optionally) a recorded dataset announcement. */
+    function runOnload(html: string, win: Record<string, unknown>): void {
+      const body = extractOnload(html);
+      new Function("window", body)(win);
+    }
+
+    it("calls setConfig then init when nothing was recorded", () => {
+      const { widget, calls } = fakeOsaChatWidget(true);
+      runOnload(renderOsaWidgetScript(config), { OSAChatWidget: widget });
+      expect(calls.setConfig).toEqual([
+        { communityId: OSA_COMMUNITY_ID, apiEndpoint: VALID_ENDPOINT },
+      ]);
+      expect(calls.setDataset).toEqual([]);
+      expect(calls.init).toBe(1);
+    });
+
+    it("replays a recorded dataset value into setDataset before init", () => {
+      const { widget, calls } = fakeOsaChatWidget(true);
+      const order: string[] = [];
+      const win: Record<string, unknown> = {
+        OSAChatWidget: {
+          setConfig: (v: unknown) => {
+            calls.setConfig.push(v);
+            order.push("setConfig");
+          },
+          setDataset: (v: unknown) => {
+            calls.setDataset.push(v);
+            order.push("setDataset");
+          },
+          init: () => {
+            calls.init += 1;
+            order.push("init");
+          },
+        },
+        [OSA_DATASET_WINDOW_PROPERTY]: { id: "nm000103", zarr: true },
+      };
+      runOnload(renderOsaWidgetScript(config), win);
+      expect(calls.setDataset).toEqual([{ id: "nm000103", zarr: true }]);
+      expect(order).toEqual(["setConfig", "setDataset", "init"]);
+    });
+
+    it("does not call setDataset, and does not throw, when nothing was recorded", () => {
+      const { widget, calls } = fakeOsaChatWidget(true);
+      expect(() =>
+        runOnload(renderOsaWidgetScript(config), { OSAChatWidget: widget }),
+      ).not.toThrow();
+      expect(calls.setDataset).toEqual([]);
+      expect(calls.init).toBe(1);
+    });
+
+    it("does not throw when a value is recorded but the widget has no setDataset (today's pin)", () => {
+      const { widget, calls } = fakeOsaChatWidget(false);
+      const win = {
+        OSAChatWidget: widget,
+        [OSA_DATASET_WINDOW_PROPERTY]: { id: "nm000103" },
+      };
+      expect(() => runOnload(renderOsaWidgetScript(config), win)).not.toThrow();
+      expect(calls.init).toBe(1);
+    });
   });
 });
 

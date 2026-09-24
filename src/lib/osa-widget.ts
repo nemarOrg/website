@@ -19,6 +19,13 @@
  * smaller widget, so that is refused the same way a single malformed value is: see
  * {@link resolveOsaWidget}.
  *
+ * A fourth variable, `PUBLIC_OSA_NOTEBOOK_URL`, is genuinely optional rather than part of the
+ * all-or-none triple: it is the base URL of the hosted JupyterLite site the widget's notebook
+ * button (OSA issue #436, the three-icon launcher) opens against. Left unset, the widget falls
+ * back to its own default (`https://notebook.osc.earth/`). When set it must be an absolute
+ * `https:` URL; a malformed value is refused exactly like a malformed `PUBLIC_OSA_API_ENDPOINT`,
+ * because it never gates whether the widget itself renders (unlike the required triple).
+ *
  * `apiEndpoint` is passed explicitly rather than left to the widget's own environment
  * detection, which only treats OSA's own demo hosts and `localhost` as non-production. Left
  * unset, `test.nemar.org` would silently talk to the production edge, defeating the reason
@@ -49,6 +56,8 @@
  * keeps the widget consistent with its neighbors.
  */
 
+import { OSA_DATASET_WINDOW_PROPERTY } from "./osa-dataset";
+
 /** The community id every deployment of this widget uses. Not read from the environment: it
  *  identifies the NEMAR OSA configuration itself, not a place a build might legitimately
  *  differ. */
@@ -76,22 +85,44 @@ const OSA_WIDGET_INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/]{64}$/;
 
 /** Explicit overrides for each variable, for tests. Any field left undefined falls back to the
  *  matching `PUBLIC_OSA_*` build variable, the same shape as `resolveDocsBase`'s single override
- *  in `./docs-base.ts`, widened to three fields. */
+ *  in `./docs-base.ts`, widened to four fields. */
 export interface OsaWidgetOverrides {
   src?: string;
   integrity?: string;
   apiEndpoint?: string;
+  notebookUrl?: string;
 }
 
 export type OsaWidgetResolution =
   | { kind: "disabled" }
   | { kind: "misconfigured"; reason: string }
-  | { kind: "ready"; src: string; integrity: string; apiEndpoint: OsaApiEndpoint };
+  | {
+      kind: "ready";
+      src: string;
+      integrity: string;
+      apiEndpoint: OsaApiEndpoint;
+      /** Absent when `PUBLIC_OSA_NOTEBOOK_URL` is unset; the widget's own default then applies. */
+      notebookUrl?: string;
+    };
 
 type OsaEnvKey =
   | "PUBLIC_OSA_WIDGET_SRC"
   | "PUBLIC_OSA_WIDGET_INTEGRITY"
-  | "PUBLIC_OSA_API_ENDPOINT";
+  | "PUBLIC_OSA_API_ENDPOINT"
+  | "PUBLIC_OSA_NOTEBOOK_URL";
+
+/** `PUBLIC_OSA_NOTEBOOK_URL` must be an absolute `https:` URL: same shape check
+ *  `isUsableDocsBase` in `./docs-authorize.ts` starts from, without that function's NEMAR-host
+ *  allowlist -- a JupyterLite deployment has no fixed set of hosts the way the two OSA edges do. */
+function isAbsoluteHttpsUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === "https:";
+}
 
 function envValue(name: OsaEnvKey): string | undefined {
   const env =
@@ -111,6 +142,10 @@ export function resolveOsaWidget(overrides: OsaWidgetOverrides = {}): OsaWidgetR
   const src = (overrides.src ?? envValue("PUBLIC_OSA_WIDGET_SRC") ?? "").trim();
   const integrity = (overrides.integrity ?? envValue("PUBLIC_OSA_WIDGET_INTEGRITY") ?? "").trim();
   const apiEndpoint = (overrides.apiEndpoint ?? envValue("PUBLIC_OSA_API_ENDPOINT") ?? "").trim();
+  // Genuinely optional (unlike the triple above): read here, but not consulted at all by the
+  // disabled/missing checks below, and only validated once the triple has already resolved to
+  // "ready". A typo in this alone, while the widget itself is off, has nothing to misconfigure.
+  const notebookUrl = (overrides.notebookUrl ?? envValue("PUBLIC_OSA_NOTEBOOK_URL") ?? "").trim();
 
   if (!src && !integrity && !apiEndpoint) {
     // The state production is in today (ADR 0018): nothing set, nothing rendered, nothing
@@ -149,8 +184,20 @@ export function resolveOsaWidget(overrides: OsaWidgetOverrides = {}): OsaWidgetR
         `known OSA edge endpoints (${OSA_API_ENDPOINTS.join(", ")})`,
     };
   }
+  if (notebookUrl && !isAbsoluteHttpsUrl(notebookUrl)) {
+    return {
+      kind: "misconfigured",
+      reason: `PUBLIC_OSA_NOTEBOOK_URL is ${JSON.stringify(notebookUrl)}, which is not an absolute https: URL`,
+    };
+  }
 
-  return { kind: "ready", src, integrity, apiEndpoint: apiEndpoint as OsaApiEndpoint };
+  return {
+    kind: "ready",
+    src,
+    integrity,
+    apiEndpoint: apiEndpoint as OsaApiEndpoint,
+    ...(notebookUrl ? { notebookUrl } : {}),
+  };
 }
 
 /**
@@ -182,15 +229,35 @@ function escapeJsString(value: string): string {
  * Renders the one `<script>` tag the embed needs. `config.apiEndpoint` is already one of
  * {@link OSA_API_ENDPOINTS} by the time a `"ready"` resolution reaches here, but every value is
  * still escaped: a config object is not a promise about what a future caller passes it.
+ *
+ * `config.notebookUrl`, when given, rides in the same `setConfig` call as an extra field; left
+ * out entirely when absent, so the widget's own default (`https://notebook.osc.earth/`) applies
+ * rather than this module asserting one.
+ *
+ * Before `.init()`, the generated handler also replays any dataset context `./osa-dataset.ts`'s
+ * `announceOsaDataset` has already recorded on `window` (see that module's doc for why this side
+ * of the replay exists), feature-detecting `setDataset` exactly as `announceOsaDataset` does: the
+ * widget build this is pinned to today does not have one, and calling it if it's not a function
+ * would throw inside the `onload` handler and abort the `init()` call that follows it.
  */
 export function renderOsaWidgetScript(config: {
   src: string;
   integrity: string;
   apiEndpoint: string;
+  notebookUrl?: string;
 }): string {
+  const setConfigFields = [
+    `communityId:'${escapeJsString(OSA_COMMUNITY_ID)}'`,
+    `apiEndpoint:'${escapeJsString(config.apiEndpoint)}'`,
+  ];
+  if (config.notebookUrl) {
+    setConfigFields.push(`notebookUrl:'${escapeJsString(config.notebookUrl)}'`);
+  }
+  const datasetProperty = JSON.stringify(OSA_DATASET_WINDOW_PROPERTY);
+  const applyRecordedDataset = `var d=window[${datasetProperty}];if(d!==undefined&&typeof window.OSAChatWidget.setDataset==='function'){window.OSAChatWidget.setDataset(d);}`;
   const initCall =
-    `window.OSAChatWidget.setConfig({communityId:'${escapeJsString(OSA_COMMUNITY_ID)}',` +
-    `apiEndpoint:'${escapeJsString(config.apiEndpoint)}'});window.OSAChatWidget.init();`;
+    `window.OSAChatWidget.setConfig({${setConfigFields.join(",")}});` +
+    `${applyRecordedDataset}window.OSAChatWidget.init();`;
   return (
     `<script src="${escapeHtmlAttr(config.src)}" integrity="${escapeHtmlAttr(config.integrity)}" ` +
     `crossorigin="anonymous" data-no-auto-init onload="${escapeHtmlAttr(initCall)}"></script>`
