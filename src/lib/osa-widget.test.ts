@@ -321,7 +321,7 @@ describe("resolveOsaWidget", () => {
 
   it("does not misconfigure over a malformed notebookUrl when the triple is unset", () => {
     // notebookUrl is meaningless without the widget itself being on; a stray value here while
-    // the triple is entirely absent leaves production's disabled steady state untouched.
+    // the triple is entirely absent leaves the disabled state untouched.
     expect(resolveOsaWidget({ notebookUrl: "not-a-url" })).toEqual({ kind: "disabled" });
   });
 });

@@ -30,8 +30,8 @@
  * a malformed `PUBLIC_OSA_API_ENDPOINT`, which blanks the whole widget the same way
  * (`osaWidgetMarkup` returns `""`). That is a deliberate choice, not an oversight: a typo in a value this deployment's own
  * config sets should be loud and caught at once, rather than silently falling back to a host
- * nobody chose (see `resolveOsaWidget`'s inline comment on the `notebookUrl` read for why this
- * still leaves production's fully-unset steady state untouched).
+ * nobody chose (see `resolveOsaWidget`'s inline comment on the `notebookUrl` read for why a
+ * stray value leaves a build with the triple unset untouched).
  *
  * `apiEndpoint` is passed explicitly rather than left to the widget's own environment
  * detection, which only treats OSA's own demo hosts and `localhost` as non-production. Left
@@ -44,13 +44,15 @@
  * until the `onload` handler below calls `window.OSAChatWidget.setConfig(...)` and `.init()`
  * once the script has actually loaded.
  *
- * Nothing turns this on by default for `astro dev`, a Cloudflare Pages preview, or a local
- * `bun run build`: `wrangler.toml`/`release.yml`/`ci.yml` deliberately set none of the three
- * (ADR 0018), and there is no hardcoded fallback the way `apiBase()` falls back to
- * `https://api.nemar.org`; "unset" and "off" are the same state here on purpose. To see the
- * widget locally, export the three staging values `.github/workflows/deploy-test.yml` uses
- * (or a production triple, once one is pinned) into the shell before `bun run dev` / `bun run
- * build`, e.g.:
+ * Two builds set the triple: production, from `wrangler.toml` `[vars]`, which Cloudflare's Git
+ * build of `main` puts in the environment of `astro build`, and staging, from
+ * `.github/workflows/deploy-test.yml`'s build step (ADR 0018, "production is on"). Nothing turns
+ * it on for `astro dev`, a local `bun run build` (neither reads `wrangler.toml`), or a Pages
+ * preview of another branch (`[env.preview.vars]` sets none of the three), and there is no
+ * hardcoded fallback the way `apiBase()` falls back to `https://api.nemar.org`; "unset" and
+ * "off" are the same state here on purpose. To see the widget locally, export the staging
+ * values from `deploy-test.yml` or the production values from `wrangler.toml` into the shell
+ * before `bun run dev` / `bun run build`, e.g.:
  * `PUBLIC_OSA_WIDGET_SRC=... PUBLIC_OSA_WIDGET_INTEGRITY=... PUBLIC_OSA_API_ENDPOINT=... bun run dev`.
  *
  * A misconfigured value (set but malformed, or partially set) degrades to rendering nothing
@@ -170,8 +172,8 @@ export function resolveOsaWidget(overrides: OsaWidgetOverrides = {}): OsaWidgetR
   const notebookUrl = (overrides.notebookUrl ?? envValue("PUBLIC_OSA_NOTEBOOK_URL") ?? "").trim();
 
   if (!src && !integrity && !apiEndpoint) {
-    // The state production is in today (ADR 0018): nothing set, nothing rendered, nothing
-    // logged. This is the expected steady state, not a misconfiguration.
+    // A build that sets none of the three (a local build, a preview of another branch; ADR
+    // 0018): nothing rendered, nothing logged. An expected state, not a misconfiguration.
     return { kind: "disabled" };
   }
 
