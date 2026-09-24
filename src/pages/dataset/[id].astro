@@ -678,7 +678,11 @@ Astro.response.headers.set(
         const hasZarr = zarrHasAnyStore(index);
         // With a Zarr copy, also the first recording's subject and task, which fill the widget's
         // questions about this dataset (OSA #477).
-        announceOsaDataset({ id: datasetId, zarr: hasZarr, ...(hasZarr ? osaDatasetFacts(index) : {}) });
+        announceOsaDataset({
+          id: datasetId,
+          zarr: hasZarr,
+          ...(hasZarr ? osaDatasetFacts(index) : {}),
+        });
         // A SUCCESSFULLY fetched+parsed index is not the same failure class as
         // a fetch/parse problem (the outer .catch below) -- a bug in applying
         // it (annotateZarrRows, renderZarrCoveragePanel, ...) is a rendering

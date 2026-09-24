@@ -150,21 +150,47 @@ describe("announceOsaDataset: subject and task (OSA #477)", () => {
     expect(calls).toEqual([value]);
   });
 
-  it("drops a value whose subject or task is not a plain BIDS label", () => {
+  it("drops a subject or task that is not a plain BIDS label alone, and announces the rest", () => {
     const calls: unknown[] = [];
     const win = installFakeWindow({ setDataset: (v: unknown) => calls.push(v) });
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    for (const bad of [
-      { id: "nm000132", zarr: true, subject: "sub-001" },
-      { id: "nm000132", zarr: true, task: "task-N170" },
-      { id: "nm000132", zarr: true, task: "N170 faces" },
-      { id: "nm000132", zarr: true, subject: "" },
-      { id: "nm000132", zarr: true, subject: 1 },
-    ]) {
-      announceOsaDataset(bad);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cases: [Record<string, unknown>, Record<string, unknown>][] = [
+      [
+        { id: "nm000132", zarr: true, subject: "sub-001", task: "N170" },
+        { id: "nm000132", zarr: true, task: "N170" },
+      ],
+      [
+        { id: "nm000132", zarr: true, task: "task-N170" },
+        { id: "nm000132", zarr: true },
+      ],
+      [
+        { id: "nm000132", zarr: true, task: "N170 faces" },
+        { id: "nm000132", zarr: true },
+      ],
+      [
+        { id: "nm000132", zarr: true, subject: "" },
+        { id: "nm000132", zarr: true },
+      ],
+      [
+        { id: "nm000132", zarr: true, subject: 1 },
+        { id: "nm000132", zarr: true },
+      ],
+    ];
+    for (const [announced, expected] of cases) {
+      announceOsaDataset(announced);
+      expect(win[OSA_DATASET_WINDOW_PROPERTY]).toEqual(expected);
+      expect(calls.at(-1)).toEqual(expected);
     }
+    expect(warn).toHaveBeenCalledTimes(cases.length);
+    expect(String(warn.mock.calls[0][0])).toContain("dropping an invalid subject label");
+  });
+
+  it("still refuses the whole value for a bad id or zarr, even with good labels", () => {
+    const win = installFakeWindow({ setDataset: () => {} });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    announceOsaDataset({ id: "nm 000132", zarr: true, subject: "001" });
+    announceOsaDataset({ id: "nm000132", zarr: "yes", subject: "001" });
     expect(win[OSA_DATASET_WINDOW_PROPERTY]).toBeUndefined();
-    expect(calls).toEqual([]);
   });
 });
 

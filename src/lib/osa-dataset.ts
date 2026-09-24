@@ -28,9 +28,12 @@ import type { ZarrIndex } from "./zarr-index";
  * this site calls this with `null` today: only the dataset page calls this at all, and every
  * other page leaves the widget at its own "not a dataset page" default by never calling it.
  *
- * Invalid input -- a malformed id, a non-boolean `zarr`, a `subject` or `task` that is not a label,
- * or a value that is neither `null` nor an `{id, zarr?, subject?, task?}` object -- is dropped with a `console.warn` rather than recorded or forwarded, the
- * same degrade-not-throw posture `resolveOsaWidget` takes for a bad `PUBLIC_OSA_*` value.
+ * Invalid input -- a malformed id, a non-boolean `zarr`, or a value that is neither `null` nor
+ * an `{id, zarr?, subject?, task?}` object -- is dropped with a `console.warn` rather than
+ * recorded or forwarded, the same degrade-not-throw posture `resolveOsaWidget` takes for a bad
+ * `PUBLIC_OSA_*` value. A `subject` or `task` that is not a label is dropped alone and the rest
+ * is announced, as the widget's own `setDataset` does (OSA #477): the two only fill question
+ * blanks, and refusing the whole value would leave the notebook button waiting on `zarr`.
  */
 
 /**
@@ -43,7 +46,7 @@ export const OSA_DATASET_WINDOW_PROPERTY = "__nemarOsaDataset";
 /** The id shape the widget's `setDataset` contract requires. */
 const OSA_DATASET_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
-/** A BIDS label, as the widget's `setDataset` takes `subject` and `task`: no `sub-`/`task-` prefix. */
+/** A BIDS label, as the widget's `setDataset` takes `subject` and `task`: no prefix. */
 const OSA_BIDS_LABEL_PATTERN = /^[A-Za-z0-9]{1,64}$/;
 
 export interface OsaDatasetValue {
@@ -59,6 +62,20 @@ export interface OsaDatasetValue {
 
 /** `null` means "not a dataset page"; see the module doc for why nothing here ever passes it. */
 export type OsaDatasetAnnouncement = OsaDatasetValue | null;
+
+/** `value` without a `subject` or `task` that is not a plain label, each dropped with a warning. */
+function withoutInvalidLabels(value: unknown): unknown {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+  const copy: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  for (const fact of ["subject", "task"] as const) {
+    const label = copy[fact];
+    if (label !== undefined && (typeof label !== "string" || !OSA_BIDS_LABEL_PATTERN.test(label))) {
+      console.warn(`[osa-dataset] dropping an invalid ${fact} label: ${JSON.stringify(label)}`);
+      delete copy[fact];
+    }
+  }
+  return copy;
+}
 
 function isValidOsaDatasetAnnouncement(value: unknown): value is OsaDatasetAnnouncement {
   if (value === null) return true;
@@ -95,7 +112,8 @@ function isValidOsaDatasetAnnouncement(value: unknown): value is OsaDatasetAnnou
  * no listing ever fetched -- over a failure in a component this page does not own. A widget bug
  * must not take down dataset browsing.
  */
-export function announceOsaDataset(value: unknown): void {
+export function announceOsaDataset(announced: unknown): void {
+  const value = withoutInvalidLabels(announced);
   if (!isValidOsaDatasetAnnouncement(value)) {
     console.warn(`[osa-dataset] ignoring invalid dataset announcement: ${JSON.stringify(value)}`);
     return;
