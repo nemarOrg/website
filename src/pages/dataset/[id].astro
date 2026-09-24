@@ -59,7 +59,7 @@ const [landingOut, metadataOut, catalogRow] = await Promise.all([
   getLandingOutcome(id),
   getMetadataOutcome(id),
   // The catalog row carries the recording channel count (nemar-cli#854), which
-  // metadata.json does not. Only managed ids (nm*/on*) resolve here; ds* returns
+  // metadata.json does not. Only managed ids (nm*/on*/xx*) resolve here; ds* returns
   // 400 and is reached via the canonical redirect above. A failed lookup degrades
   // to null so the channel stat is simply omitted — it never blocks the page.
   isManagedDatasetId(id)

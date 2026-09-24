@@ -344,3 +344,17 @@ so the two pins carry the same integrity value.
 - The negative case: `chore/pin-production-widget`'s preview (`971cfe64.nemar-website.pages.dev`) has no widget tag.
 - `wrangler pages download config nemar-website`: the project's variables equal the committed `[vars]`.
 - `src/lib/osa-widget.ts`'s module comment now says which two builds set the triple.
+
+## Update 2026-09-24: the widget tag is deferred
+
+The widget's `<script>` now carries `defer`.
+Without it, the tag was the layout's first network-fetched script that blocks the parser,
+so a slow or unreachable jsDelivr or `widget.osc.earth` held up the theme scripts after it and the page's load event.
+A deferred classic script still sets `document.currentScript`, which the widget reads to find its runtime bundle,
+runs once in document order, and fires the same `onload` handler.
+The dataset a page announces reaches the widget either way: the page records it on `window`, and the `onload` handler replays it.
+
+### Receipts (update, defer)
+
+- The release review of nemarOrg/website PR #359.
+- `src/lib/osa-widget.test.ts`, "is deferred, not async": removing `defer`, or writing `async` in its place, fails it.
