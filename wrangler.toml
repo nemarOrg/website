@@ -3,13 +3,26 @@ compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./dist"
 
-# Production env vars
+# Production env vars. Cloudflare's Git integration builds `main` with these in the
+# environment of `astro build`, so a PUBLIC_* value here is what production inlines
+# (measured 2026-09-24 with a preview branch; ADR 0018).
 [vars]
 PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
+# Open Science Assistant widget (ADR 0018), pinned to an OSA release commit on `main` with
+# Subresource Integrity; src/lib/osa-widget.ts validates all three and renders nothing
+# unless every one parses. The pin moves only to another release, with its hash.
+PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@5519d4f2f6dd4c1e24c579cd7f402d84b203cd8c/frontend/osa-chat-widget.js"
+PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-2mewvtamWpKfU2is9Ed6wk/6glQdKL34OzAOcEnfem/pWIzQGyY2UtqNMnecVOH3"
+PUBLIC_OSA_API_ENDPOINT = "https://widget.osc.earth/osa"
+# The notebook tab frames this host; it must be on OSA_NOTEBOOK_ORIGINS, the hosts this
+# site's frame-src allows. It is also the widget's own default, set here so the value
+# production uses is written down.
+PUBLIC_OSA_NOTEBOOK_URL = "https://notebook.osc.earth/osa/"
 
-# Preview env vars (override on Pages dashboard if needed)
+# Preview env vars: every non-`main` branch the Git integration builds. They replace [vars]
+# rather than extending it, so previews carry no widget.
 [env.preview.vars]
 PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"

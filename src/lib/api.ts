@@ -200,13 +200,17 @@ export async function searchDatasets(
 /**
  * Whether `GET /datasets/:id` will accept this id. The catalog detail
  * endpoint only serves managed datasets (`nm*` backend-created, `on*`
- * OpenNeuro mirrors); legacy `ds*` catalog rows return 400 ("Invalid dataset
- * ID format") there and are reached via data.nemar.org / canonical redirect
- * instead. Search hydration uses this to skip doomed per-id fetches for `ds*`
- * hits and render them from the reduced projection.
+ * OpenNeuro mirrors, `xx*` sandbox, which on staging includes the exemplar
+ * fleet); legacy `ds*` catalog rows return 400 ("Invalid dataset ID format")
+ * there and are reached via data.nemar.org / canonical redirect instead. Search
+ * hydration uses this to skip doomed per-id fetches for `ds*` hits and render
+ * them from the reduced projection. The same three prefixes as the backend's
+ * `isValidDatasetId` (nemar-cli `backend/src/services/datasetId.ts`): leaving
+ * `xx` out kept every exemplar page on staging from reading its catalog row,
+ * so none showed its Zarr tag (nemar-cli#1496).
  */
 export function isManagedDatasetId(id: string): boolean {
-  return /^(nm|on)\d{6}$/.test(id);
+  return /^(nm|on|xx)\d{6}$/.test(id);
 }
 
 export async function getDataset(

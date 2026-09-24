@@ -43,6 +43,21 @@ jobs:
           PUBLIC_API_BASE_URL: https://api-test.nemar.org
           PUBLIC_DATA_BASE_URL: https://data-test.nemar.org
           PUBLIC_ZARR_BASE_URL: https://zarr-test.nemar.org
+          # Open Science Assistant widget (nemarOrg/website ADR 0018), ON for staging only.
+          # Pinned to an exact OSA commit with Subresource Integrity; see src/lib/osa-widget.ts
+          # for the validation these three are checked against. Production's pin, to an OSA
+          # release, is in `wrangler.toml` [vars], which Cloudflare's Git build of `main` reads;
+          # this build swaps that file out (below), so it never picks production's pin up.
+          # Leaving any one of the three unset renders nothing rather than a broken tag.
+          PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@a300fd54ad96f8bad3a14ab0e0029fe4d47978d6/frontend/osa-chat-widget.js
+          PUBLIC_OSA_WIDGET_INTEGRITY: sha384-2mewvtamWpKfU2is9Ed6wk/6glQdKL34OzAOcEnfem/pWIzQGyY2UtqNMnecVOH3
+          PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
+          # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
+          # JupyterLite host, which the widget frames as a tab of its panel (OSA issue #470).
+          # Genuinely optional (src/lib/osa-widget.ts); left unset the widget falls back to its
+          # own production default, which staging must not talk to. Set, it must be on one of
+          # OSA_NOTEBOOK_ORIGINS, the two hosts this site's frame-src allows.
+          PUBLIC_OSA_NOTEBOOK_URL: https://develop-notebook.osc.earth/osa/
         run: bun run build
       # `wrangler pages deploy` rejects a custom config path outright ("Pages
       # does not support custom paths for the Wrangler configuration file"), so

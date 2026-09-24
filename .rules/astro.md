@@ -139,7 +139,7 @@ CLOUDFLARE_ACCOUNT_ID=<sccn-account-id> \
 
 The `CLOUDFLARE_ACCOUNT_ID` is required because the SCCN API token lacks the `memberships` scope.
 
-`wrangler.toml` declares the env vars consumed at build time (`PUBLIC_API_BASE_URL`, `PUBLIC_DATA_BASE_URL`). Production env vars also need to be set in the Pages dashboard — building locally vs Pages CI uses two different paths to env.
+`wrangler.toml` `[vars]` is what production's `astro build` reads: the `nemar-website` project builds through Cloudflare's Git integration, which puts those values in the build's environment (measured 2026-09-24; ADR 0018), and the dashboard's variables follow the file. A local `bun run build` does not read `wrangler.toml`; export the values in the shell. `test.nemar.org` is a direct upload built in `deploy-test.yml`, whose own `env:` block is what reaches its build.
 
 ## Performance budget
 

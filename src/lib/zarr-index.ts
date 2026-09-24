@@ -401,6 +401,21 @@ export function zarrAvailablePaths(index: ZarrIndex): Set<string> {
   return new Set(index.stores.map((s) => s.path));
 }
 
+/**
+ * Whether a fetched index carries at least one usable Zarr store. The single source of truth
+ * for a rule two independent things gate on: the "View data" action-bar reveal (website#260) and
+ * the OSA widget's notebook-button announcement (website#436, `announceOsaDataset` in
+ * `src/lib/osa-dataset.ts`). Both call sites live in `hydrateTree`
+ * (`src/pages/dataset/[id].astro`) and now read this one value, so they can never disagree with
+ * each other the way two separately computed `paths.size === 0` checks could drift over time.
+ *
+ * `null` -- the index fetch failed, or returned nothing to parse -- counts as "no known Zarr
+ * copy", the same as an index that parsed but carries zero stores.
+ */
+export function zarrHasAnyStore(index: ZarrIndex | null): boolean {
+  return index !== null && zarrAvailablePaths(index).size > 0;
+}
+
 export function zarrStoreByPath(index: ZarrIndex): Map<string, ZarrIndexStore> {
   return new Map(index.stores.map((s) => [s.path, s]));
 }

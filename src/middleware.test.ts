@@ -2,6 +2,7 @@ import type { APIContext } from "astro";
 import { describe, expect, it } from "vitest";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
+import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
   SECURITY_HEADERS,
   applySecurityHeaders,
@@ -678,6 +679,51 @@ describe("security headers", () => {
       expect(connectSrc).toContain("https://develop-widget.osc.earth");
       expect(connectSrc).not.toContain("widget.osc.earth/osa");
     }
+  });
+
+  it("widens img-src with the two stable OSA hosts for the widget's logo", () => {
+    // The widget's logo comes from <apiEndpoint>/nemar/logo on the OSA host, not from `self` or
+    // a `data:` URI, and ADR 0017 only widened script-src/connect-src/worker-src; it did not
+    // anticipate this image fetch. Asserted against img-src specifically, not the whole policy
+    // string, for the same reason the connect-src assertions above are: a host in the wrong
+    // directive would pass a whole-string check while the browser still refused the image.
+    for (const path of ["/", "/discover", "/dataset/nm000232", "/upload"]) {
+      const csp = contentSecurityPolicy(path);
+      const imgSrc = csp.split("; ").find((d) => d.startsWith("img-src"))!;
+      expect(imgSrc).toContain("'self'");
+      expect(imgSrc).toContain("data:");
+      expect(imgSrc).toContain("https://widget.osc.earth");
+      expect(imgSrc).toContain("https://develop-widget.osc.earth");
+    }
+  });
+
+  it("allows the two notebook hosts in frame-src on every route, for the notebook tab", () => {
+    // The widget frames the hosted notebook inside its own panel (OpenScience-Collective/osa#470).
+    // With no frame-src, frames fall back to default-src 'self' and the notebook is refused.
+    // Asserted against frame-src itself, as the connect-src and img-src checks above are, and
+    // against OSA_NOTEBOOK_ORIGINS, the list PUBLIC_OSA_NOTEBOOK_URL is checked against, so the
+    // policy and the accepted URLs cannot disagree. The literal below pins the list itself.
+    for (const path of ["/", "/discover", "/dataset/nm000232", "/upload"]) {
+      const frameSrc = contentSecurityPolicy(path)
+        .split("; ")
+        .find((d) => d.startsWith("frame-src"));
+      expect(frameSrc, path).toBeDefined();
+      expect(frameSrc!.split(" ").slice(1), path).toEqual(["'self'", ...OSA_NOTEBOOK_ORIGINS]);
+    }
+    expect(SECURITY_HEADERS["Content-Security-Policy"]).toContain(
+      "frame-src 'self' https://notebook.osc.earth https://develop-notebook.osc.earth",
+    );
+  });
+
+  it("keeps the transitional workers.dev hosts out of img-src", () => {
+    // This build's own PUBLIC_OSA_API_ENDPOINT (src/lib/osa-widget.ts) is refused unless it is
+    // one of the two stable osc.earth hosts, so nothing this build ever asks a *.workers.dev
+    // host for a logo, so widening img-src to include them would be an allowance with no
+    // consumer.
+    const imgSrc = contentSecurityPolicy("/")
+      .split("; ")
+      .find((d) => d.startsWith("img-src"))!;
+    expect(imgSrc).not.toContain("workers.dev");
   });
 
   it("names worker-src explicitly, because its fallback is silent", () => {

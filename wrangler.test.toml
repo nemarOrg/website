@@ -17,6 +17,15 @@ pages_build_output_dir = "./dist"
 PUBLIC_API_BASE_URL = "https://api-test.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data-test.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr-test.nemar.org"
+# Open Science Assistant widget (nemarOrg/website ADR 0018), reference only, with the same caveat as
+# above, the real values live in deploy-test.yml's build step.
+PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@a300fd54ad96f8bad3a14ab0e0029fe4d47978d6/frontend/osa-chat-widget.js"
+PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-2mewvtamWpKfU2is9Ed6wk/6glQdKL34OzAOcEnfem/pWIzQGyY2UtqNMnecVOH3"
+PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
+# Notebook button (OSA issue #436), reference only, same caveat as above: the real value lives in
+# deploy-test.yml's build step. It must be on one of OSA_NOTEBOOK_ORIGINS (src/lib/osa-widget.ts),
+# the two hosts this site's frame-src allows, because the widget frames the notebook (OSA #470).
+PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/"
 
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
 # per-project, not shared with prod. Set it via the Cloudflare Pages

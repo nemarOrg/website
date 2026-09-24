@@ -95,13 +95,17 @@ export function sitemapLastmod(row: {
  * Catalog rows worth listing in the sitemap: active, public, and addressed
  * by a managed id (`nm*`/`on*`). `ds*` rows are deliberately excluded --
  * `/dataset/ds<digits>` 301-redirects to its canonical in `[id].astro`, and
- * a sitemap must never list a URL that redirects.
+ * a sitemap must never list a URL that redirects. Sandbox `xx*` rows are
+ * managed too, but are practice and test copies, never a dataset to index:
+ * excluded by prefix, here, rather than by `isManagedDatasetId`, which only
+ * says what the detail endpoint serves.
  */
 export function datasetSitemapEntries(rows: readonly Dataset[]): SitemapEntry[] {
   const entries: SitemapEntry[] = [];
   for (const row of rows) {
     if (row.status !== "active" || row.visibility !== "public") continue;
     if (!isManagedDatasetId(row.dataset_id)) continue;
+    if (row.dataset_id.startsWith("xx")) continue;
     entries.push({
       loc: `${MARKETING_BASE_URL}/dataset/${row.dataset_id}`,
       lastmod: sitemapLastmod(row),
