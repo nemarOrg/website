@@ -54,7 +54,7 @@ jobs:
           # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
           # JupyterLite host. Genuinely optional (src/lib/osa-widget.ts); left unset the widget
           # falls back to its own production default, which staging must not talk to.
-          PUBLIC_OSA_NOTEBOOK_URL: https://develop-notebook.osc.earth/
+          PUBLIC_OSA_NOTEBOOK_URL: https://develop-notebook.osc.earth/osa/
         run: bun run build
       # `wrangler pages deploy` rejects a custom config path outright ("Pages
       # does not support custom paths for the Wrangler configuration file"), so

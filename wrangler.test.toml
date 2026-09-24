@@ -24,7 +24,7 @@ PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-Yy37KfbMs1QW2Z0BnsmS4vPnqzw1V02b5CGomTrP5b
 PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
 # Notebook button (OSA issue #436), reference only, same caveat as above: the real value lives in
 # deploy-test.yml's build step.
-PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/"
+PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/"
 
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
 # per-project, not shared with prod. Set it via the Cloudflare Pages

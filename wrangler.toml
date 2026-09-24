@@ -28,4 +28,4 @@ PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
 #
 # PUBLIC_OSA_NOTEBOOK_URL (the widget's notebook button, OSA issue #436) is genuinely optional and
 # is also absent here: unset, the widget falls back to its own production default
-# (https://notebook.osc.earth/), which is the correct host once the triple above is turned on.
+# (https://notebook.osc.earth/osa/), which is the correct host once the triple above is turned on.

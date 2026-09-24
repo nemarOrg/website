@@ -16,7 +16,7 @@ const VALID_SRC =
   "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js";
 const VALID_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk";
 const VALID_ENDPOINT = "https://develop-widget.osc.earth/osa";
-const VALID_NOTEBOOK_URL = "https://develop-notebook.osc.earth/";
+const VALID_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/";
 
 /**
  * Reverses `escapeHtmlAttr` (unexported) well enough for these tests: the four entities that
@@ -246,7 +246,7 @@ describe("resolveOsaWidget", () => {
       src: VALID_SRC,
       integrity: VALID_INTEGRITY,
       apiEndpoint: VALID_ENDPOINT,
-      notebookUrl: "https://notebook.osc.earth/",
+      notebookUrl: "https://notebook.osc.earth/osa/",
     });
     expect(out.kind).toBe("ready");
   });

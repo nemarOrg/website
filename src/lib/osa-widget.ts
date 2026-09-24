@@ -22,7 +22,7 @@
  * A fourth variable, `PUBLIC_OSA_NOTEBOOK_URL`, is genuinely optional rather than part of the
  * all-or-none triple: it is the base URL of the hosted JupyterLite site the widget's notebook
  * button (OSA issue #436, the three-icon launcher) opens against. Left unset, the widget falls
- * back to its own default (`https://notebook.osc.earth/`). When set it must be an absolute
+ * back to its own default (`https://notebook.osc.earth/osa/`). When set it must be an absolute
  * `https:` URL; a malformed value is refused exactly like a malformed `PUBLIC_OSA_API_ENDPOINT`,
  * because it never gates whether the widget itself renders (unlike the required triple).
  *
@@ -231,7 +231,7 @@ function escapeJsString(value: string): string {
  * still escaped: a config object is not a promise about what a future caller passes it.
  *
  * `config.notebookUrl`, when given, rides in the same `setConfig` call as an extra field; left
- * out entirely when absent, so the widget's own default (`https://notebook.osc.earth/`) applies
+ * out entirely when absent, so the widget's own default (`https://notebook.osc.earth/osa/`) applies
  * rather than this module asserting one.
  *
  * Before `.init()`, the generated handler also replays any dataset context `./osa-dataset.ts`'s

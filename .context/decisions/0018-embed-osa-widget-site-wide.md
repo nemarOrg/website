@@ -149,10 +149,12 @@ otherwise it shows disabled with the reason.
 Two additions carry that, both consistent with the decision above rather than changing it.
 
 **A fourth, genuinely optional build variable: `PUBLIC_OSA_NOTEBOOK_URL`.**
-Unlike the required triple, this one is not all-or-nothing: left unset, the widget falls back to its own default (`https://notebook.osc.earth/`),
+Unlike the required triple, this one is not all-or-nothing: left unset, the widget falls back to its own default (`https://notebook.osc.earth/osa/`),
 validated the same way a malformed `PUBLIC_OSA_API_ENDPOINT` is (`resolveOsaWidget` returns `misconfigured` with a reason),
 but never gating whether the widget itself renders.
-Staging sets it in `.github/workflows/deploy-test.yml` and `wrangler.test.toml` (reference only, same caveat as the other three) to `https://develop-notebook.osc.earth/`, the dev JupyterLite host, next to the existing staging pin.
+Staging sets it in `.github/workflows/deploy-test.yml` and `wrangler.test.toml` (reference only, same caveat as the other three) to `https://develop-notebook.osc.earth/osa/`, the dev JupyterLite host, next to the existing staging pin.
+The project is in the path because OSC names a plane shared across projects as a subdomain and the project as a path,
+as `api.osc.earth/osa` and `widget.osc.earth/osa` already are.
 Production's `wrangler.toml` gets a comment only, exactly as the original triple did: unset, the widget's own production default applies once the triple itself is turned on there.
 
 **Dataset context: the page tells the widget which dataset is on screen, and whether it has a Zarr copy.**
