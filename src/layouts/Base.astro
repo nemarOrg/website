@@ -183,6 +183,14 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
         out (ADR 0018). `osaWidget` is "" on every build that hasn't configured it, so this is a
         no-op string on every page until deploy-test.yml's staging pin or a production one is live. */}
     {osaWidget && <Fragment set:html={osaWidget} />}
+    <script>
+      // Forwards the reader's later theme changes to the assistant widget (OSA #469); the
+      // widget's own onload handler reads the choice it starts with. On a page or build without
+      // the widget the observer still runs but has nothing to tell. See src/lib/osa-theme.ts.
+      import { followThemeForOsa } from "../lib/osa-theme";
+
+      followThemeForOsa();
+    </script>
     <script is:inline>
       // Keep external SVG/PNG figures synchronized with the site's explicit
       // theme choice as well as the device color-scheme preference. The light
