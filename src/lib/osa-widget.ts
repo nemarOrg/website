@@ -21,12 +21,13 @@
  *
  * A fourth variable, `PUBLIC_OSA_NOTEBOOK_URL`, is genuinely optional rather than part of the
  * all-or-none triple: it is the base URL of the hosted JupyterLite site the widget's notebook
- * button (OSA issue #436, the three-icon launcher) opens against. UNSET is the ordinary, supported
- * state and never gates whether the widget renders: the widget falls back to its own default
- * (`https://notebook.osc.earth/osa/`). SET but malformed is a different case entirely: it must be
- * an absolute `https:` URL, and a value that fails that check is refused exactly like a malformed
- * `PUBLIC_OSA_API_ENDPOINT`, which blanks the whole widget the same way (`osaWidgetMarkup` returns
- * `""`). That is a deliberate choice, not an oversight: a typo in a value this deployment's own
+ * button (OSA issue #436, the three-icon launcher) opens against, as a framed tab of the widget
+ * since OSA issue #470. UNSET is the ordinary, supported state and never gates whether the widget
+ * renders: the widget falls back to its own default (`https://notebook.osc.earth/osa/`). SET but
+ * malformed is a different case entirely: it must be an `https:` URL on one of the two notebook
+ * hosts in {@link OSA_NOTEBOOK_ORIGINS}, and a value that fails that check is refused exactly like
+ * a malformed `PUBLIC_OSA_API_ENDPOINT`, which blanks the whole widget the same way
+ * (`osaWidgetMarkup` returns `""`). That is a deliberate choice, not an oversight: a typo in a value this deployment's own
  * config sets should be loud and caught at once, rather than silently falling back to a host
  * nobody chose (see `resolveOsaWidget`'s inline comment on the `notebookUrl` read for why this
  * still leaves production's fully-unset steady state untouched).
@@ -82,6 +83,19 @@ export const OSA_API_ENDPOINTS = [
 
 export type OsaApiEndpoint = (typeof OSA_API_ENDPOINTS)[number];
 
+/**
+ * The only two origins `PUBLIC_OSA_NOTEBOOK_URL` may name: the notebook site's production and
+ * develop deployments (OSA ADR 0012). Since OSA issue #470 the widget shows the notebook in a
+ * frame inside its own panel, so this site's CSP has to allow the host in `frame-src`, and
+ * `src/middleware.ts` builds that directive from this list. A notebook URL on any other origin
+ * would have no allowance, and the widget would only ever show its "did not open here" fallback.
+ * The path is free (`/osa/` today), because `frame-src` matches by origin.
+ */
+export const OSA_NOTEBOOK_ORIGINS = [
+  "https://notebook.osc.earth",
+  "https://develop-notebook.osc.earth",
+] as const;
+
 const OSA_WIDGET_SRC_PATTERN =
   /^https:\/\/cdn\.jsdelivr\.net\/gh\/OpenScience-Collective\/osa@[0-9a-f]{40}\/frontend\/osa-chat-widget\.js$/;
 
@@ -116,17 +130,19 @@ type OsaEnvKey =
   | "PUBLIC_OSA_API_ENDPOINT"
   | "PUBLIC_OSA_NOTEBOOK_URL";
 
-/** `PUBLIC_OSA_NOTEBOOK_URL` must be an absolute `https:` URL: same shape check
- *  `isUsableDocsBase` in `./docs-authorize.ts` starts from, without that function's NEMAR-host
- *  allowlist -- a JupyterLite deployment has no fixed set of hosts the way the two OSA edges do. */
-function isAbsoluteHttpsUrl(value: string): boolean {
+/** `PUBLIC_OSA_NOTEBOOK_URL` must be an `https:` URL on one of {@link OSA_NOTEBOOK_ORIGINS}.
+ *  It had no host allowlist while the widget opened the notebook in a browser tab of its own;
+ *  framing it (OSA issue #470) made the host part of this site's CSP. */
+function isKnownNotebookUrl(value: string): boolean {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
     return false;
   }
-  return url.protocol === "https:";
+  return (
+    url.protocol === "https:" && (OSA_NOTEBOOK_ORIGINS as readonly string[]).includes(url.origin)
+  );
 }
 
 function envValue(name: OsaEnvKey): string | undefined {
@@ -189,10 +205,12 @@ export function resolveOsaWidget(overrides: OsaWidgetOverrides = {}): OsaWidgetR
         `known OSA edge endpoints (${OSA_API_ENDPOINTS.join(", ")})`,
     };
   }
-  if (notebookUrl && !isAbsoluteHttpsUrl(notebookUrl)) {
+  if (notebookUrl && !isKnownNotebookUrl(notebookUrl)) {
     return {
       kind: "misconfigured",
-      reason: `PUBLIC_OSA_NOTEBOOK_URL is ${JSON.stringify(notebookUrl)}, which is not an absolute https: URL`,
+      reason:
+        `PUBLIC_OSA_NOTEBOOK_URL is ${JSON.stringify(notebookUrl)}, which is not an https: URL ` +
+        `on one of the notebook hosts this site's frame-src allows (${OSA_NOTEBOOK_ORIGINS.join(", ")})`,
     };
   }
 

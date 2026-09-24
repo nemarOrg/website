@@ -4,6 +4,7 @@ import { osaColorSchemeFor } from "./osa-theme";
 import {
   OSA_API_ENDPOINTS,
   OSA_COMMUNITY_ID,
+  OSA_NOTEBOOK_ORIGINS,
   OSA_WIDGET_EXCLUDED_PATHS,
   isOsaWidgetExcludedPath,
   osaWidgetMarkup,
@@ -250,6 +251,48 @@ describe("resolveOsaWidget", () => {
       notebookUrl: "https://notebook.osc.earth/osa/",
     });
     expect(out.kind).toBe("ready");
+  });
+
+  it("accepts either notebook host whatever the path, since frame-src matches by origin", () => {
+    for (const notebookUrl of [
+      "https://develop-notebook.osc.earth/",
+      "https://notebook.osc.earth/osa/elsewhere/",
+    ]) {
+      const out = resolveOsaWidget({
+        src: VALID_SRC,
+        integrity: VALID_INTEGRITY,
+        apiEndpoint: VALID_ENDPOINT,
+        notebookUrl,
+      });
+      expect(out.kind, notebookUrl).toBe("ready");
+    }
+  });
+
+  it("refuses a notebookUrl on any other host, which this site's frame-src would block", () => {
+    // The widget frames the notebook (OpenScience-Collective/osa#470), so a host outside
+    // OSA_NOTEBOOK_ORIGINS has no frame-src allowance and could only ever show the widget's
+    // fallback. Refused here, loudly, rather than shipped as a tab that never opens.
+    const elsewhere = [
+      "https://example.org/osa/", // an unrelated https host
+      "https://notebook.osc.earth.example.org/osa/", // a lookalike that only starts with one
+      "https://osc.earth/osa/", // the parent domain
+      "https://widget.osc.earth/osa/", // an OSA host, but not a notebook one
+      "https://notebook.osc.earth:8443/osa/", // the right host on another port is another origin
+    ];
+    for (const notebookUrl of elsewhere) {
+      const out = resolveOsaWidget({
+        src: VALID_SRC,
+        integrity: VALID_INTEGRITY,
+        apiEndpoint: VALID_ENDPOINT,
+        notebookUrl,
+      });
+      expect(out.kind, notebookUrl).toBe("misconfigured");
+      if (out.kind === "misconfigured") {
+        expect(out.reason).toContain("PUBLIC_OSA_NOTEBOOK_URL");
+        expect(out.reason).toContain("frame-src");
+        for (const origin of OSA_NOTEBOOK_ORIGINS) expect(out.reason).toContain(origin);
+      }
+    }
   });
 
   it("refuses a malformed notebookUrl even though the triple is fully valid", () => {
