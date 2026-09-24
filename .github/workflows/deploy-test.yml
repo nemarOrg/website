@@ -48,8 +48,8 @@ jobs:
           # for the validation these three are checked against. `wrangler.toml`/`release.yml`
           # deliberately do NOT set these for production; leaving any one of them unset (here or
           # there) renders nothing rather than a broken tag.
-          PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@1a79aa83ff9663b2de968e506968b1a15049cedb/frontend/osa-chat-widget.js
-          PUBLIC_OSA_WIDGET_INTEGRITY: sha384-8u2BoCYpF/SaANfn9SgoJBXTz2aKKugt9JtphbSkcgVPvKrhkglaEqZPYy1Uspmh
+          PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@7092864064f3aad203008ee9f1bd9cfc4ee6675a/frontend/osa-chat-widget.js
+          PUBLIC_OSA_WIDGET_INTEGRITY: sha384-3Nu88uTbcAeWRQAyR574ixqbkFEF5yVwgXGs7iR0h9ZTe0lXTLJTl2eXGMsK/ozi
           PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
           # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
           # JupyterLite host, which the widget frames as a tab of its panel (OSA issue #470).

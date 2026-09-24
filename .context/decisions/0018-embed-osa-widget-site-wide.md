@@ -271,3 +271,18 @@ Nothing on this site changes: the fix is inside the widget, and `localStorage` i
 - osa's `frontend/browser-harness/first-paint-check.mjs` samples the launcher on every animation frame in Chrome,
   with the config request held 600 ms,
   and finds no frame in the default look on a first visit or a reload (42/42).
+
+## Update 2026-09-24: questions about the dataset on screen
+
+On a dataset page the widget now suggests questions about that dataset, from NEMAR's templates in its OSA config (OpenScience-Collective/osa#477, osa PR #478).
+To fill a template's `{subject}` and `{task}`, the dataset page passes them in `setDataset`, beside `id` and `zarr`:
+the BIDS labels of the first recording in the dataset's Zarr index, so they always name a recording with a Zarr copy (`osaDatasetFacts` in `src/lib/osa-dataset.ts`).
+An invalid label is dropped alone, here and in the widget, so it can never keep the previous dataset on screen.
+
+**Staging's pin moves to osa commit `7092864`.** Nothing else on this site changes: the widget reads no new origin, and the questions are text in its own panel.
+
+### Receipts (update, the dataset questions)
+
+- OpenScience-Collective/osa#477, osa PR #478, merged as `7092864064f3aad203008ee9f1bd9cfc4ee6675a`;
+  the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
+- `src/lib/osa-dataset.ts` (`osaDatasetFacts`, the label rule), `src/lib/osa-dataset.test.ts`.

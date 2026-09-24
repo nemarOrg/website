@@ -429,7 +429,7 @@ Astro.response.headers.set(
 
 <script>
   import { renderMarkdown } from "../../lib/markdown";
-  import { announceOsaDataset } from "../../lib/osa-dataset";
+  import { announceOsaDataset, osaDatasetFacts } from "../../lib/osa-dataset";
   import { bidsRowId, isDirRecordingName } from "../../lib/bids-tree";
   import type { DirListing } from "../../lib/dir-listing";
   import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
@@ -676,7 +676,13 @@ Astro.response.headers.set(
         // to a real answer even if that rendering fails partway through, and "View data" below
         // reads this exact same value so the two can never disagree with each other (PR review).
         const hasZarr = zarrHasAnyStore(index);
-        announceOsaDataset({ id: datasetId, zarr: hasZarr });
+        // With a Zarr copy, also the first recording's subject and task, which fill the widget's
+        // questions about this dataset (OSA #477).
+        announceOsaDataset({
+          id: datasetId,
+          zarr: hasZarr,
+          ...(hasZarr ? osaDatasetFacts(index) : {}),
+        });
         // A SUCCESSFULLY fetched+parsed index is not the same failure class as
         // a fetch/parse problem (the outer .catch below) -- a bug in applying
         // it (annotateZarrRows, renderZarrCoveragePanel, ...) is a rendering
