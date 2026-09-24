@@ -238,7 +238,10 @@ function escapeJsString(value: string): string {
  * `announceOsaDataset` has already recorded on `window` (see that module's doc for why this side
  * of the replay exists), feature-detecting `setDataset` exactly as `announceOsaDataset` does: the
  * widget build this is pinned to today does not have one, and calling it if it's not a function
- * would throw inside the `onload` handler and abort the `init()` call that follows it.
+ * would throw inside the `onload` handler and abort the `init()` call that follows it. The call
+ * itself is also wrapped in a try/catch that warns and never rethrows: a `setDataset` that IS a
+ * function but throws anyway is third-party code misbehaving, and must not take the `.init()`
+ * call that follows it down too.
  */
 export function renderOsaWidgetScript(config: {
   src: string;
@@ -254,7 +257,7 @@ export function renderOsaWidgetScript(config: {
     setConfigFields.push(`notebookUrl:'${escapeJsString(config.notebookUrl)}'`);
   }
   const datasetProperty = JSON.stringify(OSA_DATASET_WINDOW_PROPERTY);
-  const applyRecordedDataset = `var d=window[${datasetProperty}];if(d!==undefined&&typeof window.OSAChatWidget.setDataset==='function'){window.OSAChatWidget.setDataset(d);}`;
+  const applyRecordedDataset = `var d=window[${datasetProperty}];if(d!==undefined&&typeof window.OSAChatWidget.setDataset==='function'){try{window.OSAChatWidget.setDataset(d);}catch(e){console.warn('[osa-widget] setDataset threw:',e);}}`;
   const initCall =
     `window.OSAChatWidget.setConfig({${setConfigFields.join(",")}});` +
     `${applyRecordedDataset}window.OSAChatWidget.init();`;

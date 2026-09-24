@@ -444,6 +444,27 @@ describe("renderOsaWidgetScript", () => {
       expect(() => runOnload(renderOsaWidgetScript(config), win)).not.toThrow();
       expect(calls.init).toBe(1);
     });
+
+    it("still calls init when setDataset is a function but throws", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { calls } = fakeOsaChatWidget(true);
+      const win = {
+        OSAChatWidget: {
+          setConfig: (v: unknown) => calls.setConfig.push(v),
+          setDataset: () => {
+            throw new Error("widget internals exploded");
+          },
+          init: () => {
+            calls.init += 1;
+          },
+        },
+        [OSA_DATASET_WINDOW_PROPERTY]: { id: "nm000103" },
+      };
+      expect(() => runOnload(renderOsaWidgetScript(config), win)).not.toThrow();
+      expect(calls.init).toBe(1);
+      expect(warn).toHaveBeenCalled();
+      warn.mockRestore();
+    });
   });
 });
 

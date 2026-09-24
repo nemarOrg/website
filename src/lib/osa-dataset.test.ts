@@ -117,4 +117,16 @@ describe("announceOsaDataset", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]?.[0]).toContain("[osa-dataset]");
   });
+
+  it("does not throw, and still records the value, when the widget's setDataset throws", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const win = installFakeWindow({
+      setDataset: () => {
+        throw new Error("widget internals exploded");
+      },
+    });
+    expect(() => announceOsaDataset({ id: "nm000103" })).not.toThrow();
+    expect(win[OSA_DATASET_WINDOW_PROPERTY]).toEqual({ id: "nm000103" });
+    expect(warn).toHaveBeenCalled();
+  });
 });

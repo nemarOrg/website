@@ -65,10 +65,18 @@ function isValidOsaDatasetAnnouncement(value: unknown): value is OsaDatasetAnnou
  * already loaded and exposes one. Call this from the dataset page as soon as the dataset id is
  * known, and again whenever the Zarr answer changes.
  *
- * A no-op outside a browser (`typeof window === "undefined"`), the same guard `resolveOsaWidget`'s
- * `envValue` uses for `import.meta.env` -- this module is imported by a page script that only
- * ever runs client-side, but a no-op rather than a throw costs nothing and matches the rest of
- * this codebase's degrade posture.
+ * A no-op outside a browser (`typeof window === "undefined"`) -- the same *kind* of existence
+ * guard `resolveOsaWidget`'s `envValue` uses for `import.meta.env` (a different global, checked
+ * for a different reason), not the same guard. This module is imported by a page script that
+ * only ever runs client-side, but a no-op rather than a throw costs nothing and matches the rest
+ * of this codebase's degrade posture.
+ *
+ * The call into `setDataset` is wrapped in its own try/catch: this function runs as the FIRST
+ * statement of `hydrateTree` (`src/pages/dataset/[id].astro`), before any `await`, so an
+ * exception thrown by a third party's widget code would otherwise propagate out of
+ * `announceOsaDataset` and abort the file tree's hydration entirely -- `aria-busy` stuck set,
+ * no listing ever fetched -- over a failure in a component this page does not own. A widget bug
+ * must not take down dataset browsing.
  */
 export function announceOsaDataset(value: unknown): void {
   if (!isValidOsaDatasetAnnouncement(value)) {
@@ -82,6 +90,10 @@ export function announceOsaDataset(value: unknown): void {
   target[OSA_DATASET_WINDOW_PROPERTY] = value;
   const setDataset = target.OSAChatWidget?.setDataset;
   if (typeof setDataset === "function") {
-    (setDataset as (v: OsaDatasetAnnouncement) => void)(value);
+    try {
+      (setDataset as (v: OsaDatasetAnnouncement) => void)(value);
+    } catch (err) {
+      console.warn("[osa-dataset] widget's setDataset threw:", err);
+    }
   }
 }
