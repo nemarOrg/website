@@ -19,8 +19,8 @@ PUBLIC_DATA_BASE_URL = "https://data-test.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr-test.nemar.org"
 # Open Science Assistant widget (nemarOrg/website ADR 0018), reference only, with the same caveat as
 # above, the real values live in deploy-test.yml's build step.
-PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@ab9628fd5d4a83cae21f1d6be6530bbdee14e5db/frontend/osa-chat-widget.js"
-PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-KOZZTP58mOz7H4cQfwg7I/+QQiD54bxzEnbbuQ0Vdmj+iTKxldNtb6SOhGNNCoiY"
+PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@bb2d865de0dd52c3f58e2db7e864affa43516567/frontend/osa-chat-widget.js"
+PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-31VjFaOcL3+dJ89sJSuHEyrAQ8uz058dkMyQ3ZLNcsMLrGn4rfIk5TdzfizAsrta"
 PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
 # Notebook button (OSA issue #436), reference only, same caveat as above: the real value lives in
 # deploy-test.yml's build step.
