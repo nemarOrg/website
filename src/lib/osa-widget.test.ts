@@ -282,6 +282,69 @@ describe("resolveOsaWidget", () => {
   });
 });
 
+// The overrides parameter is what every test above uses, and it always takes precedence over the
+// environment (`overrides.src ?? envValue(...)`), so none of those tests actually exercise
+// `envValue`'s own `import.meta.env` read. `vi.stubEnv` reaches `import.meta.env` under this
+// project's plain `defineConfig` vitest setup (confirmed empirically: Vite's env transform, which
+// `vi.stubEnv` patches, runs regardless of `test.environment`), so this describes the real,
+// un-overridden path for all four `PUBLIC_OSA_*` variables at once.
+describe("resolveOsaWidget reading PUBLIC_OSA_* from the real environment", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is disabled with no overrides and no env vars stubbed", () => {
+    expect(resolveOsaWidget()).toEqual({ kind: "disabled" });
+  });
+
+  it("resolves to ready from all four PUBLIC_OSA_* environment variables, no overrides", () => {
+    vi.stubEnv("PUBLIC_OSA_WIDGET_SRC", VALID_SRC);
+    vi.stubEnv("PUBLIC_OSA_WIDGET_INTEGRITY", VALID_INTEGRITY);
+    vi.stubEnv("PUBLIC_OSA_API_ENDPOINT", VALID_ENDPOINT);
+    vi.stubEnv("PUBLIC_OSA_NOTEBOOK_URL", VALID_NOTEBOOK_URL);
+    expect(resolveOsaWidget()).toEqual({
+      kind: "ready",
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: VALID_NOTEBOOK_URL,
+    });
+  });
+
+  it("resolves to ready from the three required env vars with notebookUrl left unset", () => {
+    vi.stubEnv("PUBLIC_OSA_WIDGET_SRC", VALID_SRC);
+    vi.stubEnv("PUBLIC_OSA_WIDGET_INTEGRITY", VALID_INTEGRITY);
+    vi.stubEnv("PUBLIC_OSA_API_ENDPOINT", VALID_ENDPOINT);
+    expect(resolveOsaWidget()).toEqual({
+      kind: "ready",
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+    });
+  });
+
+  it("is misconfigured from a malformed environment value with no overrides", () => {
+    vi.stubEnv("PUBLIC_OSA_WIDGET_SRC", VALID_SRC);
+    vi.stubEnv("PUBLIC_OSA_WIDGET_INTEGRITY", VALID_INTEGRITY);
+    vi.stubEnv("PUBLIC_OSA_API_ENDPOINT", "https://evil.example.com/osa");
+    const out = resolveOsaWidget();
+    expect(out.kind).toBe("misconfigured");
+    if (out.kind === "misconfigured") {
+      expect(out.reason).toContain("PUBLIC_OSA_API_ENDPOINT");
+    }
+  });
+
+  it("an explicit override still wins over a stubbed environment value", () => {
+    vi.stubEnv("PUBLIC_OSA_API_ENDPOINT", "https://evil.example.com/osa");
+    const out = resolveOsaWidget({
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+    });
+    expect(out.kind).toBe("ready");
+  });
+});
+
 describe("renderOsaWidgetScript", () => {
   const config = { src: VALID_SRC, integrity: VALID_INTEGRITY, apiEndpoint: VALID_ENDPOINT };
 
