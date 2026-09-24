@@ -51,7 +51,7 @@ try {
     totalReturned = ranked.length;
     const slice = ranked.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
     // Hydrate the visible page to full rows (parallel) for the richer card.
-    // Only managed ids (nm*/on*) are addressable at /datasets/:id; ds* legacy
+    // Only managed ids (nm*/on*/xx*) are addressable at /datasets/:id; ds* legacy
     // rows 400 there, so they render straight from the reduced search
     // projection (name/modalities/participants/authors/snippet). If a managed
     // fetch blips we log it and fall back to the projection too — and if EVERY

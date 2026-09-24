@@ -404,6 +404,14 @@ describe("renderOsaWidgetScript", () => {
     expect(html).toMatch(/<\/script>$/);
   });
 
+  it("is deferred, not async, so it never blocks the parser and still runs in document order", () => {
+    // A blocking tag would hold the scripts after it in Base.astro, and the load event, until
+    // jsDelivr or the widget host answered; async would run it out of order.
+    const tag = renderOsaWidgetScript(config).match(/^<script[^>]*>/)?.[0] ?? "";
+    expect(tag).toMatch(/\sdefer[\s>]/);
+    expect(tag).not.toMatch(/\sasync[\s=>]/);
+  });
+
   it("carries the init call with the fixed community id and the given endpoint", () => {
     const html = renderOsaWidgetScript(config);
     expect(html).toContain(`communityId:'${OSA_COMMUNITY_ID}'`);

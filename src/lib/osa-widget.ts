@@ -40,9 +40,11 @@
  *
  * The widget script is a CLASSIC script, deliberately: it reads `document.currentScript.src`
  * to find its own runtime bundle on the same jsDelivr path, and `document.currentScript` is
- * `null` inside a `type="module"` script. `data-no-auto-init` on that same tag defers startup
- * until the `onload` handler below calls `window.OSAChatWidget.setConfig(...)` and `.init()`
- * once the script has actually loaded.
+ * `null` inside a `type="module"` script. It is `defer`red, so a slow or unreachable jsDelivr or
+ * widget host never holds up the parser, the scripts after it, or the page's load event; a
+ * deferred classic script still sets `document.currentScript`, runs once, and fires `onload`.
+ * `data-no-auto-init` on that same tag defers startup until the `onload` handler below calls
+ * `window.OSAChatWidget.setConfig(...)` and `.init()` once the script has actually loaded.
  *
  * Two builds set the triple: production, from `wrangler.toml` `[vars]`, which Cloudflare's Git
  * build of `main` puts in the environment of `astro build`, and staging, from
@@ -296,7 +298,7 @@ export function renderOsaWidgetScript(config: {
     `${applyColorScheme}${applyRecordedDataset}window.OSAChatWidget.init();`;
   return (
     `<script src="${escapeHtmlAttr(config.src)}" integrity="${escapeHtmlAttr(config.integrity)}" ` +
-    `crossorigin="anonymous" data-no-auto-init onload="${escapeHtmlAttr(initCall)}"></script>`
+    `crossorigin="anonymous" defer data-no-auto-init onload="${escapeHtmlAttr(initCall)}"></script>`
   );
 }
 
