@@ -402,7 +402,7 @@ describe("renderOsaWidgetScript", () => {
     });
 
     it("replays a recorded dataset value into setDataset before init", () => {
-      const { widget, calls } = fakeOsaChatWidget(true);
+      const { calls } = fakeOsaChatWidget(true);
       const order: string[] = [];
       const win: Record<string, unknown> = {
         OSAChatWidget: {
