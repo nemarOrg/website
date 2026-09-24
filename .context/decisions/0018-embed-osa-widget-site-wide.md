@@ -302,3 +302,25 @@ and it copies the widget tag's `integrity` and `crossorigin`, so the pinned widg
   the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
 - osa's `frontend/browser-harness/popout-check.mjs` opens the pop-out in Chrome from both tabs under a policy without `'unsafe-inline'`,
   on a plain and an SRI-pinned widget tag (49/49).
+
+## Update 2026-09-24: production is on
+
+OSA 0.8.14 is released (OpenScience-Collective/osa PR #487), so `nemar.org` now carries the widget, pinned to that release's commit on osa's `main` and pointed at the production edge, `widget.osc.earth/osa`, with the notebook tab on `notebook.osc.earth/osa`.
+Its backend reads production NEMAR (`mcp.nemar.org`, `zarr.nemar.org`; osa ADR 0013).
+
+**The pin lives in `wrangler.toml` `[vars]`.** Earlier sections of this record say a `wrangler.toml` entry alone would not reach production's build; that was reasoned from `test.nemar.org`, which is a direct upload built in GitHub Actions, and it is wrong for production.
+The `nemar-website` project builds `main` through Cloudflare's Git integration, which puts the file's variables in the environment of `astro build`.
+A preview branch that set the three `PUBLIC_OSA_*` variables only in `[env.preview.vars]` produced a preview whose HTML carried the widget tag with exactly those values.
+So production's pin is one file, next to the three base URLs it already sets, and the claims that a `*.pages.dev` preview can never render the widget, and that turning production on needs a new build step, are superseded.
+A local `bun run build` still does not read the file: built with the pin in `[vars]` and nothing exported, its output does not contain the pinned commit.
+
+`[env.preview.vars]` sets no widget variable, and Wrangler does not inherit `vars` into an environment, so preview builds of other branches carry no widget; they are not on the widget's CORS allowlist and could not chat anyway.
+
+**The staging pin does not move.** The widget file and the runtime bundle are byte-identical between osa `a300fd5` and the release commit, so the two pins carry the same integrity value.
+
+### Receipts (update, production)
+
+- OpenScience-Collective/osa PR #487 (release 0.8.14), merged as `0bb6c20` and tagged `v0.8.14` at `5519d4f2f6dd4c1e24c579cd7f402d84b203cd8c`, the commit production pins;
+  the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves, and equals staging's.
+- The preview-branch measurement: branch `probe/osa-build-env`, deleted after reading its preview.
+- `wrangler pages download config nemar-website`: the project's variables equal the committed `[vars]`.
