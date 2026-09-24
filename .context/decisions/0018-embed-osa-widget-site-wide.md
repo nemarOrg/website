@@ -248,3 +248,26 @@ Production's widget stays off in the meantime (see above), so nothing breaks; a 
 - `src/middleware.ts` (`OSA_FRAME_SRC`), `src/middleware.test.ts`.
 - `src/lib/osa-widget.ts` (`OSA_NOTEBOOK_ORIGINS`, `isKnownNotebookUrl`), `src/lib/osa-widget.test.ts`.
 - The notebook site's `frame-ancestors`, read from `develop-notebook.osc.earth` on 2026-09-24.
+
+## Update 2026-09-24: the widget's first paint
+
+The widget drew its built-in look for about half a second on every page load (a 56px bubble in OSA's default blue),
+then shrank to NEMAR's capsule and faded to NEMAR's colors once the community config arrived
+(OpenScience-Collective/osa#475, osa PR #476).
+It now remembers the community's widget block in `localStorage`, under `osa-widget-config-nemar`,
+and draws it at once on the next load.
+What it keeps is the public config endpoint's own widget block (the title, colors, launcher and suggested questions)
+and the API endpoint it came from, so a different endpoint never reuses it;
+nothing about the reader is stored.
+A first visit, with nothing remembered, keeps the launcher hidden until the config arrives, for at most 1.5 seconds.
+
+**Staging's pin moves to osa commit `1a79aa8`.**
+Nothing on this site changes: the fix is inside the widget, and `localStorage` is not governed by the CSP.
+
+### Receipts (update, the first paint)
+
+- OpenScience-Collective/osa#475, osa PR #476, merged as `1a79aa83ff9663b2de968e506968b1a15049cedb`;
+  the SRI hash was computed from that commit's file and checked against the bytes jsDelivr serves.
+- osa's `frontend/browser-harness/first-paint-check.mjs` samples the launcher on every animation frame in Chrome,
+  with the config request held 600 ms,
+  and finds no frame in the default look on a first visit or a reload (42/42).
