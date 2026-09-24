@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OSA_DATASET_WINDOW_PROPERTY, announceOsaDataset } from "./osa-dataset";
+import on008083V1 from "../../test/fixtures/zarr/on008083-index-v1.json";
+import v3Sample from "../../test/fixtures/zarr/v3-sample-index.json";
+import { OSA_DATASET_WINDOW_PROPERTY, announceOsaDataset, osaDatasetFacts } from "./osa-dataset";
+import { type ZarrIndex, parseZarrIndex } from "./zarr-index";
 
 /**
  * A real, hand-built global object -- assigned to `globalThis.window`, not a jsdom/happy-dom
@@ -128,5 +131,83 @@ describe("announceOsaDataset", () => {
     expect(() => announceOsaDataset({ id: "nm000103" })).not.toThrow();
     expect(win[OSA_DATASET_WINDOW_PROPERTY]).toEqual({ id: "nm000103" });
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe("announceOsaDataset: subject and task (OSA #477)", () => {
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: test cleanup of a global only this suite installs.
+    delete (globalThis as unknown as { window?: unknown }).window;
+    vi.restoreAllMocks();
+  });
+
+  it("records and forwards subject and task with the id", () => {
+    const calls: unknown[] = [];
+    const win = installFakeWindow({ setDataset: (v: unknown) => calls.push(v) });
+    const value = { id: "nm000132", zarr: true, subject: "001", task: "N170" };
+    announceOsaDataset(value);
+    expect(win[OSA_DATASET_WINDOW_PROPERTY]).toEqual(value);
+    expect(calls).toEqual([value]);
+  });
+
+  it("drops a value whose subject or task is not a plain BIDS label", () => {
+    const calls: unknown[] = [];
+    const win = installFakeWindow({ setDataset: (v: unknown) => calls.push(v) });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const bad of [
+      { id: "nm000132", zarr: true, subject: "sub-001" },
+      { id: "nm000132", zarr: true, task: "task-N170" },
+      { id: "nm000132", zarr: true, task: "N170 faces" },
+      { id: "nm000132", zarr: true, subject: "" },
+      { id: "nm000132", zarr: true, subject: 1 },
+    ]) {
+      announceOsaDataset(bad);
+    }
+    expect(win[OSA_DATASET_WINDOW_PROPERTY]).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+});
+
+describe("osaDatasetFacts", () => {
+  const index = (raw: unknown): ZarrIndex => {
+    const parsed = parseZarrIndex(raw);
+    if (!parsed) throw new Error("fixture did not parse");
+    return parsed;
+  };
+  // The real on008083 index (format 1), with its first recording's path replaced, so the
+  // cases below keep the real shape and change only the file name under test.
+  const withFirstPath = (path: string): ZarrIndex => {
+    const raw = structuredClone(on008083V1) as { stores: { path: string }[] };
+    raw.stores[0].path = path;
+    return index(raw);
+  };
+
+  it("reads the first recording's subject and task from a real index", () => {
+    expect(osaDatasetFacts(index(on008083V1))).toEqual({ subject: "003", task: "HierPrior" });
+    expect(osaDatasetFacts(index(v3Sample))).toEqual({ subject: "01", task: "rest" });
+  });
+
+  it("names nothing without an index or a recording", () => {
+    expect(osaDatasetFacts(null)).toEqual({});
+    // The real index with every recording failed: it parses, and has no store to name.
+    const empty = structuredClone(on008083V1) as { stores: unknown[]; store_count: number };
+    empty.stores = [];
+    empty.store_count = 0;
+    expect(osaDatasetFacts(index(empty))).toEqual({});
+  });
+
+  it("leaves out an entity the file name does not carry, or one that is not a plain label", () => {
+    expect(osaDatasetFacts(withFirstPath("sub-001/eeg/sub-001_eeg.set"))).toEqual({
+      subject: "001",
+    });
+    expect(osaDatasetFacts(withFirstPath("sub-00-1/eeg/sub-00-1_task-N170_eeg.set"))).toEqual({
+      task: "N170",
+    });
+    // Only the file name counts: a directory named like an entity is not the recording's.
+    expect(osaDatasetFacts(withFirstPath("task-x/sub-001_eeg.set"))).toEqual({ subject: "001" });
+    // An entity must start the name or follow an underscore: "mysub-2" is not a subject.
+    expect(osaDatasetFacts(withFirstPath("sub-001/eeg/mysub-2_task-N170_eeg.set"))).toEqual({
+      task: "N170",
+    });
   });
 });

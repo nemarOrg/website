@@ -1,3 +1,5 @@
+import type { ZarrIndex } from "./zarr-index";
+
 /**
  * Tells the Open Science Assistant (OSA) widget which dataset, if any, is on screen (OSA issue
  * #436, the three-icon launcher: chat, a notebook button, and HPC). The notebook button opens a
@@ -19,13 +21,15 @@
  * `setDataset` before calling `.init()`. Whichever script runs first, the widget ends up with the
  * latest announced value either way.
  *
- * `value` is `null` (not a dataset page) or `{ id, zarr }`, `id` matching
- * {@link OSA_DATASET_ID_PATTERN} and `zarr` `true`/`false`/absent (not yet known). No page on
+ * `value` is `null` (not a dataset page) or `{ id, zarr, subject, task }`, `id` matching
+ * {@link OSA_DATASET_ID_PATTERN}, `zarr` `true`/`false`/absent (not yet known), and `subject` and
+ * `task` optional BIDS labels ({@link OSA_BIDS_LABEL_PATTERN}) that fill the widget's dataset-page
+ * questions (OSA #477; see {@link osaDatasetFacts}). No page on
  * this site calls this with `null` today: only the dataset page calls this at all, and every
  * other page leaves the widget at its own "not a dataset page" default by never calling it.
  *
- * Invalid input -- a malformed id, a non-boolean `zarr`, or a value that is neither `null` nor an
- * `{id, zarr?}` object -- is dropped with a `console.warn` rather than recorded or forwarded, the
+ * Invalid input -- a malformed id, a non-boolean `zarr`, a `subject` or `task` that is not a label,
+ * or a value that is neither `null` nor an `{id, zarr?, subject?, task?}` object -- is dropped with a `console.warn` rather than recorded or forwarded, the
  * same degrade-not-throw posture `resolveOsaWidget` takes for a bad `PUBLIC_OSA_*` value.
  */
 
@@ -39,11 +43,18 @@ export const OSA_DATASET_WINDOW_PROPERTY = "__nemarOsaDataset";
 /** The id shape the widget's `setDataset` contract requires. */
 const OSA_DATASET_ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
+/** A BIDS label, as the widget's `setDataset` takes `subject` and `task`: no `sub-`/`task-` prefix. */
+const OSA_BIDS_LABEL_PATTERN = /^[A-Za-z0-9]{1,64}$/;
+
 export interface OsaDatasetValue {
   id: string;
   /** `true`/`false` once the page knows whether this dataset has a Zarr copy; absent while that
    *  is still being determined (the index fetch is in flight). */
   zarr?: boolean;
+  /** The subject label of the recording the page points a reader at first (`001` for `sub-001`). */
+  subject?: string;
+  /** That recording's task label (`N170` for `task-N170`). */
+  task?: string;
 }
 
 /** `null` means "not a dataset page"; see the module doc for why nothing here ever passes it. */
@@ -57,6 +68,12 @@ function isValidOsaDatasetAnnouncement(value: unknown): value is OsaDatasetAnnou
     return false;
   }
   if (candidate.zarr !== undefined && typeof candidate.zarr !== "boolean") return false;
+  for (const fact of ["subject", "task"] as const) {
+    const label = candidate[fact];
+    if (label !== undefined && (typeof label !== "string" || !OSA_BIDS_LABEL_PATTERN.test(label))) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -96,4 +113,27 @@ export function announceOsaDataset(value: unknown): void {
       console.warn("[osa-dataset] widget's setDataset threw:", err);
     }
   }
+}
+
+/**
+ * The `subject` and `task` to announce with a dataset that has a Zarr copy: the BIDS entities of
+ * the first recording in its Zarr index, the one the page points a reader at first. They fill the
+ * OSA widget's dataset-page questions ("Plot 10 seconds of sub-001's N170 recording from
+ * nm000132"), so they must name a recording that has a Zarr copy, which is why they come from the
+ * index and not from the dataset's metadata. An entity the file name does not carry, or one that
+ * is not a plain label, is left out rather than guessed; the widget then skips the questions that
+ * need it.
+ */
+export function osaDatasetFacts(
+  index: ZarrIndex | null,
+): Pick<OsaDatasetValue, "subject" | "task"> {
+  const first = index?.stores[0]?.path;
+  if (!first) return {};
+  const fileName = first.split("/").pop() ?? "";
+  const facts: Pick<OsaDatasetValue, "subject" | "task"> = {};
+  const subject = /(?:^|_)sub-([^_]+)/.exec(fileName)?.[1];
+  const task = /(?:^|_)task-([^_]+)/.exec(fileName)?.[1];
+  if (subject && OSA_BIDS_LABEL_PATTERN.test(subject)) facts.subject = subject;
+  if (task && OSA_BIDS_LABEL_PATTERN.test(task)) facts.task = task;
+  return facts;
 }
