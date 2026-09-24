@@ -23,7 +23,8 @@ PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@
 PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-qBPGhsTaios7hW0ijiAcGDMj1zC9vkcNtL0OA+BoZQMBqCejy6ovfh3eiAdcoyID"
 PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
 # Notebook button (OSA issue #436), reference only, same caveat as above: the real value lives in
-# deploy-test.yml's build step.
+# deploy-test.yml's build step. It must be on one of OSA_NOTEBOOK_ORIGINS (src/lib/osa-widget.ts),
+# the two hosts this site's frame-src allows, because the widget frames the notebook (OSA #470).
 PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/"
 
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's

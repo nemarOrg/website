@@ -2,8 +2,9 @@
  * Site-wide embed of the Open Science Assistant (OSA) chat widget (ADR 0018).
  *
  * ADR 0017 pre-authorized the CSP this needs (`script-src`/`connect-src` cdn.jsdelivr.net,
- * `connect-src`/`img-src` the OSA edge hosts, `worker-src blob:`), but nothing on this site
- * loaded the widget itself. This module is the one thing Base.astro calls to decide whether
+ * `connect-src` the OSA edge hosts, `worker-src blob:`), but nothing on this site loaded the
+ * widget itself. ADR 0018 added `img-src` for the widget's logo, and `frame-src` for its
+ * notebook tab (see {@link OSA_NOTEBOOK_ORIGINS}). This module is the one thing Base.astro calls to decide whether
  * and how to.
  *
  * Three build-time `PUBLIC_*` variables, inlined by Vite at `astro build` time exactly like

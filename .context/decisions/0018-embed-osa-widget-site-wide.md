@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR 0017 pre-authorized the Content-Security-Policy the Open Science Assistant (OSA) widget
+ADR 0017 pre-authorized the Content-Security-Policy (CSP) the Open Science Assistant (OSA) widget
 needs, but the widget itself was never mounted anywhere: no page loaded `osa-chat-widget.js`.
 This PR does the mounting.
 
@@ -224,6 +224,7 @@ No CSP change: nothing new is fetched or framed.
 ## Update, 2026-09-24: the notebook tab
 
 The widget's notebook button now opens the hosted notebook inside the widget, as a tab of its own panel, rather than in a browser tab (OpenScience-Collective/osa#470, osa PR #474).
+This supersedes the 2026-09-23 update's "the notebook opens in a new tab" and its "no CSP directive changes": a frame is governed by `frame-src`, so this one does change the policy.
 The tab is a frame on the notebook site, `develop-notebook.osc.earth/osa` for staging and `notebook.osc.earth/osa` for production.
 
 **The CSP gains `frame-src 'self' https://notebook.osc.earth https://develop-notebook.osc.earth`**, on every route, as the widget is.
@@ -238,7 +239,7 @@ Both come from one list, `OSA_NOTEBOOK_ORIGINS` in `src/lib/osa-widget.ts`, whic
 **Staging's pin moves to osa commit `98ebf1d`**, the notebook tab and the capsule's smaller circles and motion.
 
 **Production is not ready for the tab.** `notebook.osc.earth` does not resolve yet: the notebook site deploys to production from osa's `main`, so it needs the OSA release first.
-Production's widget stays off in the meantime (see above), so nothing breaks; the production pin waits for both.
+Production's widget stays off in the meantime (see above), so nothing breaks; a production pin that shows the tab waits for both the OSA release and the production notebook site it deploys.
 
 ### Receipts (update, the notebook tab)
 

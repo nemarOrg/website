@@ -52,8 +52,10 @@ jobs:
           PUBLIC_OSA_WIDGET_INTEGRITY: sha384-qBPGhsTaios7hW0ijiAcGDMj1zC9vkcNtL0OA+BoZQMBqCejy6ovfh3eiAdcoyID
           PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
           # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
-          # JupyterLite host. Genuinely optional (src/lib/osa-widget.ts); left unset the widget
-          # falls back to its own production default, which staging must not talk to.
+          # JupyterLite host, which the widget frames as a tab of its panel (OSA issue #470).
+          # Genuinely optional (src/lib/osa-widget.ts); left unset the widget falls back to its
+          # own production default, which staging must not talk to. Set, it must be on one of
+          # OSA_NOTEBOOK_ORIGINS, the two hosts this site's frame-src allows.
           PUBLIC_OSA_NOTEBOOK_URL: https://develop-notebook.osc.earth/osa/
         run: bun run build
       # `wrangler pages deploy` rejects a custom config path outright ("Pages
