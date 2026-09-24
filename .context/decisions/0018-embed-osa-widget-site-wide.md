@@ -184,7 +184,9 @@ exactly the kind of extension `osaWidgetMarkup`'s existing degrade-not-throw pos
 
 ### Receipts (update)
 
-- OpenScience-Collective/osa#436, the three-icon launcher.
+- OpenScience-Collective/osa#436, the three-icon launcher,
+  shipped in osa commit `ab9628fd5d4a83cae21f1d6be6530bbdee14e5db` (OSA PR #468),
+  the commit staging's pin moves to with this update.
 - `src/lib/osa-dataset.ts`, `src/lib/osa-dataset.test.ts`.
 - `src/lib/osa-widget.ts` (`resolveOsaWidget`'s `PUBLIC_OSA_NOTEBOOK_URL` handling,
   `renderOsaWidgetScript`'s `notebookUrl` field and dataset replay), `src/lib/osa-widget.test.ts`.
