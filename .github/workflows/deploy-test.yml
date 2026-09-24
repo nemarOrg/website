@@ -51,6 +51,10 @@ jobs:
           PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@3896c656cacded9de58f703458ef374482d443f3/frontend/osa-chat-widget.js
           PUBLIC_OSA_WIDGET_INTEGRITY: sha384-Yy37KfbMs1QW2Z0BnsmS4vPnqzw1V02b5CGomTrP5bNoCJe9+Y4kr44NIqj1aE9R
           PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
+          # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
+          # JupyterLite host. Genuinely optional (src/lib/osa-widget.ts); left unset the widget
+          # falls back to its own production default, which staging must not talk to.
+          PUBLIC_OSA_NOTEBOOK_URL: https://develop-notebook.osc.earth/
         run: bun run build
       # `wrangler pages deploy` rejects a custom config path outright ("Pages
       # does not support custom paths for the Wrangler configuration file"), so

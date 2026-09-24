@@ -25,3 +25,7 @@ PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
 # chosen and pinned. Turning it on is adding all three, with the production pin, to a build step
 # that actually reaches `astro build` (see deploy-test.yml's staging pin for the shape); like the
 # three vars above, an entry here alone would not do it; see wrangler.test.toml's header.
+#
+# PUBLIC_OSA_NOTEBOOK_URL (the widget's notebook button, OSA issue #436) is genuinely optional and
+# is also absent here: unset, the widget falls back to its own production default
+# (https://notebook.osc.earth/), which is the correct host once the triple above is turned on.
