@@ -296,16 +296,20 @@ describe("listAllDatasets", () => {
 });
 
 describe("isManagedDatasetId", () => {
-  it("accepts managed nm*/on* ids the detail endpoint serves", () => {
+  it("accepts managed nm*/on*/xx* ids the detail endpoint serves", () => {
     expect(isManagedDatasetId("nm000156")).toBe(true);
     expect(isManagedDatasetId("on002578")).toBe(true);
+    // Sandbox, and on staging the exemplar fleet (nemar-cli#1496).
+    expect(isManagedDatasetId("xx000001")).toBe(true);
+    expect(isManagedDatasetId("xx099904")).toBe(true);
   });
 
   it("rejects legacy ds* ids (400 at /datasets/:id) and malformed ids", () => {
     expect(isManagedDatasetId("ds005189")).toBe(false);
     expect(isManagedDatasetId("nm123")).toBe(false);
+    expect(isManagedDatasetId("xx0999040")).toBe(false);
+    expect(isManagedDatasetId("zz000001")).toBe(false);
     expect(isManagedDatasetId("")).toBe(false);
-    expect(isManagedDatasetId("xx000001")).toBe(false);
   });
 });
 
