@@ -140,3 +140,56 @@ becoming the one misconfigured value in the codebase that can take the whole sit
   other `PUBLIC_*` vars in those files already use).
 - OpenScience-Collective/osa commit `3896c656cacded9de58f703458ef374482d443f3`,
   `frontend/osa-chat-widget.js`'s `data-no-auto-init` / `setConfig` / `init` contract.
+
+## Update — 2026-09-23
+
+OSA is adding a three-icon launcher (OpenScience-Collective/osa#436): chat, a notebook button, and high-performance computing (HPC) ("coming soon").
+The notebook button opens a hosted JupyterLite notebook for the dataset on screen, but only when that dataset has a Zarr copy;
+otherwise it shows disabled with the reason.
+Two additions carry that, both consistent with the decision above rather than changing it.
+
+**A fourth, genuinely optional build variable: `PUBLIC_OSA_NOTEBOOK_URL`.**
+Unlike the required triple, this one is not all-or-nothing, but "optional" only covers being UNSET: left unset, the widget falls back to its own default (`https://notebook.osc.earth/osa/`), and that never gates whether the widget renders.
+SET but malformed is a different case: it is validated the same way a malformed `PUBLIC_OSA_API_ENDPOINT` is, and a value that fails validation is refused (`resolveOsaWidget` returns `misconfigured`), which blanks the whole widget exactly like any other misconfigured `PUBLIC_OSA_*` value does.
+That is a deliberate choice, not an inconsistency: a typo in a value this deployment's own config sets should be loud and caught at once, especially on staging, rather than silently falling back to a host nobody chose and sending testers to the production notebook without anyone noticing.
+Staging sets it in `.github/workflows/deploy-test.yml` and `wrangler.test.toml` (reference only, same caveat as the other three) to `https://develop-notebook.osc.earth/osa/`, the dev JupyterLite host, next to the existing staging pin.
+The project is in the path because OSC names a plane shared across projects as a subdomain and the project as a path,
+as `api.osc.earth/osa` and `widget.osc.earth/osa` already are.
+Production's `wrangler.toml` gets a comment only, exactly as the original triple did: unset, the widget's own production default applies once the triple itself is turned on there.
+
+**Dataset context: the page tells the widget which dataset is on screen, and whether it has a Zarr copy.**
+The widget has no view into this site's own routing, so it cannot know this on its own.
+A new module, `src/lib/osa-dataset.ts`, exports `announceOsaDataset(value)`:
+`value` is `null` (not a dataset page) or `{ id, zarr }`,
+and the function records the latest value on `window` and forwards it to `window.OSAChatWidget.setDataset` when the widget has already loaded and exposes one (feature-detected: today's pinned widget build does not).
+`renderOsaWidgetScript`'s generated `onload` handler closes the other half of the same race:
+it reads back whatever `announceOsaDataset` has already recorded and replays it into `setDataset`, feature-detected the same way, before calling `.init()`.
+Between the two halves, whichever of the widget's `<script>` and the dataset page's own inline script runs first, the widget ends up with the latest announced value either way.
+
+The dataset page (`src/pages/dataset/[id].astro`) is the only caller, and it is also the only page that ever needs a second call:
+it announces `{ id }` (Zarr status unknown) as soon as `hydrateTree` knows the dataset id,
+then updates the Zarr field once the Zarr index settles --
+`{ id, zarr: state.paths.size > 0 }` beside the existing "View data" reveal when the index resolves,
+or `{ id, zarr: false }` when the index fetch returns nothing or throws, so the notebook button never waits forever.
+**The page decides Zarr status, not the widget, because the page already fetched the index for "View data" (website#260); asking again would be a second request for information the page already has.**
+Every other page announces nothing, which is the widget's own "not a dataset page" default.
+
+No CSP directive changes for either addition.
+The notebook opens in a new tab -- a navigation, not a fetch --
+and none of `script-src`, `connect-src`, `worker-src` or `img-src` (`src/middleware.ts`) governs a top-level navigation to another origin.
+
+The decision above is unchanged: three variables are still required together and gate whether the widget renders at all;
+this only adds a fourth, independently optional one and a way for a page to hand the already-mounted widget page-specific context,
+exactly the kind of extension `osaWidgetMarkup`'s existing degrade-not-throw posture was built to absorb.
+
+### Receipts (update)
+
+- OpenScience-Collective/osa#436, the three-icon launcher,
+  shipped in osa commit `ab9628fd5d4a83cae21f1d6be6530bbdee14e5db` (OSA PR #468),
+  the commit staging's pin moves to with this update.
+- `src/lib/osa-dataset.ts`, `src/lib/osa-dataset.test.ts`.
+- `src/lib/osa-widget.ts` (`resolveOsaWidget`'s `PUBLIC_OSA_NOTEBOOK_URL` handling,
+  `renderOsaWidgetScript`'s `notebookUrl` field and dataset replay), `src/lib/osa-widget.test.ts`.
+- `src/pages/dataset/[id].astro` (`hydrateTree`'s three `announceOsaDataset` call sites).
+- website#260, #240, #278 (why "View data" -- and now the notebook button -- waits for the
+  Zarr index to resolve rather than guessing).

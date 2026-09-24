@@ -429,6 +429,7 @@ Astro.response.headers.set(
 
 <script>
   import { renderMarkdown } from "../../lib/markdown";
+  import { announceOsaDataset } from "../../lib/osa-dataset";
   import { bidsRowId, isDirRecordingName } from "../../lib/bids-tree";
   import type { DirListing } from "../../lib/dir-listing";
   import { fetchDirListing, fileDownloadUrl } from "../../lib/dir-listing";
@@ -446,6 +447,7 @@ Astro.response.headers.set(
     unitsNoticeText,
     zarrAvailablePaths,
     zarrFailureReasonByPath,
+    zarrHasAnyStore,
     zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
@@ -652,6 +654,10 @@ Astro.response.headers.set(
     const datasetId = section.dataset.id;
     const version = section.dataset.version;
     if (!datasetId || !version) return;
+    // Tell the OSA widget which dataset is on screen as soon as this page script knows its id --
+    // the Zarr answer isn't known yet, so `zarr` is left absent (website#436's notebook button
+    // shows a loading/disabled state until one of the calls below settles it).
+    announceOsaDataset({ id: datasetId });
     // Registered BEFORE the await below, so a row rendered by the dir listing can
     // never be clicked without an index promise to wait on (#240).
     const zarrReady = fetchZarrIndex(datasetId)
@@ -661,8 +667,16 @@ Astro.response.headers.set(
           // cache-busting token rides on this index, a silent failure also means
           // stale chunks can be served for this whole page view -- worth a trail.
           console.warn(`[zarr/${datasetId}] index unavailable; viewer cache-busting disabled`);
+          // No index means no known Zarr copy: the notebook button must not wait forever.
+          announceOsaDataset({ id: datasetId, zarr: false });
           return;
         }
+        // Computed FIRST and announced before any of the rendering below, which can throw
+        // (annotateZarrRows, renderZarrCoveragePanel, ...) -- the notebook button must settle
+        // to a real answer even if that rendering fails partway through, and "View data" below
+        // reads this exact same value so the two can never disagree with each other (PR review).
+        const hasZarr = zarrHasAnyStore(index);
+        announceOsaDataset({ id: datasetId, zarr: hasZarr });
         // A SUCCESSFULLY fetched+parsed index is not the same failure class as
         // a fetch/parse problem (the outer .catch below) -- a bug in applying
         // it (annotateZarrRows, renderZarrCoveragePanel, ...) is a rendering
@@ -687,7 +701,7 @@ Astro.response.headers.set(
           // hidden (its SSR default) when the index fetch fails or throws —
           // neither of those runs this callback.
           const viewDataBtn = document.querySelector<HTMLButtonElement>("[data-view-data-btn]");
-          if (viewDataBtn) viewDataBtn.hidden = state.paths.size === 0;
+          if (viewDataBtn) viewDataBtn.hidden = !hasZarr;
           // Coverage panel (website#277 decision 2): same already-fetched index,
           // no new request. renderZarrCoveragePanel returns "" for a dataset
           // with no Zarr data at all, which leaves the slot hidden.
@@ -705,6 +719,8 @@ Astro.response.headers.set(
       })
       .catch((err) => {
         console.warn(`[zarr/${datasetId}] index fetch threw:`, err);
+        // Same reasoning as the !index branch above: the notebook button must not wait forever.
+        announceOsaDataset({ id: datasetId, zarr: false });
       });
     zarrReadyBySection.set(section, zarrReady);
     const listing = await fetchDirListing(datasetId, version, "");

@@ -9,6 +9,7 @@ import {
   zarrAvailablePaths,
   zarrCoverage,
   zarrFailureReasonByPath,
+  zarrHasAnyStore,
   zarrPendingPaths,
   zarrStoreByPath,
 } from "./zarr-index";
@@ -129,6 +130,51 @@ describe("zarrAvailablePaths", () => {
 
     expect(index).not.toBeNull();
     expect([...zarrAvailablePaths(index!)]).toEqual(["sub-01/eeg/a.set", "sub-02/eeg/b.edf"]);
+  });
+
+  it("is empty for a validly parsed index with no stores yet", () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      stores: [],
+    });
+    expect(index).not.toBeNull();
+    expect(zarrAvailablePaths(index!).size).toBe(0);
+  });
+});
+
+describe("zarrHasAnyStore (website#436, the OSA notebook-button gate)", () => {
+  it("is false for a null index (fetch failed or returned nothing)", () => {
+    expect(zarrHasAnyStore(null)).toBe(false);
+  });
+
+  it("is false for a validly parsed index with zero stores", () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      stores: [],
+    });
+    expect(index).not.toBeNull();
+    expect(zarrHasAnyStore(index)).toBe(false);
+  });
+
+  it("is true for an index with at least one store", () => {
+    const index = parseZarrIndex({
+      dataset_id: "nm000132",
+      format: "nemar-zarr-index",
+      stores: [{ path: "sub-01/eeg/a.set", zarr: "sub-01/eeg/a.zarr" }],
+    });
+    expect(index).not.toBeNull();
+    expect(zarrHasAnyStore(index)).toBe(true);
+  });
+
+  it("agrees with zarrAvailablePaths on real fixtures", () => {
+    expect(zarrHasAnyStore(parseZarrIndex(on008083V1))).toBe(
+      zarrAvailablePaths(parseZarrIndex(on008083V1)!).size > 0,
+    );
+    expect(zarrHasAnyStore(parseZarrIndex(v3Sample))).toBe(
+      zarrAvailablePaths(parseZarrIndex(v3Sample)!).size > 0,
+    );
   });
 });
 
