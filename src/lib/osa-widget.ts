@@ -247,6 +247,12 @@ function escapeJsString(value: string): string {
  * itself is also wrapped in a try/catch that warns and never rethrows: a `setDataset` that IS a
  * function but throws anyway is third-party code misbehaving, and must not take the `.init()`
  * call that follows it down too.
+ *
+ * Before the dataset replay, the handler passes the reader's theme choice to `setColorScheme`
+ * (OSA #469), read straight from `<html data-theme>` and mapped exactly as `osaColorSchemeFor`
+ * in `./osa-theme.ts` maps it (a test holds the two to each other), so the panel opens in the
+ * reader's scheme; later changes are `followThemeForOsa`'s. Feature-detected and guarded the
+ * same way as `setDataset`: a widget pinned before OSA #472 has no `setColorScheme`.
  */
 export function renderOsaWidgetScript(config: {
   src: string;
@@ -261,11 +267,12 @@ export function renderOsaWidgetScript(config: {
   if (config.notebookUrl) {
     setConfigFields.push(`notebookUrl:'${escapeJsString(config.notebookUrl)}'`);
   }
+  const applyColorScheme = `var t=window.document.documentElement.getAttribute('data-theme');if(typeof window.OSAChatWidget.setColorScheme==='function'){try{window.OSAChatWidget.setColorScheme(t==='light'||t==='dark'?t:'auto');}catch(e){console.warn('[osa-widget] setColorScheme threw:',e);}}`;
   const datasetProperty = JSON.stringify(OSA_DATASET_WINDOW_PROPERTY);
   const applyRecordedDataset = `var d=window[${datasetProperty}];if(d!==undefined&&typeof window.OSAChatWidget.setDataset==='function'){try{window.OSAChatWidget.setDataset(d);}catch(e){console.warn('[osa-widget] setDataset threw:',e);}}`;
   const initCall =
     `window.OSAChatWidget.setConfig({${setConfigFields.join(",")}});` +
-    `${applyRecordedDataset}window.OSAChatWidget.init();`;
+    `${applyColorScheme}${applyRecordedDataset}window.OSAChatWidget.init();`;
   return (
     `<script src="${escapeHtmlAttr(config.src)}" integrity="${escapeHtmlAttr(config.integrity)}" ` +
     `crossorigin="anonymous" data-no-auto-init onload="${escapeHtmlAttr(initCall)}"></script>`

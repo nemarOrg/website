@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OSA_DATASET_WINDOW_PROPERTY } from "./osa-dataset";
+import { osaColorSchemeFor } from "./osa-theme";
 import {
   OSA_API_ENDPOINTS,
   OSA_COMMUNITY_ID,
@@ -463,9 +464,18 @@ describe("renderOsaWidgetScript", () => {
 
     /** Runs the generated `onload` JS against a real global object shaped like the browser's
      *  `window`, carrying `OSAChatWidget` and (optionally) a recorded dataset announcement. */
+    /** The one part of `document` the handler reads: `<html data-theme>`, the site's theme. */
+    function pageWithTheme(dataTheme: string | null) {
+      return {
+        documentElement: {
+          getAttribute: (name: string) => (name === "data-theme" ? dataTheme : null),
+        },
+      };
+    }
+
     function runOnload(html: string, win: Record<string, unknown>): void {
       const body = extractOnload(html);
-      new Function("window", body)(win);
+      new Function("window", body)({ document: pageWithTheme(null), ...win });
     }
 
     it("calls setConfig then init when nothing was recorded", () => {
@@ -520,6 +530,62 @@ describe("renderOsaWidgetScript", () => {
       };
       expect(() => runOnload(renderOsaWidgetScript(config), win)).not.toThrow();
       expect(calls.init).toBe(1);
+    });
+
+    // One case per value the site's theme can take, and two it never should: each must reach the
+    // widget as exactly what osaColorSchemeFor maps it to, which holds the inline copy of that
+    // mapping in the handler to the module's.
+    for (const dataTheme of ["light", "dark", null, "system", ""]) {
+      it(`passes data-theme ${JSON.stringify(dataTheme)} to setColorScheme, after setConfig and before init`, () => {
+        const order: string[] = [];
+        const schemes: unknown[] = [];
+        const win = {
+          document: pageWithTheme(dataTheme),
+          OSAChatWidget: {
+            setConfig: () => order.push("setConfig"),
+            setColorScheme: (v: unknown) => {
+              schemes.push(v);
+              order.push("setColorScheme");
+            },
+            init: () => order.push("init"),
+          },
+        };
+        runOnload(renderOsaWidgetScript(config), win);
+        expect(schemes).toEqual([osaColorSchemeFor(dataTheme)]);
+        expect(order).toEqual(["setConfig", "setColorScheme", "init"]);
+      });
+    }
+
+    it("does not throw, and still calls init, when the widget has no setColorScheme (a pin before OSA #472)", () => {
+      const { widget, calls } = fakeOsaChatWidget(true);
+      expect(() =>
+        runOnload(renderOsaWidgetScript(config), {
+          document: pageWithTheme("dark"),
+          OSAChatWidget: widget,
+        }),
+      ).not.toThrow();
+      expect(calls.init).toBe(1);
+    });
+
+    it("still calls init when setColorScheme is a function but throws", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { calls } = fakeOsaChatWidget(true);
+      const win = {
+        document: pageWithTheme("dark"),
+        OSAChatWidget: {
+          setConfig: (v: unknown) => calls.setConfig.push(v),
+          setColorScheme: () => {
+            throw new Error("widget internals exploded");
+          },
+          init: () => {
+            calls.init += 1;
+          },
+        },
+      };
+      expect(() => runOnload(renderOsaWidgetScript(config), win)).not.toThrow();
+      expect(calls.init).toBe(1);
+      expect(warn).toHaveBeenCalledWith("[osa-widget] setColorScheme threw:", expect.any(Error));
+      warn.mockRestore();
     });
 
     it("still calls init when setDataset is a function but throws", () => {
