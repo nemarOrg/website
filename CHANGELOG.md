@@ -10,6 +10,10 @@ This file starts at `0.2.15`. For prior releases, see
 
 ## [Unreleased]
 
+### Changed
+
+- **The Open Science Assistant is pinned to OSA 0.8.15** (`v0.8.15`, `db53bcc5`) on production and staging, with a new integrity value (ADR 0018, update 2026-09-25). It brings Python in Safari, SciPy for NEMAR's spectra and ERPs, and Copy and Download for a run's code and figures.
+
 ## [0.2.15] - 2026-09-21
 
 ### Added
