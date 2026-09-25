@@ -303,6 +303,21 @@ and it copies the widget tag's `integrity` and `crossorigin`, so the pinned widg
 - osa's `frontend/browser-harness/popout-check.mjs` opens the pop-out in Chrome from both tabs under a policy without `'unsafe-inline'`,
   on a plain and an SRI-pinned widget tag (49/49).
 
+## Update 2026-09-25: both pins move to OSA 0.8.15
+
+OSA 0.8.15 is released (OpenScience-Collective/osa PR #512), tagged `v0.8.15` at
+`db53bcc52863ea621ba2b821cb7469cf0df90194`. Production (`wrangler.toml` `[vars]`) and staging
+(`deploy-test.yml`, mirrored in `wrangler.test.toml`) both pin that commit, with
+`sha384-aEykQ1BWj/6vQci5SClhklCm2tmMv4Qaz4TASFttyt852w1sLOg8EDaHmrhJ58nO`. The same value was computed from
+GitHub's file at the commit and from jsDelivr's copy, and the two are byte-identical.
+The staging pin moves too, since the widget's bytes changed; it had stayed put for 0.8.14
+only because they had not.
+
+The release brings Python in Safari (the notebook and the chat), SciPy in NEMAR's chat runtime,
+a run's code and figures with Copy and Download, and a larger capsule at rest.
+The site's CSP needs no change: the widget still frames `notebook.osc.earth` and talks to
+`widget.osc.earth/osa`.
+
 ## Update 2026-09-24: production is on
 
 OSA 0.8.14 is released (OpenScience-Collective/osa PR #487),
