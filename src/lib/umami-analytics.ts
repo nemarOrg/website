@@ -1,3 +1,9 @@
+import {
+  COOKIE_CONSENT_CHANGED_EVENT,
+  COOKIE_CONSENT_KEY,
+  readCookieConsent,
+} from "./cookie-consent";
+
 export const UMAMI_EVENT_NAMES = [
   "citation_click",
   "viewer_open",
@@ -13,7 +19,6 @@ export interface SafePageView {
   title: string;
 }
 
-const CONSENT_KEY = "nemar:cookie-consent";
 const UPLOAD_COMPLETION_KEY = "nemar:umami:upload-completed";
 const DEFAULT_UMAMI_SCRIPT_URL = "https://analytics.nemar.org/nmr-analytics.js";
 const PRODUCTION_HOSTS = new Set(["nemar.org", "www.nemar.org", "ww2.nemar.org", "app.nemar.org"]);
@@ -94,9 +99,18 @@ export function safeUmamiScriptUrl(value: string | undefined): string | null {
 }
 
 function hasConsent(): boolean {
+  return readCookieConsent() === "accepted";
+}
+
+function callTracker(payload: UmamiPayload | (() => UmamiPayload)): boolean {
   try {
-    return window.localStorage.getItem(CONSENT_KEY) === "accepted";
+    const tracker = window.umami;
+    if (!tracker || typeof tracker.track !== "function") return false;
+    tracker.track(payload);
+    return true;
   } catch {
+    // Analytics is optional and must never interrupt a user action.
+    console.warn("[analytics] the Umami tracker rejected a tracking call");
     return false;
   }
 }
@@ -127,20 +141,19 @@ export function installUmamiAnalytics(websiteId: string | undefined, scriptUrl?:
     pageViewForPathname(window.location.pathname) !== null;
 
   const sendPageView = (): void => {
-    if (!hasConsent() || !eligible() || pageViewSent || !window.umami || !validWebsiteId) return;
+    if (!hasConsent() || !eligible() || pageViewSent || !validWebsiteId) return;
     const page = pageViewForPathname(window.location.pathname);
     if (!page) return;
-    window.umami.track({ website: validWebsiteId, url: page.url, title: page.title });
-    pageViewSent = true;
+    pageViewSent = callTracker({ website: validWebsiteId, url: page.url, title: page.title });
   };
 
   const sendEvent = (eventName: UmamiEventName): void => {
-    if (!hasConsent() || !eligible() || !window.umami || !validWebsiteId) return;
+    if (!hasConsent() || !eligible() || !validWebsiteId) return;
     const page = pageViewForPathname(window.location.pathname);
     if (!page) return;
     // Build a new payload instead of spreading Umami's default properties:
     // those include the live URL, title, and referrer.
-    window.umami.track(() => ({
+    callTracker(() => ({
       website: validWebsiteId,
       hostname: window.location.hostname,
       url: page.url,
@@ -235,7 +248,7 @@ export function installUmamiAnalytics(websiteId: string | undefined, scriptUrl?:
     true,
   );
 
-  document.addEventListener("nemar:cookie-consent-changed", () => {
+  document.addEventListener(COOKIE_CONSENT_CHANGED_EVENT, () => {
     if (hasConsent()) {
       if (trackerLoaded) sendPageView();
       else startTracker();
@@ -245,7 +258,7 @@ export function installUmamiAnalytics(websiteId: string | undefined, scriptUrl?:
   });
 
   window.addEventListener("storage", (event) => {
-    if (event.key !== CONSENT_KEY) return;
+    if (event.key !== COOKIE_CONSENT_KEY) return;
     if (hasConsent()) {
       if (trackerLoaded) sendPageView();
       else startTracker();
