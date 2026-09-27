@@ -55,6 +55,7 @@ import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 /** Strict script-src for every route. The signal-viewer route widens this by
  * appending 'unsafe-eval' (see routeNeedsUnsafeEval); nothing else does. */
 const SCRIPT_SRC_BASE = "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'";
+const UMAMI_SCRIPT_HOST = "https://analytics.nemar.org";
 
 /**
  * The interactive signal viewer is dynamically imported only on the dataset
@@ -210,7 +211,7 @@ export function contentSecurityPolicy(pathname: string): string {
     `img-src 'self' data: ${OSA_LOGO_HOSTS}`,
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    `${scriptSrc} ${OSA_WIDGET_CDN}`,
+    `${scriptSrc} ${OSA_WIDGET_CDN} ${UMAMI_SCRIPT_HOST}`,
     connectSrc,
     OSA_WORKER_SRC,
     OSA_FRAME_SRC,

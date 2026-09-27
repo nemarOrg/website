@@ -1,11 +1,8 @@
 ---
 // Renders hidden by default. A tiny inline script flips the `hidden` attribute
 // off only when no prior choice is stored, mirroring how Base.astro avoids a
-// theme flash. Two buttons set localStorage["nemar:cookie-consent"] to
-// "accepted" (strict + analytics) or "strict" (auth cookie only) and dismiss.
-//
-// Analytics scripts are NOT wired here yet. When they are added, gate the
-// script load on `localStorage.getItem("nemar:cookie-consent") === "accepted"`.
+// theme flash. The consent buttons persist a choice and notify listeners; the
+// Umami helper injects its tracker only after analytics consent is accepted.
 ---
 
 <aside class="cookie-notice" role="region" aria-label="Cookie notice" hidden data-cookie-notice>
@@ -109,25 +106,13 @@
 </style>
 
 <script>
-  const STORAGE_KEY = "nemar:cookie-consent";
+  import { readCookieConsent, saveCookieConsent } from "../lib/cookie-consent";
+
   const banner = document.querySelector<HTMLElement>("[data-cookie-notice]");
   if (banner) {
-    let prior: string | null = null;
-    try {
-      prior = localStorage.getItem(STORAGE_KEY);
-    } catch {
-      // Privacy mode or storage disabled — show the banner conservatively;
-      // the user can still dismiss it for the session.
-    }
-    if (prior !== "accepted" && prior !== "strict") {
-      banner.hidden = false;
-    }
+    if (readCookieConsent() === null) banner.hidden = false;
     const set = (value: "accepted" | "strict") => {
-      try {
-        localStorage.setItem(STORAGE_KEY, value);
-      } catch {
-        /* ignore */
-      }
+      saveCookieConsent(value);
       banner.hidden = true;
     };
     banner.querySelector<HTMLButtonElement>("[data-cookie-accept]")?.addEventListener("click", () => set("accepted"));
