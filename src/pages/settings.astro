@@ -2415,6 +2415,7 @@ if (tier !== "unverified") {
       } catch {
         /* localStorage unavailable; nothing persists, but the label still updates for clarity */
       }
+      document.dispatchEvent(new Event("nemar:cookie-consent-changed"));
       refreshConsent();
     });
   });

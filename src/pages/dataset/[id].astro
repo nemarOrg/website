@@ -1389,6 +1389,8 @@ Astro.response.headers.set(
       }
       if (eegLive) eegLive.destroy = destroy;
       applyUnitsNotice(host, zarr?.stores.get(filePath));
+      window.nemarAnalytics?.track("viewer_open");
+      window.nemarAnalytics?.trackViewerInteraction(host);
     } catch (err) {
       console.error("[eeg-viewer] mount failed:", err);
       if (seq !== eegSeq) return;
@@ -1568,6 +1570,8 @@ Astro.response.headers.set(
       }
       if (eegLive) eegLive.destroy = destroy;
       applyUnitsNotice(host, ctx.zarr?.stores.get(target.path));
+      window.nemarAnalytics?.track("viewer_open");
+      window.nemarAnalytics?.trackViewerInteraction(host);
     } catch (err) {
       // Mirrors `navigateEegViewer`'s failure state: an explicit error in
       // the dialog, never a blank one (website#260).

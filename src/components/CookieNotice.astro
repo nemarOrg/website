@@ -4,8 +4,8 @@
 // theme flash. Two buttons set localStorage["nemar:cookie-consent"] to
 // "accepted" (strict + analytics) or "strict" (auth cookie only) and dismiss.
 //
-// Analytics scripts are NOT wired here yet. When they are added, gate the
-// script load on `localStorage.getItem("nemar:cookie-consent") === "accepted"`.
+// The Umami helper listens for `nemar:cookie-consent-changed` and injects its
+// tracker only after the stored choice is `accepted`.
 ---
 
 <aside class="cookie-notice" role="region" aria-label="Cookie notice" hidden data-cookie-notice>
@@ -129,6 +129,7 @@
         /* ignore */
       }
       banner.hidden = true;
+      document.dispatchEvent(new Event("nemar:cookie-consent-changed"));
     };
     banner.querySelector<HTMLButtonElement>("[data-cookie-accept]")?.addEventListener("click", () => set("accepted"));
     banner.querySelector<HTMLButtonElement>("[data-cookie-strict]")?.addEventListener("click", () => set("strict"));

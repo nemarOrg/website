@@ -1181,6 +1181,7 @@ const requestedLede = requestedDate
     try {
       await finalizeDataset(draftId, { signal: uploadAbort.signal });
       if (generation !== submitGeneration) return;
+      window.nemarAnalytics?.markUploadCompleted();
       location.href = `/upload/success?id=${encodeURIComponent(draftId)}`;
     } catch (err) {
       // A reset superseded this retry: the new flow owns the UI now.
@@ -1224,6 +1225,7 @@ const requestedLede = requestedDate
       return;
     }
     confirmedUpload = false;
+    window.nemarAnalytics?.track("upload_started");
     setStatus(null); // a retry must not show the previous attempt's status
 
     const generation = submitGeneration;
@@ -1307,6 +1309,7 @@ const requestedLede = requestedDate
       // 60s); an aborted finalize is safe because the route is idempotent.
       await finalizeDataset(draft.id, { signal: uploadAbort.signal });
       if (generation !== submitGeneration) return;
+      window.nemarAnalytics?.markUploadCompleted();
       location.href = `/upload/success?id=${encodeURIComponent(draft.id)}`;
     } catch (err) {
       // A reset superseded this run while an await was pending: the new flow
