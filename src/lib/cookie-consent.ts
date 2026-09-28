@@ -17,21 +17,45 @@ const SHARED_CONSENT_HOSTS = new Set<string>(ANALYTICS_PRODUCTION_HOSTS);
 
 interface ConsentRecord {
   value: CookieConsent;
-  changedAt: number;
+  revision: string;
 }
 
 let unsavedConsent: ConsentRecord | null = null;
 
 function parseConsentRecord(value: string | null): ConsentRecord | null {
-  if (value === "accepted" || value === "strict") return { value, changedAt: 0 };
-  const match = /^(accepted|strict):(\d{1,16})$/.exec(value ?? "");
+  if (value === "accepted" || value === "strict") return { value, revision: "0" };
+  const match = /^(accepted|strict):(\d+)$/.exec(value ?? "");
   if (!match) return null;
-  const changedAt = Number(match[2]);
-  return Number.isSafeInteger(changedAt) ? { value: match[1] as CookieConsent, changedAt } : null;
+  return { value: match[1] as CookieConsent, revision: normalizeRevision(match[2]) };
+}
+
+function normalizeRevision(revision: string): string {
+  return revision.replace(/^0+(?=\d)/, "");
+}
+
+function compareRevisions(left: string, right: string): number {
+  const normalizedLeft = normalizeRevision(left);
+  const normalizedRight = normalizeRevision(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return normalizedLeft.length < normalizedRight.length ? -1 : 1;
+  }
+  return normalizedLeft === normalizedRight ? 0 : normalizedLeft < normalizedRight ? -1 : 1;
+}
+
+function incrementRevision(revision: string): string {
+  const digits = normalizeRevision(revision).split("");
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    if (digits[index] !== "9") {
+      digits[index] = String(Number(digits[index]) + 1);
+      return digits.join("");
+    }
+    digits[index] = "0";
+  }
+  return `1${digits.join("")}`;
 }
 
 function serializeConsentRecord(record: ConsentRecord): string {
-  return `${record.value}:${record.changedAt}`;
+  return `${record.value}:${record.revision}`;
 }
 
 function canShareConsentAcrossHosts(): boolean {
@@ -63,7 +87,7 @@ function writeSharedConsent(record: ConsentRecord): boolean {
   try {
     document.cookie = `${SHARED_CONSENT_COOKIE}=${serialized}; Domain=nemar.org; Path=/; Max-Age=${SHARED_CONSENT_MAX_AGE}; SameSite=Lax; Secure`;
     const saved = readSharedConsent();
-    return saved?.value === record.value && saved.changedAt === record.changedAt;
+    return saved?.value === record.value && saved.revision === record.revision;
   } catch {
     return false;
   }
@@ -89,8 +113,9 @@ function latestConsentRecord(records: (ConsentRecord | null)[]): ConsentRecord |
   return records
     .filter((record): record is ConsentRecord => record !== null)
     .reduce<ConsentRecord | null>((current, record) => {
-      if (current === null || record.changedAt > current.changedAt) return record;
-      if (record.changedAt < current.changedAt) return current;
+      if (current === null || compareRevisions(record.revision, current.revision) > 0)
+        return record;
+      if (compareRevisions(record.revision, current.revision) < 0) return current;
       // Conflicting legacy values have no timestamp; preserve the opt-out.
       return record.value === "strict" ? record : current;
     }, null);
@@ -116,11 +141,14 @@ export function readCookieConsent(): CookieConsent | null {
   const tabConsent = readTabConsent();
   const localConsent = readLocalConsent();
 
-  // Logical timestamps let a failed cookie write preserve the newest choice
+  // Logical revisions let a failed cookie write preserve the newest choice
   // stored in this tab or origin. Shared cookies carry it across origins.
   const latest = latestConsentRecord([unsavedConsent, tabConsent, localConsent, sharedConsent]);
 
-  if (localConsent?.changedAt === 0 && (sharedConsent === null || sharedConsent.changedAt === 0)) {
+  if (
+    localConsent?.revision === "0" &&
+    (sharedConsent === null || sharedConsent.revision === "0")
+  ) {
     // Migrate the resolved choice so a conflicting legacy opt-out remains
     // authoritative across hosts.
     if (latest !== null) writeSharedConsent(latest);
@@ -137,8 +165,12 @@ export function saveCookieConsent(value: CookieConsent): void {
   ]);
   // Advance past every revision we can see so a clock adjustment cannot make
   // this new choice look older than a previously saved one on another host.
-  const changedAt = Math.max(Date.now(), (previous?.changedAt ?? 0) + 1);
-  const record: ConsentRecord = { value, changedAt };
+  const clockRevision = String(Date.now());
+  const revision =
+    previous === null || compareRevisions(previous.revision, clockRevision) < 0
+      ? clockRevision
+      : incrementRevision(previous.revision);
+  const record: ConsentRecord = { value, revision };
   const serialized = serializeConsentRecord(record);
   unsavedConsent = record;
   const sharedSaved = writeSharedConsent(record);

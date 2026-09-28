@@ -15,19 +15,19 @@ tracking to resume after a visitor opts out on another NEMAR site.
 
 Enable the allowlisted anonymous analytics by default on configured production hosts, and honor a
 visitor's saved opt-out. Store the choice in a one-year Secure, SameSite=Lax first-party cookie
-scoped to `nemar.org`, with timestamped local and tab storage fallbacks; keep legacy `accepted` and
-`strict` choices readable.
+scoped to `nemar.org`, with clock-seeded logical revisions and local and tab storage fallbacks;
+keep legacy `accepted` and `strict` choices readable.
 
 ## Consequences
 
 - The preference carries between the public website and `app.nemar.org`; the cookie is visible to
   browser JavaScript and is sent to NEMAR subdomains, so it contains only the non-secret choice and
-  its change time.
+  its logical revision.
 - A cookie write failure cannot let an older stored choice override a newer selection. If the
   shared cookie is unavailable, origin- or tab-scoped storage is the fallback; if all storage is
   unavailable, the choice lasts only for the current page.
-- The tracker remains limited to fixed public page categories, the signed-in upload flow, and the
-  five approved interaction names.
+- The tracker remains limited to configured production hosts, fixed public page categories, the
+  signed-in upload flow, and the five approved interaction names.
   It receives no dataset, search, file, account, or user identifiers.
 - The first-visit notice and Privacy settings controls must disclose the default and allow visitors
   to opt out or turn analytics back on. The published privacy policy must match the deployed
