@@ -13,6 +13,7 @@
  * seen neither raises an alarm nor hides a row.
  */
 import { ADMIN_TABS, adminMetricHref } from "./admin-tabs";
+import { formatRelativeTime } from "./format";
 import {
   type Metric,
   type MetricBreakdownEntry,
@@ -59,6 +60,7 @@ const SECTION_LABELS: Readonly<Record<string, string>> = {
   cf: "Edge traffic",
   users: "Users",
   egress: "Storage egress",
+  storage: "S3 storage",
   sync: "Sync",
 };
 
@@ -134,6 +136,13 @@ export function sectionStatus(section: MetricSection): SectionStatus {
 /** The catalog sections: what NEMAR holds rather than a pipeline's state. */
 export const CATALOG_SECTION_KEYS: readonly string[] = ["datasets", "sizes"];
 
+/**
+ * The pushed S3 bucket-size section. It has its own card near the top of the
+ * page (see {@link storageView}), so it is kept out of the pipeline grid
+ * rather than drawn twice. Its metrics still feed the attention summary.
+ */
+export const STORAGE_SECTION_KEY = "storage";
+
 export interface ArrangedSections {
   /** Sections with a warn or error metric, errors first, snapshot order within a tone. */
   readonly problems: readonly MetricSection[];
@@ -144,7 +153,9 @@ export interface ArrangedSections {
 
 export function arrangeSections(snapshot: MetricSnapshot): ArrangedSections {
   const catalog = snapshot.sections.filter((s) => CATALOG_SECTION_KEYS.includes(s.key));
-  const operational = snapshot.sections.filter((s) => !CATALOG_SECTION_KEYS.includes(s.key));
+  const operational = snapshot.sections.filter(
+    (s) => !CATALOG_SECTION_KEYS.includes(s.key) && s.key !== STORAGE_SECTION_KEY,
+  );
   const rank = (s: MetricSection) => severityRank(sectionStatus(s).tone);
   const problems = operational
     .filter((s) => sectionStatus(s).tone !== "ok")
@@ -261,6 +272,20 @@ function ageText(minutes: number): string {
   return plural(Math.round(hours / 24), "day", "days");
 }
 
+/** "Sep 28, 9:17 PM UTC", the dashboard's snapshot timestamp; "an unknown time" if unreadable. */
+export function formatSnapshotTime(iso: string): string {
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return "an unknown time";
+  const text = at.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+  return `${text} UTC`;
+}
+
 export function deriveAttention(
   snapshot: MetricSnapshot,
   now: Date = new Date(),
@@ -350,14 +375,12 @@ export interface Delta {
 
 /**
  * Change from the first to the last point of a history window, worded like
- * the dashboard's ("+3 in 7 days", "No change in 7 days"). `noun` names what
- * moved when the card's headline is a different figure ("−109 missing in 7
- * days" under an archive coverage percentage). Null when there is no span.
+ * the dashboard's ("+3 in 7 days", "No change in 7 days"). Null when there is
+ * no span to speak of.
  */
 export function historyDelta(
   points: readonly MetricPoint[] | undefined,
   format: (value: number) => string,
-  noun = "",
 ): Delta | null {
   if (!points || points.length < 2) return null;
   const first = points[0];
@@ -369,12 +392,14 @@ export function historyDelta(
     hours < 36
       ? ` in ${plural(Math.round(hours), "hour", "hours")}`
       : ` in ${plural(Math.round(hours / 24), "day", "days")}`;
-  if (diff === 0) return { direction: "flat", text: `No change${span}` };
-  const what = noun ? ` ${noun}` : "";
+  // A change that rounds away when printed is no change.
+  if (diff === 0 || format(Math.abs(diff)) === format(0)) {
+    return { direction: "flat", text: `No change${span}` };
+  }
   return {
     direction: diff > 0 ? "up" : "down",
     // U+2212 MINUS SIGN, as the dashboard prints it.
-    text: `${diff > 0 ? "+" : "−"}${format(Math.abs(diff))}${what}${span}`,
+    text: `${diff > 0 ? "+" : "−"}${format(Math.abs(diff))}${span}`,
   };
 }
 
@@ -438,7 +463,32 @@ export function sparkGeometry(
 export interface KpiSpark {
   readonly label: string;
   readonly points: readonly MetricPoint[];
-  readonly format: "count" | "bytes";
+  readonly format: SparkFormat;
+  /** How often the points are taken; snapshot history is hourly (the default). */
+  readonly cadence?: "hourly" | "daily";
+}
+
+export type SparkFormat = "count" | "bytes" | "percent";
+
+/** A value as a sparkline's spoken summary or a delta prints it. */
+export function formatSparkValue(value: number, format: SparkFormat): string {
+  if (format === "bytes") return formatSiBytes(value);
+  if (format === "percent") return `${Math.round(value * 10) / 10}%`;
+  return formatExactCount(value);
+}
+
+/**
+ * A count-of-total history as a percentage history (660 of 668 is 98.8), so a
+ * coverage card trends the figure it headlines. Points without a total drop
+ * out rather than plotting as zero.
+ */
+export function coveragePoints(points: readonly MetricPoint[]): MetricPoint[] {
+  const out: MetricPoint[] = [];
+  for (const p of points) {
+    const pct = percentOf(p.value, p.total);
+    if (pct !== null) out.push({ at: p.at, value: pct });
+  }
+  return out;
 }
 
 export interface KpiSpec {
@@ -458,13 +508,48 @@ export type HistoryMap = Readonly<
   Record<string, { readonly points: readonly MetricPoint[] } | null>
 >;
 
-/** The history keys the KPI cards read. The page fetches exactly these. */
+/** The history keys the KPI cards read. */
 export const KPI_HISTORY_KEYS = [
   "datasets.public",
   "datasets.bytes",
-  "archive.missing",
-  "zarr.failed",
+  "archive.ready",
+  "zarr.ready",
 ] as const;
+
+/**
+ * Problem counts whose trend a section card draws beside its rows: is the
+ * archive backlog draining, is Zarr failure accumulating. Deliberately a
+ * short list, since each history is one more subrequest per render.
+ */
+export const SECTION_TREND_KEYS = ["archive.missing", "zarr.failed"] as const;
+
+/** The bucket-size history behind the storage card's growth line. */
+export const STORAGE_HISTORY_KEY = "storage.bucket_bytes";
+
+/** Every history the Overview fetches: KPI trends, section trends, and storage growth. */
+export const OVERVIEW_HISTORY_KEYS: readonly string[] = [
+  ...KPI_HISTORY_KEYS,
+  ...SECTION_TREND_KEYS,
+  STORAGE_HISTORY_KEY,
+];
+
+export interface SectionTrend {
+  readonly metric: Metric;
+  readonly points: readonly MetricPoint[];
+  readonly delta: Delta | null;
+}
+
+/** The trends a section card draws: its metrics listed in SECTION_TREND_KEYS that have history. */
+export function sectionTrends(section: MetricSection, history: HistoryMap): SectionTrend[] {
+  const trends: SectionTrend[] = [];
+  for (const metric of section.metrics) {
+    if (!(SECTION_TREND_KEYS as readonly string[]).includes(metric.key)) continue;
+    const points = history[metric.key]?.points;
+    if (!points || points.length < 2) continue;
+    trends.push({ metric, points, delta: historyDelta(points, formatExactCount) });
+  }
+  return trends;
+}
 
 function metricIndex(snapshot: MetricSnapshot): Map<string, Metric> {
   const index = new Map<string, Metric>();
@@ -477,23 +562,32 @@ function metricIndex(snapshot: MetricSnapshot): Map<string, Metric> {
 const UNKNOWN_CONTEXT = "Not in the latest snapshot. Unknown is not zero.";
 const HISTORY_UNAVAILABLE: Delta = { direction: "none", text: "Recent change unavailable" };
 
-function deltaFrom(
-  history: HistoryMap,
-  key: string,
-  format: (v: number) => string,
-  noun = "",
-): Delta {
-  return historyDelta(history[key]?.points, format, noun) ?? HISTORY_UNAVAILABLE;
+function deltaFrom(history: HistoryMap, key: string, format: (v: number) => string): Delta {
+  return historyDelta(history[key]?.points, format) ?? HISTORY_UNAVAILABLE;
 }
 
 function sparkFrom(
   history: HistoryMap,
   key: string,
   label: string,
-  format: KpiSpark["format"],
+  format: SparkFormat,
 ): KpiSpark | null {
   const points = history[key]?.points;
   return points && points.length >= 2 ? { label, points, format } : null;
+}
+
+/** Delta and sparkline for a coverage card, both in percent of its total. */
+function coverageTrend(
+  history: HistoryMap,
+  key: string,
+  label: string,
+): Pick<KpiSpec, "delta" | "spark"> {
+  const raw = history[key]?.points;
+  if (!raw) return { delta: HISTORY_UNAVAILABLE, spark: null };
+  const points = coveragePoints(raw);
+  const delta =
+    historyDelta(points, (v) => `${Math.round(v * 10) / 10} points`) ?? HISTORY_UNAVAILABLE;
+  return { delta, spark: points.length >= 2 ? { label, points, format: "percent" } : null };
 }
 
 function unknownKpi(key: string, label: string): KpiSpec {
@@ -574,7 +668,7 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
       label: "Archive coverage",
       value: `${archivePct}%`,
       muted: false,
-      delta: deltaFrom(history, "archive.missing", formatExactCount, "missing"),
+      ...coverageTrend(history, "archive.ready", "Archive coverage"),
       context: [
         `${formatExactCount(archive.value)} of ${formatExactCount(archive.total)} eligible datasets`,
         [
@@ -584,7 +678,6 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
           .filter(Boolean)
           .join(", "),
       ].filter(Boolean),
-      spark: sparkFrom(history, "archive.missing", "Missing archives", "count"),
       anchor: sectionAnchor("archive"),
     });
   } else {
@@ -601,7 +694,7 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
       label: "Zarr coverage",
       value: `${zarrPct}%`,
       muted: false,
-      delta: deltaFrom(history, "zarr.failed", formatExactCount, "failed"),
+      ...coverageTrend(history, "zarr.ready", "Zarr coverage"),
       context: [
         `${formatExactCount(zarr.value)} of ${formatExactCount(zarr.total)} public datasets`,
         [
@@ -611,7 +704,6 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
           .filter(Boolean)
           .join(", "),
       ].filter(Boolean),
-      spark: sparkFrom(history, "zarr.failed", "Failed conversions", "count"),
       anchor: sectionAnchor("zarr"),
     });
   } else {
@@ -619,6 +711,134 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
   }
 
   return specs;
+}
+
+// ---------- S3 storage ----------
+
+export interface StorageBar {
+  readonly label: string;
+  readonly value: string;
+  /** Length relative to the larger of the two, 0 to 100. */
+  readonly widthPct: number;
+}
+
+export interface StorageView {
+  /** False until the pushed `storage` section reports a bucket size. */
+  readonly collected: boolean;
+  /** "120.4 TB", or "Not collected yet". */
+  readonly bucket: string;
+  /** "12,345,678 objects", or null when not reported. */
+  readonly objects: string | null;
+  /** "Bucket holds 120.4 TB; public catalog is 65.6 TB." */
+  readonly comparison: string | null;
+  /** The two comparison bars, bucket first; empty unless both sizes are known. */
+  readonly bars: readonly StorageBar[];
+  /** Growth over the stored history, or null without one. */
+  readonly delta: Delta | null;
+  readonly points: readonly MetricPoint[] | null;
+  /** "Sep 26, 2026", the day CloudWatch measured, or null when unknown. */
+  readonly measured: string | null;
+  /** Bytes per storage class, when the section carries it. */
+  readonly byClass: Metric | null;
+  readonly status: SectionStatus | null;
+  /** The sentence under the figures: what the numbers are, or why there are none. */
+  readonly note: string;
+  /** The section's own source line, when it exists. */
+  readonly source: string | null;
+}
+
+/** Said beside the comparison so a gap between the two never reads as waste. */
+export const STORAGE_COMPARISON_NOTE =
+  "The two measure different things: besides the public files, the bucket holds downloadable archives, Zarr copies, and internal data, so a gap between them is expected and is not unused space.";
+
+const STORAGE_NOT_COLLECTED =
+  "Bucket size arrives as a daily push from S3 CloudWatch metrics, and no report has arrived yet. Unknown is not zero.";
+
+function measuredDay(metric: Metric, section: MetricSection): string | null {
+  // A collector that knows the CloudWatch day leads its hint with it
+  // ("2026-09-26 UTC; ...", as the egress section does); otherwise the
+  // section's own push time is the best date there is.
+  const lead = metric.hint?.match(/^(\d{4}-\d{2}-\d{2})\b/);
+  const iso = lead ? `${lead[1]}T00:00:00Z` : section.updated_at;
+  const at = new Date(iso);
+  if (!Number.isFinite(at.getTime())) return null;
+  return at.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/**
+ * The storage card: how much the `nemar` bucket holds, how fast it grows,
+ * and how that compares with the public catalog's own size. Absent the
+ * pushed section (or its bucket-size metric), every figure says it has not
+ * been collected, never zero.
+ */
+export function storageView(snapshot: MetricSnapshot, history: HistoryMap): StorageView {
+  const section = snapshot.sections.find((s) => s.key === STORAGE_SECTION_KEY) ?? null;
+  const bucket = section?.metrics.find((m) => m.key === "storage.bucket_bytes") ?? null;
+  const objects = section?.metrics.find((m) => m.key === "storage.object_count") ?? null;
+  const byClass =
+    section?.metrics.find((m) => m.key === "storage.by_class" && (m.breakdown?.length ?? 0) > 0) ??
+    null;
+  const catalog = metricIndex(snapshot).get("datasets.bytes") ?? null;
+  const updated = section ? formatRelativeTime(section.updated_at) : "";
+  const source = section
+    ? `From ${sourceLabel(section.source)}${updated ? `, updated ${updated}` : ""}`
+    : null;
+
+  if (!section || !bucket) {
+    return {
+      collected: false,
+      bucket: "Not collected yet",
+      objects: null,
+      comparison: catalog ? `Public catalog is ${formatSiBytes(catalog.value)}.` : null,
+      bars: [],
+      delta: null,
+      points: null,
+      measured: null,
+      byClass: null,
+      status: section ? sectionStatus(section) : null,
+      note: section
+        ? "The storage section reported no bucket size. Unknown is not zero."
+        : STORAGE_NOT_COLLECTED,
+      source,
+    };
+  }
+
+  const points = history[STORAGE_HISTORY_KEY]?.points ?? null;
+  const max = Math.max(bucket.value, catalog?.value ?? 0) || 1;
+  return {
+    collected: true,
+    bucket: formatSiBytes(bucket.value),
+    objects: objects ? `${formatExactCount(objects.value)} objects` : null,
+    comparison: catalog
+      ? `Bucket holds ${formatSiBytes(bucket.value)}; public catalog is ${formatSiBytes(catalog.value)}.`
+      : `Bucket holds ${formatSiBytes(bucket.value)}.`,
+    bars: catalog
+      ? [
+          {
+            label: "S3 bucket",
+            value: formatSiBytes(bucket.value),
+            widthPct: (bucket.value / max) * 100,
+          },
+          {
+            label: "Public catalog",
+            value: formatSiBytes(catalog.value),
+            widthPct: (catalog.value / max) * 100,
+          },
+        ]
+      : [],
+    delta: historyDelta(points ?? undefined, formatSiBytes),
+    points: points && points.length >= 2 ? points : null,
+    measured: measuredDay(bucket, section),
+    byClass,
+    status: sectionStatus(section),
+    note: STORAGE_COMPARISON_NOTE,
+    source,
+  };
 }
 
 // ---------- breakdowns ----------

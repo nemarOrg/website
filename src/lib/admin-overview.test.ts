@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
+import archiveMissingFixture from "../../test/fixtures/observability-history-archive-missing.json";
+import archiveReadyFixture from "../../test/fixtures/observability-history-archive-ready.json";
 import historyFixture from "../../test/fixtures/observability-history.json";
 import currentFixture from "../../test/fixtures/observability-snapshot-current.json";
 import olderFixture from "../../test/fixtures/observability-snapshot.json";
 import {
   KPI_HISTORY_KEYS,
+  OVERVIEW_HISTORY_KEYS,
   STALE_AFTER_MINUTES,
+  STORAGE_COMPARISON_NOTE,
   arrangeSections,
   breakdownView,
   coverageMetric,
+  coveragePoints,
   deriveAttention,
+  formatSnapshotTime,
   hasUnlinkedDrilldown,
   histogramBins,
   historyDelta,
@@ -18,9 +24,11 @@ import {
   sectionLabel,
   sectionParts,
   sectionStatus,
+  sectionTrends,
   severityRank,
   shareText,
   sparkGeometry,
+  storageView,
   toneForSeverity,
 } from "./admin-overview";
 import {
@@ -44,6 +52,8 @@ function parsed<T>(value: T | null): T {
 const current: MetricSnapshot = parsed(parseSnapshot(currentFixture));
 const older: MetricSnapshot = parsed(parseSnapshot(olderFixture));
 const history: MetricHistory = parsed(parseHistory(historyFixture));
+const archiveReady: MetricHistory = parsed(parseHistory(archiveReadyFixture));
+const archiveMissing: MetricHistory = parsed(parseHistory(archiveMissingFixture));
 
 /** Half an hour after the current fixture was generated. */
 const SOON_AFTER = new Date(Date.parse(current.generated_at) + 30 * 60_000);
@@ -233,6 +243,13 @@ describe("percentOf and shareText", () => {
   });
 });
 
+describe("formatSnapshotTime", () => {
+  it("prints the snapshot time in UTC, as the dashboard does", () => {
+    expect(formatSnapshotTime("2026-09-28T21:17:25.735Z")).toBe("Sep 28, 9:17 PM UTC");
+    expect(formatSnapshotTime("not a date")).toBe("an unknown time");
+  });
+});
+
 describe("sectionLabel", () => {
   it("prefers the snapshot's own label and falls back to a plain name", () => {
     expect(sectionLabel("access", current)).toBe("Access (30d)");
@@ -253,25 +270,62 @@ describe("historyDelta", () => {
     expect(delta?.text).toContain(`in ${days} days`);
   });
 
-  it("uses a real minus sign, a noun, and hours for a short window", () => {
-    const points = [
-      { at: "2026-09-28T00:00:00Z", value: 117 },
-      { at: "2026-09-28T06:00:00Z", value: 8 },
-    ];
-    expect(historyDelta(points, formatExactCount, "missing")).toEqual({
+  it("drains the real archive backlog with a minus sign", () => {
+    // Captured 2026-09-21 to 2026-09-28: 117 missing archives down to 8.
+    expect(historyDelta(archiveMissing.points, formatExactCount)).toEqual({
       direction: "down",
-      text: "−109 missing in 6 hours",
+      text: "−109 in 7 days",
     });
   });
 
-  it("says no change rather than +0, and nothing without a span", () => {
+  it("counts hours for a short window", () => {
+    const points = [
+      { at: "2026-09-28T00:00:00Z", value: 2 },
+      { at: "2026-09-28T06:00:00Z", value: 5 },
+    ];
+    expect(historyDelta(points, formatExactCount)?.text).toBe("+3 in 6 hours");
+  });
+
+  it("says no change rather than +0, including a change that rounds away", () => {
     const flat = [
       { at: "2026-09-21T00:00:00Z", value: 5 },
       { at: "2026-09-28T00:00:00Z", value: 5 },
     ];
     expect(historyDelta(flat, formatExactCount)?.text).toBe("No change in 7 days");
-    expect(historyDelta([flat[0]], formatExactCount)).toBeNull();
+    const tiny = [
+      { at: "2026-09-21T00:00:00Z", value: 98.81 },
+      { at: "2026-09-28T00:00:00Z", value: 98.83 },
+    ];
+    expect(historyDelta(tiny, (v) => `${Math.round(v * 10) / 10} points`)?.direction).toBe("flat");
+  });
+
+  it("has nothing to say without a span", () => {
+    expect(historyDelta([{ at: "2026-09-21T00:00:00Z", value: 5 }], formatExactCount)).toBeNull();
     expect(historyDelta(undefined, formatExactCount)).toBeNull();
+  });
+});
+
+describe("coveragePoints", () => {
+  it("turns a count-of-total history into the percentage a coverage card shows", () => {
+    const points = coveragePoints(archiveReady.points);
+    expect(points).toHaveLength(archiveReady.points.length);
+    expect(points[0].value).toBe(84.9); // 657 of 774
+    expect(points.at(-1)?.value).toBe(98.8); // 660 of 668
+  });
+
+  it("drops points without a total instead of plotting them as zero", () => {
+    expect(coveragePoints([{ at: "2026-09-28T00:00:00Z", value: 3 }])).toEqual([]);
+  });
+});
+
+describe("sectionTrends", () => {
+  it("draws the archive backlog trend on the archive card only", () => {
+    const hist = { "archive.missing": archiveMissing };
+    const trends = sectionTrends(section("archive"), hist);
+    expect(trends.map((t) => t.metric.key)).toEqual(["archive.missing"]);
+    expect(trends[0].delta?.text).toBe("−109 in 7 days");
+    expect(sectionTrends(section("zarr"), hist)).toEqual([]);
+    expect(OVERVIEW_HISTORY_KEYS).toContain("archive.missing");
   });
 });
 
@@ -300,7 +354,19 @@ describe("sparkGeometry", () => {
 });
 
 describe("kpiSpecs", () => {
-  const withHistory = Object.fromEntries(KPI_HISTORY_KEYS.map((k) => [k, history]));
+  const withHistory = {
+    "datasets.public": history,
+    "archive.ready": archiveReady,
+  };
+
+  it("fetches history for every card it trends", () => {
+    expect(KPI_HISTORY_KEYS).toEqual([
+      "datasets.public",
+      "datasets.bytes",
+      "archive.ready",
+      "zarr.ready",
+    ]);
+  });
 
   it("builds the four headline cards from the snapshot", () => {
     const specs = kpiSpecs(current, {});
@@ -326,9 +392,15 @@ describe("kpiSpecs", () => {
 
   it("attaches a sparkline and delta when history is present", () => {
     const specs = kpiSpecs(current, withHistory);
+    expect(specs[0].spark).toMatchObject({ label: "Public datasets", format: "count" });
     expect(specs[0].spark?.points.length).toBe(history.points.length);
-    expect(specs[2].spark?.label).toBe("Missing archives");
-    expect(specs[2].delta?.text).toMatch(/ missing in \d+ days$|^No change/);
+  });
+
+  it("trends a coverage card in percentage points of its own total", () => {
+    const archive = kpiSpecs(current, withHistory)[2];
+    expect(archive.spark).toMatchObject({ label: "Archive coverage", format: "percent" });
+    expect(archive.spark?.points.at(-1)?.value).toBe(98.8);
+    expect(archive.delta).toEqual({ direction: "up", text: "+13.9 points in 7 days" });
   });
 
   it("renders a missing metric as unavailable, never as zero", () => {
@@ -392,5 +464,137 @@ describe("histogramBins", () => {
     expect(bins[at - 1].pastCutoff).toBe(false);
     expect(bins.at(-1)?.range).toBe("10 TB and larger");
     expect(Math.max(...bins.map((b) => b.heightPct))).toBe(100);
+  });
+});
+
+describe("storageView", () => {
+  // The pushed `storage` section is not in any captured snapshot yet, so this
+  // input is built to its published contract (key, label, source, metric keys
+  // and units) on top of the real current snapshot.
+  const storageSection: MetricSection = {
+    key: "storage",
+    label: "S3 storage",
+    source: "aws-s3-cloudwatch",
+    updated_at: "2026-09-28T06:00:00.000Z",
+    metrics: [
+      {
+        key: "storage.bucket_bytes",
+        label: "Bucket size",
+        value: 120_400_000_000_000,
+        unit: "bytes",
+        severity: "info",
+        hint: "2026-09-27 UTC; latest daily bucket size across all storage classes",
+      },
+      {
+        key: "storage.object_count",
+        label: "Objects",
+        value: 12_345_678,
+        unit: "count",
+        severity: "info",
+      },
+      {
+        key: "storage.by_class",
+        label: "By storage class",
+        value: 2,
+        unit: "count",
+        severity: "info",
+        breakdown: [
+          { label: "STANDARD", value: 100_000_000_000_000 },
+          { label: "INTELLIGENT_TIERING", value: 20_400_000_000_000 },
+        ],
+        breakdown_unit: "bytes",
+      },
+    ],
+  };
+  const withStorage: MetricSnapshot = {
+    ...current,
+    sections: [...current.sections, storageSection],
+  };
+  const growth = {
+    "storage.bucket_bytes": {
+      points: [
+        { at: "2026-09-21T06:00:00.000Z", value: 119_900_000_000_000 },
+        { at: "2026-09-28T06:00:00.000Z", value: 120_400_000_000_000 },
+      ],
+    },
+  };
+
+  it("says not collected yet, never zero, when the section is absent", () => {
+    const view = storageView(current, {});
+    expect(view.collected).toBe(false);
+    expect(view.bucket).toBe("Not collected yet");
+    expect(view.bars).toEqual([]);
+    expect(view.delta).toBeNull();
+    expect(view.note).toContain("Unknown is not zero");
+    // The catalog side of the comparison is still known, and still said.
+    expect(view.comparison).toBe("Public catalog is 65.6 TB.");
+  });
+
+  it("treats a section without a bucket size as not collected", () => {
+    const partial: MetricSnapshot = {
+      ...current,
+      sections: [...current.sections, { ...storageSection, metrics: [storageSection.metrics[1]] }],
+    };
+    const view = storageView(partial, growth);
+    expect(view.collected).toBe(false);
+    expect(view.note).toBe("The storage section reported no bucket size. Unknown is not zero.");
+  });
+
+  it("compares the bucket with the public catalog without calling the gap waste", () => {
+    const view = storageView(withStorage, growth);
+    expect(view.collected).toBe(true);
+    expect(view.bucket).toBe("120.4 TB");
+    expect(view.objects).toBe("12,345,678 objects");
+    expect(view.comparison).toBe("Bucket holds 120.4 TB; public catalog is 65.6 TB.");
+    expect(view.bars.map((b) => [b.label, b.value])).toEqual([
+      ["S3 bucket", "120.4 TB"],
+      ["Public catalog", "65.6 TB"],
+    ]);
+    expect(view.bars[0].widthPct).toBe(100);
+    expect(view.bars[1].widthPct).toBeCloseTo(54.5, 1);
+    expect(view.note).toBe(STORAGE_COMPARISON_NOTE);
+    expect(view.note).toContain("not unused space");
+  });
+
+  it("reports growth over the history and the day CloudWatch measured", () => {
+    const view = storageView(withStorage, growth);
+    expect(view.delta).toEqual({ direction: "up", text: "+500.0 GB in 7 days" });
+    expect(view.points).toHaveLength(2);
+    expect(view.measured).toBe("Sep 27, 2026");
+    expect(view.byClass?.key).toBe("storage.by_class");
+  });
+
+  it("falls back to the push time when the hint carries no date", () => {
+    const [bucket, ...rest] = storageSection.metrics;
+    const undated: MetricSnapshot = {
+      ...current,
+      sections: [
+        ...current.sections,
+        { ...storageSection, metrics: [{ ...bucket, hint: undefined }, ...rest] },
+      ],
+    };
+    expect(storageView(undated, {}).measured).toBe("Sep 28, 2026");
+  });
+
+  it("keeps storage out of the pipeline grid but in the attention summary", () => {
+    expect(arrangeSections(withStorage).healthy.map((s) => s.key)).not.toContain("storage");
+    const warned: MetricSnapshot = {
+      ...current,
+      sections: [
+        ...current.sections,
+        {
+          ...storageSection,
+          metrics: storageSection.metrics.map((m) =>
+            m.key === "storage.bucket_bytes" ? { ...m, severity: "warn" } : m,
+          ),
+        },
+      ],
+    };
+    const item = deriveAttention(warned, SOON_AFTER).items.find(
+      (i) => i.key === "storage.bucket_bytes",
+    );
+    expect(item).toMatchObject({ tone: "warn", value: "120.4 TB", sectionLabel: "S3 storage" });
+    expect(item?.link.href).toBe("#section-storage");
+    expect(OVERVIEW_HISTORY_KEYS).toContain("storage.bucket_bytes");
   });
 });
