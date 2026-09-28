@@ -1,5 +1,6 @@
 ---
 import OverviewGrid from "../../components/admin/OverviewGrid.astro";
+import UsagePanel from "../../components/admin/UsagePanel.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { adminGate } from "../../lib/admin-guard";
 import { OVERVIEW_HISTORY_KEYS } from "../../lib/admin-overview";
@@ -9,6 +10,12 @@ import {
   fetchMetricHistory,
   fetchObservabilitySnapshot,
 } from "../../lib/observability";
+import {
+  fetchUsageAudience,
+  fetchUsageTimeseries,
+  last30DaysUtc,
+  usageKpis,
+} from "../../lib/observability-usage";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -32,14 +39,22 @@ if (!session) {
 // would stack round-trips onto every admin page render. Each fetcher is
 // fail-soft (returns null on error, non-2xx, or its 5s deadline), so a
 // dashboard.nemar.org outage degrades this page instead of hanging or 500ing it.
-const [snapshot, historyResults] = await Promise.all([
+//
+// The usage panel reads the public dashboard's range endpoints for the last
+// 30 complete UTC days. They send no CORS headers, so they are fetched here,
+// server-side, under the same fail-soft deadline, never from browser JS.
+const usageRange = last30DaysUtc();
+const [snapshot, historyResults, usageSeries, usageAudience] = await Promise.all([
   fetchObservabilitySnapshot(),
   Promise.all(OVERVIEW_HISTORY_KEYS.map((key) => fetchMetricHistory(key))),
+  fetchUsageTimeseries(usageRange),
+  fetchUsageAudience(usageRange),
 ]);
 
 const history: Record<string, MetricHistory | null> = Object.fromEntries(
   OVERVIEW_HISTORY_KEYS.map((key, i) => [key, historyResults[i] ?? null]),
 );
+const usage = usageKpis(usageRange, usageSeries, usageAudience);
 ---
 
 <AdminLayout title="Overview" active="overview" session={session}>
@@ -49,5 +64,7 @@ const history: Record<string, MetricHistory | null> = Object.fromEntries(
     refresh hourly.
   </Fragment>
 
-  <OverviewGrid snapshot={snapshot} history={history} />
+  <OverviewGrid snapshot={snapshot} history={history}>
+    <UsagePanel range={usageRange} kpis={usage} />
+  </OverviewGrid>
 </AdminLayout>
