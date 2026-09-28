@@ -42,13 +42,17 @@ const TAB_FOR_METRIC_FAMILY: ReadonlyArray<readonly [string, AdminTab]> = [
  * Metrics that map to one filter of a tab rather than the whole tab.
  * `imports.upstream_inaccessible` is a subset of quarantined (the same
  * `last_error` match the observability Worker uses), so it shares that
- * destination.
+ * destination. The two users entries are the Users chips that count the same
+ * lifecycle status; `users.verified` ("can approve now") lands on the tab's
+ * default awaiting-approval chip, so it needs no entry.
  */
 const VIEW_FOR_METRIC: Readonly<Record<string, string>> = {
   "imports.active": "/admin/imports?view=inflight",
   "imports.failed": "/admin/imports?view=failed",
   "imports.quarantined": "/admin/imports?view=quarantined",
   "imports.upstream_inaccessible": "/admin/imports?view=quarantined",
+  "users.pending": "/admin/users?status=pending",
+  "users.approved": "/admin/users?status=approved",
 };
 
 /**

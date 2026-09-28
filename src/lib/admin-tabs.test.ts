@@ -56,6 +56,14 @@ describe("adminMetricHref", () => {
     );
   });
 
+  // Same idea for the Users chips that count one lifecycle status; the
+  // awaiting-approval metric lands on the tab's default chip.
+  it("deep-links users metrics to the chip counting the same status", () => {
+    expect(adminMetricHref("users.pending")).toBe("/admin/users?status=pending");
+    expect(adminMetricHref("users.approved")).toBe("/admin/users?status=approved");
+    expect(adminMetricHref("users.verified")).toBe("/admin/users");
+  });
+
   // An imports metric with no specific view still reaches the tab.
   it("falls back to the tab href for an unmapped metric in a linked family", () => {
     expect(adminMetricHref("imports.imported")).toBe("/admin/imports");
