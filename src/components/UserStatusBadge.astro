@@ -2,9 +2,9 @@
 /**
  * Status pill for an admin user row/detail view, adapted to the users
  * lifecycle: pending, then verified, then approved or revoked.
- * `revoked_iam_pending` is a real backend value (a revoke whose IAM cleanup partially failed) — it
- * reads as "Revoked" with the same danger tone since the account access is
- * already gone.
+ * `revoked_iam_pending` is a real backend value (a revoke whose IAM cleanup
+ * partially failed); it reads as "Revoked" with the same danger tone since
+ * the account access is already gone.
  *
  * The labels name TIERS, not queue positions (website#301; nemar-cli ADR
  * 0040). `verified` used to read "Awaiting approval", which was true only
