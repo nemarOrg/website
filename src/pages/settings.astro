@@ -862,7 +862,8 @@ if (tier !== "unverified") {
             selected public pages and the signed-in upload flow; preview and local sites do not load
             the tracker. We do not send account, dataset, or search IDs. Opting out stops future
             pageviews and actions. A preference cookie shares your choice between those production
-            sites; if cookies are blocked, browser-storage fallback applies only on this site.
+            sites. On preview and local sites, a saved choice applies only on that site. If cookies
+            are blocked on a production site, browser-storage fallback applies only there.
           </p>
           <p class="consent__note">
             What we store and why is described in the
