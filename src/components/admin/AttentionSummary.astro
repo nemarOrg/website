@@ -3,9 +3,12 @@
  * The first thing on the admin Overview: what needs attention right now.
  * This is the operational verdict the public dashboard deliberately leaves
  * out. Every metric the snapshot marks `warn` or `error`, every section the
- * Worker failed to compute, and a stale snapshot are listed errors first,
- * each with its value and a link to the exact list in the portal or, where
- * the portal has none yet, to the section card below. The derivation is
+ * Worker failed to compute, every section that is out of date or reported
+ * nothing, and a stale or undated snapshot are listed errors first, each
+ * with its value and a link to the exact list in the portal or, where the
+ * portal has none yet, to the section card below. "All clear" is said only
+ * when there is something measured and nothing flagged; what was not
+ * measured is listed as unknown, never as fine. The derivation is
  * `deriveAttention` (admin-overview.ts), unit-tested there.
  */
 import { type AttentionSummary, formatSnapshotTime } from "../../lib/admin-overview";
@@ -27,10 +30,11 @@ const plural = (n: number, one: string, many: string) =>
   `${formatExactCount(n)} ${n === 1 ? one : many}`;
 const lede =
   count === 0
-    ? "No figure in the latest snapshot is at warning or error, and every section computed."
+    ? "No figure in the latest snapshot is at warning or error, every section computed, and every section is current."
     : `${plural(count, "item", "items")} across ${plural(summary.sectionCount, "area", "areas")}, errors first. Each links to the list where it can be acted on.`;
 const relative = formatRelativeTime(generatedAt, now);
-const TONE_WORD = { warn: "Warning", error: "Error" } as const;
+const TONE_WORD = { warn: "Warning", error: "Error", unknown: "Unknown" } as const;
+const TONE_ICON = { warn: "warn", error: "error", unknown: "neutral" } as const;
 ---
 
 <section
@@ -51,7 +55,10 @@ const TONE_WORD = { warn: "Warning", error: "Error" } as const;
       {summary.warnCount > 0 && (
         <StatusBadge tone="warn" text={plural(summary.warnCount, "warning", "warnings")} />
       )}
-      {count === 0 && <StatusBadge tone="ok" text="All clear" />}
+      {summary.unknownCount > 0 && (
+        <StatusBadge tone="neutral" text={`${formatExactCount(summary.unknownCount)} unknown`} />
+      )}
+      {count === 0 && summary.tone === "ok" && <StatusBadge tone="ok" text="All clear" />}
     </div>
   </div>
 
@@ -61,7 +68,7 @@ const TONE_WORD = { warn: "Warning", error: "Error" } as const;
         {summary.items.map((item) => (
           <li class:list={["aitem", `aitem--${item.tone}`]}>
             <span class="aitem__mark">
-              <StatusIcon name={item.tone} size={16} />
+              <StatusIcon name={TONE_ICON[item.tone]} size={16} />
               <span class="visually-hidden">{TONE_WORD[item.tone]}: </span>
             </span>
             <div class="aitem__main">
@@ -106,6 +113,11 @@ const TONE_WORD = { warn: "Warning", error: "Error" } as const;
   .attention--warn {
     box-shadow:
       inset 3px 0 0 var(--admin-warn),
+      var(--admin-shadow-sm);
+  }
+  .attention--unknown {
+    box-shadow:
+      inset 3px 0 0 var(--admin-text-3),
       var(--admin-shadow-sm);
   }
   .attention--ok {
@@ -178,6 +190,9 @@ const TONE_WORD = { warn: "Warning", error: "Error" } as const;
   }
   .aitem--warn .aitem__mark {
     color: var(--admin-warn-text);
+  }
+  .aitem--unknown .aitem__mark {
+    color: var(--admin-text-3);
   }
   .aitem__main {
     min-inline-size: 0;

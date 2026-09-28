@@ -5,6 +5,10 @@
  * a coverage ring when the section has a count-of-total, a trend for the
  * problem counts with history, marked rows, and any breakdowns.
  *
+ * The badge carries staleness too: a section whose `updated_at` lags the
+ * snapshot past its bound reads "Out of date", and one with no metrics reads
+ * "No data", never OK.
+ *
  * `compact` is for a healthy section: the head and ring stay visible and the
  * rows fold behind a native disclosure, so problems own the page's height.
  * Every row mark is an icon with words for assistive technology; a hint
@@ -13,6 +17,7 @@
 import {
   type HistoryMap,
   TONE_WORDS,
+  badgeToneFor,
   hasUnlinkedDrilldown,
   portalLinkFor,
   sectionAnchor,
@@ -34,11 +39,13 @@ import StatusIcon from "./StatusIcon.astro";
 interface Props {
   section: MetricSection;
   history: HistoryMap;
+  /** The clock the section's age is read against (see `freshnessReference`). */
+  asOf: Date;
   compact?: boolean;
 }
 
-const { section, history, compact = false } = Astro.props;
-const status = sectionStatus(section);
+const { section, history, asOf, compact = false } = Astro.props;
+const status = sectionStatus(section, asOf);
 const parts = sectionParts(section);
 const trends = sectionTrends(section, history);
 const anchor = sectionAnchor(section.key);
@@ -77,8 +84,17 @@ const rows = parts.rows.map((metric) => {
       <h3 class="scard__title" id={`${anchor}-title`}>{section.label}</h3>
       <p class="scard__sub">{source}</p>
     </div>
-    <StatusBadge tone={status.tone} text={status.text} />
+    <StatusBadge tone={badgeToneFor(status.tone)} text={status.text} />
   </header>
+
+  {
+    section.metrics.length === 0 && (
+      <p class="scard__empty">
+        This section reported no figures, so its state is unknown. Unknown is not the same as
+        healthy.
+      </p>
+    )
+  }
 
   {
     parts.coverage && (
@@ -231,6 +247,11 @@ const rows = parts.rows.map((metric) => {
     margin: 2px 0 0;
     color: var(--admin-text-3);
     font-size: var(--fs-xs);
+  }
+  .scard__empty {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
   }
   .scard__trend {
     --spark-halo: var(--admin-surface-2);

@@ -4,23 +4,29 @@ import archiveReadyFixture from "../../test/fixtures/observability-history-archi
 import historyFixture from "../../test/fixtures/observability-history.json";
 import currentFixture from "../../test/fixtures/observability-snapshot-current.json";
 import olderFixture from "../../test/fixtures/observability-snapshot.json";
+import storageFixture from "../../test/fixtures/observability-storage-section.json";
 import {
+  DAILY_STALE_AFTER_MINUTES,
   KPI_HISTORY_KEYS,
   OVERVIEW_HISTORY_KEYS,
   STALE_AFTER_MINUTES,
   STORAGE_COMPARISON_NOTE,
   arrangeSections,
+  badgeToneFor,
   breakdownView,
   coverageMetric,
   coveragePoints,
   deriveAttention,
   formatSnapshotTime,
+  freshnessReference,
   hasUnlinkedDrilldown,
   histogramBins,
   historyDelta,
   kpiSpecs,
+  measuredDayFromHint,
   percentOf,
   portalLinkFor,
+  sectionHref,
   sectionLabel,
   sectionParts,
   sectionStatus,
@@ -28,6 +34,7 @@ import {
   severityRank,
   shareText,
   sparkGeometry,
+  staleBoundMinutes,
   storageView,
   toneForSeverity,
 } from "./admin-overview";
@@ -55,8 +62,15 @@ const history: MetricHistory = parsed(parseHistory(historyFixture));
 const archiveReady: MetricHistory = parsed(parseHistory(archiveReadyFixture));
 const archiveMissing: MetricHistory = parsed(parseHistory(archiveMissingFixture));
 
+/** When the current fixture was generated: the clock its sections' ages are read against. */
+const AT_GENERATION = new Date(current.generated_at);
 /** Half an hour after the current fixture was generated. */
 const SOON_AFTER = new Date(Date.parse(current.generated_at) + 30 * 60_000);
+
+/** An ISO time `minutes` before the current fixture was generated. */
+function minutesBeforeGeneration(minutes: number): string {
+  return new Date(Date.parse(current.generated_at) - minutes * 60_000).toISOString();
+}
 
 function section(key: string, snap: MetricSnapshot = current): MetricSection {
   const found = snap.sections.find((s) => s.key === key);
@@ -164,20 +178,164 @@ describe("deriveAttention", () => {
     expect(summary.items).toEqual([]);
     expect(summary.tone).toBe("ok");
   });
+
+  it("warns that the snapshot time is unknown rather than treating it as fresh", () => {
+    const undated: MetricSnapshot = { ...current, generated_at: "not a date" };
+    const summary = deriveAttention(undated, SOON_AFTER);
+    expect(summary.ageMinutes).toBeNull();
+    expect(summary.stale).toBe(true);
+    const item = summary.items.find((i) => i.key === "snapshot.time_unknown");
+    expect(item).toMatchObject({ kind: "stale", tone: "warn", label: "Snapshot time is unknown" });
+    expect(item?.link.href).toBe("#snapshot-meta");
+  });
+
+  it("says no data, not all clear, for a snapshot with no sections", () => {
+    const empty: MetricSnapshot = { ...current, sections: [], section_errors: [] };
+    const summary = deriveAttention(empty, SOON_AFTER);
+    expect(summary.tone).toBe("unknown");
+    expect(summary.unknownCount).toBe(1);
+    expect(summary.items).toMatchObject([
+      { kind: "no_data", tone: "unknown", label: "The snapshot has no sections" },
+    ]);
+  });
+
+  it("lists a section that reported no figures as unknown, after the warnings", () => {
+    const hollow: MetricSnapshot = {
+      ...current,
+      section_errors: [],
+      sections: [section("cf"), { ...section("imports"), metrics: [] }, section("users")],
+    };
+    const summary = deriveAttention(hollow, SOON_AFTER);
+    expect(summary.items.map((i) => [i.key, i.tone])).toEqual([
+      ["users.verified", "warn"],
+      ["imports.empty", "unknown"],
+    ]);
+    expect(summary.items[1]).toMatchObject({
+      kind: "section_empty",
+      label: "OpenNeuro import reported no figures",
+      link: { href: "#section-imports" },
+    });
+    expect(summary.tone).toBe("warn");
+  });
+
+  it("flags a section whose figures lag the snapshot, on its own cadence", () => {
+    const lagging: MetricSnapshot = {
+      ...current,
+      section_errors: [],
+      sections: [
+        // An hourly section five hours behind, and a daily one two days behind.
+        { ...section("cf"), updated_at: minutesBeforeGeneration(5 * 60) },
+        { ...section("egress"), updated_at: minutesBeforeGeneration(48 * 60) },
+        section("imports"),
+      ],
+    };
+    const items = deriveAttention(lagging, SOON_AFTER).items.filter(
+      (i) => i.kind === "section_stale",
+    );
+    expect(items.map((i) => i.key)).toEqual(["cf.stale", "egress.stale"]);
+    expect(items[0].detail).toBe(
+      "Last updated 5 hours before this snapshot; it normally updates every hour.",
+    );
+    expect(items[1]).toMatchObject({ tone: "warn", link: { href: "#section-egress" } });
+    expect(items[1].detail).toContain(
+      "2 days before this snapshot; it normally updates once a day",
+    );
+  });
+
+  it("does not repeat an old snapshot's staleness on every section it computed", () => {
+    const generated = Date.parse(current.generated_at);
+    const summary = deriveAttention(current, new Date(generated + 5 * 3_600_000));
+    expect(summary.items.filter((i) => i.kind === "section_stale")).toEqual([]);
+    expect(summary.items.filter((i) => i.kind === "stale").map((i) => i.key)).toEqual([
+      "snapshot.stale",
+    ]);
+  });
+
+  it("links a catalog figure to the catalog block, which has no card of its own", () => {
+    const warned: MetricSnapshot = {
+      ...current,
+      sections: current.sections.map((s) =>
+        s.key === "datasets"
+          ? {
+              ...s,
+              metrics: s.metrics.map((m) =>
+                m.key === "datasets.private" ? { ...m, severity: "warn" } : m,
+              ),
+            }
+          : s,
+      ),
+    };
+    const item = deriveAttention(warned, SOON_AFTER).items.find(
+      (i) => i.key === "datasets.private",
+    );
+    expect(item?.link.href).toBe("#section-catalog");
+    expect(sectionHref("sizes")).toBe("#section-catalog");
+    expect(sectionHref("zarr")).toBe("#section-zarr");
+  });
 });
 
 describe("sectionStatus and arrangeSections", () => {
   it("summarizes a section's worst state with counts", () => {
-    expect(sectionStatus(section("zarr"))).toMatchObject({
+    expect(sectionStatus(section("zarr"), AT_GENERATION)).toMatchObject({
       tone: "error",
       text: "1 error, 1 warning",
+      stale: false,
     });
-    expect(sectionStatus(section("users")).text).toBe("1 warning");
-    expect(sectionStatus(section("cf"))).toMatchObject({ tone: "ok", text: "OK" });
+    expect(sectionStatus(section("users"), AT_GENERATION).text).toBe("1 warning");
+    expect(sectionStatus(section("cf"), AT_GENERATION)).toMatchObject({ tone: "ok", text: "OK" });
+  });
+
+  it("never calls a section with no metrics OK", () => {
+    const status = sectionStatus({ ...section("cf"), metrics: [] }, AT_GENERATION);
+    expect(status).toMatchObject({ tone: "unknown", text: "No data" });
+    expect(badgeToneFor(status.tone)).toBe("neutral");
+  });
+
+  it("marks a section out of date past its bound, with a longer bound for daily pushes", () => {
+    expect(staleBoundMinutes("cf")).toBe(STALE_AFTER_MINUTES);
+    expect(staleBoundMinutes("storage")).toBe(DAILY_STALE_AFTER_MINUTES);
+    const hourly = sectionStatus(
+      { ...section("cf"), updated_at: minutesBeforeGeneration(STALE_AFTER_MINUTES + 1) },
+      AT_GENERATION,
+    );
+    expect(hourly).toMatchObject({ tone: "warn", text: "Out of date", stale: true });
+    // The same age is ordinary for a section pushed once a day...
+    const daily = sectionStatus(
+      { ...section("egress"), updated_at: minutesBeforeGeneration(STALE_AFTER_MINUTES + 1) },
+      AT_GENERATION,
+    );
+    expect(daily).toMatchObject({ tone: "ok", stale: false });
+    // ...until it misses a run.
+    const missed = sectionStatus(
+      { ...section("egress"), updated_at: minutesBeforeGeneration(DAILY_STALE_AFTER_MINUTES + 1) },
+      AT_GENERATION,
+    );
+    expect(missed.text).toBe("Out of date");
+    const errored = sectionStatus(
+      { ...section("zarr"), updated_at: minutesBeforeGeneration(STALE_AFTER_MINUTES + 1) },
+      AT_GENERATION,
+    );
+    expect(errored).toMatchObject({ tone: "error", text: "1 error, 1 warning, out of date" });
+  });
+
+  it("treats an unreadable update time as unknown freshness, not as current", () => {
+    const status = sectionStatus({ ...section("cf"), updated_at: "yesterday" }, AT_GENERATION);
+    expect(status).toMatchObject({
+      tone: "warn",
+      lagMinutes: null,
+      stale: true,
+      text: "Update time unknown",
+    });
+  });
+
+  it("reads a section's age against the snapshot's own time", () => {
+    expect(freshnessReference(current, SOON_AFTER)).toEqual(AT_GENERATION);
+    const undated = { ...current, generated_at: "" };
+    expect(freshnessReference(undated, SOON_AFTER)).toEqual(SOON_AFTER);
   });
 
   it("puts problem sections first, errors before warnings, and keeps the catalog apart", () => {
-    const arranged = arrangeSections(current);
+    const arranged = arrangeSections(current, SOON_AFTER);
     expect(arranged.problems.map((s) => s.key)).toEqual([
       "zarr",
       "imports",
@@ -188,6 +346,24 @@ describe("sectionStatus and arrangeSections", () => {
     ]);
     expect(arranged.healthy.map((s) => s.key)).toEqual(["cf", "egress"]);
     expect(arranged.catalog.map((s) => s.key)).toEqual(["datasets", "sizes"]);
+  });
+
+  it("unfolds stale and empty sections instead of filing them as healthy", () => {
+    const snap: MetricSnapshot = {
+      ...current,
+      sections: [
+        { ...section("cf"), metrics: [] },
+        {
+          ...section("egress"),
+          updated_at: minutesBeforeGeneration(DAILY_STALE_AFTER_MINUTES + 60),
+        },
+        section("users"),
+      ],
+    };
+    const arranged = arrangeSections(snap, SOON_AFTER);
+    // Warnings (users, and stale egress) before the section with no data.
+    expect(arranged.problems.map((s) => s.key)).toEqual(["egress", "users", "cf"]);
+    expect(arranged.healthy).toEqual([]);
   });
 });
 
@@ -468,132 +644,145 @@ describe("histogramBins", () => {
 });
 
 describe("storageView", () => {
-  // The pushed `storage` section is not in any captured snapshot yet, so this
-  // input is built to its published contract (key, label, source, metric keys
-  // and units) on top of the real current snapshot.
-  const storageSection: MetricSection = {
-    key: "storage",
-    label: "S3 storage",
-    source: "aws-s3-cloudwatch",
-    updated_at: "2026-09-28T06:00:00.000Z",
-    metrics: [
-      {
-        key: "storage.bucket_bytes",
-        label: "Bucket size",
-        value: 120_400_000_000_000,
-        unit: "bytes",
-        severity: "info",
-        hint: "2026-09-27 UTC; latest daily bucket size across all storage classes",
-      },
-      {
-        key: "storage.object_count",
-        label: "Objects",
-        value: 12_345_678,
-        unit: "count",
-        severity: "info",
-      },
-      {
-        key: "storage.by_class",
-        label: "By storage class",
-        value: 2,
-        unit: "count",
-        severity: "info",
-        breakdown: [
-          { label: "STANDARD", value: 100_000_000_000_000 },
-          { label: "INTELLIGENT_TIERING", value: 20_400_000_000_000 },
-        ],
-        breakdown_unit: "bytes",
-      },
-    ],
+  // Contract-derived until a real snapshot carries the section: the pushed
+  // `storage` section is not deployed yet, so this fixture is the output of
+  // nemarOrg/nemar-observability PR #82's own collector (storageSection() and
+  // storageFailureStatus() in scripts/push-s3-storage.ts) over that PR's real
+  // CloudWatch capture, with updated_at stamped as the Worker's ingest does.
+  // See the fixture's `_derivation`. Replace it with a captured snapshot
+  // section once one exists.
+  // Through the page's own parser, as a pushed section would arrive.
+  const parsedSection = (raw: unknown): MetricSection => {
+    const [only] = parsed(parseSnapshot({ ...currentFixture, sections: [raw] })).sections;
+    if (!only) throw new Error("storage fixture did not parse");
+    return only;
   };
-  const withStorage: MetricSnapshot = {
+  const storageSection = parsedSection(storageFixture.success);
+  const failedSection = parsedSection(storageFixture.failure);
+  const growth = { "storage.bucket_bytes": parsed(parseHistory(storageFixture.history)) };
+  const withSection = (s: MetricSection): MetricSnapshot => ({
     ...current,
-    sections: [...current.sections, storageSection],
-  };
-  const growth = {
-    "storage.bucket_bytes": {
-      points: [
-        { at: "2026-09-21T06:00:00.000Z", value: 119_900_000_000_000 },
-        { at: "2026-09-28T06:00:00.000Z", value: 120_400_000_000_000 },
-      ],
-    },
-  };
+    sections: [...current.sections, s],
+  });
+  const withStorage = withSection(storageSection);
 
   it("says not collected yet, never zero, when the section is absent", () => {
-    const view = storageView(current, {});
+    const view = storageView(current, {}, SOON_AFTER);
     expect(view.collected).toBe(false);
+    expect(view.title).toBe("Data storage");
     expect(view.bucket).toBe("Not collected yet");
+    expect(view.badge).toEqual({ tone: "neutral", text: "Not collected yet" });
     expect(view.bars).toEqual([]);
     expect(view.delta).toBeNull();
+    expect(view.dateLine).toBeNull();
     expect(view.note).toContain("Unknown is not zero");
     // The catalog side of the comparison is still known, and still said.
     expect(view.comparison).toBe("Public catalog is 65.6 TB.");
   });
 
-  it("treats a section without a bucket size as not collected", () => {
-    const partial: MetricSnapshot = {
-      ...current,
-      sections: [...current.sections, { ...storageSection, metrics: [storageSection.metrics[1]] }],
-    };
-    const view = storageView(partial, growth);
+  it("says the collection failed when the collector pushed its failure status", () => {
+    const view = storageView(withSection(failedSection), growth, SOON_AFTER);
     expect(view.collected).toBe(false);
+    expect(view.bucket).toBe("Not collected yet");
+    expect(view.badge).toEqual({ tone: "error", text: "Collection failed" });
+    expect(view.note).toContain("latest collection failed");
+    expect(view.note).toContain("Unknown is not zero");
+    expect(view.delta).toBeNull();
+    // The failure is an error metric, so it leads the attention summary.
+    const item = deriveAttention(withSection(failedSection), SOON_AFTER).items.find(
+      (i) => i.key === "storage.collector.errors",
+    );
+    expect(item).toMatchObject({ tone: "error", link: { href: "#section-storage" } });
+  });
+
+  it("treats a section without a bucket size as not collected", () => {
+    const partial = withSection({
+      ...storageSection,
+      metrics: storageSection.metrics.filter((m) => m.key === "storage.object_count"),
+    });
+    const view = storageView(partial, growth, SOON_AFTER);
+    expect(view.collected).toBe(false);
+    expect(view.badge).toEqual({ tone: "neutral", text: "No bucket size" });
     expect(view.note).toBe("The storage section reported no bucket size. Unknown is not zero.");
   });
 
   it("compares the bucket with the public catalog without calling the gap waste", () => {
-    const view = storageView(withStorage, growth);
+    const view = storageView(withStorage, growth, SOON_AFTER);
     expect(view.collected).toBe(true);
-    expect(view.bucket).toBe("120.4 TB");
-    expect(view.objects).toBe("12,345,678 objects");
-    expect(view.comparison).toBe("Bucket holds 120.4 TB; public catalog is 65.6 TB.");
+    expect(view.title).toBe("Data storage");
+    expect(view.bucket).toBe("121.7 TB");
+    expect(view.objects).toBe("1,347,607,631 objects");
+    expect(view.comparison).toBe("Bucket holds 121.7 TB; public catalog is 65.6 TB.");
     expect(view.bars.map((b) => [b.label, b.value])).toEqual([
-      ["S3 bucket", "120.4 TB"],
+      ["S3 bucket", "121.7 TB"],
       ["Public catalog", "65.6 TB"],
     ]);
     expect(view.bars[0].widthPct).toBe(100);
-    expect(view.bars[1].widthPct).toBeCloseTo(54.5, 1);
+    expect(view.bars[1].widthPct).toBeCloseTo(53.9, 1);
     expect(view.note).toBe(STORAGE_COMPARISON_NOTE);
     expect(view.note).toContain("not unused space");
+    expect(view.byClass?.breakdown).toEqual([{ label: "Standard", value: 121_650_377_907_484 }]);
+    expect(view.badge).toEqual({ tone: "ok", text: "OK" });
   });
 
   it("reports growth over the history and the day CloudWatch measured", () => {
-    const view = storageView(withStorage, growth);
-    expect(view.delta).toEqual({ direction: "up", text: "+500.0 GB in 7 days" });
-    expect(view.points).toHaveLength(2);
-    expect(view.measured).toBe("Sep 27, 2026");
-    expect(view.byClass?.key).toBe("storage.by_class");
+    const view = storageView(withStorage, growth, SOON_AFTER);
+    expect(view.delta).toEqual({ direction: "up", text: "+6.5 TB in 6 days" });
+    expect(view.points).toHaveLength(7);
+    // The collector's hint names the day: "Total bytes stored on 2026-09-28 UTC ...".
+    expect(view.dateLine).toBe("Measured Sep 28, 2026 (UTC).");
   });
 
-  it("falls back to the push time when the hint carries no date", () => {
-    const [bucket, ...rest] = storageSection.metrics;
-    const undated: MetricSnapshot = {
-      ...current,
-      sections: [
-        ...current.sections,
-        { ...storageSection, metrics: [{ ...bucket, hint: undefined }, ...rest] },
-      ],
-    };
-    expect(storageView(undated, {}).measured).toBe("Sep 28, 2026");
+  it("says when the figure was received, never measured, when the hint names no day", () => {
+    const undated = withSection({
+      ...storageSection,
+      metrics: storageSection.metrics.map((m) =>
+        m.key === "storage.bucket_bytes" ? { ...m, hint: "Total bytes stored." } : m,
+      ),
+    });
+    const view = storageView(undated, {}, SOON_AFTER);
+    expect(view.dateLine).toBe("Received Sep 28, 2026 (UTC).");
+    expect(view.dateLine).not.toContain("Measured");
+  });
+
+  it("reads the measurement day from either collector's hint, and only a real day", () => {
+    expect(measuredDayFromHint("Total bytes stored on 2026-09-28 UTC across all classes.")).toBe(
+      "Sep 28, 2026",
+    );
+    expect(measuredDayFromHint("2026-09-26 UTC; bytes served that day")).toBe("Sep 26, 2026");
+    expect(measuredDayFromHint("Stored on 2026-02-30 UTC.")).toBeNull();
+    expect(measuredDayFromHint("Updated 2026-09-28.")).toBeNull();
+    expect(measuredDayFromHint(undefined)).toBeNull();
+  });
+
+  it("marks storage out of date once a daily push is missed", () => {
+    const late = withSection({
+      ...storageSection,
+      updated_at: minutesBeforeGeneration(3 * 24 * 60),
+    });
+    expect(storageView(late, growth, SOON_AFTER).badge).toEqual({
+      tone: "warn",
+      text: "Out of date",
+    });
+    const item = deriveAttention(late, SOON_AFTER).items.find((i) => i.key === "storage.stale");
+    expect(item).toMatchObject({ kind: "section_stale", link: { href: "#section-storage" } });
+    expect(item?.detail).toContain("once a day");
   });
 
   it("keeps storage out of the pipeline grid but in the attention summary", () => {
-    expect(arrangeSections(withStorage).healthy.map((s) => s.key)).not.toContain("storage");
-    const warned: MetricSnapshot = {
-      ...current,
-      sections: [
-        ...current.sections,
-        {
-          ...storageSection,
-          metrics: storageSection.metrics.map((m) =>
-            m.key === "storage.bucket_bytes" ? { ...m, severity: "warn" } : m,
-          ),
-        },
-      ],
-    };
+    expect(arrangeSections(withStorage, SOON_AFTER).healthy.map((s) => s.key)).not.toContain(
+      "storage",
+    );
+    const warned = withSection({
+      ...storageSection,
+      metrics: storageSection.metrics.map((m) =>
+        m.key === "storage.bucket_bytes" ? { ...m, severity: "warn" } : m,
+      ),
+    });
     const item = deriveAttention(warned, SOON_AFTER).items.find(
       (i) => i.key === "storage.bucket_bytes",
     );
-    expect(item).toMatchObject({ tone: "warn", value: "120.4 TB", sectionLabel: "S3 storage" });
+    expect(item).toMatchObject({ tone: "warn", value: "121.7 TB", sectionLabel: "Data storage" });
     expect(item?.link.href).toBe("#section-storage");
     expect(OVERVIEW_HISTORY_KEYS).toContain("storage.bucket_bytes");
   });

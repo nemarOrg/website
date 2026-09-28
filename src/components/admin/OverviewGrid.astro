@@ -7,7 +7,8 @@
  *
  * Reading order is problems first: the attention summary, the headline KPI
  * cards, then one status card per pipeline section, with the sections that
- * have a warning or error at full height and the healthy ones folded. The
+ * have a warning or error, are out of date, or reported nothing at full
+ * height and the healthy ones folded. The
  * catalog (what NEMAR holds rather than a pipeline's state) comes last. Every
  * decision about what goes where is in `admin-overview.ts`.
  *
@@ -19,6 +20,7 @@ import {
   type HistoryMap,
   arrangeSections,
   deriveAttention,
+  freshnessReference,
   kpiSpecs,
   sectionAnchor,
   shareText,
@@ -47,7 +49,9 @@ const { snapshot, history = {}, now = new Date() } = Astro.props;
 
 const attention = snapshot ? deriveAttention(snapshot, now) : null;
 const kpis = snapshot ? kpiSpecs(snapshot, history) : [];
-const arranged = snapshot ? arrangeSections(snapshot) : null;
+const arranged = snapshot ? arrangeSections(snapshot, now) : null;
+// The clock each section's age is read against (the snapshot's own time).
+const asOf = snapshot ? freshnessReference(snapshot, now) : now;
 const catalogScalars = arranged
   ? arranged.catalog.flatMap((s) =>
       s.metrics.filter((m) => !m.breakdown || m.breakdown.length === 0),
@@ -67,7 +71,7 @@ const catalogLede = [
 ]
   .filter(Boolean)
   .join(", ");
-const storage = snapshot ? storageView(snapshot, history) : null;
+const storage = snapshot ? storageView(snapshot, history, now) : null;
 ---
 
 <div class="overview">
@@ -111,7 +115,8 @@ const storage = snapshot ? storageView(snapshot, history) : null;
             <div>
               <h2 class="overview__group-title" id="pipelines-title">Pipelines and services</h2>
               <p class="overview__group-lede">
-                Sections with a warning or error first; healthy ones are folded.
+                Sections with a warning, an error, or stale or missing figures first; healthy
+                ones are folded.
               </p>
             </div>
             <span class="scope-chip">Current state</span>
@@ -121,10 +126,10 @@ const storage = snapshot ? storageView(snapshot, history) : null;
           ) : (
             <div class="overview__cards">
               {arranged.problems.map((section) => (
-                <SectionStatusCard section={section} history={history} />
+                <SectionStatusCard section={section} history={history} asOf={asOf} />
               ))}
               {arranged.healthy.map((section) => (
-                <SectionStatusCard section={section} history={history} compact />
+                <SectionStatusCard section={section} history={history} asOf={asOf} compact />
               ))}
             </div>
           )}

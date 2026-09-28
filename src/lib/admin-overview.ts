@@ -60,7 +60,7 @@ const SECTION_LABELS: Readonly<Record<string, string>> = {
   cf: "Edge traffic",
   users: "Users",
   egress: "Storage egress",
-  storage: "S3 storage",
+  storage: "Data storage",
   sync: "Sync",
 };
 
@@ -94,6 +94,17 @@ export function sectionAnchor(key: string): string {
   return `section-${key.replace(/[^a-z0-9_-]/gi, "-")}`;
 }
 
+/** The catalog sections: what NEMAR holds rather than a pipeline's state. */
+export const CATALOG_SECTION_KEYS: readonly string[] = ["datasets", "sizes"];
+
+/**
+ * Where on this page a section is drawn. Catalog sections share one block
+ * rather than a card each, so they link to it.
+ */
+export function sectionHref(key: string): string {
+  return `#${sectionAnchor(CATALOG_SECTION_KEYS.includes(key) ? "catalog" : key)}`;
+}
+
 /** Percent of a total to one decimal, or null when there is no total to be a share of. */
 export function percentOf(value: number, total: number | undefined): number | null {
   if (typeof total !== "number" || !Number.isFinite(total) || total <= 0) return null;
@@ -114,27 +125,92 @@ function plural(count: number, one: string, many: string): string {
 
 // ---------- section status ----------
 
+/**
+ * A section's verdict. `unknown` is a section that reported no figures: its
+ * state has not been measured, which must never read as healthy.
+ */
+export type SectionTone = StatusTone | "unknown";
+
+/**
+ * Pulled sections are recomputed with every hourly snapshot; three missed
+ * runs is worth saying. This is also the bound on the snapshot itself.
+ */
+export const STALE_AFTER_MINUTES = 180;
+
+/**
+ * Sections pushed once a day from S3 CloudWatch. A day's figure lands about
+ * a day behind, so the bound is one missed daily run plus half a day of
+ * grace rather than the hourly one, which would flag them every afternoon.
+ */
+export const DAILY_SECTION_KEYS: readonly string[] = ["storage", "egress"];
+export const DAILY_STALE_AFTER_MINUTES = 36 * 60;
+
+/** How old a section's figures may be, relative to the snapshot, before they are out of date. */
+export function staleBoundMinutes(sectionKey: string): number {
+  return DAILY_SECTION_KEYS.includes(sectionKey) ? DAILY_STALE_AFTER_MINUTES : STALE_AFTER_MINUTES;
+}
+
+/**
+ * The clock a section's age is read against: when the snapshot was
+ * generated, or `now` when that time is unreadable. Measuring against the
+ * snapshot keeps an old snapshot from marking every section it computed as
+ * out of date (the snapshot's own staleness says that once), while a pushed
+ * section that stopped arriving still shows its lag.
+ */
+export function freshnessReference(snapshot: MetricSnapshot, now: Date): Date {
+  const generated = Date.parse(snapshot.generated_at);
+  return Number.isFinite(generated) ? new Date(generated) : now;
+}
+
 export interface SectionStatus {
-  readonly tone: StatusTone;
+  readonly tone: SectionTone;
   readonly errors: number;
   readonly warnings: number;
-  /** Badge text: "1 error, 1 warning", "2 warnings", or "OK". */
+  /** Minutes between the section's update and the reference time; null when its update time is unreadable. */
+  readonly lagMinutes: number | null;
+  /** Older than its bound, or with no readable update time. */
+  readonly stale: boolean;
+  /** Badge text: "1 error, 1 warning", "Out of date", "No data", or "OK". */
   readonly text: string;
 }
 
-export function sectionStatus(section: MetricSection): SectionStatus {
+/**
+ * A section's worst state. Severity comes from its metrics; staleness from
+ * its own `updated_at` read against `asOf` (see {@link freshnessReference});
+ * a section with no metrics is `unknown`, never OK.
+ */
+export function sectionStatus(section: MetricSection, asOf: Date): SectionStatus {
   const errors = section.metrics.filter((m) => m.severity === "error").length;
   const warnings = section.metrics.filter((m) => m.severity === "warn").length;
-  const tone: StatusTone = errors > 0 ? "error" : warnings > 0 ? "warn" : "ok";
+  const updated = Date.parse(section.updated_at);
+  const lagMinutes = Number.isFinite(updated)
+    ? Math.max(0, Math.round((asOf.getTime() - updated) / 60_000))
+    : null;
+  const stale = lagMinutes === null || lagMinutes > staleBoundMinutes(section.key);
+  const empty = section.metrics.length === 0;
+  const tone: SectionTone =
+    errors > 0 ? "error" : warnings > 0 || stale ? "warn" : empty ? "unknown" : "ok";
   const parts = [
     errors > 0 ? plural(errors, "error", "errors") : "",
     warnings > 0 ? plural(warnings, "warning", "warnings") : "",
+    stale ? (lagMinutes === null ? "update time unknown" : "out of date") : "",
+    empty ? "no data" : "",
   ].filter(Boolean);
-  return { tone, errors, warnings, text: parts.length > 0 ? parts.join(", ") : "OK" };
+  const text = parts.length > 0 ? parts.join(", ") : "OK";
+  return {
+    tone,
+    errors,
+    warnings,
+    lagMinutes,
+    stale,
+    text: text.charAt(0).toUpperCase() + text.slice(1),
+  };
 }
 
-/** The catalog sections: what NEMAR holds rather than a pipeline's state. */
-export const CATALOG_SECTION_KEYS: readonly string[] = ["datasets", "sizes"];
+/** The status pill tone for a section verdict: an unmeasured section is neutral. */
+export function badgeToneFor(tone: SectionTone): StatusTone | "neutral" {
+  return tone === "unknown" ? "neutral" : tone;
+}
 
 /**
  * The pushed S3 bucket-size section. It has its own card near the top of the
@@ -144,24 +220,35 @@ export const CATALOG_SECTION_KEYS: readonly string[] = ["datasets", "sizes"];
 export const STORAGE_SECTION_KEY = "storage";
 
 export interface ArrangedSections {
-  /** Sections with a warn or error metric, errors first, snapshot order within a tone. */
+  /**
+   * Sections that are not plainly OK: an error, a warning or stale figures,
+   * then no data at all. Worst first, snapshot order within a tone.
+   */
   readonly problems: readonly MetricSection[];
-  /** Operational sections with nothing at warn or error. */
+  /** Operational sections that are current and have nothing at warn or error. */
   readonly healthy: readonly MetricSection[];
   readonly catalog: readonly MetricSection[];
 }
 
-export function arrangeSections(snapshot: MetricSnapshot): ArrangedSections {
+const SECTION_TONE_RANK: Readonly<Record<SectionTone, number>> = {
+  error: 3,
+  warn: 2,
+  unknown: 1,
+  ok: 0,
+};
+
+export function arrangeSections(snapshot: MetricSnapshot, now: Date): ArrangedSections {
+  const asOf = freshnessReference(snapshot, now);
   const catalog = snapshot.sections.filter((s) => CATALOG_SECTION_KEYS.includes(s.key));
   const operational = snapshot.sections.filter(
     (s) => !CATALOG_SECTION_KEYS.includes(s.key) && s.key !== STORAGE_SECTION_KEY,
   );
-  const rank = (s: MetricSection) => severityRank(sectionStatus(s).tone);
+  const rank = (s: MetricSection) => SECTION_TONE_RANK[sectionStatus(s, asOf).tone];
   const problems = operational
-    .filter((s) => sectionStatus(s).tone !== "ok")
+    .filter((s) => sectionStatus(s, asOf).tone !== "ok")
     // Array.prototype.sort is stable, so snapshot order holds within a tone.
     .sort((a, b) => rank(b) - rank(a));
-  const healthy = operational.filter((s) => sectionStatus(s).tone === "ok");
+  const healthy = operational.filter((s) => sectionStatus(s, asOf).tone === "ok");
   return { problems, healthy, catalog };
 }
 
@@ -228,12 +315,18 @@ export function hasUnlinkedDrilldown(section: MetricSection): boolean {
 
 // ---------- attention summary ----------
 
-/** The snapshot is recomputed hourly; three missed runs is worth saying. */
-export const STALE_AFTER_MINUTES = 180;
+/** An item's mark: `unknown` is something not measured, said without an alarm. */
+export type AttentionTone = "warn" | "error" | "unknown";
 
 export interface AttentionItem {
-  readonly kind: "metric" | "section_error" | "stale";
-  readonly tone: "warn" | "error";
+  readonly kind:
+    | "metric"
+    | "section_error"
+    | "stale"
+    | "section_stale"
+    | "section_empty"
+    | "no_data";
+  readonly tone: AttentionTone;
   readonly key: string;
   readonly label: string;
   readonly sectionKey: string;
@@ -251,13 +344,25 @@ export interface AttentionSummary {
   readonly items: readonly AttentionItem[];
   readonly errorCount: number;
   readonly warnCount: number;
+  /** Items about something not measured at all (a section with no figures). */
+  readonly unknownCount: number;
   /** Distinct sections with at least one item. */
   readonly sectionCount: number;
-  readonly tone: StatusTone;
+  /** `ok` only when there are sections, all measured, and nothing is flagged. */
+  readonly tone: SectionTone;
   /** Minutes since `generated_at`, or null when the timestamp is unreadable. */
   readonly ageMinutes: number | null;
+  /** Older than the bound, or with an unreadable generation time. */
   readonly stale: boolean;
 }
+
+const ATTENTION_TONE_RANK: Readonly<Record<AttentionTone, number>> = {
+  error: 2,
+  warn: 1,
+  unknown: 0,
+};
+
+const SNAPSHOT_LINK: PortalLink = { href: "#snapshot-meta", label: "See snapshot time" };
 
 export function snapshotAgeMinutes(snapshot: MetricSnapshot, now: Date): number | null {
   const at = Date.parse(snapshot.generated_at);
@@ -291,6 +396,7 @@ export function deriveAttention(
   now: Date = new Date(),
 ): AttentionSummary {
   const items: AttentionItem[] = [];
+  const asOf = freshnessReference(snapshot, now);
 
   for (const error of snapshot.section_errors) {
     const label = sectionLabel(error.key, snapshot);
@@ -309,6 +415,7 @@ export function deriveAttention(
   }
 
   for (const section of snapshot.sections) {
+    const here: PortalLink = { href: sectionHref(section.key), label: `See ${section.label}` };
     for (const metric of section.metrics) {
       if (metric.severity !== "error" && metric.severity !== "warn") continue;
       const portal = portalLinkFor(metric.key);
@@ -321,18 +428,81 @@ export function deriveAttention(
         sectionLabel: section.label,
         value: formatMetricValue(metric),
         detail: shareText(metric),
-        link: portal ?? {
-          href: `#${sectionAnchor(section.key)}`,
-          label: `See ${section.label}`,
-        },
+        link: portal ?? here,
         inPortal: portal !== null,
+      });
+    }
+
+    const status = sectionStatus(section, asOf);
+    if (status.stale) {
+      const cadence = DAILY_SECTION_KEYS.includes(section.key) ? "once a day" : "every hour";
+      items.push({
+        kind: "section_stale",
+        tone: "warn",
+        key: `${section.key}.stale`,
+        label:
+          status.lagMinutes === null
+            ? `${section.label} has no readable update time`
+            : `${section.label} is out of date`,
+        sectionKey: section.key,
+        sectionLabel: section.label,
+        value: "",
+        detail:
+          status.lagMinutes === null
+            ? "How current its figures are is unknown."
+            : `Last updated ${ageText(status.lagMinutes)} before this snapshot; it normally updates ${cadence}.`,
+        link: here,
+        inPortal: false,
+      });
+    }
+    if (section.metrics.length === 0) {
+      items.push({
+        kind: "section_empty",
+        tone: "unknown",
+        key: `${section.key}.empty`,
+        label: `${section.label} reported no figures`,
+        sectionKey: section.key,
+        sectionLabel: section.label,
+        value: "",
+        detail: "Its state is unknown, which is not the same as healthy.",
+        link: here,
+        inPortal: false,
       });
     }
   }
 
+  if (snapshot.sections.length === 0 && snapshot.section_errors.length === 0) {
+    items.push({
+      kind: "no_data",
+      tone: "unknown",
+      key: "snapshot.empty",
+      label: "The snapshot has no sections",
+      sectionKey: "snapshot",
+      sectionLabel: "Observability",
+      value: "",
+      detail: "Nothing was measured, so nothing is known to be healthy.",
+      link: SNAPSHOT_LINK,
+      inPortal: false,
+    });
+  }
+
   const ageMinutes = snapshotAgeMinutes(snapshot, now);
-  const stale = ageMinutes !== null && ageMinutes > STALE_AFTER_MINUTES;
-  if (stale && ageMinutes !== null) {
+  const stale = ageMinutes === null || ageMinutes > STALE_AFTER_MINUTES;
+  if (ageMinutes === null) {
+    items.push({
+      kind: "stale",
+      tone: "warn",
+      key: "snapshot.time_unknown",
+      label: "Snapshot time is unknown",
+      sectionKey: "snapshot",
+      sectionLabel: "Observability",
+      value: "",
+      detail:
+        "Its generation time is unreadable, so how current any figure below is cannot be told.",
+      link: SNAPSHOT_LINK,
+      inPortal: false,
+    });
+  } else if (stale) {
     items.push({
       kind: "stale",
       tone: "warn",
@@ -342,23 +512,26 @@ export function deriveAttention(
       sectionLabel: "Observability",
       value: "",
       detail: `Generated ${ageText(ageMinutes)} ago; it normally refreshes every hour, so every figure below may be behind.`,
-      link: { href: "#snapshot-meta", label: "See snapshot time" },
+      link: SNAPSHOT_LINK,
       inPortal: false,
     });
   }
 
-  // Errors first; insertion order (section errors, then snapshot order,
-  // then staleness) holds within a tone because the sort is stable.
-  items.sort((a, b) => severityRank(b.tone) - severityRank(a.tone));
+  // Errors, then warnings, then what is unmeasured; insertion order (section
+  // errors, then snapshot order, then the snapshot's own state) holds within
+  // a tone because the sort is stable.
+  items.sort((a, b) => ATTENTION_TONE_RANK[b.tone] - ATTENTION_TONE_RANK[a.tone]);
 
   const errorCount = items.filter((i) => i.tone === "error").length;
   const warnCount = items.filter((i) => i.tone === "warn").length;
+  const unknownCount = items.filter((i) => i.tone === "unknown").length;
   return {
     items,
     errorCount,
     warnCount,
+    unknownCount,
     sectionCount: new Set(items.map((i) => i.sectionKey)).size,
-    tone: errorCount > 0 ? "error" : warnCount > 0 ? "warn" : "ok",
+    tone: errorCount > 0 ? "error" : warnCount > 0 ? "warn" : unknownCount > 0 ? "unknown" : "ok",
     ageMinutes,
     stale,
   };
@@ -723,24 +896,32 @@ export interface StorageBar {
 }
 
 export interface StorageView {
+  /** The section's own label, or the contract's ("Data storage") before it exists. */
+  readonly title: string;
   /** False until the pushed `storage` section reports a bucket size. */
   readonly collected: boolean;
-  /** "120.4 TB", or "Not collected yet". */
+  /** "121.7 TB", or "Not collected yet". */
   readonly bucket: string;
-  /** "12,345,678 objects", or null when not reported. */
+  /** "1,347,607,631 objects", or null when not reported. */
   readonly objects: string | null;
-  /** "Bucket holds 120.4 TB; public catalog is 65.6 TB." */
+  /** "Bucket holds 121.7 TB; public catalog is 65.6 TB." */
   readonly comparison: string | null;
   /** The two comparison bars, bucket first; empty unless both sizes are known. */
   readonly bars: readonly StorageBar[];
   /** Growth over the stored history, or null without one. */
   readonly delta: Delta | null;
   readonly points: readonly MetricPoint[] | null;
-  /** "Sep 26, 2026", the day CloudWatch measured, or null when unknown. */
-  readonly measured: string | null;
+  /**
+   * When the figure is from: "Measured Sep 28, 2026 (UTC)." when the collector
+   * names the CloudWatch day, else "Received Sep 28, 2026 (UTC)." from the
+   * push time, which is not a measurement day and is never called one.
+   */
+  readonly dateLine: string | null;
   /** Bytes per storage class, when the section carries it. */
   readonly byClass: Metric | null;
   readonly status: SectionStatus | null;
+  /** The card's pill: the section's status once collected, else why there is no figure. */
+  readonly badge: { readonly tone: StatusTone | "neutral"; readonly text: string };
   /** The sentence under the figures: what the numbers are, or why there are none. */
   readonly note: string;
   /** The section's own source line, when it exists. */
@@ -754,12 +935,10 @@ export const STORAGE_COMPARISON_NOTE =
 const STORAGE_NOT_COLLECTED =
   "Bucket size arrives as a daily push from S3 CloudWatch metrics, and no report has arrived yet. Unknown is not zero.";
 
-function measuredDay(metric: Metric, section: MetricSection): string | null {
-  // A collector that knows the CloudWatch day leads its hint with it
-  // ("2026-09-26 UTC; ...", as the egress section does); otherwise the
-  // section's own push time is the best date there is.
-  const lead = metric.hint?.match(/^(\d{4}-\d{2}-\d{2})\b/);
-  const iso = lead ? `${lead[1]}T00:00:00Z` : section.updated_at;
+const STORAGE_COLLECTION_FAILED =
+  "The latest collection failed, so the amount stored is unknown until a later run succeeds. Unknown is not zero.";
+
+function utcDay(iso: string): string | null {
   const at = new Date(iso);
   if (!Number.isFinite(at.getTime())) return null;
   return at.toLocaleDateString("en-US", {
@@ -771,26 +950,55 @@ function measuredDay(metric: Metric, section: MetricSection): string | null {
 }
 
 /**
+ * The CloudWatch day a figure describes, from its hint. The collector writes
+ * it as "<YYYY-MM-DD> UTC" ("Total bytes stored on 2026-09-28 UTC across all
+ * storage classes"), as the egress section does; a hint without one leaves
+ * the day unknown.
+ */
+export function measuredDayFromHint(hint: string | undefined): string | null {
+  const match = hint?.match(/\b(\d{4}-\d{2}-\d{2}) UTC\b/);
+  if (!match) return null;
+  const iso = `${match[1]}T00:00:00Z`;
+  // Reject a date that does not exist ("2026-02-30") rather than rolling it over.
+  if (new Date(iso).toISOString().slice(0, 10) !== match[1]) return null;
+  return utcDay(iso);
+}
+
+function storageDateLine(bucket: Metric, section: MetricSection): string | null {
+  const measured = measuredDayFromHint(bucket.hint);
+  if (measured) return `Measured ${measured} (UTC).`;
+  const received = utcDay(section.updated_at);
+  return received ? `Received ${received} (UTC).` : null;
+}
+
+/**
  * The storage card: how much the `nemar` bucket holds, how fast it grows,
  * and how that compares with the public catalog's own size. Absent the
  * pushed section (or its bucket-size metric), every figure says it has not
- * been collected, never zero.
+ * been collected, or that collection failed, never zero.
  */
-export function storageView(snapshot: MetricSnapshot, history: HistoryMap): StorageView {
+export function storageView(snapshot: MetricSnapshot, history: HistoryMap, now: Date): StorageView {
   const section = snapshot.sections.find((s) => s.key === STORAGE_SECTION_KEY) ?? null;
   const bucket = section?.metrics.find((m) => m.key === "storage.bucket_bytes") ?? null;
   const objects = section?.metrics.find((m) => m.key === "storage.object_count") ?? null;
   const byClass =
     section?.metrics.find((m) => m.key === "storage.by_class" && (m.breakdown?.length ?? 0) > 0) ??
     null;
+  const collectorErrors = section?.metrics.find((m) => m.key === "storage.collector.errors");
+  const failed =
+    collectorErrors !== undefined &&
+    (collectorErrors.severity === "error" || collectorErrors.value > 0);
   const catalog = metricIndex(snapshot).get("datasets.bytes") ?? null;
-  const updated = section ? formatRelativeTime(section.updated_at) : "";
+  const status = section ? sectionStatus(section, freshnessReference(snapshot, now)) : null;
+  const updated = section ? formatRelativeTime(section.updated_at, now) : "";
   const source = section
     ? `From ${sourceLabel(section.source)}${updated ? `, updated ${updated}` : ""}`
     : null;
+  const title = section?.label ?? sectionLabel(STORAGE_SECTION_KEY);
 
   if (!section || !bucket) {
     return {
+      title,
       collected: false,
       bucket: "Not collected yet",
       objects: null,
@@ -798,12 +1006,19 @@ export function storageView(snapshot: MetricSnapshot, history: HistoryMap): Stor
       bars: [],
       delta: null,
       points: null,
-      measured: null,
+      dateLine: null,
       byClass: null,
-      status: section ? sectionStatus(section) : null,
-      note: section
-        ? "The storage section reported no bucket size. Unknown is not zero."
-        : STORAGE_NOT_COLLECTED,
+      status,
+      badge: !section
+        ? { tone: "neutral", text: "Not collected yet" }
+        : failed
+          ? { tone: "error", text: "Collection failed" }
+          : { tone: "neutral", text: "No bucket size" },
+      note: !section
+        ? STORAGE_NOT_COLLECTED
+        : failed
+          ? STORAGE_COLLECTION_FAILED
+          : "The storage section reported no bucket size. Unknown is not zero.",
       source,
     };
   }
@@ -811,6 +1026,7 @@ export function storageView(snapshot: MetricSnapshot, history: HistoryMap): Stor
   const points = history[STORAGE_HISTORY_KEY]?.points ?? null;
   const max = Math.max(bucket.value, catalog?.value ?? 0) || 1;
   return {
+    title,
     collected: true,
     bucket: formatSiBytes(bucket.value),
     objects: objects ? `${formatExactCount(objects.value)} objects` : null,
@@ -833,9 +1049,12 @@ export function storageView(snapshot: MetricSnapshot, history: HistoryMap): Stor
       : [],
     delta: historyDelta(points ?? undefined, formatSiBytes),
     points: points && points.length >= 2 ? points : null,
-    measured: measuredDay(bucket, section),
+    dateLine: storageDateLine(bucket, section),
     byClass,
-    status: sectionStatus(section),
+    status,
+    badge: status
+      ? { tone: badgeToneFor(status.tone), text: status.text }
+      : { tone: "neutral", text: "Unknown" },
     note: STORAGE_COMPARISON_NOTE,
     source,
   };

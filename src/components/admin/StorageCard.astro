@@ -4,10 +4,11 @@
  * for keeping an eye on. Bucket size, object count, growth over the stored
  * history, and a comparison with the public catalog's own size, framed so a
  * gap between the two never reads as waste. CloudWatch storage metrics
- * update once a day, so the card names the day it was measured.
+ * update once a day, so the card names the day measured when the collector
+ * reports it, and otherwise only the day the figure was received.
  *
- * The pushed `storage` section may not be in the snapshot yet; the card then
- * says "Not collected yet" with the reason, never zero. Every decision is in
+ * The pushed `storage` section may not be in the snapshot yet, or its latest
+ * run may have failed; the card then says so with the reason, never zero. Every decision is in
  * `storageView` (admin-overview.ts), unit-tested there.
  */
 import { STORAGE_SECTION_KEY, type StorageView, sectionAnchor } from "../../lib/admin-overview";
@@ -25,22 +26,20 @@ const anchor = sectionAnchor(STORAGE_SECTION_KEY);
 ---
 
 <article
-  class:list={["storage", view.status && `storage--${view.status.tone}`]}
+  class:list={["storage", `storage--${view.badge.tone}`]}
   id={anchor}
   aria-labelledby={`${anchor}-title`}
 >
   <header class="storage__head">
     <div class="storage__titles">
-      <h3 class="storage__title" id={`${anchor}-title`}>S3 storage</h3>
-      <p class="storage__sub">{view.source ?? "The nemar bucket, from daily S3 CloudWatch metrics"}</p>
+      <h3 class="storage__title" id={`${anchor}-title`}>{view.title}</h3>
+      <p class="storage__sub">
+        {view.source
+          ? `The nemar S3 bucket. ${view.source}`
+          : "The nemar S3 bucket, from daily S3 CloudWatch metrics"}
+      </p>
     </div>
-    {
-      view.collected && view.status ? (
-        <StatusBadge tone={view.status.tone} text={view.status.text} />
-      ) : (
-        <StatusBadge tone="neutral" text="Not collected yet" />
-      )
-    }
+    <StatusBadge tone={view.badge.tone} text={view.badge.text} />
   </header>
 
   <div class="storage__body">
@@ -59,8 +58,7 @@ const anchor = sectionAnchor(STORAGE_SECTION_KEY);
       {
         view.collected && (
           <p class="storage__fine">
-            {view.measured ? `Measured ${view.measured} (UTC). ` : ""}CloudWatch reports bucket
-            size once a day.
+            {view.dateLine ? `${view.dateLine} ` : ""}CloudWatch reports bucket size once a day.
           </p>
         )
       }
