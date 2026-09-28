@@ -2,6 +2,7 @@
 import ConfirmDialog from "../../components/ConfirmDialog.astro";
 import StatusIcon from "../../components/admin/StatusIcon.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
+import { noticeLevelBadge } from "../../lib/admin-badges";
 import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
 import { formatDate, formatRelativeTime } from "../../lib/format";
@@ -41,7 +42,14 @@ try {
 // admin needs to see that a notice has lapsed even while the public
 // endpoint is still (wrongly) serving it.
 const now = new Date();
-const rows = notices.map((notice) => ({ notice, expired: isNoticeExpired(notice, now) }));
+// The badge draws the level the public banner renders it as, so production's
+// legacy `info` gets the `tip` tint and icon instead of failing the page; the
+// pill's text stays the raw stored level.
+const rows = notices.map((notice) => ({
+  notice,
+  expired: isNoticeExpired(notice, now),
+  badge: noticeLevelBadge(notice.level),
+}));
 const liveCount = rows.filter((r) => !r.expired).length;
 
 const LEVEL_HINTS: Record<string, string> = {
@@ -59,14 +67,6 @@ const SCOPE_HINTS: Record<string, string> = {
   members: "Signed-in members only.",
   admins: "Admins and owners only.",
 };
-// The badge's icon, so a level never rests on its tint alone.
-const LEVEL_ICONS = {
-  critical: "error",
-  warning: "warn",
-  maintenance: "progress",
-  announcement: "ok",
-  tip: "info",
-} as const;
 ---
 
 <AdminLayout title="Notices" active="notices" session={session}>
@@ -155,12 +155,12 @@ const LEVEL_ICONS = {
       </div>
     ) : (
       <ul class="admin-list" role="list">
-        {rows.map(({ notice, expired }) => (
+        {rows.map(({ notice, expired, badge }) => (
           <li>
             <article class:list={["notice-row", { "notice-row--expired": expired }]}>
               <div class="notice-row__head">
-                <span class:list={["notice-badge", `notice-badge--${notice.level}`]}>
-                  <StatusIcon name={LEVEL_ICONS[notice.level]} size={14} />
+                <span class:list={["notice-badge", `notice-badge--${badge.level}`]}>
+                  <StatusIcon name={badge.icon} size={14} />
                   <span class="notice-badge__text">{notice.level}</span>
                 </span>
                 <span class="notice-row__scope">

@@ -12,7 +12,11 @@
  *   failed import, i.e. an operator already dealt with it.
  * - The three in-flight stages share one "info" tone with a clock icon; the
  *   stage itself is rendered separately on the row.
+ *
+ * A status this build has no entry for renders as a neutral pill with the
+ * raw value rather than failing the page; see `lib/admin-badges.ts`.
  */
+import { badgeIcon, badgeLabel, badgeTone } from "../lib/admin-badges";
 import type { ImportStatus } from "../lib/imports-admin-api";
 import StatusIcon from "./admin/StatusIcon.astro";
 
@@ -42,19 +46,12 @@ const TONES: Record<ImportStatus, "neutral" | "info" | "warning" | "success" | "
   quarantined: "danger",
   rolled_back: "neutral",
 };
-const label = LABELS[status];
-const tone = TONES[status];
-const ICONS = {
-  neutral: "neutral",
-  info: "progress",
-  warning: "warn",
-  success: "ok",
-  danger: "error",
-} as const;
+const label = badgeLabel(status, LABELS);
+const tone = badgeTone(status, TONES);
 ---
 
 <span class:list={["import-status-badge", `import-status-badge--${tone}`]}>
-  <StatusIcon name={ICONS[tone]} size={14} />
+  <StatusIcon name={badgeIcon(tone)} size={14} />
   <span>{label}</span>
 </span>
 

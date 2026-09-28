@@ -14,8 +14,11 @@
  * over two other columns — see `isAwaitingUploadApproval`.
  *
  * Drawn in the admin portal's badge language: an icon for the tone beside
- * the words, so the state never rests on color.
+ * the words, so the state never rests on color. A status this build has no
+ * entry for (the API can ship one first) renders as a neutral pill with the
+ * raw value rather than failing the page; see `lib/admin-badges.ts`.
  */
+import { badgeIcon, badgeLabel, badgeTone } from "../lib/admin-badges";
 import type { AdminUserStatus } from "../lib/users-admin-api";
 import StatusIcon from "./admin/StatusIcon.astro";
 
@@ -42,13 +45,12 @@ const TONES: Record<AdminUserStatus, "neutral" | "warning" | "success" | "danger
   revoked: "danger",
   revoked_iam_pending: "danger",
 };
-const label = LABELS[status];
-const tone = TONES[status];
-const ICONS = { neutral: "neutral", warning: "warn", success: "ok", danger: "error" } as const;
+const label = badgeLabel(status, LABELS);
+const tone = badgeTone(status, TONES);
 ---
 
 <span class:list={["user-status-badge", `user-status-badge--${tone}`]}>
-  <StatusIcon name={ICONS[tone]} size={14} />
+  <StatusIcon name={badgeIcon(tone)} size={14} />
   <span>{label}</span>
 </span>
 
