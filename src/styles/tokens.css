@@ -159,8 +159,6 @@
   --admin-error-text: #b91c1c;
   --admin-error-soft: rgb(208 59 59 / 10%);
   --admin-neutral-soft: rgb(100 116 139 / 10%);
-  --admin-skeleton: #eef1f6;
-  --admin-skeleton-shine: #f7f8fb;
   --admin-shadow-sm: 0 1px 2px rgb(15 23 42 / 5%);
 }
 
@@ -231,8 +229,6 @@
     --admin-error-text: #fca5a5;
     --admin-error-soft: rgb(229 83 75 / 16%);
     --admin-neutral-soft: rgb(148 163 184 / 14%);
-    --admin-skeleton: #18254a;
-    --admin-skeleton-shine: #1f2f57;
     --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
   }
 }
@@ -299,7 +295,5 @@
   --admin-error-text: #fca5a5;
   --admin-error-soft: rgb(229 83 75 / 16%);
   --admin-neutral-soft: rgb(148 163 184 / 14%);
-  --admin-skeleton: #18254a;
-  --admin-skeleton-shine: #1f2f57;
   --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
 }
