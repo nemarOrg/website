@@ -1,0 +1,115 @@
+---
+/**
+ * A small range-aware usage panel for the admin Overview: requests, data
+ * served, and website sessions for the last 30 complete UTC days, from the
+ * public dashboard's range endpoints (fetched server-side by the page; see
+ * `lib/observability-usage.ts`). The cards reuse the Overview's KPI card,
+ * and every source that did not load or does not measure says so, never
+ * zero. The full breakdown stays on the public dashboard, linked below.
+ */
+import type { KpiSpec } from "../../lib/admin-overview";
+import { type UsageRange, rangeText } from "../../lib/observability-usage";
+import MetricTile from "./MetricTile.astro";
+import StatusIcon from "./StatusIcon.astro";
+
+interface Props {
+  range: UsageRange;
+  kpis: readonly KpiSpec[];
+}
+
+const { range, kpis } = Astro.props;
+---
+
+<section class="usage" aria-labelledby="usage-title">
+  <div class="usage__head">
+    <div>
+      <h2 class="usage__title" id="usage-title">Usage, last 30 days</h2>
+      <p class="usage__lede">
+        Each figure from its own source, for complete UTC days. Requests and sessions are not people.
+      </p>
+    </div>
+    <span class="usage__chip">{rangeText(range)} (UTC)</span>
+  </div>
+  <div class="usage__cards">
+    {kpis.map((spec) => <MetricTile spec={spec} />)}
+  </div>
+  <a
+    class="usage__more"
+    href="https://dashboard.nemar.org/observability#usage"
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    Daily charts, reach, and other ranges on the public dashboard
+    <span class="visually-hidden"> (opens in a new tab)</span>
+    <StatusIcon name="external" size={13} />
+  </a>
+</section>
+
+<style>
+  .usage {
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+  .usage__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-5);
+  }
+  .usage__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.012em;
+    line-height: var(--lh-snug);
+  }
+  .usage__lede {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  /* The dashboard's range chip: an accent dot says it follows dates. */
+  .usage__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-block-size: 1.5rem;
+    padding: 2px var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    font-variant-numeric: tabular-nums;
+  }
+  .usage__chip::before {
+    content: "";
+    flex: none;
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 50%;
+    background: var(--admin-accent);
+  }
+  .usage__cards {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  }
+  .usage__more {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    inline-size: fit-content;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+  }
+  .usage__more:hover {
+    text-decoration: underline;
+  }
+</style>

@@ -1,0 +1,104 @@
+---
+/**
+ * The dashboard's coverage ring: a percentage as an arc, with the figure it
+ * stands for printed beside it ("660 of 668"). The arc is decorative; the
+ * percentage in its center and the words next to it carry the reading.
+ */
+interface Props {
+  percent: number;
+  label: string;
+  /** "660 of 668". */
+  detail: string;
+}
+
+const { percent, label, detail } = Astro.props;
+const SIZE = 64;
+const STROKE = 6;
+const r = (SIZE - STROKE) / 2;
+const c = 2 * Math.PI * r;
+const clamped = Math.max(0, Math.min(100, percent));
+const dash = `${(c * clamped) / 100} ${c}`;
+const shown = `${Math.round(clamped * 10) / 10}%`;
+---
+
+<div class="coverage">
+  <div class="coverage__ring">
+    <svg viewBox={`0 0 ${SIZE} ${SIZE}`} width={SIZE} height={SIZE} aria-hidden="true" focusable="false">
+      <circle class="coverage__track" cx={SIZE / 2} cy={SIZE / 2} r={r} stroke-width={STROKE} />
+      <circle
+        class="coverage__fill"
+        cx={SIZE / 2}
+        cy={SIZE / 2}
+        r={r}
+        stroke-width={STROKE}
+        stroke-dasharray={dash}
+        transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
+      />
+    </svg>
+    <span class="coverage__pct">{shown}</span>
+  </div>
+  <div class="coverage__text">
+    <p class="coverage__label">{label}</p>
+    <p class="coverage__detail">{detail}</p>
+  </div>
+</div>
+
+<style>
+  .coverage {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+  }
+  .coverage__ring {
+    position: relative;
+    inline-size: 64px;
+    block-size: 64px;
+    flex: none;
+  }
+  .coverage__ring svg {
+    display: block;
+  }
+  .coverage__track {
+    fill: none;
+    stroke: var(--admin-surface-3);
+  }
+  .coverage__fill {
+    fill: none;
+    stroke: var(--admin-accent);
+    stroke-linecap: round;
+  }
+  .coverage__pct {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    color: var(--color-fg);
+  }
+  .coverage__text {
+    min-inline-size: 0;
+  }
+  .coverage__label {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .coverage__detail {
+    margin: 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  @media (forced-colors: active) {
+    .coverage__fill {
+      forced-color-adjust: none;
+    }
+  }
+</style>

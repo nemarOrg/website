@@ -46,6 +46,13 @@ interface Props {
    * (Signposting `<link>`s) reuses the same seam rather than adding a new prop.
    */
   headLinks?: Array<{ rel: string; href: string; type?: string; title?: string }>;
+  /**
+   * Renders a "Skip to content" link as the first focusable element, jumping
+   * past the notices and nav to `<main>`. Opt-in so the public chrome stays
+   * exactly as it is; the admin portal, where a keyboard user lands on the
+   * full nav before every dense page, turns it on.
+   */
+  skipLink?: boolean;
 }
 
 const {
@@ -62,6 +69,7 @@ const {
   bareLayout = false,
   jsonLdScript,
   headLinks = [],
+  skipLink = false,
 } = Astro.props;
 
 const titleSuffix = title === "NEMAR" ? "" : " - NEMAR";
@@ -171,6 +179,7 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
     </script>
   </head>
   <body>
+    {skipLink && <a class="skip-link" href="#main">Skip to content</a>}
     {/* Above the nav so a maintenance or outage notice is the first thing
         read, and so it never overlaps the sticky header. Gated on
         `bareLayout` alongside Nav/Footer for consistency — note that no
@@ -236,5 +245,26 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
 <style is:global>
   main {
     min-block-size: calc(100dvh - var(--header-height));
+  }
+</style>
+
+<style>
+  /* Off-screen until focused, then pinned top-left above the sticky header. */
+  .skip-link {
+    position: absolute;
+    inset-inline-start: var(--space-4);
+    inset-block-start: calc(-1 * var(--space-16));
+    z-index: 1000;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    box-shadow: var(--shadow-lg);
+  }
+  .skip-link:focus {
+    inset-block-start: var(--space-3);
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
   }
 </style>

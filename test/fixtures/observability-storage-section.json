@@ -1,0 +1,99 @@
+{
+  "_derivation": "Contract-derived, not a captured snapshot: the storage section is not deployed yet. Built by nemar-observability PR #82 (commit b9c43d4) scripts/push-s3-storage.ts: storageSection() over its real CloudWatch capture test/fixtures/cloudwatch-s3-storage-2026-09-22-to-2026-09-28.json for 2026-09-28, storageFailureStatus() for the same day, and one storage.bucket_bytes history point per day of that capture. updated_at and history times are the ingest stamp at the collector timer's 08:47 UTC run. Replace with a captured snapshot section once one exists.",
+  "success": {
+    "key": "storage",
+    "label": "Data storage",
+    "source": "aws-s3-cloudwatch",
+    "metrics": [
+      {
+        "key": "storage.bucket_bytes",
+        "label": "Data stored",
+        "value": 121650377907484,
+        "unit": "bytes",
+        "severity": "info",
+        "hint": "Total bytes stored on 2026-09-28 UTC across all storage classes. Reported once per day, about one day behind; a value older than the previous UTC day is shown as a failed collection instead. Covers the whole bucket, including archives, Zarr copies, and internal objects."
+      },
+      {
+        "key": "storage.object_count",
+        "label": "Objects stored",
+        "value": 1347607631,
+        "unit": "count",
+        "severity": "info",
+        "hint": "Stored objects on 2026-09-28 UTC. Reported once per day, about one day behind; a value older than the previous UTC day is shown as a failed collection instead. Covers the whole bucket, including archives, Zarr copies, and internal objects."
+      },
+      {
+        "key": "storage.by_class",
+        "label": "Storage classes in use",
+        "value": 1,
+        "unit": "count",
+        "severity": "info",
+        "breakdown": [
+          {
+            "label": "Standard",
+            "value": 121650377907484
+          }
+        ],
+        "breakdown_unit": "bytes",
+        "hint": "Bytes stored in each storage class on 2026-09-28 UTC. Reported once per day, about one day behind; a value older than the previous UTC day is shown as a failed collection instead. Covers the whole bucket, including archives, Zarr copies, and internal objects."
+      },
+      {
+        "key": "storage.collector.errors",
+        "label": "Latest collector run errors",
+        "value": 0,
+        "unit": "errors",
+        "severity": "ok",
+        "hint": "The latest scheduled collection completed."
+      }
+    ],
+    "updated_at": "2026-09-28T08:47:00.000Z"
+  },
+  "failure": {
+    "key": "storage",
+    "label": "Data storage",
+    "source": "aws-s3-cloudwatch",
+    "metrics": [
+      {
+        "key": "storage.collector.errors",
+        "label": "Latest collector run errors",
+        "value": 1,
+        "unit": "errors",
+        "severity": "error",
+        "hint": "2026-09-28 UTC collection failed; the stored amount is unknown until a later run succeeds."
+      }
+    ],
+    "updated_at": "2026-09-28T08:47:00.000Z"
+  },
+  "history": {
+    "metric": "storage.bucket_bytes",
+    "points": [
+      {
+        "at": "2026-09-22T08:47:00.000Z",
+        "value": 115110962221842
+      },
+      {
+        "at": "2026-09-23T08:47:00.000Z",
+        "value": 115583134706945
+      },
+      {
+        "at": "2026-09-24T08:47:00.000Z",
+        "value": 117600978690709
+      },
+      {
+        "at": "2026-09-25T08:47:00.000Z",
+        "value": 118148043007759
+      },
+      {
+        "at": "2026-09-26T08:47:00.000Z",
+        "value": 120204239763467
+      },
+      {
+        "at": "2026-09-27T08:47:00.000Z",
+        "value": 121308786888620
+      },
+      {
+        "at": "2026-09-28T08:47:00.000Z",
+        "value": 121650377907484
+      }
+    ]
+  }
+}

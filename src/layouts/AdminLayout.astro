@@ -10,6 +10,11 @@
  * tabpanels like DatasetTabs.astro), so it's a plain `<nav>` of `<a>`
  * elements with `aria-current="page"`, not an ARIA `role="tablist"` — that
  * role would misrepresent cross-page links as a single-page tab widget.
+ *
+ * Visually the portal is the public observability dashboard's family
+ * (dashboard.nemar.org/observability): white cards on a tinted page, the
+ * `--admin-*` role tokens in tokens.css, and the same section-nav treatment.
+ * The site header and footer stay exactly as on every other page.
  */
 import { ADMIN_TABS, type AdminTab } from "../lib/admin-tabs";
 import type { AuthSession } from "../lib/auth";
@@ -44,79 +49,140 @@ const [usersAwaitingApproval, importsNeedingAttention] = await Promise.all([
   fetchAwaitingApprovalCount({ cookieHeader }),
   fetchImportsAttentionCount({ cookieHeader }),
 ]);
+
+// What each badge counts, for a screen reader that would otherwise hear a
+// bare number after the tab name.
+const BADGE_WORDS: Partial<Record<AdminTab, string>> = {
+  users: "awaiting approval",
+  imports: "needing attention",
+};
+function badgeCount(tab: AdminTab): number {
+  if (tab === "users") return usersAwaitingApproval ?? 0;
+  if (tab === "imports") return importsNeedingAttention ?? 0;
+  return 0;
+}
 ---
 
-<Base title={`Admin - ${title}`} description="NEMAR admin portal.">
-  <div class="admin-shell">
-    <header class="admin-header">
-      <h1 class="admin-header__title">{title}</h1>
-      {hasLede && (
-        <p class="admin-header__lede">
-          <slot name="lede" />
-        </p>
-      )}
-    </header>
+<Base title={`Admin - ${title}`} description="NEMAR admin portal." skipLink>
+  <div class="admin-page">
+    <div class="admin-shell">
+      <header class="admin-header">
+        <p class="admin-header__eyebrow">Admin portal</p>
+        <h1 class="admin-header__title">{title}</h1>
+        {hasLede && (
+          <p class="admin-header__lede">
+            <slot name="lede" />
+          </p>
+        )}
+      </header>
 
-    <nav class="admin-tabs" aria-label="Admin sections">
-      {ADMIN_TABS.map((tab) =>
-        tab.enabled ? (
-          <a
-            class:list={["admin-tabs__link", { "admin-tabs__link--active": tab.id === active }]}
-            href={tab.href}
-            aria-current={tab.id === active ? "page" : undefined}
-          >
-            {tab.label}
-            {tab.id === "users" && Boolean(usersAwaitingApproval) && (
-              <span class="admin-tabs__badge">{usersAwaitingApproval}</span>
-            )}
-            {tab.id === "imports" && Boolean(importsNeedingAttention) && (
-              <span class="admin-tabs__badge">{importsNeedingAttention}</span>
-            )}
-          </a>
-        ) : (
-          <span class="admin-tabs__link admin-tabs__link--soon" aria-disabled="true">
-            {tab.label} <span class="admin-tabs__suffix">(coming soon)</span>
-          </span>
-        ),
-      )}
-    </nav>
+      <nav class="admin-tabs" aria-label="Admin sections">
+        {ADMIN_TABS.map((tab) =>
+          tab.enabled ? (
+            <a
+              class:list={["admin-tabs__link", { "admin-tabs__link--active": tab.id === active }]}
+              href={tab.href}
+              aria-current={tab.id === active ? "page" : undefined}
+            >
+              {tab.label}
+              {Boolean(badgeCount(tab.id)) && (
+                <span class="admin-tabs__badge">
+                  {badgeCount(tab.id)}
+                  <span class="visually-hidden"> {BADGE_WORDS[tab.id]}</span>
+                </span>
+              )}
+            </a>
+          ) : (
+            <span class="admin-tabs__link admin-tabs__link--soon" aria-disabled="true">
+              {tab.label} <span class="admin-tabs__suffix">(coming soon)</span>
+            </span>
+          ),
+        )}
+      </nav>
 
-    <slot />
+      <div class="admin-body">
+        <slot />
+      </div>
+    </div>
   </div>
 </Base>
 
+<style is:global>
+  /* Portal-wide base behavior, scoped to the admin ground so no public page
+     changes. An outline (not the site's box-shadow ring) survives forced
+     colors, where box shadows are dropped and the ring would vanish. */
+  .admin-page :is(a, button, input, select, textarea, summary):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+  /* The tinted ground runs on behind the footer's top margin, as on the
+     dashboard, instead of leaving a white band between the two. */
+  body:has(.admin-page) {
+    background: var(--admin-page);
+  }
+</style>
+
 <style>
+  .admin-page {
+    background: var(--admin-page);
+    border-block-start: 1px solid var(--color-border);
+    min-block-size: calc(100dvh - var(--header-height));
+  }
   .admin-shell {
-    max-inline-size: 64rem;
+    max-inline-size: var(--max-width-page);
     margin: 0 auto;
-    padding: var(--space-10) var(--space-4) var(--space-16);
+    padding: var(--space-8) var(--space-6) var(--space-16);
     display: grid;
-    gap: var(--space-6);
+    gap: var(--space-5);
+  }
+  .admin-header {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .admin-header__eyebrow {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
   .admin-header__title {
+    margin: 0;
     font-family: var(--font-display);
     font-size: var(--fs-3xl);
-    margin: 0 0 var(--space-1);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.02em;
+    line-height: var(--lh-tight);
+    color: var(--color-fg);
   }
   .admin-header__lede {
     margin: 0;
     color: var(--color-fg-muted);
-    max-inline-size: 48rem;
+    font-size: var(--fs-base);
+    max-inline-size: 70ch;
   }
+  .admin-header__lede :global(a) {
+    color: var(--color-link);
+  }
+
+  /* The dashboard's section nav: quiet links, the current one on a filled
+     ground with an accent underline. */
   .admin-tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
-    border-bottom: 1px solid var(--color-border);
-    padding-bottom: var(--space-3);
+    gap: var(--space-1);
+    padding-block-end: var(--space-3);
+    border-block-end: 1px solid var(--color-border);
   }
   .admin-tabs__link {
     display: inline-flex;
     align-items: center;
-    padding: 4px 12px;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--color-border);
-    background: var(--color-bg);
+    gap: var(--space-2);
+    min-block-size: 2.25rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
     color: var(--color-fg-muted);
     text-decoration: none;
     font-size: var(--fs-sm);
@@ -124,26 +190,26 @@ const [usersAwaitingApproval, importsNeedingAttention] = await Promise.all([
   }
   a.admin-tabs__link:hover {
     color: var(--color-fg);
-    border-color: var(--color-border-strong);
+    background: var(--admin-surface-3);
   }
   .admin-tabs__link--active {
-    background: var(--brand-teal);
-    color: var(--brand-navy);
-    border-color: var(--brand-teal);
+    color: var(--color-fg);
+    background: var(--admin-surface-3);
+    box-shadow: inset 0 -2px 0 var(--brand-accent);
   }
   .admin-tabs__badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-inline-size: 1.25rem;
-    padding: 0 5px;
-    margin-inline-start: var(--space-2);
+    min-inline-size: 1.375rem;
+    padding: 0 var(--space-2);
     border-radius: var(--radius-pill);
-    background: var(--color-warning);
-    color: var(--color-bg);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
     font-size: var(--fs-xs);
     font-weight: var(--fw-semibold);
-    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.5;
   }
   .admin-tabs__link--soon {
     cursor: default;
@@ -153,6 +219,30 @@ const [usersAwaitingApproval, importsNeedingAttention] = await Promise.all([
     color: inherit;
     opacity: 0.8;
     font-size: var(--fs-xs);
-    margin-inline-start: 2px;
+  }
+  .admin-body {
+    display: grid;
+    gap: var(--space-5);
+    min-inline-size: 0;
+  }
+
+  @media (max-width: 640px) {
+    .admin-shell {
+      padding: var(--space-6) var(--space-4) var(--space-12);
+    }
+    .admin-header__title {
+      font-size: var(--fs-2xl);
+    }
+  }
+
+  @media (forced-colors: active) {
+    .admin-tabs__link--active {
+      forced-color-adjust: none;
+      background: Highlight;
+      color: HighlightText;
+    }
+    .admin-tabs__badge {
+      border: 1px solid CanvasText;
+    }
   }
 </style>

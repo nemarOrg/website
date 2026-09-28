@@ -1,13 +1,22 @@
 ---
 import OverviewGrid from "../../components/admin/OverviewGrid.astro";
+import UsagePanel from "../../components/admin/UsagePanel.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { adminGate } from "../../lib/admin-guard";
+import { OVERVIEW_HISTORY_KEYS } from "../../lib/admin-overview";
 import { getSession } from "../../lib/auth";
 import {
   type MetricHistory,
   fetchMetricHistory,
   fetchObservabilitySnapshot,
 } from "../../lib/observability";
+import {
+  fetchUsageAudience,
+  fetchUsageTimeseries,
+  last30DaysUtc,
+  usageKpis,
+} from "../../lib/observability-usage";
+import { DECORATIVE_TIMEOUT_MS } from "../../lib/request-deadline";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -21,31 +30,49 @@ if (!session) {
   return Astro.redirect("/login");
 }
 
-// Sparklines cost one extra subrequest each, so this is a deliberately small
-// curated set rather than one per tile: the metrics where a *trend* changes
-// what an admin does (is the catalog growing, is the archive backlog draining,
-// is Zarr failure accumulating). Everything else reads fine as a point value.
-const SPARKLINE_METRICS = ["datasets.public", "archive.missing", "zarr.failed"] as const;
-
+// Histories cost one subrequest each, so this is a deliberately small,
+// curated set (OVERVIEW_HISTORY_KEYS): the four headline cards' trends, plus
+// the two problem counts whose direction changes what an admin does (is the
+// archive backlog draining, is Zarr failure accumulating). Everything else
+// reads fine as a point value.
+//
 // Snapshot and histories are issued concurrently — awaiting them in sequence
-// would stack four round-trips onto every admin page render. Each fetcher is
-// fail-soft (returns null on error, non-2xx, or its 5s deadline), so a
+// would stack round-trips onto every admin page render. Each fetcher is
+// fail-soft (returns null on error, non-2xx, or its deadline), so a
 // dashboard.nemar.org outage degrades this page instead of hanging or 500ing it.
-const [snapshot, historyResults] = await Promise.all([
+// The histories only draw sparklines and deltas, and each card already says
+// "Recent change unavailable" without one, so they get the short decorative
+// deadline; the snapshot keeps the default, since the page is about it.
+//
+// The usage panel reads the public dashboard's range endpoints for the last
+// 30 complete UTC days. They send no CORS headers, so they are fetched here,
+// server-side, under the default fail-soft deadline, never from browser JS.
+const usageRange = last30DaysUtc();
+const [snapshot, historyResults, usageSeries, usageAudience] = await Promise.all([
   fetchObservabilitySnapshot(),
-  Promise.all(SPARKLINE_METRICS.map((key) => fetchMetricHistory(key))),
+  Promise.all(
+    OVERVIEW_HISTORY_KEYS.map((key) =>
+      fetchMetricHistory(key, { timeoutMs: DECORATIVE_TIMEOUT_MS }),
+    ),
+  ),
+  fetchUsageTimeseries(usageRange),
+  fetchUsageAudience(usageRange),
 ]);
 
 const history: Record<string, MetricHistory | null> = Object.fromEntries(
-  SPARKLINE_METRICS.map((key, i) => [key, historyResults[i] ?? null]),
+  OVERVIEW_HISTORY_KEYS.map((key, i) => [key, historyResults[i] ?? null]),
 );
+const usage = usageKpis(usageRange, usageSeries, usageAudience);
 ---
 
 <AdminLayout title="Overview" active="overview" session={session}>
   <Fragment slot="lede">
-    Platform health across datasets, archives, Zarr conversion, imports, publication, access, and
-    users. Figures come from the observability snapshot and refresh hourly.
+    What needs attention first, then platform health across datasets, archives, Zarr conversion,
+    imports, publication, access, and users. Figures come from the observability snapshot and
+    refresh hourly.
   </Fragment>
 
-  <OverviewGrid snapshot={snapshot} history={history} />
+  <OverviewGrid snapshot={snapshot} history={history}>
+    <UsagePanel range={usageRange} kpis={usage} />
+  </OverviewGrid>
 </AdminLayout>
