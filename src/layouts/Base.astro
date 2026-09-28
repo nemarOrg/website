@@ -117,6 +117,14 @@ const osaWidget = osaWidgetMarkup(Astro.url.pathname);
     <link rel="preconnect" href="https://api.nemar.org" crossorigin />
     <link rel="preconnect" href={dataBase} crossorigin />
     <title>{fullTitle}</title>
+    <script>
+      import { installUmamiAnalytics } from "../lib/umami-analytics";
+
+      installUmamiAnalytics(
+        import.meta.env.PUBLIC_UMAMI_WEBSITE_ID,
+        import.meta.env.PUBLIC_UMAMI_TRACKER_URL,
+      );
+    </script>
 
     <!-- OpenGraph -->
     <meta property="og:type" content={ogType} />

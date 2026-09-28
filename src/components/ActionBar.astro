@@ -86,7 +86,13 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     Compute instructions
   </button>
   {/* Revealed by the script once the citations API confirms count > 0. */}
-  <button class="action action--ghost" type="button" data-citations-open hidden>
+  <button
+    class="action action--ghost"
+    type="button"
+    data-citations-open
+    data-nemar-analytics-event="citation_click"
+    hidden
+  >
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
     </svg>

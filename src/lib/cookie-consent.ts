@@ -1,0 +1,204 @@
+export const COOKIE_CONSENT_KEY = "nemar:cookie-consent";
+export const COOKIE_CONSENT_CHANGED_EVENT = "nemar:cookie-consent-changed";
+
+export type CookieConsent = "accepted" | "strict";
+
+export const ANALYTICS_PRODUCTION_HOSTS = [
+  "nemar.org",
+  "www.nemar.org",
+  "ww2.nemar.org",
+  "app.nemar.org",
+] as const;
+
+const SHARED_CONSENT_COOKIE = "nemar_analytics_consent";
+const TAB_CONSENT_KEY = `${COOKIE_CONSENT_KEY}:tab`;
+const SHARED_CONSENT_MAX_AGE = 60 * 60 * 24 * 365;
+const SHARED_CONSENT_HOSTS = new Set<string>(ANALYTICS_PRODUCTION_HOSTS);
+
+interface ConsentRecord {
+  value: CookieConsent;
+  revision: string;
+}
+
+let unsavedConsent: ConsentRecord | null = null;
+
+function parseConsentRecord(value: string | null): ConsentRecord | null {
+  if (value === "accepted" || value === "strict") return { value, revision: "0" };
+  const match = /^(accepted|strict):(\d+)$/.exec(value ?? "");
+  if (!match) return null;
+  return { value: match[1] as CookieConsent, revision: normalizeRevision(match[2]) };
+}
+
+function normalizeRevision(revision: string): string {
+  return revision.replace(/^0+(?=\d)/, "");
+}
+
+function compareRevisions(left: string, right: string): number {
+  const normalizedLeft = normalizeRevision(left);
+  const normalizedRight = normalizeRevision(right);
+  if (normalizedLeft.length !== normalizedRight.length) {
+    return normalizedLeft.length < normalizedRight.length ? -1 : 1;
+  }
+  return normalizedLeft === normalizedRight ? 0 : normalizedLeft < normalizedRight ? -1 : 1;
+}
+
+function incrementRevision(revision: string): string {
+  const digits = normalizeRevision(revision).split("");
+  for (let index = digits.length - 1; index >= 0; index -= 1) {
+    if (digits[index] !== "9") {
+      digits[index] = String(Number(digits[index]) + 1);
+      return digits.join("");
+    }
+    digits[index] = "0";
+  }
+  return `1${digits.join("")}`;
+}
+
+function serializeConsentRecord(record: ConsentRecord): string {
+  return `${record.value}:${record.revision}`;
+}
+
+function canShareConsentAcrossHosts(): boolean {
+  try {
+    return SHARED_CONSENT_HOSTS.has(window.location.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function readSharedConsent(): ConsentRecord | null {
+  if (!canShareConsentAcrossHosts()) return null;
+  try {
+    const prefix = `${SHARED_CONSENT_COOKIE}=`;
+    const value = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(prefix))
+      ?.slice(prefix.length);
+    return parseConsentRecord(value ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function writeSharedConsent(record: ConsentRecord): boolean {
+  if (!canShareConsentAcrossHosts()) return false;
+  const serialized = serializeConsentRecord(record);
+  try {
+    document.cookie = `${SHARED_CONSENT_COOKIE}=${serialized}; Domain=nemar.org; Path=/; Max-Age=${SHARED_CONSENT_MAX_AGE}; SameSite=Lax; Secure`;
+    const saved = readSharedConsent();
+    return saved?.value === record.value && saved.revision === record.revision;
+  } catch {
+    return false;
+  }
+}
+
+function readTabConsent(): ConsentRecord | null {
+  try {
+    return parseConsentRecord(window.sessionStorage.getItem(TAB_CONSENT_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function readLocalConsent(): ConsentRecord | null {
+  try {
+    return parseConsentRecord(window.localStorage.getItem(COOKIE_CONSENT_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function latestConsentRecord(records: (ConsentRecord | null)[]): ConsentRecord | null {
+  return records
+    .filter((record): record is ConsentRecord => record !== null)
+    .reduce<ConsentRecord | null>((current, record) => {
+      if (current === null || compareRevisions(record.revision, current.revision) > 0)
+        return record;
+      if (compareRevisions(record.revision, current.revision) < 0) return current;
+      // Conflicting legacy values have no timestamp; preserve the opt-out.
+      return record.value === "strict" ? record : current;
+    }, null);
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== COOKIE_CONSENT_KEY) return;
+    unsavedConsent = null;
+    try {
+      const next = parseConsentRecord(event.newValue);
+      if (next) window.sessionStorage.setItem(TAB_CONSENT_KEY, serializeConsentRecord(next));
+      else window.sessionStorage.removeItem(TAB_CONSENT_KEY);
+    } catch {
+      // The updated localStorage value remains the fallback for this origin.
+    }
+    document.dispatchEvent(new Event(COOKIE_CONSENT_CHANGED_EVENT));
+  });
+}
+
+export function readCookieConsent(): CookieConsent | null {
+  const sharedConsent = readSharedConsent();
+  const tabConsent = readTabConsent();
+  const localConsent = readLocalConsent();
+
+  // Logical revisions let a failed cookie write preserve the newest choice
+  // stored in this tab or origin. Shared cookies carry it across origins.
+  const latest = latestConsentRecord([unsavedConsent, tabConsent, localConsent, sharedConsent]);
+
+  if (
+    localConsent?.revision === "0" &&
+    (sharedConsent === null || sharedConsent.revision === "0")
+  ) {
+    // Migrate the resolved choice so a conflicting legacy opt-out remains
+    // authoritative across hosts.
+    if (latest !== null) writeSharedConsent(latest);
+  }
+  return latest?.value ?? null;
+}
+
+export function saveCookieConsent(value: CookieConsent): void {
+  const previous = latestConsentRecord([
+    unsavedConsent,
+    readTabConsent(),
+    readLocalConsent(),
+    readSharedConsent(),
+  ]);
+  // Advance past every revision we can see so a clock adjustment cannot make
+  // this new choice look older than a previously saved one on another host.
+  const clockRevision = String(Date.now());
+  const revision =
+    previous === null || compareRevisions(previous.revision, clockRevision) < 0
+      ? clockRevision
+      : incrementRevision(previous.revision);
+  const record: ConsentRecord = { value, revision };
+  const serialized = serializeConsentRecord(record);
+  unsavedConsent = record;
+  const sharedSaved = writeSharedConsent(record);
+  let localSaved = false;
+  try {
+    window.localStorage.setItem(COOKIE_CONSENT_KEY, serialized);
+    localSaved = true;
+  } catch {
+    // The shared cookie and tab-scoped storage are tried below.
+  }
+
+  if (sharedSaved) {
+    unsavedConsent = null;
+    try {
+      window.sessionStorage.removeItem(TAB_CONSENT_KEY);
+    } catch {
+      // The shared cookie or localStorage already recorded the choice.
+    }
+  } else {
+    try {
+      window.sessionStorage.setItem(TAB_CONSENT_KEY, serialized);
+      unsavedConsent = null;
+    } catch {
+      // Newer localStorage wins over an older shared cookie after navigation.
+      // If that write also failed, the in-memory record covers this page.
+      if (!localSaved) unsavedConsent = record;
+      else unsavedConsent = null;
+    }
+  }
+  document.dispatchEvent(new Event(COOKIE_CONSENT_CHANGED_EVENT));
+}

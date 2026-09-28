@@ -612,6 +612,10 @@ describe("security headers", () => {
     expect(csp).not.toContain("raw.githubusercontent.com");
     // api / data / dashboard / zarr client fetches.
     expect(csp).toContain("https://*.nemar.org");
+    const scriptSrc = csp.split("; ").find((directive) => directive.startsWith("script-src"))!;
+    expect(scriptSrc).toContain("https://analytics.nemar.org");
+    const connectSrc = csp.split("; ").find((directive) => directive.startsWith("connect-src"))!;
+    expect(connectSrc).toContain("https://*.nemar.org");
     // zarrita blosc/lz4/zstd WebAssembly codecs.
     expect(csp).toContain("'wasm-unsafe-eval'");
     // Inline theme-bootstrap script + Astro scoped <style>.

@@ -842,25 +842,28 @@ if (tier !== "unverified") {
         <div class="card__rail" aria-hidden="true"></div>
         <header class="card__head">
           <h2 class="card__title">Privacy</h2>
-          <p class="card__lede">Cookie consent stored on this device.</p>
+          <p class="card__lede">Manage anonymous analytics for this device.</p>
         </header>
         <div class="consent">
           <div class="consent__current">
-            <span class="consent__label">Current choice</span>
+            <span class="consent__label">Analytics</span>
             <span class="consent__value" data-consent-current>Loading...</span>
           </div>
           <div class="consent__actions">
             <button type="button" class="btn btn--ghost" data-consent-set="strict">
-              Strictly necessary only
+              Opt out of analytics
             </button>
             <button type="button" class="btn btn--primary" data-consent-set="accepted">
-              Accept all
+              Keep analytics on
             </button>
           </div>
           <p class="consent__note" data-consent-note>
-            Strictly necessary keeps your sign-in cookie. Accept all also enables
-            anonymous analytics that help us understand which datasets researchers
-            use most.
+            On NEMAR's production main and account sites, anonymous analytics are on by default on
+            selected public pages and the signed-in upload flow; preview and local sites do not load
+            the tracker. We do not send account, dataset, or search IDs. Opting out stops future
+            pageviews and actions. A preference cookie shares your choice between those production
+            sites. On preview and local sites, a saved choice applies only on that site. If cookies
+            are blocked on a production site, browser-storage fallback applies only there.
           </p>
           <p class="consent__note">
             What we store and why is described in the
@@ -1693,6 +1696,11 @@ if (tier !== "unverified") {
 <script>
   import { AccountApiError, requestUploadAccess } from "../lib/account-api";
   import {
+    COOKIE_CONSENT_CHANGED_EVENT,
+    readCookieConsent,
+    saveCookieConsent,
+  } from "../lib/cookie-consent";
+  import {
     profileErrorMessage,
     uploadAccessErrorMessage,
     validateUsername,
@@ -2384,37 +2392,31 @@ if (tier !== "unverified") {
   });
 
   // ---- Cookie consent ----
-  const CONSENT_KEY = "nemar:cookie-consent";
   const currentEl = document.querySelector<HTMLElement>("[data-consent-current]");
 
   const labelFor = (v: string | null): string => {
-    if (v === "accepted") return "Accepted (analytics enabled)";
-    if (v === "strict") return "Strictly necessary only";
-    return "Not chosen yet";
+    if (v === "strict") return "Off (you opted out)";
+    if (v === "accepted") return "On";
+    return "On (default)";
   };
 
   function refreshConsent(): void {
     if (!currentEl) return;
-    let value: string | null = null;
-    try {
-      value = localStorage.getItem(CONSENT_KEY);
-    } catch {
-      /* fall through */
-    }
-    currentEl.textContent = labelFor(value);
+    currentEl.textContent = labelFor(readCookieConsent());
   }
 
   refreshConsent();
+  document.addEventListener(COOKIE_CONSENT_CHANGED_EVENT, refreshConsent);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshConsent();
+  });
+  window.addEventListener("focus", refreshConsent);
 
   document.querySelectorAll<HTMLButtonElement>("[data-consent-set]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const next = btn.dataset.consentSet;
       if (next !== "accepted" && next !== "strict") return;
-      try {
-        localStorage.setItem(CONSENT_KEY, next);
-      } catch {
-        /* localStorage unavailable; nothing persists, but the label still updates for clarity */
-      }
+      saveCookieConsent(next);
       refreshConsent();
     });
   });
