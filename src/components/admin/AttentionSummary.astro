@@ -1,0 +1,246 @@
+---
+/**
+ * The first thing on the admin Overview: what needs attention right now.
+ * This is the operational verdict the public dashboard deliberately leaves
+ * out. Every metric the snapshot marks `warn` or `error`, every section the
+ * Worker failed to compute, and a stale snapshot are listed errors first,
+ * each with its value and a link to the exact list in the portal or, where
+ * the portal has none yet, to the section card below. The derivation is
+ * `deriveAttention` (admin-overview.ts), unit-tested there.
+ */
+import { type AttentionSummary, formatSnapshotTime } from "../../lib/admin-overview";
+import { formatRelativeTime } from "../../lib/format";
+import { formatExactCount } from "../../lib/observability";
+import StatusBadge from "./StatusBadge.astro";
+import StatusIcon from "./StatusIcon.astro";
+
+interface Props {
+  summary: AttentionSummary;
+  generatedAt: string;
+  /** The same clock the summary was derived with, so "ago" never disagrees with it. */
+  now: Date;
+}
+
+const { summary, generatedAt, now } = Astro.props;
+const count = summary.items.length;
+const plural = (n: number, one: string, many: string) =>
+  `${formatExactCount(n)} ${n === 1 ? one : many}`;
+const lede =
+  count === 0
+    ? "No figure in the latest snapshot is at warning or error, and every section computed."
+    : `${plural(count, "item", "items")} across ${plural(summary.sectionCount, "area", "areas")}, errors first. Each links to the list where it can be acted on.`;
+const relative = formatRelativeTime(generatedAt, now);
+const TONE_WORD = { warn: "Warning", error: "Error" } as const;
+---
+
+<section
+  class:list={["attention", `attention--${summary.tone}`]}
+  aria-labelledby="attention-title"
+>
+  <div class="attention__head">
+    <div class="attention__titles">
+      <h2 class="attention__title" id="attention-title">
+        {count === 0 ? "Nothing needs attention" : "Needs attention"}
+      </h2>
+      <p class="attention__lede">{lede}</p>
+    </div>
+    <div class="attention__badges">
+      {summary.errorCount > 0 && (
+        <StatusBadge tone="error" text={plural(summary.errorCount, "error", "errors")} />
+      )}
+      {summary.warnCount > 0 && (
+        <StatusBadge tone="warn" text={plural(summary.warnCount, "warning", "warnings")} />
+      )}
+      {count === 0 && <StatusBadge tone="ok" text="All clear" />}
+    </div>
+  </div>
+
+  {
+    count > 0 && (
+      <ol class="attention__list" role="list">
+        {summary.items.map((item) => (
+          <li class:list={["aitem", `aitem--${item.tone}`]}>
+            <span class="aitem__mark">
+              <StatusIcon name={item.tone} size={16} />
+              <span class="visually-hidden">{TONE_WORD[item.tone]}: </span>
+            </span>
+            <div class="aitem__main">
+              <p class="aitem__label">{item.label}</p>
+              <p class="aitem__meta">
+                {item.sectionLabel}
+                {item.kind !== "section_error" && item.detail && <span> · {item.detail}</span>}
+              </p>
+            </div>
+            {item.value && <span class="aitem__value">{item.value}</span>}
+            <a class="aitem__link" href={item.link.href}>
+              {item.link.label}
+              <StatusIcon name="chevron" size={13} />
+            </a>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+
+  <p class="attention__meta" id="snapshot-meta">
+    Latest snapshot generated {formatSnapshotTime(generatedAt)}{relative && ` (${relative})`}.
+    It refreshes every hour.
+  </p>
+</section>
+
+<style>
+  .attention {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+  }
+  .attention--error {
+    box-shadow:
+      inset 3px 0 0 var(--admin-error),
+      var(--admin-shadow-sm);
+  }
+  .attention--warn {
+    box-shadow:
+      inset 3px 0 0 var(--admin-warn),
+      var(--admin-shadow-sm);
+  }
+  .attention--ok {
+    box-shadow:
+      inset 3px 0 0 var(--admin-ok),
+      var(--admin-shadow-sm);
+  }
+  .attention__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3) var(--space-5);
+  }
+  .attention__titles {
+    min-inline-size: 0;
+    flex: 1 1 22rem;
+  }
+  .attention__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.012em;
+    line-height: var(--lh-snug);
+    color: var(--color-fg);
+  }
+  .attention__lede {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    max-inline-size: 68ch;
+  }
+  .attention__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .attention__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .aitem {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-block-start: 1px solid var(--color-border);
+    background: var(--admin-surface);
+  }
+  .aitem:first-child {
+    border-block-start: 0;
+  }
+  .aitem--error {
+    background: color-mix(in srgb, var(--admin-error-soft) 45%, var(--admin-surface));
+  }
+  .aitem__mark {
+    display: inline-grid;
+    place-items: center;
+    align-self: start;
+    block-size: 1.3rem;
+  }
+  .aitem--error .aitem__mark {
+    color: var(--admin-error-text);
+  }
+  .aitem--warn .aitem__mark {
+    color: var(--admin-warn-text);
+  }
+  .aitem__main {
+    min-inline-size: 0;
+  }
+  .aitem__label {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    line-height: 1.3rem;
+  }
+  .aitem__meta {
+    margin: 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .aitem__value {
+    color: var(--color-fg);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+    white-space: nowrap;
+  }
+  .aitem__link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    min-inline-size: 10rem;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .aitem__link:hover {
+    text-decoration: underline;
+  }
+  .attention__meta {
+    margin: 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    scroll-margin-block-start: calc(var(--header-height) + var(--space-4));
+  }
+  @media (max-width: 720px) {
+    .attention {
+      padding: var(--space-4);
+    }
+    .aitem {
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+      padding: var(--space-3);
+    }
+    .aitem__link {
+      grid-column: 2 / -1;
+      justify-content: flex-start;
+      min-inline-size: 0;
+    }
+  }
+  @media (forced-colors: active) {
+    .attention {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+</style>

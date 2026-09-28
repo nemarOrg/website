@@ -1,0 +1,212 @@
+---
+/**
+ * The public catalog's size distribution as columns, the dashboard's
+ * "Dataset size" chart in a server-rendered form: log-scaled bins, with every
+ * bin from the archive cutoff up shaded, since those datasets are too large
+ * for a downloadable archive. The columns are one image with a summary; the
+ * exact count per bin is in the table behind "Show exact values".
+ */
+import { histogramBins } from "../../lib/admin-overview";
+import { type Metric, formatExactCount } from "../../lib/observability";
+
+interface Props {
+  metric: Metric;
+}
+
+const { metric } = Astro.props;
+const { bins, cutoff } = histogramBins(metric);
+const peak = bins.reduce((best, b) => (b.count > best.count ? b : best), bins[0]);
+const summary = peak
+  ? `Public datasets by size, ${bins.length} log-scaled bins. Most common: ${peak.range}, ${formatExactCount(peak.count)} datasets.${cutoff ? ` Bins from ${cutoff} up are past the archive cutoff.` : ""}`
+  : "";
+// Label every other bin so ticks never collide at narrow widths.
+const tickEvery = bins.length > 12 ? 2 : 1;
+---
+
+{
+  bins.length > 0 && (
+    <div class="hist">
+      <div class="hist__plot" role="img" aria-label={summary}>
+        {cutoff && (
+          <span class="hist__cutoff-label" aria-hidden="true">
+            Archive cutoff, {cutoff}
+          </span>
+        )}
+        <div class="hist__cols" aria-hidden="true">
+          {bins.map((bin) => (
+            <div class:list={["hist__col", { "hist__col--past": bin.pastCutoff }]} title={`${bin.range}: ${formatExactCount(bin.count)}`}>
+              <span class="hist__bar" style={`block-size:${bin.heightPct}%`} />
+            </div>
+          ))}
+        </div>
+        <div class="hist__ticks" aria-hidden="true">
+          {bins.map((bin, i) => (
+            <span class="hist__tick">{i % tickEvery === 0 ? bin.tick : ""}</span>
+          ))}
+        </div>
+      </div>
+      <details class="hist__more">
+        <summary>Show exact values ({bins.length} bins)</summary>
+        <div class="hist__table-wrap">
+          <table class="hist__table">
+            <thead>
+              <tr>
+                <th scope="col">Size range</th>
+                <th scope="col" class="hist__num">Datasets</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bins.map((bin) => (
+                <tr>
+                  <th scope="row">
+                    {bin.range}
+                    {bin.pastCutoff && <span class="hist__flag"> (past archive cutoff)</span>}
+                  </th>
+                  <td class="hist__num">{formatExactCount(bin.count)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  )
+}
+
+<style>
+  .hist {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .hist__plot {
+    position: relative;
+    padding-block-start: var(--space-5);
+  }
+  .hist__cutoff-label {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-end: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .hist__cols {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    align-items: end;
+    gap: 3px;
+    block-size: 160px;
+    border-block-end: 1px solid var(--color-border-strong);
+  }
+  .hist__col {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    block-size: 100%;
+  }
+  .hist__col--past {
+    background: color-mix(in srgb, var(--admin-warn) 9%, transparent);
+  }
+  .hist__col:not(.hist__col--past) + .hist__col--past {
+    box-shadow: inset 1.5px 0 0 var(--admin-warn);
+  }
+  .hist__bar {
+    display: block;
+    inline-size: min(100%, 22px);
+    background: var(--admin-accent);
+    border-radius: 3px 3px 0 0;
+  }
+  .hist__ticks {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 3px;
+    margin-block-start: var(--space-1);
+  }
+  .hist__tick {
+    overflow: visible;
+    white-space: nowrap;
+    text-align: center;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .hist__more > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    list-style: none;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    border-radius: var(--radius-sm);
+    padding: 2px 0;
+  }
+  .hist__more > summary::-webkit-details-marker {
+    display: none;
+  }
+  .hist__more > summary::before {
+    content: "";
+    inline-size: 6px;
+    block-size: 6px;
+    margin: 0 2px;
+    border-inline-end: 1.5px solid currentColor;
+    border-block-end: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 140ms ease;
+  }
+  .hist__more[open] > summary::before {
+    transform: rotate(45deg);
+  }
+  .hist__table-wrap {
+    margin-block-start: var(--space-2);
+    max-block-size: 22rem;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+  .hist__table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+  }
+  .hist__table th,
+  .hist__table td {
+    padding: 7px 12px;
+    border-block-end: 1px solid var(--color-border);
+    text-align: start;
+    font-weight: var(--fw-regular);
+    color: var(--color-fg);
+  }
+  .hist__table thead th {
+    position: sticky;
+    inset-block-start: 0;
+    background: var(--admin-surface-2);
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .hist__table tbody tr:last-child > * {
+    border-block-end: 0;
+  }
+  .hist__num {
+    text-align: end !important;
+    font-variant-numeric: tabular-nums;
+  }
+  .hist__flag {
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  @media (max-width: 640px) {
+    .hist__tick:nth-child(4n + 3) {
+      visibility: hidden;
+    }
+  }
+  @media (forced-colors: active) {
+    .hist__bar {
+      forced-color-adjust: none;
+    }
+  }
+</style>

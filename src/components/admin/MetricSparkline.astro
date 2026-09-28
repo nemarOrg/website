@@ -1,110 +1,109 @@
 ---
 /**
- * Small trend line over a metric's history points, modelled on
- * `HistogramChart.astro` (viewBox-scaled inline SVG, `<title>` for a11y,
- * token-only fills, explicit empty state). No sparkline component exists
- * elsewhere in the repo yet; this is intentionally minimal — a polyline
- * over a normalized domain, not a full chart.
+ * Compact trend for a metric's hourly history: the public dashboard's
+ * compact line chart (accent line over a soft area, a dot on the latest
+ * value), server-rendered. Geometry comes from `sparkGeometry`, which is
+ * unit-tested; this file only draws it.
+ *
+ * The SVG stretches to its container (`preserveAspectRatio="none"`), so the
+ * line uses a non-scaling stroke, and the end dot is a zero-length round-cap
+ * line with the same, which stays a circle at any width. The chart is one
+ * image with a spoken summary (first, last, low, high); the figure it trends
+ * is also printed on the card that holds it.
  */
+import { type SparkFormat, formatSparkValue, sparkGeometry } from "../../lib/admin-overview";
 import type { MetricPoint } from "../../lib/observability";
 
 interface Props {
   points: readonly MetricPoint[];
   label: string;
+  format?: SparkFormat;
 }
 
-const { points, label } = Astro.props;
-const finite = points.filter((p) => Number.isFinite(p.value));
+const { points, label, format = "count" } = Astro.props;
+const fmt = (value: number) => formatSparkValue(value, format);
 
-const W = 120;
-const H = 32;
-const PAD = 2;
+const W = 240;
+const H = 40;
+const geometry = sparkGeometry(
+  points.map((p) => p.value),
+  W,
+  H,
+);
 
-let pathPoints = "";
-let minV = 0;
-let maxV = 0;
-let latest: number | null = null;
-
-if (finite.length > 0) {
-  const values = finite.map((p) => p.value);
-  minV = Math.min(...values);
-  maxV = Math.max(...values);
-  latest = values[values.length - 1] ?? null;
-  const span = maxV - minV || 1;
-  pathPoints = finite
-    .map((p, i) => {
-      const x = finite.length === 1 ? W / 2 : PAD + (i / (finite.length - 1)) * (W - PAD * 2);
-      const y = H - PAD - ((p.value - minV) / span) * (H - PAD * 2);
-      return `${x.toFixed(2)},${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
+const day = (iso: string | undefined) => {
+  const at = iso ? new Date(iso) : null;
+  return at && Number.isFinite(at.getTime())
+    ? at.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    : "";
+};
+const firstDay = day(points[0]?.at);
+const lastDay = day(points[points.length - 1]?.at);
+const span = firstDay && lastDay && firstDay !== lastDay ? `${firstDay} to ${lastDay}` : "recent";
+const summary = geometry
+  ? `${label}, ${span}: from ${fmt(geometry.first)} to ${fmt(geometry.last)}, low ${fmt(geometry.min)}, high ${fmt(geometry.max)}.`
+  : "";
 ---
 
-<figure class="spark">
-  <figcaption>
-    <span class="spark__label">{label}</span>
-    {latest !== null && <span class="spark__latest">{latest}</span>}
-  </figcaption>
-  {
-    finite.length === 0 ? (
-      <div class="spark__empty">No history</div>
-    ) : (
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        class="spark__svg"
-        role="img"
-        aria-label={`${label} trend`}
-      >
-        <title>{`${label}: ${finite.length} points, range ${minV}–${maxV}`}</title>
-        <polyline
-          points={pathPoints}
-          fill="none"
-          stroke="var(--brand-teal)"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-          stroke-linecap="round"
-        />
-      </svg>
-    )
-  }
-</figure>
+{
+  geometry && (
+    <svg class="spark" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={summary}>
+      <title>{summary}</title>
+      <path class="spark__area" d={geometry.area} />
+      <path class="spark__line" d={geometry.line} vector-effect="non-scaling-stroke" />
+      <line
+        class="spark__halo"
+        x1={geometry.end.x}
+        y1={geometry.end.y}
+        x2={geometry.end.x}
+        y2={geometry.end.y}
+        vector-effect="non-scaling-stroke"
+      />
+      <line
+        class="spark__dot"
+        x1={geometry.end.x}
+        y1={geometry.end.y}
+        x2={geometry.end.x}
+        y2={geometry.end.y}
+        vector-effect="non-scaling-stroke"
+      />
+    </svg>
+  )
+}
 
 <style>
   .spark {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-  }
-  .spark figcaption {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: var(--space-2);
-  }
-  .spark__label {
-    font-size: var(--fs-xs);
-    color: var(--color-fg-subtle);
-  }
-  .spark__latest {
-    font-family: var(--font-mono);
-    font-size: var(--fs-xs);
-    color: var(--color-fg-muted);
-  }
-  .spark__svg {
+    display: block;
     inline-size: 100%;
-    block-size: 32px;
-    background: var(--color-bg-subtle);
-    border-radius: var(--radius-sm);
+    block-size: 40px;
+    overflow: visible;
   }
-  .spark__empty {
-    padding: var(--space-2);
-    background: var(--color-bg-subtle);
-    border-radius: var(--radius-sm);
-    color: var(--color-fg-subtle);
-    font-size: var(--fs-xs);
-    text-align: center;
+  .spark__area {
+    fill: var(--admin-accent-soft);
+    stroke: none;
+  }
+  .spark__line {
+    fill: none;
+    stroke: var(--admin-accent);
+    stroke-width: 1.75;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  /* A container on another ground sets --spark-halo to match it. */
+  .spark__halo {
+    stroke: var(--spark-halo, var(--admin-surface));
+    stroke-width: 9;
+    stroke-linecap: round;
+  }
+  .spark__dot {
+    stroke: var(--admin-accent);
+    stroke-width: 6;
+    stroke-linecap: round;
+  }
+  @media (forced-colors: active) {
+    .spark__line,
+    .spark__dot {
+      forced-color-adjust: none;
+    }
   }
 </style>

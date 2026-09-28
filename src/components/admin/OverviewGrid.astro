@@ -1,154 +1,349 @@
 ---
 /**
- * Single integration point for the observability Overview: renders every
- * snapshot section as a titled tile group. The caller (Phase 1's `/admin`
- * shell) SSR-fetches the snapshot via `fetchObservabilitySnapshot` and
- * passes it straight through — this component owns no fetching itself so
- * it stays easy to render from a scratch page or the real route alike.
+ * Single integration point for the admin Overview. The page SSR-fetches the
+ * snapshot and histories (`lib/observability.ts`) and passes them straight
+ * through; this component owns no fetching, so it renders the same from the
+ * real route or a scratch page.
+ *
+ * Reading order is problems first: the attention summary, the headline KPI
+ * cards, then one status card per pipeline section, with the sections that
+ * have a warning or error at full height and the healthy ones folded. The
+ * catalog (what NEMAR holds rather than a pipeline's state) comes last. Every
+ * decision about what goes where is in `admin-overview.ts`.
+ *
+ * The default slot sits between the pipeline cards and the catalog, and is
+ * rendered even when the snapshot is unavailable; the page puts the usage
+ * panel there, which has its own sources and its own fail-soft state.
  */
-import { adminMetricHref } from "../../lib/admin-tabs";
+import {
+  type HistoryMap,
+  arrangeSections,
+  deriveAttention,
+  kpiSpecs,
+  sectionAnchor,
+  shareText,
+  sourceLabel,
+  storageView,
+} from "../../lib/admin-overview";
 import { formatRelativeTime } from "../../lib/format";
-import type { Metric, MetricHistory, MetricSection, MetricSnapshot } from "../../lib/observability";
+import { type MetricSnapshot, formatMetricValue } from "../../lib/observability";
+import AttentionSummary from "./AttentionSummary.astro";
 import MetricBreakdown from "./MetricBreakdown.astro";
-import MetricSparkline from "./MetricSparkline.astro";
 import MetricTile from "./MetricTile.astro";
 import SectionErrorNotice from "./SectionErrorNotice.astro";
+import SectionStatusCard from "./SectionStatusCard.astro";
+import SizeHistogram from "./SizeHistogram.astro";
+import StatusIcon from "./StatusIcon.astro";
+import StorageCard from "./StorageCard.astro";
 
 interface Props {
   snapshot: MetricSnapshot | null;
-  history?: Record<string, MetricHistory | null>;
+  history?: HistoryMap;
+  /** Injected for a deterministic render; defaults to the request time. */
+  now?: Date;
 }
 
-const { snapshot, history = {} } = Astro.props;
+const { snapshot, history = {}, now = new Date() } = Astro.props;
 
-// Tile deep-links live in `admin-tabs.ts` (unit-tested there) rather than
-// inline here — Astro frontmatter is outside the vitest surface and nobody
-// clicks every metric tile during manual QA.
-
-// Any metric carrying a breakdown renders as a distribution rather than a
-// plain tile — checked structurally (not by a fixed key list) so a new
-// breakdown-bearing metric the upstream adds renders correctly without a
-// frontend change.
-function hasBreakdown(metric: Metric): boolean {
-  return Boolean(metric.breakdown && metric.breakdown.length > 0);
-}
-
-function historyFor(section: MetricSection): Array<{ metric: Metric; hist: MetricHistory }> {
-  const out: Array<{ metric: Metric; hist: MetricHistory }> = [];
-  for (const metric of section.metrics) {
-    const hist = history[metric.key];
-    if (hist) out.push({ metric, hist });
-  }
-  return out;
-}
+const attention = snapshot ? deriveAttention(snapshot, now) : null;
+const kpis = snapshot ? kpiSpecs(snapshot, history) : [];
+const arranged = snapshot ? arrangeSections(snapshot) : null;
+const catalogScalars = arranged
+  ? arranged.catalog.flatMap((s) =>
+      s.metrics.filter((m) => !m.breakdown || m.breakdown.length === 0),
+    )
+  : [];
+const catalogCharts = arranged
+  ? arranged.catalog.flatMap((s) => s.metrics.filter((m) => m.breakdown && m.breakdown.length > 0))
+  : [];
+const histogram = catalogCharts.find((m) => m.key === "sizes.histogram") ?? null;
+const catalogLists = catalogCharts.filter((m) => m !== histogram);
+const catalogSource = arranged?.catalog[0];
+const catalogUpdated = catalogSource ? formatRelativeTime(catalogSource.updated_at) : "";
+const catalogLede = [
+  "What the public catalog holds",
+  catalogSource ? `from ${sourceLabel(catalogSource.source)}` : "",
+  catalogUpdated ? `updated ${catalogUpdated}` : "",
+]
+  .filter(Boolean)
+  .join(", ");
+const storage = snapshot ? storageView(snapshot, history) : null;
 ---
 
-<div class="overview-grid">
+<div class="overview">
   {
-    snapshot && (
-      <p class="overview-grid__updated">
-        Snapshot updated {formatRelativeTime(snapshot.generated_at) || "just now"}
-      </p>
-    )
-  }
-
-  {snapshot && snapshot.section_errors.length > 0 && <SectionErrorNotice errors={snapshot.section_errors} />}
-
-  {
-    !snapshot ? (
-      <div class="overview-grid__empty">
-        <h2 class="overview-grid__empty-title">Overview data is unavailable</h2>
-        <p class="overview-grid__empty-body">
-          Couldn't reach the observability service. Try refreshing in a moment.
-        </p>
-      </div>
+    !snapshot || !attention || !arranged ? (
+      <>
+        <div class="overview__empty" role="status">
+          <StatusIcon name="error" size={18} class="overview__empty-icon" />
+          <div>
+            <h2 class="overview__empty-title">Overview data is unavailable</h2>
+            <p class="overview__empty-body">
+              Couldn't reach the observability service. Try refreshing in a moment. Unknown is not
+              zero: nothing on this page has been checked.
+            </p>
+          </div>
+        </div>
+        {/* The usage panel has its own sources and its own fail-soft state. */}
+        <slot />
+      </>
     ) : (
-      <div class="overview-grid__sections">
-        {snapshot.sections.map((section) => (
-          <section class="overview-grid__section" aria-label={section.label}>
-            <h2 class="overview-grid__section-title">{section.label}</h2>
-            <div class="overview-grid__tiles">
-              {section.metrics.map((metric) =>
-                hasBreakdown(metric) ? (
-                  <div class="overview-grid__breakdown-tile">
-                    <MetricBreakdown metric={metric} />
+      <>
+        <AttentionSummary summary={attention} generatedAt={snapshot.generated_at} now={now} />
+
+        {snapshot.section_errors.length > 0 && <SectionErrorNotice errors={snapshot.section_errors} />}
+
+        <section class="overview__group" aria-labelledby="kpi-title">
+          <div class="overview__group-head">
+            <h2 class="overview__group-title" id="kpi-title">Headline figures</h2>
+            <span class="scope-chip">Current state, trend over the stored history</span>
+          </div>
+          <div class="overview__kpis">
+            {kpis.map((spec) => (
+              <MetricTile spec={spec} />
+            ))}
+          </div>
+          {storage && <StorageCard view={storage} />}
+        </section>
+
+        <section class="overview__group" aria-labelledby="pipelines-title">
+          <div class="overview__group-head">
+            <div>
+              <h2 class="overview__group-title" id="pipelines-title">Pipelines and services</h2>
+              <p class="overview__group-lede">
+                Sections with a warning or error first; healthy ones are folded.
+              </p>
+            </div>
+            <span class="scope-chip">Current state</span>
+          </div>
+          {arranged.problems.length === 0 && arranged.healthy.length === 0 ? (
+            <p class="overview__none">No pipeline sections in this snapshot. Their state is unknown.</p>
+          ) : (
+            <div class="overview__cards">
+              {arranged.problems.map((section) => (
+                <SectionStatusCard section={section} history={history} />
+              ))}
+              {arranged.healthy.map((section) => (
+                <SectionStatusCard section={section} history={history} compact />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <slot />
+
+        {arranged.catalog.length > 0 && (
+          <section class="overview__group" aria-labelledby="catalog-title" id={sectionAnchor("catalog")}>
+            <div class="overview__group-head">
+              <div>
+                <h2 class="overview__group-title" id="catalog-title">Catalog</h2>
+                <p class="overview__group-lede">{catalogLede}.</p>
+              </div>
+              <span class="scope-chip">Current state</span>
+            </div>
+            {catalogScalars.length > 0 && (
+              <dl class="overview__strip">
+                {catalogScalars.map((m) => (
+                  <div class="overview__strip-item">
+                    <dt>{m.label}</dt>
+                    <dd>
+                      {formatMetricValue(m)}
+                      {shareText(m) && <span class="overview__strip-share">{shareText(m)}</span>}
+                    </dd>
                   </div>
-                ) : (
-                  <MetricTile metric={metric} href={adminMetricHref(metric.key)} />
-                ),
+                ))}
+              </dl>
+            )}
+            <div class="overview__catalog">
+              {catalogLists.map((metric) => (
+                <article class="overview__panel">
+                  <MetricBreakdown metric={metric} visible={metric.breakdown_style === "ranked" ? 10 : 6} headingLevel={3} />
+                </article>
+              ))}
+              {histogram && (
+                <article class="overview__panel overview__panel--wide">
+                  <div class="overview__panel-head">
+                    <h3 class="overview__panel-title">{histogram.label}</h3>
+                    {histogram.hint && <p class="overview__panel-hint">{histogram.hint}</p>}
+                  </div>
+                  <SizeHistogram metric={histogram} />
+                </article>
               )}
             </div>
-            {historyFor(section).length > 0 && (
-              <div class="overview-grid__sparklines">
-                {historyFor(section).map(({ metric, hist }) => (
-                  <MetricSparkline points={hist.points} label={metric.label} />
-                ))}
-              </div>
-            )}
           </section>
-        ))}
-      </div>
+        )}
+      </>
     )
   }
 </div>
 
 <style>
-  .overview-grid {
-    display: grid;
-    gap: var(--space-6);
-  }
-  .overview-grid__updated {
-    margin: 0;
-    color: var(--color-fg-subtle);
-    font-size: var(--fs-sm);
-  }
-  .overview-grid__empty {
-    display: grid;
-    justify-items: center;
-    gap: var(--space-3);
-    padding: var(--space-12) var(--space-6);
-    border: 1px dashed var(--color-border-strong);
-    border-radius: var(--radius-lg);
-    background: var(--color-bg-elevated);
-    text-align: center;
-  }
-  .overview-grid__empty-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--fs-xl);
-  }
-  .overview-grid__empty-body {
-    margin: 0;
-    color: var(--color-fg-muted);
-  }
-  .overview-grid__sections {
+  .overview {
     display: grid;
     gap: var(--space-8);
+    min-inline-size: 0;
   }
-  .overview-grid__section-title {
-    margin: 0 0 var(--space-3);
+  .overview__empty {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    padding: var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+  }
+  .overview__empty :global(.overview__empty-icon) {
+    margin-block-start: 3px;
+    color: var(--admin-error-text);
+  }
+  .overview__empty-title {
+    margin: 0;
     font-family: var(--font-display);
     font-size: var(--fs-lg);
     font-weight: var(--fw-semibold);
-    color: var(--color-fg);
   }
-  .overview-grid__tiles {
+  .overview__empty-body {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .overview__group {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
     gap: var(--space-4);
+    min-inline-size: 0;
+    scroll-margin-block-start: calc(var(--header-height) + var(--space-4));
   }
-  .overview-grid__breakdown-tile {
-    grid-column: span 2;
-    padding: var(--space-5) var(--space-6);
-    background: var(--color-bg-elevated);
+  .overview__group-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-5);
+  }
+  .overview__group-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.012em;
+    line-height: var(--lh-snug);
+  }
+  .overview__group-lede {
+    margin: var(--space-1) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  /* The dashboard's scope chip: says which clock a block follows. */
+  .scope-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-block-size: 1.5rem;
+    padding: 2px var(--space-3);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    line-height: 1.3;
+  }
+  .scope-chip::before {
+    content: "";
+    flex: none;
+    inline-size: 6px;
+    block-size: 6px;
+    border-radius: 50%;
+    background: var(--admin-text-3);
+  }
+  .overview__kpis {
+    display: grid;
+    gap: var(--space-3);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview__cards {
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+    align-items: start;
+  }
+  .overview__none {
+    margin: 0;
+    padding: var(--space-4) var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  .overview__strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-8);
+    margin: 0;
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
-    min-inline-size: 0;
   }
-  .overview-grid__sparklines {
+  .overview__strip-item dt {
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  .overview__strip-item dd {
+    margin: 2px 0 0;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+  .overview__strip-share {
+    margin-inline-start: var(--space-2);
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-regular);
+  }
+  .overview__catalog {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
     gap: var(--space-4);
-    margin-block-start: var(--space-3);
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+    align-items: start;
+  }
+  .overview__panel {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+    padding: var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+  }
+  .overview__panel--wide {
+    grid-column: 1 / -1;
+  }
+  .overview__panel-title {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    letter-spacing: 0;
+  }
+  .overview__panel-hint {
+    margin: 2px 0 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  @media (min-width: 900px) {
+    .overview__kpis {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 640px) {
+    .overview {
+      gap: var(--space-6);
+    }
+    .overview__panel {
+      padding: var(--space-4);
+    }
   }
 </style>

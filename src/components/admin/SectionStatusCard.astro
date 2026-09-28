@@ -1,0 +1,444 @@
+---
+/**
+ * One snapshot section as a status card: the public dashboard's pipeline
+ * card plus the verdict it leaves out. Head (title, source, status badge),
+ * a coverage ring when the section has a count-of-total, a trend for the
+ * problem counts with history, marked rows, and any breakdowns.
+ *
+ * `compact` is for a healthy section: the head and ring stay visible and the
+ * rows fold behind a native disclosure, so problems own the page's height.
+ * Every row mark is an icon with words for assistive technology; a hint
+ * opens in place from its label (a `<details>`, no script).
+ */
+import {
+  type HistoryMap,
+  TONE_WORDS,
+  hasUnlinkedDrilldown,
+  portalLinkFor,
+  sectionAnchor,
+  sectionParts,
+  sectionStatus,
+  sectionTrends,
+  shareText,
+  sourceLabel,
+  toneForSeverity,
+} from "../../lib/admin-overview";
+import { formatRelativeTime } from "../../lib/format";
+import { type MetricSection, formatExactCount, formatMetricValue } from "../../lib/observability";
+import CoverageRing from "./CoverageRing.astro";
+import MetricBreakdown from "./MetricBreakdown.astro";
+import MetricSparkline from "./MetricSparkline.astro";
+import StatusBadge from "./StatusBadge.astro";
+import StatusIcon from "./StatusIcon.astro";
+
+interface Props {
+  section: MetricSection;
+  history: HistoryMap;
+  compact?: boolean;
+}
+
+const { section, history, compact = false } = Astro.props;
+const status = sectionStatus(section);
+const parts = sectionParts(section);
+const trends = sectionTrends(section, history);
+const anchor = sectionAnchor(section.key);
+const updated = formatRelativeTime(section.updated_at);
+const source = `From ${sourceLabel(section.source)}${updated ? `, updated ${updated}` : ""}`;
+
+// One call to action per card: the tab its linked metrics share.
+const tabLink = section.metrics.map((m) => portalLinkFor(m.key)).find((l) => l !== null) ?? null;
+const tabHref = tabLink ? tabLink.href.split("?")[0] : null;
+const unlinked = hasUnlinkedDrilldown(section);
+const metricCount = parts.rows.length + parts.breakdowns.length;
+// A healthy card folds its rows behind a disclosure; a problem card shows them.
+const Fold = compact ? "details" : "div";
+
+const rows = parts.rows.map((metric) => {
+  const tone = toneForSeverity(metric.severity);
+  const problem = tone === "warn" || tone === "error";
+  return {
+    metric,
+    tone,
+    value: formatMetricValue(metric),
+    share: shareText(metric),
+    // Row links only where something needs doing; the footer covers the rest.
+    link: problem ? portalLinkFor(metric.key) : null,
+  };
+});
+---
+
+<article
+  class:list={["scard", `scard--${status.tone}`, { "scard--compact": compact }]}
+  id={anchor}
+  aria-labelledby={`${anchor}-title`}
+>
+  <header class="scard__head">
+    <div class="scard__titles">
+      <h3 class="scard__title" id={`${anchor}-title`}>{section.label}</h3>
+      <p class="scard__sub">{source}</p>
+    </div>
+    <StatusBadge tone={status.tone} text={status.text} />
+  </header>
+
+  {
+    parts.coverage && (
+      <CoverageRing
+        percent={parts.coverage.percent}
+        label={parts.coverage.metric.label}
+        detail={`${formatExactCount(parts.coverage.metric.value)} of ${formatExactCount(parts.coverage.metric.total ?? 0)}`}
+      />
+    )
+  }
+
+  {
+    trends.map((trend) => (
+      <div class="scard__trend">
+        <div class="scard__trend-head">
+          <span class="scard__trend-label">{trend.metric.label}, hourly</span>
+          {trend.delta && (
+            <span class="scard__trend-delta">
+              {trend.delta.direction !== "none" && <StatusIcon name={trend.delta.direction} size={13} />}
+              {trend.delta.text}
+            </span>
+          )}
+        </div>
+        <MetricSparkline points={trend.points} label={trend.metric.label} />
+      </div>
+    ))
+  }
+
+  <Fold class:list={[{ scard__fold: compact }]}>
+    {
+      compact && (
+        <summary>
+          Show {metricCount} {metricCount === 1 ? "metric" : "metrics"}
+        </summary>
+      )
+    }
+    <div class="scard__body">
+      {
+        rows.length > 0 && (
+          <ul class="scard__rows" role="list">
+            {rows.map((row) => (
+              <li class:list={["srow", row.tone && `srow--${row.tone}`]}>
+                <span class:list={["srow__mark", row.tone && `srow__mark--${row.tone}`]}>
+                  {row.tone && <StatusIcon name={row.tone} size={15} />}
+                  {row.tone && <span class="visually-hidden">{TONE_WORDS[row.tone]}: </span>}
+                </span>
+                <div class="srow__main">
+                  {row.metric.hint ? (
+                    <details class="srow__hint">
+                      <summary>
+                        <span>{row.metric.label}</span>
+                        <StatusIcon name="info" size={13} class="srow__info" />
+                        <span class="visually-hidden"> (about this figure)</span>
+                      </summary>
+                      <p>{row.metric.hint}</p>
+                    </details>
+                  ) : (
+                    <span class="srow__label">{row.metric.label}</span>
+                  )}
+                  {row.link && (
+                    <a class="srow__link" href={row.link.href}>
+                      {row.link.label}
+                      <StatusIcon name="chevron" size={12} />
+                    </a>
+                  )}
+                </div>
+                <span class="srow__value">
+                  {row.share && <span class="srow__share">{row.share}</span>}
+                  <strong>{row.value}</strong>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+      {parts.breakdowns.map((metric) => <MetricBreakdown metric={metric} visible={5} />)}
+    </div>
+  </Fold>
+
+  {
+    (tabHref || unlinked) && (
+      <footer class="scard__foot">
+        {tabHref && tabLink && (
+          <a class="scard__cta" href={tabHref}>
+            {tabLink.label}
+            <StatusIcon name="chevron" size={13} />
+          </a>
+        )}
+        {unlinked && (
+          <p class="scard__note">
+            No dataset list for these counts in the portal yet; tracked in{" "}
+            <a href="https://github.com/nemarOrg/website/issues/195" target="_blank" rel="noopener noreferrer">
+              website#195<span class="visually-hidden"> (opens in a new tab)</span></a
+            >.
+          </p>
+        )}
+      </footer>
+    )
+  }
+</article>
+
+<style>
+  .scard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-inline-size: 0;
+    padding: var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    scroll-margin-block-start: calc(var(--header-height) + var(--space-4));
+  }
+  /* A problem card carries a thin tone rule at its leading edge; the badge
+     and row icons say the same thing in words. */
+  .scard--error {
+    box-shadow:
+      inset 3px 0 0 var(--admin-error),
+      var(--admin-shadow-sm);
+  }
+  .scard--warn {
+    box-shadow:
+      inset 3px 0 0 var(--admin-warn),
+      var(--admin-shadow-sm);
+  }
+  .scard:target {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .scard__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .scard__titles {
+    min-inline-size: 0;
+  }
+  .scard__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.005em;
+    line-height: var(--lh-snug);
+    color: var(--color-fg);
+  }
+  .scard__sub {
+    margin: 2px 0 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  .scard__trend {
+    --spark-halo: var(--admin-surface-2);
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+  }
+  .scard__trend-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2px var(--space-3);
+  }
+  .scard__trend-label {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+  }
+  .scard__trend-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .scard__body {
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+  .scard__rows {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .srow {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 10px;
+    padding: 9px 2px;
+    border-block-start: 1px solid var(--color-border);
+    font-size: var(--fs-sm);
+  }
+  .srow:first-child {
+    border-block-start: 0;
+  }
+  .srow__mark {
+    display: inline-grid;
+    place-items: center;
+    inline-size: 16px;
+    block-size: 1.3rem;
+  }
+  .srow__mark--ok {
+    color: var(--admin-ok-text);
+  }
+  .srow__mark--warn {
+    color: var(--admin-warn-text);
+  }
+  .srow__mark--error {
+    color: var(--admin-error-text);
+  }
+  .srow__main {
+    display: grid;
+    gap: 2px;
+    min-inline-size: 0;
+  }
+  .srow__label {
+    color: var(--color-fg);
+  }
+  .srow--warn .srow__label,
+  .srow--error .srow__label,
+  .srow--warn .srow__hint > summary,
+  .srow--error .srow__hint > summary {
+    font-weight: var(--fw-medium);
+  }
+  .srow__hint > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    list-style: none;
+    cursor: pointer;
+    color: var(--color-fg);
+    border-radius: var(--radius-sm);
+  }
+  .srow__hint > summary::-webkit-details-marker {
+    display: none;
+  }
+  .srow__hint > summary :global(.srow__info) {
+    color: var(--admin-text-3);
+  }
+  .srow__hint > summary:hover :global(.srow__info),
+  .srow__hint[open] > summary :global(.srow__info) {
+    color: var(--color-fg);
+  }
+  .srow__hint > p {
+    margin: var(--space-1) 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+  }
+  .srow__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    inline-size: fit-content;
+    color: var(--color-link);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+  }
+  .srow__link:hover {
+    text-decoration: underline;
+  }
+  .srow__value {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    line-height: 1.3rem;
+  }
+  .srow__value strong {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .srow__share {
+    margin-inline-end: var(--space-2);
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  .scard__fold > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    list-style: none;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    border-radius: var(--radius-sm);
+    padding: 2px 0;
+  }
+  .scard__fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  .scard__fold > summary::before {
+    content: "";
+    inline-size: 6px;
+    block-size: 6px;
+    margin: 0 2px;
+    border-inline-end: 1.5px solid currentColor;
+    border-block-end: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 140ms ease;
+  }
+  .scard__fold[open] > summary::before {
+    transform: rotate(45deg);
+  }
+  .scard__fold > summary:hover {
+    color: var(--color-fg);
+  }
+  .scard__fold[open] > .scard__body {
+    margin-block-start: var(--space-3);
+  }
+  .scard__foot {
+    display: grid;
+    gap: var(--space-2);
+    margin-block-start: auto;
+    padding-block-start: var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .scard__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    inline-size: fit-content;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+  }
+  .scard__cta:hover {
+    text-decoration: underline;
+  }
+  .scard__note {
+    margin: 0;
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    line-height: 1.45;
+  }
+  .scard__note a {
+    color: var(--color-link);
+  }
+  @media (max-width: 640px) {
+    .scard {
+      padding: var(--space-4);
+    }
+  }
+  @media (forced-colors: active) {
+    .scard--error,
+    .scard--warn {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+</style>
