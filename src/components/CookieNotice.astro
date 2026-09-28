@@ -1,22 +1,34 @@
 ---
 // Renders hidden by default. A tiny inline script flips the `hidden` attribute
-// off only when no prior choice is stored, mirroring how Base.astro avoids a
-// theme flash. The consent buttons persist a choice and notify listeners; the
-// Umami helper injects its tracker only after analytics consent is accepted.
+// off when no prior choice is stored. Analytics runs by default; the notice
+// and the footer's privacy-settings control let visitors opt out at any time.
 ---
 
-<aside class="cookie-notice" role="region" aria-label="Cookie notice" hidden data-cookie-notice>
+<aside
+  id="cookie-notice"
+  class="cookie-notice"
+  role="region"
+  aria-label="Cookie and analytics preferences"
+  hidden
+  data-cookie-notice
+>
   <div class="cookie-notice__inner">
     <p class="cookie-notice__copy">
-      We use a strictly-necessary cookie to keep you signed in. Optional analytics cookies help
-      us understand which datasets researchers find. Your choice is remembered on this device.
+      On NEMAR's production main and account sites, anonymous analytics are on by default on
+      selected public pages and the signed-in upload flow.
+      We measure page views, estimated visits, country, and citation, viewer, and upload actions.
+      We do not send account, dataset, or search IDs. You can opt out here or in Privacy settings.
+      A preference cookie shares your choice between those production sites. Preview and local
+      sites do not load analytics, and a saved choice there applies only on that site.
       <a class="cookie-notice__link" href="/privacy">Privacy policy</a>
     </p>
     <div class="cookie-notice__actions">
       <button class="cookie-notice__btn cookie-notice__btn--ghost" type="button" data-cookie-strict>
-        Strictly necessary
+        Opt out of analytics
       </button>
-      <button class="cookie-notice__btn" type="button" data-cookie-accept>Accept all</button>
+      <button class="cookie-notice__btn" type="button" data-cookie-accept>
+        Keep analytics on
+      </button>
     </div>
   </div>
 </aside>
@@ -106,16 +118,51 @@
 </style>
 
 <script>
-  import { readCookieConsent, saveCookieConsent } from "../lib/cookie-consent";
+  import {
+    COOKIE_CONSENT_CHANGED_EVENT,
+    readCookieConsent,
+    saveCookieConsent,
+  } from "../lib/cookie-consent";
 
   const banner = document.querySelector<HTMLElement>("[data-cookie-notice]");
   if (banner) {
     if (readCookieConsent() === null) banner.hidden = false;
+    let returnFocusTo: HTMLElement | null = null;
+    let openedForSettings = false;
+    const footerTrigger = document.querySelector<HTMLButtonElement>("[data-cookie-open]");
+    const closeNotice = () => {
+      const activeElement = document.activeElement;
+      const shouldRestoreFocus = activeElement instanceof HTMLElement && banner.contains(activeElement);
+      banner.hidden = true;
+      if (shouldRestoreFocus) {
+        (returnFocusTo?.isConnected ? returnFocusTo : footerTrigger)?.focus();
+      }
+      returnFocusTo = null;
+      openedForSettings = false;
+    };
+    const syncNotice = () => {
+      if (readCookieConsent() === null) banner.hidden = false;
+      else closeNotice();
+    };
+    const syncNoticeOnReturn = () => {
+      if (!document.hidden && !openedForSettings) syncNotice();
+    };
     const set = (value: "accepted" | "strict") => {
       saveCookieConsent(value);
-      banner.hidden = true;
+      closeNotice();
     };
+    document.addEventListener(COOKIE_CONSENT_CHANGED_EVENT, syncNotice);
+    document.addEventListener("visibilitychange", syncNoticeOnReturn);
+    window.addEventListener("focus", syncNoticeOnReturn);
     banner.querySelector<HTMLButtonElement>("[data-cookie-accept]")?.addEventListener("click", () => set("accepted"));
     banner.querySelector<HTMLButtonElement>("[data-cookie-strict]")?.addEventListener("click", () => set("strict"));
+    document.querySelectorAll<HTMLButtonElement>("[data-cookie-open]").forEach((button) => {
+      button.addEventListener("click", () => {
+        returnFocusTo = button;
+        openedForSettings = true;
+        banner.hidden = false;
+        banner.querySelector<HTMLButtonElement>("[data-cookie-strict]")?.focus();
+      });
+    });
   }
 </script>

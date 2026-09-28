@@ -1,4 +1,5 @@
 import {
+  ANALYTICS_PRODUCTION_HOSTS,
   COOKIE_CONSENT_CHANGED_EVENT,
   COOKIE_CONSENT_KEY,
   readCookieConsent,
@@ -21,7 +22,7 @@ export interface SafePageView {
 
 const UPLOAD_COMPLETION_KEY = "nemar:umami:upload-completed";
 const DEFAULT_UMAMI_SCRIPT_URL = "https://analytics.nemar.org/nmr-analytics.js";
-const PRODUCTION_HOSTS = new Set(["nemar.org", "www.nemar.org", "ww2.nemar.org", "app.nemar.org"]);
+const PRODUCTION_HOSTS = new Set<string>(ANALYTICS_PRODUCTION_HOSTS);
 const EVENT_NAMES = new Set<string>(UMAMI_EVENT_NAMES);
 
 interface UmamiPayload {
@@ -99,7 +100,9 @@ export function safeUmamiScriptUrl(value: string | undefined): string | null {
 }
 
 function hasConsent(): boolean {
-  return readCookieConsent() === "accepted";
+  // Analytics is on by default. The existing `strict` value remains the
+  // persistent opt-out so choices already saved in browsers keep working.
+  return readCookieConsent() !== "strict";
 }
 
 function callTracker(payload: UmamiPayload | (() => UmamiPayload)): boolean {
@@ -174,7 +177,7 @@ export function installUmamiAnalytics(websiteId: string | undefined, scriptUrl?:
     script.dataset.websiteId = validWebsiteId ?? "";
     script.dataset.autoPageview = "false";
     script.dataset.excludeSearch = "true";
-    script.dataset.domains = [...PRODUCTION_HOSTS].join(",");
+    script.dataset.domains = [...ANALYTICS_PRODUCTION_HOSTS].join(",");
     script.addEventListener(
       "load",
       () => {
