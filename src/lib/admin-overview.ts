@@ -777,9 +777,28 @@ function unknownKpi(key: string, label: string): KpiSpec {
 }
 
 /**
+ * A coverage card whose total is zero: the metric arrived, and there is
+ * simply nothing it could cover. That is a known fact, so it is worded as
+ * one rather than as the "Unavailable" of a missing metric.
+ */
+function noneEligibleKpi(key: string, label: string, context: string, anchor: string): KpiSpec {
+  return {
+    key,
+    label,
+    value: "No eligible datasets",
+    muted: true,
+    delta: null,
+    context: [context],
+    spark: null,
+    anchor,
+  };
+}
+
+/**
  * The four headline cards: catalog size, data volume, and the two coverage
  * figures an operator steers by (archives and Zarr). Each missing metric
- * renders as "Unavailable" rather than disappearing or reading as zero.
+ * renders as "Unavailable" rather than disappearing or reading as zero; a
+ * coverage metric with nothing to cover says so instead.
  */
 export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec[] {
   const index = metricIndex(snapshot);
@@ -853,6 +872,15 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
       ].filter(Boolean),
       anchor: sectionAnchor("archive"),
     });
+  } else if (archive && archive.total === 0) {
+    specs.push(
+      noneEligibleKpi(
+        archive.key,
+        "Archive coverage",
+        "No public dataset is eligible for a downloadable archive, so there is no coverage to report.",
+        sectionAnchor("archive"),
+      ),
+    );
   } else {
     specs.push(unknownKpi("archive.ready", "Archive coverage"));
   }
@@ -879,6 +907,15 @@ export function kpiSpecs(snapshot: MetricSnapshot, history: HistoryMap): KpiSpec
       ].filter(Boolean),
       anchor: sectionAnchor("zarr"),
     });
+  } else if (zarr && zarr.total === 0) {
+    specs.push(
+      noneEligibleKpi(
+        zarr.key,
+        "Zarr coverage",
+        "No public dataset is eligible for Zarr conversion, so there is no coverage to report.",
+        sectionAnchor("zarr"),
+      ),
+    );
   } else {
     specs.push(unknownKpi("zarr.ready", "Zarr coverage"));
   }

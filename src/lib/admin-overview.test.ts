@@ -585,6 +585,25 @@ describe("kpiSpecs", () => {
     expect(specs.every((s) => s.muted && s.value === "Unavailable")).toBe(true);
     expect(specs[0].context[0]).toContain("Unknown is not zero");
   });
+
+  it("says no eligible datasets, not unavailable, when a coverage total is zero", () => {
+    const nothingToCover: MetricSnapshot = {
+      ...current,
+      sections: current.sections.map((s) => ({
+        ...s,
+        metrics: s.metrics.map((m) =>
+          m.key === "archive.ready" || m.key === "zarr.ready" ? { ...m, value: 0, total: 0 } : m,
+        ),
+      })),
+    };
+    const [, , archive, zarr] = kpiSpecs(nothingToCover, { "archive.ready": archiveReady });
+    for (const spec of [archive, zarr]) {
+      expect(spec).toMatchObject({ value: "No eligible datasets", muted: true, spark: null });
+      expect(spec.context[0]).not.toContain("Unknown");
+    }
+    expect(archive.context[0]).toContain("downloadable archive");
+    expect(zarr.anchor).toBe("section-zarr");
+  });
 });
 
 describe("breakdownView", () => {
