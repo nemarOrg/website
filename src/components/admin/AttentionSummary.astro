@@ -81,6 +81,7 @@ const TONE_ICON = { warn: "warn", error: "error", unknown: "neutral" } as const;
             {item.value && <span class="aitem__value">{item.value}</span>}
             <a class="aitem__link" href={item.link.href}>
               {item.link.label}
+              <span class="visually-hidden"> for {item.label}</span>
               <StatusIcon name="chevron" size={13} />
             </a>
           </li>

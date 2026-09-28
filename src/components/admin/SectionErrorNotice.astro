@@ -6,7 +6,8 @@
  * rather than breaking it, but it must never be silently dropped, so each
  * one is listed with the Worker's own error text. Drawn as the dashboard's
  * error state (a solid card with an error rule and icon), and the attention
- * summary links here by `#section-errors`.
+ * summary links here by `#section-errors`. It is part of the server-rendered
+ * page, not a change announced after load, so it carries no live-region role.
  */
 import { sectionLabel } from "../../lib/admin-overview";
 import type { MetricSectionError } from "../../lib/observability";
@@ -21,7 +22,7 @@ const { errors } = Astro.props;
 
 {
   errors.length > 0 && (
-    <div class="section-error-notice" role="alert" id="section-errors">
+    <div class="section-error-notice" id="section-errors">
       <StatusIcon name="error" size={18} class="section-error-notice__icon" />
       <div class="section-error-notice__text">
         <p class="section-error-notice__title">

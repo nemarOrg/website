@@ -157,6 +157,7 @@ const rows = parts.rows.map((metric) => {
                   {row.link && (
                     <a class="srow__link" href={row.link.href}>
                       {row.link.label}
+                      <span class="visually-hidden"> for {row.metric.label}</span>
                       <StatusIcon name="chevron" size={12} />
                     </a>
                   )}
