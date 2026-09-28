@@ -10,6 +10,8 @@ pages_build_output_dir = "./dist"
 PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
+# Enable the anonymous tracker only in production; the test project omits this ID.
+PUBLIC_UMAMI_WEBSITE_ID = "b4b5f61c-56b2-4b8c-9023-6a29ed3904ac"
 # Open Science Assistant widget (ADR 0018), pinned to an OSA release commit on `main` with
 # Subresource Integrity; src/lib/osa-widget.ts validates all three and renders nothing
 # unless every one parses. The pin moves only to another release, with its hash.
