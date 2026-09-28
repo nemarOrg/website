@@ -16,6 +16,7 @@ import {
   last30DaysUtc,
   usageKpis,
 } from "../../lib/observability-usage";
+import { DECORATIVE_TIMEOUT_MS } from "../../lib/request-deadline";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -37,16 +38,23 @@ if (!session) {
 //
 // Snapshot and histories are issued concurrently — awaiting them in sequence
 // would stack round-trips onto every admin page render. Each fetcher is
-// fail-soft (returns null on error, non-2xx, or its 5s deadline), so a
+// fail-soft (returns null on error, non-2xx, or its deadline), so a
 // dashboard.nemar.org outage degrades this page instead of hanging or 500ing it.
+// The histories only draw sparklines and deltas, and each card already says
+// "Recent change unavailable" without one, so they get the short decorative
+// deadline; the snapshot keeps the default, since the page is about it.
 //
 // The usage panel reads the public dashboard's range endpoints for the last
 // 30 complete UTC days. They send no CORS headers, so they are fetched here,
-// server-side, under the same fail-soft deadline, never from browser JS.
+// server-side, under the default fail-soft deadline, never from browser JS.
 const usageRange = last30DaysUtc();
 const [snapshot, historyResults, usageSeries, usageAudience] = await Promise.all([
   fetchObservabilitySnapshot(),
-  Promise.all(OVERVIEW_HISTORY_KEYS.map((key) => fetchMetricHistory(key))),
+  Promise.all(
+    OVERVIEW_HISTORY_KEYS.map((key) =>
+      fetchMetricHistory(key, { timeoutMs: DECORATIVE_TIMEOUT_MS }),
+    ),
+  ),
   fetchUsageTimeseries(usageRange),
   fetchUsageAudience(usageRange),
 ]);
