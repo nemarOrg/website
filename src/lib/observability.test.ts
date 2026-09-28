@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import historyFixture from "../../test/fixtures/observability-history.json";
+import currentFixture from "../../test/fixtures/observability-snapshot-current.json";
 import snapshotFixture from "../../test/fixtures/observability-snapshot.json";
 import {
   type Metric,
   fetchMetricHistory,
   fetchObservabilitySnapshot,
+  formatCompactCount,
+  formatExactCount,
   formatMetricValue,
+  formatSiBytes,
 } from "./observability";
 
 function fetchReturning(body: unknown, status = 200): typeof fetch {
@@ -228,20 +232,65 @@ describe("formatMetricValue", () => {
     return { key: "k", label: "L", value: 0, unit: "count", severity: "info", ...overrides };
   }
 
-  it("formats bytes via formatBytes", () => {
-    expect(formatMetricValue(metric({ value: 60710575997968, unit: "bytes" }))).toBe("55.2 TB");
+  // The public dashboard prints the same snapshot in SI units; binary units
+  // here made the two surfaces disagree on one number (55.2 TB vs 60.7 TB).
+  it("formats bytes in SI units, as the public dashboard does", () => {
+    expect(formatMetricValue(metric({ value: 60710575997968, unit: "bytes" }))).toBe("60.7 TB");
   });
 
-  it("formats datasets via formatCount", () => {
+  it("formats datasets as an exact count", () => {
     expect(formatMetricValue(metric({ value: 754, unit: "datasets" }))).toBe("754");
   });
 
-  it("formats count via formatCount", () => {
-    expect(formatMetricValue(metric({ value: 152299, unit: "count" }))).toBe("152K");
+  it("formats count with thousands separators rather than abbreviating", () => {
+    expect(formatMetricValue(metric({ value: 152299, unit: "count" }))).toBe("152,299");
   });
 
-  it("falls back to formatCount for an unknown unit", () => {
+  it("appends a percent sign for the percent unit", () => {
+    expect(formatMetricValue(metric({ value: 4.7, unit: "percent" }))).toBe("4.7%");
+  });
+
+  it("falls back to an exact count for an unknown unit", () => {
     expect(formatMetricValue(metric({ value: 42, unit: "widgets" }))).toBe("42");
+  });
+});
+
+describe("formatSiBytes", () => {
+  it("matches the dashboard's humanBytes at every scale", () => {
+    expect(formatSiBytes(0)).toBe("0 B");
+    expect(formatSiBytes(512)).toBe("512 B");
+    expect(formatSiBytes(1500)).toBe("1.5 kB");
+    expect(formatSiBytes(552_882_902_018)).toBe("552.9 GB");
+    expect(formatSiBytes(65_588_144_252_044)).toBe("65.6 TB");
+  });
+
+  it("never prints a negative or non-finite value as a size", () => {
+    expect(formatSiBytes(-5)).toBe("0 B");
+    expect(formatSiBytes(Number.NaN)).toBe("0 B");
+  });
+});
+
+describe("formatCompactCount", () => {
+  it("stays exact below ten thousand and compacts above", () => {
+    expect(formatCompactCount(9999)).toBe("9,999");
+    expect(formatCompactCount(15_282_180)).toBe("15.3M");
+    expect(formatCompactCount(38_811)).toBe("38.8K");
+  });
+
+  it("says Unknown rather than printing a non-finite number", () => {
+    expect(formatCompactCount(Number.NaN)).toBe("Unknown");
+    expect(formatExactCount(Number.POSITIVE_INFINITY)).toBe("Unknown");
+  });
+});
+
+describe("breakdown_style", () => {
+  it("is parsed through from the live snapshot, where sizes.largest is ranked", async () => {
+    const snapshot = await fetchObservabilitySnapshot({ fetch: fetchReturning(currentFixture) });
+    const sizes = snapshot?.sections.find((s) => s.key === "sizes");
+    const largest = sizes?.metrics.find((m) => m.key === "sizes.largest");
+    expect(largest?.breakdown_style).toBe("ranked");
+    const histogram = sizes?.metrics.find((m) => m.key === "sizes.histogram");
+    expect(histogram?.breakdown_style).toBeUndefined();
   });
 });
 

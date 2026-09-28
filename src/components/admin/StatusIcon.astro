@@ -1,0 +1,45 @@
+---
+/**
+ * The admin portal's small stroke icons, drawn on the public observability
+ * dashboard's 16-unit grid so the two surfaces share one icon language.
+ * Always decorative: every icon sits next to words that say the same thing,
+ * so it is hidden from assistive technology and never carries meaning alone.
+ * Stroke follows `currentColor`, so the parent sets the tone.
+ *
+ * The path data lives in `lib/status-icons.ts`, whose lookup draws nothing
+ * for a name it does not know instead of throwing mid-render.
+ */
+import { type IconName, iconPaths } from "../../lib/status-icons";
+
+interface Props {
+  name: IconName;
+  /** Rendered size in px; the viewBox is always 16. */
+  size?: number;
+  class?: string;
+}
+
+const { name, size = 16, class: className } = Astro.props;
+const paths = iconPaths(name);
+---
+
+<svg
+  class:list={["status-icon", className]}
+  viewBox="0 0 16 16"
+  width={size}
+  height={size}
+  aria-hidden="true"
+  focusable="false"
+>
+  {paths.map((d) => <path d={d} />)}
+</svg>
+
+<style>
+  .status-icon {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+</style>

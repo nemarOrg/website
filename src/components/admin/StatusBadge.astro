@@ -1,0 +1,56 @@
+---
+/**
+ * Status pill for the admin Overview: an icon and a word, never a color
+ * alone. The shape is the public dashboard's `.badge`; the admin page adds
+ * the warn and error tones the public page deliberately leaves out.
+ */
+import StatusIcon from "./StatusIcon.astro";
+
+interface Props {
+  tone: "ok" | "warn" | "error" | "neutral";
+  text: string;
+}
+
+const { tone, text } = Astro.props;
+const ICON = { ok: "ok", warn: "warn", error: "error", neutral: "neutral" } as const;
+---
+
+<span class:list={["status-badge", `status-badge--${tone}`]}>
+  <StatusIcon name={ICON[tone]} size={14} />
+  <span>{text}</span>
+</span>
+
+<style>
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    min-block-size: 1.5rem;
+    padding: 0 var(--space-2) 0 7px;
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    line-height: 1.3;
+    white-space: nowrap;
+    background: var(--admin-neutral-soft);
+    color: var(--color-fg-muted);
+  }
+  .status-badge--ok {
+    background: var(--admin-ok-soft);
+    color: var(--admin-ok-text);
+  }
+  .status-badge--warn {
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+  }
+  .status-badge--error {
+    background: var(--admin-error-soft);
+    color: var(--admin-error-text);
+  }
+  @media (forced-colors: active) {
+    .status-badge {
+      border: 1px solid CanvasText;
+    }
+  }
+</style>

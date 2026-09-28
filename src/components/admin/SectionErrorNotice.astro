@@ -1,13 +1,17 @@
 ---
 /**
- * Visible degraded-data banner for `snapshot.section_errors` — sections
- * the observability Worker failed to compute (e.g. the `sync` section's
- * live `nemar_sync_status` column bug). Styled like the
- * `.admin-action-error` banner in `admin/publication-requests.astro`, but
- * at warning severity: a missing section degrades the Overview, it isn't
- * fatal, so it must never be silently dropped.
+ * Visible degraded-data notice for `snapshot.section_errors`: sections the
+ * observability Worker failed to compute (e.g. the `sync` section's
+ * `nemar_sync_status` column bug). A missing section degrades the Overview
+ * rather than breaking it, but it must never be silently dropped, so each
+ * one is listed with the Worker's own error text. Drawn as the dashboard's
+ * error state (a solid card with an error rule and icon), and the attention
+ * summary links here by `#section-errors`. It is part of the server-rendered
+ * page, not a change announced after load, so it carries no live-region role.
  */
+import { sectionLabel } from "../../lib/admin-overview";
 import type { MetricSectionError } from "../../lib/observability";
+import StatusIcon from "./StatusIcon.astro";
 
 interface Props {
   errors: readonly MetricSectionError[];
@@ -18,44 +22,76 @@ const { errors } = Astro.props;
 
 {
   errors.length > 0 && (
-    <div class="section-error-notice" role="alert">
-      <p class="section-error-notice__title">
-        {errors.length === 1
-          ? "1 section is unavailable"
-          : `${errors.length} sections are unavailable`}
-      </p>
-      <ul class="section-error-notice__list">
-        {errors.map((e) => (
-          <li>
-            <strong>{e.key}</strong>: {e.error}
-          </li>
-        ))}
-      </ul>
+    <div class="section-error-notice" id="section-errors">
+      <StatusIcon name="error" size={18} class="section-error-notice__icon" />
+      <div class="section-error-notice__text">
+        <p class="section-error-notice__title">
+          {errors.length === 1
+            ? "1 section is unavailable"
+            : `${errors.length} sections are unavailable`}
+        </p>
+        <p class="section-error-notice__body">
+          Its figures are missing from this page, which is not the same as zero.
+        </p>
+        <ul class="section-error-notice__list">
+          {errors.map((e) => (
+            <li>
+              <strong>{sectionLabel(e.key)}</strong> (<code>{e.key}</code>): {e.error}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }
 
 <style>
   .section-error-notice {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
     margin: 0;
-    background: color-mix(in srgb, var(--color-warning) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
-    color: var(--color-fg);
-    border-radius: var(--radius-md);
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg-muted);
     font-size: var(--fs-sm);
+    scroll-margin-block-start: calc(var(--header-height) + var(--space-4));
+  }
+  .section-error-notice :global(.section-error-notice__icon) {
+    margin-block-start: 2px;
+    color: var(--admin-error-text);
+  }
+  .section-error-notice__text {
+    min-inline-size: 0;
   }
   .section-error-notice__title {
-    margin: 0 0 var(--space-1);
+    margin: 0;
+    color: var(--color-fg);
     font-weight: var(--fw-semibold);
   }
+  .section-error-notice__body {
+    margin: 2px 0 0;
+  }
   .section-error-notice__list {
-    margin: 0;
+    margin: var(--space-2) 0 0;
     padding-inline-start: var(--space-5);
     display: grid;
-    gap: 2px;
-    color: var(--color-fg-muted);
-    font-family: var(--font-mono);
+    gap: var(--space-1);
     font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+  .section-error-notice__list strong {
+    color: var(--color-fg);
+  }
+  .section-error-notice__list code {
+    font-family: var(--font-mono);
+  }
+  @media (forced-colors: active) {
+    .section-error-notice {
+      border-inline-start: 3px solid CanvasText;
+    }
   }
 </style>

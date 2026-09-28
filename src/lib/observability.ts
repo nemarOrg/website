@@ -17,7 +17,6 @@
  * the UI can render them sensibly instead of the upstream needing to
  * coordinate a frontend change first.
  */
-import { formatBytes, formatCount } from "./format";
 import { resolveSignal } from "./request-deadline";
 
 /** Known severities observed today. Unknown strings still flow through —
@@ -48,6 +47,12 @@ export interface Metric {
    * and `cf.bytes_by_host` both do. Absent means the breakdown shares `unit`.
    */
   readonly breakdown_unit?: string;
+  /**
+   * How the upstream wants the breakdown drawn. `"ranked"` (today only
+   * `sizes.largest`) is a top-N list whose printed values carry the reading,
+   * so bars would only restate them. Absent means proportional bars.
+   */
+  readonly breakdown_style?: string;
   readonly drilldown?: string;
 }
 
@@ -126,12 +131,14 @@ function parseMetric(raw: unknown): Metric | null {
     ? raw.breakdown.map(parseBreakdownEntry).filter((b): b is MetricBreakdownEntry => b !== null)
     : undefined;
   const breakdownUnit = typeof raw.breakdown_unit === "string" ? raw.breakdown_unit : undefined;
+  const breakdownStyle = typeof raw.breakdown_style === "string" ? raw.breakdown_style : undefined;
   return {
     ...metric,
     ...(total !== undefined && { total }),
     ...(hint !== undefined && { hint }),
     ...(breakdown !== undefined && breakdown.length > 0 && { breakdown }),
     ...(breakdownUnit !== undefined && { breakdown_unit: breakdownUnit }),
+    ...(breakdownStyle !== undefined && { breakdown_style: breakdownStyle }),
     ...(drilldown !== undefined && { drilldown }),
   };
 }
@@ -158,7 +165,13 @@ function parseSectionError(raw: unknown): MetricSectionError | null {
   return { key: raw.key, error: raw.error };
 }
 
-function parseSnapshot(body: unknown): MetricSnapshot | null {
+/**
+ * Validates a snapshot body at the trust boundary. Exported so the Overview's
+ * view-model tests run captured fixtures through the same parse the page
+ * does, rather than casting raw JSON (a live snapshot sends
+ * `section_errors: null`, which this normalizes to `[]`).
+ */
+export function parseSnapshot(body: unknown): MetricSnapshot | null {
   if (!isRecord(body) || !Array.isArray(body.sections)) return null;
   const sections = body.sections.map(parseSection).filter((s): s is MetricSection => s !== null);
   const sectionErrors = Array.isArray(body.section_errors)
@@ -179,7 +192,8 @@ function parsePoint(raw: unknown): MetricPoint | null {
   return { at: raw.at, value: raw.value, ...(total !== undefined && { total }) };
 }
 
-function parseHistory(body: unknown): MetricHistory | null {
+/** Validates a history body; exported for the same reason as {@link parseSnapshot}. */
+export function parseHistory(body: unknown): MetricHistory | null {
   if (!isRecord(body) || typeof body.metric !== "string" || !Array.isArray(body.points)) {
     return null;
   }
@@ -246,11 +260,55 @@ export async function fetchMetricHistory(
   return parseHistory(body);
 }
 
+const SI_BYTE_UNITS = ["B", "kB", "MB", "GB", "TB", "PB"] as const;
+
 /**
- * Renders a metric's value for display, dispatching on `unit`. Reuses the
- * shared formatters rather than reimplementing byte/count formatting here.
+ * A byte count in decimal (SI) units, printed exactly as the public
+ * observability dashboard prints it (its `humanBytes`), so a figure an admin
+ * reads here matches the one on dashboard.nemar.org. The site-wide
+ * `formatBytes` is binary (1024-based) for file sizes; on the same snapshot it
+ * would turn the dashboard's "65.6 TB" into "59.7 TB".
+ */
+export function formatSiBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 1) return "0 B";
+  let i = 0;
+  let scaled = bytes;
+  while (scaled >= 1000 && i < SI_BYTE_UNITS.length - 1) {
+    scaled /= 1000;
+    i++;
+  }
+  return `${i === 0 ? scaled : scaled.toFixed(1)} ${SI_BYTE_UNITS[i]}`;
+}
+
+/** A count with thousands separators ("172,292"), as the dashboard's rows print it. */
+export function formatExactCount(value: number): string {
+  return Number.isFinite(value) ? value.toLocaleString("en-US") : "Unknown";
+}
+
+const COMPACT_COUNT = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 1,
+});
+
+/**
+ * A headline count: exact below 10,000, compact above ("15.3M"), the rule the
+ * dashboard's KPI cards use. Never renders a non-finite value as a number.
+ */
+export function formatCompactCount(value: number): string {
+  if (!Number.isFinite(value)) return "Unknown";
+  return Math.abs(value) < 10_000
+    ? Math.round(value).toLocaleString("en-US")
+    : COMPACT_COUNT.format(value);
+}
+
+/**
+ * Renders a metric's value for display, dispatching on `unit`, with the same
+ * rules as the public dashboard's `fmt`: SI bytes, a percent sign for
+ * `percent`, and an exact count for everything else (including units this
+ * client has never seen).
  */
 export function formatMetricValue(metric: Metric): string {
-  if (metric.unit === "bytes") return formatBytes(metric.value);
-  return formatCount(metric.value);
+  if (metric.unit === "bytes") return formatSiBytes(metric.value);
+  if (metric.unit === "percent") return `${formatExactCount(metric.value)}%`;
+  return formatExactCount(metric.value);
 }

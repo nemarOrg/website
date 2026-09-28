@@ -294,39 +294,65 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
 <style>
   .admin-empty {
     display: grid;
-    justify-items: center;
-    gap: var(--space-3);
-    padding: var(--space-12) var(--space-6);
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-5);
     border: 1px dashed var(--color-border-strong);
     border-radius: var(--radius-lg);
-    background: var(--color-bg-elevated);
-    text-align: center;
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  /* A search-miss line ships [hidden] and the script reveals it; the grid
+     display above would otherwise beat the UA [hidden] rule and show it on
+     every load. */
+  .admin-empty[hidden] {
+    display: none;
   }
   .admin-empty__title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--fs-xl);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
   }
   .admin-empty__body {
     margin: 0;
+    font-size: var(--fs-sm);
     color: var(--color-fg-muted);
   }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  /* The dashboard's error state: a solid card with an error rule. */
   .admin-action-error {
     margin: 0;
-    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
-    color: var(--color-fg);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
     padding: var(--space-3) var(--space-4);
     font-size: var(--fs-sm);
   }
+  @media (forced-colors: active) {
+    .admin-action-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+  /* The account card, in the same family as UserAdminRow.astro's rows. */
   .user-detail {
-    background: var(--color-bg-elevated);
+    background: var(--admin-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
     padding: var(--space-6);
     display: grid;
     gap: var(--space-5);
+    min-inline-size: 0;
   }
   .user-detail__header {
     display: flex;
@@ -338,7 +364,10 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
   .user-detail__email {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--fs-2xl);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.012em;
+    overflow-wrap: anywhere;
   }
   .user-detail__name {
     margin: var(--space-1) 0 0;
@@ -348,28 +377,28 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
     margin: var(--space-1) 0 0;
     font-family: var(--font-mono);
     font-size: var(--fs-sm);
-    color: var(--color-fg-subtle);
+    color: var(--admin-text-3);
   }
   .user-detail__username--missing {
-    color: var(--color-warning);
+    color: var(--admin-warn-text);
     font-style: italic;
   }
   .user-detail__self-marker {
     display: inline-flex;
     align-items: center;
     margin-block-start: var(--space-2);
-    padding: 1px 8px;
+    min-block-size: 1.375rem;
+    padding: 0 var(--space-2);
     border-radius: var(--radius-pill);
-    border: 1px solid color-mix(in srgb, var(--color-info) 40%, transparent);
-    background: color-mix(in srgb, var(--color-info) 12%, transparent);
-    color: var(--color-fg);
+    background: var(--admin-accent-soft);
+    color: var(--color-link);
     font-size: var(--fs-xs);
-    font-weight: var(--fw-medium);
+    font-weight: var(--fw-semibold);
   }
   .user-detail__notice {
     margin: 0;
-    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    background: var(--admin-warn-soft);
+    border: 1px solid color-mix(in srgb, var(--admin-warn) 45%, transparent);
     color: var(--color-fg);
     border-radius: var(--radius-md);
     padding: var(--space-3) var(--space-4);
@@ -382,26 +411,26 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
   .user-detail__grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-    gap: var(--space-3);
+    gap: var(--space-4) var(--space-5);
     margin: 0;
+    padding: var(--space-4) var(--space-5);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
   }
   .user-detail__grid > div {
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-3);
+    min-inline-size: 0;
   }
   .user-detail__grid dt {
     font-size: var(--fs-xs);
-    color: var(--color-fg-subtle);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    color: var(--admin-text-3);
     margin-block-end: 2px;
   }
   .user-detail__grid dd {
     margin: 0;
     color: var(--color-fg);
     font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
   }
   /* Mirrors `.user-row__gaps*` in UserAdminRow.astro — scoped styles do not
      cross component boundaries, so the pair is duplicated on purpose (see
@@ -412,10 +441,11 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
   }
   .user-detail__gaps-title {
     margin: 0;
+    font-family: var(--font-sans);
     font-size: var(--fs-xs);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--color-fg-subtle);
+    color: var(--color-fg-muted);
     font-weight: var(--fw-semibold);
   }
   .user-detail__gaps-empty {
@@ -430,7 +460,7 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
     gap: var(--space-1);
     list-style: disc;
     font-size: var(--fs-sm);
-    color: var(--color-warning);
+    color: var(--admin-warn-text);
     overflow-wrap: anywhere;
   }
   .user-detail__actions {
@@ -448,54 +478,71 @@ const gaps = user ? profileGaps(gapAccountFromDetail(user)) : [];
   }
   .user-detail__role-select-label {
     font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
     color: var(--color-fg-muted);
   }
   .user-detail__role-select {
     min-block-size: 40px;
     padding: 0 var(--space-2);
     border-radius: var(--radius-md);
-    border: 1px solid var(--color-border-strong);
-    background: var(--color-bg);
+    border: 1px solid var(--admin-control-border);
+    background: var(--admin-surface);
     color: var(--color-fg);
     font-size: var(--fs-sm);
   }
   .user-detail__btn {
     min-block-size: 40px;
     padding: 0 var(--space-5);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-md);
     border: 1px solid var(--color-border-strong);
-    background: transparent;
+    background: var(--admin-surface);
     color: var(--color-fg);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
     cursor: pointer;
   }
   .user-detail__btn:hover {
-    background: var(--color-bg-subtle);
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
   }
   .user-detail__btn--primary {
-    background: var(--color-fg);
+    background: var(--color-link);
     color: var(--color-bg);
-    border-color: var(--color-fg);
+    border-color: var(--color-link);
   }
   .user-detail__btn--primary:hover {
-    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+    background: var(--color-link-hover);
+    border-color: var(--color-link-hover);
   }
   .user-detail__btn--danger-ghost {
-    color: var(--color-danger);
-    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+    color: var(--admin-error-text);
+    border-color: color-mix(in srgb, var(--admin-error) 45%, transparent);
   }
   .user-detail__btn--danger-ghost:hover {
-    background: color-mix(in srgb, var(--color-danger) 8%, transparent);
-    border-color: var(--color-danger);
+    background: var(--admin-error-soft);
+    border-color: var(--admin-error-text);
   }
   .user-detail__btn--danger {
-    background: var(--color-danger);
+    background: var(--admin-error-text);
     color: var(--color-bg);
-    border-color: var(--color-danger);
+    border-color: var(--admin-error-text);
   }
   .user-detail__btn--danger:hover {
-    background: color-mix(in srgb, var(--color-danger) 82%, #000);
+    background: color-mix(in srgb, var(--admin-error-text) 85%, var(--color-fg));
+    border-color: color-mix(in srgb, var(--admin-error-text) 85%, var(--color-fg));
+  }
+  @media (max-width: 640px) {
+    .user-detail {
+      padding: var(--space-4);
+    }
+    .user-detail__grid {
+      padding: var(--space-3) var(--space-4);
+    }
+  }
+  @media (forced-colors: active) {
+    .user-detail__self-marker {
+      border: 1px solid CanvasText;
+    }
   }
 </style>
 
