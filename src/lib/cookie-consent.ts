@@ -77,6 +77,25 @@ function readTabConsent(): ConsentRecord | null {
   }
 }
 
+function readLocalConsent(): ConsentRecord | null {
+  try {
+    return parseConsentRecord(window.localStorage.getItem(COOKIE_CONSENT_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function latestConsentRecord(records: (ConsentRecord | null)[]): ConsentRecord | null {
+  return records
+    .filter((record): record is ConsentRecord => record !== null)
+    .reduce<ConsentRecord | null>((current, record) => {
+      if (current === null || record.changedAt > current.changedAt) return record;
+      if (record.changedAt < current.changedAt) return current;
+      // Conflicting legacy values have no timestamp; preserve the opt-out.
+      return record.value === "strict" ? record : current;
+    }, null);
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
     if (event.key !== COOKIE_CONSENT_KEY) return;
@@ -95,25 +114,11 @@ if (typeof window !== "undefined") {
 export function readCookieConsent(): CookieConsent | null {
   const sharedConsent = readSharedConsent();
   const tabConsent = readTabConsent();
-  let localConsent: ConsentRecord | null = null;
-  try {
-    localConsent = parseConsentRecord(window.localStorage.getItem(COOKIE_CONSENT_KEY));
-  } catch {
-    // The shared cookie, tab-scoped value, or in-memory choice may still work.
-  }
+  const localConsent = readLocalConsent();
 
-  // New writes carry timestamps so a failed cookie write cannot let an older
-  // shared cookie override the latest choice stored in this tab or origin.
-  // Shared cookies still carry the choice across origins when all writes work.
-  const records = [unsavedConsent, tabConsent, localConsent, sharedConsent].filter(
-    (record): record is ConsentRecord => record !== null,
-  );
-  const latest = records.reduce<ConsentRecord | null>((current, record) => {
-    if (current === null || record.changedAt > current.changedAt) return record;
-    if (record.changedAt < current.changedAt) return current;
-    // Conflicting legacy values have no timestamp; preserve the opt-out.
-    return record.value === "strict" ? record : current;
-  }, null);
+  // Logical timestamps let a failed cookie write preserve the newest choice
+  // stored in this tab or origin. Shared cookies carry it across origins.
+  const latest = latestConsentRecord([unsavedConsent, tabConsent, localConsent, sharedConsent]);
 
   if (localConsent?.changedAt === 0 && (sharedConsent === null || sharedConsent.changedAt === 0)) {
     // Migrate the resolved choice so a conflicting legacy opt-out remains
@@ -124,7 +129,16 @@ export function readCookieConsent(): CookieConsent | null {
 }
 
 export function saveCookieConsent(value: CookieConsent): void {
-  const record: ConsentRecord = { value, changedAt: Date.now() };
+  const previous = latestConsentRecord([
+    unsavedConsent,
+    readTabConsent(),
+    readLocalConsent(),
+    readSharedConsent(),
+  ]);
+  // Advance past every revision we can see so a clock adjustment cannot make
+  // this new choice look older than a previously saved one on another host.
+  const changedAt = Math.max(Date.now(), (previous?.changedAt ?? 0) + 1);
+  const record: ConsentRecord = { value, changedAt };
   const serialized = serializeConsentRecord(record);
   unsavedConsent = record;
   const sharedSaved = writeSharedConsent(record);
