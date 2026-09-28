@@ -131,6 +131,37 @@
   --max-width-page: 1200px;
   --max-width-prose: 72ch;
   --header-height: 64px;
+
+  /* --- ADMIN PORTAL (operational surfaces) ---
+     Role tokens for /admin, matched to the public observability dashboard
+     (nemar-observability src/routes/dashboard/styles.ts) so the two read as
+     one family: white cards on a tinted page in light, lifted navy cards on
+     the page navy in dark. Neutrals the site already has are reused directly
+     (--color-fg, --color-border, --color-link, --color-focus); only the roles
+     it lacks live here. Every *-text value clears 4.5:1 on its *-soft tint
+     and on --admin-surface in both themes. */
+  --admin-page: #f7f8fb; /* page ground behind the cards */
+  --admin-surface: #ffffff; /* cards */
+  --admin-surface-2: #f7f8fb; /* inset panels inside a card */
+  --admin-surface-3: #eef1f6; /* tracks, hover fills, segmented grounds */
+  --admin-text-3: #56657a; /* tertiary text; --color-fg-subtle is 4.48:1 on the page ground */
+  --admin-control-border: #7b8aa0; /* form control borders (3:1 non-text contrast) */
+  --admin-accent: #2a78d6; /* chart marks only: lines, bars, rings */
+  --admin-accent-soft: rgb(42 120 214 / 10%);
+  --admin-accent-track: rgb(42 120 214 / 14%);
+  --admin-ok: #0ca30c; /* status marks (icons, bars), never text */
+  --admin-ok-text: #166534;
+  --admin-ok-soft: rgb(21 128 61 / 10%);
+  --admin-warn: #fab219;
+  --admin-warn-text: #a14906;
+  --admin-warn-soft: rgb(250 178 25 / 16%);
+  --admin-error: #d03b3b;
+  --admin-error-text: #b91c1c;
+  --admin-error-soft: rgb(208 59 59 / 10%);
+  --admin-neutral-soft: rgb(100 116 139 / 10%);
+  --admin-skeleton: #eef1f6;
+  --admin-skeleton-shine: #f7f8fb;
+  --admin-shadow-sm: 0 1px 2px rgb(15 23 42 / 5%);
 }
 
 /* Dark theme: auto via prefers-color-scheme, overridden by explicit [data-theme]. */
@@ -179,6 +210,30 @@
     --license-noderiv: #fb7185;
     --license-unknown: #94a3b8;
     --keyword: #cbd5e1;
+
+    /* Admin portal roles, dark (see :root). */
+    --admin-page: #0a1224;
+    --admin-surface: #111d36;
+    --admin-surface-2: #0e1830;
+    --admin-surface-3: #18254a;
+    --admin-text-3: #94a3b8;
+    --admin-control-border: #6b7c93;
+    --admin-accent: #3987e5;
+    --admin-accent-soft: rgb(57 135 229 / 18%);
+    --admin-accent-track: rgb(57 135 229 / 20%);
+    --admin-ok: #0ca30c;
+    --admin-ok-text: #4ade80;
+    --admin-ok-soft: rgb(74 222 128 / 14%);
+    --admin-warn: #fab219;
+    --admin-warn-text: #fbbf24;
+    --admin-warn-soft: rgb(250 178 25 / 14%);
+    --admin-error: #e5534b;
+    --admin-error-text: #fca5a5;
+    --admin-error-soft: rgb(229 83 75 / 16%);
+    --admin-neutral-soft: rgb(148 163 184 / 14%);
+    --admin-skeleton: #18254a;
+    --admin-skeleton-shine: #1f2f57;
+    --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
   }
 }
 
@@ -223,4 +278,28 @@
   --license-noderiv: #fb7185;
   --license-unknown: #94a3b8;
   --keyword: #cbd5e1;
+
+  /* Admin portal roles, dark (see :root). */
+  --admin-page: #0a1224;
+  --admin-surface: #111d36;
+  --admin-surface-2: #0e1830;
+  --admin-surface-3: #18254a;
+  --admin-text-3: #94a3b8;
+  --admin-control-border: #6b7c93;
+  --admin-accent: #3987e5;
+  --admin-accent-soft: rgb(57 135 229 / 18%);
+  --admin-accent-track: rgb(57 135 229 / 20%);
+  --admin-ok: #0ca30c;
+  --admin-ok-text: #4ade80;
+  --admin-ok-soft: rgb(74 222 128 / 14%);
+  --admin-warn: #fab219;
+  --admin-warn-text: #fbbf24;
+  --admin-warn-soft: rgb(250 178 25 / 14%);
+  --admin-error: #e5534b;
+  --admin-error-text: #fca5a5;
+  --admin-error-soft: rgb(229 83 75 / 16%);
+  --admin-neutral-soft: rgb(148 163 184 / 14%);
+  --admin-skeleton: #18254a;
+  --admin-skeleton-shine: #1f2f57;
+  --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
 }
