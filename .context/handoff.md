@@ -44,10 +44,11 @@ Backend half: nemar-cli#1553 (issue nemar-cli#1551), into `dev`.
 - **Dev admin key:** account `nemarAdminTest` in `~/.config/nemar/config.json` (user
   `sshirazi`, owner on the dev database, signed in with ORCID; `apiUrl` is
   `https://api-test.nemar.org`). `nemar auth switch nemarAdminTest` targets dev.
-- **GitHub never started runs for the `1b08d1c` push** (no Auto Bump, CI, or Deploy staging),
-  with Actions reporting healthy. Deploy staging and CI were dispatched by hand, so staging
-  reports `0.2.22-dev0` with commit `1b08d1c`; the next staging merge bumps as usual.
-  `gh api "repos/nemarOrg/website/actions/runs?head_sha=<sha>"` shows whether a push fired.
+- **GitHub never delivered the `1b08d1c` push** (no Auto Bump, CI, Deploy staging, or any
+  app's check suite). Deploy staging and CI were dispatched by hand; the next merge (#373)
+  bumped to `0.2.22-dev1` as usual. It is a GitHub-side fault on this repository, seen three
+  times since 2026-09-28 on `staging` and `main`: evidence in website#374, and
+  `push-watchdog.yml` as the stopgap until it clears.
 - **QA on test.nemar.org passed:** landing with three columns (the test post leads), `/news`
   with all six posts, articles (banner, inline figure with caption, headings, code, lists), RSS,
   unknown slug 404, media through the same-origin proxy (bad names 404 before any upstream
@@ -70,6 +71,12 @@ they fall back to the banner until the next scheduled rebuild).
    staging failed with `ECONNRESET` and the rerun went through; the script skips slugs that
    already exist.
 3. Run Prepare release on `staging`, then open and merge the `staging` to `main` PR.
+   Within a minute, confirm that Release and CI started for the merge commit and that
+   Cloudflare is building it. GitHub has been dropping pushes to this repository
+   (website#374); the first merge of release #368 ran nothing and left the PR open. If
+   nothing started, dispatch Release on `main` and retry the Cloudflare deployment. This
+   promotion also brings `push-watchdog.yml` to `main`, after which a dropped push is
+   replayed automatically.
 4. Verify on production what staging cannot cover (website#212): `/news/media/<file>` answers
    on both nemar.org and app.nemar.org (host-neutral), `/admin/news` lives on app.nemar.org,
    and `https://nemar.org/og/news/<slug>.png` redirects to `/og/news-card/<slug>.png`.
