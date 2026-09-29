@@ -122,10 +122,11 @@ Astro.response.headers.set(
                     {group.label}
                   </h2>
                   <ol class="month__posts" role="list">
-                    {group.posts.map(({ post, day }) => (
+                    {group.posts.map(({ post, day }, i) => (
                       <li class="entry" data-category={post.category}>
+                        {/* A day is marked once on the rail, like a date heading. */}
                         <span class="entry__day" aria-hidden="true">
-                          {day}
+                          {i > 0 && group.posts[i - 1].day === day ? "" : day}
                         </span>
                         <div class="entry__body">
                           <p class="meta">
@@ -308,7 +309,7 @@ Astro.response.headers.set(
     inline-size: 100%;
     block-size: 100%;
     object-fit: cover;
-    object-position: 50% 30%;
+    object-position: 50% 0;
   }
   .top__text {
     display: grid;
@@ -425,7 +426,7 @@ Astro.response.headers.set(
     inline-size: 100%;
     block-size: 100%;
     object-fit: cover;
-    object-position: 50% 30%;
+    object-position: 50% 0;
   }
   /* Narrow screens: the thumbnail sits over the text, the day stays on the rail. */
   @media (max-width: 899.98px) {
