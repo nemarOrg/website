@@ -30,6 +30,50 @@ Backend half: nemar-cli#1553 (issue nemar-cli#1551), into `dev`.
   modules on `realD1(freshDb())` from `backend/test/helpers/d1.ts` and Miniflare's R2, with
   other paths proxied to api.nemar.org, and the site run with `PUBLIC_API_BASE_URL` pointed at it.
 
+### Where it stands (end of 2026-09-29)
+
+- **Staging is done; production is not.** nemar-cli#1553 was squash-merged into `dev` as
+  `53f3a246` and is deployed to api-test.nemar.org (0.10.10-dev5). website#372 was merged into
+  `staging` as `1b08d1c` (merge commit). nemar-cli#1551 and website#371 were closed by hand.
+- **Both buckets exist** on the SCCN account. The `CLOUDFLARE_API_TOKEN` secrets of nemar-cli
+  and website now carry Workers R2 Storage Edit; before that, the dev deploy failed on the
+  bucket check with Cloudflare error 10000.
+- **Staging data:** the five seed posts (#1, #3 to #6) and `staging-test-post` (#7), a labeled
+  test post for trying the pages and the editor. It exists only on dev; do not recreate it on
+  production. A 43-byte probe GIF sits unreferenced in `nemar-news-media-dev`.
+- **Dev admin key:** account `nemarAdminTest` in `~/.config/nemar/config.json` (user
+  `sshirazi`, owner on the dev database, signed in with ORCID; `apiUrl` is
+  `https://api-test.nemar.org`). `nemar auth switch nemarAdminTest` targets dev.
+- **GitHub never started runs for the `1b08d1c` push** (no Auto Bump, CI, or Deploy staging),
+  with Actions reporting healthy. Deploy staging and CI were dispatched by hand, so staging
+  reports `0.2.22-dev0` with commit `1b08d1c`; the next staging merge bumps as usual.
+  `gh api "repos/nemarOrg/website/actions/runs?head_sha=<sha>"` shows whether a push fired.
+- **QA on test.nemar.org passed:** landing with three columns (the test post leads), `/news`
+  with all six posts, articles (banner, inline figure with caption, headings, code, lists), RSS,
+  unknown slug 404, media through the same-origin proxy (bad names 404 before any upstream
+  call), and `/admin/news` redirecting to sign-in. `/sitemap.xml` is 404 on staging by design
+  (noindex host). The staging deploy sets `NEMAR_SKIP_OG_GENERATE=1`, so no news OG cards
+  exist there and `/og/news/<slug>.png` falls back to the banner; the cards can only be
+  checked on production.
+
+### Production steps, for the promotion session
+
+In this order. The site must not reach production before the backend serves `/news`, and
+seeding before the site's production build is what lets the news OG cards render (otherwise
+they fall back to the banner until the next scheduled rebuild).
+
+1. Promote nemar-cli `dev` to `main`, which brings #1553. `nemar-news-media` already exists.
+   Check that `curl -s https://api.nemar.org/news` answers `{"posts":[],...}`.
+2. Seed production from this repository with a production admin key, dry run first:
+   `NEMAR_API_KEY=... bun scripts/seed-news.mjs --api https://api.nemar.org --images ~/Desktop --dry-run`,
+   then without `--dry-run`. The five screenshots are `~/Desktop/nemar-*.png`. One upload on
+   staging failed with `ECONNRESET` and the rerun went through; the script skips slugs that
+   already exist.
+3. Run Prepare release on `staging`, then open and merge the `staging` to `main` PR.
+4. Verify on production what staging cannot cover (website#212): `/news/media/<file>` answers
+   on both nemar.org and app.nemar.org (host-neutral), `/admin/news` lives on app.nemar.org,
+   and `https://nemar.org/og/news/<slug>.png` redirects to `/og/news-card/<slug>.png`.
+
 ## 2026-09-07 — CLI device-authorize page + Settings keys card (epic #1272 phase 2)
 
 Implemented on `feature/issue-316-cli-authorize` (worktree `website-cli-authorize`),
