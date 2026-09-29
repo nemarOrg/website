@@ -11,12 +11,16 @@
  * `PUBLIC_API_BASE_URL` (see `./api-base.ts`), gate the embed:
  *
  * - `PUBLIC_OSA_WIDGET_SRC`: a jsDelivr URL pinned to a full 40-character OSA commit SHA:
- *   `https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@<sha>/frontend/osa-chat-widget.js`.
- * - `PUBLIC_OSA_WIDGET_INTEGRITY`: the matching `sha384-` Subresource Integrity hash.
+ *   `https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@<sha>/frontend/osa-chat-widget.js`,
+ *   or, while OSA is not yet stable, one that follows a moving ref (`@develop` or `@main`,
+ *   {@link OSA_WIDGET_MOVING_REFS}) in place of `<sha>`. Staging follows `develop`.
+ * - `PUBLIC_OSA_WIDGET_INTEGRITY`: the matching `sha384-` Subresource Integrity hash. Required
+ *   for a commit-pinned src, and refused for one that follows a moving ref (no fixed hash
+ *   matches a file that changes).
  * - `PUBLIC_OSA_API_ENDPOINT`: exactly one of the two OSA edge hosts in
  *   {@link OSA_API_ENDPOINTS}.
  *
- * All three or none. An operator who sets one but not the others has a half-wired build, not a
+ * All of them or none. An operator who sets some but not the others has a half-wired build, not a
  * smaller widget, so that is refused the same way a single malformed value is: see
  * {@link resolveOsaWidget}.
  *
@@ -101,8 +105,21 @@ export const OSA_NOTEBOOK_ORIGINS = [
   "https://develop-notebook.osc.earth",
 ] as const;
 
+/**
+ * The refs a widget URL may follow instead of a commit: OSA's `develop` (staging) and `main`
+ * (its stable releases). A build that follows one takes whatever the widget is at when
+ * jsDelivr last fetched it (its cache for a branch ref is up to about 12 hours, purgeable at
+ * `purge.jsdelivr.net`), so it cannot be pinned by a Subresource Integrity hash: a hash of a
+ * moving file blocks the widget at the next change. See ADR 0018 (amended).
+ */
+export const OSA_WIDGET_MOVING_REFS = ["develop", "main"] as const;
+
 const OSA_WIDGET_SRC_PATTERN =
   /^https:\/\/cdn\.jsdelivr\.net\/gh\/OpenScience-Collective\/osa@[0-9a-f]{40}\/frontend\/osa-chat-widget\.js$/;
+
+const OSA_WIDGET_MOVING_SRC_PATTERN = new RegExp(
+  `^https://cdn\\.jsdelivr\\.net/gh/OpenScience-Collective/osa@(?:${OSA_WIDGET_MOVING_REFS.join("|")})/frontend/osa-chat-widget\\.js$`,
+);
 
 // A sha384 digest is 48 bytes, which base64 always writes as exactly 64 characters, unpadded.
 const OSA_WIDGET_INTEGRITY_PATTERN = /^sha384-[A-Za-z0-9+/]{64}$/;
@@ -123,7 +140,8 @@ export type OsaWidgetResolution =
   | {
       kind: "ready";
       src: string;
-      integrity: string;
+      /** Absent for a build that follows a moving ref: it has no hash to check against. */
+      integrity?: string;
       apiEndpoint: OsaApiEndpoint;
       /** Absent when `PUBLIC_OSA_NOTEBOOK_URL` is unset; the widget's own default then applies. */
       notebookUrl?: string;
@@ -179,24 +197,33 @@ export function resolveOsaWidget(overrides: OsaWidgetOverrides = {}): OsaWidgetR
     return { kind: "disabled" };
   }
 
+  // A src that follows a moving ref has no integrity hash; every other src needs one.
+  const followsMovingRef = OSA_WIDGET_MOVING_SRC_PATTERN.test(src);
   const missing: string[] = [];
   if (!src) missing.push("PUBLIC_OSA_WIDGET_SRC");
-  if (!integrity) missing.push("PUBLIC_OSA_WIDGET_INTEGRITY");
+  if (!integrity && !followsMovingRef) missing.push("PUBLIC_OSA_WIDGET_INTEGRITY");
   if (!apiEndpoint) missing.push("PUBLIC_OSA_API_ENDPOINT");
   if (missing.length > 0) {
     return {
       kind: "misconfigured",
-      reason: `OSA widget is partially configured; missing ${missing.join(", ")}. All three PUBLIC_OSA_* variables are required together, or none at all.`,
+      reason: `OSA widget is partially configured; missing ${missing.join(", ")}. PUBLIC_OSA_WIDGET_SRC and PUBLIC_OSA_API_ENDPOINT are required together, with PUBLIC_OSA_WIDGET_INTEGRITY unless the src follows a moving ref (${OSA_WIDGET_MOVING_REFS.join(", ")}), or none at all.`,
     };
   }
 
-  if (!OSA_WIDGET_SRC_PATTERN.test(src)) {
+  if (!followsMovingRef && !OSA_WIDGET_SRC_PATTERN.test(src)) {
     return {
       kind: "misconfigured",
-      reason: `PUBLIC_OSA_WIDGET_SRC is ${JSON.stringify(src)}, which is not a jsDelivr URL pinned to a 40-character commit SHA under OpenScience-Collective/osa/frontend/osa-chat-widget.js`,
+      reason: `PUBLIC_OSA_WIDGET_SRC is ${JSON.stringify(src)}, which is not a jsDelivr URL pinned to a 40-character commit SHA, or following one of ${OSA_WIDGET_MOVING_REFS.join(", ")}, under OpenScience-Collective/osa/frontend/osa-chat-widget.js`,
     };
   }
-  if (!OSA_WIDGET_INTEGRITY_PATTERN.test(integrity)) {
+  if (followsMovingRef && integrity) {
+    return {
+      kind: "misconfigured",
+      reason:
+        "PUBLIC_OSA_WIDGET_INTEGRITY is set, but PUBLIC_OSA_WIDGET_SRC follows a moving ref, whose contents no fixed hash matches: the browser would block the widget at the next change. Unset the integrity value, or pin the src to a commit.",
+    };
+  }
+  if (!followsMovingRef && !OSA_WIDGET_INTEGRITY_PATTERN.test(integrity)) {
     return {
       kind: "misconfigured",
       reason: `PUBLIC_OSA_WIDGET_INTEGRITY is ${JSON.stringify(integrity)}, which is not a sha384 Subresource Integrity value`,
@@ -222,7 +249,7 @@ export function resolveOsaWidget(overrides: OsaWidgetOverrides = {}): OsaWidgetR
   return {
     kind: "ready",
     src,
-    integrity,
+    ...(integrity ? { integrity } : {}),
     apiEndpoint: apiEndpoint as OsaApiEndpoint,
     ...(notebookUrl ? { notebookUrl } : {}),
   };
@@ -279,7 +306,7 @@ function escapeJsString(value: string): string {
  */
 export function renderOsaWidgetScript(config: {
   src: string;
-  integrity: string;
+  integrity?: string;
   apiEndpoint: string;
   notebookUrl?: string;
 }): string {
@@ -296,9 +323,14 @@ export function renderOsaWidgetScript(config: {
   const initCall =
     `window.OSAChatWidget.setConfig({${setConfigFields.join(",")}});` +
     `${applyColorScheme}${applyRecordedDataset}window.OSAChatWidget.init();`;
+  // `integrity` needs `crossorigin` on a cross-origin script (jsDelivr) to be checked at all,
+  // and the pop-out copies both from this tag; a build with no hash has neither.
+  const integrityAttrs = config.integrity
+    ? ` integrity="${escapeHtmlAttr(config.integrity)}" crossorigin="anonymous"`
+    : "";
   return (
-    `<script src="${escapeHtmlAttr(config.src)}" integrity="${escapeHtmlAttr(config.integrity)}" ` +
-    `crossorigin="anonymous" defer data-no-auto-init onload="${escapeHtmlAttr(initCall)}"></script>`
+    `<script src="${escapeHtmlAttr(config.src)}"${integrityAttrs} ` +
+    `defer data-no-auto-init onload="${escapeHtmlAttr(initCall)}"></script>`
   );
 }
 

@@ -44,13 +44,16 @@ jobs:
           PUBLIC_DATA_BASE_URL: https://data-test.nemar.org
           PUBLIC_ZARR_BASE_URL: https://zarr-test.nemar.org
           # Open Science Assistant widget (nemarOrg/website ADR 0018), ON for staging only.
-          # Pinned to an exact OSA commit with Subresource Integrity; see src/lib/osa-widget.ts
-          # for the validation these three are checked against. Production's pin, to an OSA
-          # release, is in `wrangler.toml` [vars], which Cloudflare's Git build of `main` reads;
-          # this build swaps that file out (below), so it never picks production's pin up.
-          # Leaving any one of the three unset renders nothing rather than a broken tag.
-          PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@db53bcc52863ea621ba2b821cb7469cf0df90194/frontend/osa-chat-widget.js
-          PUBLIC_OSA_WIDGET_INTEGRITY: sha384-aEykQ1BWj/6vQci5SClhklCm2tmMv4Qaz4TASFttyt852w1sLOg8EDaHmrhJ58nO
+          # Follows OSA's `develop`, the same branch the dev backend below runs, so this site
+          # shows the widget the backend it talks to was built with instead of a release from
+          # before it. Not pinned, and so no Subresource Integrity hash (no fixed hash matches a
+          # file that changes; src/lib/osa-widget.ts refuses one beside a moving ref). jsDelivr
+          # caches a branch ref for up to about 12 hours (purge.jsdelivr.net purges it). ADR 0018
+          # (amended). Production's pin, to an OSA release, is in `wrangler.toml` [vars], which
+          # Cloudflare's Git build of `main` reads; this build swaps that file out (below), so
+          # it never picks production's up. Leaving the src or the endpoint unset renders
+          # nothing rather than a broken tag.
+          PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@develop/frontend/osa-chat-widget.js
           PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
           # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
           # JupyterLite host, which the widget frames as a tab of its panel (OSA issue #470).
