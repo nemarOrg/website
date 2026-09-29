@@ -15,6 +15,13 @@ export interface Dataset {
   doi: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * When the dataset was first made public, as SQLite UTC
+   * (`YYYY-MM-DD HH:MM:SS`). The catalog's `newest` sort orders by it, falling
+   * back to the creation date, and it is null for a dataset that has never
+   * been published. Optional because older snapshots predate the column.
+   */
+  first_published_at?: string | null;
   owner_username: string | null;
   nemar_sync_status: string | null;
   source: "managed" | "catalog" | "nemar.org" | "openneuro" | string | null;

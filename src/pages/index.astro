@@ -1,14 +1,49 @@
 ---
+import Highlights from "../components/Highlights.astro";
 import StatTile from "../components/StatTile.astro";
 import Base from "../layouts/Base.astro";
+import { listDatasets } from "../lib/api";
 import { formatBytes, formatCount } from "../lib/format";
+import { latestDatasets, mostCited } from "../lib/highlights";
 import { appUrl } from "../lib/host";
+import { listNews } from "../lib/news-api";
+import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { fetchHostedStats } from "../lib/stats";
 
 const uploadHref = appUrl("/upload", new URL(Astro.request.url).hostname);
 
 // Hero stats advertise the data NEMAR actually hosts (managed nm* + on*),
 // not the full browsable catalog (which includes OpenNeuro ds* pointers).
+// The highlights under the hero start with the stats rather than after
+// them. Each is decorative (the page is whole without it), so each gets the
+// short deadline and fails to null, which drops its column. A failure is
+// logged, never thrown: see Highlights.astro.
+const highlight = <T>(label: string, work: Promise<T>): Promise<T | null> =>
+  work.catch((err: unknown) => {
+    console.warn(
+      `[index] highlights: ${label} unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return null;
+  });
+const highlightsPending = Promise.all([
+  highlight(
+    "news",
+    listNews({ limit: 3 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) => page.posts),
+  ),
+  highlight(
+    "most cited",
+    listDatasets({ sort: "citations", limit: 5 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then(
+      (page) => mostCited(page.datasets, 5),
+    ),
+  ),
+  highlight(
+    "latest",
+    listDatasets({ sort: "newest", limit: 8 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) =>
+      latestDatasets(page.datasets, 5),
+    ),
+  ),
+]);
+
 let stats = { datasets: 0, participants: 0, size: 0 };
 let statsAvailable = false;
 try {
@@ -31,9 +66,19 @@ try {
 //  - Fallback (fetch threw): NEVER cache it. Caching one transient failure is
 //    what pinned the stale snapshot at the edge for a full day; `no-store` makes
 //    every request retry the live fetch until it succeeds.
+const [news, cited, latest] = await highlightsPending;
+// A missing highlight is not worth `no-store` (a news backend that is not
+// deployed yet would then cost every visit three API calls), but it should
+// not sit at the edge for ten minutes either.
+const highlightsComplete = news !== null && cited !== null && latest !== null;
+
 Astro.response.headers.set(
   "Cache-Control",
-  statsAvailable ? "public, max-age=60, s-maxage=600, stale-while-revalidate=43200" : "no-store",
+  !statsAvailable
+    ? "no-store"
+    : highlightsComplete
+      ? "public, max-age=60, s-maxage=600, stale-while-revalidate=43200"
+      : "public, max-age=60, s-maxage=60",
 );
 ---
 
@@ -127,38 +172,7 @@ Astro.response.headers.set(
     </div>
   </aside>
 
-  <section class="features">
-    <div class="container">
-      <div class="features__grid">
-        <article class="feature">
-          <svg class="feature__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 3v18h18"></path>
-            <path d="M7 14l3-4 3 3 4-6"></path>
-          </svg>
-          <h2 class="feature__title">Assess before you analyze</h2>
-          <p class="feature__body">
-            Every dataset ships with data-quality assessments and interactive
-            visualizations, so you can judge suitability for your analysis up
-            front. The computed transforms and measures will soon publish as
-            BIDS derivative datasets of their own.
-          </p>
-        </article>
-        <article class="feature">
-          <svg class="feature__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3" y="4" width="18" height="12" rx="2"></rect>
-            <path d="M8 20h8M12 16v4"></path>
-          </svg>
-          <h2 class="feature__title">Analyze in place or download</h2>
-          <p class="feature__body">
-            Run analyses, re-analyses, and meta-analyses on the no-cost,
-            high-performance computing of the
-            <a href="https://www.nsgportal.org/" rel="external">Neuroscience Gateway (NSG)</a>
-            — or download any dataset as a BIDS-structured zip.
-          </p>
-        </article>
-      </div>
-    </div>
-  </section>
+  <Highlights news={news} cited={cited} latest={latest} />
 </Base>
 
 <style>
@@ -532,9 +546,9 @@ Astro.response.headers.set(
     }
   }
 
-  /* Below the full-bleed hero: required notice + feature blurbs. These use the
-     normal page tokens (fully theme-aware), not the hero's dark-by-default
-     palette. */
+  /* Below the full-bleed hero: the required notice, then the highlights
+     (Highlights.astro). Both use the normal page tokens (fully theme-aware),
+     not the hero's dark-by-default palette. */
   .notice {
     background: color-mix(in srgb, var(--brand-teal) 9%, var(--color-bg));
     border-block-end: 1px solid var(--color-border);
@@ -552,53 +566,6 @@ Astro.response.headers.set(
     inline-size: 20px;
     block-size: 20px;
     color: var(--brand-teal);
-  }
-
-  .features {
-    padding-block: var(--space-20);
-  }
-  .features__grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-8);
-  }
-  @media (max-width: 760px) {
-    .features__grid {
-      grid-template-columns: 1fr;
-    }
-  }
-  .feature {
-    padding: var(--space-8);
-    background: var(--color-bg-elevated);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-  }
-  .feature__icon {
-    inline-size: 32px;
-    block-size: 32px;
-    color: var(--brand-teal);
-    margin-block-end: var(--space-4);
-  }
-  .feature__title {
-    font-family: var(--font-display);
-    font-size: var(--fs-2xl);
-    font-weight: var(--fw-semibold);
-    color: var(--color-fg);
-    letter-spacing: -0.01em;
-    margin-block-end: var(--space-3);
-  }
-  .feature__body {
-    color: var(--color-fg-muted);
-    font-size: var(--fs-base);
-    line-height: var(--lh-relaxed);
-  }
-  .feature__body a {
-    color: var(--color-link);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-  .feature__body a:hover {
-    color: var(--color-link-hover);
   }
 </style>
 
