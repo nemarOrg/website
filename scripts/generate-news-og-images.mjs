@@ -16,8 +16,22 @@ import { renderNewsOgSvg } from "../src/lib/news-og-image.ts";
 import { parseNewsList } from "../src/lib/news.ts";
 
 const API_BASE = (process.env.PUBLIC_API_BASE_URL ?? "https://api.nemar.org").replace(/\/$/, "");
-const OUT_DIR = "public/og/news-card";
+// Overridable so the test can render into a temporary directory.
+const OUT_DIR = process.env.NEMAR_NEWS_OG_OUT_DIR ?? "public/og/news-card";
 const PAGE_SIZE = 50;
+
+// resvg decodes PNG, JPEG, and GIF but not WebP, which is what banners are
+// usually uploaded as. sharp (already installed as an Astro dependency) turns
+// any of them into a PNG sized for the card's frame, which also keeps the
+// SVG small. Without sharp, a PNG/JPEG/GIF is embedded as is and a WebP
+// banner is left out: the card still renders, in its no-picture layout.
+//
+// Declared up here, before the top-level loop below runs: a `const` or `let`
+// used by a function is still uninitialized until its own line executes, and
+// declared further down these threw for every post, which the soft-fail turned
+// into a build with no news cards (0.2.22).
+const RESVG_TYPES = new Set(["image/png", "image/jpeg", "image/gif"]);
+let sharpModule;
 
 if (process.env.NEMAR_SKIP_OG_GENERATE === "1") {
   console.log("[og:news] skipped by NEMAR_SKIP_OG_GENERATE=1");
@@ -86,6 +100,13 @@ for (const post of posts) {
 
 await removeStaleImages(expected);
 console.log(`[og:news] rendered ${rendered} of ${posts.length} news cards into ${OUT_DIR}`);
+if (rendered < posts.length) {
+  // Still not a build failure (see the header), but not a line to scroll past:
+  // every card failing at once is a bug in this script, not a flaky banner.
+  console.warn(
+    `[og:news] WARNING: ${posts.length - rendered} news card(s) failed; their posts fall back to the banner. See the lines above.`,
+  );
+}
 
 async function fetchAllPosts() {
   const all = [];
@@ -105,15 +126,6 @@ async function fetchAllPosts() {
 
 // A banner is `/news/media/<sha256>.<ext>`: fetch it from the API directly
 // (the site's own route is a proxy for the same bytes).
-//
-// resvg decodes PNG, JPEG, and GIF but not WebP, which is what banners are
-// usually uploaded as. sharp (already installed as an Astro dependency) turns
-// any of them into a PNG sized for the card's frame, which also keeps the
-// SVG small. Without sharp, a PNG/JPEG/GIF is embedded as is and a WebP
-// banner is left out: the card still renders, in its no-picture layout.
-const RESVG_TYPES = new Set(["image/png", "image/jpeg", "image/gif"]);
-let sharpModule;
-
 async function bannerDataUri(bannerUrl) {
   const res = await fetch(`${API_BASE}${bannerUrl}`);
   if (!res.ok) throw new Error(`banner ${bannerUrl} answered ${res.status}`);
