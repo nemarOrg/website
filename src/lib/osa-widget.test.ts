@@ -6,6 +6,7 @@ import {
   OSA_COMMUNITY_ID,
   OSA_NOTEBOOK_ORIGINS,
   OSA_WIDGET_EXCLUDED_PATHS,
+  OSA_WIDGET_MOVING_REFS,
   isOsaWidgetExcludedPath,
   osaWidgetMarkup,
   renderOsaWidgetScript,
@@ -18,6 +19,9 @@ const VALID_SRC =
   "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@55178121ae6fa65ee5a501e53ca74de2a17a58d7/frontend/osa-chat-widget.js";
 const VALID_INTEGRITY = "sha384-FRKwdl8mzyHOIgQtbdjuLGxvRHeBPToJY37knSef3ciXaRCgRv1mzXEZIJONsrPk";
 const VALID_ENDPOINT = "https://develop-widget.osc.earth/osa";
+const MOVING_SRC_PREFIX = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@";
+const MOVING_SRC_SUFFIX = "/frontend/osa-chat-widget.js";
+const movingSrc = (ref: string) => `${MOVING_SRC_PREFIX}${ref}${MOVING_SRC_SUFFIX}`;
 const VALID_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/";
 
 /**
@@ -386,6 +390,125 @@ describe("resolveOsaWidget reading PUBLIC_OSA_* from the real environment", () =
       apiEndpoint: VALID_ENDPOINT,
     });
     expect(out.kind).toBe("ready");
+  });
+});
+
+describe("a src that follows a moving ref", () => {
+  it("names exactly develop and main", () => {
+    expect([...OSA_WIDGET_MOVING_REFS]).toEqual(["develop", "main"]);
+  });
+
+  it.each(OSA_WIDGET_MOVING_REFS)("is ready with no integrity when it follows %s", (ref) => {
+    const out = resolveOsaWidget({ src: movingSrc(ref), apiEndpoint: VALID_ENDPOINT });
+    expect(out).toEqual({ kind: "ready", src: movingSrc(ref), apiEndpoint: VALID_ENDPOINT });
+    // Not merely undefined: no `integrity` key at all, so nothing downstream can render one.
+    expect("integrity" in out).toBe(false);
+  });
+
+  it.each(OSA_WIDGET_MOVING_REFS)(
+    "refuses an integrity value beside %s: no fixed hash matches a moving file",
+    (ref) => {
+      const out = resolveOsaWidget({
+        src: movingSrc(ref),
+        integrity: VALID_INTEGRITY,
+        apiEndpoint: VALID_ENDPOINT,
+      });
+      expect(out.kind).toBe("misconfigured");
+      if (out.kind === "misconfigured") {
+        expect(out.reason).toContain("PUBLIC_OSA_WIDGET_INTEGRITY");
+        expect(out.reason).toContain("moving ref");
+      }
+    },
+  );
+
+  it.each([
+    ["another branch", movingSrc("feature/x")],
+    ["master", movingSrc("master")],
+    ["a release tag", movingSrc("v0.8.15")],
+    ["a short SHA", movingSrc("db53bcc")],
+    ["an upper-case ref", movingSrc("Develop")],
+    ["a ref with a suffix", movingSrc("develop2")],
+    ["an empty ref", movingSrc("")],
+    ["another repository", movingSrc("develop").replace("OpenScience-Collective/osa", "evil/osa")],
+    ["another path", movingSrc("develop").replace("frontend/osa-chat-widget.js", "evil.js")],
+    ["another host", movingSrc("develop").replace("cdn.jsdelivr.net", "evil.example.com")],
+  ])("refuses %s", (_label, src) => {
+    for (const integrity of [undefined, VALID_INTEGRITY]) {
+      const out = resolveOsaWidget({ src, integrity, apiEndpoint: VALID_ENDPOINT });
+      expect(out.kind, `${src} ${integrity ?? "(no integrity)"}`).toBe("misconfigured");
+    }
+  });
+
+  it("still needs the endpoint", () => {
+    const out = resolveOsaWidget({ src: movingSrc("develop") });
+    expect(out.kind).toBe("misconfigured");
+    if (out.kind === "misconfigured") expect(out.reason).toContain("PUBLIC_OSA_API_ENDPOINT");
+  });
+
+  it("does not loosen a commit-pinned src, which still needs its hash", () => {
+    const out = resolveOsaWidget({ src: VALID_SRC, apiEndpoint: VALID_ENDPOINT });
+    expect(out.kind).toBe("misconfigured");
+    if (out.kind === "misconfigured") {
+      expect(out.reason).toContain("PUBLIC_OSA_WIDGET_INTEGRITY");
+    }
+  });
+
+  it("carries a notebookUrl through like any other ready result", () => {
+    const out = resolveOsaWidget({
+      src: movingSrc("develop"),
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: VALID_NOTEBOOK_URL,
+    });
+    expect(out).toEqual({
+      kind: "ready",
+      src: movingSrc("develop"),
+      apiEndpoint: VALID_ENDPOINT,
+      notebookUrl: VALID_NOTEBOOK_URL,
+    });
+  });
+
+  it("reads the two variables staging sets from the real environment", () => {
+    vi.stubEnv("PUBLIC_OSA_WIDGET_SRC", movingSrc("develop"));
+    vi.stubEnv("PUBLIC_OSA_API_ENDPOINT", VALID_ENDPOINT);
+    try {
+      expect(resolveOsaWidget()).toEqual({
+        kind: "ready",
+        src: movingSrc("develop"),
+        apiEndpoint: VALID_ENDPOINT,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("renders a tag with neither integrity nor crossorigin, and otherwise the same one", () => {
+    const html = renderOsaWidgetScript({ src: movingSrc("develop"), apiEndpoint: VALID_ENDPOINT });
+    expect(html).toContain(`src="${movingSrc("develop")}"`);
+    expect(html).not.toContain("integrity");
+    expect(html).not.toContain("crossorigin");
+    expect(html).toMatch(/^<script src="[^"]+" defer data-no-auto-init onload="[^"]+"><\/script>$/);
+    expect(extractOnload(html)).toContain("window.OSAChatWidget.init();");
+  });
+
+  it("renders the pinned tag with both attributes, as before", () => {
+    const html = renderOsaWidgetScript({
+      src: VALID_SRC,
+      integrity: VALID_INTEGRITY,
+      apiEndpoint: VALID_ENDPOINT,
+    });
+    expect(html).toContain(`integrity="${VALID_INTEGRITY}"`);
+    expect(html).toContain('crossorigin="anonymous"');
+  });
+
+  it("osaWidgetMarkup renders it, and logs nothing", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const html = osaWidgetMarkup("/", { src: movingSrc("develop"), apiEndpoint: VALID_ENDPOINT });
+      expect(html).toContain("<script");
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
