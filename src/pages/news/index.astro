@@ -1,0 +1,491 @@
+---
+/**
+ * `/news`: every public post, newest first (website#371).
+ *
+ * Page one opens with the newest post at full width; everything after it
+ * runs down a timeline grouped by month, with the day on the rail and the
+ * category as the colored rule on each entry (the annotation-marker motif
+ * the landing page's highlights use too). Later pages are timeline only.
+ */
+import Pagination from "../../components/Pagination.astro";
+import Base from "../../layouts/Base.astro";
+import {
+  type NewsPostSummary,
+  categoryLabel,
+  formatNewsDate,
+  groupNewsByMonth,
+  newsPath,
+} from "../../lib/news";
+import { listNews } from "../../lib/news-api";
+
+const PAGE_SIZE = 10;
+
+const pageParam = Number.parseInt(Astro.url.searchParams.get("page") ?? "1", 10);
+const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+
+let posts: readonly NewsPostSummary[] = [];
+let totalCount = 0;
+let loadError = false;
+try {
+  const result = await listNews({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  posts = result.posts;
+  totalCount = result.totalCount;
+} catch (err) {
+  loadError = true;
+  console.error(`[news] list failed: ${err instanceof Error ? err.message : String(err)}`);
+}
+
+const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+const [lead, ...rest] = page === 1 ? posts : [undefined, ...posts];
+const groups = groupNewsByMonth(rest.filter((p): p is NewsPostSummary => Boolean(p)));
+
+// A failed list must not be cached: the next request should retry.
+Astro.response.headers.set(
+  "Cache-Control",
+  loadError ? "no-store" : "public, max-age=60, s-maxage=300, stale-while-revalidate=3600",
+);
+---
+
+<Base
+  title={page > 1 ? `News, page ${page}` : "News"}
+  description="New features, data, and events on NEMAR, the open archive for human EEG, MEG, iEEG, and EMG data."
+  headLinks={[{ rel: "alternate", type: "application/rss+xml", href: "/news/feed.xml", title: "NEMAR news" }]}
+>
+  <div class="news">
+    <header class="container news__head">
+      <h1 class="news__title">News</h1>
+      <p class="news__lede">New features, data, and events on NEMAR.</p>
+      <a class="news__feed" href="/news/feed.xml">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 11a9 9 0 0 1 9 9"></path>
+          <path d="M4 4a16 16 0 0 1 16 16"></path>
+          <circle cx="5" cy="19" r="1"></circle>
+        </svg>
+        Subscribe with RSS
+      </a>
+    </header>
+
+    {
+      loadError ? (
+        <div class="container">
+          <div class="news__state" role="status">
+            <p class="news__state-title">News could not load.</p>
+            <p>
+              The news service did not answer. <a href={Astro.url.pathname + Astro.url.search}>Try again</a>
+              {" "}in a moment.
+            </p>
+          </div>
+        </div>
+      ) : posts.length === 0 ? (
+        <div class="container">
+          <div class="news__state">
+            <p class="news__state-title">{page > 1 ? "No posts on this page." : "No news yet."}</p>
+            <p>
+              {page > 1 ? (
+                <a href="/news">Go to the newest posts</a>
+              ) : (
+                "Posts about new features, data, and events will appear here."
+              )}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          {lead && (
+            <article class="container top" data-category={lead.category}>
+              {lead.banner_url && (
+                <a class="top__media" href={newsPath(lead.slug)} tabindex="-1" aria-hidden="true">
+                  <img src={lead.banner_url} alt="" width="1200" height="750" decoding="async" />
+                </a>
+              )}
+              <div class="top__text">
+                <p class="meta">
+                  <span class="meta__category">{categoryLabel(lead.category)}</span>
+                  <time datetime={lead.published_at}>{formatNewsDate(lead.published_at)}</time>
+                </p>
+                <h2 class="top__title">
+                  <a href={newsPath(lead.slug)}>{lead.title}</a>
+                </h2>
+                {lead.summary && <p class="top__summary">{lead.summary}</p>}
+                <a class="more" href={newsPath(lead.slug)}>
+                  Read more<span class="visually-hidden"> about {lead.title}</span>
+                </a>
+              </div>
+            </article>
+          )}
+
+          {groups.length > 0 && (
+            <div class="container timeline">
+              {groups.map((group) => (
+                <section class="month" aria-labelledby={`month-${group.key}`}>
+                  <h2 class="month__label" id={`month-${group.key}`}>
+                    {group.label}
+                  </h2>
+                  <ol class="month__posts" role="list">
+                    {group.posts.map(({ post, day }) => (
+                      <li class="entry" data-category={post.category}>
+                        <span class="entry__day" aria-hidden="true">
+                          {day}
+                        </span>
+                        <div class="entry__body">
+                          <p class="meta">
+                            <span class="meta__category">{categoryLabel(post.category)}</span>
+                            <time datetime={post.published_at}>{formatNewsDate(post.published_at)}</time>
+                          </p>
+                          <h3 class="entry__title">
+                            <a href={newsPath(post.slug)}>{post.title}</a>
+                          </h3>
+                          {post.summary && <p class="entry__summary">{post.summary}</p>}
+                          <a class="more" href={newsPath(post.slug)}>
+                            Read more<span class="visually-hidden"> about {post.title}</span>
+                          </a>
+                        </div>
+                        {post.banner_url && (
+                          <a class="entry__thumb" href={newsPath(post.slug)} tabindex="-1" aria-hidden="true">
+                            <img src={post.banner_url} alt="" width="480" height="300" loading="lazy" decoding="async" />
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ))}
+            </div>
+          )}
+
+          {pageCount > 1 && (
+            <div class="container news__pages">
+              <Pagination page={page} pageCount={pageCount} baseParams={new URLSearchParams()} />
+            </div>
+          )}
+        </>
+      )
+    }
+  </div>
+</Base>
+
+<style>
+  .news {
+    padding-block: var(--space-12) var(--space-20);
+  }
+
+  .news__head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title feed"
+      "lede lede";
+    align-items: end;
+    gap: var(--space-2) var(--space-6);
+    padding-block-end: var(--space-8);
+  }
+  .news__title {
+    grid-area: title;
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-6xl);
+    font-weight: var(--fw-bold);
+    line-height: 1;
+    letter-spacing: -0.035em;
+    color: var(--color-fg);
+  }
+  .news__lede {
+    grid-area: lede;
+    margin: 0;
+    font-size: var(--fs-lg);
+    color: var(--color-fg-muted);
+  }
+  .news__feed {
+    grid-area: feed;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 36px;
+    padding-inline: var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .news__feed svg {
+    inline-size: 16px;
+    block-size: 16px;
+    color: var(--news-event);
+  }
+  .news__feed:hover {
+    border-color: var(--color-fg);
+    color: var(--color-fg);
+  }
+
+  .news__state {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-8);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    color: var(--color-fg-muted);
+  }
+  .news__state p {
+    margin: 0;
+  }
+  .news__state-title {
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .news__state a {
+    color: var(--color-link);
+  }
+
+  [data-category] {
+    --marker: var(--news-update);
+  }
+  [data-category="feature"] {
+    --marker: var(--news-feature);
+  }
+  [data-category="data"] {
+    --marker: var(--news-data);
+  }
+  [data-category="event"] {
+    --marker: var(--news-event);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .meta__category {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+
+  .more {
+    justify-self: start;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-link);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-link) 35%, transparent);
+    text-underline-offset: 4px;
+  }
+  .more:hover {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
+  }
+
+  /* ---- The newest post ---- */
+  .top {
+    display: grid;
+    gap: var(--space-8);
+    align-items: center;
+    padding-block-end: var(--space-16);
+  }
+  @media (min-width: 900px) {
+    .top {
+      grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+      gap: var(--space-12);
+    }
+  }
+  .top__media {
+    display: block;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-subtle);
+    box-shadow: var(--shadow-lg);
+  }
+  .top__media img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    object-position: 50% 30%;
+  }
+  .top__text {
+    display: grid;
+    gap: var(--space-4);
+    padding-inline-start: var(--space-5);
+    border-inline-start: 3px solid var(--marker);
+  }
+  .top__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-4xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .top__title a,
+  .entry__title a {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .top__title a:hover,
+  .entry__title a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 6px;
+  }
+  .top__summary {
+    margin: 0;
+    font-size: var(--fs-lg);
+    line-height: var(--lh-normal);
+    color: var(--color-fg-muted);
+  }
+
+  /* ---- Timeline ---- */
+  .timeline {
+    display: grid;
+    gap: var(--space-12);
+  }
+  .month__label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin: 0 0 var(--space-6);
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .month__label::after {
+    content: "";
+    flex: 1;
+    block-size: 1px;
+    background: var(--color-border-strong);
+  }
+  .month__posts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-10);
+  }
+  .entry {
+    display: grid;
+    grid-template-columns: 4rem minmax(0, 1fr);
+    gap: var(--space-4) var(--space-6);
+    align-items: start;
+  }
+  @media (min-width: 900px) {
+    .entry {
+      grid-template-columns: 4rem minmax(0, 1fr) 16rem;
+    }
+  }
+  .entry__day {
+    font-family: var(--font-display);
+    font-size: var(--fs-4xl);
+    font-weight: var(--fw-semibold);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    text-align: end;
+    color: var(--color-fg-subtle);
+  }
+  .entry__body {
+    display: grid;
+    gap: var(--space-2);
+    padding-inline-start: var(--space-5);
+    border-inline-start: 3px solid var(--marker);
+    max-inline-size: 68ch;
+  }
+  .entry__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .entry__summary {
+    margin: 0;
+    line-height: var(--lh-normal);
+    color: var(--color-fg-muted);
+  }
+  .entry__thumb {
+    display: block;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-subtle);
+  }
+  .entry__thumb img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    object-position: 50% 30%;
+  }
+  /* Narrow screens: the thumbnail sits over the text, the day stays on the rail. */
+  @media (max-width: 899.98px) {
+    .entry__thumb {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .entry__body {
+      grid-column: 2;
+    }
+    .entry__day {
+      grid-row: 1 / span 2;
+    }
+  }
+  @media (max-width: 560px) {
+    .news__title {
+      font-size: var(--fs-5xl);
+    }
+    .news__head {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "title"
+        "lede"
+        "feed";
+    }
+    .news__feed {
+      justify-self: start;
+    }
+    .entry {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .entry__day {
+      display: none;
+    }
+    .entry__thumb,
+    .entry__body {
+      grid-column: 1;
+    }
+    .top__title {
+      font-size: var(--fs-3xl);
+    }
+  }
+
+  .news__pages {
+    padding-block-start: var(--space-12);
+  }
+
+  .top__title a:focus-visible,
+  .entry__title a:focus-visible,
+  .more:focus-visible,
+  .news__feed:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+  }
+
+  @media (forced-colors: active) {
+    .top__text,
+    .entry__body {
+      border-inline-start-color: CanvasText;
+    }
+  }
+</style>
