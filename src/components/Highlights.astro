@@ -74,6 +74,9 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
                   <a href={newsPath(lead.slug)}>{lead.title}</a>
                 </h3>
                 {lead.summary && <p class="lead__summary">{lead.summary}</p>}
+                <a class="lead__more" href={newsPath(lead.slug)}>
+                  Read more<span class="visually-hidden"> about {lead.title}</span>
+                </a>
               </div>
             </article>
 
@@ -338,6 +341,20 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     overflow: hidden;
   }
 
+  .lead__more {
+    justify-self: start;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-link);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-link) 35%, transparent);
+    text-underline-offset: 4px;
+  }
+  .lead__more:hover {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
+  }
+
   .briefs {
     list-style: none;
     margin: var(--space-6) 0 0;
@@ -484,6 +501,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .fresh__link:focus-visible,
   .brief__link:focus-visible,
   .lead__title a:focus-visible,
+  .lead__more:focus-visible,
   .col__more:focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 3px;
