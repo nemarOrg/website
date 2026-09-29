@@ -1,7 +1,7 @@
 {
   "name": "nemar-website",
   "type": "module",
-  "version": "0.2.21",
+  "version": "0.2.22",
   "private": true,
   "license": "CC-BY-NC-ND-4.0",
   "description": "nemar.org redesign on Astro + Cloudflare Pages",
@@ -10,9 +10,10 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "bun run generate:og && bun run generate:site-og && astro build",
+    "build": "bun run generate:og && bun run generate:site-og && bun run generate:news-og && astro build",
     "generate:og": "bun scripts/generate-og-images.mjs",
     "generate:site-og": "bun scripts/generate-site-og-image.mjs",
+    "generate:news-og": "bun scripts/generate-news-og-images.mjs",
     "preview": "astro preview",
     "astro": "astro",
     "test": "vitest run",

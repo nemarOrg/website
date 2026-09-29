@@ -74,11 +74,28 @@ export function llmsTxtBody(): string {
     `- \`${MARKETING_BASE_URL}/dataset/<id>\`: server-rendered dataset page with a schema.org Dataset JSON-LD block in the page head; a markdown mirror is served at \`/dataset/<id>.md\`.`,
   ].join("\n");
 
+  const newsSection = [
+    "## News",
+    "",
+    `- [News](${MARKETING_BASE_URL}/news): announcements of new features, data, and events; each post at \`/news/<slug>\` carries a schema.org NewsArticle JSON-LD block.`,
+    `- [RSS feed](${MARKETING_BASE_URL}/news/feed.xml): the 20 newest posts.`,
+    `- [${apiHost}/news](${apiOrigin}/news): the same posts as JSON; \`/news/<slug>\` returns one post with its Markdown body.`,
+  ].join("\n");
+
   const licenseSection = [
     "## License",
     "",
     "Dataset licenses vary per dataset. Most are CC0 or CC-BY; a minority carry a non-commercial or no-derivatives term (for example CC-BY-NC-SA). Check each dataset's own license before reuse -- it is not the same across NEMAR.",
   ].join("\n");
 
-  return `${[header, summary, dataSection, apiSection, docsSection, datasetsSection, licenseSection].join("\n\n")}\n`;
+  return `${[
+    header,
+    summary,
+    dataSection,
+    apiSection,
+    docsSection,
+    datasetsSection,
+    newsSection,
+    licenseSection,
+  ].join("\n\n")}\n`;
 }

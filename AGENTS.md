@@ -181,6 +181,13 @@ bun run bump <arg>            # version bump; workflows normally do this for you
 9. **Verify production**, especially for anything staging structurally could not cover.
    `curl -s https://nemar.org/version.json` should report the clean version just tagged.
 
+**GitHub sometimes drops pushes to this repository (website#374).** The branch moves, but
+nothing runs: no deploy, no bump, no Release, no Cloudflare build, and once a merged PR stayed
+open. After merging to `staging` or `main`, check that runs started:
+`gh api "repos/nemarOrg/website/actions/runs?head_sha=<sha>" -q .total_count`.
+`push-watchdog.yml` replays a dropped push within about twenty minutes and comments on
+#374; it cannot start Cloudflare's production build, which you retry from the dashboard.
+
 ## Recording decisions
 
 When you make (or discover) an architecture-level decision, add an ADR under

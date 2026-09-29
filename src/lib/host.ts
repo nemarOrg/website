@@ -124,7 +124,14 @@ export function hostMode(hostname: string): HostMode {
  * requirement: it works with or without a session, and forwards whichever
  * cookie the request already carries same-origin.
  */
-const HOST_NEUTRAL_ROUTE_PREFIXES: readonly string[] = ["/api/notices"];
+const HOST_NEUTRAL_ROUTE_PREFIXES: readonly string[] = [
+  "/api/notices",
+  // News images (website#371). The admin editor on the app host shows the
+  // same `/news/media/<hash>` URLs a post stores, and `img-src 'self'` would
+  // refuse the marketing-host copy a cross-host redirect would point at.
+  // Like the notices feed, it needs no cookie and varies by nothing.
+  "/news/media",
+];
 
 export function isHostNeutralRoute(pathname: string): boolean {
   for (const prefix of HOST_NEUTRAL_ROUTE_PREFIXES) {

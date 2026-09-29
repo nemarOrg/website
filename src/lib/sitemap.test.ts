@@ -4,6 +4,7 @@ import { MARKETING_BASE_URL } from "./host";
 import {
   buildSitemapXml,
   datasetSitemapEntries,
+  newsSitemapEntries,
   sitemapLastmod,
   staticSitemapEntries,
 } from "./sitemap";
@@ -111,6 +112,7 @@ describe("staticSitemapEntries", () => {
     expect(entries.map((e) => e.loc)).toEqual([
       `${MARKETING_BASE_URL}/`,
       `${MARKETING_BASE_URL}/discover`,
+      `${MARKETING_BASE_URL}/news`,
       `${MARKETING_BASE_URL}/about`,
       `${MARKETING_BASE_URL}/support`,
       `${MARKETING_BASE_URL}/privacy`,
@@ -124,6 +126,20 @@ describe("staticSitemapEntries", () => {
     for (const forbidden of ["/login", "/dashboard", "/upload", "/settings", "/admin", "/auth"]) {
       expect(locs.some((loc) => loc.includes(forbidden))).toBe(false);
     }
+  });
+});
+
+describe("newsSitemapEntries", () => {
+  it("lists each post on nemar.org, dated by its last edit", () => {
+    expect(
+      newsSitemapEntries([
+        { slug: "nemar-assistant", updated_at: "2026-09-29T16:00:00Z" },
+        { slug: "undated", updated_at: "" },
+      ]),
+    ).toEqual([
+      { loc: `${MARKETING_BASE_URL}/news/nemar-assistant`, lastmod: "2026-09-29T16:00:00.000Z" },
+      { loc: `${MARKETING_BASE_URL}/news/undated`, lastmod: null },
+    ]);
   });
 });
 

@@ -1,0 +1,523 @@
+---
+import { formatCount, formatRelativeTime } from "../lib/format";
+/**
+ * The landing page's live section under the hero (website#371): the latest
+ * news, the most cited datasets, and the newest ones.
+ *
+ * Three columns of unequal weight rather than three matching cards. News
+ * leads with its banner; the two dataset columns are ranked lists. Each news
+ * item carries a colored rule on its leading edge, the way an annotation
+ * marks a span in the signal viewer; the color is the category.
+ *
+ * Every column is optional. A null or empty list (the API was unreachable, or
+ * there is simply nothing yet) drops that column and the rest widen, so a
+ * backend hiccup costs the page a column, never an empty box or a broken one.
+ */
+import { CITATION_DASHBOARD_URL, type CitedDataset, type LatestDataset } from "../lib/highlights";
+import {
+  type NewsPostSummary,
+  categoryLabel,
+  formatNewsDate,
+  formatNewsShortDate,
+  newsPath,
+} from "../lib/news";
+import Tag from "./Tag.astro";
+
+interface Props {
+  news: readonly NewsPostSummary[] | null;
+  cited: readonly CitedDataset[] | null;
+  latest: readonly LatestDataset[] | null;
+}
+
+const { news, cited, latest } = Astro.props;
+const now = new Date();
+
+const [lead, ...briefs] = news ?? [];
+const hasNews = Boolean(lead);
+const hasCited = (cited?.length ?? 0) > 0;
+const hasLatest = (latest?.length ?? 0) > 0;
+const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
+---
+
+{
+  columns > 0 && (
+    <section
+      class:list={["highlights", `highlights--${columns}`, { "highlights--no-news": !hasNews }]}
+      aria-label="Highlights"
+    >
+      <div class="container highlights__grid">
+        {hasNews && lead && (
+          <section class="col col--news" aria-labelledby="hl-news">
+            <h2 class="col__title" id="hl-news">
+              What's new on NEMAR
+            </h2>
+            <p class="col__note">New features, data, and events.</p>
+
+            <article class="lead">
+              {lead.banner_url && (
+                <a class="lead__media" href={newsPath(lead.slug)} tabindex="-1" aria-hidden="true">
+                  <img
+                    src={lead.banner_url}
+                    alt=""
+                    width="1200"
+                    height="750"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </a>
+              )}
+              <div class="lead__text" data-category={lead.category}>
+                <p class="meta">
+                  <span class="meta__category">{categoryLabel(lead.category)}</span>
+                  <time datetime={lead.published_at}>{formatNewsDate(lead.published_at)}</time>
+                </p>
+                <h3 class="lead__title">
+                  <a href={newsPath(lead.slug)}>{lead.title}</a>
+                </h3>
+                {lead.summary && <p class="lead__summary">{lead.summary}</p>}
+                <a class="lead__more" href={newsPath(lead.slug)}>
+                  Read more<span class="visually-hidden"> about {lead.title}</span>
+                </a>
+              </div>
+            </article>
+
+            {briefs.length > 0 && (
+              <ul class="briefs" role="list">
+                {briefs.map((post) => (
+                  <li class="brief" data-category={post.category}>
+                    <a class="brief__link" href={newsPath(post.slug)}>
+                      <span class="brief__title">{post.title}</span>
+                      <span class="brief__meta">
+                        <span class="visually-hidden">{categoryLabel(post.category)}, </span>
+                        <time datetime={post.published_at}>
+                          {formatNewsShortDate(post.published_at, now)}
+                        </time>
+                      </span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <a class="col__more" href="/news">All news</a>
+          </section>
+        )}
+
+        {hasCited && cited && (
+          <section class="col" aria-labelledby="hl-cited">
+            <h2 class="col__title" id="hl-cited">
+              Most cited datasets
+            </h2>
+            <p class="col__note">Citations to each dataset or its paper, all time.</p>
+            <ol class="ranks">
+              {cited.map((d, i) => (
+                <li class="rank">
+                  <a class="rank__link" href={d.href} rel="external">
+                    <span class="rank__n" aria-hidden="true">
+                      {i + 1}
+                    </span>
+                    <span class="rank__name">{d.name}</span>
+                    <span class="rank__count">
+                      {formatCount(d.citations)}
+                      <span class="visually-hidden"> citations</span>
+                    </span>
+                    <span class="rank__bar" aria-hidden="true" style={`--share: ${d.share.toFixed(3)}`}></span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+            <a class="col__more" href={CITATION_DASHBOARD_URL} rel="external">
+              Open the citation dashboard
+            </a>
+          </section>
+        )}
+
+        {hasLatest && latest && (
+          <section class="col" aria-labelledby="hl-latest">
+            <h2 class="col__title" id="hl-latest">
+              Latest datasets
+            </h2>
+            <p class="col__note">Newly published on NEMAR.</p>
+            <ul class="fresh" role="list">
+              {latest.map((d) => (
+                <li class="fresh__item">
+                  <a class="fresh__link" href={d.href}>
+                    <span class="fresh__name">{d.name}</span>
+                    <span class="fresh__meta">
+                      {d.modalities.map((m) => (
+                        <Tag kind="modality" value={m} />
+                      ))}
+                      {d.participants !== null && (
+                        <span class="fresh__count">
+                          {formatCount(d.participants)}{" "}
+                          {d.participants === 1 ? "participant" : "participants"}
+                        </span>
+                      )}
+                    </span>
+                    {d.publishedAt && (
+                      <time class="fresh__when" datetime={d.publishedAt.toISOString()}>
+                        {formatRelativeTime(d.publishedAt, now)}
+                      </time>
+                    )}
+                  </a>
+                </li>
+              ))}
+            </ul>
+            <a class="col__more" href="/discover?sort=newest">
+              Browse all datasets
+            </a>
+          </section>
+        )}
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .highlights {
+    padding-block: var(--space-16) var(--space-20);
+  }
+
+  .highlights__grid {
+    display: grid;
+    gap: var(--space-12) var(--space-10);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* News leads: wider than the two lists beside it. */
+  @media (min-width: 1024px) {
+    .highlights--3 .highlights__grid {
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .highlights--2 .highlights__grid {
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    }
+    .highlights--2.highlights--no-news .highlights__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  /* Tablet: news across the top, the two lists side by side under it. */
+  @media (min-width: 720px) and (max-width: 1023.98px) {
+    .highlights--3 .highlights__grid,
+    .highlights--2.highlights--no-news .highlights__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .highlights--3 .col--news {
+      grid-column: 1 / -1;
+    }
+  }
+
+  .col {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--color-border-strong);
+  }
+
+  .col__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+    letter-spacing: -0.01em;
+    color: var(--color-fg);
+  }
+  .col__note {
+    margin: var(--space-1) 0 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+
+  /* Right under its own list rather than bottom-aligned across the row: the
+     news column runs taller than the lists, and a pinned link left a gap. */
+  .col__more {
+    align-self: flex-start;
+    padding-block-start: var(--space-5);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-link);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-link) 35%, transparent);
+    text-underline-offset: 4px;
+  }
+  .col__more:hover {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
+  }
+
+  /* Category colors, shared by the lead and the briefs. */
+  [data-category] {
+    --marker: var(--news-update);
+  }
+  [data-category="feature"] {
+    --marker: var(--news-feature);
+  }
+  [data-category="data"] {
+    --marker: var(--news-data);
+  }
+  [data-category="event"] {
+    --marker: var(--news-event);
+  }
+
+  /* ---- News ---- */
+  .lead {
+    display: grid;
+    gap: var(--space-5);
+    margin-block-start: var(--space-4);
+  }
+  .lead__media {
+    display: block;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-subtle);
+    aspect-ratio: 16 / 10;
+  }
+  .lead__media img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    /* Banners are mostly interface screenshots, whose meaning sits at the top. */
+    object-position: 50% 0;
+    transition: transform 400ms ease;
+  }
+  .lead:hover .lead__media img {
+    transform: scale(1.02);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lead__media img {
+      transition: none;
+    }
+    .lead:hover .lead__media img {
+      transform: none;
+    }
+  }
+
+  .lead__text {
+    display: grid;
+    gap: var(--space-2);
+    padding-inline-start: var(--space-4);
+    border-inline-start: 3px solid var(--marker);
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .meta__category {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .lead__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  .lead__title a {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .lead__title a:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 5px;
+  }
+  .lead__summary {
+    margin: 0;
+    max-inline-size: 60ch;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .lead__more {
+    justify-self: start;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-link);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-link) 35%, transparent);
+    text-underline-offset: 4px;
+  }
+  .lead__more:hover {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
+  }
+
+  .briefs {
+    list-style: none;
+    margin: var(--space-6) 0 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .brief__link {
+    display: grid;
+    gap: 2px;
+    padding: var(--space-1) 0 var(--space-1) var(--space-4);
+    border-inline-start: 3px solid var(--marker);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .brief__title {
+    font-weight: var(--fw-medium);
+    line-height: var(--lh-snug);
+  }
+  .brief__link:hover .brief__title {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .brief__meta {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+
+  /* ---- Most cited ---- */
+  .ranks,
+  .fresh {
+    list-style: none;
+    margin: var(--space-4) 0 0;
+    padding: 0;
+  }
+  .rank + .rank,
+  .fresh__item + .fresh__item {
+    border-block-start: 1px solid var(--color-border);
+  }
+  .rank__link {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "n name count"
+      ". bar bar";
+    align-items: baseline;
+    column-gap: var(--space-2);
+    row-gap: var(--space-2);
+    padding-block: var(--space-3);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .rank__n {
+    grid-area: n;
+    font-family: var(--font-display);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .rank__name {
+    grid-area: name;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    line-height: var(--lh-snug);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .rank__link:hover .rank__name {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .rank__count {
+    grid-area: count;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg);
+  }
+  /* The count drawn as a length, relative to the top dataset. */
+  .rank__bar {
+    grid-area: bar;
+    display: block;
+    block-size: 4px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(
+        to right,
+        var(--news-feature) calc(var(--share) * 100%),
+        transparent calc(var(--share) * 100%)
+      ),
+      var(--color-bg-subtle);
+  }
+
+  /* ---- Latest ---- */
+  .fresh__link {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name when"
+      "meta meta";
+    align-items: baseline;
+    column-gap: var(--space-3);
+    row-gap: var(--space-2);
+    padding-block: var(--space-3);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .fresh__name {
+    grid-area: name;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    line-height: var(--lh-snug);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .fresh__link:hover .fresh__name {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .fresh__when {
+    grid-area: when;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+    white-space: nowrap;
+  }
+  .fresh__meta {
+    grid-area: meta;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+  .fresh__count {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+
+  .rank__link:focus-visible,
+  .fresh__link:focus-visible,
+  .brief__link:focus-visible,
+  .lead__title a:focus-visible,
+  .lead__more:focus-visible,
+  .col__more:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+  }
+
+  @media (forced-colors: active) {
+    .lead__text,
+    .brief__link {
+      border-inline-start-color: CanvasText;
+    }
+    .rank__bar {
+      background: none;
+      border: 1px solid CanvasText;
+      inline-size: calc(var(--share) * 100%);
+    }
+  }
+</style>

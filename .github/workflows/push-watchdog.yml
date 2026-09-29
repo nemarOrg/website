@@ -1,0 +1,49 @@
+name: Push watchdog
+
+# Temporary, for website#374. Since 2026-09-28 GitHub has sometimes not
+# delivered pushes to this repository: the branch moves, but no push event is
+# emitted, so nothing that listens for one runs (Actions, Cloudflare's
+# production build, the other GitHub Apps). Twice a merge to `staging` went
+# undeployed, and once a release merge to `main` ran no Release and left its
+# PR open.
+#
+# Every ten minutes this looks at the tips of `staging` and `main`; a tip that
+# is past a short grace period with no workflow run gets the runs its push
+# would have started, and a comment on #374. The logic is in
+# scripts/push-watchdog.sh, which also runs locally with DRY_RUN=1.
+#
+# Delete this file and the script once #374 has been quiet for a few weeks.
+# Scheduled workflows only run from the default branch, so this starts
+# working once it reaches `main`.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # dispatch the replayed workflows
+  checks: read # see whether Cloudflare built a main commit
+  issues: write # comment on #374
+
+concurrency:
+  group: push-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/push-watchdog.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Replay undelivered pushes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          WATCHDOG_ISSUE: "374"
+        run: bash scripts/push-watchdog.sh

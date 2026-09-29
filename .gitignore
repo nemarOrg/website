@@ -7,6 +7,7 @@ dist/
 # nemar-og-rebuild-cron Pages deploy hook. Never hand-authored; tracking them
 # only produces churn and drift, so they are build artifacts like dist/.
 public/og/dataset-card/
+public/og/news-card/
 
 # dependencies
 node_modules/

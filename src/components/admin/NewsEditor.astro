@@ -1,0 +1,1137 @@
+---
+import {
+  NEWS_CATEGORIES,
+  NEWS_CATEGORY_LABELS,
+  NEWS_LIMITS,
+  type NewsPost,
+  newsPath,
+  toDatetimeLocalValue,
+} from "../../lib/news";
+/**
+ * The news post editor behind `/admin/news/new` and `/admin/news/<id>`
+ * (website#371).
+ *
+ * Writing on the left, publishing on the right. The body is Markdown with a
+ * live preview rendered by the same renderer and the same options the
+ * article page uses, so what an admin previews is what readers get. Images
+ * go up to the API's R2 bucket (via the same-origin `/api/v1` proxy) from
+ * the banner slot, the "Add image" button, or by dropping or pasting one
+ * into the body, which inserts a figure line at the cursor.
+ */
+import ConfirmDialog from "../ConfirmDialog.astro";
+
+interface Props {
+  /** The post being edited, or undefined for a new one. */
+  post?: NewsPost;
+}
+
+const { post } = Astro.props;
+const isNew = !post;
+// Server-rendered in UTC; the client script rewrites it into the admin's own
+// time zone on load (see `data-published-iso`).
+const publishedIso = post?.published_at ?? "";
+const status = post?.status ?? "draft";
+---
+
+<form
+  class="editor"
+  data-news-editor
+  data-post-id={post?.id}
+  data-published-iso={publishedIso}
+  data-initial-status={status}
+  data-slug-locked={isNew ? undefined : "true"}
+  novalidate
+>
+  <div class="editor__main">
+    <label class="field">
+      <span class="field__label">Title</span>
+      <input
+        class="control control--title"
+        name="title"
+        type="text"
+        required
+        maxlength={NEWS_LIMITS.title}
+        value={post?.title ?? ""}
+        placeholder="What happened, in a sentence a reader would click"
+        aria-describedby="err-title"
+      />
+      <span class="field__error" id="err-title" data-error-for="title" hidden></span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Address</span>
+      <span class="slug">
+        <span class="slug__prefix" aria-hidden="true">nemar.org/news/</span>
+        <input
+          class="control slug__input"
+          name="slug"
+          type="text"
+          required
+          maxlength={NEWS_LIMITS.slugMax}
+          value={post?.slug ?? ""}
+          spellcheck="false"
+          autocomplete="off"
+          aria-describedby="hint-slug err-slug"
+        />
+      </span>
+      <span class="field__hint" id="hint-slug">
+        {isNew
+          ? "Filled from the title until you edit it."
+          : "Changing the address breaks links people have already shared."}
+      </span>
+      <span class="field__error" id="err-slug" data-error-for="slug" hidden></span>
+    </label>
+
+    <label class="field">
+      <span class="field__label">Summary</span>
+      <textarea
+        class="control"
+        name="summary"
+        rows="2"
+        required
+        maxlength={NEWS_LIMITS.summary}
+        aria-describedby="hint-summary err-summary">{post?.summary ?? ""}</textarea>
+      <span class="field__hint" id="hint-summary">
+        Shown on the home page, the news list, and link previews. <span data-count-for="summary"></span>
+      </span>
+      <span class="field__error" id="err-summary" data-error-for="summary" hidden></span>
+    </label>
+
+    <div class="field body">
+      <div class="body__bar">
+        <span class="field__label" id="body-label">Post</span>
+        <div class="body__tabs" role="tablist" aria-label="Post view">
+          <button type="button" class="body__tab" role="tab" aria-selected="true" aria-controls="body-write" id="tab-write" data-body-tab="write">
+            Write
+          </button>
+          <button type="button" class="body__tab" role="tab" aria-selected="false" aria-controls="body-preview" id="tab-preview" data-body-tab="preview" tabindex="-1">
+            Preview
+          </button>
+        </div>
+        <button type="button" class="btn btn--quiet body__add" data-add-image>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+            <circle cx="9" cy="10" r="2"></circle>
+            <path d="M21 16l-5-5-9 9"></path>
+          </svg>
+          Add image
+        </button>
+      </div>
+      <div id="body-write" role="tabpanel" aria-labelledby="tab-write" class="body__write" data-body-panel="write">
+        <textarea
+          class="control control--body"
+          name="body"
+          rows="22"
+          required
+          maxlength={NEWS_LIMITS.body}
+          spellcheck="true"
+          aria-labelledby="body-label"
+          aria-describedby="hint-body err-body"
+          placeholder="Write in Markdown. Drop or paste an image to add it here.">{post?.body ?? ""}</textarea>
+        <p class="body__drop" data-body-drop hidden>Drop the image to upload it here</p>
+      </div>
+      <div id="body-preview" role="tabpanel" aria-labelledby="tab-preview" class="body__preview" data-body-panel="preview" hidden>
+        <div class="preview" data-preview></div>
+      </div>
+      <span class="field__hint" id="hint-body">
+        Markdown: <code>## Heading</code>, <code>**bold**</code>, <code>[link](https://...)</code>, lists.
+        An image sits on its own line: <code>![description](/news/media/...)</code>, with an optional
+        caption in quotes after the address.
+      </span>
+      <span class="field__error" id="err-body" data-error-for="body" hidden></span>
+      <p class="upload-status" role="status" data-upload-status></p>
+    </div>
+  </div>
+
+  <aside class="editor__side">
+    <section class="panel" aria-labelledby="publish-title">
+      <h2 class="panel__title" id="publish-title">Publishing</h2>
+
+      <fieldset class="field">
+        <legend class="field__label">Visibility</legend>
+        <div class="choice">
+          <label class="choice__option">
+            <input type="radio" name="status" value="draft" checked={status === "draft"} />
+            <span>Draft</span>
+          </label>
+          <label class="choice__option">
+            <input type="radio" name="status" value="published" checked={status === "published"} />
+            <span>Published</span>
+          </label>
+        </div>
+        <span class="field__hint" data-status-hint></span>
+      </fieldset>
+
+      <label class="field">
+        <span class="field__label">Date</span>
+        <span class="date">
+          <input class="control" type="datetime-local" name="published_at" aria-describedby="hint-date err-published_at" required />
+          <button type="button" class="btn btn--quiet date__now" data-date-now>Now</button>
+        </span>
+        <span class="field__hint" id="hint-date">
+          Readers see this date. A future date schedules the post. <span data-date-zone></span>
+        </span>
+        <span class="field__error" id="err-published_at" data-error-for="published_at" hidden></span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Category</span>
+        <select class="control" name="category">
+          {NEWS_CATEGORIES.map((c) => (
+            <option value={c} selected={(post?.category ?? "feature") === c}>
+              {NEWS_CATEGORY_LABELS[c]}
+            </option>
+          ))}
+        </select>
+      </label>
+    </section>
+
+    <section class="panel" aria-labelledby="banner-title">
+      <h2 class="panel__title" id="banner-title">Banner</h2>
+      <input type="hidden" name="banner_url" value={post?.banner_url ?? ""} />
+      <div class="banner" data-banner data-has-banner={post?.banner_url ? "true" : undefined}>
+        <img class="banner__img" data-banner-img src={post?.banner_url ?? undefined} alt="" hidden={!post?.banner_url} />
+        <button type="button" class="banner__pick" data-banner-pick aria-describedby="err-banner_url">
+          <span class="banner__pick-main" data-banner-pick-label>
+            {post?.banner_url ? "Replace image" : "Choose an image"}
+          </span>
+          <span class="banner__pick-hint">or drop one here. PNG, JPEG, WebP, or GIF, up to 5 MB.</span>
+        </button>
+      </div>
+      <button type="button" class="btn btn--quiet banner__remove" data-banner-remove hidden={!post?.banner_url}>
+        Remove banner
+      </button>
+      <span class="field__error" id="err-banner_url" data-error-for="banner_url" hidden></span>
+      <label class="field">
+        <span class="field__label">Description for screen readers</span>
+        <textarea class="control" name="banner_alt" rows="2" maxlength={NEWS_LIMITS.bannerAlt} aria-describedby="err-banner_alt">{post?.banner_alt ?? ""}</textarea>
+        <span class="field__error" id="err-banner_alt" data-error-for="banner_alt" hidden></span>
+      </label>
+    </section>
+
+    <div class="actions">
+      <p class="form-error" role="alert" data-form-error hidden></p>
+      <p class="form-saved" role="status" data-form-saved></p>
+      <button type="submit" class="btn btn--primary" data-save>
+        {isNew ? "Save post" : "Save changes"}
+      </button>
+      {post && post.status === "published" && (
+        <a class="btn btn--quiet" href={newsPath(post.slug)} target="_blank" rel="noopener">
+          View on site
+        </a>
+      )}
+      {post && (
+        <button type="button" class="btn btn--danger" data-delete>
+          Delete post
+        </button>
+      )}
+    </div>
+  </aside>
+
+  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-file-banner hidden />
+  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" data-file-body hidden />
+</form>
+
+{
+  post && (
+    <ConfirmDialog
+      dialogId="admin-delete-news"
+      title="Delete this post?"
+      body="It disappears from the site, the home page, and the feed right away. There is no undo."
+      confirmLabel="Delete post"
+      confirmTone="danger"
+    />
+  )
+}
+
+<script>
+  import { DashboardApiError } from "../../lib/dashboard-api";
+  import { renderMarkdown } from "../../lib/markdown";
+  import {
+    NEWS_LIMITS,
+    NEWS_MEDIA_TYPES,
+    type NewsCategory,
+    type NewsInput,
+    type NewsStatus,
+    IMAGE_ALT_PLACEHOLDER,
+    isNewsMediaUrl,
+    newsHeadingOffset,
+    slugify,
+    toDatetimeLocalValue,
+    validateNewsInput,
+  } from "../../lib/news";
+  import { createNewsPost, deleteNewsPost, updateNewsPost, uploadNewsMedia } from "../../lib/news-api";
+  import { toRfc3339 } from "../../lib/notices-api";
+
+  const form = document.querySelector<HTMLFormElement>("[data-news-editor]");
+  if (form) setUp(form);
+
+  function setUp(form: HTMLFormElement): void {
+    const $ = <T extends Element>(sel: string) => form.querySelector<T>(sel);
+    // A single control by name. A radio group comes back as a RadioNodeList,
+    // which is not an element and has no attributes to set, so it is null here.
+    const field = <T extends HTMLElement>(name: string): T | null => {
+      const el = form.elements.namedItem(name);
+      return el instanceof HTMLElement ? (el as T) : null;
+    };
+
+    const postId = form.dataset.postId ? Number.parseInt(form.dataset.postId, 10) : null;
+    const title = field<HTMLInputElement>("title");
+    const slug = field<HTMLInputElement>("slug");
+    const summary = field<HTMLTextAreaElement>("summary");
+    const body = field<HTMLTextAreaElement>("body");
+    const date = field<HTMLInputElement>("published_at");
+    const category = field<HTMLSelectElement>("category");
+    const bannerUrl = field<HTMLInputElement>("banner_url");
+    const bannerAlt = field<HTMLTextAreaElement>("banner_alt");
+    const formError = $<HTMLElement>("[data-form-error]");
+    const formSaved = $<HTMLElement>("[data-form-saved]");
+    const uploadStatus = $<HTMLElement>("[data-upload-status]");
+    const saveBtn = $<HTMLButtonElement>("[data-save]");
+    let dirty = false;
+    let busy = false;
+
+    // ---- Date: shown in the admin's own time zone ----
+    if (date) {
+      const iso = form.dataset.publishedIso;
+      date.value = toDatetimeLocalValue(iso ? iso : new Date());
+    }
+
+    // ---- Address follows the title until it is edited by hand ----
+    let slugLocked = form.dataset.slugLocked === "true";
+    title?.addEventListener("input", () => {
+      if (!slugLocked && slug) slug.value = slugify(title.value);
+    });
+    slug?.addEventListener("input", () => {
+      slugLocked = true;
+      slug.value = slug.value.toLowerCase().replace(/\s+/g, "-");
+    });
+
+    // ---- Counters and status hint ----
+    const summaryCount = $<HTMLElement>('[data-count-for="summary"]');
+    const updateCount = () => {
+      if (summaryCount && summary) summaryCount.textContent = `${summary.value.length} / ${NEWS_LIMITS.summary}`;
+    };
+    summary?.addEventListener("input", updateCount);
+    updateCount();
+
+    const statusHint = $<HTMLElement>("[data-status-hint]");
+    const statusValue = (): NewsStatus =>
+      (form.querySelector<HTMLInputElement>('input[name="status"]:checked')?.value as NewsStatus) ?? "draft";
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const updateStatusHint = () => {
+      if (!statusHint) return;
+      const when = date?.value ? new Date(date.value) : null;
+      if (statusValue() === "draft") statusHint.textContent = "Only admins can see a draft.";
+      else if (when && when.getTime() > Date.now())
+        statusHint.textContent = "Scheduled: it goes live at the date below.";
+      else if (form.dataset.initialStatus === "draft" && when && Date.now() - when.getTime() > DAY_MS)
+        // Posts are ordered by this date, so an old draft published as is
+        // lands below newer posts, and possibly off the home page. Only for
+        // a draft being published: a live post dated in the past is usually
+        // backdated on purpose.
+        statusHint.textContent = `Dated ${when.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}, so it lists below newer posts. Choose Now to put it first.`;
+      else statusHint.textContent = "Live on the site and the home page.";
+    };
+    form.addEventListener("change", updateStatusHint);
+    date?.addEventListener("input", updateStatusHint);
+    updateStatusHint();
+
+    const zone = $<HTMLElement>("[data-date-zone]");
+    if (zone) {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      zone.textContent =
+        tz === "America/Los_Angeles"
+          ? "Times are Pacific, as readers see them."
+          : `You are entering ${tz} time; readers see the date in Pacific time.`;
+    }
+    $<HTMLButtonElement>("[data-date-now]")?.addEventListener("click", () => {
+      if (!date) return;
+      date.value = toDatetimeLocalValue(new Date());
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+      dirty = true;
+    });
+
+    // An error names what to fix; once that field is edited, the message is
+    // stale and goes, rather than lingering until the next save.
+    const clearError = (name: string) => {
+      const slot = form.querySelector<HTMLElement>(`[data-error-for="${name}"]`);
+      if (slot && !slot.hidden) {
+        slot.hidden = true;
+        slot.textContent = "";
+      }
+      field<HTMLElement>(name)?.removeAttribute("aria-invalid");
+    };
+    form.addEventListener("input", (e) => {
+      const name = (e.target as HTMLElement | null)?.getAttribute("name");
+      if (name) clearError(name);
+    });
+
+    // ---- Unsaved-changes guard ----
+    form.addEventListener("input", () => {
+      dirty = true;
+      if (formSaved) formSaved.textContent = "";
+    });
+    window.addEventListener("beforeunload", (e) => {
+      if (dirty && !busy) e.preventDefault();
+    });
+
+    // ---- Write / Preview tabs ----
+    const tabs = [...form.querySelectorAll<HTMLButtonElement>("[data-body-tab]")];
+    const preview = $<HTMLElement>("[data-preview]");
+    const select = (name: string, focus = false) => {
+      for (const tab of tabs) {
+        const on = tab.dataset.bodyTab === name;
+        tab.setAttribute("aria-selected", String(on));
+        tab.tabIndex = on ? 0 : -1;
+        if (on && focus) tab.focus();
+      }
+      for (const panel of form.querySelectorAll<HTMLElement>("[data-body-panel]")) {
+        panel.hidden = panel.dataset.bodyPanel !== name;
+      }
+      if (name === "preview" && preview && body) {
+        preview.innerHTML =
+          renderMarkdown(body.value, {
+            allowImage: isNewsMediaUrl,
+            headingOffset: newsHeadingOffset(body.value),
+          }) ||
+          "<p class='preview__empty'>Nothing to preview yet.</p>";
+      }
+    };
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => select(tab.dataset.bodyTab ?? "write"));
+      tab.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        e.preventDefault();
+        const i = tabs.indexOf(tab);
+        const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+        select(next.dataset.bodyTab ?? "write", true);
+      });
+    }
+
+    // ---- Images ----
+    const ACCEPTED = new Set(Object.values(NEWS_MEDIA_TYPES));
+    const checkFile = (file: File): string | null => {
+      if (!ACCEPTED.has(file.type)) return `${file.name || "That file"} is not a PNG, JPEG, WebP, or GIF image.`;
+      if (file.size > NEWS_LIMITS.mediaBytes) return `${file.name || "That image"} is over 5 MB. Export a smaller copy.`;
+      return null;
+    };
+    const say = (text: string) => {
+      if (uploadStatus) uploadStatus.textContent = text;
+    };
+
+    async function upload(file: File): Promise<string | null> {
+      const problem = checkFile(file);
+      if (problem) {
+        say(problem);
+        return null;
+      }
+      say(`Uploading ${file.name || "image"}...`);
+      try {
+        const media = await uploadNewsMedia(file);
+        say(`Uploaded ${file.name || "image"}.`);
+        return media.url;
+      } catch (err) {
+        say(`Could not upload ${file.name || "the image"}: ${describe(err)}`);
+        return null;
+      }
+    }
+
+    // Banner
+    const bannerImg = $<HTMLImageElement>("[data-banner-img]");
+    const bannerBox = $<HTMLElement>("[data-banner]");
+    const bannerLabel = $<HTMLElement>("[data-banner-pick-label]");
+    const bannerRemove = $<HTMLButtonElement>("[data-banner-remove]");
+    const bannerFile = $<HTMLInputElement>("[data-file-banner]");
+    const setBanner = (url: string | null) => {
+      clearError("banner_url");
+      if (!url) clearError("banner_alt");
+      if (bannerUrl) bannerUrl.value = url ?? "";
+      if (bannerImg) {
+        bannerImg.hidden = !url;
+        if (url) bannerImg.src = url;
+        else bannerImg.removeAttribute("src");
+      }
+      if (bannerBox) bannerBox.dataset.hasBanner = url ? "true" : "";
+      if (bannerLabel) bannerLabel.textContent = url ? "Replace image" : "Choose an image";
+      if (bannerRemove) bannerRemove.hidden = !url;
+      dirty = true;
+    };
+    const takeBanner = async (file: File | undefined) => {
+      if (!file) return;
+      const url = await upload(file);
+      if (url) {
+        setBanner(url);
+        if (bannerAlt && !bannerAlt.value.trim()) bannerAlt.focus();
+      }
+    };
+    $<HTMLButtonElement>("[data-banner-pick]")?.addEventListener("click", () => bannerFile?.click());
+    bannerFile?.addEventListener("change", () => {
+      void takeBanner(bannerFile.files?.[0]);
+      bannerFile.value = "";
+    });
+    bannerRemove?.addEventListener("click", () => setBanner(null));
+    bannerBox?.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      bannerBox.dataset.dragging = "true";
+    });
+    bannerBox?.addEventListener("dragleave", () => delete bannerBox.dataset.dragging);
+    bannerBox?.addEventListener("drop", (e) => {
+      e.preventDefault();
+      delete bannerBox.dataset.dragging;
+      void takeBanner(e.dataTransfer?.files?.[0]);
+    });
+
+    // Body images: button, drop, paste. Each inserts a figure line where the
+    // cursor was, on a line of its own, which is what the renderer needs.
+    const bodyFile = $<HTMLInputElement>("[data-file-body]");
+    const bodyDrop = $<HTMLElement>("[data-body-drop]");
+    /**
+     * Inserts `text` on a line of its own at `at`. When `select` names a
+     * stretch of `text`, that stretch is left selected, so typing replaces it.
+     */
+    const insertAtCursor = (text: string, at: number, select?: string) => {
+      if (!body) return;
+      const before = body.value.slice(0, at);
+      const after = body.value.slice(at);
+      const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
+      const trail = after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
+      body.value = `${before}${lead}${text}${trail}${after}`;
+      const start = before.length + lead.length;
+      const offset = select ? text.indexOf(select) : -1;
+      if (select && offset >= 0) body.setSelectionRange(start + offset, start + offset + select.length);
+      else body.setSelectionRange(start + text.length, start + text.length);
+      body.focus();
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+      dirty = true;
+    };
+    const takeBodyImages = async (files: readonly File[], at: number) => {
+      let cursor = at;
+      for (const file of files) {
+        const url = await upload(file);
+        if (!url) continue;
+        // A placeholder, selected, rather than the file name: a name like
+        // "Screenshot 2026-09-24 at 10.03" is not a description, and saving
+        // with the placeholder still there is refused (undescribedImages).
+        const line = `![${IMAGE_ALT_PLACEHOLDER}](${url})`;
+        insertAtCursor(line, cursor, IMAGE_ALT_PLACEHOLDER);
+        cursor = body ? body.value.indexOf(line, cursor) + line.length : cursor;
+      }
+    };
+    $<HTMLButtonElement>("[data-add-image]")?.addEventListener("click", () => {
+      select("write");
+      bodyFile?.click();
+    });
+    bodyFile?.addEventListener("change", () => {
+      const files = [...(bodyFile.files ?? [])];
+      bodyFile.value = "";
+      void takeBodyImages(files, body?.selectionStart ?? body?.value.length ?? 0);
+    });
+    body?.addEventListener("dragover", (e) => {
+      if (![...(e.dataTransfer?.items ?? [])].some((i) => i.kind === "file")) return;
+      e.preventDefault();
+      if (bodyDrop) bodyDrop.hidden = false;
+    });
+    body?.addEventListener("dragleave", () => {
+      if (bodyDrop) bodyDrop.hidden = true;
+    });
+    body?.addEventListener("drop", (e) => {
+      const files = [...(e.dataTransfer?.files ?? [])];
+      if (files.length === 0) return;
+      e.preventDefault();
+      if (bodyDrop) bodyDrop.hidden = true;
+      void takeBodyImages(files, body.selectionStart ?? body.value.length);
+    });
+    body?.addEventListener("paste", (e) => {
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      if (files.length === 0) return;
+      e.preventDefault();
+      void takeBodyImages(files, body.selectionStart ?? body.value.length);
+    });
+
+    // ---- Save ----
+    const showErrors = (problems: ReturnType<typeof validateNewsInput>) => {
+      for (const el of form.querySelectorAll<HTMLElement>("[data-error-for]")) {
+        el.hidden = true;
+        el.textContent = "";
+      }
+      for (const el of form.querySelectorAll<HTMLElement>("[aria-invalid]")) el.removeAttribute("aria-invalid");
+      for (const p of problems) {
+        const slot = form.querySelector<HTMLElement>(`[data-error-for="${p.field}"]`);
+        if (slot) {
+          slot.hidden = false;
+          slot.textContent = p.message;
+        }
+        field<HTMLElement>(p.field)?.setAttribute("aria-invalid", "true");
+      }
+      const first = problems[0] ? field<HTMLElement>(problems[0].field) : null;
+      if (first && first.getAttribute("type") !== "hidden") first.focus();
+    };
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (busy) return;
+      if (formError) formError.hidden = true;
+      const input: NewsInput = {
+        slug: slug?.value.trim() ?? "",
+        title: title?.value.trim() ?? "",
+        summary: summary?.value.trim() ?? "",
+        body: body?.value ?? "",
+        category: (category?.value ?? "feature") as NewsCategory,
+        banner_url: bannerUrl?.value ? bannerUrl.value : null,
+        banner_alt: bannerAlt?.value.trim() ?? "",
+        status: statusValue(),
+        published_at: toRfc3339(date?.value ?? "") ?? "",
+      };
+      const problems = validateNewsInput(input);
+      showErrors(problems);
+      if (problems.length > 0) return;
+
+      busy = true;
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving...";
+      }
+      try {
+        const saved = postId === null ? await createNewsPost(input) : await updateNewsPost(postId, input);
+        dirty = false;
+        if (postId === null) {
+          location.assign(`/admin/news/${saved.id}?saved=1`);
+          return;
+        }
+        if (formSaved) formSaved.textContent = "Saved.";
+      } catch (err) {
+        if (err instanceof DashboardApiError && err.code === "slug_taken") {
+          showErrors([{ field: "slug", message: "Another post already uses this address. Choose another." }]);
+        } else if (formError) {
+          formError.hidden = false;
+          formError.textContent = `Could not save: ${describe(err)}`;
+        }
+      } finally {
+        busy = false;
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = postId === null ? "Save post" : "Save changes";
+        }
+      }
+    });
+
+    if (new URLSearchParams(location.search).get("saved") === "1" && formSaved) {
+      formSaved.textContent = "Saved.";
+      history.replaceState(null, "", location.pathname);
+    }
+
+    // ---- Delete ----
+    $<HTMLButtonElement>("[data-delete]")?.addEventListener("click", () => {
+      document.dispatchEvent(
+        new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", {
+          detail: { dialogId: "admin-delete-news" },
+        }),
+      );
+    });
+    document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+      const detail = (evt as CustomEvent<{ dialogId: string }>).detail;
+      if (detail.dialogId !== "admin-delete-news" || postId === null || busy) return;
+      busy = true;
+      try {
+        await deleteNewsPost(postId);
+        dirty = false;
+        location.assign("/admin/news?deleted=1");
+      } catch (err) {
+        busy = false;
+        if (formError) {
+          formError.hidden = false;
+          formError.textContent = `Could not delete: ${describe(err)}`;
+        }
+      }
+    });
+  }
+
+  function describe(err: unknown): string {
+    if (err instanceof DashboardApiError) {
+      if (err.status === 401) return "your session ended. Sign in again, then retry.";
+      if (err.status === 403) return "this account cannot manage news.";
+      if (err.code === "too_large") return "the image is over 5 MB.";
+      if (err.code === "unsupported_media_type" || err.code === "type_mismatch")
+        return "the file is not a PNG, JPEG, WebP, or GIF image.";
+      return err.message.replace(/^Could not [^:]+: /, "");
+    }
+    return err instanceof Error ? err.message : "something went wrong.";
+  }
+</script>
+
+<style>
+  .editor {
+    display: grid;
+    gap: var(--space-6);
+    align-items: start;
+  }
+  @media (min-width: 1080px) {
+    .editor {
+      grid-template-columns: minmax(0, 1fr) 20rem;
+    }
+    .editor__side {
+      position: sticky;
+      top: calc(var(--header-height) + var(--space-4));
+    }
+  }
+  .editor__main,
+  .editor__side {
+    display: grid;
+    gap: var(--space-5);
+    min-inline-size: 0;
+  }
+  .editor__main {
+    padding: var(--space-6);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+  }
+  .panel {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+  }
+  .panel__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+
+  .field {
+    display: grid;
+    gap: var(--space-1);
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .field__label {
+    padding: 0;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .field__hint {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .field__hint code {
+    font-size: 0.95em;
+  }
+  .field__error {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    color: var(--admin-error-text);
+  }
+
+  .control {
+    inline-size: 100%;
+    min-block-size: 2.5rem;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--admin-control-border);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+  }
+  .control:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+  }
+  .control[aria-invalid="true"] {
+    border-color: var(--admin-error);
+  }
+  textarea.control {
+    resize: vertical;
+    line-height: var(--lh-normal);
+  }
+  .control--title {
+    min-block-size: 3rem;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+  }
+  .control--body {
+    min-block-size: 24rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    tab-size: 2;
+  }
+
+  .date {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .date .control {
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .date__now {
+    flex: none;
+  }
+
+  .slug {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--admin-control-border);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+    overflow: hidden;
+  }
+  .slug:focus-within {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+  }
+  .slug__prefix {
+    display: flex;
+    align-items: center;
+    padding-inline: var(--space-3);
+    font-size: var(--fs-sm);
+    color: var(--admin-text-3);
+    white-space: nowrap;
+  }
+  .slug__input {
+    border: 0;
+    border-radius: 0;
+    border-inline-start: 1px solid var(--color-border);
+    font-family: var(--font-mono);
+  }
+  .slug__input:focus-visible {
+    outline: none;
+  }
+
+  .body__bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .body__tabs {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: var(--radius-pill);
+    background: var(--admin-surface-3);
+  }
+  .body__tab {
+    min-block-size: 30px;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    cursor: pointer;
+  }
+  .body__tab[aria-selected="true"] {
+    background: var(--color-fg);
+    color: var(--color-bg);
+  }
+  .body__tab:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .body__add {
+    margin-inline-start: auto;
+  }
+  .body__write {
+    position: relative;
+  }
+  .body__drop {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    border: 2px dashed var(--color-link);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--admin-surface) 86%, transparent);
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+    pointer-events: none;
+  }
+  .body__drop[hidden] {
+    display: none;
+  }
+  .body__preview {
+    min-block-size: 24rem;
+    padding: var(--space-6);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+  }
+  .upload-status {
+    margin: 0;
+    min-block-size: 1.2em;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+
+  /* The preview mirrors the article body (news/[slug].astro .post__body).
+     Duplicated per the scoped-style convention (AGENTS.md); keep in sync. */
+  .preview {
+    max-inline-size: 42rem;
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+  }
+  .preview :global(> * + *) {
+    margin-block-start: var(--space-5);
+  }
+  .preview :global(p) {
+    margin-block-end: 0;
+  }
+  .preview :global(h2),
+  .preview :global(h3),
+  .preview :global(h4) {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+    letter-spacing: -0.015em;
+    margin-block: var(--space-10) 0;
+  }
+  .preview :global(h2) {
+    font-size: var(--fs-2xl);
+  }
+  .preview :global(h3) {
+    font-size: var(--fs-xl);
+  }
+  .preview :global(a) {
+    color: var(--color-link);
+    text-underline-offset: 3px;
+  }
+  .preview :global(ul),
+  .preview :global(ol) {
+    padding-inline-start: var(--space-6);
+  }
+  .preview :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    padding: 0.1em 0.35em;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-subtle);
+  }
+  .preview :global(pre) {
+    overflow-x: auto;
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    font-size: var(--fs-sm);
+  }
+  .preview :global(figure) {
+    margin-block: var(--space-8);
+    margin-inline: 0;
+  }
+  .preview :global(figure img) {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .preview :global(figcaption) {
+    margin-block-start: var(--space-3);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .preview :global(.preview__empty) {
+    color: var(--admin-text-3);
+  }
+
+  .choice {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-pill);
+    background: var(--admin-surface-3);
+  }
+  .choice__option {
+    position: relative;
+    display: grid;
+  }
+  .choice__option input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    margin: 0;
+    cursor: pointer;
+  }
+  .choice__option span {
+    display: grid;
+    place-items: center;
+    min-block-size: 32px;
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .choice__option input:checked + span {
+    background: var(--color-fg);
+    color: var(--color-bg);
+  }
+  .choice__option input:focus-visible + span {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  .banner {
+    position: relative;
+    display: grid;
+    overflow: hidden;
+    border: 1px dashed var(--admin-control-border);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+  }
+  .banner[data-dragging="true"] {
+    border-color: var(--color-link);
+    background: color-mix(in srgb, var(--color-link) 8%, var(--admin-surface));
+  }
+  .banner[data-has-banner="true"] {
+    border-style: solid;
+  }
+  .banner__img {
+    display: block;
+    inline-size: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    object-position: 50% 0;
+  }
+  .banner__img[hidden] {
+    display: none;
+  }
+  .banner__pick {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-5) var(--space-4);
+    border: 0;
+    background: transparent;
+    color: var(--color-fg);
+    font: inherit;
+    text-align: center;
+    cursor: pointer;
+  }
+  .banner[data-has-banner="true"] .banner__pick {
+    padding-block: var(--space-2);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .banner[data-has-banner="true"] .banner__pick-hint {
+    display: none;
+  }
+  .banner__pick-main {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--color-link);
+  }
+  .banner__pick-hint {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .banner__pick:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: -2px;
+  }
+  .banner__remove {
+    justify-self: start;
+  }
+
+  .actions {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .form-error {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    background: var(--admin-surface);
+    font-size: var(--fs-sm);
+  }
+  .form-saved {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--admin-ok-text);
+  }
+  .form-saved:empty {
+    display: none;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .btn svg {
+    inline-size: 16px;
+    block-size: 16px;
+  }
+  .btn:hover {
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
+  }
+  .btn[disabled] {
+    opacity: 0.55;
+    cursor: progress;
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .btn--primary {
+    min-block-size: 40px;
+    background: var(--color-link);
+    border-color: var(--color-link);
+    color: var(--color-bg);
+  }
+  .btn--primary:hover {
+    background: var(--color-link-hover);
+    border-color: var(--color-link-hover);
+  }
+  .btn--quiet {
+    background: transparent;
+  }
+  .btn--danger {
+    color: var(--admin-error-text);
+    border-color: color-mix(in srgb, var(--admin-error) 45%, transparent);
+    background: transparent;
+  }
+  .btn--danger:hover {
+    background: var(--admin-error-soft);
+    border-color: var(--admin-error-text);
+  }
+
+  @media (max-width: 640px) {
+    .editor__main,
+    .panel {
+      padding: var(--space-4);
+    }
+    .slug__prefix {
+      display: none;
+    }
+  }
+</style>

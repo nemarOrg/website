@@ -373,3 +373,29 @@ The dataset a page announces reaches the widget either way: the page records it 
 
 - The release review of nemarOrg/website PR #359.
 - `src/lib/osa-widget.test.ts`, "is deferred, not async": removing `defer`, or writing `async` in its place, fails it.
+
+## Update 2026-09-29: staging follows OSA's `develop`, production stays pinned
+
+`test.nemar.org` was pinned to OSA's last release (`v0.8.15`) while its backend, `develop-widget.osc.earth`, runs OSA's `develop`.
+The two halves of one page came from different versions: the version the widget reported was the backend's, and the widget itself was the release's, so anything OSA changed in the widget after the release (a redesigned Settings panel, streamed replies, tool-activity labels) never showed on staging, and a tester could not tell which half they were looking at.
+While OSA is not yet stable, a pin costs more than it buys on staging.
+
+Staging (`deploy-test.yml`, mirrored in `wrangler.test.toml`) now sets `PUBLIC_OSA_WIDGET_SRC` to `https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@develop/frontend/osa-chat-widget.js` and no integrity hash.
+`src/lib/osa-widget.ts` accepts a src that follows `develop` or `main` (`OSA_WIDGET_MOVING_REFS`) and then requires integrity to be absent: no fixed hash matches a file that changes, so a hash beside a moving ref would make the browser block the widget at OSA's next change, and that is refused as a misconfiguration rather than shipped.
+A commit-pinned src is validated exactly as before, integrity required.
+The tag emits `integrity` and `crossorigin` only when there is a hash; the widget reads its own `src` to find its runtime bundle, which then follows the same ref.
+
+Production is not changed: `wrangler.toml` still pins `db53bcc` with its hash.
+`main` is accepted as a moving ref so that production can follow OSA's stable releases without another change to the validation, when that is wanted.
+
+### Consequences (update, moving ref)
+
+- jsDelivr caches a branch ref for up to about 12 hours, so staging can lag a `develop` merge by that long.
+  `https://purge.jsdelivr.net/gh/OpenScience-Collective/osa@develop/frontend/osa-chat-widget.js` (and the runtime bundle beside it) purges it.
+- Staging gives up Subresource Integrity: a compromise of the OSA repository or jsDelivr's copy reaches `test.nemar.org` unchecked.
+  The CSP still limits the script's origin to jsDelivr, and staging carries no production credentials.
+- The change is one build variable to undo: pinning again is a commit SHA and its hash in `deploy-test.yml`.
+
+### Receipts (update, moving ref)
+
+- `src/lib/osa-widget.test.ts`, "a src that follows a moving ref": accepted without integrity, refused with one, and refused for any other ref; a pinned src still needs its hash.

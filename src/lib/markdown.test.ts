@@ -116,3 +116,132 @@ describe("stripStandaloneImages", () => {
     expect(stripStandaloneImages(md)).toBe(md);
   });
 });
+
+describe("renderMarkdown news options", () => {
+  const HASH = "b".repeat(64);
+  const SRC = `/news/media/${HASH}.png`;
+  const allowNewsMedia = (src: string) => src.startsWith("/news/media/");
+
+  it("drops standalone images when the caller has not opted in", () => {
+    expect(renderMarkdown(`Before\n\n![Viewer](${SRC})\n\nAfter`)).toBe(
+      "<p>Before</p>\n<p>After</p>",
+    );
+  });
+
+  it("renders an allowed image line as a lazy-loaded figure", () => {
+    expect(renderMarkdown(`![The viewer](${SRC})`, { allowImage: allowNewsMedia })).toBe(
+      `<figure><img src="${SRC}" alt="The viewer" loading="lazy" decoding="async" /></figure>`,
+    );
+  });
+
+  it("turns a quoted title into an escaped caption with inline formatting", () => {
+    const html = renderMarkdown(`![Alt](${SRC} "The **new** viewer <b>")`, {
+      allowImage: allowNewsMedia,
+    });
+    expect(html).toContain("<figcaption>The <strong>new</strong> viewer &lt;b&gt;</figcaption>");
+  });
+
+  it("escapes alt text", () => {
+    const html = renderMarkdown(`![a "quoted" <alt>](${SRC})`, { allowImage: allowNewsMedia });
+    expect(html).toContain('alt="a &quot;quoted&quot; &lt;alt&gt;"');
+  });
+
+  it("drops an image whose source the caller rejects", () => {
+    expect(
+      renderMarkdown("![x](https://evil.example/x.png)\n\ntext", { allowImage: allowNewsMedia }),
+    ).toBe("<p>text</p>");
+  });
+
+  it("ends an open paragraph before a figure", () => {
+    expect(renderMarkdown(`One line\n![Alt](${SRC})\nNext`, { allowImage: allowNewsMedia })).toBe(
+      `<p>One line</p>\n<figure><img src="${SRC}" alt="Alt" loading="lazy" decoding="async" /></figure>\n<p>Next</p>`,
+    );
+  });
+
+  it("still drops link-wrapped badges", () => {
+    expect(
+      renderMarkdown(`[![DOI](${SRC})](https://doi.org/x)\n\ntext`, { allowImage: allowNewsMedia }),
+    ).toBe("<p>text</p>");
+  });
+
+  it("leaves image syntax inside a code fence alone", () => {
+    expect(renderMarkdown(`\`\`\`\n![Alt](${SRC})\n\`\`\``, { allowImage: allowNewsMedia })).toBe(
+      `<pre><code>![Alt](${SRC})</code></pre>`,
+    );
+  });
+
+  it("offsets heading levels, capped at h6", () => {
+    expect(renderMarkdown("# One\n\n###### Six", { headingOffset: 1 })).toBe(
+      "<h2>One</h2>\n<h6>Six</h6>",
+    );
+  });
+});
+
+describe("renderMarkdown link safety and shapes", () => {
+  it("refuses script schemes hidden behind control characters or whitespace", () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "\u0001javascript:alert(1)",
+      "java\tscript:alert(1)",
+      "vbscript:msgbox(1)",
+      "data:text/html,<script>alert(1)</script>",
+    ]) {
+      // Either no link at all (whitespace ends a URL) or a neutered one.
+      const html = renderMarkdown(`[click](${url})`);
+      expect(html, JSON.stringify(url)).not.toMatch(/href="(?!#")/);
+    }
+  });
+
+  it("keeps http, https, mailto, and relative links", () => {
+    expect(renderMarkdown("[a](https://nemar.org/x)")).toContain('href="https://nemar.org/x"');
+    expect(renderMarkdown("[a](mailto:help@nemar.org)")).toContain('href="mailto:help@nemar.org"');
+    expect(renderMarkdown("[a](/discover)")).toContain('href="/discover"');
+    expect(renderMarkdown("[a](participants.tsv)")).toContain('href="participants.tsv"');
+  });
+
+  it("escapes a query string once", () => {
+    expect(renderMarkdown("[q](https://a.org/?a=1&b=2)")).toContain(
+      'href="https://a.org/?a=1&amp;b=2"',
+    );
+  });
+
+  it("does not read underscores or asterisks inside a URL as emphasis", () => {
+    const html = renderMarkdown("[d](https://a.org/some_file_name.tsv) and https://a.org/x_y_z");
+    expect(html).toContain('href="https://a.org/some_file_name.tsv"');
+    expect(html).toContain('href="https://a.org/x_y_z"');
+    expect(html).not.toContain("<em>");
+  });
+
+  it("does not nest a link inside a link whose text is a URL", () => {
+    const html = renderMarkdown("[https://nemar.org](https://nemar.org)");
+    expect(html.match(/<a /g)).toHaveLength(1);
+  });
+
+  it("still renders emphasis in link text and around links", () => {
+    expect(renderMarkdown("**see** [the *docs*](https://docs.nemar.org)")).toBe(
+      '<p><strong>see</strong> <a href="https://docs.nemar.org" rel="external">the <em>docs</em></a></p>',
+    );
+  });
+
+  it("autolinks a URL in parentheses without the closing parenthesis", () => {
+    expect(renderMarkdown("(see https://nemar.org)")).toBe(
+      '<p>(see <a href="https://nemar.org" rel="external">https://nemar.org</a>)</p>',
+    );
+  });
+
+  it("drops the placeholder marker rather than reading it from the source", () => {
+    expect(renderMarkdown("a\uE0000\uE000b [x](https://a.org)")).toBe(
+      '<p>a0b <a href="https://a.org" rel="external">x</a></p>',
+    );
+  });
+
+  it("keeps a figure whose caption contains parentheses", () => {
+    const src = `/news/media/${"e".repeat(64)}.png`;
+    expect(
+      renderMarkdown(`![Raw](${src} "Left (raw) and right (filtered)")`, {
+        allowImage: (u) => u.startsWith("/news/media/"),
+      }),
+    ).toContain("<figcaption>Left (raw) and right (filtered)</figcaption>");
+  });
+});

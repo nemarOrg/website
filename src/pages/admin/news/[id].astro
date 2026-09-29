@@ -1,0 +1,51 @@
+---
+import NewsEditor from "../../../components/admin/NewsEditor.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import type { NewsPost } from "../../../lib/news";
+import { getAdminNewsPost } from "../../../lib/news-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) return Astro.redirect(redirectTo);
+if (!session) return Astro.redirect("/login");
+
+const id = Number.parseInt(Astro.params.id ?? "", 10);
+if (!Number.isInteger(id) || id <= 0) {
+  return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+}
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let post: NewsPost | null = null;
+let loadError: string | null = null;
+try {
+  post = await getAdminNewsPost(id, { cookieHeader });
+} catch (err) {
+  loadError = err instanceof Error ? err.message : "Could not load the post.";
+  console.warn(`[admin/news/${id}] load failed:`, loadError);
+}
+if (!post && !loadError) {
+  return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+}
+---
+
+<AdminLayout title={post ? `Edit: ${post.title}` : "Edit post"} active="news" session={session}>
+  <Fragment slot="lede">
+    <a href="/admin/news">All posts</a>. Changes go live when you save; a published post updates
+    everywhere it appears.
+  </Fragment>
+  {loadError ? <p class="load-error" role="alert">{loadError}</p> : post && <NewsEditor post={post} />}
+</AdminLayout>
+
+<style>
+  .load-error {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    background: var(--admin-surface);
+    font-size: var(--fs-sm);
+  }
+</style>

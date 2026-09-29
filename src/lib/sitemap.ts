@@ -1,5 +1,6 @@
 import { isManagedDatasetId } from "./api";
 import { MARKETING_BASE_URL } from "./host";
+import { type NewsPostSummary, newsPath } from "./news";
 import type { Dataset } from "./types";
 import { escapeXml } from "./xml";
 
@@ -25,6 +26,7 @@ export interface SitemapEntry {
 const STATIC_MARKETING_ROUTES: readonly string[] = [
   "/",
   "/discover",
+  "/news",
   "/about",
   "/support",
   "/privacy",
@@ -112,6 +114,23 @@ export function datasetSitemapEntries(rows: readonly Dataset[]): SitemapEntry[] 
     });
   }
   return entries;
+}
+
+/**
+ * One entry per public news post (website#371), dated by its last edit.
+ * The list endpoint only returns public posts, so there is nothing to
+ * filter; a post without a readable `updated_at` is listed with no lastmod.
+ */
+export function newsSitemapEntries(
+  posts: readonly Pick<NewsPostSummary, "slug" | "updated_at">[],
+): SitemapEntry[] {
+  return posts.map((post) => {
+    const at = new Date(post.updated_at);
+    return {
+      loc: `${MARKETING_BASE_URL}${newsPath(post.slug)}`,
+      lastmod: Number.isNaN(at.getTime()) ? null : at.toISOString(),
+    };
+  });
 }
 
 /**

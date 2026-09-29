@@ -114,6 +114,22 @@ describe("getCrossHostRedirect", () => {
     expect(getCrossHostRedirect(url(APP_HOST, "/api/notices?x=1"))).toBeNull();
   });
 
+  // website#371. The admin editor on the app host renders post images from
+  // the same site-relative URLs readers get; a redirect to the marketing host
+  // would be refused by `img-src 'self'`.
+  it("never redirects news images off either host", () => {
+    const file = `/news/media/${"c".repeat(64)}.png`;
+    expect(getCrossHostRedirect(url(APP_HOST, file))).toBeNull();
+    expect(getCrossHostRedirect(url(BETA_HOST, file))).toBeNull();
+  });
+
+  it("keeps the news pages themselves on the marketing host", () => {
+    expect(isHostNeutralRoute("/news")).toBe(false);
+    expect(isHostNeutralRoute("/news/media-kit")).toBe(false);
+    expect(isAppRoute("/news")).toBe(false);
+    expect(isAppRoute("/admin/news")).toBe(true);
+  });
+
   // The neutral list is prefix-matched like the others, but must not swallow
   // a sibling path that merely starts with the same characters.
   it("does not treat a lookalike sibling path as host-neutral", () => {
