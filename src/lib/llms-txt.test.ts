@@ -46,6 +46,7 @@ describe("llmsTxtBody shape", () => {
     expect(headings).toContain("## API");
     expect(headings).toContain("## Docs");
     expect(headings).toContain("## Datasets");
+    expect(headings).toContain("## News");
   });
 });
 

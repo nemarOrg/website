@@ -1,0 +1,19 @@
+---
+import NewsEditor from "../../../components/admin/NewsEditor.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) return Astro.redirect(redirectTo);
+if (!session) return Astro.redirect("/login");
+---
+
+<AdminLayout title="New post" active="news" session={session}>
+  <Fragment slot="lede">
+    Posts start as drafts that only admins can see. Publish when it is ready; the newest three
+    appear on the home page.
+  </Fragment>
+  <NewsEditor />
+</AdminLayout>

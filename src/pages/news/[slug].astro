@@ -1,0 +1,571 @@
+---
+/**
+ * `/news/<slug>`: one post (website#371).
+ *
+ * The body is admin-authored Markdown, rendered by the site's own
+ * zero-dependency renderer with two news-only options: standalone images
+ * become figures, but only from this site's `/news/media/` (which is also
+ * all the Content-Security-Policy would load), and the body's top heading
+ * level renders as `h2` because the title is the page's `h1`
+ * (`newsHeadingOffset`). Everything else is escaped.
+ */
+import Base from "../../layouts/Base.astro";
+import { MARKETING_BASE_URL } from "../../lib/host";
+import { escapeJsonLdForScript } from "../../lib/jsonld";
+import { renderMarkdown } from "../../lib/markdown";
+import {
+  type NewsPost,
+  type NewsPostSummary,
+  buildNewsArticleJsonLd,
+  categoryLabel,
+  formatNewsDate,
+  isNewsMediaUrl,
+  newsHeadingOffset,
+  newsPath,
+  readingMinutes,
+} from "../../lib/news";
+import { getNewsPost, listNews } from "../../lib/news-api";
+import { DECORATIVE_TIMEOUT_MS } from "../../lib/request-deadline";
+
+const slug = Astro.params.slug ?? "";
+
+let post: NewsPost | null = null;
+let loadError = false;
+try {
+  post = await getNewsPost(slug);
+} catch (err) {
+  // "Could not ask" is not "no such post": answer 503 with the page chrome
+  // and a retry, never the 404 page, and never cache it.
+  loadError = true;
+  console.error(`[news/${slug}] load failed: ${err instanceof Error ? err.message : String(err)}`);
+}
+if (!post && !loadError) {
+  return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
+}
+if (loadError || !post) {
+  Astro.response.status = 503;
+  Astro.response.headers.set("Cache-Control", "no-store");
+}
+
+// The three most recent other posts, for the footer. Decorative: a failure
+// costs the footer, not the article.
+let more: NewsPostSummary[] = [];
+if (post) {
+  try {
+    const page = await listNews({ limit: 4 }, { timeoutMs: DECORATIVE_TIMEOUT_MS });
+    more = page.posts.filter((p) => p.slug !== slug).slice(0, 3);
+  } catch (err) {
+    console.warn(
+      `[news/${slug}] more-news list failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+const bodyHtml = post
+  ? renderMarkdown(post.body, {
+      allowImage: isNewsMediaUrl,
+      headingOffset: newsHeadingOffset(post.body),
+    })
+  : "";
+const minutes = post ? readingMinutes(post.body) : 0;
+const published = post ? formatNewsDate(post.published_at) : "";
+// "Updated" only for an edit made a day or more after the post was both
+// written and dated. Against published_at alone, every backdated post (the
+// seed posts are dated months before they were written) would claim an
+// update on the day it was created.
+const updatedLater = post
+  ? Date.parse(post.updated_at) -
+      Math.max(Date.parse(post.created_at), Date.parse(post.published_at)) >
+    24 * 60 * 60 * 1000
+  : false;
+const jsonLdScript = post
+  ? escapeJsonLdForScript(JSON.stringify(buildNewsArticleJsonLd(post, MARKETING_BASE_URL)))
+  : undefined;
+// The social card: a branded PNG rendered at build time, redirected to the
+// banner until the next build renders it (see /og/news/[slug].png.ts).
+// `v` changes whenever the post does, so a crawler's cached copy of an old
+// card is not reused for an edited title.
+const ogImage = post
+  ? `/og/news/${encodeURIComponent(post.slug)}.png?v=${encodeURIComponent(post.updated_at)}`
+  : undefined;
+
+if (post) {
+  Astro.response.headers.set(
+    "Cache-Control",
+    "public, max-age=60, s-maxage=300, stale-while-revalidate=3600",
+  );
+}
+---
+
+<Base
+  title={post?.title ?? "News"}
+  description={post?.summary}
+  image={ogImage}
+  imageAlt={post ? `${post.title}, NEMAR news` : undefined}
+  ogType={post ? "article" : "website"}
+  jsonLdScript={jsonLdScript}
+  headLinks={[{ rel: "alternate", type: "application/rss+xml", href: "/news/feed.xml", title: "NEMAR news" }]}
+>
+  {!post ? (
+    <div class="post">
+      <div class="post__head">
+        <a class="post__back" href="/news">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 18l-6-6 6-6"></path>
+          </svg>
+          All news
+        </a>
+        <h1 class="post__title">This post could not load.</h1>
+        <p class="post__dek">
+          The news service did not answer. <a href={Astro.url.pathname}>Try again</a> in a moment.
+        </p>
+      </div>
+    </div>
+  ) : (
+  <article class="post" data-category={post.category}>
+    <header class="post__head">
+      <a class="post__back" href="/news">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 18l-6-6 6-6"></path>
+        </svg>
+        All news
+      </a>
+      <p class="post__meta">
+        <span class="post__category">{categoryLabel(post.category)}</span>
+        <time datetime={post.published_at}>{published}</time>
+        <span>{minutes} min read</span>
+      </p>
+      <h1 class="post__title">{post.title}</h1>
+      {post.summary && <p class="post__dek">{post.summary}</p>}
+    </header>
+
+    {
+      post.banner_url && (
+        <figure class="post__banner">
+          <img
+            src={post.banner_url}
+            alt={post.banner_alt}
+            width="1600"
+            height="1000"
+            decoding="async"
+            fetchpriority="high"
+          />
+        </figure>
+      )
+    }
+
+    <div class="post__body" set:html={bodyHtml} />
+
+    <footer class="post__foot">
+      {
+        updatedLater && (
+          <p class="post__updated">
+            Updated <time datetime={post.updated_at}>{formatNewsDate(post.updated_at)}</time>
+          </p>
+        )
+      }
+      <div class="post__share">
+        <button type="button" class="post__copy" data-copy-link>
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          <span data-copy-label>Copy link</span>
+        </button>
+        <span class="visually-hidden" role="status" data-copy-status></span>
+      </div>
+    </footer>
+  </article>
+  )}
+
+  {
+    more.length > 0 && (
+      <aside class="more-news" aria-labelledby="more-news-title">
+        <div class="more-news__inner">
+          <h2 class="more-news__title" id="more-news-title">
+            More from NEMAR
+          </h2>
+          <ul class="more-news__list" role="list">
+            {more.map((p) => (
+              <li class="more-news__item" data-category={p.category}>
+                <a href={newsPath(p.slug)}>
+                  <span class="more-news__meta">
+                    {categoryLabel(p.category)}, <time datetime={p.published_at}>{formatNewsDate(p.published_at)}</time>
+                  </span>
+                  <span class="more-news__name">{p.title}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <a class="more-news__all" href="/news">
+            All news
+          </a>
+        </div>
+      </aside>
+    )
+  }
+</Base>
+
+<script>
+  // Copy the canonical URL (always nemar.org, even for a signed-in reader
+  // viewing the post on app.nemar.org), without any query string.
+  const button = document.querySelector<HTMLButtonElement>("[data-copy-link]");
+  const label = document.querySelector<HTMLElement>("[data-copy-label]");
+  const status = document.querySelector<HTMLElement>("[data-copy-status]");
+  let reset: number | undefined;
+  button?.addEventListener("click", async () => {
+    const url =
+      document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href ??
+      `${location.origin}${location.pathname}`;
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(url);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+    const message = copied ? "Link copied" : "Could not copy. Copy the address bar instead.";
+    if (label) label.textContent = copied ? "Link copied" : "Copy link";
+    if (status) status.textContent = message;
+    window.clearTimeout(reset);
+    reset = window.setTimeout(() => {
+      if (label) label.textContent = "Copy link";
+      if (status) status.textContent = "";
+    }, 2500);
+  });
+</script>
+
+<style>
+  .post {
+    /* In rem, not ch: the header and the body set different font sizes, and a
+       ch measure would give them different widths and misalign their edges. */
+    --measure: 42rem;
+    --wide: 64rem;
+    padding: var(--space-10) var(--space-6) var(--space-12);
+  }
+  @media (max-width: 640px) {
+    .post {
+      padding-inline: var(--space-4);
+    }
+  }
+
+  [data-category] {
+    --marker: var(--news-update);
+  }
+  [data-category="feature"] {
+    --marker: var(--news-feature);
+  }
+  [data-category="data"] {
+    --marker: var(--news-data);
+  }
+  [data-category="event"] {
+    --marker: var(--news-event);
+  }
+
+  .post__head,
+  .post__body,
+  .post__foot {
+    max-inline-size: var(--measure);
+    margin-inline: auto;
+  }
+
+  .post__back {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-block-end: var(--space-8);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+    text-decoration: none;
+  }
+  .post__back svg {
+    inline-size: 16px;
+    block-size: 16px;
+  }
+  .post__back:hover {
+    color: var(--color-fg);
+  }
+
+  .post__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-4);
+    margin: 0 0 var(--space-4);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 3px solid var(--marker);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .post__category {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+
+  .post__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(var(--fs-4xl), 5.2vw, var(--fs-6xl));
+    font-weight: var(--fw-bold);
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+    color: var(--color-fg);
+  }
+  .post__dek a {
+    color: var(--color-link);
+  }
+  .post__dek {
+    margin: var(--space-5) 0 0;
+    font-size: var(--fs-xl);
+    line-height: var(--lh-normal);
+    color: var(--color-fg-muted);
+    text-wrap: pretty;
+  }
+
+  .post__banner {
+    max-inline-size: var(--wide);
+    margin: var(--space-10) auto;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    background: var(--color-bg-subtle);
+    box-shadow: var(--shadow-lg);
+  }
+  .post__banner img {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+    max-block-size: 44rem;
+    object-fit: cover;
+    object-position: 50% 0;
+  }
+
+  /* The body arrives via set:html, so its elements carry no scope attribute:
+     every rule below reaches them through :global(). */
+  .post__body {
+    font-size: var(--fs-lg);
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+  }
+  .post__body :global(> * + *) {
+    margin-block-start: var(--space-5);
+  }
+  .post__body :global(p) {
+    margin-block-end: 0;
+  }
+  .post__body :global(h2),
+  .post__body :global(h3),
+  .post__body :global(h4) {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+    letter-spacing: -0.015em;
+    color: var(--color-fg);
+    margin-block: var(--space-10) 0;
+  }
+  .post__body :global(h2) {
+    font-size: var(--fs-2xl);
+  }
+  .post__body :global(h3) {
+    font-size: var(--fs-xl);
+  }
+  .post__body :global(h4) {
+    font-size: var(--fs-lg);
+  }
+  .post__body :global(a) {
+    color: var(--color-link);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--color-link) 40%, transparent);
+    text-underline-offset: 3px;
+  }
+  .post__body :global(a:hover) {
+    color: var(--color-link-hover);
+    text-decoration-color: currentColor;
+  }
+  .post__body :global(ul),
+  .post__body :global(ol) {
+    padding-inline-start: var(--space-6);
+  }
+  .post__body :global(li + li) {
+    margin-block-start: var(--space-2);
+  }
+  .post__body :global(li::marker) {
+    color: var(--color-fg-subtle);
+  }
+  .post__body :global(strong) {
+    font-weight: var(--fw-semibold);
+  }
+  .post__body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    padding: 0.1em 0.35em;
+    border-radius: var(--radius-sm);
+    background: var(--color-bg-subtle);
+  }
+  .post__body :global(pre) {
+    overflow-x: auto;
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-elevated);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .post__body :global(pre code) {
+    padding: 0;
+    background: none;
+  }
+  .post__body :global(hr) {
+    margin-block: var(--space-10);
+    border: 0;
+    border-block-start: 1px solid var(--color-border);
+  }
+  /* Figures break out of the text measure to the banner's width. */
+  .post__body :global(figure) {
+    margin-block: var(--space-10);
+    margin-inline: calc((min(var(--wide), 100vw - 2 * var(--space-6)) - 100%) / -2);
+  }
+  @media (max-width: 640px) {
+    .post__body :global(figure) {
+      margin-inline: 0;
+    }
+  }
+  .post__body :global(figure img) {
+    display: block;
+    inline-size: 100%;
+    block-size: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-subtle);
+  }
+  .post__body :global(figcaption) {
+    max-inline-size: var(--measure);
+    margin: var(--space-3) auto 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+    color: var(--color-fg-subtle);
+  }
+
+  .post__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-block-start: var(--space-12);
+    padding-block-start: var(--space-6);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .post__updated {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .post__share {
+    margin-inline-start: auto;
+  }
+  /* A secondary action: the ghost pill from the design language. */
+  .post__copy {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 36px;
+    padding-inline: var(--space-4);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    cursor: pointer;
+  }
+  .post__copy svg {
+    inline-size: 16px;
+    block-size: 16px;
+  }
+  .post__copy:hover {
+    border-color: var(--color-fg);
+    color: var(--color-fg);
+  }
+
+  .more-news {
+    border-block-start: 1px solid var(--color-border);
+    background: var(--color-bg-elevated);
+  }
+  .more-news__inner {
+    max-inline-size: var(--max-width-page);
+    margin-inline: auto;
+    padding: var(--space-12) var(--space-6) var(--space-16);
+  }
+  .more-news__title {
+    margin: 0 0 var(--space-6);
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .more-news__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-6);
+  }
+  @media (min-width: 760px) {
+    .more-news__list {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  .more-news__item a {
+    display: grid;
+    gap: var(--space-1);
+    padding-inline-start: var(--space-4);
+    border-inline-start: 3px solid var(--marker);
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .more-news__meta {
+    font-size: var(--fs-sm);
+    color: var(--color-fg-subtle);
+  }
+  .more-news__name {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+  }
+  .more-news__item a:hover .more-news__name {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .more-news__all {
+    display: inline-block;
+    margin-block-start: var(--space-8);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    color: var(--color-link);
+    text-underline-offset: 4px;
+  }
+
+  .post__back:focus-visible,
+  .post__copy:focus-visible,
+  .more-news__item a:focus-visible,
+  .more-news__all:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+  }
+  .post__copy:focus-visible {
+    border-radius: var(--radius-pill);
+  }
+
+  @media (forced-colors: active) {
+    .post__meta,
+    .more-news__item a {
+      border-inline-start-color: CanvasText;
+    }
+  }
+</style>

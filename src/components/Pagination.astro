@@ -4,16 +4,18 @@ interface Props {
   pageCount: number;
   /** Existing query string (without page=). */
   baseParams: URLSearchParams;
+  /** The listing's own path, which page 1 links to. Defaults to Discover. */
+  basePath?: string;
 }
 
-const { page, pageCount, baseParams } = Astro.props;
+const { page, pageCount, baseParams, basePath = "/discover" } = Astro.props;
 
 function urlFor(p: number): string {
   const sp = new URLSearchParams(baseParams);
   if (p > 1) sp.set("page", String(p));
   else sp.delete("page");
   const qs = sp.toString();
-  return qs ? `?${qs}` : "/discover";
+  return qs ? `${basePath}?${qs}` : basePath;
 }
 
 // Build a page list with ellipses. Window of ±3 around current so users
@@ -37,7 +39,7 @@ const items = pageList(page, pageCount);
   <nav class="pagination" aria-label="Pagination">
     <a
       class="pagination__nav"
-      href={urlFor(Math.max(1, page - 1))}
+      href={page === 1 ? undefined : urlFor(page - 1)}
       aria-disabled={page === 1}
       rel="prev"
     >
@@ -62,7 +64,7 @@ const items = pageList(page, pageCount);
     </ul>
     <a
       class="pagination__nav"
-      href={urlFor(Math.min(pageCount, page + 1))}
+      href={page === pageCount ? undefined : urlFor(page + 1)}
       aria-disabled={page === pageCount}
       rel="next"
     >

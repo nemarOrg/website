@@ -1,6 +1,34 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-09-07.
+**Last session:** 2026-09-29.
+
+## 2026-09-29 — News section and landing highlights (website#371)
+
+On `feature/issue-371-news` (worktree `website-worktrees/news`), PR #372 into `staging`.
+Backend half: nemar-cli#1553 (issue nemar-cli#1551), into `dev`.
+
+- **Landing:** the two feature cards under the hero became three live columns
+  (`Highlights.astro`): newest news, most cited datasets (to the citation dashboard),
+  latest datasets. Each fails soft to a dropped column.
+- **"Most cited last month" is not built yet**, on purpose (a month, because citations arrive
+  too slowly for a week). Nothing records when a citation was found, and diffs of
+  nemar-citations history are dominated by pipeline re-runs. nemar-citations#247 proposes a
+  `first_seen` signal with a 30-day window; the column shows all-time counts until then.
+- **News:** `/news`, `/news/<slug>`, `/news/feed.xml`, `/news/media/<file>` (same-origin image
+  proxy, host-neutral; ADR 0020), `/og/news/<slug>.png` (build-time card, banner fallback).
+  Admin at `/admin/news` with an editor (Markdown preview, banner and inline image upload by
+  button, drop, or paste; drafts, scheduling, backdating).
+- **Images live in R2**, bucket `NEWS_MEDIA` on the API Worker: `nemar-news-media` (prod) and
+  `nemar-news-media-dev` (dev). Both must exist before the backend deploys, or the deploy fails.
+- **Seed:** `scripts/seed-news.mjs` with an admin API key creates the first five posts,
+  dated by first production release. Idempotent. Needs to run per environment after the
+  backend is there.
+- **Deploy order:** buckets, then nemar-cli, then seed, then this site. Without `/news`, the
+  landing news column is absent but `/news` says the news could not load.
+- **Local E2E:** plain `wrangler dev` of the backend does not start from a fresh local D1
+  (migration 0021, nemar-cli#1324). What worked: a Bun script mounting the backend's route
+  modules on `realD1(freshDb())` from `backend/test/helpers/d1.ts` and Miniflare's R2, with
+  other paths proxied to api.nemar.org, and the site run with `PUBLIC_API_BASE_URL` pointed at it.
 
 ## 2026-09-07 — CLI device-authorize page + Settings keys card (epic #1272 phase 2)
 

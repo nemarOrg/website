@@ -70,6 +70,16 @@
   /* Keyword — free-text taxonomy, deliberately the quietest tag. */
   --keyword: #475569;
 
+  /* News category markers (website#371). Drawn as a short vertical bar
+     beside the category's text label, like an event marker in the signal
+     viewer, never as colored text; so each value only has to clear 3:1
+     non-text contrast on the page ground. Teal is darkened from the brand
+     teal, which is 2.2:1 on white. Dark-lifted below. */
+  --news-feature: #1f8fb3;
+  --news-data: var(--brand-purple);
+  --news-event: var(--brand-gold);
+  --news-update: var(--color-fg-subtle);
+
   /* Typography */
   --font-sans: "Inter", "Open Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: "Rubik", var(--font-sans);
@@ -208,6 +218,8 @@
     --license-noderiv: #fb7185;
     --license-unknown: #94a3b8;
     --keyword: #cbd5e1;
+    --news-feature: var(--brand-teal);
+    --news-data: #a78bfa;
 
     /* Admin portal roles, dark (see :root). */
     --admin-page: #0a1224;
@@ -274,6 +286,8 @@
   --license-noderiv: #fb7185;
   --license-unknown: #94a3b8;
   --keyword: #cbd5e1;
+  --news-feature: var(--brand-teal);
+  --news-data: #a78bfa;
 
   /* Admin portal roles, dark (see :root). */
   --admin-page: #0a1224;
