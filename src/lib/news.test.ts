@@ -20,6 +20,7 @@ import {
   readingMinutes,
   slugify,
   toDatetimeLocalValue,
+  undescribedImages,
   validateNewsInput,
 } from "./news";
 import { toRfc3339 } from "./notices-api";
@@ -376,5 +377,35 @@ describe("newsHeadingOffset", () => {
   it("is zero for a body without headings or one that starts deeper", () => {
     expect(newsHeadingOffset("Just text.")).toBe(0);
     expect(newsHeadingOffset("### Deep")).toBe(0);
+  });
+});
+
+describe("undescribedImages", () => {
+  it("counts images with an empty alt or the editor's placeholder", () => {
+    const body = [
+      `![](${MEDIA})`,
+      `![Describe this image](${MEDIA})`,
+      `![The viewer with 32 channels](${MEDIA})`,
+      "```",
+      `![](${MEDIA})`,
+      "```",
+    ].join("\n");
+    expect(undescribedImages(body)).toBe(2);
+  });
+
+  it("blocks saving until every image is described", () => {
+    const base: NewsInput = {
+      slug: "a-post",
+      title: "A post",
+      summary: "Summary.",
+      body: `Text\n\n![Describe this image](${MEDIA})`,
+      category: "feature",
+      banner_url: null,
+      banner_alt: "",
+      status: "draft",
+      published_at: "2026-09-24T19:00:00Z",
+    };
+    expect(validateNewsInput(base).map((p) => p.field)).toEqual(["body"]);
+    expect(validateNewsInput({ ...base, body: `Text\n\n![A map](${MEDIA})` })).toEqual([]);
   });
 });

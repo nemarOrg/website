@@ -38,6 +38,7 @@ const status = post?.status ?? "draft";
   data-news-editor
   data-post-id={post?.id}
   data-published-iso={publishedIso}
+  data-initial-status={status}
   data-slug-locked={isNew ? undefined : "true"}
   novalidate
 >
@@ -163,8 +164,13 @@ const status = post?.status ?? "draft";
 
       <label class="field">
         <span class="field__label">Date</span>
-        <input class="control" type="datetime-local" name="published_at" aria-describedby="hint-date err-published_at" required />
-        <span class="field__hint" id="hint-date">Readers see this date. A future date schedules the post.</span>
+        <span class="date">
+          <input class="control" type="datetime-local" name="published_at" aria-describedby="hint-date err-published_at" required />
+          <button type="button" class="btn btn--quiet date__now" data-date-now>Now</button>
+        </span>
+        <span class="field__hint" id="hint-date">
+          Readers see this date. A future date schedules the post. <span data-date-zone></span>
+        </span>
         <span class="field__error" id="err-published_at" data-error-for="published_at" hidden></span>
       </label>
 
@@ -185,7 +191,7 @@ const status = post?.status ?? "draft";
       <input type="hidden" name="banner_url" value={post?.banner_url ?? ""} />
       <div class="banner" data-banner data-has-banner={post?.banner_url ? "true" : undefined}>
         <img class="banner__img" data-banner-img src={post?.banner_url ?? undefined} alt="" hidden={!post?.banner_url} />
-        <button type="button" class="banner__pick" data-banner-pick>
+        <button type="button" class="banner__pick" data-banner-pick aria-describedby="err-banner_url">
           <span class="banner__pick-main" data-banner-pick-label>
             {post?.banner_url ? "Replace image" : "Choose an image"}
           </span>
@@ -195,7 +201,7 @@ const status = post?.status ?? "draft";
       <button type="button" class="btn btn--quiet banner__remove" data-banner-remove hidden={!post?.banner_url}>
         Remove banner
       </button>
-      <span class="field__error" data-error-for="banner_url" hidden></span>
+      <span class="field__error" id="err-banner_url" data-error-for="banner_url" hidden></span>
       <label class="field">
         <span class="field__label">Description for screen readers</span>
         <textarea class="control" name="banner_alt" rows="2" maxlength={NEWS_LIMITS.bannerAlt} aria-describedby="err-banner_alt">{post?.banner_alt ?? ""}</textarea>
@@ -247,6 +253,7 @@ const status = post?.status ?? "draft";
     type NewsCategory,
     type NewsInput,
     type NewsStatus,
+    IMAGE_ALT_PLACEHOLDER,
     isNewsMediaUrl,
     newsHeadingOffset,
     slugify,
@@ -261,7 +268,12 @@ const status = post?.status ?? "draft";
 
   function setUp(form: HTMLFormElement): void {
     const $ = <T extends Element>(sel: string) => form.querySelector<T>(sel);
-    const field = <T extends HTMLElement>(name: string) => form.elements.namedItem(name) as T | null;
+    // A single control by name. A radio group comes back as a RadioNodeList,
+    // which is not an element and has no attributes to set, so it is null here.
+    const field = <T extends HTMLElement>(name: string): T | null => {
+      const el = form.elements.namedItem(name);
+      return el instanceof HTMLElement ? (el as T) : null;
+    };
 
     const postId = form.dataset.postId ? Number.parseInt(form.dataset.postId, 10) : null;
     const title = field<HTMLInputElement>("title");
@@ -306,17 +318,39 @@ const status = post?.status ?? "draft";
     const statusHint = $<HTMLElement>("[data-status-hint]");
     const statusValue = (): NewsStatus =>
       (form.querySelector<HTMLInputElement>('input[name="status"]:checked')?.value as NewsStatus) ?? "draft";
+    const DAY_MS = 24 * 60 * 60 * 1000;
     const updateStatusHint = () => {
       if (!statusHint) return;
       const when = date?.value ? new Date(date.value) : null;
       if (statusValue() === "draft") statusHint.textContent = "Only admins can see a draft.";
       else if (when && when.getTime() > Date.now())
         statusHint.textContent = "Scheduled: it goes live at the date below.";
+      else if (form.dataset.initialStatus === "draft" && when && Date.now() - when.getTime() > DAY_MS)
+        // Posts are ordered by this date, so an old draft published as is
+        // lands below newer posts, and possibly off the home page. Only for
+        // a draft being published: a live post dated in the past is usually
+        // backdated on purpose.
+        statusHint.textContent = `Dated ${when.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}, so it lists below newer posts. Choose Now to put it first.`;
       else statusHint.textContent = "Live on the site and the home page.";
     };
     form.addEventListener("change", updateStatusHint);
     date?.addEventListener("input", updateStatusHint);
     updateStatusHint();
+
+    const zone = $<HTMLElement>("[data-date-zone]");
+    if (zone) {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      zone.textContent =
+        tz === "America/Los_Angeles"
+          ? "Times are Pacific, as readers see them."
+          : `You are entering ${tz} time; readers see the date in Pacific time.`;
+    }
+    $<HTMLButtonElement>("[data-date-now]")?.addEventListener("click", () => {
+      if (!date) return;
+      date.value = toDatetimeLocalValue(new Date());
+      date.dispatchEvent(new Event("input", { bubbles: true }));
+      dirty = true;
+    });
 
     // An error names what to fix; once that field is edited, the message is
     // stale and goes, rather than lingering until the next save.
@@ -452,16 +486,23 @@ const status = post?.status ?? "draft";
     // cursor was, on a line of its own, which is what the renderer needs.
     const bodyFile = $<HTMLInputElement>("[data-file-body]");
     const bodyDrop = $<HTMLElement>("[data-body-drop]");
-    const insertAtCursor = (text: string, at: number) => {
+    /**
+     * Inserts `text` on a line of its own at `at`. When `select` names a
+     * stretch of `text`, that stretch is left selected, so typing replaces it.
+     */
+    const insertAtCursor = (text: string, at: number, select?: string) => {
       if (!body) return;
       const before = body.value.slice(0, at);
       const after = body.value.slice(at);
       const lead = before.length === 0 || before.endsWith("\n\n") ? "" : before.endsWith("\n") ? "\n" : "\n\n";
       const trail = after.startsWith("\n\n") ? "" : after.startsWith("\n") ? "\n" : "\n\n";
       body.value = `${before}${lead}${text}${trail}${after}`;
-      const caret = before.length + lead.length + text.length;
-      body.setSelectionRange(caret, caret);
+      const start = before.length + lead.length;
+      const offset = select ? text.indexOf(select) : -1;
+      if (select && offset >= 0) body.setSelectionRange(start + offset, start + offset + select.length);
+      else body.setSelectionRange(start + text.length, start + text.length);
       body.focus();
+      body.dispatchEvent(new Event("input", { bubbles: true }));
       dirty = true;
     };
     const takeBodyImages = async (files: readonly File[], at: number) => {
@@ -469,10 +510,12 @@ const status = post?.status ?? "draft";
       for (const file of files) {
         const url = await upload(file);
         if (!url) continue;
-        const alt = (file.name.replace(/\.[^.]+$/, "") || "Describe this image").replace(/[[\]]/g, "");
-        const line = `![${alt}](${url})`;
-        insertAtCursor(line, cursor);
-        cursor = body?.selectionEnd ?? cursor;
+        // A placeholder, selected, rather than the file name: a name like
+        // "Screenshot 2026-09-24 at 10.03" is not a description, and saving
+        // with the placeholder still there is refused (undescribedImages).
+        const line = `![${IMAGE_ALT_PLACEHOLDER}](${url})`;
+        insertAtCursor(line, cursor, IMAGE_ALT_PLACEHOLDER);
+        cursor = body ? body.value.indexOf(line, cursor) + line.length : cursor;
       }
     };
     $<HTMLButtonElement>("[data-add-image]")?.addEventListener("click", () => {
@@ -722,6 +765,18 @@ const status = post?.status ?? "draft";
     font-size: var(--fs-sm);
     line-height: var(--lh-relaxed);
     tab-size: 2;
+  }
+
+  .date {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .date .control {
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .date__now {
+    flex: none;
   }
 
   .slug {

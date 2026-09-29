@@ -371,6 +371,33 @@ export function parseAdminNewsList(raw: unknown): NewsPost[] {
   return out;
 }
 
+/**
+ * What the editor inserts as an uploaded image's description, selected so
+ * the admin types over it. Saving with it still in place is refused.
+ */
+export const IMAGE_ALT_PLACEHOLDER = "Describe this image";
+
+/**
+ * How many standalone images in a body have no real description: an empty
+ * alt, or the editor's placeholder left in. Code fences are skipped.
+ */
+export function undescribedImages(markdown: string): number {
+  let count = 0;
+  let inFence = false;
+  for (const line of markdown.split("\n")) {
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = /^[ \t]*!\[([^\]]*)\]\(/.exec(line);
+    if (!match) continue;
+    const alt = match[1].trim();
+    if (!alt || alt === IMAGE_ALT_PLACEHOLDER) count += 1;
+  }
+  return count;
+}
+
 /** A problem the editor can name before sending the post. */
 export interface NewsInputProblem {
   readonly field: keyof NewsInput;
@@ -406,11 +433,20 @@ export function validateNewsInput(input: NewsInput): NewsInputProblem[] {
       field: "summary",
       message: `Keep the summary under ${NEWS_LIMITS.summary} characters.`,
     });
+  const undescribed = undescribedImages(input.body);
   if (!input.body.trim()) problems.push({ field: "body", message: "Write the post." });
   else if (input.body.length > NEWS_LIMITS.body)
     problems.push({
       field: "body",
       message: `Keep the post under ${NEWS_LIMITS.body} characters.`,
+    });
+  else if (undescribed > 0)
+    problems.push({
+      field: "body",
+      message:
+        undescribed === 1
+          ? `Describe the image in the post: replace "${IMAGE_ALT_PLACEHOLDER}" between the square brackets.`
+          : `Describe the ${undescribed} images in the post: replace "${IMAGE_ALT_PLACEHOLDER}" between each pair of square brackets.`,
     });
   if (input.banner_url !== null && !isNewsMediaUrl(input.banner_url))
     problems.push({ field: "banner_url", message: "Upload the banner again." });
