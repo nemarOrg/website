@@ -123,36 +123,38 @@ if (post) {
     </div>
   ) : (
   <article class="post" data-category={post.category}>
-    <header class="post__head">
+    <div class:list={["post__hero", { "post__hero--banner": post.banner_url }]}>
       <a class="post__back" href="/news">
         <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M15 18l-6-6 6-6"></path>
         </svg>
         All news
       </a>
-      <p class="post__meta">
-        <span class="post__category">{categoryLabel(post.category)}</span>
-        <time datetime={post.published_at}>{published}</time>
-        <span>{minutes} min read</span>
-      </p>
-      <h1 class="post__title">{post.title}</h1>
-      {post.summary && <p class="post__dek">{post.summary}</p>}
-    </header>
+      <header class="post__head">
+        <p class="post__meta">
+          <span class="post__category">{categoryLabel(post.category)}</span>
+          <time datetime={post.published_at}>{published}</time>
+          <span>{minutes} min read</span>
+        </p>
+        <h1 class="post__title">{post.title}</h1>
+        {post.summary && <p class="post__dek">{post.summary}</p>}
+      </header>
 
-    {
-      post.banner_url && (
-        <figure class="post__banner">
-          <img
-            src={post.banner_url}
-            alt={post.banner_alt}
-            width="1600"
-            height="1000"
-            decoding="async"
-            fetchpriority="high"
-          />
-        </figure>
-      )
-    }
+      {
+        post.banner_url && (
+          <figure class="post__banner">
+            <img
+              src={post.banner_url}
+              alt={post.banner_alt}
+              width="1600"
+              height="1000"
+              decoding="async"
+              fetchpriority="high"
+            />
+          </figure>
+        )
+      }
+    </div>
 
     <div class="post__body" set:html={bodyHtml} />
 
@@ -262,11 +264,55 @@ if (post) {
     --marker: var(--news-event);
   }
 
-  .post__head,
+  .post__hero,
   .post__body,
   .post__foot {
     max-inline-size: var(--measure);
     margin-inline: auto;
+  }
+
+  /* With a banner, the header and the banner share one wide band, the text on
+     one side and the picture on the other, instead of a full-width picture
+     under the header. Stacked (header, then banner) below 900px. */
+  .post__hero--banner {
+    max-inline-size: var(--wide);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-8);
+    margin-block-end: var(--space-12);
+  }
+  .post__hero--banner .post__back {
+    margin-block-end: 0;
+    justify-self: start;
+  }
+  @media (min-width: 900px) {
+    .post__hero--banner {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      grid-template-areas:
+        "back back"
+        "head banner";
+      column-gap: var(--space-12);
+      row-gap: var(--space-6);
+      align-items: center;
+    }
+    .post__hero--banner .post__back {
+      grid-area: back;
+    }
+    .post__hero--banner .post__head {
+      grid-area: head;
+    }
+    /* To the outer edge: a narrow portrait banner then anchors the right side
+       as the text anchors the left, rather than floating mid-column. */
+    .post__hero--banner .post__banner {
+      grid-area: banner;
+      justify-content: flex-end;
+    }
+    .post__hero--banner .post__title {
+      font-size: clamp(var(--fs-3xl), 3.4vw, var(--fs-5xl));
+    }
+    .post__hero--banner .post__dek {
+      font-size: var(--fs-lg);
+    }
   }
 
   .post__back {
@@ -324,22 +370,24 @@ if (post) {
     text-wrap: pretty;
   }
 
+  /* Each banner keeps its own shape inside a bounded box, so a portrait
+     screenshot shows whole at a sensible height and a landscape one fills the
+     column's width; the frame is on the image, so it hugs whichever it is. */
   .post__banner {
-    max-inline-size: var(--wide);
-    margin: var(--space-10) auto;
-    overflow: hidden;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-xl);
-    background: var(--color-bg-subtle);
-    box-shadow: var(--shadow-lg);
+    margin: 0;
+    display: flex;
+    justify-content: center;
   }
   .post__banner img {
     display: block;
-    inline-size: 100%;
+    inline-size: auto;
+    max-inline-size: 100%;
     block-size: auto;
-    max-block-size: 44rem;
-    object-fit: cover;
-    object-position: 50% 0;
+    max-block-size: 30rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-subtle);
+    box-shadow: var(--shadow-lg);
   }
 
   /* The body arrives via set:html, so its elements carry no scope attribute:

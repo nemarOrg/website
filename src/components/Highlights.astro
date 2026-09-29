@@ -180,16 +180,16 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
 
   .highlights__grid {
     display: grid;
-    gap: var(--space-12) var(--space-10);
+    gap: var(--space-12) var(--space-16);
     grid-template-columns: minmax(0, 1fr);
   }
   /* News leads: wider than the two lists beside it. */
   @media (min-width: 1024px) {
     .highlights--3 .highlights__grid {
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr);
     }
     .highlights--2 .highlights__grid {
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
     }
     .highlights--2.highlights--no-news .highlights__grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -217,7 +217,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .col__title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--fs-xl);
+    font-size: var(--fs-lg);
     font-weight: var(--fw-semibold);
     line-height: var(--lh-snug);
     letter-spacing: -0.01em;
@@ -233,7 +233,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
      news column runs taller than the lists, and a pinned link left a gap. */
   .col__more {
     align-self: flex-start;
-    padding-block-start: var(--space-5);
+    padding-block-start: var(--space-4);
     font-size: var(--fs-sm);
     font-weight: var(--fw-medium);
     color: var(--color-link);
@@ -263,7 +263,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   /* ---- News ---- */
   .lead {
     display: grid;
-    gap: var(--space-5);
+    gap: var(--space-4);
     margin-block-start: var(--space-4);
   }
   .lead__media {
@@ -272,7 +272,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     border-radius: var(--radius-lg);
     border: 1px solid var(--color-border);
     background: var(--color-bg-subtle);
-    aspect-ratio: 16 / 10;
+    aspect-ratio: 2 / 1;
   }
   .lead__media img {
     display: block;
@@ -316,7 +316,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .lead__title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--fs-2xl);
+    font-size: var(--fs-xl);
     font-weight: var(--fw-semibold);
     line-height: var(--lh-snug);
     letter-spacing: -0.015em;
@@ -334,6 +334,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .lead__summary {
     margin: 0;
     max-inline-size: 60ch;
+    font-size: var(--fs-sm);
     color: var(--color-fg-muted);
     line-height: var(--lh-normal);
     display: -webkit-box;
@@ -358,10 +359,10 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
 
   .briefs {
     list-style: none;
-    margin: var(--space-6) 0 0;
+    margin: var(--space-5) 0 0;
     padding: 0;
     display: grid;
-    gap: var(--space-3);
+    gap: var(--space-2);
   }
   .brief__link {
     display: grid;
@@ -372,6 +373,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     text-decoration: none;
   }
   .brief__title {
+    font-size: var(--fs-sm);
     font-weight: var(--fw-medium);
     line-height: var(--lh-snug);
   }
@@ -380,7 +382,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     text-underline-offset: 3px;
   }
   .brief__meta {
-    font-size: var(--fs-sm);
+    font-size: var(--fs-xs);
     color: var(--color-fg-subtle);
   }
 
@@ -404,7 +406,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     align-items: baseline;
     column-gap: var(--space-2);
     row-gap: var(--space-2);
-    padding-block: var(--space-3);
+    padding-block: var(--space-2);
     color: var(--color-fg);
     text-decoration: none;
   }
@@ -433,7 +435,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .rank__count {
     grid-area: count;
     font-family: var(--font-display);
-    font-size: var(--fs-lg);
+    font-size: var(--fs-base);
     font-weight: var(--fw-semibold);
     font-variant-numeric: tabular-nums;
     color: var(--color-fg);
@@ -461,8 +463,8 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
       "meta meta";
     align-items: baseline;
     column-gap: var(--space-3);
-    row-gap: var(--space-2);
-    padding-block: var(--space-3);
+    row-gap: var(--space-1);
+    padding-block: var(--space-2);
     color: var(--color-fg);
     text-decoration: none;
   }
