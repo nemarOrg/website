@@ -10,9 +10,10 @@ Backend half: nemar-cli#1553 (issue nemar-cli#1551), into `dev`.
 - **Landing:** the two feature cards under the hero became three live columns
   (`Highlights.astro`): newest news, most cited datasets (to the citation dashboard),
   latest datasets. Each fails soft to a dropped column.
-- **"Most cited last week" is not built**, on purpose. Nothing records when a citation was
-  found, and week-over-week diffs of nemar-citations are dominated by pipeline re-runs.
-  nemar-citations#247 proposes a `first_seen` signal; the column shows all-time counts until then.
+- **"Most cited last month" is not built yet**, on purpose (a month, because citations arrive
+  too slowly for a week). Nothing records when a citation was found, and diffs of
+  nemar-citations history are dominated by pipeline re-runs. nemar-citations#247 proposes a
+  `first_seen` signal with a 30-day window; the column shows all-time counts until then.
 - **News:** `/news`, `/news/<slug>`, `/news/feed.xml`, `/news/media/<file>` (same-origin image
   proxy, host-neutral; ADR 0020), `/og/news/<slug>.png` (build-time card, banner fallback).
   Admin at `/admin/news` with an editor (Markdown preview, banner and inline image upload by
