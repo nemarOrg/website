@@ -51,6 +51,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
             <h2 class="col__title" id="hl-news">
               What's new on NEMAR
             </h2>
+            <p class="col__note">New features, data, and events.</p>
 
             <article class="lead">
               {lead.banner_url && (
@@ -107,7 +108,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
             <h2 class="col__title" id="hl-cited">
               Most cited datasets
             </h2>
-            <p class="col__note">Papers citing each dataset or its data paper, all time.</p>
+            <p class="col__note">Citations to each dataset or its paper, all time.</p>
             <ol class="ranks">
               {cited.map((d, i) => (
                 <li class="rank">
@@ -228,11 +229,10 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     color: var(--color-fg-subtle);
   }
 
-  /* Bottom-aligned across the row: the grid stretches every column to the
-     tallest, and the link takes the leftover space above it. */
+  /* Right under its own list rather than bottom-aligned across the row: the
+     news column runs taller than the lists, and a pinned link left a gap. */
   .col__more {
     align-self: flex-start;
-    margin-block-start: auto;
     padding-block-start: var(--space-5);
     font-size: var(--fs-sm);
     font-weight: var(--fw-medium);
@@ -264,7 +264,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .lead {
     display: grid;
     gap: var(--space-5);
-    margin-block-start: var(--space-5);
+    margin-block-start: var(--space-4);
   }
   .lead__media {
     display: block;
@@ -279,7 +279,8 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     inline-size: 100%;
     block-size: 100%;
     object-fit: cover;
-    object-position: 50% 30%;
+    /* Banners are mostly interface screenshots, whose meaning sits at the top. */
+    object-position: 50% 0;
     transition: transform 400ms ease;
   }
   .lead:hover .lead__media img {
