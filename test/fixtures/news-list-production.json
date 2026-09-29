@@ -1,0 +1,72 @@
+{
+  "posts": [
+    {
+      "id": 5,
+      "slug": "nemar-assistant",
+      "title": "Ask the NEMAR Assistant about any dataset",
+      "summary": "An experimental assistant on every page answers questions about NEMAR data, and can read a recording and plot it for you, showing the code it ran.",
+      "category": "feature",
+      "banner_url": "/news/media/ebd63a9cdef8ed23aff570065d6a7324acd28787ca2f6381a2a7aae20766713c.webp",
+      "banner_alt": "The NEMAR Assistant answering a request to plot an event-related potential (ERP) image of a Flanker recording: the Python steps it ran, then the figure with one panel per condition.",
+      "status": "published",
+      "published_at": "2026-09-24T17:00:00Z",
+      "created_at": "2026-09-29T21:38:31Z",
+      "updated_at": "2026-09-29T21:38:31Z"
+    },
+    {
+      "id": 4,
+      "slug": "anonymous-deposits-for-double-blind-review",
+      "title": "Deposit a dataset anonymously for double-blind review",
+      "summary": "Submitting to a double-blind venue? Reviewers can download your data from NEMAR while nothing NEMAR publishes names you, until you say so.",
+      "category": "data",
+      "banner_url": "/news/media/fb83fe1bcd51ca6a9f147c2b66d00df8627b379e128d4c721b938a492c37797f.webp",
+      "banner_alt": "A dataset page tagged Anonymous deposit, explaining that authorship is temporarily withheld while the data stays public and downloadable.",
+      "status": "published",
+      "published_at": "2026-09-16T17:00:00Z",
+      "created_at": "2026-09-29T21:38:30Z",
+      "updated_at": "2026-09-29T21:38:30Z"
+    },
+    {
+      "id": 3,
+      "slug": "hed-score-annotation",
+      "title": "Annotate recordings with HED and SCORE, right in the viewer",
+      "summary": "Mark events and artifacts on any recording with standard HED and SCORE terms, then download them as BIDS events and channels files.",
+      "category": "feature",
+      "banner_url": "/news/media/5cc7791500f5474f7f04c0dec0660f8eeaa4f21c3808fe642bdf50b06fd0a1f2.webp",
+      "banner_alt": "Annotating a chewing artifact in the NEMAR signal viewer: a highlighted span, and a search box offering HED and SCORE terms with their definitions.",
+      "status": "published",
+      "published_at": "2026-09-02T17:00:00Z",
+      "created_at": "2026-09-29T21:38:29Z",
+      "updated_at": "2026-09-29T21:38:29Z"
+    },
+    {
+      "id": 2,
+      "slug": "view-recordings-in-the-browser",
+      "title": "Look through any recording in your browser, before you download it",
+      "summary": "Open a signal file on a dataset page and the viewer streams only the stretch you are looking at, with the dataset's own events marked.",
+      "category": "feature",
+      "banner_url": "/news/media/3e53f886a036b4cd398b1834cc179e161a695146283e31d3956d2dfb0f58377a.webp",
+      "banner_alt": "The NEMAR signal viewer showing 32 EEG channels of a Flanker task recording, with colored event markers and an overview strip below.",
+      "status": "published",
+      "published_at": "2026-07-29T17:00:00Z",
+      "created_at": "2026-09-29T21:38:28Z",
+      "updated_at": "2026-09-29T21:38:28Z"
+    },
+    {
+      "id": 1,
+      "slug": "sign-in-with-orcid",
+      "title": "Sign in to NEMAR with your ORCID iD",
+      "summary": "Researchers can now sign in with ORCID, the identifier most of them already publish under. Browsing and downloading still need no account.",
+      "category": "feature",
+      "banner_url": "/news/media/6f961f66cd20cb018fd08b779cb51d1c946facdddab2d849d8b8bf99853ef82c.webp",
+      "banner_alt": "The NEMAR sign-in page, with a Sign in with ORCID button and a note that an account is only needed to upload data.",
+      "status": "published",
+      "published_at": "2026-07-29T16:00:00Z",
+      "created_at": "2026-09-29T21:38:26Z",
+      "updated_at": "2026-09-29T21:38:26Z"
+    }
+  ],
+  "total_count": 5,
+  "limit": 50,
+  "offset": 0
+}
