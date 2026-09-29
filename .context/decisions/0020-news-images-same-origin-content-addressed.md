@@ -7,7 +7,7 @@
 ## Context
 
 News posts (website#371) carry a banner and inline images that admins upload from `/admin/news`.
-The bytes live in the API Worker's R2 bucket (nemar-cli#1551, nemar-cli ADR 0075).
+The bytes live in the API Worker's R2 bucket (nemar-cli#1551, nemar-cli ADR 0076).
 Every page here ships `img-src 'self' data:`, so an image served from another host would not load.
 The admin editor runs on `app.nemar.org` while readers are on `nemar.org`, and staging (`test.nemar.org`) reads a different backend than production.
 
