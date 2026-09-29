@@ -31,38 +31,77 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c]);
 }
 
-function safeUrl(url: string): string {
-  const trimmed = url.trim();
-  if (/^javascript:/i.test(trimmed)) return "#";
-  if (/^data:/i.test(trimmed)) return "#";
-  return escapeHtml(trimmed);
+const HTML_UNESCAPE: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+function unescapeHtml(s: string): string {
+  return s.replace(/&(?:amp|lt|gt|quot|#39);/g, (e) => HTML_UNESCAPE[e]);
 }
 
+/** Schemes a rendered link may carry. Anything else with a scheme becomes `#`. */
+const SAFE_SCHEMES: ReadonlySet<string> = new Set(["http", "https", "mailto"]);
+
 /**
- * Inline formatting pass: code, bold, italic, links, autolinks.
- * Operates on already-escaped HTML so the input MUST be pre-escaped.
+ * An href from a URL captured out of already-escaped text.
+ *
+ * Unescapes first so it escapes exactly once (a query string's `&` stays
+ * `&amp;`, not `&amp;amp;`). Then allowlists the scheme rather than
+ * denylisting `javascript:`: browsers drop ASCII control characters and
+ * whitespace inside a scheme, so `\u0001javascript:` or `java\tscript:`
+ * would pass a prefix check and still run. The scheme is read from the URL
+ * with all of those removed, and a relative URL (no scheme) passes as is.
  */
-function renderInline(escaped: string): string {
-  let out = escaped;
-  // Inline code (single backticks). Run before bold/italic so * inside ` ` is literal.
-  out = out.replace(/`([^`\n]+)`/g, (_, code) => `<code>${code}</code>`);
+function safeUrl(escapedUrl: string): string {
+  const url = unescapeHtml(escapedUrl).trim();
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping them is the point.
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url.replace(/[\u0000-\u0020\u007f]/g, ""));
+  if (scheme && !SAFE_SCHEMES.has(scheme[1].toLowerCase())) return "#";
+  return escapeHtml(url);
+}
+
+/** Bold and italic, on text whose links and code spans are already held out. */
+function renderEmphasis(text: string): string {
+  let out = text;
   // Bold: **text** or __text__
   out = out.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   out = out.replace(/__([^_\n]+)__/g, "<strong>$1</strong>");
   // Italic: *text* or _text_ (avoid ** which the bold rule consumed)
   out = out.replace(/(^|[^\*])\*([^\*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
   out = out.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
-  // Links: [text](url)
-  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text: string, url: string) => {
-    return `<a href="${safeUrl(url)}" rel="external">${text}</a>`;
-  });
-  // Bare URL autolinks (only when not already inside an href).
-  out = out.replace(
-    /(^|[^"\(\[])(https?:\/\/[^\s<>)]+)(?![^<]*>)/g,
-    (_, prefix: string, url: string) =>
-      `${prefix}<a href="${safeUrl(url)}" rel="external">${url}</a>`,
-  );
   return out;
+}
+
+/**
+ * Inline formatting pass: code, links, autolinks, then bold and italic.
+ * Operates on already-escaped HTML so the input MUST be pre-escaped.
+ *
+ * Code spans and links are swapped for placeholders before emphasis runs and
+ * restored at the end, so a `_` or `*` inside a URL or a code span is never
+ * read as emphasis, and a URL written as a link's text is not autolinked a
+ * second time (which nested one `<a>` inside another).
+ */
+function renderInline(escaped: string): string {
+  const held: string[] = [];
+  const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
+  // NUL marks a placeholder, so none may arrive from the source itself.
+  let out = escaped.replaceAll("\u0000", "");
+  // Inline code (single backticks), literal inside.
+  out = out.replace(/`([^`\n]+)`/g, (_, code: string) => hold(`<code>${code}</code>`));
+  // Links: [text](url). The text may carry emphasis of its own.
+  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, text: string, url: string) =>
+    hold(`<a href="${safeUrl(url)}" rel="external">${renderEmphasis(text)}</a>`),
+  );
+  // Bare URL autolinks, not glued to a preceding word, slash, or `=`.
+  out = out.replace(/(?<![\w/=])https?:\/\/[^\s<>)\u0000]+/g, (url: string) =>
+    hold(`<a href="${safeUrl(url)}" rel="external">${url}</a>`),
+  );
+  out = renderEmphasis(out);
+  return out.replace(/\u0000(\d+)\u0000/g, (_, i: string) => held[Number(i)] ?? "");
 }
 
 interface RenderState {
@@ -218,7 +257,9 @@ export function renderMarkdown(input: string, options: MarkdownOptions = {}): st
       continue;
     }
 
-    if (allowImage && STANDALONE_IMAGE_RE.test(line)) {
+    // FIGURE_RE as well as STANDALONE_IMAGE_RE: a caption may contain `)`,
+    // which the standalone pattern's `[^)]*` cannot cross.
+    if (allowImage && (FIGURE_RE.test(line) || STANDALONE_IMAGE_RE.test(line))) {
       flushAll(state);
       const figure = FIGURE_RE.exec(line);
       if (figure && allowImage(figure[2])) state.buf.push(renderFigure(figure));

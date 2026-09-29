@@ -176,3 +176,72 @@ describe("renderMarkdown news options", () => {
     );
   });
 });
+
+describe("renderMarkdown link safety and shapes", () => {
+  it("refuses script schemes hidden behind control characters or whitespace", () => {
+    for (const url of [
+      "javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "\u0001javascript:alert(1)",
+      "java\tscript:alert(1)",
+      "vbscript:msgbox(1)",
+      "data:text/html,<script>alert(1)</script>",
+    ]) {
+      // Either no link at all (whitespace ends a URL) or a neutered one.
+      const html = renderMarkdown(`[click](${url})`);
+      expect(html, JSON.stringify(url)).not.toMatch(/href="(?!#")/);
+    }
+  });
+
+  it("keeps http, https, mailto, and relative links", () => {
+    expect(renderMarkdown("[a](https://nemar.org/x)")).toContain('href="https://nemar.org/x"');
+    expect(renderMarkdown("[a](mailto:help@nemar.org)")).toContain('href="mailto:help@nemar.org"');
+    expect(renderMarkdown("[a](/discover)")).toContain('href="/discover"');
+    expect(renderMarkdown("[a](participants.tsv)")).toContain('href="participants.tsv"');
+  });
+
+  it("escapes a query string once", () => {
+    expect(renderMarkdown("[q](https://a.org/?a=1&b=2)")).toContain(
+      'href="https://a.org/?a=1&amp;b=2"',
+    );
+  });
+
+  it("does not read underscores or asterisks inside a URL as emphasis", () => {
+    const html = renderMarkdown("[d](https://a.org/some_file_name.tsv) and https://a.org/x_y_z");
+    expect(html).toContain('href="https://a.org/some_file_name.tsv"');
+    expect(html).toContain('href="https://a.org/x_y_z"');
+    expect(html).not.toContain("<em>");
+  });
+
+  it("does not nest a link inside a link whose text is a URL", () => {
+    const html = renderMarkdown("[https://nemar.org](https://nemar.org)");
+    expect(html.match(/<a /g)).toHaveLength(1);
+  });
+
+  it("still renders emphasis in link text and around links", () => {
+    expect(renderMarkdown("**see** [the *docs*](https://docs.nemar.org)")).toBe(
+      '<p><strong>see</strong> <a href="https://docs.nemar.org" rel="external">the <em>docs</em></a></p>',
+    );
+  });
+
+  it("autolinks a URL in parentheses without the closing parenthesis", () => {
+    expect(renderMarkdown("(see https://nemar.org)")).toBe(
+      '<p>(see <a href="https://nemar.org" rel="external">https://nemar.org</a>)</p>',
+    );
+  });
+
+  it("drops NUL characters rather than reading them as placeholders", () => {
+    expect(renderMarkdown("a\u00000\u0000b [x](https://a.org)")).toBe(
+      '<p>a0b <a href="https://a.org" rel="external">x</a></p>',
+    );
+  });
+
+  it("keeps a figure whose caption contains parentheses", () => {
+    const src = `/news/media/${"e".repeat(64)}.png`;
+    expect(
+      renderMarkdown(`![Raw](${src} "Left (raw) and right (filtered)")`, {
+        allowImage: (u) => u.startsWith("/news/media/"),
+      }),
+    ).toContain("<figcaption>Left (raw) and right (filtered)</figcaption>");
+  });
+});
