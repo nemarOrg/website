@@ -116,3 +116,63 @@ describe("stripStandaloneImages", () => {
     expect(stripStandaloneImages(md)).toBe(md);
   });
 });
+
+describe("renderMarkdown news options", () => {
+  const HASH = "b".repeat(64);
+  const SRC = `/news/media/${HASH}.png`;
+  const allowNewsMedia = (src: string) => src.startsWith("/news/media/");
+
+  it("drops standalone images when the caller has not opted in", () => {
+    expect(renderMarkdown(`Before\n\n![Viewer](${SRC})\n\nAfter`)).toBe(
+      "<p>Before</p>\n<p>After</p>",
+    );
+  });
+
+  it("renders an allowed image line as a lazy-loaded figure", () => {
+    expect(renderMarkdown(`![The viewer](${SRC})`, { allowImage: allowNewsMedia })).toBe(
+      `<figure><img src="${SRC}" alt="The viewer" loading="lazy" decoding="async" /></figure>`,
+    );
+  });
+
+  it("turns a quoted title into an escaped caption with inline formatting", () => {
+    const html = renderMarkdown(`![Alt](${SRC} "The **new** viewer <b>")`, {
+      allowImage: allowNewsMedia,
+    });
+    expect(html).toContain("<figcaption>The <strong>new</strong> viewer &lt;b&gt;</figcaption>");
+  });
+
+  it("escapes alt text", () => {
+    const html = renderMarkdown(`![a "quoted" <alt>](${SRC})`, { allowImage: allowNewsMedia });
+    expect(html).toContain('alt="a &quot;quoted&quot; &lt;alt&gt;"');
+  });
+
+  it("drops an image whose source the caller rejects", () => {
+    expect(
+      renderMarkdown("![x](https://evil.example/x.png)\n\ntext", { allowImage: allowNewsMedia }),
+    ).toBe("<p>text</p>");
+  });
+
+  it("ends an open paragraph before a figure", () => {
+    expect(renderMarkdown(`One line\n![Alt](${SRC})\nNext`, { allowImage: allowNewsMedia })).toBe(
+      `<p>One line</p>\n<figure><img src="${SRC}" alt="Alt" loading="lazy" decoding="async" /></figure>\n<p>Next</p>`,
+    );
+  });
+
+  it("still drops link-wrapped badges", () => {
+    expect(
+      renderMarkdown(`[![DOI](${SRC})](https://doi.org/x)\n\ntext`, { allowImage: allowNewsMedia }),
+    ).toBe("<p>text</p>");
+  });
+
+  it("leaves image syntax inside a code fence alone", () => {
+    expect(renderMarkdown(`\`\`\`\n![Alt](${SRC})\n\`\`\``, { allowImage: allowNewsMedia })).toBe(
+      `<pre><code>![Alt](${SRC})</code></pre>`,
+    );
+  });
+
+  it("offsets heading levels, capped at h6", () => {
+    expect(renderMarkdown("# One\n\n###### Six", { headingOffset: 1 })).toBe(
+      "<h2>One</h2>\n<h6>Six</h6>",
+    );
+  });
+});

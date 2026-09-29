@@ -10,9 +10,11 @@
  *   - Links [text](url) and bare URL autolinks
  *   - Horizontal rules (---, ***)
  *   - HTML escaping everywhere; reject `javascript:` URLs
+ *   - Images on a line of their own, as figures, only when the caller opts in
+ *     with {@link MarkdownOptions.allowImage} (news posts do; READMEs do not)
  *
  * Out of scope (added in follow-ups if real READMEs need them):
- *   - Tables, footnotes, blockquotes, images, raw HTML, strikethrough
+ *   - Tables, footnotes, blockquotes, inline images, raw HTML, strikethrough
  *
  * Zero deps. Cloudflare Workers runtime safe (no Node APIs).
  */
@@ -119,10 +121,55 @@ export function stripStandaloneImages(input: string): string {
     .join("\n");
 }
 
-export function renderMarkdown(input: string): string {
+/**
+ * A standalone image line with an optional quoted title, which becomes the
+ * caption: `![alt](src "caption")`. Group 1 is the alt text, 2 the source,
+ * 3 the caption.
+ */
+const FIGURE_RE = /^[ \t]*!\[([^\]]*)\]\(\s*([^\s)]+)(?:\s+"([^"]*)")?\s*\)[ \t]*$/;
+
+export interface MarkdownOptions {
+  /**
+   * Render a standalone image line as a `<figure>` when this returns true
+   * for its source. Sources it rejects are dropped, exactly as they are
+   * without the option.
+   *
+   * There is no default allowlist on purpose: the page's
+   * Content-Security-Policy decides which image hosts can load, so the caller
+   * that knows its CSP decides which sources are worth emitting. News posts
+   * pass `isNewsMediaUrl`, which admits only this site's own `/news/media/`.
+   */
+  readonly allowImage?: (src: string) => boolean;
+  /**
+   * Added to every heading level, capped at 6. A news article already has
+   * its title as the page's `h1`, so its body starts at `h2`.
+   */
+  readonly headingOffset?: number;
+}
+
+function renderFigure(match: RegExpExecArray): string {
+  const alt = escapeHtml(match[1].trim());
+  const src = safeUrl(match[2]);
+  const caption = match[3]?.trim();
+  const img = `<img src="${src}" alt="${alt}" loading="lazy" decoding="async" />`;
+  return caption
+    ? `<figure>${img}<figcaption>${renderInline(escapeHtml(caption))}</figcaption></figure>`
+    : `<figure>${img}</figure>`;
+}
+
+export function renderMarkdown(input: string, options: MarkdownOptions = {}): string {
+  const { allowImage } = options;
+  const headingOffset = Math.max(0, Math.trunc(options.headingOffset ?? 0));
   // Pre-filter standalone image markdown so a DOI banner at the top of
-  // a README doesn't show as a literal `![DOI](https://...)` blob.
-  const source = stripStandaloneImages(input);
+  // a README doesn't show as a literal `![DOI](https://...)` blob. With
+  // `allowImage`, image lines survive to the loop, which renders the allowed
+  // ones and drops the rest; link-wrapped badges are always dropped.
+  const source = allowImage
+    ? input
+        .split("\n")
+        .filter((line) => !LINKED_IMAGE_RE.test(line))
+        .join("\n")
+    : stripStandaloneImages(input);
   const state: RenderState = {
     buf: [],
     listStack: [],
@@ -171,10 +218,17 @@ export function renderMarkdown(input: string): string {
       continue;
     }
 
+    if (allowImage && STANDALONE_IMAGE_RE.test(line)) {
+      flushAll(state);
+      const figure = FIGURE_RE.exec(line);
+      if (figure && allowImage(figure[2])) state.buf.push(renderFigure(figure));
+      continue;
+    }
+
     const heading = HEADING_RE.exec(line);
     if (heading) {
       flushAll(state);
-      const level = heading[1].length;
+      const level = Math.min(6, heading[1].length + headingOffset);
       state.buf.push(`<h${level}>${renderInline(escapeHtml(heading[2]))}</h${level}>`);
       continue;
     }
