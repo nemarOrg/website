@@ -851,19 +851,16 @@ if (tier !== "unverified") {
           </div>
           <div class="consent__actions">
             <button type="button" class="btn btn--ghost" data-consent-set="strict">
-              Opt out of analytics
+              Strict only
             </button>
             <button type="button" class="btn btn--primary" data-consent-set="accepted">
               Keep analytics on
             </button>
           </div>
           <p class="consent__note" data-consent-note>
-            On NEMAR's production main and account sites, anonymous analytics are on by default on
-            selected public pages and the signed-in upload flow; preview and local sites do not load
-            the tracker. We do not send account, dataset, or search IDs. Opting out stops future
-            pageviews and actions. A preference cookie shares your choice between those production
-            sites. On preview and local sites, a saved choice applies only on that site. If cookies
-            are blocked on a production site, browser-storage fallback applies only there.
+            We collect anonymous usage data to improve NEMAR, and we never sell your data. Strict
+            only turns analytics off; NEMAR then uses cookies only to keep you signed in and remember
+            this choice, which applies on both nemar.org and app.nemar.org.
           </p>
           <p class="consent__note">
             What we store and why is described in the
@@ -2395,7 +2392,7 @@ if (tier !== "unverified") {
   const currentEl = document.querySelector<HTMLElement>("[data-consent-current]");
 
   const labelFor = (v: string | null): string => {
-    if (v === "strict") return "Off (you opted out)";
+    if (v === "strict") return "Off (strict only)";
     if (v === "accepted") return "On";
     return "On (default)";
   };
