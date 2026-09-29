@@ -164,7 +164,7 @@ function positiveCount(value: unknown): number | null {
   return Math.round(value);
 }
 
-function wrapText(text: string, maxChars: number, maxLines: number): string[] {
+export function wrapText(text: string, maxChars: number, maxLines: number): string[] {
   const words = clean(text).split(/\s+/).filter(Boolean);
   if (words.length === 0) return [""];
 
@@ -193,7 +193,7 @@ function truncate(text: string, maxChars: number): string {
   return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
-function tspans(lines: string[], x: number, dy0: number, lineHeight: number): string {
+export function tspans(lines: string[], x: number, dy0: number, lineHeight: number): string {
   return lines
     .map(
       (line, i) => `<tspan x="${x}" dy="${i === 0 ? dy0 : lineHeight}">${escapeXml(line)}</tspan>`,
