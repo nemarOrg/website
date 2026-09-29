@@ -32,6 +32,11 @@ name: Auto Bump Staging
 on:
   push:
     branches: [staging]
+  # So push-watchdog.yml can replay a push GitHub never delivered
+  # (website#374). A dispatched run has no pushed commit to read, so the
+  # "Compute next dev suffix" step applies the skip conditions to the
+  # checked-out tip of staging instead.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -49,9 +54,10 @@ jobs:
     # Filter the bot's own commits and explicit opt-outs at the job level so no
     # runner spins up for them.
     if: |
-      github.event.head_commit.author.email != 'nemar-bot@users.noreply.github.com'
+      github.event_name == 'workflow_dispatch'
+      || (github.event.head_commit.author.email != 'nemar-bot@users.noreply.github.com'
       && !startsWith(github.event.head_commit.message, 'chore: bump version to')
-      && !contains(github.event.head_commit.message, '[skip-bump]')
+      && !contains(github.event.head_commit.message, '[skip-bump]'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout staging
@@ -63,6 +69,20 @@ jobs:
       - name: Compute next dev suffix
         id: compute
         run: |
+          # A dispatched run skipped the job-level filter; apply it here to the
+          # tip it checked out, so replaying a push onto a bump commit is a no-op.
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            AUTHOR=$(git log -1 --format=%ae)
+            MESSAGE=$(git log -1 --format=%B)
+            if [[ "$AUTHOR" == "nemar-bot@users.noreply.github.com" \
+              || "$MESSAGE" == "chore: bump version to"* \
+              || "$MESSAGE" == *"[skip-bump]"* ]]; then
+              echo "::notice::staging tip $(git rev-parse --short HEAD) needs no bump."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           CURRENT=$(jq -r '.version' package.json)
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
 
