@@ -39,7 +39,9 @@ const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 const [lead, ...rest] = page === 1 ? posts : [undefined, ...posts];
 const groups = groupNewsByMonth(rest.filter((p): p is NewsPostSummary => Boolean(p)));
 
-// A failed list must not be cached: the next request should retry.
+// A failed list must not be cached: the next request should retry. It is
+// also a 503, so a crawler does not index "News could not load" as the page.
+if (loadError) Astro.response.status = 503;
 Astro.response.headers.set(
   "Cache-Control",
   loadError ? "no-store" : "public, max-age=60, s-maxage=300, stale-while-revalidate=3600",
@@ -156,7 +158,7 @@ Astro.response.headers.set(
 
           {pageCount > 1 && (
             <div class="container news__pages">
-              <Pagination page={page} pageCount={pageCount} baseParams={new URLSearchParams()} />
+              <Pagination page={page} pageCount={pageCount} baseParams={new URLSearchParams()} basePath="/news" />
             </div>
           )}
         </>
