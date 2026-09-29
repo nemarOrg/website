@@ -5,8 +5,9 @@
  * The body is admin-authored Markdown, rendered by the site's own
  * zero-dependency renderer with two news-only options: standalone images
  * become figures, but only from this site's `/news/media/` (which is also
- * all the Content-Security-Policy would load), and headings start at `h2`
- * because the title is the page's `h1`. Everything else is escaped.
+ * all the Content-Security-Policy would load), and the body's top heading
+ * level renders as `h2` because the title is the page's `h1`
+ * (`newsHeadingOffset`). Everything else is escaped.
  */
 import Base from "../../layouts/Base.astro";
 import { MARKETING_BASE_URL } from "../../lib/host";
@@ -19,6 +20,7 @@ import {
   categoryLabel,
   formatNewsDate,
   isNewsMediaUrl,
+  newsHeadingOffset,
   newsPath,
   readingMinutes,
 } from "../../lib/news";
@@ -60,7 +62,10 @@ if (post) {
 }
 
 const bodyHtml = post
-  ? renderMarkdown(post.body, { allowImage: isNewsMediaUrl, headingOffset: 1 })
+  ? renderMarkdown(post.body, {
+      allowImage: isNewsMediaUrl,
+      headingOffset: newsHeadingOffset(post.body),
+    })
   : "";
 const minutes = post ? readingMinutes(post.body) : 0;
 const published = post ? formatNewsDate(post.published_at) : "";
@@ -223,7 +228,9 @@ if (post) {
 
 <style>
   .post {
-    --measure: 68ch;
+    /* In rem, not ch: the header and the body set different font sizes, and a
+       ch measure would give them different widths and misalign their edges. */
+    --measure: 42rem;
     --wide: 64rem;
     padding: var(--space-10) var(--space-6) var(--space-12);
   }
@@ -323,7 +330,7 @@ if (post) {
     block-size: auto;
     max-block-size: 44rem;
     object-fit: cover;
-    object-position: 50% 30%;
+    object-position: 50% 0;
   }
 
   /* The body arrives via set:html, so its elements carry no scope attribute:

@@ -10,6 +10,7 @@ import {
   isNewsMediaUrl,
   isValidSlug,
   newsDateParts,
+  newsHeadingOffset,
   newsMediaContentType,
   newsPostState,
   parseNewsList,
@@ -356,5 +357,24 @@ describe("toDatetimeLocalValue", () => {
 
   it("returns an empty value for an unreadable date", () => {
     expect(toDatetimeLocalValue("never")).toBe("");
+  });
+});
+
+describe("newsHeadingOffset", () => {
+  it("shifts a body that starts at h1 down one level", () => {
+    expect(newsHeadingOffset("# Intro\n\ntext\n\n## Detail")).toBe(1);
+  });
+
+  it("leaves a body that starts at h2 alone", () => {
+    expect(newsHeadingOffset("text\n\n## What stays hidden\n\n### More")).toBe(0);
+  });
+
+  it("ignores comment lines inside code fences", () => {
+    expect(newsHeadingOffset("```\n# not a heading\n```\n\n## Real")).toBe(0);
+  });
+
+  it("is zero for a body without headings or one that starts deeper", () => {
+    expect(newsHeadingOffset("Just text.")).toBe(0);
+    expect(newsHeadingOffset("### Deep")).toBe(0);
   });
 });

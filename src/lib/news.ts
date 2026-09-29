@@ -479,3 +479,25 @@ export function toDatetimeLocalValue(value: string | Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
 }
+
+/**
+ * How far to shift a post body's headings so its top level renders as `h2`,
+ * under the page's `h1` title. Authors write sections as `#` or `##`
+ * interchangeably; either way the outline must not skip a level. Code fences
+ * are ignored, since a `#` there is a comment, not a heading. Never negative,
+ * so a body that starts at `###` is left as written.
+ */
+export function newsHeadingOffset(markdown: string): number {
+  let min = Number.POSITIVE_INFINITY;
+  let inFence = false;
+  for (const line of markdown.split("\n")) {
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = /^(#{1,6})\s+\S/.exec(line);
+    if (match) min = Math.min(min, match[1].length);
+  }
+  return Number.isFinite(min) ? Math.max(0, 2 - min) : 0;
+}
