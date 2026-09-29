@@ -33,9 +33,9 @@ on:
   push:
     branches: [staging]
   # So push-watchdog.yml can replay a push GitHub never delivered
-  # (website#374). A dispatched run has no pushed commit to read, so the
+  # (website#374). A dispatched run has no pushed commit to read; the
   # "Compute next dev suffix" step applies the skip conditions to the
-  # checked-out tip of staging instead.
+  # checked-out tip of staging.
   workflow_dispatch:
 
 permissions:
@@ -69,18 +69,19 @@ jobs:
       - name: Compute next dev suffix
         id: compute
         run: |
-          # A dispatched run skipped the job-level filter; apply it here to the
-          # tip it checked out, so replaying a push onto a bump commit is a no-op.
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            AUTHOR=$(git log -1 --format=%ae)
-            MESSAGE=$(git log -1 --format=%B)
-            if [[ "$AUTHOR" == "nemar-bot@users.noreply.github.com" \
-              || "$MESSAGE" == "chore: bump version to"* \
-              || "$MESSAGE" == *"[skip-bump]"* ]]; then
-              echo "::notice::staging tip $(git rev-parse --short HEAD) needs no bump."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
+          # The job-level filter reads the pushed commit, which a dispatched run
+          # does not have, and which may no longer be the tip: another run may
+          # have bumped since, or a push GitHub delivered late may arrive after
+          # push-watchdog.yml already replayed it. Apply the same conditions to
+          # the tip checked out here, so none of these bumps twice.
+          AUTHOR=$(git log -1 --format=%ae)
+          MESSAGE=$(git log -1 --format=%B)
+          if [[ "$AUTHOR" == "nemar-bot@users.noreply.github.com" \
+            || "$MESSAGE" == "chore: bump version to"* \
+            || "$MESSAGE" == *"[skip-bump]"* ]]; then
+            echo "::notice::staging tip $(git rev-parse --short HEAD) needs no bump."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           CURRENT=$(jq -r '.version' package.json)
