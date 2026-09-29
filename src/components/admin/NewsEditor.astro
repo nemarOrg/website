@@ -248,6 +248,7 @@ const status = post?.status ?? "draft";
     type NewsInput,
     type NewsStatus,
     isNewsMediaUrl,
+    newsHeadingOffset,
     slugify,
     toDatetimeLocalValue,
     validateNewsInput,
@@ -317,6 +318,21 @@ const status = post?.status ?? "draft";
     date?.addEventListener("input", updateStatusHint);
     updateStatusHint();
 
+    // An error names what to fix; once that field is edited, the message is
+    // stale and goes, rather than lingering until the next save.
+    const clearError = (name: string) => {
+      const slot = form.querySelector<HTMLElement>(`[data-error-for="${name}"]`);
+      if (slot && !slot.hidden) {
+        slot.hidden = true;
+        slot.textContent = "";
+      }
+      field<HTMLElement>(name)?.removeAttribute("aria-invalid");
+    };
+    form.addEventListener("input", (e) => {
+      const name = (e.target as HTMLElement | null)?.getAttribute("name");
+      if (name) clearError(name);
+    });
+
     // ---- Unsaved-changes guard ----
     form.addEventListener("input", () => {
       dirty = true;
@@ -341,7 +357,10 @@ const status = post?.status ?? "draft";
       }
       if (name === "preview" && preview && body) {
         preview.innerHTML =
-          renderMarkdown(body.value, { allowImage: isNewsMediaUrl, headingOffset: 1 }) ||
+          renderMarkdown(body.value, {
+            allowImage: isNewsMediaUrl,
+            headingOffset: newsHeadingOffset(body.value),
+          }) ||
           "<p class='preview__empty'>Nothing to preview yet.</p>";
       }
     };
@@ -391,6 +410,8 @@ const status = post?.status ?? "draft";
     const bannerRemove = $<HTMLButtonElement>("[data-banner-remove]");
     const bannerFile = $<HTMLInputElement>("[data-file-banner]");
     const setBanner = (url: string | null) => {
+      clearError("banner_url");
+      if (!url) clearError("banner_alt");
       if (bannerUrl) bannerUrl.value = url ?? "";
       if (bannerImg) {
         bannerImg.hidden = !url;
@@ -804,7 +825,7 @@ const status = post?.status ?? "draft";
   /* The preview mirrors the article body (news/[slug].astro .post__body).
      Duplicated per the scoped-style convention (AGENTS.md); keep in sync. */
   .preview {
-    max-inline-size: 68ch;
+    max-inline-size: 42rem;
     font-size: var(--fs-lg);
     line-height: var(--lh-relaxed);
     color: var(--color-fg);
@@ -930,7 +951,7 @@ const status = post?.status ?? "draft";
     inline-size: 100%;
     aspect-ratio: 16 / 10;
     object-fit: cover;
-    object-position: 50% 30%;
+    object-position: 50% 0;
   }
   .banner__img[hidden] {
     display: none;
