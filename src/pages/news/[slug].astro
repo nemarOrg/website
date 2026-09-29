@@ -69,8 +69,14 @@ const bodyHtml = post
   : "";
 const minutes = post ? readingMinutes(post.body) : 0;
 const published = post ? formatNewsDate(post.published_at) : "";
+// "Updated" only for an edit made a day or more after the post was both
+// written and dated. Against published_at alone, every backdated post (the
+// seed posts are dated months before they were written) would claim an
+// update on the day it was created.
 const updatedLater = post
-  ? Date.parse(post.updated_at) - Date.parse(post.published_at) > 24 * 60 * 60 * 1000
+  ? Date.parse(post.updated_at) -
+      Math.max(Date.parse(post.created_at), Date.parse(post.published_at)) >
+    24 * 60 * 60 * 1000
   : false;
 const jsonLdScript = post
   ? escapeJsonLdForScript(JSON.stringify(buildNewsArticleJsonLd(post, MARKETING_BASE_URL)))
@@ -201,13 +207,16 @@ if (post) {
 </Base>
 
 <script>
-  // Copy the canonical URL, without any query string a visitor arrived with.
+  // Copy the canonical URL (always nemar.org, even for a signed-in reader
+  // viewing the post on app.nemar.org), without any query string.
   const button = document.querySelector<HTMLButtonElement>("[data-copy-link]");
   const label = document.querySelector<HTMLElement>("[data-copy-label]");
   const status = document.querySelector<HTMLElement>("[data-copy-status]");
   let reset: number | undefined;
   button?.addEventListener("click", async () => {
-    const url = `${location.origin}${location.pathname}`;
+    const url =
+      document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href ??
+      `${location.origin}${location.pathname}`;
     let copied = false;
     try {
       await navigator.clipboard.writeText(url);
