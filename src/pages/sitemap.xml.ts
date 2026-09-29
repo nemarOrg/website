@@ -1,7 +1,13 @@
 import type { APIRoute } from "astro";
 import { listAllDatasets } from "../lib/api";
 import { isNoindexHost } from "../lib/host";
-import { buildSitemapXml, datasetSitemapEntries, staticSitemapEntries } from "../lib/sitemap";
+import { listAllNews } from "../lib/news-api";
+import {
+  buildSitemapXml,
+  datasetSitemapEntries,
+  newsSitemapEntries,
+  staticSitemapEntries,
+} from "../lib/sitemap";
 
 /**
  * SSR sitemap (website#284 phase 1, issue #285). Deliberately NOT
@@ -40,7 +46,20 @@ export const GET: APIRoute = async ({ request }) => {
     return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 
-  const xml = buildSitemapXml([...staticSitemapEntries(), ...datasetSitemapEntries(rows)]);
+  // News is secondary here: a failed news list drops the posts from this
+  // sitemap rather than failing the whole document the datasets depend on.
+  const posts = await listAllNews().catch((err: unknown) => {
+    console.warn(
+      `[sitemap.xml] news list failed, omitting posts: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [];
+  });
+
+  const xml = buildSitemapXml([
+    ...staticSitemapEntries(),
+    ...newsSitemapEntries(posts),
+    ...datasetSitemapEntries(rows),
+  ]);
   return new Response(xml, {
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
