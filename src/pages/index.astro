@@ -12,19 +12,21 @@ import { fetchHostedStats } from "../lib/stats";
 
 const uploadHref = appUrl("/upload", new URL(Astro.request.url).hostname);
 
-// Hero stats advertise the data NEMAR actually hosts (managed nm* + on*),
-// not the full browsable catalog (which includes OpenNeuro ds* pointers).
 // The highlights under the hero start with the stats rather than after
 // them. Each is decorative (the page is whole without it), so each gets the
 // short deadline and fails to null, which drops its column. A failure is
-// logged, never thrown: see Highlights.astro.
-const highlight = <T>(label: string, work: Promise<T>): Promise<T | null> =>
-  work.catch((err: unknown) => {
+// logged, never thrown: see Highlights.astro. (A function declaration, not a
+// generic arrow: `<T>(` in .astro frontmatter parses as JSX.)
+async function highlight<T>(label: string, work: Promise<T>): Promise<T | null> {
+  try {
+    return await work;
+  } catch (err) {
     console.warn(
       `[index] highlights: ${label} unavailable: ${err instanceof Error ? err.message : String(err)}`,
     );
     return null;
-  });
+  }
+}
 const highlightsPending = Promise.all([
   highlight(
     "news",
@@ -44,6 +46,8 @@ const highlightsPending = Promise.all([
   ),
 ]);
 
+// Hero stats advertise the data NEMAR actually hosts (managed nm* + on*),
+// not the full browsable catalog (which includes OpenNeuro ds* pointers).
 let stats = { datasets: 0, participants: 0, size: 0 };
 let statsAvailable = false;
 try {
