@@ -87,9 +87,10 @@ function renderEmphasis(text: string): string {
  */
 function renderInline(escaped: string): string {
   const held: string[] = [];
-  const hold = (html: string) => `\u0000${held.push(html) - 1}\u0000`;
-  // NUL marks a placeholder, so none may arrive from the source itself.
-  let out = escaped.replaceAll("\u0000", "");
+  const hold = (html: string) => `\uE000${held.push(html) - 1}\uE000`;
+  // U+E000 (private use) marks a placeholder, so none may arrive from the
+  // source itself.
+  let out = escaped.replaceAll("\uE000", "");
   // Inline code (single backticks), literal inside.
   out = out.replace(/`([^`\n]+)`/g, (_, code: string) => hold(`<code>${code}</code>`));
   // Links: [text](url). The text may carry emphasis of its own.
@@ -97,11 +98,11 @@ function renderInline(escaped: string): string {
     hold(`<a href="${safeUrl(url)}" rel="external">${renderEmphasis(text)}</a>`),
   );
   // Bare URL autolinks, not glued to a preceding word, slash, or `=`.
-  out = out.replace(/(?<![\w/=])https?:\/\/[^\s<>)\u0000]+/g, (url: string) =>
+  out = out.replace(/(?<![\w/=])https?:\/\/[^\s<>)\uE000]+/g, (url: string) =>
     hold(`<a href="${safeUrl(url)}" rel="external">${url}</a>`),
   );
   out = renderEmphasis(out);
-  return out.replace(/\u0000(\d+)\u0000/g, (_, i: string) => held[Number(i)] ?? "");
+  return out.replace(/\uE000(\d+)\uE000/g, (_, i: string) => held[Number(i)] ?? "");
 }
 
 interface RenderState {

@@ -230,8 +230,8 @@ describe("renderMarkdown link safety and shapes", () => {
     );
   });
 
-  it("drops NUL characters rather than reading them as placeholders", () => {
-    expect(renderMarkdown("a\u00000\u0000b [x](https://a.org)")).toBe(
+  it("drops the placeholder marker rather than reading it from the source", () => {
+    expect(renderMarkdown("a\uE0000\uE000b [x](https://a.org)")).toBe(
       '<p>a0b <a href="https://a.org" rel="external">x</a></p>',
     );
   });
