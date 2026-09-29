@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
-import { type Server, createServer } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 /**
@@ -19,22 +19,22 @@ import { afterEach, describe, expect, it } from "vitest";
  * the script sends through sharp exactly as it does a WebP banner.
  */
 
-const ROOT = join(__dirname, "..");
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const NEWS_LIST = readFileSync(join(ROOT, "test/fixtures/news-list-production.json"), "utf8");
 const BANNER = readFileSync(join(ROOT, "public/og-image.png"));
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-let server: Server | undefined;
-let outDir: string | undefined;
+let server;
+let outDir;
 
 afterEach(async () => {
-  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+  await new Promise((resolve) => (server ? server.close(() => resolve()) : resolve()));
   server = undefined;
   if (outDir) await rm(outDir, { recursive: true, force: true });
   outDir = undefined;
 });
 
-async function serveApi(withNews: boolean): Promise<string> {
+async function serveApi(withNews) {
   server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     if (withNews && path === "/news") {
@@ -45,12 +45,12 @@ async function serveApi(withNews: boolean): Promise<string> {
       res.writeHead(404, { "Content-Type": "application/json" }).end('{"error":"not_found"}');
     }
   });
-  await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as AddressInfo;
+  await new Promise((resolve) => server?.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
   return `http://127.0.0.1:${port}`;
 }
 
-function runScript(apiBase: string, dir: string): Promise<{ code: number | null; output: string }> {
+function runScript(apiBase, dir) {
   return new Promise((resolve, reject) => {
     // Without the skip flag a developer may have exported, which would make this a no-op.
     const { NEMAR_SKIP_OG_GENERATE: _skip, ...inherited } = process.env;
@@ -70,7 +70,7 @@ function runScript(apiBase: string, dir: string): Promise<{ code: number | null;
 
 describe("generate-news-og-images.mjs", () => {
   it("renders a 1200x630 PNG card for every published post", async () => {
-    const posts = JSON.parse(NEWS_LIST).posts as { slug: string }[];
+    const posts = JSON.parse(NEWS_LIST).posts;
     outDir = await mkdtemp(join(tmpdir(), "news-og-"));
 
     const { code, output } = await runScript(await serveApi(true), outDir);
