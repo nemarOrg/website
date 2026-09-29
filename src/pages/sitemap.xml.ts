@@ -36,6 +36,20 @@ export const GET: APIRoute = async ({ request }) => {
     return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
 
+  // News runs beside the catalog, not after it, and is secondary: a failed
+  // news list drops the posts from this sitemap rather than failing the
+  // document the datasets depend on, and shortens its cache so the posts
+  // come back on the next crawl instead of a day later.
+  const newsPending = listAllNews().then(
+    (posts) => ({ posts, ok: true }),
+    (err: unknown) => {
+      console.warn(
+        `[sitemap.xml] news list failed, omitting posts: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { posts: [], ok: false };
+    },
+  );
+
   let rows: Awaited<ReturnType<typeof listAllDatasets>>;
   try {
     rows = await listAllDatasets();
@@ -45,25 +59,19 @@ export const GET: APIRoute = async ({ request }) => {
     );
     return new Response(null, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
-
-  // News is secondary here: a failed news list drops the posts from this
-  // sitemap rather than failing the whole document the datasets depend on.
-  const posts = await listAllNews().catch((err: unknown) => {
-    console.warn(
-      `[sitemap.xml] news list failed, omitting posts: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return [];
-  });
+  const news = await newsPending;
 
   const xml = buildSitemapXml([
     ...staticSitemapEntries(),
-    ...newsSitemapEntries(posts),
+    ...newsSitemapEntries(news.posts),
     ...datasetSitemapEntries(rows),
   ]);
   return new Response(xml, {
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+      "Cache-Control": news.ok
+        ? "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+        : "public, max-age=60, s-maxage=60",
     },
   });
 };
