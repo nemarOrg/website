@@ -6,7 +6,7 @@
  * {@link adminMetricHref} from ever producing a link to an unshipped tab.
  */
 
-export type AdminTab = "overview" | "publications" | "users" | "imports" | "notices";
+export type AdminTab = "overview" | "publications" | "users" | "imports" | "notices" | "news";
 
 export interface AdminTabDef {
   readonly id: AdminTab;
@@ -26,6 +26,7 @@ export const ADMIN_TABS: readonly AdminTabDef[] = [
   { id: "users", label: "Users", href: "/admin/users", enabled: true },
   { id: "imports", label: "Imports", href: "/admin/imports", enabled: true },
   { id: "notices", label: "Notices", href: "/admin/notices", enabled: true },
+  { id: "news", label: "News", href: "/admin/news", enabled: true },
 ];
 
 /**

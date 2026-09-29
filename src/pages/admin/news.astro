@@ -1,0 +1,342 @@
+---
+/**
+ * `/admin/news`: every post, drafts and scheduled ones included
+ * (website#371). Editing happens on `/admin/news/<id>`; this page lists,
+ * says where each post stands, and links out.
+ */
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+import {
+  type NewsPost,
+  type NewsPostState,
+  categoryLabel,
+  formatNewsDate,
+  newsPath,
+  newsPostState,
+} from "../../lib/news";
+import { listAdminNews } from "../../lib/news-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) return Astro.redirect(redirectTo);
+if (!session) return Astro.redirect("/login");
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let posts: readonly NewsPost[] = [];
+let listError: string | null = null;
+try {
+  posts = await listAdminNews({ cookieHeader });
+} catch (err) {
+  listError = err instanceof Error ? err.message : "Could not load posts.";
+  console.warn("[admin/news] list failed:", listError);
+}
+
+const now = new Date();
+const rows = posts.map((post) => ({ post, state: newsPostState(post, now) }));
+const counts = rows.reduce<Record<NewsPostState, number>>(
+  (acc, r) => {
+    acc[r.state] += 1;
+    return acc;
+  },
+  { draft: 0, scheduled: 0, published: 0 },
+);
+// The home page shows the newest three live posts.
+const onHome = new Set(
+  rows
+    .filter((r) => r.state === "published")
+    .slice(0, 3)
+    .map((r) => r.post.id),
+);
+const STATE_LABEL: Record<NewsPostState, string> = {
+  draft: "Draft",
+  scheduled: "Scheduled",
+  published: "Published",
+};
+const deleted = Astro.url.searchParams.get("deleted") === "1";
+---
+
+<AdminLayout title="News" active="news" session={session}>
+  <Fragment slot="lede">
+    Posts for the <a href="/news">news page</a>, with a banner image and a Markdown body. The three
+    newest published posts also lead the home page. Unlike notices, a post can be edited after it
+    is published.
+  </Fragment>
+
+  <div class="toolbar">
+    <p class="toolbar__counts">
+      {rows.length} {rows.length === 1 ? "post" : "posts"}: {counts.published} published,
+      {" "}{counts.scheduled} scheduled, {counts.draft} {counts.draft === 1 ? "draft" : "drafts"}
+    </p>
+    <a class="new-btn" href="/admin/news/new">New post</a>
+  </div>
+
+  {deleted && <p class="flash" role="status">Post deleted.</p>}
+  {listError && <p class="list-error" role="alert">{listError}</p>}
+
+  {
+    !listError && rows.length === 0 ? (
+      <div class="empty">
+        <h2 class="empty__title">No posts yet</h2>
+        <p class="empty__body">
+          Write the first one: a feature that shipped, a dataset worth knowing about, an event.
+        </p>
+        <a class="new-btn" href="/admin/news/new">New post</a>
+      </div>
+    ) : (
+      <ul class="list" role="list">
+        {rows.map(({ post, state }) => (
+          <li class="row" data-category={post.category}>
+            <a class="row__thumb" href={`/admin/news/${post.id}`} tabindex="-1" aria-hidden="true">
+              {post.banner_url ? (
+                <img src={post.banner_url} alt="" loading="lazy" decoding="async" />
+              ) : (
+                <span class="row__nothumb">No banner</span>
+              )}
+            </a>
+            <div class="row__main">
+              <p class="row__meta">
+                <span class:list={["state", `state--${state}`]}>{STATE_LABEL[state]}</span>
+                {onHome.has(post.id) && <span class="row__home">On the home page</span>}
+                <span>{categoryLabel(post.category)}</span>
+                <time datetime={post.published_at}>{formatNewsDate(post.published_at)}</time>
+              </p>
+              <h2 class="row__title">
+                <a href={`/admin/news/${post.id}`}>{post.title}</a>
+              </h2>
+              <p class="row__slug">/news/{post.slug}</p>
+            </div>
+            <div class="row__actions">
+              <a class="action" href={`/admin/news/${post.id}`}>
+                Edit<span class="visually-hidden"> {post.title}</span>
+              </a>
+              {state === "published" && (
+                <a class="action" href={newsPath(post.slug)} target="_blank" rel="noopener">
+                  View<span class="visually-hidden"> {post.title} on the site</span>
+                </a>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</AdminLayout>
+
+<style>
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .toolbar__counts {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--admin-text-3);
+  }
+  .new-btn {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 40px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-md);
+    background: var(--color-link);
+    color: var(--color-bg);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    text-decoration: none;
+  }
+  .new-btn:hover {
+    background: var(--color-link-hover);
+  }
+  .new-btn:focus-visible,
+  .action:focus-visible,
+  .row__title a:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  .flash,
+  .list-error {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface);
+    font-size: var(--fs-sm);
+  }
+  .flash {
+    box-shadow: inset 3px 0 0 var(--admin-ok);
+  }
+  .list-error {
+    box-shadow: inset 3px 0 0 var(--admin-error);
+  }
+
+  .empty {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-2);
+    padding: var(--space-6);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+  }
+  .empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+  }
+  .empty__body {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+
+  .list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  [data-category] {
+    --marker: var(--news-update);
+  }
+  [data-category="feature"] {
+    --marker: var(--news-feature);
+  }
+  [data-category="data"] {
+    --marker: var(--news-data);
+  }
+  [data-category="event"] {
+    --marker: var(--news-event);
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 9rem minmax(0, 1fr) auto;
+    gap: var(--space-4);
+    align-items: center;
+    padding: var(--space-3);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 3px 0 0 var(--marker), var(--admin-shadow-sm);
+  }
+  .row__thumb {
+    display: block;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-3);
+  }
+  .row__thumb img {
+    display: block;
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    object-position: 50% 30%;
+  }
+  .row__nothumb {
+    display: grid;
+    place-items: center;
+    block-size: 100%;
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .row__main {
+    display: grid;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .state {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 1.375rem;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+  }
+  .state--published {
+    background: var(--admin-ok-soft);
+    color: var(--admin-ok-text);
+  }
+  .state--scheduled {
+    background: var(--admin-accent-soft);
+    color: var(--color-link);
+  }
+  .state--draft {
+    border: 1px dashed var(--admin-control-border);
+    color: var(--color-fg-muted);
+  }
+  .row__home {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg-muted);
+  }
+  .row__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-snug);
+  }
+  .row__title a {
+    color: var(--color-fg);
+    text-decoration: none;
+  }
+  .row__title a:hover {
+    text-decoration: underline;
+  }
+  .row__slug {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    overflow-wrap: anywhere;
+  }
+  .row__actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .action {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 32px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    text-decoration: none;
+  }
+  .action:hover {
+    background: var(--admin-surface-2);
+  }
+  @media (max-width: 720px) {
+    .row {
+      grid-template-columns: 6rem minmax(0, 1fr);
+    }
+    .row__actions {
+      grid-column: 1 / -1;
+    }
+  }
+  @media (forced-colors: active) {
+    .row {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+</style>
