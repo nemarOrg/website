@@ -11,7 +11,7 @@
  *
  * Times are mid-morning in San Diego so the date reads the same in every
  * time zone a reader is likely to be in. `banner` is a file name looked up
- * in the directory passed to `seed-news.ts --images`.
+ * in the directory passed to `seed-news.mjs --images`.
  */
 
 export interface SeedPost {

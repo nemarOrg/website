@@ -2,7 +2,7 @@
  * Creates the first news posts (scripts/news-seed/posts.ts) through the
  * admin API, uploading each banner first (website#371).
  *
- *   NEMAR_API_KEY=... bun scripts/seed-news.ts --api https://api-test.nemar.org --images ~/Desktop
+ *   NEMAR_API_KEY=... bun scripts/seed-news.mjs --api https://api-test.nemar.org --images ~/Desktop
  *
  * Needs an admin's API key (the same kind the `nemar` CLI uses). PNG
  * screenshots are converted to WebP first (at most 2000 px wide, quality 88)
@@ -13,12 +13,12 @@
  */
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { NEWS_MEDIA_TYPES } from "../src/lib/news";
-import { SEED_POSTS } from "./news-seed/posts";
+import { NEWS_MEDIA_TYPES } from "../src/lib/news.ts";
+import { SEED_POSTS } from "./news-seed/posts.ts";
 
 const args = process.argv.slice(2);
-const flag = (name: string) => args.includes(`--${name}`);
-const option = (name: string): string | undefined => {
+const flag = (name) => args.includes(`--${name}`);
+const option = (name) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? args[i + 1] : undefined;
 };
@@ -31,14 +31,14 @@ const update = flag("update");
 
 if (!api || !images || (!key && !dryRun)) {
   console.error(
-    "Usage: NEMAR_API_KEY=... bun scripts/seed-news.ts --api <api origin> --images <dir> [--update] [--dry-run]",
+    "Usage: NEMAR_API_KEY=... bun scripts/seed-news.mjs --api <api origin> --images <dir> [--update] [--dry-run]",
   );
   process.exit(2);
 }
 
 const auth = { Authorization: `Bearer ${key}` };
 
-async function call(method: string, path: string, init: RequestInit = {}): Promise<unknown> {
+async function call(method, path, init = {}) {
   const res = await fetch(`${api}${path}`, {
     ...init,
     method,
@@ -49,16 +49,16 @@ async function call(method: string, path: string, init: RequestInit = {}): Promi
   return text ? JSON.parse(text) : null;
 }
 
-const typeFor = (file: string): string => {
+const typeFor = (file) => {
   const ext = file.toLowerCase().split(".").pop() ?? "";
   const type = NEWS_MEDIA_TYPES[ext === "jpeg" ? "jpg" : ext];
   if (!type) throw new Error(`${file}: not a PNG, JPEG, WebP, or GIF`);
   return type;
 };
 
-const existing = new Map<string, number>();
+const existing = new Map();
 if (!dryRun) {
-  const list = (await call("GET", "/admin/news")) as { posts?: { id: number; slug: string }[] };
+  const list = await call("GET", "/admin/news");
   for (const p of list.posts ?? []) existing.set(p.slug, p.id);
 }
 
@@ -79,10 +79,10 @@ for (const post of SEED_POSTS) {
   }
 
   const upload = await prepare(bannerPath);
-  const media = (await call("POST", "/admin/news/media", {
+  const media = await call("POST", "/admin/news/media", {
     headers: { "Content-Type": typeFor(upload) },
     body: await Bun.file(upload).arrayBuffer(),
-  })) as { url: string };
+  });
 
   const input = {
     slug: post.slug,
@@ -95,21 +95,21 @@ for (const post of SEED_POSTS) {
     status: "published",
     published_at: post.published_at,
   };
-  const saved = (await call(
+  const saved = await call(
     id === undefined ? "POST" : "PUT",
     id === undefined ? "/admin/news" : `/admin/news/${id}`,
     {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     },
-  )) as { post?: { id: number } };
+  );
   console.log(
     `${id === undefined ? "created" : "updated"} ${post.slug} as #${saved.post?.id ?? id}`,
   );
 }
 
 /** A WebP copy of a PNG when ImageMagick is available, else the file itself. */
-async function prepare(path: string): Promise<string> {
+async function prepare(path) {
   if (!path.toLowerCase().endsWith(".png") || !Bun.which("magick")) return path;
   const out = join(tmpdir(), `${basename(path, ".png")}.webp`);
   const proc = Bun.spawn(["magick", path, "-resize", "2000x>", "-quality", "88", out]);
@@ -120,6 +120,6 @@ async function prepare(path: string): Promise<string> {
   return after < before ? out : path;
 }
 
-function kb(bytes: number): string {
+function kb(bytes) {
   return `${Math.round(bytes / 1024)} KB`;
 }
