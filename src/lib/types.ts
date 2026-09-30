@@ -22,6 +22,15 @@ export interface Dataset {
    * been published. Optional because older snapshots predate the column.
    */
   first_published_at?: string | null;
+  /**
+   * When the latest version was released, as SQLite UTC
+   * (`YYYY-MM-DD HH:MM:SS`): the creation time of the newest version row, so it
+   * moves only when a new version ships. The card's "Updated" fact reads this
+   * instead of `updated_at`, which any write to the row bumps. Null when the
+   * dataset has no version yet. Optional because older snapshots predate the
+   * field.
+   */
+  latest_version_at?: string | null;
   owner_username: string | null;
   nemar_sync_status: string | null;
   source: "managed" | "catalog" | "nemar.org" | "openneuro" | string | null;
