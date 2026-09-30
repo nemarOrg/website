@@ -6,9 +6,9 @@ import type { Dataset } from "./types";
 
 // Both captured from production on 2026-09-30: the dashboard's counts manifest
 // (its twelve most cited rows and two rows with nothing counted) and the
-// catalog rows (api.nemar.org/datasets) of those twelve plus the catalog's own
-// stale leaders nm000275 (449 there, 67 on the dashboard) and on007763 (335
-// there, absent from the manifest).
+// catalog rows (api.nemar.org/datasets) of those twelve plus three of the
+// catalog's own stale leaders: nm000275 (449 there, 67 on the dashboard),
+// on007763 (335 there, absent from the manifest) and on006104.
 const manifest = parseCountsManifest(manifestFixture);
 const catalog = catalogFixture.datasets as unknown as Dataset[];
 
@@ -32,6 +32,10 @@ describe("parseCountsManifest", () => {
     expect(() => parseCountsManifest({ datasets: [] })).toThrow();
     expect(() =>
       parseCountsManifest({ schema: "nemar-citations/counts@2", datasets: [] }),
+    ).toThrow();
+    // An exact match: a prefix would also accept a future counts@10 or counts@1.1.
+    expect(() =>
+      parseCountsManifest({ schema: "nemar-citations/counts@10", datasets: [] }),
     ).toThrow();
   });
 
@@ -78,8 +82,8 @@ describe("mostCitedRows", () => {
 
   it("takes the larger count when the manifest lists an id twice", () => {
     const twice: CountRow[] = [
-      { dataset_id: "nm000114", num_citations: 3 },
       { dataset_id: "nm000114", num_citations: 170 },
+      { dataset_id: "nm000114", num_citations: 3 },
       { dataset_id: "on002778", num_citations: 2 },
     ];
     const { cited } = mostCitedRows(catalog, twice, 5);
@@ -123,5 +127,12 @@ describe("mostCitedRows", () => {
     const viaCatalog = mostCitedRows([pointer, ...others], null, 15);
     expect(ids(viaDashboard.cited)).not.toContain("nm000114");
     expect(ids(viaCatalog.cited)).not.toContain("nm000114");
+  });
+  it("joins on the id when a row has no dataset_id of its own", () => {
+    const row = catalog.find((d) => d.dataset_id === "nm000114") as Dataset;
+    const noDatasetId = { ...row, dataset_id: "" } as Dataset;
+    const others = catalog.filter((d) => d.dataset_id !== "nm000114");
+    const { cited } = mostCitedRows([noDatasetId, ...others], manifest, 5);
+    expect(cited.find((c) => c.id === "nm000114")?.citations).toBe(170);
   });
 });

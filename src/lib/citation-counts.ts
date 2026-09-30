@@ -16,13 +16,14 @@
  * catalog's own counts, as the card did before.
  */
 import { CITATION_DASHBOARD_URL, type CitedDataset, mostCited } from "./highlights";
+import { resolveSignal } from "./request-deadline";
 import { isHostedDataset } from "./stats";
 import type { Dataset } from "./types";
 
 export const CITATION_COUNTS_URL = `${CITATION_DASHBOARD_URL}api/index.json`;
 
 /** The manifest schema this code reads; another version falls back to the catalog. */
-const COUNTS_SCHEMA_PREFIX = "nemar-citations/counts@1";
+const COUNTS_SCHEMA = "nemar-citations/counts@1";
 
 export interface CountRow {
   readonly dataset_id: string;
@@ -33,8 +34,8 @@ export interface CountRow {
  * manifest; a malformed row is skipped, not trusted. */
 export function parseCountsManifest(body: unknown): CountRow[] {
   const manifest = body as { schema?: unknown; datasets?: unknown } | null;
-  if (typeof manifest?.schema !== "string" || !manifest.schema.startsWith(COUNTS_SCHEMA_PREFIX)) {
-    throw new Error(`citation counts manifest is not ${COUNTS_SCHEMA_PREFIX}`);
+  if (manifest?.schema !== COUNTS_SCHEMA) {
+    throw new Error(`citation counts manifest is not ${COUNTS_SCHEMA}`);
   }
   if (!Array.isArray(manifest.datasets)) {
     throw new Error("citation counts manifest has no datasets array");
@@ -56,7 +57,7 @@ export async function fetchCountsManifest(
   init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<CountRow[]> {
   const res = await fetch(CITATION_COUNTS_URL, {
-    signal: init.signal ?? AbortSignal.timeout(init.timeoutMs ?? 5000),
+    signal: resolveSignal(init),
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
@@ -75,7 +76,12 @@ export interface MostCitedResult {
  * The card's rows. The hosted catalog rows supply the datasets and their
  * names; the manifest (when there is one) supplies the counts, and a dataset
  * the manifest does not list counts as zero, so it is left out. Falls back to
- * the catalog's counts when the manifest is missing or names no served dataset.
+ * the catalog's counts when the manifest is missing or no served dataset has a
+ * count above zero (an empty, all-zero or unreadable-row manifest).
+ *
+ * The manifest is joined on the dataset id alone. nemar-cli's own sync also
+ * matches a `ds*` manifest row to its `on*` mirror through `source_id`; no
+ * nonzero `ds*` row has a served mirror today, so the card does not.
  */
 export function mostCitedRows(
   catalog: readonly Dataset[],
