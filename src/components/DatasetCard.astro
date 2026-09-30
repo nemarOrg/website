@@ -3,10 +3,10 @@ import {
   formatAuthorByline,
   formatBytes,
   formatChannels,
-  formatDate,
   safeSnippet,
   splitModalities,
 } from "../lib/format";
+import { formatReleaseDate } from "../lib/release-date";
 import { zarrTag } from "../lib/tags";
 import type { Dataset } from "../lib/types";
 import Tag from "./Tag.astro";
@@ -70,7 +70,11 @@ if (dataset.latest_version) {
     : `v${dataset.latest_version}`;
   facts.push({ label: "Version", value: version });
 }
-const updated = formatDate(dataset.updated_at);
+// "Updated" is the latest release date, never the row's `updated_at`: any
+// write to the row (an enrichment reindex, a DOI sync) bumps that one. See
+// formatReleaseDate in lib/release-date.ts. No fallback, so a row without a
+// version date shows no Updated fact.
+const updated = formatReleaseDate(dataset);
 if (updated) {
   facts.push({ label: "Updated", value: updated });
 }
