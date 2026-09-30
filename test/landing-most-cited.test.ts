@@ -26,7 +26,7 @@ describe("landing page most-cited card", () => {
 
   it("reads the dashboard's counts", () => {
     expect(code).toContain("fetchCountsManifest(");
-    expect(code).toMatch(/mostCitedRows\(\s*catalog,\s*manifest,\s*5\s*\)/);
+    expect(code).toMatch(/mostCitedRows\(\s*catalog,\s*manifest,\s*HIGHLIGHT_ROWS\s*\)/);
   });
 
   it("does not let a failed dashboard read fail the card", () => {

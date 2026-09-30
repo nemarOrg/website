@@ -12,6 +12,11 @@ import { listNews } from "../lib/news-api";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
 
+// How many rows each dataset list is given. The section sizes its three
+// columns by height, not by count (Highlights.astro): the lists show as many
+// whole rows as the row is tall, so this only has to be more than fit.
+const HIGHLIGHT_ROWS = 10;
+
 const uploadHref = appUrl("/upload", new URL(Astro.request.url).hostname);
 
 // The highlights under the hero start with the stats rather than after
@@ -53,7 +58,7 @@ const highlightsPending = Promise.all([
   highlight(
     "most cited",
     Promise.all([catalogPending, manifestPending]).then(([catalog, manifest]) => {
-      const result = mostCitedRows(catalog, manifest, 5);
+      const result = mostCitedRows(catalog, manifest, HIGHLIGHT_ROWS);
       citedFromCatalog = !result.fromDashboard;
       if (manifest !== null && citedFromCatalog) {
         console.warn(
@@ -65,8 +70,8 @@ const highlightsPending = Promise.all([
   ),
   highlight(
     "latest",
-    listDatasets({ sort: "newest", limit: 8 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) =>
-      latestDatasets(page.datasets, 5),
+    listDatasets({ sort: "newest", limit: 12 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) =>
+      latestDatasets(page.datasets, HIGHLIGHT_ROWS),
     ),
   ),
 ]);
