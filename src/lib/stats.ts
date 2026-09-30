@@ -60,10 +60,12 @@ export function aggregateHostedStats(rows: Dataset[]): HostedStats {
 const PAGE_SIZE = 200; // api.nemar.org caps a page at 200.
 
 /**
- * Fetch the whole catalog (paged) and aggregate the hosted subset. The first
- * call surfaces `total_count`; remaining pages are fetched in parallel.
+ * Fetch the whole public catalog (paged). The first call surfaces
+ * `total_count`; remaining pages are fetched in parallel. The landing page
+ * builds its hero stats and its "Most cited" card from these same rows, so the
+ * catalog is downloaded once per render.
  */
-export async function fetchHostedStats(init: { signal?: AbortSignal } = {}): Promise<HostedStats> {
+export async function fetchHostedRows(init: { signal?: AbortSignal } = {}): Promise<Dataset[]> {
   const first = await listDatasets({ limit: PAGE_SIZE, offset: 0 }, init);
   const total = first.total_count ?? first.count ?? first.datasets.length;
   const rows: Dataset[] = [...first.datasets];
@@ -78,13 +80,14 @@ export async function fetchHostedStats(init: { signal?: AbortSignal } = {}): Pro
   }
 
   // If the collected rows fall well short of total_count, some pages came back
-  // empty (e.g. a drifted/stale count) and the hosted figures would be silently
-  // understated — surface it in the Worker log rather than show a wrong number.
+  // empty (e.g. a drifted/stale count) and anything built from them would be
+  // silently understated — surface it in the Worker log rather than show a
+  // wrong number.
   if (total > PAGE_SIZE && rows.length < total * 0.9) {
     console.warn(
-      `[stats] fetchHostedStats: expected ~${total} catalog rows, received ${rows.length}; hosted totals may be understated`,
+      `[stats] fetchHostedRows: expected ~${total} catalog rows, received ${rows.length}; hosted totals may be understated`,
     );
   }
 
-  return aggregateHostedStats(rows);
+  return rows;
 }

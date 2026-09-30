@@ -3,44 +3,44 @@
  * own counts manifest, not from the catalog's `num_citations`.
  *
  * The catalog copy is written once a day by nemar-cli's cron, so it trails a
- * nightly run by most of a day, and a dataset that fell to zero used to keep
- * its old count there (the BCCWJ-MEG card read 335 after the gate left it
+ * nightly run by most of a day, and a dataset that left the dashboard manifest
+ * kept its old count there (the BCCWJ-MEG card read 335 after the gate left it
  * none). The dashboard manifest is what the dashboard itself shows, and it
  * updates within about an hour of the nightly run.
  *
  * The manifest carries ids and counts only, so the names come from the public
- * catalog, which also keeps a dataset that is not public off the card: the
- * dashboard counts every dataset it has a file for, and the catalog answers
- * 404 for one that is not public. The page falls back to the catalog ranking
- * when the manifest cannot be read.
+ * catalog rows the page has already downloaded for the hero stats. Those rows
+ * are exactly the datasets the catalog lists (public, active, not a sandbox),
+ * so a dataset that is not public cannot reach the card, and no extra request
+ * is made. When the manifest cannot be used, the same rows rank by the
+ * catalog's own counts, as the card did before.
  */
-import { getDataset } from "./api";
-import { type CitedDataset, mostCited } from "./highlights";
+import { CITATION_DASHBOARD_URL, type CitedDataset, mostCited } from "./highlights";
+import { isHostedDataset } from "./stats";
 import type { Dataset } from "./types";
 
-export const CITATION_COUNTS_URL = "https://dashboard.nemar.org/citations/api/index.json";
+export const CITATION_COUNTS_URL = `${CITATION_DASHBOARD_URL}api/index.json`;
 
-/** Datasets NEMAR hosts: managed (nm) and NEMAR-imported OpenNeuro (on). */
-const HOSTED_ID = /^(?:nm|on)\d{6}$/;
-
-/** Extra candidates looked up beyond the list length, so a few that the
- * catalog does not serve (not public yet) do not shorten the card. */
-const CANDIDATE_SLACK = 3;
+/** The manifest schema this code reads; another version falls back to the catalog. */
+const COUNTS_SCHEMA_PREFIX = "nemar-citations/counts@1";
 
 export interface CountRow {
   readonly dataset_id: string;
   readonly num_citations: number;
 }
 
-/** The rows of a counts manifest (`nemar-citations/counts@1`). Throws when the
- * body is not one; a malformed row is skipped, not trusted. */
+/** The rows of a counts manifest. Throws when the body is not a `counts@1`
+ * manifest; a malformed row is skipped, not trusted. */
 export function parseCountsManifest(body: unknown): CountRow[] {
-  const datasets = (body as { datasets?: unknown } | null)?.datasets;
-  if (!Array.isArray(datasets)) {
+  const manifest = body as { schema?: unknown; datasets?: unknown } | null;
+  if (typeof manifest?.schema !== "string" || !manifest.schema.startsWith(COUNTS_SCHEMA_PREFIX)) {
+    throw new Error(`citation counts manifest is not ${COUNTS_SCHEMA_PREFIX}`);
+  }
+  if (!Array.isArray(manifest.datasets)) {
     throw new Error("citation counts manifest has no datasets array");
   }
   const rows: CountRow[] = [];
-  for (const row of datasets as Array<Partial<CountRow> | null>) {
+  for (const row of manifest.datasets as Array<Partial<CountRow> | null>) {
     if (
       typeof row?.dataset_id === "string" &&
       typeof row.num_citations === "number" &&
@@ -50,19 +50,6 @@ export function parseCountsManifest(body: unknown): CountRow[] {
     }
   }
   return rows;
-}
-
-/** The `limit` best-cited hosted datasets, most cited first. A dataset with
- * nothing counted is left out, as is any id NEMAR does not host. */
-export function rankCandidates(rows: readonly CountRow[], limit: number): CountRow[] {
-  return rows
-    .filter((r) => HOSTED_ID.test(r.dataset_id) && r.num_citations > 0)
-    .sort(
-      (a, b) =>
-        b.num_citations - a.num_citations ||
-        (a.dataset_id < b.dataset_id ? -1 : a.dataset_id > b.dataset_id ? 1 : 0),
-    )
-    .slice(0, limit);
 }
 
 export async function fetchCountsManifest(
@@ -78,27 +65,37 @@ export async function fetchCountsManifest(
   return parseCountsManifest(await res.json());
 }
 
-/** The card's rows: ranked by the dashboard's counts, named by the catalog.
- * The manifest read and the name lookups share one deadline (`timeoutMs`), so
- * a slow dashboard costs the page that long once, not once per request. Throws
- * when nothing can be shown, so the caller can fall back. */
-export async function mostCitedFromDashboard(
+export interface MostCitedResult {
+  readonly cited: CitedDataset[];
+  /** False when the card fell back to the catalog's own counts. */
+  readonly fromDashboard: boolean;
+}
+
+/**
+ * The card's rows. The hosted catalog rows supply the datasets and their
+ * names; the manifest (when there is one) supplies the counts, and a dataset
+ * the manifest does not list counts as zero, so it is left out. Falls back to
+ * the catalog's counts when the manifest is missing or names no served dataset.
+ */
+export function mostCitedRows(
+  catalog: readonly Dataset[],
+  manifest: readonly CountRow[] | null,
   limit: number,
-  init: { timeoutMs?: number } = {},
-): Promise<CitedDataset[]> {
-  const signal = AbortSignal.timeout(init.timeoutMs ?? 5000);
-  const candidates = rankCandidates(await fetchCountsManifest({ signal }), limit + CANDIDATE_SLACK);
-  const looked = await Promise.allSettled(
-    candidates.map((c) => getDataset(c.dataset_id, { signal })),
-  );
-  const named: Dataset[] = [];
-  looked.forEach((result, i) => {
-    if (result.status === "fulfilled") {
-      named.push({ ...result.value, num_citations: candidates[i]?.num_citations ?? 0 });
+): MostCitedResult {
+  const hosted = catalog.filter(isHostedDataset);
+  if (manifest !== null) {
+    // The largest count when a manifest lists an id twice.
+    const counts = new Map<string, number>();
+    for (const r of manifest) {
+      counts.set(r.dataset_id, Math.max(counts.get(r.dataset_id) ?? 0, r.num_citations));
     }
-  });
-  if (named.length === 0) {
-    throw new Error("no cited dataset from the counts manifest is served by the catalog");
+    const ranked = mostCited(
+      hosted.map((d) => ({ ...d, num_citations: counts.get(d.dataset_id || d.id) ?? 0 })),
+      limit,
+    );
+    if (ranked.length > 0) {
+      return { cited: ranked, fromDashboard: true };
+    }
   }
-  return mostCited(named, limit);
+  return { cited: mostCited(hosted, limit), fromDashboard: false };
 }
