@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SIGNED_OUT_PATH } from "./auth";
 import {
   APP_HOST,
   MARKETING_BASE_URL,
@@ -541,5 +542,26 @@ describe("canonicalOriginFor", () => {
   it("keeps single-host mode on the marketing origin, as before", () => {
     expect(canonicalOriginFor("/dashboard", "localhost")).toBe(MARKETING_BASE_URL);
     expect(canonicalOriginFor("/discover", "abc.pages.dev")).toBe(MARKETING_BASE_URL);
+  });
+});
+
+// Sign-out is a form POST from the app host, so the page's CSP `form-action
+// 'self'` applies to every hop of the redirect chain. The logout response clears
+// the cookie, so the follow-up GET carries none. If it lands on a route the app
+// host does not own, the middleware 301s it to the marketing host, the browser
+// refuses the cross-origin hop, and the person is signed out while the page
+// stays put.
+describe("SIGNED_OUT_PATH", () => {
+  const url = (host: string, pathAndSearch: string) => new URL(`https://${host}${pathAndSearch}`);
+
+  it("is served by the app host itself, with no session cookie, in one hop", () => {
+    expect(isAppRoute(SIGNED_OUT_PATH)).toBe(true);
+    expect(getCrossHostRedirect(url(APP_HOST, SIGNED_OUT_PATH), { hasSession: false })).toBeNull();
+  });
+
+  it("is not the home page, which the app host sends to the marketing host", () => {
+    expect(getCrossHostRedirect(url(APP_HOST, "/"), { hasSession: false })).toBe(
+      `${MARKETING_BASE_URL}/`,
+    );
   });
 });

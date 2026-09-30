@@ -228,6 +228,13 @@ describe("backfillSearchHit", () => {
     expect(merged.participants).toBe(18);
   });
 
+  it("keeps the detail row's latest_version_at so search cards show Updated", () => {
+    // Search cards get their release date only through this merge; an explicit
+    // field list that forgot it would silently drop "Updated" from every hit.
+    const merged = backfillSearchHit(detailRow({ latest_version_at: "2026-09-16 17:22:05" }), hit);
+    expect(merged.latest_version_at).toBe("2026-09-16 17:22:05");
+  });
+
   it("backfills modalities/tasks/authors only where the detail row left a gap", () => {
     const merged = backfillSearchHit(
       detailRow({ modalities: "", tasks: "", authors: "Detail Author" }),

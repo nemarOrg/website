@@ -113,6 +113,20 @@ export interface AuthSession {
 
 export const SESSION_COOKIE_NAME = "nemar_session";
 
+/**
+ * Where a browser form POST to `/api/auth/logout` lands afterwards.
+ *
+ * It must be an app-host route, and it must not be `/`. The sign-out form is
+ * submitted from `app.nemar.org`, so the page's CSP carries `form-action
+ * 'self'`, and Chrome applies that to every hop of the redirect chain, not just
+ * the first. `/` is a marketing route: once the logout response has cleared the
+ * cookie, the middleware 301s `app.nemar.org/` to `nemar.org/`, which is
+ * cross-origin, and the browser refuses to follow it. The cookie is already
+ * gone by then, so the person is signed out while the page stays exactly where
+ * it was. `/login` is served by the app host itself, so the chain ends there.
+ */
+export const SIGNED_OUT_PATH = "/login";
+
 export function getSession(locals: App.Locals | undefined): AuthSession | null {
   return locals?.session ?? null;
 }
