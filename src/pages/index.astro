@@ -3,12 +3,14 @@ import Highlights from "../components/Highlights.astro";
 import StatTile from "../components/StatTile.astro";
 import Base from "../layouts/Base.astro";
 import { listDatasets } from "../lib/api";
+import { fetchCountsManifest, mostCitedRows } from "../lib/citation-counts";
 import { formatBytes, formatCount } from "../lib/format";
-import { latestDatasets, mostCited } from "../lib/highlights";
+import { latestDatasets } from "../lib/highlights";
 import { appUrl } from "../lib/host";
+import { landingCacheControl } from "../lib/landing-cache";
 import { listNews } from "../lib/news-api";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
-import { fetchHostedStats } from "../lib/stats";
+import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
 
 const uploadHref = appUrl("/upload", new URL(Astro.request.url).hostname);
 
@@ -27,16 +29,39 @@ async function highlight<T>(label: string, work: Promise<T>): Promise<T | null> 
     return null;
   }
 }
+// One catalog download serves the hero stats and the "most cited" card.
+const catalogPending = fetchHostedRows();
+// The dashboard's counts: a failure is logged and the card falls back.
+const manifestPending = fetchCountsManifest({ timeoutMs: DECORATIVE_TIMEOUT_MS }).catch((err) => {
+  console.warn(
+    `[index] highlights: dashboard counts unavailable, using the catalog: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  return null;
+});
+// Set when the card fell back to the catalog's own counts (or names no served
+// dataset, as on staging, whose catalog holds only exemplars).
+let citedFromCatalog = false;
 const highlightsPending = Promise.all([
   highlight(
     "news",
     listNews({ limit: 3 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) => page.posts),
   ),
+  // Ranked from the dashboard's own counts so the card is as fresh as the
+  // dashboard, named by the catalog rows the hero stats download anyway. When
+  // the dashboard cannot be used the same rows rank by the catalog's own
+  // (daily copied) counts. See lib/citation-counts.ts.
   highlight(
     "most cited",
-    listDatasets({ sort: "citations", limit: 5 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then(
-      (page) => mostCited(page.datasets, 5),
-    ),
+    Promise.all([catalogPending, manifestPending]).then(([catalog, manifest]) => {
+      const result = mostCitedRows(catalog, manifest, 5);
+      citedFromCatalog = !result.fromDashboard;
+      if (manifest !== null && citedFromCatalog) {
+        console.warn(
+          "[index] highlights: no served dataset has dashboard citations, using the catalog counts",
+        );
+      }
+      return result.cited;
+    }),
   ),
   highlight(
     "latest",
@@ -51,7 +76,7 @@ const highlightsPending = Promise.all([
 let stats = { datasets: 0, participants: 0, size: 0 };
 let statsAvailable = false;
 try {
-  stats = await fetchHostedStats();
+  stats = aggregateHostedStats(await catalogPending);
   // Live figures — even a genuine 0 is accurate, so no "approx." hint.
   statsAvailable = true;
 } catch (err) {
@@ -59,30 +84,17 @@ try {
   // catalog API is unreachable; flagged "approx." in the UI. Log at the Worker
   // edge so an outage is visible (matches discover.astro / api.ts).
   console.error(
-    `[index] fetchHostedStats failed, using snapshot: ${err instanceof Error ? err.message : String(err)}`,
+    `[index] fetchHostedRows failed, using snapshot: ${err instanceof Error ? err.message : String(err)}`,
   );
   stats = { datasets: 716, participants: 35_503, size: 51.5 * 1024 ** 4 };
 }
 
-// Cache policy depends on whether the figures are live:
-//  - Live: edge-cache 10 min, then refresh at least every 12 h. A returning
-//    visitor sees an at-most-12 h-stale count while a background revalidate runs.
-//  - Fallback (fetch threw): NEVER cache it. Caching one transient failure is
-//    what pinned the stale snapshot at the edge for a full day; `no-store` makes
-//    every request retry the live fetch until it succeeds.
+// The cache window follows what the fetches did; the rules, and why, are in
+// lib/landing-cache.ts.
 const [news, cited, latest] = await highlightsPending;
-// A missing highlight is not worth `no-store` (a news backend that is not
-// deployed yet would then cost every visit three API calls), but it should
-// not sit at the edge for ten minutes either.
-const highlightsComplete = news !== null && cited !== null && latest !== null;
-
 Astro.response.headers.set(
   "Cache-Control",
-  !statsAvailable
-    ? "no-store"
-    : highlightsComplete
-      ? "public, max-age=60, s-maxage=600, stale-while-revalidate=43200"
-      : "public, max-age=60, s-maxage=60",
+  landingCacheControl({ statsAvailable, news, cited, latest, citedFromCatalog }),
 );
 ---
 
