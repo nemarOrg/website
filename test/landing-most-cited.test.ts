@@ -1,14 +1,15 @@
 /**
  * Wiring guard for the front page's "Most cited datasets" card.
  *
- * `src/lib/citation-counts.test.ts` tests the ranking, but nothing there
- * proves the page still uses it. Source-level assertion, as in
+ * `src/lib/citation-counts.test.ts` tests the ranking and
+ * `src/lib/landing-cache.test.ts` the cache decision, but nothing there proves
+ * the page still uses them. Source-level assertion, as in
  * `test/dataset-card-updated.test.ts`: Astro files have no rendering harness
  * here.
  *
  * What this catches is the card going back to the catalog's `num_citations`
  * alone, which nemar-cli copies in once a day and which trails the dashboard
- * by most of a day; and a fallback render being cached as if it were complete,
+ * by most of a day; and a fallback render not reaching the cache decision,
  * which would pin the stale card at the edge for half a day.
  */
 
@@ -39,8 +40,8 @@ describe("landing page most-cited card", () => {
     expect(code).toContain("aggregateHostedStats(await catalogPending)");
   });
 
-  it("gives a render that fell back to the catalog counts the short cache window", () => {
+  it("tells the cache decision when the card fell back to the catalog counts", () => {
     expect(code).toMatch(/citedFromCatalog\s*=\s*!result\.fromDashboard/);
-    expect(code).toMatch(/!citedFromCatalog/);
+    expect(code).toMatch(/Cache-Control",\s*landingCacheControl\(\{[^}]*citedFromCatalog[^}]*\}\)/);
   });
 });
