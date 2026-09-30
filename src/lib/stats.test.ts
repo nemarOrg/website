@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { aggregateHostedStats, isHostedDataset } from "./stats";
+import { aggregateHostedStats, dedupeById, isHostedDataset } from "./stats";
+import STATS from "./stats.ts?raw";
 import type { Dataset } from "./types";
 
 /**
@@ -101,5 +102,37 @@ describe("aggregateHostedStats", () => {
 
   it("returns zeros for an empty catalog page", () => {
     expect(aggregateHostedStats([])).toEqual({ datasets: 0, participants: 0, size: 0 });
+  });
+});
+
+describe("dedupeById", () => {
+  it("keeps the first row of a dataset that arrives twice", () => {
+    // Offset paging under ORDER BY published_at DESC: a dataset published
+    // between two page fetches shifts the boundary rows, so one repeats.
+    const first = row({ id: "on004504", participants: 10 });
+    const again = row({ id: "on004504", participants: 99 });
+    const other = row({ id: "nm000114" });
+    expect(dedupeById([first, other, again])).toEqual([first, other]);
+  });
+
+  it("does not double count a repeated dataset in the hero stats", () => {
+    const a = row({ id: "on004504", source_type: "managed", participants: 10, file_size: 5 });
+    expect(aggregateHostedStats(dedupeById([a, { ...a }]))).toEqual({
+      datasets: 1,
+      participants: 10,
+      size: 5,
+    });
+  });
+
+  it("keys on dataset_id, falling back to id", () => {
+    const noDatasetId = row({ id: "nm000114", dataset_id: "" });
+    const sameViaId = row({ id: "nm000114" });
+    expect(dedupeById([noDatasetId, sameViaId])).toEqual([noDatasetId]);
+  });
+
+  it("is what fetchHostedRows returns", () => {
+    // fetchHostedRows pages the live catalog, so this pins the wiring at source
+    // level: dropping the call would put repeated boundary rows back.
+    expect(STATS).toMatch(/return dedupeById\(rows\);/);
   });
 });
