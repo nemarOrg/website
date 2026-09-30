@@ -42,10 +42,11 @@ export interface CitedDataset {
 }
 
 /**
- * The top `limit` datasets by citation count, from rows the API already
- * sorted with `sort=citations`. Sorted again here anyway, because the order
- * is what the column claims and it costs nothing to make it true. Rows with
- * no citations are left out: a zero in a "most cited" list says nothing.
+ * The top `limit` datasets by `num_citations`, most cited first, from any rows
+ * (the landing page passes catalog rows whose counts may be the dashboard's,
+ * see citation-counts.ts). Sorted here whatever the input order, because the
+ * order is what the column claims. Rows with no citations are left out: a zero
+ * in a "most cited" list says nothing.
  */
 export function mostCited(rows: readonly Dataset[], limit: number): CitedDataset[] {
   const ranked = rows

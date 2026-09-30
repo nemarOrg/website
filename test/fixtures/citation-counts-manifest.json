@@ -1,0 +1,90 @@
+{
+  "schema": "nemar-citations/counts@1",
+  "last_updated": "2026-09-30T16:35:16.536250+00:00",
+  "datasets": [
+    {
+      "dataset_id": "on004504",
+      "num_citations": 215,
+      "num_dataset_citations": 144,
+      "num_datapaper_citations": 71
+    },
+    {
+      "dataset_id": "on002778",
+      "num_citations": 214,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 214
+    },
+    {
+      "dataset_id": "nm000114",
+      "num_citations": 170,
+      "num_dataset_citations": 83,
+      "num_datapaper_citations": 87
+    },
+    {
+      "dataset_id": "on003739",
+      "num_citations": 161,
+      "num_dataset_citations": 1,
+      "num_datapaper_citations": 160
+    },
+    {
+      "dataset_id": "nm000132",
+      "num_citations": 160,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 160
+    },
+    {
+      "dataset_id": "nm000323",
+      "num_citations": 100,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 100
+    },
+    {
+      "dataset_id": "nm000224",
+      "num_citations": 99,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 99
+    },
+    {
+      "dataset_id": "nm000257",
+      "num_citations": 99,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 99
+    },
+    {
+      "dataset_id": "nm000338",
+      "num_citations": 99,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 99
+    },
+    {
+      "dataset_id": "nm000126",
+      "num_citations": 98,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 98
+    },
+    {
+      "dataset_id": "nm000252",
+      "num_citations": 98,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 98
+    },
+    {
+      "dataset_id": "on002893",
+      "num_citations": 98,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 98
+    },
+    {
+      "dataset_id": "ds004582",
+      "num_citations": 0,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 0
+    },
+    {
+      "dataset_id": "nm000182",
+      "num_citations": 0,
+      "num_dataset_citations": 0,
+      "num_datapaper_citations": 0
+    }
+  ]
+}
