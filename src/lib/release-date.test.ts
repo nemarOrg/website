@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { searchResultToDataset } from "./api";
 import { formatReleaseDate } from "./release-date";
 import type { Dataset } from "./types";
@@ -44,16 +44,15 @@ describe("formatReleaseDate", () => {
   describe.each(["America/Los_Angeles", "Pacific/Auckland"])(
     "reads the zoneless SQLite value as UTC, not as local time, in %s",
     (zone) => {
-      const originalZone = process.env.TZ;
-
+      // vi.stubEnv rather than `process.env`: `astro check` runs without Node
+      // types, so `process` does not typecheck in CI. It also restores (or
+      // removes) TZ afterwards.
       beforeEach(() => {
-        process.env.TZ = zone;
+        vi.stubEnv("TZ", zone);
       });
 
       afterEach(() => {
-        // Assigning undefined would store the string "undefined", so remove the key.
-        if (originalZone === undefined) Reflect.deleteProperty(process.env, "TZ");
-        else process.env.TZ = originalZone;
+        vi.unstubAllEnvs();
       });
 
       it("keeps the UTC calendar date just after midnight", () => {
