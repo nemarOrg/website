@@ -56,6 +56,20 @@ describe("mostCited", () => {
     }
   });
 
+  it("orders datasets with the same count by id, whatever the order they arrive in", () => {
+    // Real captured rows with their ids and counts set: three datasets tied on
+    // 99 citations, as rows 7 to 9 of the live card are.
+    const tied = ["on000009", "nm000100", "on000001"].map(
+      (id, i) => ({ ...cited[i], dataset_id: id, id, num_citations: 99 }) as Dataset,
+    );
+    const expected = ["nm000100", "on000001", "on000009"];
+    expect(mostCited(tied, 3).map((d) => d.id)).toEqual(expected);
+    expect(mostCited([...tied].reverse(), 3).map((d) => d.id)).toEqual(expected);
+    // Which of the tied datasets survives a cut does not depend on input order.
+    expect(mostCited(tied, 2).map((d) => d.id)).toEqual(expected.slice(0, 2));
+    expect(mostCited([...tied].reverse(), 2).map((d) => d.id)).toEqual(expected.slice(0, 2));
+  });
+
   it("re-sorts rows that arrive out of order", () => {
     const shuffled = [...cited].reverse();
     expect(mostCited(shuffled, 3).map((d) => d.id)).toEqual(mostCited(cited, 3).map((d) => d.id));

@@ -41,18 +41,27 @@ export interface CitedDataset {
   readonly href: string;
 }
 
+/** Ascending by dataset id: a total order for datasets with equal counts. */
+function compareIds(a: Dataset, b: Dataset): number {
+  const x = a.dataset_id || a.id;
+  const y = b.dataset_id || b.id;
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
 /**
  * The top `limit` datasets by `num_citations`, most cited first, from any rows
  * (the landing page passes catalog rows whose counts may be the dashboard's,
  * see citation-counts.ts). Sorted here whatever the input order, because the
- * order is what the column claims. Rows with no citations are left out: a zero
- * in a "most cited" list says nothing.
+ * order is what the column claims. Datasets with the same count are ordered by
+ * id, so which of several tied datasets shows does not depend on the order the
+ * catalog happened to return them in. Rows with no citations are left out: a
+ * zero in a "most cited" list says nothing.
  */
 export function mostCited(rows: readonly Dataset[], limit: number): CitedDataset[] {
   const ranked = rows
     .map((d) => ({ d, citations: d.num_citations ?? 0 }))
     .filter(({ citations }) => Number.isFinite(citations) && citations > 0)
-    .sort((a, b) => b.citations - a.citations)
+    .sort((a, b) => b.citations - a.citations || compareIds(a.d, b.d))
     .slice(0, limit);
   const top = ranked[0]?.citations ?? 0;
   return ranked.map(({ d, citations }) => ({
