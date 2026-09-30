@@ -109,7 +109,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
               Most cited datasets
             </h2>
             <p class="col__note">Citations to each dataset or its paper, all time.</p>
-            <ol class="ranks">
+            <ol class="ranks" role="list" data-fit>
               {cited.map((d, i) => (
                 <li class="rank">
                   <a class="rank__link" href={d.href} rel="external">
@@ -138,7 +138,7 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
               Latest datasets
             </h2>
             <p class="col__note">Newly published on NEMAR.</p>
-            <ul class="fresh" role="list">
+            <ul class="fresh" role="list" data-fit>
               {latest.map((d) => (
                 <li class="fresh__item">
                   <a class="fresh__link" href={d.href}>
@@ -229,10 +229,12 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     color: var(--color-fg-subtle);
   }
 
-  /* Right under its own list rather than bottom-aligned across the row: the
-     news column runs taller than the lists, and a pinned link left a gap. */
+  /* Pinned to the bottom of its column. The columns share one height (see
+     "Shared height" below) and the lists fill it, so the three links line up
+     instead of each sitting wherever its own content happens to end. */
   .col__more {
     align-self: flex-start;
+    margin-block-start: auto;
     padding-block-start: var(--space-4);
     font-size: var(--fs-sm);
     font-weight: var(--fw-medium);
@@ -397,6 +399,42 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
   .fresh__item + .fresh__item {
     border-block-start: 1px solid var(--color-border);
   }
+
+  /* ---- Shared height ----
+     The three columns are sized by height, not by how many rows each list
+     happens to hold. Side by side they sit in one grid row, so they are as
+     tall as the tallest (the news column, with its banner, unless it is
+     short), and each list takes the height it is given and shows as many
+     whole rows as fit. The page supplies more rows than fit; the rows with no
+     room wrap into a second, clipped flex column rather than being cut in
+     half. Stacked on a phone there is no row to share, so each list keeps the
+     first five. */
+  @media (max-width: 719.98px) {
+    .rank:nth-child(n + 6),
+    .fresh__item:nth-child(n + 6) {
+      display: none;
+    }
+  }
+  @media (min-width: 720px) {
+    .ranks,
+    .fresh {
+      display: flex;
+      flex-flow: column wrap;
+      /* Basis 0: the list's own length does not make its column taller, the
+         row's height does. The minimum is five of the taller rows (the latest
+         list's, about 5rem each), so a short or missing news column still
+         leaves the lists a body. */
+      flex: 1 1 0;
+      min-block-size: 26rem;
+      overflow: hidden;
+      overflow: clip;
+    }
+    .rank,
+    .fresh__item {
+      flex: none;
+      inline-size: 100%;
+    }
+  }
   .rank__link {
     display: grid;
     grid-template-columns: 1.5rem minmax(0, 1fr) auto;
@@ -511,6 +549,13 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     border-radius: var(--radius-sm);
   }
 
+  /* The lists clip (overflow), which would cut a ring drawn outside the row,
+     so the ring is drawn inside it. Later than the shared rule above. */
+  .rank__link:focus-visible,
+  .fresh__link:focus-visible {
+    outline-offset: -2px;
+  }
+
   @media (forced-colors: active) {
     .lead__text,
     .brief__link {
@@ -523,3 +568,35 @@ const columns = [hasNews, hasCited, hasLatest].filter(Boolean).length;
     }
   }
 </style>
+
+<script>
+  import { clippedFlags } from "../lib/highlight-fit";
+
+  // A row with no room is clipped, not removed (see "Shared height" above), so
+  // a keyboard user could still tab to a link they cannot see. Mark those rows
+  // inert: out of the tab order and the accessibility tree, like the rows a
+  // reader does not see. Without script the layout is unchanged.
+  function markClippedRows(list: HTMLElement): void {
+    const rows = Array.from(list.children);
+    const flags = clippedFlags(
+      rows.map((row) => row.getBoundingClientRect()),
+      list.getBoundingClientRect(),
+    );
+    rows.forEach((row, i) => row.toggleAttribute("inert", flags[i]));
+  }
+  const lists = Array.from(document.querySelectorAll<HTMLElement>("[data-fit]"));
+  // Watch the rows as well as the list: a row that changes height (a longer
+  // name, a larger font) moves the wrap point without resizing the list.
+  const observer = new ResizeObserver((entries) => {
+    const changed = new Set<HTMLElement>();
+    for (const { target } of entries) {
+      changed.add((target.closest("[data-fit]") ?? target) as HTMLElement);
+    }
+    for (const list of changed) markClippedRows(list);
+  });
+  for (const list of lists) {
+    markClippedRows(list);
+    observer.observe(list);
+    for (const row of Array.from(list.children)) observer.observe(row);
+  }
+</script>
