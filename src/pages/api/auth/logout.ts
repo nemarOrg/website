@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
-import { SESSION_COOKIE_NAME } from "../../../lib/auth";
+import { SESSION_COOKIE_NAME, SIGNED_OUT_PATH } from "../../../lib/auth";
 import { devClearSessionCookie } from "../../../lib/auth-dev";
 
 /**
@@ -30,7 +30,7 @@ export const POST: APIRoute = async ({ request }) => {
       return new Response(null, {
         status: 303,
         headers: {
-          Location: "/",
+          Location: SIGNED_OUT_PATH,
           "Cache-Control": "no-store",
           "Set-Cookie": devClearSessionCookie,
         },
@@ -75,7 +75,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (accept.includes("text/html")) {
-    const headers = new Headers({ Location: "/", "Cache-Control": "no-store" });
+    const headers = new Headers({ Location: SIGNED_OUT_PATH, "Cache-Control": "no-store" });
     const copied = copySetCookies(res, headers);
     if (!copied) headers.set("Set-Cookie", DEFENSIVE_CLEAR_COOKIE);
     return new Response(null, { status: 303, headers });
