@@ -3,6 +3,7 @@ import Highlights from "../components/Highlights.astro";
 import StatTile from "../components/StatTile.astro";
 import Base from "../layouts/Base.astro";
 import { listDatasets } from "../lib/api";
+import { mostCitedFromDashboard } from "../lib/citation-counts";
 import { formatBytes, formatCount } from "../lib/format";
 import { latestDatasets, mostCited } from "../lib/highlights";
 import { appUrl } from "../lib/host";
@@ -32,11 +33,20 @@ const highlightsPending = Promise.all([
     "news",
     listNews({ limit: 3 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) => page.posts),
   ),
+  // Ranked from the dashboard's own counts so the card is as fresh as the
+  // dashboard; the catalog ranking (a daily copy of the same counts) is the
+  // fallback when the dashboard cannot be read. See lib/citation-counts.ts.
   highlight(
     "most cited",
-    listDatasets({ sort: "citations", limit: 5 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then(
-      (page) => mostCited(page.datasets, 5),
-    ),
+    mostCitedFromDashboard(5, { timeoutMs: DECORATIVE_TIMEOUT_MS }).catch((err) => {
+      console.warn(
+        `[index] highlights: dashboard counts unavailable, using the catalog: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return listDatasets(
+        { sort: "citations", limit: 5 },
+        { timeoutMs: DECORATIVE_TIMEOUT_MS },
+      ).then((page) => mostCited(page.datasets, 5));
+    }),
   ),
   highlight(
     "latest",
