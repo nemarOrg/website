@@ -14,6 +14,10 @@ This file starts at `0.2.15`. For prior releases, see
 
 - **The Open Science Assistant is pinned to OSA 0.8.15** (`v0.8.15`, `db53bcc5`) on production and staging, with a new integrity value (ADR 0018, update 2026-09-25). It brings Python in Safari, SciPy for NEMAR's spectra and ERPs, and Copy and Download for a run's code and figures.
 
+### Fixed
+
+- **A dataset card's "Updated" date is now the latest release date.** It read the catalog row's `updated_at`, which any write to the row bumps (an enrichment reindex, a DOI sync), so a catalog-wide sweep made every card read the day of the sweep. It now reads the `latest_version_at` field from api.nemar.org and shows nothing when a row carries none (#384).
+
 ## [0.2.15] - 2026-09-21
 
 ### Added
