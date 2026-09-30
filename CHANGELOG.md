@@ -17,6 +17,7 @@ This file starts at `0.2.15`. For prior releases, see
 ### Fixed
 
 - **A dataset card's "Updated" date is now the latest release date.** It read the catalog row's `updated_at`, which any write to the row bumps (an enrichment reindex, a DOI sync), so a catalog-wide sweep made every card read the day of the sweep. It now reads the `latest_version_at` field from api.nemar.org and shows nothing when a row carries none (#384).
+- **Signing out lands on the login page.** The sign-out form redirected to `/`, which the middleware sends to `https://nemar.org/` once the session cookie is gone. Chrome applies the CSP `form-action 'self'` to every hop of a form redirect chain and refused that cross-host hop, so the person was signed out but the page did not move. It now redirects to `/login`, an app route, so the chain ends on the app host (#385).
 
 ## [0.2.15] - 2026-09-21
 
