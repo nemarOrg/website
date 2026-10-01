@@ -45,8 +45,10 @@
  * The widget script is a CLASSIC script, deliberately: it reads `document.currentScript.src`
  * to find its own runtime bundle on the same jsDelivr path, and `document.currentScript` is
  * `null` inside a `type="module"` script. It is `defer`red, so a slow or unreachable jsDelivr or
- * widget host never holds up the parser, the scripts after it, or the page's load event; a
- * deferred classic script still sets `document.currentScript`, runs once, and fires `onload`.
+ * widget host never holds up the parser or the scripts after it (the inline theme scripts in
+ * Base.astro). It does still delay `DOMContentLoaded` and the load event, which wait for deferred
+ * scripts: in Chrome, a deferred script whose host answered after 3 s moved both to about 3 s.
+ * A deferred classic script still sets `document.currentScript`, runs once, and fires `onload`.
  * `data-no-auto-init` on that same tag defers startup until the `onload` handler below calls
  * `window.OSAChatWidget.setConfig(...)` and `.init()` once the script has actually loaded.
  *
