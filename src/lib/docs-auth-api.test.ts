@@ -91,6 +91,15 @@ describe("requestDocsGrant", () => {
     expect(result).toEqual({ status: 200, body: { code: "abc", expires_in: 60 } });
   });
 
+  it("never follows a redirect, so the visitor's cookie cannot be resent elsewhere", async () => {
+    const cap = captureFetch(
+      new Response(null, { status: 307, headers: { Location: "https://elsewhere.example/" } }),
+    );
+    const result = await requestDocsGrant({ fetch: cap.fetch, origin: "https://app.nemar.org" });
+    expect(result).toEqual({ status: 307, body: null });
+    expect(cap.calls[0].redirect).toBe("manual");
+  });
+
   it("passes a 404 through as a status rather than treating it as an error", async () => {
     // A signed-in non-admin. `docsGrantOutcome` turns this into `/404`, so it
     // has to arrive as a status and not as a throw or a network sentinel.

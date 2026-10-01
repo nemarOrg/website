@@ -70,6 +70,11 @@ export async function requestDocsGrant(init: DocsGrantInit): Promise<DocsGrantRe
       // rather than a requirement: it keeps every POST from this codebase looking alike, and it
       // means adding a field later needs no change here.
       body: "{}",
+      // Never follow a redirect: the backend answers this route directly, so a 3xx means
+      // something between here and it is misrouting the request, and following it would resend
+      // the visitor's cookie to wherever it points. The 3xx comes back as its status, which
+      // `docsGrantOutcome` folds into `unavailable`.
+      redirect: "manual",
       // A mutation (it writes a code row), so the mutate-sized deadline rather than the read one.
       // This sits on the critical path of a redirect a person is waiting on, so it must be
       // bounded: an unbounded SSR fetch stalls the render until the platform's own ceiling.

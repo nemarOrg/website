@@ -317,7 +317,9 @@ describe("docsGrantOutcome", () => {
       );
       expect(docsGrantOutcome({ status: 429, body: {} }).kind).toBe("unavailable");
       expect(docsGrantOutcome({ status: 500, body: null }).kind).toBe("unavailable");
-      expect(warn).toHaveBeenCalledTimes(3);
+      // A redirect the client refused to follow, even one whose body looks like a grant.
+      expect(docsGrantOutcome({ status: 307, body: { code: "xyz" } }).kind).toBe("unavailable");
+      expect(warn).toHaveBeenCalledTimes(4);
     } finally {
       warn.mockRestore();
     }
