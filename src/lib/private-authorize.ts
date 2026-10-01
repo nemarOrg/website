@@ -62,24 +62,30 @@ export type PrivateHandoffTarget =
   | { readonly kind: "misconfigured"; readonly reason: string };
 
 /**
- * Whether an operator-supplied private-site base is a host this deployment may hand a live grant
- * code to: an absolute `https://` origin on `nemar.org` or a subdomain, with no path, query or
- * fragment. The value becomes the ORIGIN of a `Location` header carrying a one-time code, so a
- * missing scheme (which would make the redirect relative to this page) or a foreign host is
- * refused rather than honored.
+ * The origin of an operator-supplied private-site base when it is a host this deployment may hand
+ * a live grant code to, otherwise null: an absolute `https://` URL on `nemar.org` or a subdomain,
+ * with no credentials, no non-default port, and no path, query or fragment. The value becomes the
+ * ORIGIN of a `Location` header carrying a one-time code, so a missing scheme (which would make
+ * the redirect relative to this page) or a foreign host is refused rather than honored.
+ *
+ * The answer is the parsed `url.origin`, never the raw string, so what the redirect uses is the
+ * normalized form: a lowercase host, no `:443`, no bare `?` or `#` (which the URL parser accepts
+ * with an empty query or fragment), and no surrounding whitespace.
  */
-function isUsablePrivateSiteBase(value: string): boolean {
+function usablePrivateSiteOrigin(value: string): string | null {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    return false;
+    return null;
   }
-  if (url.protocol !== "https:") return false;
-  const host = url.hostname.toLowerCase();
-  if (host !== "nemar.org" && !host.endsWith(".nemar.org")) return false;
-  if (url.port) return false;
-  return (url.pathname === "/" || url.pathname === "") && !url.search && !url.hash;
+  if (url.protocol !== "https:") return null;
+  if (url.username || url.password) return null;
+  const host = url.hostname;
+  if (host !== "nemar.org" && !host.endsWith(".nemar.org")) return null;
+  if (url.port) return null;
+  if (url.pathname !== "/" || url.search || url.hash) return null;
+  return url.origin;
 }
 
 /**
@@ -95,13 +101,16 @@ export function privateHandoffTarget(
 ): PrivateHandoffTarget {
   const trim = (v: string) => v.replace(/\/$/, "");
   if (configuredBase) {
-    if (!isUsablePrivateSiteBase(configuredBase)) {
+    const origin = usablePrivateSiteOrigin(configuredBase);
+    if (origin === null) {
+      // The value itself is not echoed: a malformed one may carry credentials.
       return {
         kind: "misconfigured",
-        reason: `PRIVATE_SITE_BASE is ${JSON.stringify(configuredBase)}, which is not an https origin on a nemar.org host; a grant minted here would be redirected to a host that cannot spend it`,
+        reason:
+          "PRIVATE_SITE_BASE is set but is not an https origin on a nemar.org host (no credentials, port, path, query or fragment); a grant minted here would be redirected to a host that cannot spend it",
       };
     }
-    return { kind: "ready", base: trim(configuredBase) };
+    return { kind: "ready", base: origin };
   }
   if (trim(apiBaseUrl) === PROD_API_BASE) return { kind: "ready", base: PROD_PRIVATE_SITE_BASE };
   return {

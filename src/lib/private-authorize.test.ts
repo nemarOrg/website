@@ -112,6 +112,35 @@ describe("privateHandoffTarget", () => {
     ).toEqual({ kind: "ready", base: "https://private-test.nemar.org" });
   });
 
+  it("resolves a configured base to its normalized origin, never the raw string", () => {
+    for (const [configured, base] of [
+      ["https://private-test.nemar.org:443", "https://private-test.nemar.org"],
+      ["https://private-test.nemar.org/?", "https://private-test.nemar.org"],
+      ["https://private-test.nemar.org?", "https://private-test.nemar.org"],
+      ["https://private-test.nemar.org/#", "https://private-test.nemar.org"],
+      ["HTTPS://Private-Test.NEMAR.org", "https://private-test.nemar.org"],
+      ["  https://private-test.nemar.org/  ", "https://private-test.nemar.org"],
+    ] as const) {
+      expect(privateHandoffTarget("https://api-test.nemar.org", configured), configured).toEqual({
+        kind: "ready",
+        base,
+      });
+    }
+  });
+
+  it("refuses a configured base carrying credentials, and never echoes it", () => {
+    for (const bad of [
+      "https://user:secret@private-test.nemar.org",
+      "https://user@private-test.nemar.org",
+      "https://:secret@private-test.nemar.org",
+    ]) {
+      const target = privateHandoffTarget("https://api-test.nemar.org", bad);
+      expect(target.kind, bad).toBe("misconfigured");
+      expect(target.kind === "misconfigured" ? target.reason : "", bad).not.toContain("secret");
+      expect(target.kind === "misconfigured" ? target.reason : "", bad).not.toContain("user");
+    }
+  });
+
   it("refuses a non-production API with no configured base: the 501 case", () => {
     for (const api of ["https://api-test.nemar.org", "http://localhost:8787", ""]) {
       const target = privateHandoffTarget(api, null);
