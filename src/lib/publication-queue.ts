@@ -122,6 +122,60 @@ export function bucketQueue(
   return buckets;
 }
 
+/** Rows per page. The Published tab alone holds hundreds of datasets. */
+export const QUEUE_PAGE_SIZE = 50;
+
+export interface QueuePage<T> {
+  readonly items: readonly T[];
+  /** 1-based, already clamped into range. */
+  readonly page: number;
+  readonly pageCount: number;
+  readonly total: number;
+  /** 1-based position of the first and last item shown, both 0 when there are none. */
+  readonly from: number;
+  readonly to: number;
+}
+
+/**
+ * One page of a tab's rows. `param` is the raw `?page=` value: anything that is
+ * not a positive whole number is page 1, and a page past the end is the last
+ * page, so an old link or a tab that shrank (a request just got approved)
+ * still shows something instead of an empty page. There is always at least one
+ * page, so an empty tab still has "page 1 of 1".
+ */
+export function paginate<T>(
+  items: readonly T[],
+  param: string | null | undefined,
+  pageSize: number = QUEUE_PAGE_SIZE,
+): QueuePage<T> {
+  const total = items.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const requested = param && /^\d+$/.test(param) ? Number(param) : 1;
+  const page = Math.min(Math.max(requested, 1), pageCount);
+  const start = (page - 1) * pageSize;
+  const shown = items.slice(start, start + pageSize);
+  return {
+    items: shown,
+    page,
+    pageCount,
+    total,
+    from: shown.length === 0 ? 0 : start + 1,
+    to: start + shown.length,
+  };
+}
+
+/**
+ * The address of a tab and page. The default tab and the first page are left
+ * out, so the common links stay `/admin/publication-requests`.
+ */
+export function queueHref(tab: QueueTabId, page = 1): string {
+  const params = new URLSearchParams();
+  if (tab !== DEFAULT_QUEUE_TAB) params.set("status", tab);
+  if (page > 1) params.set("page", String(page));
+  const query = params.toString();
+  return query ? `/admin/publication-requests?${query}` : "/admin/publication-requests";
+}
+
 /** The shape of a NEMAR dataset id (`nm000290`, `on008862`). */
 const DATASET_ID_SHAPE = /^[a-z]{2}\d{6}$/;
 

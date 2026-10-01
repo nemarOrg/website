@@ -1,6 +1,7 @@
 ---
 import ConfirmDialog from "../../components/ConfirmDialog.astro";
 import PublicationRequestRow from "../../components/PublicationRequestRow.astro";
+import AdminPagination from "../../components/admin/AdminPagination.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { type PublicationRequest, listPublicationRequests } from "../../lib/admin-api";
 import { adminGate } from "../../lib/admin-guard";
@@ -8,10 +9,11 @@ import { getSession } from "../../lib/auth";
 import { DashboardApiError } from "../../lib/dashboard-api";
 import { WEB_PUBLISH_APPROVE_ENABLED } from "../../lib/flags";
 import {
-  DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
   backendDispatches,
   bucketQueue,
+  paginate,
+  queueHref,
   resolveQueueTab,
   rowView,
 } from "../../lib/publication-queue";
@@ -53,7 +55,12 @@ try {
         : "Could not load publication requests.";
 }
 
-const requests: readonly PublicationRequest[] = buckets[activeTab];
+// One page of the tab. The Published tab alone holds hundreds of datasets, and
+// the counts on the tabs stay totals.
+const paged = paginate(buckets[activeTab], url.searchParams.get("page"));
+const requests: readonly PublicationRequest[] = paged.items;
+const prevHref = paged.page > 1 ? queueHref(activeTab, paged.page - 1) : null;
+const nextHref = paged.page < paged.pageCount ? queueHref(activeTab, paged.page + 1) : null;
 // A run reports through the request's own status, so the page watches while the
 // backend holds a lease on any row in view.
 const refreshing = requests.some(
@@ -81,10 +88,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
   <nav class="admin-filters" aria-label="Filter by status">
     {QUEUE_TABS.map((tab) => {
-      const href =
-        tab.id === DEFAULT_QUEUE_TAB
-          ? "/admin/publication-requests"
-          : `/admin/publication-requests?status=${tab.id}`;
+      const href = queueHref(tab.id);
       const active = activeTab === tab.id;
       return (
         <a
@@ -108,6 +112,10 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
   {listError && <p class="admin-action-error" role="alert">{listError}</p>}
 
+  {!listError && (
+    <AdminPagination {...paged} label="Pages, top" prevHref={prevHref} nextHref={nextHref} />
+  )}
+
   {!listError && requests.length === 0 ? (
     <div class="admin-empty">
       <h2 class="admin-empty__title">{activeMeta.empty.title}</h2>
@@ -121,6 +129,10 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         </li>
       ))}
     </ul>
+  )}
+
+  {!listError && (
+    <AdminPagination {...paged} label="Pages, bottom" prevHref={prevHref} nextHref={nextHref} />
   )}
 
   <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>

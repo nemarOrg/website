@@ -5,12 +5,15 @@ import { deriveAdminBadgeState } from "./dashboard-api";
 import {
   APPROVAL_RUNS_URL,
   DEFAULT_QUEUE_TAB,
+  QUEUE_PAGE_SIZE,
   QUEUE_TABS,
   approvalPhase,
   backendDispatches,
   bucketQueue,
   cliApproveCommand,
   latestPerDataset,
+  paginate,
+  queueHref,
   resolveQueueTab,
   rowView,
   tabOf,
@@ -441,5 +444,89 @@ describe("rowView: the workflow runs link", () => {
     expect(APPROVAL_RUNS_URL).toBe(
       "https://github.com/nemarDatasets/.github/actions/workflows/approve-publication.yml",
     );
+  });
+});
+
+describe("paginate", () => {
+  const items = Array.from({ length: 780 }, (_, i) => i + 1);
+
+  it("shows 50 rows per page", () => {
+    expect(QUEUE_PAGE_SIZE).toBe(50);
+    const first = paginate(items, null);
+    expect(first.items).toHaveLength(50);
+    expect(first).toMatchObject({ page: 1, pageCount: 16, total: 780, from: 1, to: 50 });
+    expect(first.items[0]).toBe(1);
+    expect(first.items[49]).toBe(50);
+  });
+
+  it("slices the middle and the short last page", () => {
+    const third = paginate(items, "3");
+    expect(third).toMatchObject({ page: 3, from: 101, to: 150 });
+    expect(third.items[0]).toBe(101);
+    const last = paginate(items, "16");
+    expect(last.items).toHaveLength(30);
+    expect(last).toMatchObject({ page: 16, from: 751, to: 780 });
+  });
+
+  it("has an exact multiple with no empty trailing page", () => {
+    const exact = paginate(items.slice(0, 100), "2");
+    expect(exact).toMatchObject({ page: 2, pageCount: 2, from: 51, to: 100 });
+    expect(exact.items).toHaveLength(50);
+  });
+
+  it("keeps one empty page for an empty tab", () => {
+    expect(paginate([], null)).toEqual({
+      items: [],
+      page: 1,
+      pageCount: 1,
+      total: 0,
+      from: 0,
+      to: 0,
+    });
+  });
+
+  // A bookmark, a typo, or a tab that shrank after an approval must still land
+  // somewhere sensible rather than on an empty page.
+  it.each([null, undefined, "", "0", "-1", "abc", "2abc", "1e3", "1.5", " 2", "٣"])(
+    "reads %j as page 1",
+    (param) => {
+      expect(paginate(items, param).page).toBe(1);
+    },
+  );
+
+  it("clamps a page past the end to the last page", () => {
+    expect(paginate(items, "17").page).toBe(16);
+    expect(paginate(items, "999999999999").page).toBe(16);
+    expect(paginate(items.slice(0, 10), "5").page).toBe(1);
+  });
+
+  it("does not mutate its input", () => {
+    const copy = [...items];
+    paginate(items, "4");
+    expect(items).toEqual(copy);
+  });
+});
+
+describe("queueHref", () => {
+  it("leaves the default tab and the first page out", () => {
+    expect(queueHref("pending")).toBe("/admin/publication-requests");
+    expect(queueHref("pending", 1)).toBe("/admin/publication-requests");
+  });
+
+  it("names the tab and the page when they are not the defaults", () => {
+    expect(queueHref("published")).toBe("/admin/publication-requests?status=published");
+    expect(queueHref("published", 3)).toBe("/admin/publication-requests?status=published&page=3");
+    expect(queueHref("pending", 2)).toBe("/admin/publication-requests?page=2");
+  });
+
+  it("round-trips through resolveQueueTab and paginate", () => {
+    const url = new URL(`https://app.nemar.org${queueHref("denied", 4)}`);
+    expect(resolveQueueTab(url.searchParams.get("status"))).toBe("denied");
+    expect(
+      paginate(
+        Array.from({ length: 300 }, (_, i) => i),
+        url.searchParams.get("page"),
+      ).page,
+    ).toBe(4);
   });
 });
