@@ -317,7 +317,10 @@ export function derivePublishState(
  * keeps it as "awaiting_review" until the dataset row flips.
  */
 export function deriveAdminBadgeState(
-  publishStatus: PublicationStatus | null,
+  // Structural, so it takes both the owner-side `PublicationStatus` and an
+  // admin-queue row (`PublicationRequest`), which carries `block_reason` as a
+  // nullable column on every row rather than only on a blocked variant.
+  publishStatus: { readonly status: string; readonly block_reason?: string | null } | null,
 ): DatasetPublishState {
   if (!publishStatus || publishStatus.status === "none") return "draft";
   if (publishStatus.status === "published") return "published";

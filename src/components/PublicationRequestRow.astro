@@ -4,7 +4,7 @@ import {
   deriveAdminBadgeState,
   isAdminActionable,
 } from "../lib/admin-api";
-import { formatRelativeTime } from "../lib/format";
+import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -12,45 +12,82 @@ interface Props {
 }
 
 const { request } = Astro.props;
-const datasetId = request.status.dataset_id;
+const datasetId = request.dataset_id;
 // Admin-side badge derivation: status-only (no Dataset row needed). The
 // owner-side `derivePublishState` keeps "awaiting_review" until the dataset's
 // visibility actually flips; the admin queue surfaces the orchestrator's
 // terminal state directly.
-const state = deriveAdminBadgeState(request.status);
-const requestedAt = "requested_at" in request.status ? request.status.requested_at : null;
+const state = deriveAdminBadgeState(request);
 const actionable = isAdminActionable(request);
-const denyReason = request.status.status === "denied" ? request.status.denied_reason : null;
-const blockReason = request.status.status === "blocked" ? request.status.block_reason : null;
+
+// The backend writes `datetime('now')`: UTC with no zone marker. Show the age,
+// and keep the exact UTC instant in the tooltip for an admin who needs it.
+function when(raw: string | null): { relative: string; exact: string } | null {
+  const date = parseBackendTimestamp(raw);
+  if (!date) return null;
+  return {
+    relative: formatRelativeTime(date) || "—",
+    exact: `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`,
+  };
+}
+const requestedAt = when(request.requested_at);
+// What happened at the end of the request, when it has ended. `blocked` and
+// `approving` have no end time of their own.
+const decided =
+  request.status === "published"
+    ? { label: "Published", at: when(request.approved_at) }
+    : request.status === "denied"
+      ? { label: "Denied", at: when(request.denied_at) }
+      : null;
+
+// `block_reason` is not cleared when a blocked request later moves on, so a
+// published or denied row can still carry one. Only a blocked row's counts.
+const note =
+  request.status === "denied" && request.denied_reason
+    ? { label: "Reason", text: request.denied_reason }
+    : request.status === "blocked" && request.block_reason
+      ? { label: "Reason", text: request.block_reason }
+      : request.status === "approving" && request.last_error
+        ? {
+            label: request.current_step ? `Stopped at ${request.current_step}` : "Last error",
+            text: request.last_error,
+          }
+        : null;
 ---
 
 <article class="pubreq-row" data-pubreq-row data-dataset-id={datasetId}>
   <div class="pubreq-row__primary">
-    <div class="pubreq-row__heading">
-      <span class="pubreq-row__id">{datasetId}</span>
-      <h3 class="pubreq-row__name">{request.dataset_name}</h3>
-    </div>
+    <h3 class="pubreq-row__id">{datasetId}</h3>
     <PublishStateBadge state={state} />
   </div>
 
   <dl class="pubreq-row__meta">
     <div>
       <dt>Requested by</dt>
-      <dd>{request.owner_email}</dd>
+      <dd>
+        <span class="pubreq-row__line">{request.requested_by_username}</span>
+        <span class="pubreq-row__line pubreq-row__line--muted">{request.requested_by_email}</span>
+      </dd>
     </div>
     <div>
       <dt>Requested</dt>
-      <dd>{requestedAt ? formatRelativeTime(requestedAt) || "—" : "—"}</dd>
+      <dd title={requestedAt?.exact}>{requestedAt?.relative ?? "—"}</dd>
     </div>
+    {decided && (
+      <div>
+        <dt>{decided.label}</dt>
+        <dd title={decided.at?.exact}>{decided.at?.relative ?? "—"}</dd>
+      </div>
+    )}
     <div>
       <dt>Status</dt>
-      <dd>{request.status.status}</dd>
+      <dd>{request.status}</dd>
     </div>
   </dl>
 
-  {(denyReason || blockReason) && (
+  {note && (
     <p class="pubreq-row__reason" role="note">
-      <strong>Reason:</strong> {denyReason ?? blockReason}
+      <strong>{note.label}:</strong> {note.text}
     </p>
   )}
 
@@ -102,19 +139,10 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
     gap: var(--space-3);
     flex-wrap: wrap;
   }
-  .pubreq-row__heading {
-    display: grid;
-    gap: 2px;
-    min-inline-size: 0;
-  }
   .pubreq-row__id {
-    font-family: var(--font-mono);
-    font-size: var(--fs-xs);
-    color: var(--admin-text-3);
-  }
-  .pubreq-row__name {
     margin: 0;
-    font-family: var(--font-display);
+    min-inline-size: 0;
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     font-weight: var(--fw-semibold);
     letter-spacing: -0.005em;
@@ -144,6 +172,15 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .pubreq-row__line {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pubreq-row__line--muted {
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
   }
   .pubreq-row__reason {
     margin: 0;
