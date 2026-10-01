@@ -52,3 +52,4 @@ Add new entries here as you create ADRs:
 - ADR 0018 - [Embed the Open Science Assistant widget site-wide, pinned per environment](0018-embed-osa-widget-site-wide.md) (accepted)
 - ADR 0019 - [Default-on anonymous analytics with a shared opt-out](0019-default-on-analytics-shared-opt-out.md) (accepted)
 - ADR 0020 - [News images are site-relative, content-addressed, and served same-origin](0020-news-images-same-origin-content-addressed.md) (accepted)
+- ADR 0021 - [A page-set `no-referrer` survives the middleware's security headers](0021-page-set-no-referrer-wins-in-middleware.md) (accepted)
