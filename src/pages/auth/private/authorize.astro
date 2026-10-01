@@ -81,6 +81,7 @@ if (state !== null) {
   // Checked BEFORE the grant is minted: on a deployment whose private-site base is not configured
   // and whose API is not production, a grant could only be spent by a private site that never saw
   // it. `PRIVATE_SITE_BASE` is server configuration, never taken from the request.
+  // Production sets none: with the production API, the in-code default applies (private.nemar.org).
   const handoff = privateHandoffTarget(apiBase(), import.meta.env.PRIVATE_SITE_BASE ?? null);
 
   if (!session) {
