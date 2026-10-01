@@ -402,22 +402,33 @@ Production is not changed: `wrangler.toml` still pins `db53bcc` with its hash.
 
 ## Update 2026-10-01: production's pin moves to OSA 0.8.16
 
-OSA 0.8.16 is released, tagged `v0.8.16` at `0e966d60821dfc007928e46f80098ec9daf86b67`.
+The decision stands; only the pinned commit and its hash moved.
+
+OSA 0.8.16 is released (OSA PR #562, <https://github.com/OpenScience-Collective/osa/releases/tag/v0.8.16>), tagged `v0.8.16` at `0e966d60821dfc007928e46f80098ec9daf86b67`.
 Production (`wrangler.toml` `[vars]`) now pins that commit, with
 `sha384-+eweaUHPTuzDVWdLIvO+EsdQEJxJ/4bVi5xK2rtXMwojX3u0yHHwTlJZNr9Ufvwk`.
 The same value was computed from GitHub's file at the commit and from jsDelivr's copy, which are byte-identical (399,337 bytes),
 and jsDelivr's `@v0.8.16` alias serves the same bytes, so the tag and the pinned commit agree.
-The recipe that reproduces the recorded `0.8.15` hash from jsDelivr reproduced it again before this one was trusted.
+OSA's release notes publish the same hash in their own embed snippet.
+
+To recompute it for any commit:
+`curl -sL "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@<sha>/frontend/osa-chat-widget.js" | openssl dgst -sha384 -binary | openssl base64 -A`,
+then prefix the output with `sha384-`.
+The same command reproduces the recorded `0.8.15` hash, which was checked before this one was trusted.
 
 Staging is not touched: it follows `develop` and carries no hash (update 2026-09-29).
 
-The release adds widget settings for the launcher (OSA #555): `launcherPosition`, `launcherSize`, `launcherOpenSize`,
+The release brings the reading-pace reveal of streamed replies (OSA #533), labels for what a pending reply is doing (#542), and launcher settings (#555):
+`launcherPosition`, `launcherSize`, `launcherOpenSize`,
 and desktop and mobile offsets `launcherOffsetX`, `launcherOffsetY`, `launcherMobileOffsetX`, `launcherMobileOffsetY`.
-This site sets none of them; the widget's own defaults apply, exactly as before the repin.
-The site's CSP needs no change: the set of hosts named in the widget's source is identical between `0.8.15` and `0.8.16`.
+This site sets none of them.
+NEMAR's community config in OSA (`src/assistants/nemar/config.yaml`) sets five of them, written out at the values the launcher already had (bottom right, 58 px closed, 46 px open, 20 px offsets), and sets no mobile offsets, so nothing moves.
+Moving or resizing the launcher means changing that config in OSA, or passing the settings from `setConfig` here (website#403).
+
+The site's CSP needs no change: the set of hosts named in the widget's source is identical between `0.8.15` and `0.8.16`, and the runtime bundle `osa-runtime.bundle.js`, which the widget loads beside it, is byte-identical (93,685 bytes).
 
 ### Receipts (update, 0.8.16)
 
 - osa tag `v0.8.16` resolves to commit `0e966d6`; the release notes list OSA #555 among the widget changes.
-- The `wrangler.toml` values, read from the file and passed to `resolveOsaWidget`, resolve to `ready`.
-  The unit tests in `src/lib/osa-widget.test.ts` use fixture values and do not read `wrangler.toml`, so this was checked by hand.
+- `src/lib/osa-widget.test.ts`, "the production pin in wrangler.toml": the values in `wrangler.toml` resolve to a ready widget, with a commit-pinned src and a hash.
+  Before this test the check was manual, and a malformed production pin degrades to no widget and a console warning, with nothing failing in CI.
