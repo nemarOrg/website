@@ -12,7 +12,6 @@ import {
   isNoindexHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
-import { PRIVATE_AUTHORIZE_PAGE_PATH } from "./lib/private-authorize";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -289,28 +288,27 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * inline and are deliberately left out: they carry no body, and anyone
  * checking which build is live follows the redirect to a real response
  * anyway.
+ *
+ * `Referrer-Policy` is the one header a page may tighten: a response that
+ * already says `no-referrer` keeps it, and anything else gets the site-wide
+ * `strict-origin-when-cross-origin`. The private-site sign-in hop
+ * (`/auth/private/authorize`) relies on this, because its own URL carries a
+ * `state` that must not leave in a `Referer`. The value the page set is the
+ * signal, not the path: Astro decodes a request path before routing, so
+ * `/auth/private/%61uthorize` renders that page while a path comparison here
+ * would not recognize it. Only `no-referrer` is honored, so a page can make
+ * the policy stricter and never looser (ADR 0021).
  */
 export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
+  // Read BEFORE the loop below overwrites it.
+  const pageSetNoReferrer = headers.get("Referrer-Policy") === "no-referrer";
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
-  headers.set("Referrer-Policy", referrerPolicy(pathname));
+  if (pageSetNoReferrer) headers.set("Referrer-Policy", "no-referrer");
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
   headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
-}
-
-/**
- * `Referrer-Policy` for a route: the site-wide `strict-origin-when-cross-origin`, except the
- * private-site sign-in hop, whose own URL carries the `state` the private site bound to the
- * browser. `no-referrer` keeps that URL out of the `Referer` of whatever request follows, the
- * redirect to the private site's callback included; the page sets it on its own responses, and
- * this is what stops the line above from overwriting it.
- */
-export function referrerPolicy(pathname: string): string {
-  return pathname.replace(/\/$/, "") === PRIVATE_AUTHORIZE_PAGE_PATH
-    ? "no-referrer"
-    : STATIC_SECURITY_HEADERS["Referrer-Policy"];
 }
 
 /** Apply the security headers to a response and return it (passthrough paths). */

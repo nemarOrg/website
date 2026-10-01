@@ -12,11 +12,11 @@
  * `docs-contract-drift.ts`, whose own behavior that test already covers.
  *
  * WHAT IS COMPARED. Only the literals this page uses: the authorize path, the `state` parameter
- * name and the callback path. The authorize path is checked twice, as the constant the middleware
- * keys `Referrer-Policy` on and as the page FILE the contract points at, because a rename that
- * moved one without the other would either break the first hop or silently drop the no-referrer
- * header. The grant and session lifetimes are the backend's and the private site's business; this
- * page never reads them, so it does not mirror them.
+ * name and the callback path. The authorize path is checked twice, as the constant the page
+ * builds its sign-in return address from and as the page FILE the contract points at, because a
+ * rename that moved one without the other would send a visitor back from sign-in to a page that
+ * does not exist. The grant and session lifetimes are the backend's and the private site's
+ * business; this page never reads them, so it does not mirror them.
  */
 
 import { describe, expect, it } from "vitest";
