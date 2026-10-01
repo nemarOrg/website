@@ -85,7 +85,9 @@ const signInHref = appUrl("/login", url.hostname);
       </ul>
     </nav>
     <div class="site-header__actions">
-      <ThemeToggle />
+      <div class="site-header__theme">
+        <ThemeToggle />
+      </div>
       {
         showUserMenu ? (
           <UserMenu session={session} />
@@ -179,6 +181,7 @@ const signInHref = appUrl("/login", url.hostname);
     color: var(--color-fg);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
+    white-space: nowrap;
     background: transparent;
     text-decoration: none;
     transition: background 0.15s ease, border-color 0.15s ease;
@@ -189,19 +192,50 @@ const signInHref = appUrl("/login", url.hostname);
   }
   .nav-toggle {
     display: none;
+    inline-size: 44px;
+    block-size: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
     color: var(--color-fg);
+    transition: background 0.15s ease;
   }
+  .nav-toggle:hover {
+    background: var(--color-bg-elevated);
+  }
+  /* The breakpoint below is mirrored by UserMenu.astro, whose dropdown panel
+     re-anchors to the header at the same width. Change them together. */
   @media (max-width: 880px) {
-    .primary-nav,
-    .site-header__actions {
+    .primary-nav {
       display: none;
+    }
+    /* Sign in, or the account menu, stays in the header row next to the
+       hamburger. It used to be hidden here along with the links, which left a
+       phone with no way to sign in and a signed-in user with no way to reach
+       Upload, My datasets, Settings or Admin. The theme toggle is the one
+       control that stays desktop-only: the row has no room for a third pill
+       beside the logo at 320px. Signed-in readers still reach the same choice
+       under Appearance in Settings; signed-out phones have no theme control. */
+    .site-header__theme {
+      display: none;
+    }
+    /* The marketing host's own Sign in link, sized like the account control
+       UserMenu.astro renders everywhere else. */
+    .site-header__signin {
+      min-block-size: 44px;
     }
     .nav-toggle {
       display: inline-flex;
-      justify-self: end;
+      /* Pull the 44px hit area out into the gutter so the glyph, not the box,
+         sits on the page's right content edge. */
+      margin-inline-end: calc((44px - 24px) / -2);
     }
     .site-header__inner {
-      grid-template-columns: auto 1fr;
+      grid-template-columns: auto 1fr auto;
+      gap: var(--space-2);
+    }
+    .site-header__actions {
+      justify-self: end;
     }
     .primary-nav.is-open {
       display: block;
@@ -219,15 +253,35 @@ const signInHref = appUrl("/login", url.hostname);
       gap: var(--space-4);
     }
   }
-
+  /* Below ~340px the 36px logo, the Sign in pill and the hamburger no longer fit
+     one row; at 320px the pill was squeezed until its label wrapped to two
+     lines. A shorter logo buys the room back and leaves the tap targets alone.
+     `:global` because the logo's height is set inside Brand.astro's own scope. */
+  @media (max-width: 340px) {
+    .site-header__inner :global(.brand-svg) {
+      block-size: 30px;
+    }
+  }
 </style>
 
 <script>
+  // The link panel and the account menu both hang from the header on a phone,
+  // so only one may be open at a time; each closes the other.
+  const userMenu = document.querySelector<HTMLDetailsElement>("[data-user-menu]");
+
   document.querySelectorAll<HTMLButtonElement>("[data-nav-toggle]").forEach((btn) => {
+    const nav = document.querySelector<HTMLElement>(".primary-nav");
+
     btn.addEventListener("click", () => {
-      const nav = document.querySelector<HTMLElement>(".primary-nav");
       const open = nav?.classList.toggle("is-open") ?? false;
       btn.setAttribute("aria-expanded", String(open));
+      if (open && userMenu) userMenu.open = false;
+    });
+
+    userMenu?.addEventListener("toggle", () => {
+      if (!userMenu.open) return;
+      nav?.classList.remove("is-open");
+      btn.setAttribute("aria-expanded", "false");
     });
   });
 </script>
