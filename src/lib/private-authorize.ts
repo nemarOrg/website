@@ -292,3 +292,17 @@ export const PRIVATE_AUTHORIZE_HEADERS: Readonly<Record<string, string>> = {
   "Referrer-Policy": "no-referrer",
   "X-Robots-Tag": "noindex",
 };
+
+/**
+ * The 405 for any method but GET, or null for GET. The page is reached by a top-level navigation
+ * from the private site, which is always a GET; anything else is refused before the `state` is
+ * read or a grant is minted. HEAD included: Astro renders a page's frontmatter for HEAD too, so
+ * without this a HEAD request would mint a grant whose code nobody receives.
+ */
+export function privateMethodRefusal(method: string): Response | null {
+  if (method === "GET") return null;
+  return new Response(null, {
+    status: 405,
+    headers: { Allow: "GET", ...PRIVATE_AUTHORIZE_HEADERS },
+  });
+}

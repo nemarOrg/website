@@ -38,6 +38,7 @@ import {
   privateGrantOutcome,
   privateHandoffTarget,
   privateLoginRedirect,
+  privateMethodRefusal,
   privateState,
 } from "../../../lib/private-authorize";
 
@@ -56,6 +57,10 @@ function handoffRedirect(location: string): Response {
 for (const [name, value] of Object.entries(PRIVATE_AUTHORIZE_HEADERS)) {
   Astro.response.headers.set(name, value);
 }
+
+// GET only, refused before anything is read or minted. HEAD would otherwise mint a grant.
+const methodRefusal = privateMethodRefusal(Astro.request.method);
+if (methodRefusal !== null) return methodRefusal;
 
 const url = new URL(Astro.request.url);
 // Validated before anything else, so a missing or malformed `state` is refused before a grant is

@@ -15,6 +15,7 @@ import {
   privateGrantOutcome,
   privateHandoffTarget,
   privateLoginRedirect,
+  privateMethodRefusal,
   privateState,
 } from "./private-authorize";
 import { pageViewForPathname } from "./umami-analytics";
@@ -353,5 +354,23 @@ describe("the rendered panels", () => {
       "Referrer-Policy": "no-referrer",
       "X-Robots-Tag": "noindex",
     });
+  });
+});
+
+describe("privateMethodRefusal", () => {
+  it("lets GET through", () => {
+    expect(privateMethodRefusal("GET")).toBeNull();
+  });
+
+  it("answers every other method, HEAD included, 405 with Allow: GET and the page's headers", async () => {
+    for (const method of ["HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+      const res = privateMethodRefusal(method);
+      expect(res?.status, method).toBe(405);
+      expect(res?.headers.get("Allow"), method).toBe("GET");
+      for (const [name, value] of Object.entries(PRIVATE_AUTHORIZE_HEADERS)) {
+        expect(res?.headers.get(name), `${method} ${name}`).toBe(value);
+      }
+      expect(await res?.text(), method).toBe("");
+    }
   });
 });

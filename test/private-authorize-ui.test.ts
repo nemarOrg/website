@@ -27,6 +27,15 @@ function at(needle: string): number {
 }
 
 describe("the order of checks", () => {
+  it("refuses any method but GET before the state is read or a grant requested", () => {
+    const methodAt = at("privateMethodRefusal(Astro.request.method)");
+    expect(FRONTMATTER).toContain("if (methodRefusal !== null) return methodRefusal;");
+    expect(methodAt).toBeGreaterThan(at("Astro.response.headers.set(name, value)"));
+    expect(at("privateState(")).toBeGreaterThan(methodAt);
+    expect(at("getSession(Astro.locals)")).toBeGreaterThan(methodAt);
+    expect(at("await requestPrivateGrant(")).toBeGreaterThan(methodAt);
+  });
+
   it("validates the state before the session check, the target check and the grant", () => {
     const stateAt = at("privateState(url.searchParams.get(PRIVATE_AUTHORIZE_STATE_PARAM))");
     expect(at("getSession(Astro.locals)")).toBeGreaterThan(stateAt);
