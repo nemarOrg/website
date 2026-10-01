@@ -10,8 +10,10 @@ import { WEB_PUBLISH_APPROVE_ENABLED } from "../../lib/flags";
 import {
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
+  backendDispatches,
   bucketQueue,
   resolveQueueTab,
+  rowView,
 } from "../../lib/publication-queue";
 
 const session = getSession(Astro.locals);
@@ -34,10 +36,14 @@ const activeTab = resolveQueueTab(url.searchParams.get("status"));
 // a per-status fetch cannot see. See `lib/publication-queue.ts`.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 let buckets = bucketQueue([]);
+// Whether the backend can start an approval at all. A site deployed ahead of
+// its backend must not promise that approval keeps going without the page.
+let webApproval = false;
 let listError: string | null = null;
 try {
   const result = await listPublicationRequests({}, { cookieHeader });
   buckets = bucketQueue(result.requests);
+  webApproval = WEB_PUBLISH_APPROVE_ENABLED && backendDispatches(result.requests);
 } catch (err) {
   listError =
     err instanceof DashboardApiError
@@ -48,15 +54,21 @@ try {
 }
 
 const requests: readonly PublicationRequest[] = buckets[activeTab];
+// A run reports through the request's own status, so the page watches while the
+// backend holds a lease on any row in view.
+const refreshing = requests.some(
+  (r) => rowView(r, WEB_PUBLISH_APPROVE_ENABLED).progress?.active === true,
+);
 const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 ---
 
 <AdminLayout title="Publication requests" active="publications" session={session}>
   <Fragment slot="lede">
-    {WEB_PUBLISH_APPROVE_ENABLED ? (
+    {webApproval ? (
       <>
         Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
-        publicly visible. Each dataset is listed once, under its most recent request.
+        publicly visible. It runs in GitHub Actions, so it continues if you close this page. Each
+        dataset is listed once, under its most recent request.
       </>
     ) : (
       <>
@@ -87,6 +99,13 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     })}
   </nav>
 
+  {refreshing && (
+    <p class="admin-refresh-note" data-refresh-note>
+      This page refreshes every 20 seconds while an approval is active.
+      <button type="button" class="admin-refresh-note__toggle" data-refresh-toggle>Pause</button>
+    </p>
+  )}
+
   {listError && <p class="admin-action-error" role="alert">{listError}</p>}
 
   {!listError && requests.length === 0 ? (
@@ -106,15 +125,32 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
   <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
 
-  {WEB_PUBLISH_APPROVE_ENABLED && (
-    <ConfirmDialog
-      dialogId="admin-approve"
-      title="Approve and publish?"
-      body="This is irreversible. The dataset becomes public immediately and a DOI is minted."
-      confirmLabel="Approve and publish"
-      confirmTone="primary"
-      requireTyping="PUBLISH"
-    />
+  {webApproval && (
+    <>
+      <ConfirmDialog
+        dialogId="admin-approve"
+        title="Approve and publish?"
+        body="This is irreversible. The dataset becomes public and a DOI is minted. It runs in GitHub Actions and continues if you close this page."
+        confirmLabel="Approve and publish"
+        confirmTone="primary"
+        requireTyping="PUBLISH"
+      />
+      <ConfirmDialog
+        dialogId="admin-approve-anonymous"
+        title="Approve this anonymous release?"
+        body="This is irreversible. The data becomes public and the depositor is not named. The repository stays private and no DOI is published. It runs in GitHub Actions and continues if you close this page."
+        confirmLabel="Approve anonymous release"
+        confirmTone="primary"
+        requireTyping="PUBLISH"
+      />
+      <ConfirmDialog
+        dialogId="admin-resume"
+        title="Continue this approval?"
+        body="It continues from the last finished step in GitHub Actions. Steps already done are not repeated."
+        confirmLabel="Continue approval"
+        confirmTone="primary"
+      />
+    </>
   )}
 
   <ConfirmDialog
@@ -178,6 +214,21 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
       color: HighlightText;
     }
   }
+  .admin-refresh-note {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .admin-refresh-note__toggle {
+    margin-inline-start: var(--space-2);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--color-link);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+  }
   .admin-empty {
     display: grid;
     gap: var(--space-1);
@@ -232,7 +283,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 </style>
 
 <script>
-  import { approvePublicationRequest, denyPublicationRequest } from "../../lib/admin-api";
+  import { denyPublicationRequest, dispatchPublicationApproval } from "../../lib/admin-api";
   import { DashboardApiError } from "../../lib/dashboard-api";
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
@@ -240,6 +291,14 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
   const FRIENDLY: Record<string, string> = {
     forbidden: "You no longer have admin access. Sign in again.",
     not_invitable: "This request is no longer pending.",
+    already_in_flight: "An approval is already running for this dataset. Give it a minute, then refresh.",
+    not_dispatchable: "This request is blocked, so it cannot be approved until the block is cleared.",
+    dispatch_failed: "GitHub did not accept the request, so nothing was started. Try again in a moment.",
+    dispatch_unconfirmed:
+      "GitHub did not confirm the request. It may have started, so check again in a few minutes before trying again.",
+    dispatch_unconfigured:
+      "The backend has no GitHub credential, so it cannot start an approval. Retrying will not help; tell an admin who manages the backend.",
+    origin_not_allowed: "The request came from an unexpected origin. Reload this page and try again.",
     not_found: "Request not found.",
     missing_field: "Provide a reason for denial.",
     internal_error: "Server error. Try again in a moment.",
@@ -251,10 +310,21 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     }
     return err instanceof Error ? err.message : "Action failed.";
   }
-  function showError(msg: string): void {
+  // `refresh` adds a link back to this page. After a failed start the outcome
+  // may not be what the buttons on screen say (a timed-out request can still
+  // have dispatched, a 409 means someone else already did), so the admin gets a
+  // one-click way to see the real state. The auto-refresh stays off while the
+  // message is up so it is not wiped within seconds.
+  function showError(msg: string, opts: { refresh?: boolean } = {}): void {
     if (!errorEl) return;
     errorEl.hidden = false;
     errorEl.textContent = msg;
+    if (opts.refresh) {
+      const link = document.createElement("a");
+      link.href = location.href;
+      link.textContent = "Refresh to see the current state.";
+      errorEl.append(" ", link);
+    }
   }
   function clearError(): void {
     if (!errorEl) return;
@@ -263,7 +333,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
   }
 
   type PendingAction =
-    | { kind: "approve"; datasetId: string }
+    | { kind: "approve" | "resume"; datasetId: string; dialogId: string }
     | { kind: "deny"; datasetId: string; reason: string };
   let pending: PendingAction | null = null;
   let inFlight = false;
@@ -287,8 +357,20 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     btn.addEventListener("click", () => {
       const id = btn.dataset.datasetId;
       if (!id) return;
-      queue({ kind: "approve", datasetId: id });
-      openDialog("admin-approve");
+      // An anonymous release has different consequences, so it gets its own words.
+      const dialogId =
+        btn.dataset.anonymous === "true" ? "admin-approve-anonymous" : "admin-approve";
+      queue({ kind: "approve", datasetId: id, dialogId });
+      openDialog(dialogId);
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>("[data-pubreq-resume]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.datasetId;
+      if (!id) return;
+      queue({ kind: "resume", datasetId: id, dialogId: "admin-resume" });
+      openDialog("admin-resume");
     });
   });
 
@@ -312,19 +394,45 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     });
   });
 
+  // While an approval is active the page refreshes itself. It waits for a quiet
+  // moment: a hidden tab, an open dialog, a click in flight, an error message
+  // on screen or the admin's own pause must not be reloaded out from under them.
+  // The dialog check reads the DOM rather than `pending`: cancelling a dialog
+  // never reaches this script, so `pending` can stay set for good.
+  let paused = false;
+  const toggle = document.querySelector<HTMLButtonElement>("[data-refresh-toggle]");
+  toggle?.addEventListener("click", () => {
+    paused = !paused;
+    toggle.textContent = paused ? "Resume refreshing" : "Pause";
+  });
+  if (document.querySelector("[data-pubreq-running]")) {
+    window.setInterval(() => {
+      const quiet =
+        document.visibilityState === "visible" &&
+        !inFlight &&
+        !paused &&
+        !document.querySelector("dialog[open]") &&
+        (errorEl?.hidden ?? true);
+      if (quiet) location.reload();
+    }, 20_000);
+  }
+
   document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
     const e = evt as CustomEvent<{ dialogId: string }>;
     if (!pending) return;
 
-    if (e.detail.dialogId === "admin-approve" && pending.kind === "approve") {
+    if (
+      (pending.kind === "approve" || pending.kind === "resume") &&
+      e.detail.dialogId === pending.dialogId
+    ) {
       const target = pending;
       pending = null;
       inFlight = true;
       try {
-        await approvePublicationRequest(target.datasetId);
+        await dispatchPublicationApproval(target.datasetId);
         location.reload();
       } catch (err) {
-        showError(`Couldn't approve: ${friendly(err)}`);
+        showError(friendly(err), { refresh: true });
         inFlight = false;
       }
       return;
@@ -337,7 +445,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         await denyPublicationRequest(target.datasetId, target.reason);
         location.reload();
       } catch (err) {
-        showError(`Couldn't deny: ${friendly(err)}`);
+        showError(friendly(err));
         inFlight = false;
       }
       return;

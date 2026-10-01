@@ -1,12 +1,8 @@
 ---
-import {
-  type PublicationRequest,
-  deriveAdminBadgeState,
-  isAdminActionable,
-} from "../lib/admin-api";
+import { type PublicationRequest, deriveAdminBadgeState } from "../lib/admin-api";
 import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
 import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
-import { cliApproveCommand } from "../lib/publication-queue";
+import { rowView } from "../lib/publication-queue";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -20,25 +16,17 @@ const datasetId = request.dataset_id;
 // visibility actually flips; the admin queue surfaces the orchestrator's
 // terminal state directly.
 const state = deriveAdminBadgeState(request);
-const actionable = isAdminActionable(request);
-// The web button is withheld while approval needs a caller that drives it to
-// completion (see `WEB_PUBLISH_APPROVE_ENABLED`). The terminal is the way
-// forward for a request waiting on an admin, and the only way to continue one
-// that is already `approving`, which has no web action at all.
-const webApprove = actionable && WEB_PUBLISH_APPROVE_ENABLED;
-const terminalStep =
-  request.status === "approving"
-    ? { lead: "Continue from a terminal", command: cliApproveCommand(request) }
-    : actionable && !WEB_PUBLISH_APPROVE_ENABLED
-      ? { lead: "Approve from a terminal", command: cliApproveCommand(request) }
-      : null;
+// What to offer and say is decided in one tested place (`rowView`); this file
+// only draws it. Approval is started by the backend, never driven by the page.
+const view = rowView(request, WEB_PUBLISH_APPROVE_ENABLED);
 
 // The backend writes `datetime('now')`: UTC with no zone marker. Show the age,
 // and keep the exact UTC instant in the tooltip for an admin who needs it.
-function when(raw: string | null): { relative: string; exact: string } | null {
+function when(raw: string | null): { iso: string; relative: string; exact: string } | null {
   const date = parseBackendTimestamp(raw);
   if (!date) return null;
   return {
+    iso: date.toISOString(),
     relative: formatRelativeTime(date) || "—",
     exact: `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`,
   };
@@ -52,25 +40,15 @@ const decided =
     : request.status === "denied"
       ? { label: "Denied", at: when(request.denied_at) }
       : null;
-
-// `block_reason` is not cleared when a blocked request later moves on, so a
-// published or denied row can still carry one. Only a blocked row's counts.
-const note =
-  request.status === "denied" && request.denied_reason
-    ? { label: "Reason", text: request.denied_reason }
-    : request.status === "blocked" && request.block_reason
-      ? { label: "Reason", text: request.block_reason }
-      : request.status === "approving" && request.last_error
-        ? {
-            label: request.current_step ? `Stopped at ${request.current_step}` : "Last error",
-            text: request.last_error,
-          }
-        : null;
+// The username is nullable on the backend; fall back to the email so the line
+// is never blank.
+const requester = request.requested_by_username || request.requested_by_email;
 ---
 
 <article class="pubreq-row" data-pubreq-row data-dataset-id={datasetId}>
   <div class="pubreq-row__primary">
     <h3 class="pubreq-row__id">{datasetId}</h3>
+    {view.anonymous && <span class="pubreq-row__tag">Anonymous release</span>}
     <PublishStateBadge state={state} />
   </div>
 
@@ -78,18 +56,32 @@ const note =
     <div>
       <dt>Requested by</dt>
       <dd>
-        <span class="pubreq-row__line">{request.requested_by_username}</span>
-        <span class="pubreq-row__line pubreq-row__line--muted">{request.requested_by_email}</span>
+        <span class="pubreq-row__line">{requester}</span>
+        {request.requested_by_username && (
+          <span class="pubreq-row__line pubreq-row__line--muted">{request.requested_by_email}</span>
+        )}
       </dd>
     </div>
     <div>
       <dt>Requested</dt>
-      <dd title={requestedAt?.exact}>{requestedAt?.relative ?? "—"}</dd>
+      <dd>
+        {requestedAt ? (
+          <time datetime={requestedAt.iso} title={requestedAt.exact}>{requestedAt.relative}</time>
+        ) : (
+          "—"
+        )}
+      </dd>
     </div>
     {decided && (
       <div>
         <dt>{decided.label}</dt>
-        <dd title={decided.at?.exact}>{decided.at?.relative ?? "—"}</dd>
+        <dd>
+          {decided.at ? (
+            <time datetime={decided.at.iso} title={decided.at.exact}>{decided.at.relative}</time>
+          ) : (
+            "—"
+          )}
+        </dd>
       </div>
     )}
     <div>
@@ -98,15 +90,33 @@ const note =
     </div>
   </dl>
 
-  {note && (
-    <p class="pubreq-row__reason" role="note">
-      <strong>{note.label}:</strong> {note.text}
+  {view.progress && (
+    <p
+      class:list={[
+        "pubreq-row__progress",
+        { "pubreq-row__progress--stalled": !view.progress.active },
+      ]}
+      data-pubreq-running={view.progress.active ? "" : undefined}
+    >
+      {view.progress.text}
+      {view.runsUrl && (
+        <>
+          {" "}
+          <a href={view.runsUrl} target="_blank" rel="noopener noreferrer">See the workflow runs</a>.
+        </>
+      )}
     </p>
   )}
 
-  {terminalStep && (
+  {view.note && (
+    <p class="pubreq-row__reason" role="note">
+      <strong>{view.note.label}:</strong> {view.note.text}
+    </p>
+  )}
+
+  {view.terminal && (
     <p class="pubreq-row__terminal">
-      {terminalStep.lead}: <code>{terminalStep.command}</code>
+      {view.terminal.lead}: <code>{view.terminal.command}</code>
     </p>
   )}
 
@@ -114,7 +124,7 @@ const note =
     <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(datasetId)}`}>
       View dataset
     </a>
-    {actionable && (
+    {view.canDeny && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--danger-ghost"
@@ -124,14 +134,25 @@ const note =
         Deny
       </button>
     )}
-    {webApprove && (
+    {view.start?.kind === "approve" && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--primary"
         data-pubreq-approve
+        data-anonymous={view.anonymous ? "true" : undefined}
         data-dataset-id={datasetId}
       >
-        Approve and publish
+        {view.start.label}
+      </button>
+    )}
+    {view.start?.kind === "resume" && (
+      <button
+        type="button"
+        class="pubreq-row__btn pubreq-row__btn--primary"
+        data-pubreq-resume
+        data-dataset-id={datasetId}
+      >
+        {view.start.label}
       </button>
     )}
   </footer>
@@ -201,6 +222,32 @@ const note =
     color: var(--admin-text-3);
     font-size: var(--fs-xs);
   }
+  .pubreq-row__progress {
+    margin: 0;
+    background: var(--admin-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .pubreq-row__progress--stalled {
+    box-shadow: inset 3px 0 0 var(--admin-error);
+  }
+  @media (forced-colors: active) {
+    .pubreq-row__progress--stalled {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+  .pubreq-row__tag {
+    margin-inline-end: auto;
+    padding: 2px var(--space-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
   .pubreq-row__terminal {
     margin: 0;
     color: var(--color-fg-muted);
@@ -210,7 +257,7 @@ const note =
     font-family: var(--font-mono);
     font-size: var(--fs-xs);
     padding: 2px var(--space-2);
-    border-radius: var(--radius-sm, 4px);
+    border-radius: var(--radius-sm);
     background: var(--admin-surface-2);
     color: var(--color-fg);
     overflow-wrap: anywhere;
