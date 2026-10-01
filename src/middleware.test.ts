@@ -10,6 +10,7 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  referrerPolicy,
   routeNeedsUnsafeEval,
 } from "./middleware";
 
@@ -603,6 +604,39 @@ describe("security headers", () => {
     const noindexed = new Headers();
     applySecurityHeaders(noindexed, "/discover", true);
     expect(noindexed.get("X-Robots-Tag")).toBe("noindex, nofollow");
+  });
+
+  it("sends no Referer from the private-site sign-in hop, and the default everywhere else", () => {
+    // That page's own URL carries the `state` the private site bound to the browser. The page
+    // sets `no-referrer` itself, and applySecurityHeaders runs after it on every response, so
+    // without the per-route value here the site-wide policy would silently overwrite it.
+    expect(referrerPolicy("/auth/private/authorize")).toBe("no-referrer");
+    expect(referrerPolicy("/auth/private/authorize/")).toBe("no-referrer");
+    expect(referrerPolicy("/auth/docs/authorize")).toBe("strict-origin-when-cross-origin");
+    expect(referrerPolicy("/auth/private")).toBe("strict-origin-when-cross-origin");
+    expect(referrerPolicy("/auth/private/authorize-other")).toBe("strict-origin-when-cross-origin");
+    expect(referrerPolicy("/discover")).toBe("strict-origin-when-cross-origin");
+
+    const headers = new Headers({ "Referrer-Policy": "no-referrer" });
+    applySecurityHeaders(headers, "/auth/private/authorize");
+    expect(headers.get("Referrer-Policy")).toBe("no-referrer");
+  });
+
+  it("keeps no-referrer on the private-site sign-in hop through the whole middleware", async () => {
+    const page = async () =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "/login", "Referrer-Policy": "no-referrer" },
+      });
+    const res = await onRequest(
+      ctx(`https://${APP_HOST}/auth/private/authorize?state=${"a".repeat(43)}`),
+      page,
+    );
+    expect(res?.status).toBe(302);
+    expect(res?.headers.get("Referrer-Policy")).toBe("no-referrer");
+
+    const elsewhere = await onRequest(ctx(`https://${APP_HOST}/dashboard`), passthrough);
+    expect(elsewhere?.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
   });
 
   it("CSP allows the origins the client actually fetches (regression guards)", () => {

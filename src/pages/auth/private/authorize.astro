@@ -1,0 +1,163 @@
+---
+/**
+ * Middle hop of the sign-in handoff to `private.nemar.org`, NEMAR's site for access-controlled
+ * features.
+ *
+ * The private site is a separate host and the session cookie is scoped `Domain=app.nemar.org` on
+ * purpose (see the module comment in `src/lib/host.ts`), so it cannot authenticate that host. The
+ * private site sends a visitor without a session of its own here with a `state` it generated for
+ * that browser; this page proves the visitor is signed in, asks the backend for a one-time code
+ * bound to that `state`, and redirects to the private site's callback with the code. The private
+ * site then trades the code, together with the `state` from its own cookie, for a session.
+ *
+ * Modeled on `src/pages/auth/docs/authorize.astro`. The differences: there is no admin gate (any
+ * signed-in account may start this; the backend refuses one that is not active yet), the `state`
+ * is validated before anything else and forwarded in the grant body only, and every response
+ * carries `Referrer-Policy: no-referrer`, because this page's own URL holds the `state`. The
+ * callback URL carries the code and `next`, never the `state`, and nothing here logs the query.
+ *
+ * Server-rendered with no client script. The success path never renders; the only rendered states
+ * are the panels at the bottom, each with its own status. `/auth` is already an app-host route and
+ * excluded from the assistant widget, so no host or widget change is needed. Nothing on this site
+ * links here: the private site does.
+ */
+import Base from "../../../layouts/Base.astro";
+import { apiBase } from "../../../lib/api-base";
+import { getSession } from "../../../lib/auth";
+import { requestPrivateGrant } from "../../../lib/private-auth-api";
+import {
+  PRIVATE_AUTHORIZE_COPY,
+  PRIVATE_AUTHORIZE_HEADERS,
+  PRIVATE_AUTHORIZE_STATE_PARAM,
+  PRIVATE_AUTHORIZE_STATUS,
+  type PrivateAuthorizePanel,
+  privateAuthorizeReturnPath,
+  privateCallbackUrl,
+  privateGrantOutcome,
+  privateHandoffTarget,
+  privateLoginRedirect,
+  privateState,
+  safePrivateNext,
+} from "../../../lib/private-authorize";
+
+/**
+ * Every redirect built with the page's own headers. `Astro.redirect()` builds a new `Response`
+ * that does not carry `Astro.response.headers`, and a redirect here carries a one-time code or a
+ * return address holding the `state`, so each one needs `no-store` and `no-referrer` itself.
+ */
+function handoffRedirect(location: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { Location: location, ...PRIVATE_AUTHORIZE_HEADERS },
+  });
+}
+
+for (const [name, value] of Object.entries(PRIVATE_AUTHORIZE_HEADERS)) {
+  Astro.response.headers.set(name, value);
+}
+
+const url = new URL(Astro.request.url);
+// Validated before anything else, so a missing or malformed `state` is refused before a grant is
+// minted and before a signed-out visitor is sent to sign in for a request that cannot succeed.
+const state = privateState(url.searchParams.get(PRIVATE_AUTHORIZE_STATE_PARAM));
+const next = safePrivateNext(url.searchParams.get("next"));
+
+// Exactly one of these ends up set: a redirect to follow, or the panel to render.
+let redirectTo: string | null = null;
+let panel: PrivateAuthorizePanel = "invalid_request";
+
+if (state !== null) {
+  // The address to come back to after signing in, rebuilt from the two validated values rather
+  // than echoing the query.
+  const returnPath = privateAuthorizeReturnPath(state, next);
+
+  // Session only: no role is required.
+  const session = getSession(Astro.locals);
+  // Checked BEFORE the grant is minted: on a deployment whose private-site base is not configured
+  // and whose API is not production, a grant could only be spent by a private site that never saw
+  // it. `PRIVATE_SITE_BASE` is server configuration, never taken from the request.
+  const handoff = privateHandoffTarget(apiBase(), import.meta.env.PRIVATE_SITE_BASE ?? null);
+
+  if (!session) {
+    redirectTo = privateLoginRedirect(returnPath);
+  } else if (handoff.kind === "ready") {
+    const outcome = privateGrantOutcome(
+      await requestPrivateGrant({
+        cookieHeader: Astro.request.headers.get("cookie") ?? undefined,
+        origin: Astro.url.origin,
+        state,
+      }),
+    );
+    if (outcome.kind === "handoff") {
+      redirectTo = privateCallbackUrl(handoff.base, outcome.code, next);
+    } else if (outcome.kind === "signed_out") {
+      // The middleware accepted the cookie and the backend refused it (expired in between, or
+      // revoked): treated as no session, with the reason shown on the sign-in page.
+      redirectTo = privateLoginRedirect(returnPath, true);
+    } else {
+      panel = outcome.kind;
+    }
+  } else {
+    // The reason names the configured value, never the request.
+    console.warn(`[private-authorize] refusing the handoff: ${handoff.reason}`);
+    panel = "misconfigured";
+  }
+}
+
+if (redirectTo !== null) {
+  return handoffRedirect(redirectTo);
+}
+
+Astro.response.status = PRIVATE_AUTHORIZE_STATUS[panel];
+const copy = PRIVATE_AUTHORIZE_COPY[panel];
+---
+
+<Base title="Sign in" description="Sign in to NEMAR.">
+  <section class="handoff">
+    <article class="handoff__panel">
+      <div class="handoff__rail" aria-hidden="true"></div>
+      <h1 class="handoff__title">{copy.title}</h1>
+      <p class="handoff__lede">{copy.body}</p>
+    </article>
+  </section>
+</Base>
+
+<style>
+  /* Kept in sync with `.handoff` in `src/pages/auth/docs/authorize.astro`: one panel, no form. */
+  .handoff {
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+  }
+  .handoff__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 30rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    overflow: hidden;
+    box-shadow: 0 24px 64px -32px rgb(15 23 42 / 25%);
+  }
+  .handoff__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+  }
+  .handoff__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+  }
+  .handoff__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+</style>

@@ -12,6 +12,7 @@ import {
   isNoindexHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
+import { PRIVATE_AUTHORIZE_PAGE_PATH } from "./lib/private-authorize";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -293,9 +294,23 @@ export function applySecurityHeaders(headers: Headers, pathname: string, noindex
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
+  headers.set("Referrer-Policy", referrerPolicy(pathname));
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
   headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
+}
+
+/**
+ * `Referrer-Policy` for a route: the site-wide `strict-origin-when-cross-origin`, except the
+ * private-site sign-in hop, whose own URL carries the `state` the private site bound to the
+ * browser. `no-referrer` keeps that URL out of the `Referer` of whatever request follows, the
+ * redirect to the private site's callback included; the page sets it on its own responses, and
+ * this is what stops the line above from overwriting it.
+ */
+export function referrerPolicy(pathname: string): string {
+  return pathname.replace(/\/$/, "") === PRIVATE_AUTHORIZE_PAGE_PATH
+    ? "no-referrer"
+    : STATIC_SECURITY_HEADERS["Referrer-Policy"];
 }
 
 /** Apply the security headers to a response and return it (passthrough paths). */
