@@ -173,6 +173,7 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
     color: var(--color-fg);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
+    white-space: nowrap;
     background: transparent;
     text-decoration: none;
     transition: background 0.15s ease, border-color 0.15s ease;
@@ -180,6 +181,44 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
   .user-menu__signin:hover {
     background: var(--color-bg-elevated);
     border-color: var(--color-fg-muted);
+  }
+
+  /* Phones and small tablets. 880px is Nav.astro's breakpoint, where the links
+     collapse behind the hamburger and this control moves to sit just left of it.
+
+     The panel stops hanging from the avatar and hangs from the header instead
+     (`.user-menu` loses `position: relative`, so the sticky header becomes the
+     containing block). Anchored to the avatar, which now sits a hamburger's
+     width in from the edge, a 16rem panel ran off the left side of a 320px
+     screen. Pinned to the page gutter it cannot.
+
+     Targets reach 44px, the size the nav links, theme toggle and hamburger
+     already use. */
+  @media (max-width: 880px) {
+    .user-menu {
+      position: static;
+    }
+    .user-menu__trigger,
+    .user-menu__signin {
+      min-block-size: 44px;
+    }
+    .user-menu__panel {
+      inset-block-start: calc(100% + var(--space-2));
+      inset-inline-end: var(--space-6);
+      inline-size: 22rem;
+      min-inline-size: 0;
+    }
+    .user-menu__item {
+      display: flex;
+      align-items: center;
+      min-block-size: 44px;
+    }
+  }
+  @media (max-width: 640px) {
+    .user-menu__panel {
+      inset-inline: var(--space-4);
+      inline-size: auto;
+    }
   }
 </style>
 
