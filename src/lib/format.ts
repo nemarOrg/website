@@ -103,6 +103,24 @@ const RELATIVE_RANGES: Array<[number, Intl.RelativeTimeFormatUnit]> = [
   [Number.POSITIVE_INFINITY, "year"],
 ];
 
+// SQLite's `datetime('now')`: "2026-10-01 12:46:50".
+const SQLITE_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+/**
+ * Parse a timestamp the backend wrote. Rows written with `datetime('now')`
+ * (the publication queue's `requested_at`, `approved_at`, `denied_at`) are
+ * UTC but carry no zone marker, and `new Date("2026-10-01 12:46:50")` reads
+ * that as LOCAL time, so the same row would show a different age in a browser
+ * than on the Worker. A space-separated value is therefore pinned to UTC; an
+ * ISO string with its own zone is passed through untouched. Returns null for
+ * nullish or unparseable input so callers can skip the field.
+ */
+export function parseBackendTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(SQLITE_DATETIME.test(value) ? `${value.replace(" ", "T")}Z` : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 /**
  * Relative time vs. now ("3 days ago", "in 2 hours"). Accepts ISO string,
  * Date, or nullish. Catalog-only rows (ds*) ship with `updated_at: null`,
