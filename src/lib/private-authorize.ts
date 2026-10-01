@@ -21,9 +21,9 @@
  *   the sign-in to the browser that finishes it; without it, someone could finish their own
  *   sign-in in another person's browser. So this page validates the value's shape, sends it in the
  *   grant body, and NEVER puts it in the callback URL or in a log line.
- * - **`next` means something on the private site, not here.** It is passed through as an opaque
- *   relative path the private site interprets, validated only so it cannot turn the redirect into
- *   an open one.
+ * - **No `next`.** The callback carries the code alone, as the contract requires. The private
+ *   site keeps its own return path in a host-only cookie beside the `state`, so nothing about
+ *   where the visitor was going passes through this page or its URLs.
  *
  * The literals shared with nemar-cli's `shared/contract/private-site.ts` are checked by
  * `test/private-site-contract-drift.test.ts`.
@@ -41,13 +41,6 @@ export const PRIVATE_CALLBACK_PATH = "/__auth/callback";
 /** The query parameter the private site puts its `state` in (`PRIVATE_AUTHORIZE_STATE_PARAM`). */
 export const PRIVATE_AUTHORIZE_STATE_PARAM = "state";
 
-/** Where a visitor lands on the private site when `next` is absent or refused. The private site
- *  owns what its paths mean, so its root is the only default this page can honestly choose. */
-export const PRIVATE_DEFAULT_NEXT = "/";
-
-/** Cap on a `next` this page will re-emit into a redirect toward another host. */
-const MAX_NEXT_LENGTH = 512;
-
 /**
  * The shape of a `state`: 32 to 256 characters of the base64url alphabet, the same rule the
  * backend applies before it stores the hash. The contract requires 256 random bits, which is 43
@@ -62,50 +55,6 @@ const PROD_PRIVATE_SITE_BASE = "https://private.nemar.org";
 /** The `state` from the query when it has the right shape, otherwise null. */
 export function privateState(raw: string | null | undefined): string | null {
   return typeof raw === "string" && STATE_PATTERN.test(raw) ? raw : null;
-}
-
-/**
- * True when any character would be stripped, or would terminate a header, before a `Location`
- * value is parsed. A loop rather than a regex, for the reason `./docs-authorize.ts` gives.
- */
-function hasControlChar(value: string): boolean {
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code <= 0x1f || code === 0x7f) return true;
-  }
-  return false;
-}
-
-/** A relative path: one leading slash, never two, no backslash, no control character. */
-function isPlainRelativePath(value: string): boolean {
-  if (hasControlChar(value)) return false;
-  // A backslash is a path separator to the WHATWG URL parser, so `/\evil.example` resolves as a
-  // HOST; `//evil.example` is protocol-relative. Either would make the private site's own redirect
-  // to `next` leave that host.
-  if (value.includes("\\")) return false;
-  return value.startsWith("/") && !value.startsWith("//");
-}
-
-/**
- * The `next` to hand to the private site: `raw` when it is a plain relative path, in both its
- * literal and its once-decoded form, and not absurdly long; {@link PRIVATE_DEFAULT_NEXT}
- * otherwise. Never throws.
- *
- * The decoded view is what catches `/%2F%2Fevil.example`, a protocol-relative URL wearing an
- * encoding. The private site interprets the value; this only keeps it from being an open redirect
- * in anyone's hands.
- */
-export function safePrivateNext(raw: string | null | undefined): string {
-  if (typeof raw !== "string" || raw.length === 0) return PRIVATE_DEFAULT_NEXT;
-  if (raw.length > MAX_NEXT_LENGTH) return PRIVATE_DEFAULT_NEXT;
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch {
-    return PRIVATE_DEFAULT_NEXT;
-  }
-  if (!isPlainRelativePath(raw) || !isPlainRelativePath(decoded)) return PRIVATE_DEFAULT_NEXT;
-  return raw;
 }
 
 export type PrivateHandoffTarget =
@@ -162,14 +111,14 @@ export function privateHandoffTarget(
 }
 
 /**
- * This page's own URL with the two parameters it honors, rebuilt from their validated values: the
+ * This page's own URL with the one parameter it honors, rebuilt from the validated `state`: the
  * address a signed-out visitor returns to after signing in. Rebuilt rather than echoed, so nothing
  * else a caller put in the query rides along into the login page's `next`, and it always passes
  * `safeRedirectPath` (asserted in the tests) so sign-in brings the visitor back here with the same
  * `state`.
  */
-export function privateAuthorizeReturnPath(state: string, next: string): string {
-  const params = new URLSearchParams({ [PRIVATE_AUTHORIZE_STATE_PARAM]: state, next });
+export function privateAuthorizeReturnPath(state: string): string {
+  const params = new URLSearchParams({ [PRIVATE_AUTHORIZE_STATE_PARAM]: state });
   const path = `${PRIVATE_AUTHORIZE_PAGE_PATH}?${params.toString()}`;
   return safeRedirectPath(path) === path ? path : PRIVATE_AUTHORIZE_PAGE_PATH;
 }
@@ -184,12 +133,12 @@ export function privateLoginRedirect(returnPath: string, sessionRequired = false
 }
 
 /**
- * The private site's callback URL for a minted code: the code and `next`, through
- * `URLSearchParams`, and NOTHING else. In particular never the `state`: the private site reads it
- * only from its own cookie, and a state in a URL would land in history, logs and any `Referer`.
+ * The private site's callback URL for a minted code: the code, through `URLSearchParams`, and
+ * NOTHING else, as the contract requires. In particular never the `state`: the private site reads
+ * it only from its own cookie, and a state in a URL would land in history, logs and any `Referer`.
  */
-export function privateCallbackUrl(base: string, code: string, next: string): string {
-  const params = new URLSearchParams({ code, next });
+export function privateCallbackUrl(base: string, code: string): string {
+  const params = new URLSearchParams({ code });
   return `${base.replace(/\/$/, "")}${PRIVATE_CALLBACK_PATH}?${params.toString()}`;
 }
 

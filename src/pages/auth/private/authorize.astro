@@ -8,13 +8,15 @@
  * private site sends a visitor without a session of its own here with a `state` it generated for
  * that browser; this page proves the visitor is signed in, asks the backend for a one-time code
  * bound to that `state`, and redirects to the private site's callback with the code. The private
- * site then trades the code, together with the `state` from its own cookie, for a session.
+ * site then trades the code, together with the `state` from its own cookie, for a session, and
+ * sends the visitor on to the return path it kept in a cookie of its own.
  *
  * Modeled on `src/pages/auth/docs/authorize.astro`. The differences: there is no admin gate (any
  * signed-in account may start this; the backend refuses one that is not active yet), the `state`
  * is validated before anything else and forwarded in the grant body only, and every response
  * carries `Referrer-Policy: no-referrer`, because this page's own URL holds the `state`. The
- * callback URL carries the code and `next`, never the `state`, and nothing here logs the query.
+ * callback URL carries the code alone, never the `state`, and nothing here logs the query. The
+ * page reads no `next`: where the visitor was going is the private site's to remember.
  *
  * Server-rendered with no client script. The success path never renders; the only rendered states
  * are the panels at the bottom, each with its own status. `/auth` is already an app-host route and
@@ -37,7 +39,6 @@ import {
   privateHandoffTarget,
   privateLoginRedirect,
   privateState,
-  safePrivateNext,
 } from "../../../lib/private-authorize";
 
 /**
@@ -60,16 +61,15 @@ const url = new URL(Astro.request.url);
 // Validated before anything else, so a missing or malformed `state` is refused before a grant is
 // minted and before a signed-out visitor is sent to sign in for a request that cannot succeed.
 const state = privateState(url.searchParams.get(PRIVATE_AUTHORIZE_STATE_PARAM));
-const next = safePrivateNext(url.searchParams.get("next"));
 
 // Exactly one of these ends up set: a redirect to follow, or the panel to render.
 let redirectTo: string | null = null;
 let panel: PrivateAuthorizePanel = "invalid_request";
 
 if (state !== null) {
-  // The address to come back to after signing in, rebuilt from the two validated values rather
-  // than echoing the query.
-  const returnPath = privateAuthorizeReturnPath(state, next);
+  // The address to come back to after signing in, rebuilt from the validated `state` rather than
+  // echoing the query.
+  const returnPath = privateAuthorizeReturnPath(state);
 
   // Session only: no role is required.
   const session = getSession(Astro.locals);
@@ -89,7 +89,7 @@ if (state !== null) {
       }),
     );
     if (outcome.kind === "handoff") {
-      redirectTo = privateCallbackUrl(handoff.base, outcome.code, next);
+      redirectTo = privateCallbackUrl(handoff.base, outcome.code);
     } else if (outcome.kind === "signed_out") {
       // The middleware accepted the cookie and the backend refused it (expired in between, or
       // revoked): treated as no session, with the reason shown on the sign-in page.

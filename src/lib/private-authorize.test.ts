@@ -10,14 +10,12 @@ import {
   PRIVATE_AUTHORIZE_STATE_PARAM,
   PRIVATE_AUTHORIZE_STATUS,
   PRIVATE_CALLBACK_PATH,
-  PRIVATE_DEFAULT_NEXT,
   privateAuthorizeReturnPath,
   privateCallbackUrl,
   privateGrantOutcome,
   privateHandoffTarget,
   privateLoginRedirect,
   privateState,
-  safePrivateNext,
 } from "./private-authorize";
 import { pageViewForPathname } from "./umami-analytics";
 
@@ -39,7 +37,7 @@ describe("where the authorize page lives", () => {
   });
 
   it("stays on the app host, and is pulled back to it from marketing with its query intact", () => {
-    const query = `?state=${STATE}&next=%2Fprojects`;
+    const query = `?state=${STATE}`;
     expect(
       getCrossHostRedirect(new URL(`https://app.nemar.org${PRIVATE_AUTHORIZE_PAGE_PATH}${query}`)),
     ).toBeNull();
@@ -93,54 +91,6 @@ describe("privateState", () => {
   });
 });
 
-describe("safePrivateNext", () => {
-  it("passes a relative path through unchanged, query and fragment included", () => {
-    expect(safePrivateNext("/")).toBe("/");
-    expect(safePrivateNext("/projects/42")).toBe("/projects/42");
-    expect(safePrivateNext("/projects?tab=members#top")).toBe("/projects?tab=members#top");
-  });
-
-  it("defaults to the private site's root when absent", () => {
-    expect(PRIVATE_DEFAULT_NEXT).toBe("/");
-    expect(safePrivateNext(null)).toBe("/");
-    expect(safePrivateNext(undefined)).toBe("/");
-    expect(safePrivateNext("")).toBe("/");
-  });
-
-  it("refuses anything that would leave the private site", () => {
-    for (const bad of [
-      "https://evil.example/x",
-      "HTTPS://evil.example/x",
-      "javascript:alert(1)",
-      "//evil.example",
-      "/\\evil.example",
-      "\\\\evil.example",
-      "/%2F%2Fevil.example",
-      "%2F%2Fevil.example",
-      "/%5Cevil.example",
-      "projects",
-    ]) {
-      expect(safePrivateNext(bad), bad).toBe("/");
-    }
-  });
-
-  it("refuses control characters, in the literal and the decoded form", () => {
-    expect(safePrivateNext("/a\r\nLocation: x")).toBe("/");
-    expect(safePrivateNext("/a%0d%0aLocation:%20x")).toBe("/");
-    expect(safePrivateNext("/a\tb")).toBe("/");
-  });
-
-  it("refuses a malformed escape rather than guessing", () => {
-    expect(safePrivateNext("/a%zz")).toBe("/");
-    expect(safePrivateNext("/a%")).toBe("/");
-  });
-
-  it("refuses a value longer than 512 characters", () => {
-    expect(safePrivateNext(`/${"a".repeat(511)}`)).toBe(`/${"a".repeat(511)}`);
-    expect(safePrivateNext(`/${"a".repeat(512)}`)).toBe("/");
-  });
-});
-
 describe("privateHandoffTarget", () => {
   it("uses the production private site when the API is production and nothing is set", () => {
     expect(privateHandoffTarget("https://api.nemar.org", null)).toEqual({
@@ -189,24 +139,22 @@ describe("privateHandoffTarget", () => {
 });
 
 describe("privateAuthorizeReturnPath and privateLoginRedirect", () => {
-  it("rebuilds this page's URL from the validated state and next", () => {
-    expect(privateAuthorizeReturnPath(STATE, "/projects?tab=a&b=c")).toBe(
-      `${PRIVATE_AUTHORIZE_PAGE_PATH}?state=${STATE}&next=%2Fprojects%3Ftab%3Da%26b%3Dc`,
-    );
+  it("rebuilds this page's URL from the validated state alone", () => {
+    expect(privateAuthorizeReturnPath(STATE)).toBe(`${PRIVATE_AUTHORIZE_PAGE_PATH}?state=${STATE}`);
   });
 
   it("always survives the sign-in page's own next check, so sign-in returns here", () => {
-    for (const next of ["/", "/projects?tab=a&b=c#x", "/a%20b", "/%E2%9C%93"]) {
-      const path = privateAuthorizeReturnPath(STATE, next);
-      expect(safeRedirectPath(path), next).toBe(path);
+    for (const state of [STATE, "a".repeat(32), "Az09-_".repeat(50).slice(0, 256)]) {
+      const path = privateAuthorizeReturnPath(state);
+      expect(safeRedirectPath(path), state).toBe(path);
       const back = new URL(path, "https://app.nemar.org");
-      expect(back.searchParams.get("state")).toBe(STATE);
-      expect(back.searchParams.get("next")).toBe(next);
+      expect([...back.searchParams.keys()]).toEqual([PRIVATE_AUTHORIZE_STATE_PARAM]);
+      expect(back.searchParams.get(PRIVATE_AUTHORIZE_STATE_PARAM)).toBe(state);
     }
   });
 
   it("sends a signed-out visitor to sign in with that address, the reason only when asked", () => {
-    const back = privateAuthorizeReturnPath(STATE, "/");
+    const back = privateAuthorizeReturnPath(STATE);
     const login = new URL(privateLoginRedirect(back), "https://app.nemar.org");
     expect(login.pathname).toBe("/login");
     expect(login.searchParams.get("next")).toBe(back);
@@ -218,17 +166,21 @@ describe("privateAuthorizeReturnPath and privateLoginRedirect", () => {
 });
 
 describe("privateCallbackUrl", () => {
-  it("carries the code and next to the private site's callback, and nothing else", () => {
-    const url = new URL(privateCallbackUrl(PRIVATE, "the-code", "/projects?x=1&y=2"));
+  it("carries exactly one query parameter, the code, to the private site's callback", () => {
+    const url = new URL(privateCallbackUrl(PRIVATE, "the-code"));
     expect(url.origin).toBe(PRIVATE);
     expect(url.pathname).toBe(PRIVATE_CALLBACK_PATH);
-    expect([...url.searchParams.keys()].sort()).toEqual(["code", "next"]);
-    expect(url.searchParams.get("code")).toBe("the-code");
-    expect(url.searchParams.get("next")).toBe("/projects?x=1&y=2");
+    expect([...url.searchParams.entries()]).toEqual([["code", "the-code"]]);
+    expect(url.hash).toBe("");
+  });
+
+  it("encodes the code rather than letting it add parameters", () => {
+    const url = new URL(privateCallbackUrl(PRIVATE, "a&next=//evil.example"));
+    expect([...url.searchParams.entries()]).toEqual([["code", "a&next=//evil.example"]]);
   });
 
   it("never contains the state, in any spelling", () => {
-    const url = privateCallbackUrl(PRIVATE, "the-code", "/");
+    const url = privateCallbackUrl(PRIVATE, "the-code");
     expect(url).not.toContain(STATE);
     expect(url).not.toContain(encodeURIComponent(STATE));
     expect(url).not.toContain(`${PRIVATE_AUTHORIZE_STATE_PARAM}=`);

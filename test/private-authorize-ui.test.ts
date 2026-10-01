@@ -80,7 +80,7 @@ describe("the backend call", () => {
 describe("each outcome maps to one destination", () => {
   it("hands a minted code to the private site's callback, without the state", () => {
     expect(FRONTMATTER).toMatch(
-      /outcome\.kind === "handoff"\)\s*\{\s*redirectTo = privateCallbackUrl\(handoff\.base, outcome\.code, next\);/,
+      /outcome\.kind === "handoff"\)\s*\{\s*redirectTo = privateCallbackUrl\(handoff\.base, outcome\.code\);/,
     );
     expect(FRONTMATTER).not.toMatch(/privateCallbackUrl\([^)]*\bstate\b/);
   });
@@ -91,8 +91,13 @@ describe("each outcome maps to one destination", () => {
     );
   });
 
-  it("builds the sign-in return address from the validated values, not the raw query", () => {
-    expect(FRONTMATTER).toContain("privateAuthorizeReturnPath(state, next)");
+  it("reads no next: the callback carries the code alone", () => {
+    expect(FRONTMATTER).not.toMatch(/searchParams\.get\("next"\)/);
+    expect(FRONTMATTER).not.toMatch(/\b(const|let) next\b/);
+  });
+
+  it("builds the sign-in return address from the validated state, not the raw query", () => {
+    expect(FRONTMATTER).toContain("privateAuthorizeReturnPath(state)");
     expect(FRONTMATTER).not.toContain("url.search}");
     expect(FRONTMATTER).not.toMatch(/url\.search\b(?!Params)/);
   });
