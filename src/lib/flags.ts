@@ -41,20 +41,22 @@ export const WEB_SIGNIN_ETA = "July 2026";
 export const ORCID_SIGNIN_ENABLED = true;
 
 /**
- * The Approve button on /admin/publication-requests (website#200). While
- * `false`, an admin approves from a terminal (`nemar admin publish approve`)
- * and the page offers Deny only.
+ * The Approve button on /admin/publication-requests (website#200).
  *
- * Why it is off: approval is not one request. After the irreversible DOI
- * publish, the S3 Object Lock step works in batches of 100 objects and returns
- * `hasMore` with a continuation token that the CALLER must send back. The CLI
- * loops, with retries and `resume`; this page sent one `{}` and reloaded. Any
- * dataset over 100 files would stop at `approving` with its repository public
- * and its DOI published but no S3 lock, no catalog sync and no owner email,
- * and an `approving` row has no buttons to continue from.
+ * Approval is not one request. After the irreversible DOI publish, the S3
+ * Object Lock step works in batches of 100 objects and returns `hasMore` with
+ * a continuation token that the CALLER must send back. The CLI loops, with
+ * retries and `resume`; the page used to send one `{}` and reload, which left
+ * any dataset over 100 files at `approving` with its repository public and its
+ * DOI published but no S3 lock, no catalog sync and no owner email.
  *
- * Turn it on only when approval runs through a backend job that an executor
- * (the CLI, a workflow, a server) drives to completion. Closing the page must
- * not matter at that point, which is what makes the button safe.
+ * So the page no longer drives approval. The button asks the backend to start
+ * it (`POST /admin/publish/:id/approve-dispatch`), the backend asks a GitHub
+ * Action to run the CLI's loop, and the page only watches `status` and
+ * `current_step`. Closing the page changes nothing.
+ *
+ * Keep this `false` on any build whose backend lacks that route: the button
+ * would answer 404. Deploy order is backend, then the central workflow, then
+ * this site.
  */
-export const WEB_PUBLISH_APPROVE_ENABLED = false;
+export const WEB_PUBLISH_APPROVE_ENABLED = true;

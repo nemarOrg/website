@@ -5,6 +5,7 @@ import { deriveAdminBadgeState } from "./dashboard-api";
 import {
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
+  approvalPhase,
   bucketQueue,
   cliApproveCommand,
   latestPerDataset,
@@ -192,5 +193,57 @@ describe("cliApproveCommand", () => {
   it("resumes an approving request instead of starting it over", () => {
     const stuck = variant(833, { status: "approving", current_step: "s3_lock" });
     expect(cliApproveCommand(stuck)).toBe("nemar admin publish approve nm000288 --resume");
+  });
+});
+
+describe("approvalPhase", () => {
+  const live = { approval_in_flight: false, approval_dispatched_at: null };
+
+  it.each([835, 344] as const)("has nothing to start on a published or denied row (%i)", (id) => {
+    expect(approvalPhase(variant(id, live))).toEqual({ kind: "none" });
+  });
+
+  it("has nothing to start on a blocked row", () => {
+    expect(approvalPhase(variant(833, { ...live, status: "blocked" }))).toEqual({ kind: "none" });
+  });
+
+  // The production response today: rows carry none of the dispatch fields.
+  it("reads a backend that predates the dispatch route as unsupported", () => {
+    expect(approvalPhase(variant(833, {}))).toEqual({ kind: "unsupported" });
+  });
+
+  it("offers Approve on a pending request nobody has started", () => {
+    expect(approvalPhase(variant(833, live))).toEqual({ kind: "ready" });
+  });
+
+  it("shows a dispatched request as queued until the orchestrator writes a step", () => {
+    const queued = variant(833, {
+      approval_in_flight: true,
+      approval_dispatched_at: "2026-10-01 18:00:00",
+    });
+    expect(approvalPhase(queued)).toEqual({ kind: "running", queued: true, step: null });
+  });
+
+  it("shows a running approval with its current step", () => {
+    const running = variant(833, {
+      status: "approving",
+      current_step: "s3_lock",
+      approval_in_flight: true,
+      approval_dispatched_at: "2026-10-01 18:00:00",
+    });
+    expect(approvalPhase(running)).toEqual({ kind: "running", queued: false, step: "s3_lock" });
+  });
+
+  it("offers Resume on an approving request that has gone quiet", () => {
+    const stuck = variant(833, { status: "approving", current_step: "s3_lock", ...live });
+    expect(approvalPhase(stuck)).toEqual({ kind: "stalled", resume: true });
+  });
+
+  it("offers Retry, not Resume, when the Action was asked but never started", () => {
+    const neverStarted = variant(833, {
+      approval_in_flight: false,
+      approval_dispatched_at: "2026-10-01 17:00:00",
+    });
+    expect(approvalPhase(neverStarted)).toEqual({ kind: "stalled", resume: false });
   });
 });

@@ -6,7 +6,7 @@ import {
 } from "../lib/admin-api";
 import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
 import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
-import { cliApproveCommand } from "../lib/publication-queue";
+import { approvalPhase, cliApproveCommand } from "../lib/publication-queue";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -20,17 +20,37 @@ const datasetId = request.dataset_id;
 // visibility actually flips; the admin queue surfaces the orchestrator's
 // terminal state directly.
 const state = deriveAdminBadgeState(request);
-const actionable = isAdminActionable(request);
-// The web button is withheld while approval needs a caller that drives it to
-// completion (see `WEB_PUBLISH_APPROVE_ENABLED`). The terminal is the way
-// forward for a request waiting on an admin, and the only way to continue one
-// that is already `approving`, which has no web action at all.
-const webApprove = actionable && WEB_PUBLISH_APPROVE_ENABLED;
+const phase = approvalPhase(request);
+// Approval is started by the backend, which asks a GitHub Action to run it; the
+// page never drives it (see `WEB_PUBLISH_APPROVE_ENABLED`). Deny stays a
+// plain write on a request nobody is working on.
+const canDeny = isAdminActionable(request) && phase.kind !== "running";
+const webStarts =
+  WEB_PUBLISH_APPROVE_ENABLED && (phase.kind === "ready" || phase.kind === "stalled");
+const stepLabel = (step: string | null) => (step ? step.replaceAll("_", " ") : null);
+// A terminal is the way forward when the web cannot start approval (an older
+// backend, or the flag off), and the fallback when a run stalls.
 const terminalStep =
-  request.status === "approving"
-    ? { lead: "Continue from a terminal", command: cliApproveCommand(request) }
-    : actionable && !WEB_PUBLISH_APPROVE_ENABLED
-      ? { lead: "Approve from a terminal", command: cliApproveCommand(request) }
+  phase.kind === "stalled" ||
+  (!webStarts && (phase.kind === "ready" || phase.kind === "unsupported"))
+    ? {
+        lead: webStarts
+          ? "Or from a terminal"
+          : request.status === "approving"
+            ? "Continue from a terminal"
+            : "Approve from a terminal",
+        command: cliApproveCommand(request),
+      }
+    : null;
+const progressText =
+  phase.kind === "running"
+    ? phase.queued
+      ? "Approval queued. Waiting for GitHub Actions to start it."
+      : `Approval running${phase.step ? `: ${stepLabel(phase.step)}` : ""}. You can close this page; it keeps going.`
+    : phase.kind === "stalled"
+      ? phase.resume
+        ? "Approval stopped making progress. Resume continues from the last finished step."
+        : "The approval was requested but never started. Retry sends it again."
       : null;
 
 // The backend writes `datetime('now')`: UTC with no zone marker. Show the age,
@@ -60,7 +80,7 @@ const note =
     ? { label: "Reason", text: request.denied_reason }
     : request.status === "blocked" && request.block_reason
       ? { label: "Reason", text: request.block_reason }
-      : request.status === "approving" && request.last_error
+      : request.status === "approving" && request.last_error && phase.kind !== "running"
         ? {
             label: request.current_step ? `Stopped at ${request.current_step}` : "Last error",
             text: request.last_error,
@@ -98,6 +118,16 @@ const note =
     </div>
   </dl>
 
+  {progressText && (
+    <p
+      class:list={["pubreq-row__progress", { "pubreq-row__progress--stalled": phase.kind === "stalled" }]}
+      role="status"
+      data-pubreq-running={phase.kind === "running" ? "" : undefined}
+    >
+      {progressText}
+    </p>
+  )}
+
   {note && (
     <p class="pubreq-row__reason" role="note">
       <strong>{note.label}:</strong> {note.text}
@@ -114,7 +144,7 @@ const note =
     <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(datasetId)}`}>
       View dataset
     </a>
-    {actionable && (
+    {canDeny && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--danger-ghost"
@@ -124,7 +154,7 @@ const note =
         Deny
       </button>
     )}
-    {webApprove && (
+    {webStarts && phase.kind === "ready" && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--primary"
@@ -132,6 +162,16 @@ const note =
         data-dataset-id={datasetId}
       >
         Approve and publish
+      </button>
+    )}
+    {webStarts && phase.kind === "stalled" && (
+      <button
+        type="button"
+        class="pubreq-row__btn pubreq-row__btn--primary"
+        data-pubreq-resume
+        data-dataset-id={datasetId}
+      >
+        {phase.resume ? "Resume approval" : "Retry approval"}
       </button>
     )}
   </footer>
@@ -200,6 +240,23 @@ const note =
   .pubreq-row__line--muted {
     color: var(--admin-text-3);
     font-size: var(--fs-xs);
+  }
+  .pubreq-row__progress {
+    margin: 0;
+    background: var(--admin-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .pubreq-row__progress--stalled {
+    box-shadow: inset 3px 0 0 var(--admin-error);
+  }
+  @media (forced-colors: active) {
+    .pubreq-row__progress--stalled {
+      border-inline-start: 3px solid CanvasText;
+    }
   }
   .pubreq-row__terminal {
     margin: 0;

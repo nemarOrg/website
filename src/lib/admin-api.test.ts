@@ -4,8 +4,8 @@ import {
   ADMIN_TIMEOUTS_MS,
   type PublicationRequest,
   type PublicationRequestStatus,
-  approvePublicationRequest,
   denyPublicationRequest,
+  dispatchPublicationApproval,
   isAdminActionable,
   listPublicationRequests,
 } from "./admin-api";
@@ -88,27 +88,57 @@ describe("listPublicationRequests", () => {
   });
 });
 
-describe("approvePublicationRequest", () => {
-  it("POSTs to /admin/publish/:id/approve", async () => {
+describe("dispatchPublicationApproval", () => {
+  it("POSTs to /admin/publish/:id/approve-dispatch and returns the 202 body", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
-      expect(url).toBe("/api/v1/admin/publish/nm-xyz/approve");
+      expect(url).toBe("/api/v1/admin/publish/nm000288/approve-dispatch");
       expect(init.method).toBe("POST");
       expect(init.credentials).toBe("include");
       return new Response(
         JSON.stringify({
-          status: {
-            dataset_id: "nm-xyz",
-            status: "published",
-            requested_at: "2026-05-20T00:00:00Z",
-            approved_at: "2026-05-22T00:00:00Z",
-            published_at: "2026-05-22T00:00:00Z",
-          },
+          status: "dispatched",
+          dataset_id: "nm000288",
+          request_id: 833,
+          resume: false,
         }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
+        { status: 202, headers: { "Content-Type": "application/json" } },
       );
     }) as unknown as typeof fetch;
-    const out = await approvePublicationRequest("nm-xyz", { fetch: fakeFetch });
-    expect(out.status.status).toBe("published");
+    const out = await dispatchPublicationApproval("nm000288", { fetch: fakeFetch });
+    expect(out).toEqual({
+      status: "dispatched",
+      dataset_id: "nm000288",
+      request_id: 833,
+      resume: false,
+    });
+  });
+
+  it("keeps the backend's machine code on a refusal so the page can map it", async () => {
+    const fakeFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "already_in_flight" }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ) as unknown as typeof fetch;
+    await expect(
+      dispatchPublicationApproval("nm000288", { fetch: fakeFetch }),
+    ).rejects.toMatchObject({ name: "DashboardApiError", status: 409, code: "already_in_flight" });
+  });
+
+  // The older admin routes send `{ error: "<sentence>" }`; the sentence is the
+  // only explanation there is, so it must reach the admin.
+  it("shows a sentence the backend sent instead of the bare HTTP status text", async () => {
+    const fakeFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "No active publication request found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
+    ) as unknown as typeof fetch;
+    await expect(dispatchPublicationApproval("nm000288", { fetch: fakeFetch })).rejects.toThrow(
+      "No active publication request found",
+    );
   });
 });
 
@@ -117,15 +147,12 @@ describe("denyPublicationRequest", () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toBe("/api/v1/admin/publish/nm-xyz/deny");
       expect(init.body).toBe(JSON.stringify({ reason: "BIDS validation failing" }));
+      // The shape nemar-cli's deny route answers with.
       return new Response(
         JSON.stringify({
-          status: {
-            dataset_id: "nm-xyz",
-            status: "denied",
-            requested_at: "2026-05-20T00:00:00Z",
-            denied_at: "2026-05-22T00:00:00Z",
-            denied_reason: "BIDS validation failing",
-          },
+          message: "Publication request denied",
+          dataset_id: "nm-xyz",
+          reason: "BIDS validation failing",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -133,7 +160,20 @@ describe("denyPublicationRequest", () => {
     const out = await denyPublicationRequest("nm-xyz", "BIDS validation failing", {
       fetch: fakeFetch,
     });
-    expect(out.status.status).toBe("denied");
+    expect(out.reason).toBe("BIDS validation failing");
+  });
+
+  it("shows the backend's sentence when there is nothing to deny", async () => {
+    const fakeFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: "No active publication request found" }), {
+          status: 404,
+          statusText: "Not Found",
+        }),
+    ) as unknown as typeof fetch;
+    await expect(denyPublicationRequest("nm-xyz", "spam", { fetch: fakeFetch })).rejects.toThrow(
+      "Deny failed: No active publication request found",
+    );
   });
 
   it("rejects an empty reason before making the request", async () => {
@@ -154,13 +194,9 @@ describe("denyPublicationRequest", () => {
       expect(init.body).toBe(JSON.stringify({ reason: "no" }));
       return new Response(
         JSON.stringify({
-          status: {
-            dataset_id: "nm-xyz",
-            status: "denied",
-            requested_at: "2026-05-20T00:00:00Z",
-            denied_at: "2026-05-22T00:00:00Z",
-            denied_reason: "no",
-          },
+          message: "Publication request denied",
+          dataset_id: "nm-xyz",
+          reason: "no",
         }),
         { status: 200 },
       );
@@ -187,9 +223,9 @@ describe("request deadlines", () => {
     ).rejects.toMatchObject({ name: "TimeoutError" });
   });
 
-  it("aborts a hung approve rather than leaving the button stuck", async () => {
+  it("aborts a hung dispatch rather than leaving the button stuck", async () => {
     await expect(
-      approvePublicationRequest("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+      dispatchPublicationApproval("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
     ).rejects.toMatchObject({ name: "TimeoutError" });
   });
 
@@ -208,19 +244,20 @@ describe("request deadlines", () => {
     await expect(pending).rejects.toThrow("caller went away");
   });
 
-  // Both writes must stay strictly slower than a plain read, and approve —
-  // which fully awaits a sixteen-step orchestrator — strictly slower than deny,
-  // which is one update plus an email.
-  it("orders the deadlines list < deny < approve", () => {
+  // Both writes sit above a plain read: each is a database write, and dispatch
+  // adds a GitHub call. Neither is the two minutes the old blocking approve
+  // needed, because approval no longer runs inside the request.
+  it("orders the deadlines list < deny and list < dispatch", () => {
     expect(ADMIN_TIMEOUTS_MS.deny).toBeGreaterThan(ADMIN_TIMEOUTS_MS.list);
-    expect(ADMIN_TIMEOUTS_MS.approve).toBeGreaterThan(ADMIN_TIMEOUTS_MS.deny);
+    expect(ADMIN_TIMEOUTS_MS.dispatch).toBeGreaterThan(ADMIN_TIMEOUTS_MS.list);
+    expect(ADMIN_TIMEOUTS_MS.dispatch).toBeLessThan(60_000);
   });
 });
 
 // The suite above proves a deadline EXISTS. It cannot prove which constant a
 // given call site passes, because every case supplies an explicit `timeoutMs`
 // and `resolveSignal` always prefers that over the fallback — so swapping
-// `approve`'s fallback to `list` leaves those tests green.
+// `dispatch`'s fallback to `list` leaves those tests green.
 //
 // `AbortSignal.timeout()` doesn't expose its duration on the returned signal,
 // but it is an ordinary spyable static, so assert on the argument instead.
@@ -242,20 +279,22 @@ describe("deadline wiring", () => {
     expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.list);
   });
 
-  // The regression this exists for: approve silently inheriting a read-sized
-  // deadline would abort healthy publications partway through the orchestrator.
-  it("passes the approve deadline when approving", async () => {
+  it("passes the dispatch deadline when starting an approval", async () => {
     const spy = vi.spyOn(AbortSignal, "timeout");
-    await approvePublicationRequest("nm-xyz", {
-      fetch: okFetch({ status: { dataset_id: "nm-xyz", status: "none" } }),
+    await dispatchPublicationApproval("nm-xyz", {
+      fetch: okFetch({ status: "dispatched", dataset_id: "nm-xyz", request_id: 1, resume: false }),
     });
-    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.approve);
+    expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.dispatch);
   });
 
   it("passes the deny deadline when denying", async () => {
     const spy = vi.spyOn(AbortSignal, "timeout");
     await denyPublicationRequest("nm-xyz", "spam", {
-      fetch: okFetch({ status: { dataset_id: "nm-xyz", status: "none" } }),
+      fetch: okFetch({
+        message: "Publication request denied",
+        dataset_id: "nm-xyz",
+        reason: "spam",
+      }),
     });
     expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.deny);
   });

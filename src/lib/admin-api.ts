@@ -1,6 +1,6 @@
 /**
- * Admin API client: list pending publication requests and approve or deny
- * them. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
+ * Admin API client: list publication requests, deny them, and start their
+ * approval. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
  * browser callers go through the same-origin `/api/v1` proxy (see
  * `dashboardApiBase` in `./api-base.ts`) so the session cookie attaches
  * automatically without broadening it to other `*.nemar.org` hosts.
@@ -9,7 +9,6 @@ import { dashboardApiBase, readError } from "./api-base";
 import {
   DashboardApiError,
   type DatasetPublishState,
-  type PublicationStatus,
   deriveAdminBadgeState,
 } from "./dashboard-api";
 import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
@@ -28,31 +27,16 @@ type Init = {
  *
  * - `list` — a D1-backed read that SSRs `/admin/publication-requests`. It is
  *   the page's primary content, so it gets the base deadline.
- * - `deny` — one DB update plus a best-effort email. Slower than a read
- *   because it writes, but nowhere near `approve`.
- * - `approve` — the outlier, and the reason this table has three entries
- *   instead of two. `POST /admin/publish/:id/approve` fully awaits
- *   `runPublicationApproval`, a sixteen-step state machine (nemar-cli
- *   `backend/src/services/publication-orchestrator.ts`) that walks GitHub
- *   (tree read, blob read, workflow check, workflow deploy, run poll,
- *   visibility flip, repo spec, tag protection), verifies S3, and mints a
- *   Zenodo DOI — several steps wrapped in `withRetry` at three attempts. Only
- *   `waitForPublicPropagation` is deferred to `waitUntil`; everything else
- *   blocks the response. A single retried GitHub step can push a *healthy*
- *   run past fifteen seconds, and an abort there is worse than a slow spinner:
- *   the Worker-side run is not tied to our AbortController, so it keeps going
- *   while the page re-enables the button and invites a second click.
- *
- * Even at two minutes this is still a bound, which is the point — the bug in
- * website#173 was an *unbounded* wait, not a short one. Making approve
- * non-blocking (kick off the job, poll for progress) is the real fix, tracked
- * in website#200; it needs a backend change, not a constant. When that lands,
- * `approve` drops back to a normal deadline and this comment goes away.
+ * - `deny` — one DB update plus a best-effort email.
+ * - `dispatch` — one DB claim plus one GitHub `repository_dispatch`. Approval
+ *   itself no longer runs inside this request: the backend hands it to a
+ *   GitHub Action and answers 202 (website#200), so this is a short deadline,
+ *   not the two minutes the old blocking approve needed.
  */
 export const ADMIN_TIMEOUTS_MS = {
   list: DEFAULT_REQUEST_TIMEOUT_MS,
   deny: 15_000,
-  approve: 120_000,
+  dispatch: 15_000,
 } as const;
 
 /**
@@ -102,6 +86,21 @@ export interface PublicationRequest {
   /** The orchestrator step an `approving` request is on, or stopped at. */
   readonly current_step: string | null;
   readonly last_error: string | null;
+  /**
+   * Set by the approval-dispatch backend (nemar-cli `approve-dispatch`).
+   * Optional because a backend without it omits them, and the page then
+   * behaves as if no approval was ever dispatched.
+   *
+   * `updated_at` moves on every orchestrator step. `approval_requested_by` is
+   * the admin who clicked Approve on the web, and `approval_dispatched_at`
+   * when the GitHub Action was asked to run. `approval_in_flight` is the
+   * backend's own answer to "is an approval running or queued right now",
+   * computed once on the server so no client hard-codes its timing.
+   */
+  readonly updated_at?: string;
+  readonly approval_requested_by?: number | null;
+  readonly approval_dispatched_at?: string | null;
+  readonly approval_in_flight?: boolean;
 }
 
 export interface PublicationRequestListResponse {
@@ -137,10 +136,37 @@ export async function listPublicationRequests(
   return (await res.json()) as PublicationRequestListResponse;
 }
 
-export async function approvePublicationRequest(
+/**
+ * What a failed call says. The backend's older admin routes send
+ * `{ error: "<a sentence>" }`, and `readError` files that under `code`, so
+ * `message` is empty and the sentence would be lost behind the HTTP status
+ * text. A `code` with a space in it is such a sentence; a snake_case `code` is
+ * a machine code the page maps itself (see `FRIENDLY` in the page).
+ */
+function failureText(detail: { message?: string; code?: string }, res: Response): string {
+  if (detail.message) return detail.message;
+  if (detail.code?.includes(" ")) return detail.code;
+  return res.statusText;
+}
+
+export interface PublicationDispatchResponse {
+  readonly status: "dispatched";
+  readonly dataset_id: string;
+  readonly request_id: number;
+  /** True when the run continues finished work instead of starting over. */
+  readonly resume: boolean;
+}
+
+/**
+ * Ask the backend to run a request's approval in a GitHub Action. The route
+ * answers 202 as soon as the Action has been asked to start; the run then
+ * reports through the request's own `status`, `current_step` and `last_error`.
+ * Closing the page afterwards changes nothing.
+ */
+export async function dispatchPublicationApproval(
   datasetId: string,
   init: Init = {},
-): Promise<{ status: PublicationStatus }> {
+): Promise<PublicationDispatchResponse> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -148,31 +174,38 @@ export async function approvePublicationRequest(
   };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   const res = await fetchImpl(
-    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/approve`,
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/approve-dispatch`,
     {
       method: "POST",
       headers,
       credentials: "include",
       body: "{}",
-      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.approve),
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.dispatch),
     },
   );
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
-      `Approve failed: ${detail.message ?? res.statusText}`,
+      `Approval was not started: ${failureText(detail, res)}`,
       res.status,
       detail.code,
     );
   }
-  return (await res.json()) as { status: PublicationStatus };
+  return (await res.json()) as PublicationDispatchResponse;
+}
+
+/** What `POST /admin/publish/:id/deny` answers (nemar-cli `routes/admin/publish.ts`). */
+export interface PublicationDenyResponse {
+  readonly message: string;
+  readonly dataset_id: string;
+  readonly reason: string;
 }
 
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
   init: Init = {},
-): Promise<{ status: PublicationStatus }> {
+): Promise<PublicationDenyResponse> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
     throw new DashboardApiError("Deny requires a non-empty reason", 0, "missing_field");
@@ -196,12 +229,12 @@ export async function denyPublicationRequest(
   if (!res.ok) {
     const detail = await readError(res);
     throw new DashboardApiError(
-      `Deny failed: ${detail.message ?? res.statusText}`,
+      `Deny failed: ${failureText(detail, res)}`,
       res.status,
       detail.code,
     );
   }
-  return (await res.json()) as { status: PublicationStatus };
+  return (await res.json()) as PublicationDenyResponse;
 }
 
 /**

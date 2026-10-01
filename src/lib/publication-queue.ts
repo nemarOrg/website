@@ -136,3 +136,48 @@ export function cliApproveCommand(
   const base = `nemar admin publish approve ${request.dataset_id}`;
   return request.status === "approving" ? `${base} --resume` : base;
 }
+
+/**
+ * What the web can do for a request right now, from the backend's own fields.
+ *
+ * - `none`: published, denied or blocked. Nothing to start.
+ * - `unsupported`: the backend sent no `approval_in_flight`, so it predates the
+ *   dispatch route. The web cannot start approval; a terminal can. Detecting
+ *   this from the data means a site deployed before its backend degrades to
+ *   the CLI hint instead of a button that answers 404.
+ * - `ready`: requested and never dispatched. The Approve button.
+ * - `running`: an approval is queued or in progress. `queued` is true until the
+ *   orchestrator has written its first step. No buttons; the page refreshes.
+ * - `stalled`: an approval was started and has gone quiet, so it will not
+ *   finish by itself. `resume` is true when steps already ran, which is the
+ *   case for any `approving` request; the retry then skips finished steps.
+ *
+ * The timing lives in the backend (`approval_in_flight`), so this never
+ * compares timestamps.
+ */
+export type ApprovalPhase =
+  | { readonly kind: "none" }
+  | { readonly kind: "unsupported" }
+  | { readonly kind: "ready" }
+  | { readonly kind: "running"; readonly queued: boolean; readonly step: string | null }
+  | { readonly kind: "stalled"; readonly resume: boolean };
+
+export function approvalPhase(
+  request: Pick<
+    PublicationRequest,
+    "status" | "current_step" | "approval_in_flight" | "approval_dispatched_at"
+  >,
+): ApprovalPhase {
+  if (request.status !== "requested" && request.status !== "approving") return { kind: "none" };
+  if (request.approval_in_flight === undefined) return { kind: "unsupported" };
+  if (request.approval_in_flight) {
+    return {
+      kind: "running",
+      queued: request.status === "requested",
+      step: request.current_step,
+    };
+  }
+  if (request.status === "approving") return { kind: "stalled", resume: true };
+  // Requested. Dispatched before but quiet now means the Action never started.
+  return request.approval_dispatched_at ? { kind: "stalled", resume: false } : { kind: "ready" };
+}
