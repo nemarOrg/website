@@ -110,6 +110,46 @@ describe("requestPrivateGrant", () => {
     });
   });
 
+  it("bounds the call with a deadline signal", async () => {
+    const cap = captureFetch(jsonResponse({ code: "abc", expires_in: 60 }));
+    await requestPrivateGrant({ ...BASE, fetch: cap.fetch });
+    expect(cap.calls[0].signal).toBeInstanceOf(AbortSignal);
+    expect(cap.calls[0].signal?.aborted).toBe(false);
+  });
+
+  it("gives up on a hung backend at the deadline, names the timeout, and logs no state", async () => {
+    // A fetch that never settles on its own and only rejects when its signal aborts: the failure
+    // a try/catch alone cannot cover. The real deadline from `resolveSignal` ends it.
+    const hangingFetch = ((_url: string, requestInit: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        requestInit.signal?.addEventListener("abort", () => reject(requestInit.signal?.reason));
+      })) as unknown as typeof fetch;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await requestPrivateGrant({ ...BASE, fetch: hangingFetch, timeoutMs: 10 })).toEqual({
+        status: "network",
+      });
+      expect(String(warn.mock.calls[0]?.[0])).toContain("(timeout)");
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(STATE);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("never throws when the transport itself reports a TimeoutError", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const cap = captureFetch(async () => {
+        throw new DOMException("The operation timed out.", "TimeoutError");
+      });
+      await expect(requestPrivateGrant({ ...BASE, fetch: cap.fetch })).resolves.toEqual({
+        status: "network",
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("answers the network sentinel on a transport failure, and logs no state", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
