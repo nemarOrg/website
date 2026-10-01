@@ -52,3 +52,4 @@ Add new entries here as you create ADRs:
 - ADR 0018 - [Embed the Open Science Assistant widget site-wide, pinned per environment](0018-embed-osa-widget-site-wide.md) (accepted)
 - ADR 0019 - [Default-on anonymous analytics with a shared opt-out](0019-default-on-analytics-shared-opt-out.md) (accepted)
 - ADR 0020 - [News images are site-relative, content-addressed, and served same-origin](0020-news-images-same-origin-content-addressed.md) (accepted)
+- ADR 0021 - [Web approval is started by the backend and run by an executor, never driven by the page](0021-web-approval-is-dispatched-not-page-driven.md) (accepted)
