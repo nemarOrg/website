@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import wranglerToml from "../../wrangler.toml?raw";
 import { OSA_DATASET_WINDOW_PROPERTY } from "./osa-dataset";
 import { osaColorSchemeFor } from "./osa-theme";
 import {
@@ -528,7 +529,7 @@ describe("renderOsaWidgetScript", () => {
   });
 
   it("is deferred, not async, so it never blocks the parser and still runs in document order", () => {
-    // A blocking tag would hold the scripts after it in Base.astro, and the load event, until
+    // A blocking tag would hold the parser, and so the scripts after it in Base.astro, until
     // jsDelivr or the widget host answered; async would run it out of order.
     const tag = renderOsaWidgetScript(config).match(/^<script[^>]*>/)?.[0] ?? "";
     expect(tag).toMatch(/\sdefer[\s>]/);
@@ -881,5 +882,29 @@ describe("osaWidgetMarkup", () => {
       expect(isOsaWidgetExcludedPath(excluded), excluded).toBe(true);
       expect(isOsaWidgetExcludedPath(`${excluded}/anything`), excluded).toBe(true);
     }
+  });
+});
+
+// The values production builds with are read from the file itself, not copied here. A malformed
+// pin degrades to no widget and a console warning (see `resolveOsaWidget`), so a mistyped repin
+// would otherwise reach production with nothing failing in CI.
+describe("the production pin in wrangler.toml", () => {
+  const pick = (key: string) =>
+    wranglerToml.match(new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, "m"))?.[1];
+  const resolution = resolveOsaWidget({
+    src: pick("PUBLIC_OSA_WIDGET_SRC"),
+    integrity: pick("PUBLIC_OSA_WIDGET_INTEGRITY"),
+    apiEndpoint: pick("PUBLIC_OSA_API_ENDPOINT"),
+    notebookUrl: pick("PUBLIC_OSA_NOTEBOOK_URL"),
+  });
+
+  it("resolves to a ready widget", () => {
+    expect(resolution.kind).toBe("ready");
+  });
+
+  it("is pinned to a commit with an integrity hash, not a moving ref", () => {
+    if (resolution.kind !== "ready") throw new Error(`pin did not resolve: ${resolution.kind}`);
+    expect(resolution.src).toMatch(/\/osa@[0-9a-f]{40}\//);
+    expect(resolution.integrity).toMatch(/^sha384-/);
   });
 });
