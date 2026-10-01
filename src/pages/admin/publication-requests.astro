@@ -5,7 +5,14 @@ import AdminLayout from "../../layouts/AdminLayout.astro";
 import { type PublicationRequest, listPublicationRequests } from "../../lib/admin-api";
 import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
-import { DashboardApiError, type PublicationStatus } from "../../lib/dashboard-api";
+import { DashboardApiError } from "../../lib/dashboard-api";
+import { WEB_PUBLISH_APPROVE_ENABLED } from "../../lib/flags";
+import {
+  DEFAULT_QUEUE_TAB,
+  QUEUE_TABS,
+  bucketQueue,
+  resolveQueueTab,
+} from "../../lib/publication-queue";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -20,28 +27,17 @@ if (!session) {
 }
 
 const url = new URL(Astro.request.url);
-const statusFilter = url.searchParams.get("status") ?? "";
-const validStatuses: ReadonlyArray<PublicationStatus["status"]> = [
-  "requested",
-  "approving",
-  "published",
-  "denied",
-  "blocked",
-];
-const effectiveFilter: PublicationStatus["status"] | undefined = (
-  validStatuses as readonly string[]
-).includes(statusFilter)
-  ? (statusFilter as PublicationStatus["status"])
-  : undefined;
+const activeTab = resolveQueueTab(url.searchParams.get("status"));
 
+// One unfiltered read, bucketed here. The tabs need every dataset's latest
+// request to be counted and to drop a denial a later request superseded, which
+// a per-status fetch cannot see. See `lib/publication-queue.ts`.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
-let requests: readonly PublicationRequest[] = [];
+let buckets = bucketQueue([]);
 let listError: string | null = null;
 try {
-  const result = await listPublicationRequests(effectiveFilter ? { status: effectiveFilter } : {}, {
-    cookieHeader,
-  });
-  requests = result.requests;
+  const result = await listPublicationRequests({}, { cookieHeader });
+  buckets = bucketQueue(result.requests);
 } catch (err) {
   listError =
     err instanceof DashboardApiError
@@ -51,34 +47,41 @@ try {
         : "Could not load publication requests.";
 }
 
-const filters: { value: string; label: string }[] = [
-  { value: "", label: "All" },
-  { value: "requested", label: "Pending" },
-  { value: "published", label: "Published" },
-  { value: "denied", label: "Denied" },
-  { value: "blocked", label: "Blocked" },
-];
+const requests: readonly PublicationRequest[] = buckets[activeTab];
+const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 ---
 
 <AdminLayout title="Publication requests" active="publications" session={session}>
   <Fragment slot="lede">
-    Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
-    publicly visible.
+    {WEB_PUBLISH_APPROVE_ENABLED ? (
+      <>
+        Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
+        publicly visible. Each dataset is listed once, under its most recent request.
+      </>
+    ) : (
+      <>
+        Deny dataset publication requests here. Approving mints a DOI and makes the dataset
+        publicly visible, and for now it runs from a terminal because it needs more than one call
+        to finish. Each dataset is listed once, under its most recent request.
+      </>
+    )}
   </Fragment>
 
   <nav class="admin-filters" aria-label="Filter by status">
-    {filters.map((f) => {
-      const href = f.value
-        ? `/admin/publication-requests?status=${f.value}`
-        : "/admin/publication-requests";
-      const active = (effectiveFilter ?? "") === f.value;
+    {QUEUE_TABS.map((tab) => {
+      const href =
+        tab.id === DEFAULT_QUEUE_TAB
+          ? "/admin/publication-requests"
+          : `/admin/publication-requests?status=${tab.id}`;
+      const active = activeTab === tab.id;
       return (
         <a
           class:list={["admin-filters__chip", { "admin-filters__chip--active": active }]}
           href={href}
           aria-current={active ? "page" : undefined}
         >
-          {f.label}
+          {tab.label}
+          {!listError && <span class="admin-filters__count">{buckets[tab.id].length}</span>}
         </a>
       );
     })}
@@ -88,8 +91,8 @@ const filters: { value: string; label: string }[] = [
 
   {!listError && requests.length === 0 ? (
     <div class="admin-empty">
-      <h2 class="admin-empty__title">No publication requests in this view</h2>
-      <p class="admin-empty__body">Requests appear here as researchers submit them for review.</p>
+      <h2 class="admin-empty__title">{activeMeta.empty.title}</h2>
+      <p class="admin-empty__body">{activeMeta.empty.body}</p>
     </div>
   ) : (
     <ul class="admin-list" role="list">
@@ -103,14 +106,16 @@ const filters: { value: string; label: string }[] = [
 
   <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
 
-  <ConfirmDialog
-    dialogId="admin-approve"
-    title="Approve and publish?"
-    body="This is irreversible. The dataset becomes public immediately and a DOI is minted."
-    confirmLabel="Approve and publish"
-    confirmTone="primary"
-    requireTyping="PUBLISH"
-  />
+  {WEB_PUBLISH_APPROVE_ENABLED && (
+    <ConfirmDialog
+      dialogId="admin-approve"
+      title="Approve and publish?"
+      body="This is irreversible. The dataset becomes public immediately and a DOI is minted."
+      confirmLabel="Approve and publish"
+      confirmTone="primary"
+      requireTyping="PUBLISH"
+    />
+  )}
 
   <ConfirmDialog
     dialogId="admin-deny"
@@ -151,6 +156,11 @@ const filters: { value: string; label: string }[] = [
   }
   .admin-filters__chip:hover {
     color: var(--color-fg);
+  }
+  .admin-filters__count {
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
   }
   .admin-filters__chip--active {
     background: var(--admin-surface);

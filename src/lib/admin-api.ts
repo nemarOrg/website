@@ -55,17 +55,53 @@ export const ADMIN_TIMEOUTS_MS = {
   approve: 120_000,
 } as const;
 
+/**
+ * `publication_requests.status`. The column is CHECK-constrained to exactly
+ * these five values (nemar-cli migration 0026), so a request is always in one
+ * of them; there is no "none" here, which belongs to the owner-side
+ * `PublicationStatus` for a dataset that has never been requested.
+ */
+export type PublicationRequestStatus =
+  | "requested"
+  | "approving"
+  | "published"
+  | "denied"
+  | "blocked";
+
+/**
+ * One row of `GET /admin/publish/requests`: the `publication_requests` table
+ * joined to the requester, sent as stored (nemar-cli
+ * `backend/src/routes/admin/publish.ts`, `SELECT pr.*, u.username ...`).
+ *
+ * This is deliberately NOT the discriminated `PublicationStatus` that the
+ * owner-side `/datasets/:id/publish/status` returns. This page was first built
+ * against that nested shape (`status.status`, `status.dataset_id`, a
+ * `dataset_name` and an `owner_email` the route never sent), and with the
+ * backend's flat rows the first row's render threw, so the queue never listed
+ * anything. The shape below is what a production response looks like; see
+ * `test/fixtures/admin-publish-requests.json`.
+ *
+ * Timestamps are SQLite `datetime('now')`, i.e. UTC with no zone marker. Parse
+ * them with `parseBackendTimestamp`, not `new Date`.
+ *
+ * `block_reason` is NOT cleared when a blocked request later moves on, so
+ * published and denied rows keep a stale one. Read it only when `status` is
+ * `"blocked"`.
+ */
 export interface PublicationRequest {
-  /** Human-readable dataset name, included for display without a second fetch. */
-  readonly dataset_name: string;
-  /** Email of the dataset owner; used for the "Requested by" column. */
-  readonly owner_email: string;
-  /**
-   * Full discriminated-union status. `status.dataset_id` is the canonical
-   * id for this row; we deliberately do not duplicate it at this level to
-   * avoid two-sources-of-truth drift.
-   */
-  readonly status: PublicationStatus;
+  readonly id: number;
+  readonly dataset_id: string;
+  readonly status: PublicationRequestStatus;
+  readonly requested_at: string;
+  readonly requested_by_username: string;
+  readonly requested_by_email: string;
+  readonly approved_at: string | null;
+  readonly denied_at: string | null;
+  readonly denied_reason: string | null;
+  readonly block_reason: string | null;
+  /** The orchestrator step an `approving` request is on, or stopped at. */
+  readonly current_step: string | null;
+  readonly last_error: string | null;
 }
 
 export interface PublicationRequestListResponse {
@@ -74,7 +110,7 @@ export interface PublicationRequestListResponse {
 }
 
 export async function listPublicationRequests(
-  query: { status?: PublicationStatus["status"] } = {},
+  query: { status?: PublicationRequestStatus } = {},
   init: Init = {},
 ): Promise<PublicationRequestListResponse> {
   const params = new URLSearchParams();
@@ -174,7 +210,7 @@ export async function denyPublicationRequest(
  * intermediate transitions on the backend.
  */
 export function isAdminActionable(req: PublicationRequest): boolean {
-  return req.status.status === "requested";
+  return req.status === "requested";
 }
 
 /** Re-export to keep admin surfaces importing from a single module. */

@@ -1,66 +1,36 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import fixture from "../../test/fixtures/admin-publish-requests.json";
 import {
   ADMIN_TIMEOUTS_MS,
   type PublicationRequest,
+  type PublicationRequestStatus,
   approvePublicationRequest,
   denyPublicationRequest,
   isAdminActionable,
   listPublicationRequests,
 } from "./admin-api";
-import type { PublicationStatus } from "./dashboard-api";
 
-function req(s: PublicationStatus): PublicationRequest {
-  return {
-    dataset_name: "Some dataset",
-    owner_email: "alice@example.com",
-    status: s,
-  };
+// A real queue row (production `GET /admin/publish/requests`, scrubbed), with
+// the status changed for the states the production snapshot holds none of.
+const realRows = fixture.requests as unknown as PublicationRequest[];
+function req(status: PublicationRequestStatus): PublicationRequest {
+  return { ...realRows[0], status };
 }
 
 describe("isAdminActionable", () => {
   it("true only when status is requested", () => {
-    expect(
-      isAdminActionable(
-        req({
-          dataset_id: "nm-xyz",
-          status: "requested",
-          requested_at: "2026-05-22T00:00:00Z",
-          requested_by: "alice@example.com",
-        }),
-      ),
-    ).toBe(true);
+    expect(isAdminActionable(req("requested"))).toBe(true);
   });
   it.each(["approving", "published", "denied", "blocked"] as const)(
     "false when status is %s",
     (status) => {
-      const baseFields = {
-        dataset_id: "nm-xyz",
-        requested_at: "2026-05-20T00:00:00Z",
-        requested_by: "alice@example.com",
-      };
-      let s: PublicationStatus;
-      if (status === "approving") {
-        s = { ...baseFields, status, approval_started_at: "2026-05-21T00:00:00Z" };
-      } else if (status === "published") {
-        s = {
-          ...baseFields,
-          status,
-          approval_started_at: "2026-05-21T00:00:00Z",
-          published_at: "2026-05-22T00:00:00Z",
-        };
-      } else if (status === "denied") {
-        s = { ...baseFields, status, denied_at: "2026-05-22T00:00:00Z", denied_reason: "x" };
-      } else {
-        s = {
-          ...baseFields,
-          status,
-          blocked_at: "2026-05-21T00:00:00Z",
-          block_reason: "BIDS failing",
-        };
-      }
-      expect(isAdminActionable(req(s))).toBe(false);
+      expect(isAdminActionable(req(status))).toBe(false);
     },
   );
+  it("offers Approve and Deny on the real pending rows and on nothing else", () => {
+    const actionable = realRows.filter(isAdminActionable);
+    expect(actionable.map((r) => r.dataset_id).sort()).toEqual(["nm000280", "nm000288"]);
+  });
 });
 
 describe("listPublicationRequests", () => {
@@ -84,6 +54,22 @@ describe("listPublicationRequests", () => {
     }) as unknown as typeof fetch;
     await listPublicationRequests({ status: "requested" }, { fetch: fakeFetch });
     expect(fakeFetch).toHaveBeenCalledOnce();
+  });
+
+  it("returns a production response's rows as the backend sent them", async () => {
+    const fakeFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify(fixture), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ) as unknown as typeof fetch;
+    const out = await listPublicationRequests({}, { fetch: fakeFetch });
+    expect(out.count).toBe(fixture.requests.length);
+    // nm000290 is the dataset whose request the page once failed to list.
+    const row = out.requests.find((r) => r.dataset_id === "nm000290");
+    expect(row?.status).toBe("published");
+    expect(row?.requested_by_email).toContain("@");
   });
 
   it("propagates forbidden on 403", async () => {
