@@ -399,3 +399,25 @@ Production is not changed: `wrangler.toml` still pins `db53bcc` with its hash.
 ### Receipts (update, moving ref)
 
 - `src/lib/osa-widget.test.ts`, "a src that follows a moving ref": accepted without integrity, refused with one, and refused for any other ref; a pinned src still needs its hash.
+
+## Update 2026-10-01: production's pin moves to OSA 0.8.16
+
+OSA 0.8.16 is released, tagged `v0.8.16` at `0e966d60821dfc007928e46f80098ec9daf86b67`.
+Production (`wrangler.toml` `[vars]`) now pins that commit, with
+`sha384-+eweaUHPTuzDVWdLIvO+EsdQEJxJ/4bVi5xK2rtXMwojX3u0yHHwTlJZNr9Ufvwk`.
+The same value was computed from GitHub's file at the commit and from jsDelivr's copy, which are byte-identical (399,337 bytes),
+and jsDelivr's `@v0.8.16` alias serves the same bytes, so the tag and the pinned commit agree.
+The recipe that reproduces the recorded `0.8.15` hash from jsDelivr reproduced it again before this one was trusted.
+
+Staging is not touched: it follows `develop` and carries no hash (update 2026-09-29).
+
+The release adds widget settings for the launcher (OSA #555): `launcherPosition`, `launcherSize`, `launcherOpenSize`,
+and desktop and mobile offsets `launcherOffsetX`, `launcherOffsetY`, `launcherMobileOffsetX`, `launcherMobileOffsetY`.
+This site sets none of them; the widget's own defaults apply, exactly as before the repin.
+The site's CSP needs no change: the set of hosts named in the widget's source is identical between `0.8.15` and `0.8.16`.
+
+### Receipts (update, 0.8.16)
+
+- osa tag `v0.8.16` resolves to commit `0e966d6`; the release notes list OSA #555 among the widget changes.
+- The `wrangler.toml` values, read from the file and passed to `resolveOsaWidget`, resolve to `ready`.
+  The unit tests in `src/lib/osa-widget.test.ts` use fixture values and do not read `wrangler.toml`, so this was checked by hand.
