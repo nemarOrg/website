@@ -3,6 +3,7 @@ import fixture from "../../test/fixtures/admin-publish-requests.json";
 import type { PublicationRequest } from "./admin-api";
 import { deriveAdminBadgeState } from "./dashboard-api";
 import {
+  APPROVAL_RUNS_URL,
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
   approvalPhase,
@@ -416,5 +417,28 @@ describe("rowView", () => {
     const pending = bucketQueue(rows).pending;
     expect(pending.map((r) => rowView(r, true).canDeny)).toEqual([true, true]);
     expect(pending.every((r) => rowView(r, true).start === null)).toBe(true);
+  });
+});
+
+describe("rowView: the workflow runs link", () => {
+  const idle = { approval_in_flight: false, approval_dispatched_at: null };
+
+  it("is offered while a run is queued, running or stalled", () => {
+    const running = variant(833, { ...idle, approval_in_flight: true });
+    const stalled = variant(833, { ...idle, status: "approving" as const });
+    expect(rowView(running, true).runsUrl).toBe(APPROVAL_RUNS_URL);
+    expect(rowView(stalled, true).runsUrl).toBe(APPROVAL_RUNS_URL);
+  });
+
+  it("is not offered when nothing has been started or the web cannot start anything", () => {
+    expect(rowView(variant(833, idle), true).runsUrl).toBeNull();
+    expect(rowView(variant(833, {}), true).runsUrl).toBeNull();
+    expect(rowView(variant(833, { ...idle, approval_in_flight: true }), false).runsUrl).toBeNull();
+  });
+
+  it("points at the central workflow's runs", () => {
+    expect(APPROVAL_RUNS_URL).toBe(
+      "https://github.com/nemarDatasets/.github/actions/workflows/approve-publication.yml",
+    );
   });
 });

@@ -294,6 +294,11 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     already_in_flight: "An approval is already running for this dataset. Give it a minute, then refresh.",
     not_dispatchable: "This request is blocked, so it cannot be approved until the block is cleared.",
     dispatch_failed: "GitHub did not accept the request, so nothing was started. Try again in a moment.",
+    dispatch_unconfirmed:
+      "GitHub did not confirm the request. It may have started, so check again in a few minutes before trying again.",
+    dispatch_unconfigured:
+      "The backend has no GitHub credential, so it cannot start an approval. Retrying will not help; tell an admin who manages the backend.",
+    origin_not_allowed: "The request came from an unexpected origin. Reload this page and try again.",
     not_found: "Request not found.",
     missing_field: "Provide a reason for denial.",
     internal_error: "Server error. Try again in a moment.",

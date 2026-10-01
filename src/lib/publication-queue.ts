@@ -205,6 +205,15 @@ export function backendDispatches(rows: readonly PublicationRequest[]): boolean 
   return rows.length === 0 || rows.some((r) => r.approval_in_flight !== undefined);
 }
 
+/**
+ * Where an admin can see why an approval stalled: the runs of the workflow that
+ * executes web approvals. The backend cannot see a failure inside the workflow
+ * (a missing secret, an install error), so the page points at the place that
+ * can.
+ */
+export const APPROVAL_RUNS_URL =
+  "https://github.com/nemarDatasets/.github/actions/workflows/approve-publication.yml";
+
 /** Everything a queue row decides to show, so the decision is testable. */
 export interface RowView {
   /** An anonymous release: the data goes public, the depositor stays concealed. */
@@ -219,6 +228,8 @@ export interface RowView {
   readonly start: { readonly kind: "approve" | "resume"; readonly label: string } | null;
   /** `active` is true while the backend holds a lease, so the page keeps refreshing. */
   readonly progress: { readonly text: string; readonly active: boolean } | null;
+  /** The workflow runs, offered while a run is queued, running or stalled. */
+  readonly runsUrl: string | null;
   readonly note: { readonly label: string; readonly text: string } | null;
   readonly terminal: { readonly lead: string; readonly command: string } | null;
 }
@@ -296,6 +307,10 @@ export function rowView(request: PublicationRequest, webEnabled: boolean): RowVi
     canDeny: request.status === "requested" && phase.kind !== "running",
     start,
     progress,
+    runsUrl:
+      webEnabled && (phase.kind === "running" || phase.kind === "stalled")
+        ? APPROVAL_RUNS_URL
+        : null,
     note,
     terminal,
   };

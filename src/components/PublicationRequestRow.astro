@@ -99,6 +99,12 @@ const requester = request.requested_by_username || request.requested_by_email;
       data-pubreq-running={view.progress.active ? "" : undefined}
     >
       {view.progress.text}
+      {view.runsUrl && (
+        <>
+          {" "}
+          <a href={view.runsUrl} target="_blank" rel="noopener noreferrer">See the workflow runs</a>.
+        </>
+      )}
     </p>
   )}
 
