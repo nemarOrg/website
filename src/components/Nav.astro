@@ -171,6 +171,8 @@ const signInHref = appUrl("/login", url.hostname);
     gap: var(--space-2);
     align-items: center;
   }
+  /* Sync: UserMenu.astro's `.user-menu__signin` is this same pill. The two are
+     duplicated on purpose (scoped styles do not cross components); change both. */
   .site-header__signin {
     min-block-size: 40px;
     display: inline-flex;
@@ -203,19 +205,18 @@ const signInHref = appUrl("/login", url.hostname);
   .nav-toggle:hover {
     background: var(--color-bg-elevated);
   }
-  /* The breakpoint below is mirrored by UserMenu.astro, whose dropdown panel
+  /* This breakpoint is shared with UserMenu.astro, whose dropdown panel
      re-anchors to the header at the same width. Change them together. */
   @media (max-width: 880px) {
     .primary-nav {
       display: none;
     }
-    /* Sign in, or the account menu, stays in the header row next to the
-       hamburger. It used to be hidden here along with the links, which left a
-       phone with no way to sign in and a signed-in user with no way to reach
-       Upload, My datasets, Settings or Admin. The theme toggle is the one
-       control that stays desktop-only: the row has no room for a third pill
-       beside the logo at 320px. Signed-in readers still reach the same choice
-       under Appearance in Settings; signed-out phones have no theme control. */
+    /* Sign in, or the account menu, must stay reachable on phones, so it stays
+       in the header row next to the hamburger. The theme toggle is the one
+       control that stays desktop-only: at 320px the row has no room for a third
+       control beside the logo, the Sign in pill and the hamburger. Signed-in
+       readers still reach the same choice under Appearance in Settings;
+       signed-out phones have none (#401). */
     .site-header__theme {
       display: none;
     }
@@ -226,8 +227,9 @@ const signInHref = appUrl("/login", url.hostname);
     }
     .nav-toggle {
       display: inline-flex;
-      /* Pull the 44px hit area out into the gutter so the glyph, not the box,
-         sits on the page's right content edge. */
+      /* Pull the hit area out into the gutter by half its slack, so the icon
+         box, not the button box, sits on the page's right content edge. The 44px
+         is `inline-size` above and the 24px is the icon's `width` in the markup. */
       margin-inline-end: calc((44px - 24px) / -2);
     }
     .site-header__inner {
@@ -253,20 +255,22 @@ const signInHref = appUrl("/login", url.hostname);
       gap: var(--space-4);
     }
   }
-  /* Below ~340px the 36px logo, the Sign in pill and the hamburger no longer fit
-     one row; at 320px the pill was squeezed until its label wrapped to two
-     lines. A shorter logo buys the room back and leaves the tap targets alone.
-     `:global` because the logo's height is set inside Brand.astro's own scope. */
+  /* Below ~340px the 36px logo, the Sign in pill (kept on one line by `nowrap`
+     above) and the hamburger no longer fit one row at their natural sizes. Use
+     Brand's `sm` height so the row does not depend on the browser squeezing the
+     logo's auto-width column. `:global` because the logo's height is set inside
+     Brand.astro's own scope. */
   @media (max-width: 340px) {
     .site-header__inner :global(.brand-svg) {
-      block-size: 30px;
+      block-size: 28px;
     }
   }
 </style>
 
 <script>
-  // The link panel and the account menu both hang from the header on a phone,
-  // so only one may be open at a time; each closes the other.
+  // At 880px and below the link panel and the account menu both hang from the
+  // sticky header and would overlap, so only one may be open at a time; each
+  // closes the other.
   const userMenu = document.querySelector<HTMLDetailsElement>("[data-user-menu]");
 
   document.querySelectorAll<HTMLButtonElement>("[data-nav-toggle]").forEach((btn) => {
@@ -282,6 +286,16 @@ const signInHref = appUrl("/login", url.hostname);
       if (!userMenu.open) return;
       nav?.classList.remove("is-open");
       btn.setAttribute("aria-expanded", "false");
+    });
+
+    // Escape closes the link panel as it does the account menu, and keeps focus
+    // on the page's side of the close: the hamburger, if focus was in the panel.
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !nav?.classList.contains("is-open")) return;
+      const hadFocus = nav.contains(document.activeElement) || document.activeElement === btn;
+      nav.classList.remove("is-open");
+      btn.setAttribute("aria-expanded", "false");
+      if (hadFocus) btn.focus();
     });
   });
 </script>
