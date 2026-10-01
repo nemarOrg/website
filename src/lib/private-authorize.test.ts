@@ -10,12 +10,14 @@ import {
   PRIVATE_AUTHORIZE_STATE_PARAM,
   PRIVATE_AUTHORIZE_STATUS,
   PRIVATE_CALLBACK_PATH,
+  PRIVATE_RETURN_LABEL,
   privateAuthorizeReturnPath,
   privateCallbackUrl,
   privateGrantOutcome,
   privateHandoffTarget,
   privateLoginRedirect,
   privateMethodRefusal,
+  privateReturnHref,
   privateState,
 } from "./private-authorize";
 import { pageViewForPathname } from "./umami-analytics";
@@ -372,5 +374,30 @@ describe("privateMethodRefusal", () => {
       }
       expect(await res?.text(), method).toBe("");
     }
+  });
+});
+
+describe("privateReturnHref", () => {
+  const ready = { kind: "ready", base: "https://private-test.nemar.org" } as const;
+
+  it("links the two account panels back to the private site's root", () => {
+    expect(privateReturnHref("unverified", ready)).toBe("https://private-test.nemar.org/");
+    expect(privateReturnHref("inactive", ready)).toBe("https://private-test.nemar.org/");
+    expect(PRIVATE_RETURN_LABEL).toBe("Return to the private site");
+  });
+
+  it("gives every other panel no link", () => {
+    for (const panel of [
+      "invalid_request",
+      "rate_limited",
+      "unavailable",
+      "misconfigured",
+    ] as const) {
+      expect(privateReturnHref(panel, ready), panel).toBeNull();
+    }
+  });
+
+  it("gives no link when the deployment has no usable private-site base", () => {
+    expect(privateReturnHref("inactive", { kind: "misconfigured", reason: "unset" })).toBeNull();
   });
 });

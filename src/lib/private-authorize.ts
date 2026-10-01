@@ -270,6 +270,24 @@ export const PRIVATE_AUTHORIZE_COPY: Readonly<
   },
 };
 
+/** The label of the way back to the private site on the two account panels. */
+export const PRIVATE_RETURN_LABEL = "Return to the private site";
+
+/**
+ * Where a panel links back to on the private site, or null for no link. Only the two account
+ * panels get one: on those the sign-in itself worked and the account is what stopped it, so going
+ * back to the private site is a real choice. The other panels are failures of this request, whose
+ * remedy is starting again from wherever the visitor came from. The href is the resolved base's
+ * root, from server configuration, never anything in the request.
+ */
+export function privateReturnHref(
+  panel: PrivateAuthorizePanel,
+  handoff: PrivateHandoffTarget,
+): string | null {
+  if (handoff.kind !== "ready") return null;
+  return panel === "unverified" || panel === "inactive" ? `${handoff.base}/` : null;
+}
+
 /** The status each panel answers with. A misconfigured deployment is 501, distinct from the
  *  transient 503, for the reason the docs page gives. */
 export const PRIVATE_AUTHORIZE_STATUS: Readonly<Record<PrivateAuthorizePanel, number>> = {

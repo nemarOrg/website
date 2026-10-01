@@ -146,6 +146,14 @@ describe("nothing about the request reaches a log or the visitor", () => {
     }
   });
 
+  it("links back to the private site from the resolved base only, with the fixed label", () => {
+    expect(FRONTMATTER).toMatch(
+      /panel = outcome\.kind;\s*returnHref = privateReturnHref\(panel, handoff\);/,
+    );
+    expect(FRONTMATTER.match(/returnHref = /g)).toHaveLength(1);
+    expect(PAGE).toContain("<a href={returnHref}>{PRIVATE_RETURN_LABEL}</a>");
+  });
+
   it("renders only the fixed copy", () => {
     expect(PAGE).toContain("{copy.title}");
     expect(PAGE).toContain("{copy.body}");

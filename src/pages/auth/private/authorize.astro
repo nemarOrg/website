@@ -32,6 +32,7 @@ import {
   PRIVATE_AUTHORIZE_HEADERS,
   PRIVATE_AUTHORIZE_STATE_PARAM,
   PRIVATE_AUTHORIZE_STATUS,
+  PRIVATE_RETURN_LABEL,
   type PrivateAuthorizePanel,
   privateAuthorizeReturnPath,
   privateCallbackUrl,
@@ -39,6 +40,7 @@ import {
   privateHandoffTarget,
   privateLoginRedirect,
   privateMethodRefusal,
+  privateReturnHref,
   privateState,
 } from "../../../lib/private-authorize";
 
@@ -70,6 +72,8 @@ const state = privateState(url.searchParams.get(PRIVATE_AUTHORIZE_STATE_PARAM));
 // Exactly one of these ends up set: a redirect to follow, or the panel to render.
 let redirectTo: string | null = null;
 let panel: PrivateAuthorizePanel = "invalid_request";
+// The way back to the private site, on the account panels only.
+let returnHref: string | null = null;
 
 if (state !== null) {
   // The address to come back to after signing in, rebuilt from the validated `state` rather than
@@ -102,6 +106,7 @@ if (state !== null) {
       redirectTo = privateLoginRedirect(returnPath, true);
     } else {
       panel = outcome.kind;
+      returnHref = privateReturnHref(panel, handoff);
     }
   } else {
     // The reason names the configured value, never the request.
@@ -124,6 +129,13 @@ const copy = PRIVATE_AUTHORIZE_COPY[panel];
       <div class="handoff__rail" aria-hidden="true"></div>
       <h1 class="handoff__title">{copy.title}</h1>
       <p class="handoff__lede">{copy.body}</p>
+      {
+        returnHref !== null && (
+          <p class="handoff__note">
+            <a href={returnHref}>{PRIVATE_RETURN_LABEL}</a>
+          </p>
+        )
+      }
     </article>
   </section>
 </Base>
@@ -165,5 +177,12 @@ const copy = PRIVATE_AUTHORIZE_COPY[panel];
     margin: 0;
     color: var(--color-fg-muted);
     line-height: var(--lh-normal);
+  }
+  .handoff__note {
+    margin: var(--space-4) 0 0;
+    font-size: var(--fs-sm);
+  }
+  .handoff__note a {
+    color: var(--color-link);
   }
 </style>
