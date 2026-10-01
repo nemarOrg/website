@@ -26,6 +26,10 @@ PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
 # deploy-test.yml's build step. It must be on one of OSA_NOTEBOOK_ORIGINS (src/lib/osa-widget.ts),
 # the two hosts this site's frame-src allows, because the widget frames the notebook (OSA #470).
 PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/"
+# Private-site sign-in handoff target (src/lib/private-authorize.ts), reference only, same caveat
+# as above: not PUBLIC_, but Vite still inlines it into the worker bundle at build time, so the
+# real value lives in deploy-test.yml's build step.
+PRIVATE_SITE_BASE = "https://private-test.nemar.org"
 
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
 # per-project, not shared with prod. Set it via the Cloudflare Pages
