@@ -4,7 +4,9 @@ import {
   deriveAdminBadgeState,
   isAdminActionable,
 } from "../lib/admin-api";
+import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
 import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
+import { cliApproveCommand } from "../lib/publication-queue";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -19,6 +21,17 @@ const datasetId = request.dataset_id;
 // terminal state directly.
 const state = deriveAdminBadgeState(request);
 const actionable = isAdminActionable(request);
+// The web button is withheld while approval needs a caller that drives it to
+// completion (see `WEB_PUBLISH_APPROVE_ENABLED`). The terminal is the way
+// forward for a request waiting on an admin, and the only way to continue one
+// that is already `approving`, which has no web action at all.
+const webApprove = actionable && WEB_PUBLISH_APPROVE_ENABLED;
+const terminalStep =
+  request.status === "approving"
+    ? { lead: "Continue from a terminal", command: cliApproveCommand(request) }
+    : actionable && !WEB_PUBLISH_APPROVE_ENABLED
+      ? { lead: "Approve from a terminal", command: cliApproveCommand(request) }
+      : null;
 
 // The backend writes `datetime('now')`: UTC with no zone marker. Show the age,
 // and keep the exact UTC instant in the tooltip for an admin who needs it.
@@ -91,6 +104,12 @@ const note =
     </p>
   )}
 
+  {terminalStep && (
+    <p class="pubreq-row__terminal">
+      {terminalStep.lead}: <code>{terminalStep.command}</code>
+    </p>
+  )}
+
   <footer class="pubreq-row__actions">
     <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(datasetId)}`}>
       View dataset
@@ -105,7 +124,7 @@ const note =
         Deny
       </button>
     )}
-    {actionable && (
+    {webApprove && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--primary"
@@ -181,6 +200,21 @@ const note =
   .pubreq-row__line--muted {
     color: var(--admin-text-3);
     font-size: var(--fs-xs);
+  }
+  .pubreq-row__terminal {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pubreq-row__terminal code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm, 4px);
+    background: var(--admin-surface-2);
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+    user-select: all;
   }
   .pubreq-row__reason {
     margin: 0;

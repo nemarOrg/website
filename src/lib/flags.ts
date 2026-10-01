@@ -39,3 +39,22 @@ export const WEB_SIGNIN_ETA = "July 2026";
  * rather than breaking, so enabling this before the secrets land is safe.
  */
 export const ORCID_SIGNIN_ENABLED = true;
+
+/**
+ * The Approve button on /admin/publication-requests (website#200). While
+ * `false`, an admin approves from a terminal (`nemar admin publish approve`)
+ * and the page offers Deny only.
+ *
+ * Why it is off: approval is not one request. After the irreversible DOI
+ * publish, the S3 Object Lock step works in batches of 100 objects and returns
+ * `hasMore` with a continuation token that the CALLER must send back. The CLI
+ * loops, with retries and `resume`; this page sent one `{}` and reloaded. Any
+ * dataset over 100 files would stop at `approving` with its repository public
+ * and its DOI published but no S3 lock, no catalog sync and no owner email,
+ * and an `approving` row has no buttons to continue from.
+ *
+ * Turn it on only when approval runs through a backend job that an executor
+ * (the CLI, a workflow, a server) drives to completion. Closing the page must
+ * not matter at that point, which is what makes the button safe.
+ */
+export const WEB_PUBLISH_APPROVE_ENABLED = false;

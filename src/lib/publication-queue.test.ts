@@ -6,6 +6,7 @@ import {
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
   bucketQueue,
+  cliApproveCommand,
   latestPerDataset,
   resolveQueueTab,
   tabOf,
@@ -178,5 +179,18 @@ describe("the row badge on a real queue row", () => {
   it("follows the block reason of a blocked request", () => {
     const blocked = variant(833, { status: "blocked", block_reason: "owner_name_missing" });
     expect(deriveAdminBadgeState(blocked)).toBe("name_required");
+  });
+});
+
+describe("cliApproveCommand", () => {
+  it("points a pending request at a plain approve", () => {
+    expect(cliApproveCommand(variant(833, {}))).toBe("nemar admin publish approve nm000288");
+  });
+
+  // An approving request has already run steps, some of them irreversible.
+  // Without --resume the CLI would start the whole list again.
+  it("resumes an approving request instead of starting it over", () => {
+    const stuck = variant(833, { status: "approving", current_step: "s3_lock" });
+    expect(cliApproveCommand(stuck)).toBe("nemar admin publish approve nm000288 --resume");
   });
 });

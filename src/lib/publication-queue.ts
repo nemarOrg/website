@@ -121,3 +121,18 @@ export function bucketQueue(
   for (const row of latestPerDataset(rows)) buckets[tabOf(row.status)].push(row);
   return buckets;
 }
+
+/**
+ * The terminal command that carries a request forward. The CLI is the only
+ * client that drives approval to completion today (see
+ * `WEB_PUBLISH_APPROVE_ENABLED`), so the page points at it. An `approving`
+ * request has already done part of the work, so it must `--resume` to skip the
+ * finished steps rather than run them again. The dataset id comes straight
+ * from the backend and is only ever printed as text.
+ */
+export function cliApproveCommand(
+  request: Pick<PublicationRequest, "dataset_id" | "status">,
+): string {
+  const base = `nemar admin publish approve ${request.dataset_id}`;
+  return request.status === "approving" ? `${base} --resume` : base;
+}

@@ -6,6 +6,7 @@ import { type PublicationRequest, listPublicationRequests } from "../../lib/admi
 import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
 import { DashboardApiError } from "../../lib/dashboard-api";
+import { WEB_PUBLISH_APPROVE_ENABLED } from "../../lib/flags";
 import {
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
@@ -52,8 +53,18 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
 <AdminLayout title="Publication requests" active="publications" session={session}>
   <Fragment slot="lede">
-    Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
-    publicly visible. Each dataset is listed once, under its most recent request.
+    {WEB_PUBLISH_APPROVE_ENABLED ? (
+      <>
+        Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
+        publicly visible. Each dataset is listed once, under its most recent request.
+      </>
+    ) : (
+      <>
+        Deny dataset publication requests here. Approving mints a DOI and makes the dataset
+        publicly visible, and for now it runs from a terminal because it needs more than one call
+        to finish. Each dataset is listed once, under its most recent request.
+      </>
+    )}
   </Fragment>
 
   <nav class="admin-filters" aria-label="Filter by status">
@@ -95,14 +106,16 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
   <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
 
-  <ConfirmDialog
-    dialogId="admin-approve"
-    title="Approve and publish?"
-    body="This is irreversible. The dataset becomes public immediately and a DOI is minted."
-    confirmLabel="Approve and publish"
-    confirmTone="primary"
-    requireTyping="PUBLISH"
-  />
+  {WEB_PUBLISH_APPROVE_ENABLED && (
+    <ConfirmDialog
+      dialogId="admin-approve"
+      title="Approve and publish?"
+      body="This is irreversible. The dataset becomes public immediately and a DOI is minted."
+      confirmLabel="Approve and publish"
+      confirmTone="primary"
+      requireTyping="PUBLISH"
+    />
+  )}
 
   <ConfirmDialog
     dialogId="admin-deny"
