@@ -52,6 +52,11 @@ export async function requestPrivateGrant(init: PrivateGrantInit): Promise<Priva
       method: "POST",
       headers,
       body: JSON.stringify({ state: init.state }),
+      // Never follow a redirect: the backend answers this route directly, so a 3xx means
+      // something between here and it is misrouting the request, and following it would resend
+      // the visitor's cookie and `state` to wherever it points. The 3xx comes back as its status,
+      // which `privateGrantOutcome` maps to `unavailable`.
+      redirect: "manual",
       // A mutation (it writes a grant row) on the critical path of a redirect a person is waiting
       // on, so bounded with the mutate-sized deadline, as the docs grant is.
       signal: resolveSignal(init, 15_000),

@@ -299,6 +299,21 @@ describe("privateGrantOutcome", () => {
     }
   });
 
+  it("maps any redirect to unavailable, since the grant call never follows one", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const status of [301, 302, 303, 307, 308]) {
+        expect(
+          privateGrantOutcome({ status, body: { code: "would-be-code" } }),
+          String(status),
+        ).toEqual({ kind: "unavailable" });
+      }
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("would-be-code");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("maps 400 to an invalid request and 429 to rate limited", () => {
     expect(privateGrantOutcome({ status: 400, body: { error: "invalid_request" } })).toEqual({
       kind: "invalid_request",

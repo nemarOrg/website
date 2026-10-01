@@ -227,6 +227,8 @@ function field(body: unknown, key: string): unknown {
  * - 400: the backend refused the request itself. This page validated the `state` first, so this
  *   means the two sides disagree about its shape; the visitor's remedy is the same either way.
  * - 429: too many grants for this account in a minute.
+ * - 3xx: the grant call does not follow redirects (`./private-auth-api.ts`), so a redirect is a
+ *   misrouted request, and unavailable.
  * - Anything else, a network failure included: unavailable.
  *
  * Logs name the status and never a body value: this is the grant endpoint, and a changed response
@@ -234,6 +236,10 @@ function field(body: unknown, key: string): unknown {
  */
 export function privateGrantOutcome(result: RawResult): PrivateGrantOutcome {
   if (result.status === "network") return { kind: "unavailable" };
+  if (result.status >= 300 && result.status < 400) {
+    console.warn(`[private-authorize] grant answered a redirect (${result.status}); not followed`);
+    return { kind: "unavailable" };
+  }
   if (result.status === 401) return { kind: "signed_out" };
   if (result.status === 403) {
     const accountStatus = field(result.body, "status");

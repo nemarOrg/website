@@ -53,6 +53,17 @@ describe("requestPrivateGrant", () => {
     expect(headerMap(cap.calls[0])["Content-Type"]).toBe("application/json");
   });
 
+  it("never follows a redirect, so the cookie and state cannot be resent elsewhere", async () => {
+    const cap = captureFetch(
+      new Response(null, { status: 307, headers: { Location: "https://elsewhere.example/" } }),
+    );
+    expect(await requestPrivateGrant({ ...BASE, fetch: cap.fetch })).toEqual({
+      status: 307,
+      body: null,
+    });
+    expect(cap.calls[0].redirect).toBe("manual");
+  });
+
   it("never puts the state in the URL", async () => {
     const cap = captureFetch(jsonResponse({ code: "abc", expires_in: 60 }));
     await requestPrivateGrant({ ...BASE, fetch: cap.fetch });
