@@ -10,6 +10,7 @@ import { WEB_PUBLISH_APPROVE_ENABLED } from "../../lib/flags";
 import {
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
+  backendDispatches,
   bucketQueue,
   resolveQueueTab,
 } from "../../lib/publication-queue";
@@ -34,10 +35,14 @@ const activeTab = resolveQueueTab(url.searchParams.get("status"));
 // a per-status fetch cannot see. See `lib/publication-queue.ts`.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 let buckets = bucketQueue([]);
+// Whether the backend can start an approval at all. A site deployed ahead of
+// its backend must not promise that approval keeps going without the page.
+let webApproval = false;
 let listError: string | null = null;
 try {
   const result = await listPublicationRequests({}, { cookieHeader });
   buckets = bucketQueue(result.requests);
+  webApproval = WEB_PUBLISH_APPROVE_ENABLED && backendDispatches(result.requests);
 } catch (err) {
   listError =
     err instanceof DashboardApiError
@@ -53,7 +58,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
 <AdminLayout title="Publication requests" active="publications" session={session}>
   <Fragment slot="lede">
-    {WEB_PUBLISH_APPROVE_ENABLED ? (
+    {webApproval ? (
       <>
         Approve or deny dataset publication requests. Approving mints a DOI and makes the dataset
         publicly visible. It runs in GitHub Actions, so it keeps going if you close this page. Each
@@ -107,7 +112,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
   <p class="admin-action-error" role="alert" data-admin-action-error hidden></p>
 
-  {WEB_PUBLISH_APPROVE_ENABLED && (
+  {webApproval && (
     <>
       <ConfirmDialog
         dialogId="admin-approve"

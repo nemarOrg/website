@@ -6,6 +6,7 @@ import {
   DEFAULT_QUEUE_TAB,
   QUEUE_TABS,
   approvalPhase,
+  backendDispatches,
   bucketQueue,
   cliApproveCommand,
   latestPerDataset,
@@ -245,5 +246,20 @@ describe("approvalPhase", () => {
       approval_dispatched_at: "2026-10-01 17:00:00",
     });
     expect(approvalPhase(neverStarted)).toEqual({ kind: "stalled", resume: false });
+  });
+});
+
+describe("backendDispatches", () => {
+  it("is false for today's production response, whose rows carry no dispatch fields", () => {
+    expect(backendDispatches(rows)).toBe(false);
+  });
+
+  it("is true once the rows carry approval_in_flight, whatever its value", () => {
+    expect(backendDispatches([variant(833, { approval_in_flight: false })])).toBe(true);
+    expect(backendDispatches([variant(833, { approval_in_flight: true })])).toBe(true);
+  });
+
+  it("is true for an empty list, where there is nothing to approve", () => {
+    expect(backendDispatches([])).toBe(true);
   });
 });

@@ -181,3 +181,13 @@ export function approvalPhase(
   // Requested. Dispatched before but quiet now means the Action never started.
   return request.approval_dispatched_at ? { kind: "stalled", resume: false } : { kind: "ready" };
 }
+
+/**
+ * Whether the backend behind this list can start an approval. Every row from a
+ * backend with the dispatch route carries `approval_in_flight`, so one row
+ * answers for all of them; an empty list has nothing to approve, so the answer
+ * does not matter and is `true`.
+ */
+export function backendDispatches(rows: readonly PublicationRequest[]): boolean {
+  return rows.length === 0 || rows.some((r) => r.approval_in_flight !== undefined);
+}
