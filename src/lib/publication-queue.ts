@@ -240,8 +240,11 @@ export function rowView(request: PublicationRequest, webEnabled: boolean): RowVi
   const phase = approvalPhase(request);
   const canStart = webEnabled && (phase.kind === "ready" || phase.kind === "stalled");
   // The orchestrator writes `last_error` when a step fails and clears it when a
-  // step succeeds, so a non-empty one on an approving request is a stopped run
-  // whether or not the backend's lease on it has lapsed yet.
+  // step succeeds or a new attempt starts, so a non-empty one on an approving
+  // request is a failed step. The backend holds its lease for a short grace
+  // after a failure, because the CLI retries a failed step itself, so the run
+  // may still be alive for that moment: say what failed without claiming the
+  // run is over.
   const failed = request.status === "approving" && Boolean(request.last_error);
 
   const start = !canStart
@@ -255,7 +258,7 @@ export function rowView(request: PublicationRequest, webEnabled: boolean): RowVi
   let progress: RowView["progress"] = null;
   if (phase.kind === "running") {
     const text = failed
-      ? "The last step failed and the run has stopped."
+      ? "The last step failed. It may still be retrying; if it has stopped, Resume appears here shortly."
       : phase.queued
         ? "Approval queued. Waiting for GitHub Actions to start it."
         : `Approval in progress${phase.step ? `: ${stepLabel(phase.step)}` : ""}. It continues if you close this page.`;

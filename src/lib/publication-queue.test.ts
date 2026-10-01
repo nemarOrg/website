@@ -382,8 +382,9 @@ describe("rowView", () => {
       true,
     );
     expect(view.note).toEqual({ label: "Stopped at s3 lock", text: "S3 lock failed: timeout" });
-    expect(view.progress?.text).toBe("The last step failed and the run has stopped.");
-    expect(view.progress?.text).not.toMatch(/continues/);
+    expect(view.progress?.text).toMatch(/last step failed/);
+    expect(view.progress?.text).toMatch(/may still be retrying/);
+    expect(view.progress?.text).not.toMatch(/continues if you close/);
     expect(view.terminal?.command).toContain("--resume");
     expect(view.start).toBeNull();
   });

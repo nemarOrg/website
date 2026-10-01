@@ -27,7 +27,7 @@ Who approved forks by origin: a CLI approval records the CLI user, a web click r
 Closing the page no longer matters, and the page can say so.
 The page needs no timing constant: the backend computes `approval_in_flight`, and a backend that does not send it is treated as one that cannot dispatch, so the site degrades to the CLI hint instead of a button that answers 404.
 A stalled run (no progress for the backend's lease) shows Resume, a request that never started shows Retry behind the same typed PUBLISH confirmation as the first approval (nothing has run, so it is not a continuation), and the CLI command stays as a fallback for an Actions outage.
-A failed run keeps the backend's lease until it lapses, so for up to fifteen minutes it is still "in flight"; the row shows the error and the CLI command during that time instead of claiming the run is progressing.
+A failed step stays "in flight" for a short grace, because the CLI retries a failed step itself and a second executor beside that retry would be worse than a short wait, and then counts as stalled. During the grace the row shows the error and the CLI command and says the step may still be retrying, instead of claiming the run is progressing.
 An anonymous release gets its own confirmation words, because the data goes public while the repository stays private and no DOI is published.
 The page now depends on the backend deploying first, then the central workflow, then the site; `WEB_PUBLISH_APPROVE_ENABLED` is the kill switch.
 A run's progress is only as fresh as the page's 20 second refresh.
