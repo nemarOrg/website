@@ -6,11 +6,7 @@
  * automatically without broadening it to other `*.nemar.org` hosts.
  */
 import { dashboardApiBase, readError } from "./api-base";
-import {
-  DashboardApiError,
-  type DatasetPublishState,
-  deriveAdminBadgeState,
-} from "./dashboard-api";
+import { DashboardApiError, deriveAdminBadgeState } from "./dashboard-api";
 import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 type Init = {
@@ -25,10 +21,10 @@ type Init = {
  * Per-operation request deadlines, exported so the difference between them is
  * a pinned contract rather than loose magic numbers.
  *
- * - `list` — a D1-backed read that SSRs `/admin/publication-requests`. It is
+ * - `list`: a D1-backed read that SSRs `/admin/publication-requests`. It is
  *   the page's primary content, so it gets the base deadline.
- * - `deny` — one DB update plus a best-effort email.
- * - `dispatch` — one DB claim plus one GitHub `repository_dispatch`. Approval
+ * - `deny`: one DB update plus a best-effort email.
+ * - `dispatch`: one DB claim plus one GitHub `repository_dispatch`. Approval
  *   itself no longer runs inside this request: the backend hands it to a
  *   GitHub Action and answers 202 (website#200), so this is a short deadline,
  *   not the two minutes the old blocking approve needed.
@@ -86,10 +82,13 @@ export interface PublicationRequest {
   /** The orchestrator step an `approving` request is on, or stopped at. */
   readonly current_step: string | null;
   readonly last_error: string | null;
+  /** 1 for an anonymous release (the data goes public, the depositor stays concealed). */
+  readonly anonymous?: number;
   /**
    * Set by the approval-dispatch backend (nemar-cli `approve-dispatch`).
-   * Optional because a backend without it omits them, and the page then
-   * behaves as if no approval was ever dispatched.
+   * Optional because a backend without the dispatch route omits them. The page
+   * reads a missing `approval_in_flight` as "this backend cannot dispatch" and
+   * falls back to the CLI hint (see `approvalPhase`).
    *
    * `updated_at` moves on every orchestrator step. `approval_requested_by` is
    * the admin who clicked Approve on the web, and `approval_dispatched_at`
@@ -237,15 +236,5 @@ export async function denyPublicationRequest(
   return (await res.json()) as PublicationDenyResponse;
 }
 
-/**
- * True when an admin can act on this request right now. Approve and deny
- * are only meaningful in the `"requested"` state; the orchestrator handles
- * intermediate transitions on the backend.
- */
-export function isAdminActionable(req: PublicationRequest): boolean {
-  return req.status === "requested";
-}
-
 /** Re-export to keep admin surfaces importing from a single module. */
 export { deriveAdminBadgeState };
-export type { DatasetPublishState };

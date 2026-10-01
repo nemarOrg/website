@@ -9,9 +9,9 @@
  * published ones.
  *
  * **One row per dataset, the latest request.** A dataset can have several
- * requests: it is denied, the researcher fixes it and asks again. Production
- * has 29 datasets whose older denied request sits beside a later published
- * one. Listing the history would put a dataset under Denied that is in fact
+ * requests: it is denied, the researcher fixes it and asks again. On
+ * 2026-10-01 production had 29 datasets whose older denied request sat beside
+ * a later published one. Listing the history would put a dataset under Denied that is in fact
  * public, so every tab shows only each dataset's most recent request. The
  * history is still in the database; this page is a queue, not an audit log.
  *
@@ -122,17 +122,23 @@ export function bucketQueue(
   return buckets;
 }
 
+/** The shape of a NEMAR dataset id (`nm000290`, `on008862`). */
+const DATASET_ID_SHAPE = /^[a-z]{2}\d{6}$/;
+
 /**
- * The terminal command that carries a request forward. The CLI is the only
- * client that drives approval to completion today (see
- * `WEB_PUBLISH_APPROVE_ENABLED`), so the page points at it. An `approving`
+ * The terminal command that carries a request forward. It is the way forward
+ * when the web cannot start approval (a backend without the dispatch route, or
+ * the flag off) and the fallback when a run stalls or fails. An `approving`
  * request has already done part of the work, so it must `--resume` to skip the
- * finished steps rather than run them again. The dataset id comes straight
- * from the backend and is only ever printed as text.
+ * finished steps rather than run them again.
+ *
+ * The id comes from the backend and the command is meant to be pasted into a
+ * shell, so anything that is not a NEMAR dataset id yields no command at all.
  */
 export function cliApproveCommand(
   request: Pick<PublicationRequest, "dataset_id" | "status">,
-): string {
+): string | null {
+  if (!DATASET_ID_SHAPE.test(request.dataset_id)) return null;
   const base = `nemar admin publish approve ${request.dataset_id}`;
   return request.status === "approving" ? `${base} --resume` : base;
 }
@@ -146,14 +152,15 @@ export function cliApproveCommand(
  *   this from the data means a site deployed before its backend degrades to
  *   the CLI hint instead of a button that answers 404.
  * - `ready`: requested and never dispatched. The Approve button.
- * - `running`: an approval is queued or in progress. `queued` is true until the
- *   orchestrator has written its first step. No buttons; the page refreshes.
+ * - `running`: the backend says an approval is queued or in progress.
+ *   `queued` is true until the orchestrator has written a step since the
+ *   dispatch. No start button.
  * - `stalled`: an approval was started and has gone quiet, so it will not
  *   finish by itself. `resume` is true when steps already ran, which is the
  *   case for any `approving` request; the retry then skips finished steps.
  *
  * The timing lives in the backend (`approval_in_flight`), so this never
- * compares timestamps.
+ * compares a timestamp with the clock.
  */
 export type ApprovalPhase =
   | { readonly kind: "none" }
@@ -165,15 +172,21 @@ export type ApprovalPhase =
 export function approvalPhase(
   request: Pick<
     PublicationRequest,
-    "status" | "current_step" | "approval_in_flight" | "approval_dispatched_at"
+    "status" | "current_step" | "updated_at" | "approval_in_flight" | "approval_dispatched_at"
   >,
 ): ApprovalPhase {
   if (request.status !== "requested" && request.status !== "approving") return { kind: "none" };
   if (request.approval_in_flight === undefined) return { kind: "unsupported" };
   if (request.approval_in_flight) {
+    // Both stamps are `datetime('now')` text, which sorts like time: a dispatch
+    // newer than the last progress write means no step has run since it.
+    const noStepSinceDispatch =
+      Boolean(request.approval_dispatched_at) &&
+      Boolean(request.updated_at) &&
+      (request.approval_dispatched_at as string) > (request.updated_at as string);
     return {
       kind: "running",
-      queued: request.status === "requested",
+      queued: request.status === "requested" || noStepSinceDispatch,
       step: request.current_step,
     };
   }
@@ -190,4 +203,100 @@ export function approvalPhase(
  */
 export function backendDispatches(rows: readonly PublicationRequest[]): boolean {
   return rows.length === 0 || rows.some((r) => r.approval_in_flight !== undefined);
+}
+
+/** Everything a queue row decides to show, so the decision is testable. */
+export interface RowView {
+  /** An anonymous release: the data goes public, the depositor stays concealed. */
+  readonly anonymous: boolean;
+  readonly canDeny: boolean;
+  /**
+   * The web action offered. `approve` opens the dialog that asks for a typed
+   * PUBLISH, and is used whenever NOTHING has run yet, including a retry of a
+   * request that never started: that is the first, irreversible approval, not
+   * a continuation. `resume` is only for a request that already has steps done.
+   */
+  readonly start: { readonly kind: "approve" | "resume"; readonly label: string } | null;
+  /** `active` is true while the backend holds a lease, so the page keeps refreshing. */
+  readonly progress: { readonly text: string; readonly active: boolean } | null;
+  readonly note: { readonly label: string; readonly text: string } | null;
+  readonly terminal: { readonly lead: string; readonly command: string } | null;
+}
+
+const stepLabel = (step: string | null): string | null => (step ? step.replaceAll("_", " ") : null);
+
+export function rowView(request: PublicationRequest, webEnabled: boolean): RowView {
+  const phase = approvalPhase(request);
+  const canStart = webEnabled && (phase.kind === "ready" || phase.kind === "stalled");
+  // The orchestrator writes `last_error` when a step fails and clears it when a
+  // step succeeds, so a non-empty one on an approving request is a stopped run
+  // whether or not the backend's lease on it has lapsed yet.
+  const failed = request.status === "approving" && Boolean(request.last_error);
+
+  const start = !canStart
+    ? null
+    : phase.kind === "ready"
+      ? { kind: "approve" as const, label: "Approve and publish" }
+      : phase.kind === "stalled" && phase.resume
+        ? { kind: "resume" as const, label: "Resume approval" }
+        : { kind: "approve" as const, label: "Retry approval" };
+
+  let progress: RowView["progress"] = null;
+  if (phase.kind === "running") {
+    const text = failed
+      ? "The last step failed and the run has stopped."
+      : phase.queued
+        ? "Approval queued. Waiting for GitHub Actions to start it."
+        : `Approval in progress${phase.step ? `: ${stepLabel(phase.step)}` : ""}. It continues if you close this page.`;
+    progress = { text, active: true };
+  } else if (phase.kind === "stalled") {
+    progress = {
+      text: phase.resume
+        ? "Approval stopped making progress. Resume continues from the last finished step."
+        : "The approval was requested but never started. Retrying starts it from the beginning.",
+      active: false,
+    };
+  }
+
+  // `block_reason` is not cleared when a blocked request later moves on, so a
+  // published or denied row can still carry one. Only a blocked row's counts.
+  const note =
+    request.status === "denied" && request.denied_reason
+      ? { label: "Reason", text: request.denied_reason }
+      : request.status === "blocked" && request.block_reason
+        ? { label: "Reason", text: request.block_reason }
+        : failed
+          ? {
+              label: request.current_step
+                ? `Stopped at ${stepLabel(request.current_step)}`
+                : "Last error",
+              text: request.last_error as string,
+            }
+          : null;
+
+  const command = cliApproveCommand(request);
+  const wantsTerminal =
+    phase.kind === "stalled" ||
+    (phase.kind === "running" && failed) ||
+    (!canStart && (phase.kind === "ready" || phase.kind === "unsupported"));
+  const terminal =
+    command && wantsTerminal
+      ? {
+          lead: canStart
+            ? "Or from a terminal"
+            : request.status === "approving"
+              ? "Continue from a terminal"
+              : "Approve from a terminal",
+          command,
+        }
+      : null;
+
+  return {
+    anonymous: request.anonymous === 1,
+    canDeny: request.status === "requested" && phase.kind !== "running",
+    start,
+    progress,
+    note,
+    terminal,
+  };
 }

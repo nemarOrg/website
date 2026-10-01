@@ -55,8 +55,9 @@ export const ORCID_SIGNIN_ENABLED = true;
  * Action to run the CLI's loop, and the page only watches `status` and
  * `current_step`. Closing the page changes nothing.
  *
- * Keep this `false` on any build whose backend lacks that route: the button
- * would answer 404. Deploy order is backend, then the central workflow, then
- * this site.
+ * This is a kill switch, not a deploy-order guard: the page also reads the data,
+ * and rows from a backend without the dispatch route (no `approval_in_flight`)
+ * fall back to the CLI command (see `approvalPhase`). Set it `false` to take the
+ * web button away again, for example while the Action is misbehaving.
  */
 export const WEB_PUBLISH_APPROVE_ENABLED = true;

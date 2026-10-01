@@ -2,36 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../test/fixtures/admin-publish-requests.json";
 import {
   ADMIN_TIMEOUTS_MS,
-  type PublicationRequest,
-  type PublicationRequestStatus,
   denyPublicationRequest,
   dispatchPublicationApproval,
-  isAdminActionable,
   listPublicationRequests,
 } from "./admin-api";
-
-// A real queue row (production `GET /admin/publish/requests`, scrubbed), with
-// the status changed for the states the production snapshot holds none of.
-const realRows = fixture.requests as unknown as PublicationRequest[];
-function req(status: PublicationRequestStatus): PublicationRequest {
-  return { ...realRows[0], status };
-}
-
-describe("isAdminActionable", () => {
-  it("true only when status is requested", () => {
-    expect(isAdminActionable(req("requested"))).toBe(true);
-  });
-  it.each(["approving", "published", "denied", "blocked"] as const)(
-    "false when status is %s",
-    (status) => {
-      expect(isAdminActionable(req(status))).toBe(false);
-    },
-  );
-  it("offers Approve and Deny on the real pending rows and on nothing else", () => {
-    const actionable = realRows.filter(isAdminActionable);
-    expect(actionable.map((r) => r.dataset_id).sort()).toEqual(["nm000280", "nm000288"]);
-  });
-});
 
 describe("listPublicationRequests", () => {
   it("hits /admin/publish/requests with no query when filter is empty", async () => {

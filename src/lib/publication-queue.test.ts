@@ -11,6 +11,7 @@ import {
   cliApproveCommand,
   latestPerDataset,
   resolveQueueTab,
+  rowView,
   tabOf,
 } from "./publication-queue";
 
@@ -195,6 +196,21 @@ describe("cliApproveCommand", () => {
     const stuck = variant(833, { status: "approving", current_step: "s3_lock" });
     expect(cliApproveCommand(stuck)).toBe("nemar admin publish approve nm000288 --resume");
   });
+
+  // The id comes from the backend and the command is meant to be pasted into a
+  // shell, so a value that is not a dataset id produces no command at all.
+  it.each(["nm000288; rm -rf ~", "nm00028", "NM000288", "../etc", "nm000288 --skip-ci-check", ""])(
+    "gives no command for the id %j",
+    (id) => {
+      expect(cliApproveCommand(variant(833, { dataset_id: id }))).toBeNull();
+    },
+  );
+
+  it("accepts an exemplar id, which only the dev catalog holds", () => {
+    expect(cliApproveCommand(variant(833, { dataset_id: "xx099904" }))).toBe(
+      "nemar admin publish approve xx099904",
+    );
+  });
 });
 
 describe("approvalPhase", () => {
@@ -231,6 +247,8 @@ describe("approvalPhase", () => {
       current_step: "s3_lock",
       approval_in_flight: true,
       approval_dispatched_at: "2026-10-01 18:00:00",
+      // A step has written since the dispatch.
+      updated_at: "2026-10-01 18:05:00",
     });
     expect(approvalPhase(running)).toEqual({ kind: "running", queued: false, step: "s3_lock" });
   });
@@ -261,5 +279,142 @@ describe("backendDispatches", () => {
 
   it("is true for an empty list, where there is nothing to approve", () => {
     expect(backendDispatches([])).toBe(true);
+  });
+});
+
+describe("approvalPhase: a resume dispatch on an approving request", () => {
+  const dispatched = {
+    status: "approving" as const,
+    current_step: "s3_lock",
+    approval_in_flight: true,
+    approval_dispatched_at: "2026-10-01 18:30:00",
+  };
+
+  it("is queued until a step has written since the dispatch", () => {
+    const queued = variant(833, { ...dispatched, updated_at: "2026-10-01 18:00:00" });
+    expect(approvalPhase(queued)).toEqual({ kind: "running", queued: true, step: "s3_lock" });
+  });
+
+  it("is running once a step has written after the dispatch", () => {
+    const running = variant(833, { ...dispatched, updated_at: "2026-10-01 18:31:00" });
+    expect(approvalPhase(running)).toEqual({ kind: "running", queued: false, step: "s3_lock" });
+  });
+});
+
+describe("rowView", () => {
+  const idle = { approval_in_flight: false, approval_dispatched_at: null };
+  const live = (patch: Partial<PublicationRequest>) => variant(833, { ...idle, ...patch });
+
+  it("offers Deny and the typed Approve on a pending request nobody has started", () => {
+    const view = rowView(live({}), true);
+    expect(view.canDeny).toBe(true);
+    expect(view.start).toEqual({ kind: "approve", label: "Approve and publish" });
+    expect(view.terminal).toBeNull();
+  });
+
+  it("offers Deny and the CLI command, but no web Approve, when the flag is off", () => {
+    const view = rowView(live({}), false);
+    expect(view.canDeny).toBe(true);
+    expect(view.start).toBeNull();
+    expect(view.terminal).toEqual({
+      lead: "Approve from a terminal",
+      command: "nemar admin publish approve nm000288",
+    });
+  });
+
+  // The production response today: no dispatch fields. The web cannot start it.
+  it("falls back to the CLI command on a backend that cannot dispatch", () => {
+    const view = rowView(variant(833, {}), true);
+    expect(view.start).toBeNull();
+    expect(view.terminal?.command).toBe("nemar admin publish approve nm000288");
+    expect(view.canDeny).toBe(true);
+  });
+
+  it("uses the typed dialog to retry a request that never started", () => {
+    const view = rowView(live({ approval_dispatched_at: "2026-10-01 17:00:00" }), true);
+    expect(view.start).toEqual({ kind: "approve", label: "Retry approval" });
+    expect(view.progress?.text).toMatch(/never started/);
+  });
+
+  it("uses the light dialog only to resume a request with steps already done", () => {
+    const view = rowView(live({ status: "approving", current_step: "s3_lock" }), true);
+    expect(view.start).toEqual({ kind: "resume", label: "Resume approval" });
+    expect(view.canDeny).toBe(false);
+    expect(view.terminal?.command).toBe("nemar admin publish approve nm000288 --resume");
+    expect(view.terminal?.lead).toBe("Or from a terminal");
+  });
+
+  it("offers nothing to start on a running request, and keeps the page refreshing", () => {
+    const view = rowView(
+      live({ status: "approving", current_step: "s3_lock", approval_in_flight: true }),
+      true,
+    );
+    expect(view.start).toBeNull();
+    expect(view.canDeny).toBe(false);
+    expect(view.terminal).toBeNull();
+    expect(view.progress).toEqual({
+      text: "Approval in progress: s3 lock. It continues if you close this page.",
+      active: true,
+    });
+  });
+
+  it("says a dispatched request is queued before the Action has started", () => {
+    const view = rowView(
+      live({ approval_in_flight: true, approval_dispatched_at: "2026-10-01 18:30:00" }),
+      true,
+    );
+    expect(view.progress?.text).toMatch(/queued/i);
+    expect(view.start).toBeNull();
+  });
+
+  // The backend keeps a lease on a run that failed until it lapses, so for a
+  // while the request is both "in flight" and carrying an error. The error must
+  // show and a terminal must be offered, not "it keeps going".
+  it("shows the error of a failed run even while the backend still holds its lease", () => {
+    const view = rowView(
+      live({
+        status: "approving",
+        current_step: "s3_lock",
+        last_error: "S3 lock failed: timeout",
+        approval_in_flight: true,
+      }),
+      true,
+    );
+    expect(view.note).toEqual({ label: "Stopped at s3 lock", text: "S3 lock failed: timeout" });
+    expect(view.progress?.text).toBe("The last step failed and the run has stopped.");
+    expect(view.progress?.text).not.toMatch(/continues/);
+    expect(view.terminal?.command).toContain("--resume");
+    expect(view.start).toBeNull();
+  });
+
+  it("shows nothing to start on published, denied and blocked rows", () => {
+    for (const id of [835, 344]) {
+      const view = rowView(live({ ...variant(id, {}), ...idle }), true);
+      expect(view.start).toBeNull();
+      expect(view.terminal).toBeNull();
+      expect(view.canDeny).toBe(false);
+    }
+    const blocked = rowView(live({ status: "blocked", block_reason: "owner_name_missing" }), true);
+    expect(blocked.start).toBeNull();
+    expect(blocked.note).toEqual({ label: "Reason", text: "owner_name_missing" });
+  });
+
+  it("shows a denial reason, and ignores the stale block reason a denied row keeps", () => {
+    const denied = variant(344, {});
+    expect(denied.block_reason).toBe("bids_validation_pending");
+    expect(rowView(denied, true).note).toEqual({ label: "Reason", text: denied.denied_reason });
+  });
+
+  it("marks an anonymous release so the dialog and the row can say so", () => {
+    const anonymousRow = rows.find((r) => r.anonymous === 1);
+    expect(anonymousRow).toBeDefined();
+    expect(rowView(anonymousRow as PublicationRequest, true).anonymous).toBe(true);
+    expect(rowView(live({ anonymous: 0 }), true).anonymous).toBe(false);
+  });
+
+  it("offers Deny on exactly the two real pending rows, and no web Approve is offered without dispatch fields", () => {
+    const pending = bucketQueue(rows).pending;
+    expect(pending.map((r) => rowView(r, true).canDeny)).toEqual([true, true]);
+    expect(pending.every((r) => rowView(r, true).start === null)).toBe(true);
   });
 });
