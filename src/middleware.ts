@@ -288,11 +288,24 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * inline and are deliberately left out: they carry no body, and anyone
  * checking which build is live follows the redirect to a real response
  * anyway.
+ *
+ * `Referrer-Policy` is the one header a page may tighten: a response that
+ * already says `no-referrer` keeps it, and anything else gets the site-wide
+ * `strict-origin-when-cross-origin`. The private-site sign-in hop
+ * (`/auth/private/authorize`) relies on this, because its own URL carries a
+ * `state` that must not leave in a `Referer`. The value the page set is the
+ * signal, not the path: Astro decodes a request path before routing, so
+ * `/auth/private/%61uthorize` renders that page while a path comparison here
+ * would not recognize it. Only `no-referrer` is honored, so a page can make
+ * the policy stricter and never looser (ADR 0021).
  */
 export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
+  // Read BEFORE the loop below overwrites it.
+  const pageSetNoReferrer = headers.get("Referrer-Policy") === "no-referrer";
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
+  if (pageSetNoReferrer) headers.set("Referrer-Policy", "no-referrer");
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
   headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");

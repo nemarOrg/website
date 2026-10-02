@@ -103,6 +103,8 @@ jobs:
       # shared/contract/docs-auth.ts. Everything above applies to it unchanged:
       # same repo, same `dev` ref pairing, same reason. Adding a path to the
       # sparse-checkout list is the whole cost of covering another contract.
+      # test/private-site-contract-drift.test.ts is the third, against
+      # shared/contract/private-site.ts.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -110,6 +112,7 @@ jobs:
           sparse-checkout: |
             /shared/contract/account-copy.ts
             /shared/contract/docs-auth.ts
+            /shared/contract/private-site.ts
           sparse-checkout-cone-mode: false
           ref: dev
       - name: Vitest
@@ -117,6 +120,7 @@ jobs:
         env:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
+          NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
 
   build:
     name: build

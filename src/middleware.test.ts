@@ -605,6 +605,47 @@ describe("security headers", () => {
     expect(noindexed.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 
+  it("keeps a page's own no-referrer, and only that, over the site-wide policy", () => {
+    // The private-site sign-in hop sets `no-referrer` because its URL carries a `state`;
+    // applySecurityHeaders runs after every page, so it must not overwrite that value.
+    const tightened = new Headers({ "Referrer-Policy": "no-referrer" });
+    applySecurityHeaders(tightened, "/auth/private/authorize");
+    expect(tightened.get("Referrer-Policy")).toBe("no-referrer");
+
+    // A page can make the policy stricter, never looser.
+    const loosened = new Headers({ "Referrer-Policy": "unsafe-url" });
+    applySecurityHeaders(loosened, "/auth/private/authorize");
+    expect(loosened.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+
+    // The path alone does not opt in: the page's header is the signal.
+    const unset = new Headers();
+    applySecurityHeaders(unset, "/auth/private/authorize");
+    expect(unset.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("keeps no-referrer through the whole middleware, percent-encoded paths included", async () => {
+    // Astro decodes the path before routing, so both encoded spellings render the authorize page.
+    // A path comparison in the middleware would miss them and overwrite the page's header.
+    const page = async () =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "/login", "Referrer-Policy": "no-referrer" },
+      });
+    const state = "a".repeat(43);
+    for (const path of [
+      "/auth/private/authorize",
+      "/auth/private/%61uthorize",
+      "/auth/%70rivate/authorize",
+    ]) {
+      const res = await onRequest(ctx(`https://${APP_HOST}${path}?state=${state}`), page);
+      expect(res?.status, path).toBe(302);
+      expect(res?.headers.get("Referrer-Policy"), path).toBe("no-referrer");
+    }
+
+    const elsewhere = await onRequest(ctx(`https://${APP_HOST}/dashboard`), passthrough);
+    expect(elsewhere?.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
   it("CSP allows the origins the client actually fetches (regression guards)", () => {
     const csp = SECURITY_HEADERS["Content-Security-Policy"];
     // raw.githubusercontent.com is deliberately NOT allowed: the README fetch

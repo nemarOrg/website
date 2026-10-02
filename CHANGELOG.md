@@ -13,6 +13,18 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **A sign-in handoff page for `private.nemar.org`** at `/auth/private/authorize`.
+  The private site sends a visitor there with a `state` it generated; the page checks the visitor is signed in, asks the backend for a one-time code bound to that `state`, and redirects to the private site's callback with the code alone.
+  The target host comes from `PRIVATE_SITE_BASE` (`https://private-test.nemar.org` on staging); a deployment other than production refuses with 501 when it is unset.
+  Every response carries `no-store`, `no-referrer` and `noindex`, and a drift test pins the paths to nemar-cli's `shared/contract/private-site.ts` (#396).
+
+### Changed
+
+- **The middleware keeps a page-set `Referrer-Policy: no-referrer`** instead of overwriting it with the site-wide policy, whatever spelling of the path reached the page (ADR 0021, #396).
+- **The docs handoff's grant call no longer follows redirects** (#396).
+
 ## [0.2.27] - 2026-10-01
 
 ### Changed

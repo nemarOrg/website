@@ -307,7 +307,8 @@ type RawResult =
  * Map a grant result onto one of the page's four outcomes.
  *
  * Only three statuses are contract (200, 401, 404); everything else — a 403 from the backend's
- * Origin allow-list, a 5xx, a rate-limit 429, a 200 whose body is not the documented shape — is
+ * Origin allow-list, a 5xx, a rate-limit 429, a 3xx (`requestDocsGrant` never follows one), a 200
+ * whose body is not the documented shape — is
  * one `unavailable`, because there is nothing different a visitor could do about any of them.
  * They are logged rather than silently collapsed, since they mean very different things to
  * whoever reads the log.

@@ -61,6 +61,12 @@ jobs:
           # own production default, which staging must not talk to. Set, it must be on one of
           # OSA_NOTEBOOK_ORIGINS, the two hosts this site's frame-src allows.
           PUBLIC_OSA_NOTEBOOK_URL: https://develop-notebook.osc.earth/osa/
+          # Where /auth/private/authorize hands a signed-in visitor to private.nemar.org's staging
+          # host, NEMAR's site for access-controlled features. Server-only, but still fixed at
+          # build time: Vite inlines it into the worker bundle, so it belongs here and not in
+          # wrangler.test.toml. Unset, a build whose API is not production refuses that handoff
+          # with a 501 before minting anything (src/lib/private-authorize.ts).
+          PRIVATE_SITE_BASE: https://private-test.nemar.org
         run: bun run build
       # `wrangler pages deploy` rejects a custom config path outright ("Pages
       # does not support custom paths for the Wrangler configuration file"), so
