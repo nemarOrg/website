@@ -1,0 +1,99 @@
+---
+/**
+ * Previous / Next with a "Showing 51 to 100 of 780" summary, for the admin lists
+ * long enough to need it. Renders nothing for a single page. The caller builds
+ * the two addresses, so this knows nothing about tabs or filters; `label` tells
+ * the two landmarks apart when a list shows the pager above and below.
+ */
+interface Props {
+  page: number;
+  pageCount: number;
+  from: number;
+  to: number;
+  total: number;
+  prevHref: string | null;
+  nextHref: string | null;
+  label: string;
+}
+
+const { page, pageCount, from, to, total, prevHref, nextHref, label } = Astro.props;
+---
+
+{
+  pageCount > 1 && (
+    <nav class="pager" aria-label={label}>
+      <p class="pager__summary">
+        Showing {from} to {to} of {total}
+      </p>
+      <div class="pager__controls">
+        {prevHref ? (
+          <a class="pager__btn" href={prevHref} rel="prev">Previous</a>
+        ) : (
+          <span class="pager__btn pager__btn--off" aria-disabled="true">Previous</span>
+        )}
+        <span class="pager__page">Page {page} of {pageCount}</span>
+        {nextHref ? (
+          <a class="pager__btn" href={nextHref} rel="next">Next</a>
+        ) : (
+          <span class="pager__btn pager__btn--off" aria-disabled="true">Next</span>
+        )}
+      </div>
+    </nav>
+  )
+}
+
+<style>
+  /* The admin portal's button family; same shapes as PublicationRequestRow's
+     actions. Duplicated per the scoped-style convention; keep in sync. */
+  .pager {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .pager__summary {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pager__controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .pager__page {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .pager__btn {
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  a.pager__btn:hover {
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
+  }
+  .pager__btn--off {
+    color: var(--admin-text-3);
+    border-color: var(--color-border);
+    background: transparent;
+    cursor: default;
+  }
+  @media (forced-colors: active) {
+    .pager__btn--off {
+      color: GrayText;
+      border-color: GrayText;
+    }
+  }
+</style>

@@ -163,6 +163,9 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
     padding-block-start: var(--space-2);
   }
 
+  /* Sync: Nav.astro's `.site-header__signin` is this same pill (the marketing
+     host renders that one). The two are duplicated on purpose, because scoped
+     styles do not cross components; change both. */
   .user-menu__signin {
     min-block-size: 40px;
     display: inline-flex;
@@ -173,6 +176,7 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
     color: var(--color-fg);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
+    white-space: nowrap;
     background: transparent;
     text-decoration: none;
     transition: background 0.15s ease, border-color 0.15s ease;
@@ -180,6 +184,60 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
   .user-menu__signin:hover {
     background: var(--color-bg-elevated);
     border-color: var(--color-fg-muted);
+  }
+
+  /* Phones and small tablets. 880px is Nav.astro's breakpoint, where the links
+     collapse behind the hamburger and this control moves to sit just left of
+     it; keep the two in step.
+
+     The panel stops hanging from the avatar and hangs from the header instead
+     (`.user-menu` loses `position: relative`, so the sticky header becomes the
+     containing block). Anchored to the avatar, which sits 58px in from the
+     screen edge at 320px, a panel with `min-inline-size: 16rem` has 6px to
+     spare, and it has no definite width: a signed-in address longer than about
+     30 characters widens it past the left edge (measured: 60 characters made it
+     476px wide, starting at -214px). Pinned to the gutters it has a definite
+     width, so the address truncates with an ellipsis instead.
+
+     Targets reach 44px, the minimum touch size the header's nav links and logo
+     already use. */
+  @media (max-width: 880px) {
+    .user-menu {
+      position: static;
+    }
+    .user-menu__trigger,
+    .user-menu__signin {
+      min-block-size: 44px;
+    }
+    .user-menu__panel {
+      /* `100%` is the header's height here, not the avatar's. */
+      inset-block-start: calc(100% + var(--space-2));
+      /* The gutter, as `.container` sets it in global.css (space-6 here, space-4
+         at 640px and below, as the block after this one does). */
+      inset-inline-end: var(--space-6);
+      inline-size: 22rem;
+      min-inline-size: 0;
+      /* A short landscape phone is shorter than the panel (an admin's runs to
+         about 305px), and the header it hangs from may be stuck, so scrolling the
+         page cannot bring the rest into view. The panel scrolls inside instead.
+         The `vh` line is the fallback for browsers without `dvh`. */
+      max-block-size: calc(100vh - var(--header-height) - var(--space-2) - var(--space-4));
+      max-block-size: calc(100dvh - var(--header-height) - var(--space-2) - var(--space-4));
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .user-menu__item {
+      display: flex;
+      align-items: center;
+      min-block-size: 44px;
+    }
+  }
+  /* Mirrors the step `.container` takes in global.css at the same width. */
+  @media (max-width: 640px) {
+    .user-menu__panel {
+      inset-inline: var(--space-4);
+      inline-size: auto;
+    }
   }
 </style>
 
@@ -194,7 +252,12 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
       menu.open = false;
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && menu.open) menu.open = false;
+      if (e.key !== "Escape" || !menu.open) return;
+      // Closing hides the focused item (`display: none`), which would drop focus
+      // to <body>; hand it back to the trigger instead, if it was inside.
+      const hadFocus = menu.contains(document.activeElement);
+      menu.open = false;
+      if (hadFocus) menu.querySelector("summary")?.focus();
     });
   });
 </script>

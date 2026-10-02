@@ -1,10 +1,8 @@
 ---
-import {
-  type PublicationRequest,
-  deriveAdminBadgeState,
-  isAdminActionable,
-} from "../lib/admin-api";
-import { formatRelativeTime } from "../lib/format";
+import { type PublicationRequest, deriveAdminBadgeState } from "../lib/admin-api";
+import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
+import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
+import { rowView } from "../lib/publication-queue";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -12,45 +10,113 @@ interface Props {
 }
 
 const { request } = Astro.props;
-const datasetId = request.status.dataset_id;
+const datasetId = request.dataset_id;
 // Admin-side badge derivation: status-only (no Dataset row needed). The
 // owner-side `derivePublishState` keeps "awaiting_review" until the dataset's
 // visibility actually flips; the admin queue surfaces the orchestrator's
 // terminal state directly.
-const state = deriveAdminBadgeState(request.status);
-const requestedAt = "requested_at" in request.status ? request.status.requested_at : null;
-const actionable = isAdminActionable(request);
-const denyReason = request.status.status === "denied" ? request.status.denied_reason : null;
-const blockReason = request.status.status === "blocked" ? request.status.block_reason : null;
+const state = deriveAdminBadgeState(request);
+// What to offer and say is decided in one tested place (`rowView`); this file
+// only draws it. Approval is started by the backend, never driven by the page.
+const view = rowView(request, WEB_PUBLISH_APPROVE_ENABLED);
+
+// The backend writes `datetime('now')`: UTC with no zone marker. Show the age,
+// and keep the exact UTC instant in the tooltip for an admin who needs it.
+function when(raw: string | null): { iso: string; relative: string; exact: string } | null {
+  const date = parseBackendTimestamp(raw);
+  if (!date) return null;
+  return {
+    iso: date.toISOString(),
+    relative: formatRelativeTime(date) || "—",
+    exact: `${date.toISOString().slice(0, 19).replace("T", " ")} UTC`,
+  };
+}
+const requestedAt = when(request.requested_at);
+// What happened at the end of the request, when it has ended. `blocked` and
+// `approving` have no end time of their own.
+const decided =
+  request.status === "published"
+    ? { label: "Published", at: when(request.approved_at) }
+    : request.status === "denied"
+      ? { label: "Denied", at: when(request.denied_at) }
+      : null;
+// The username is nullable on the backend; fall back to the email so the line
+// is never blank.
+const requester = request.requested_by_username || request.requested_by_email;
 ---
 
 <article class="pubreq-row" data-pubreq-row data-dataset-id={datasetId}>
   <div class="pubreq-row__primary">
-    <div class="pubreq-row__heading">
-      <span class="pubreq-row__id">{datasetId}</span>
-      <h3 class="pubreq-row__name">{request.dataset_name}</h3>
-    </div>
+    <h3 class="pubreq-row__id">{datasetId}</h3>
+    {view.anonymous && <span class="pubreq-row__tag">Anonymous release</span>}
     <PublishStateBadge state={state} />
   </div>
 
   <dl class="pubreq-row__meta">
     <div>
       <dt>Requested by</dt>
-      <dd>{request.owner_email}</dd>
+      <dd>
+        <span class="pubreq-row__line">{requester}</span>
+        {request.requested_by_username && (
+          <span class="pubreq-row__line pubreq-row__line--muted">{request.requested_by_email}</span>
+        )}
+      </dd>
     </div>
     <div>
       <dt>Requested</dt>
-      <dd>{requestedAt ? formatRelativeTime(requestedAt) || "—" : "—"}</dd>
+      <dd>
+        {requestedAt ? (
+          <time datetime={requestedAt.iso} title={requestedAt.exact}>{requestedAt.relative}</time>
+        ) : (
+          "—"
+        )}
+      </dd>
     </div>
+    {decided && (
+      <div>
+        <dt>{decided.label}</dt>
+        <dd>
+          {decided.at ? (
+            <time datetime={decided.at.iso} title={decided.at.exact}>{decided.at.relative}</time>
+          ) : (
+            "—"
+          )}
+        </dd>
+      </div>
+    )}
     <div>
       <dt>Status</dt>
-      <dd>{request.status.status}</dd>
+      <dd>{request.status}</dd>
     </div>
   </dl>
 
-  {(denyReason || blockReason) && (
+  {view.progress && (
+    <p
+      class:list={[
+        "pubreq-row__progress",
+        { "pubreq-row__progress--stalled": !view.progress.active },
+      ]}
+      data-pubreq-running={view.progress.active ? "" : undefined}
+    >
+      {view.progress.text}
+      {view.runsUrl && (
+        <>
+          {" "}
+          <a href={view.runsUrl} target="_blank" rel="noopener noreferrer">See the workflow runs</a>.
+        </>
+      )}
+    </p>
+  )}
+
+  {view.note && (
     <p class="pubreq-row__reason" role="note">
-      <strong>Reason:</strong> {denyReason ?? blockReason}
+      <strong>{view.note.label}:</strong> {view.note.text}
+    </p>
+  )}
+
+  {view.terminal && (
+    <p class="pubreq-row__terminal">
+      {view.terminal.lead}: <code>{view.terminal.command}</code>
     </p>
   )}
 
@@ -58,7 +124,7 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
     <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(datasetId)}`}>
       View dataset
     </a>
-    {actionable && (
+    {view.canDeny && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--danger-ghost"
@@ -68,14 +134,25 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
         Deny
       </button>
     )}
-    {actionable && (
+    {view.start?.kind === "approve" && (
       <button
         type="button"
         class="pubreq-row__btn pubreq-row__btn--primary"
         data-pubreq-approve
+        data-anonymous={view.anonymous ? "true" : undefined}
         data-dataset-id={datasetId}
       >
-        Approve and publish
+        {view.start.label}
+      </button>
+    )}
+    {view.start?.kind === "resume" && (
+      <button
+        type="button"
+        class="pubreq-row__btn pubreq-row__btn--primary"
+        data-pubreq-resume
+        data-dataset-id={datasetId}
+      >
+        {view.start.label}
       </button>
     )}
   </footer>
@@ -102,19 +179,10 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
     gap: var(--space-3);
     flex-wrap: wrap;
   }
-  .pubreq-row__heading {
-    display: grid;
-    gap: 2px;
-    min-inline-size: 0;
-  }
   .pubreq-row__id {
-    font-family: var(--font-mono);
-    font-size: var(--fs-xs);
-    color: var(--admin-text-3);
-  }
-  .pubreq-row__name {
     margin: 0;
-    font-family: var(--font-display);
+    min-inline-size: 0;
+    font-family: var(--font-mono);
     font-size: var(--fs-base);
     font-weight: var(--fw-semibold);
     letter-spacing: -0.005em;
@@ -144,6 +212,56 @@ const blockReason = request.status.status === "blocked" ? request.status.block_r
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .pubreq-row__line {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pubreq-row__line--muted {
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  .pubreq-row__progress {
+    margin: 0;
+    background: var(--admin-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .pubreq-row__progress--stalled {
+    box-shadow: inset 3px 0 0 var(--admin-error);
+  }
+  @media (forced-colors: active) {
+    .pubreq-row__progress--stalled {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+  .pubreq-row__tag {
+    margin-inline-end: auto;
+    padding: 2px var(--space-2);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+  .pubreq-row__terminal {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .pubreq-row__terminal code {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--admin-surface-2);
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+    user-select: all;
   }
   .pubreq-row__reason {
     margin: 0;

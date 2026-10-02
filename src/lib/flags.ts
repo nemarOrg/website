@@ -39,3 +39,25 @@ export const WEB_SIGNIN_ETA = "July 2026";
  * rather than breaking, so enabling this before the secrets land is safe.
  */
 export const ORCID_SIGNIN_ENABLED = true;
+
+/**
+ * The Approve button on /admin/publication-requests (website#200).
+ *
+ * Approval is not one request. After the irreversible DOI publish, the S3
+ * Object Lock step works in batches of 100 objects and returns `hasMore` with
+ * a continuation token that the CALLER must send back. The CLI loops, with
+ * retries and `resume`; the page used to send one `{}` and reload, which left
+ * any dataset over 100 files at `approving` with its repository public and its
+ * DOI published but no S3 lock, no catalog sync and no owner email.
+ *
+ * So the page no longer drives approval. The button asks the backend to start
+ * it (`POST /admin/publish/:id/approve-dispatch`), the backend asks a GitHub
+ * Action to run the CLI's loop, and the page only watches `status` and
+ * `current_step`. Closing the page changes nothing.
+ *
+ * This is a kill switch, not a deploy-order guard: the page also reads the data,
+ * and rows from a backend without the dispatch route (no `approval_in_flight`)
+ * fall back to the CLI command (see `approvalPhase`). Set it `false` to take the
+ * web button away again, for example while the Action is misbehaving.
+ */
+export const WEB_PUBLISH_APPROVE_ENABLED = true;

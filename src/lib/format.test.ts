@@ -8,6 +8,7 @@ import {
   formatCount,
   formatDate,
   formatRelativeTime,
+  parseBackendTimestamp,
   safeSnippet,
   splitModalities,
 } from "./format";
@@ -209,5 +210,37 @@ describe("displayableFunding", () => {
     ]);
     expect(entry.award_title).toBe("T");
     expect(entry.award_uri).toBeNull();
+  });
+});
+
+describe("parseBackendTimestamp", () => {
+  // The backend stores SQLite `datetime('now')`: UTC, no zone marker. These
+  // assertions are on the instant, so they hold in any process time zone.
+  it("reads a space-separated SQLite timestamp as UTC", () => {
+    expect(parseBackendTimestamp("2026-10-01 12:46:50")?.toISOString()).toBe(
+      "2026-10-01T12:46:50.000Z",
+    );
+  });
+
+  it("makes a request from this morning a few hours old, not a day ahead or behind", () => {
+    const now = new Date("2026-10-01T19:20:00Z");
+    const requested = parseBackendTimestamp("2026-10-01 12:46:50");
+    expect(formatRelativeTime(requested, now)).toBe("7 hours ago");
+  });
+
+  it("leaves an ISO timestamp with its own zone alone", () => {
+    expect(parseBackendTimestamp("2026-10-01T12:46:50Z")?.toISOString()).toBe(
+      "2026-10-01T12:46:50.000Z",
+    );
+    expect(parseBackendTimestamp("2026-10-01T05:46:50-07:00")?.toISOString()).toBe(
+      "2026-10-01T12:46:50.000Z",
+    );
+  });
+
+  it("returns null for nullish, empty, and unparseable input", () => {
+    expect(parseBackendTimestamp(null)).toBeNull();
+    expect(parseBackendTimestamp(undefined)).toBeNull();
+    expect(parseBackendTimestamp("")).toBeNull();
+    expect(parseBackendTimestamp("not a date")).toBeNull();
   });
 });

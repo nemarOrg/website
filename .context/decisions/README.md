@@ -53,3 +53,4 @@ Add new entries here as you create ADRs:
 - ADR 0019 - [Default-on anonymous analytics with a shared opt-out](0019-default-on-analytics-shared-opt-out.md) (accepted)
 - ADR 0020 - [News images are site-relative, content-addressed, and served same-origin](0020-news-images-same-origin-content-addressed.md) (accepted)
 - ADR 0021 - [A page-set `no-referrer` survives the middleware's security headers](0021-page-set-no-referrer-wins-in-middleware.md) (accepted)
+- ADR 0022 - [Web approval is started by the backend and run by an executor, never driven by the page](0022-web-approval-is-dispatched-not-page-driven.md) (accepted)
