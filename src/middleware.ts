@@ -546,7 +546,7 @@ const serve = async (
 /**
  * Whether this isolate has already said, once, that an embed call was not
  * counted: because a production host has no `EMBED_ANALYTICS` binding, or
- * because the write itself threw. A broken binding fails on every load, and a
+ * because building or writing the point threw. A broken binding fails on every load, and a
  * line per load would bury the one that matters, so each is logged once per
  * isolate and then left alone.
  */

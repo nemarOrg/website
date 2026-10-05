@@ -736,9 +736,15 @@ describe("displayableViewParam", () => {
       "<script>",
       "",
       "a".repeat(121),
-      "sub-01\n",
+      "sub-01\nvisit example.com",
     ]) {
       expect(displayableViewParam(raw), JSON.stringify(raw)).toBeNull();
     }
+  });
+});
+
+describe("displayableViewParam trimming", () => {
+  it("trims surrounding whitespace, as parseViewSpec does", () => {
+    expect(displayableViewParam(" sub-01_task-rest \n")).toBe("sub-01_task-rest");
   });
 });

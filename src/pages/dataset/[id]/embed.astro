@@ -34,7 +34,7 @@ import {
   outcomeValue,
   resolveDatasetPageStatus,
 } from "../../../lib/data-api";
-import { datasetPageUrl, displayableDatasetId } from "../../../lib/embed";
+import { datasetPageUrl, displayableDatasetId, displayableVersion } from "../../../lib/embed";
 import "../../../styles/eeg-viewer.css";
 
 const { id } = Astro.params;
@@ -137,13 +137,16 @@ const datasetName = metadata?.name ?? shownId ?? "NEMAR dataset";
 // A `?v=` that names no published version falls back to the latest, as on the
 // dataset page, but a partner pinning a version should be told the pin did
 // not take rather than shown a different version without a word.
+// The framing site wrote `versionParam`, so it is quoted only when it looks
+// like a version (see `displayableVersion`), here and in the log.
+const shownVersion = versionParam ? displayableVersion(versionParam) : null;
 const unknownVersionNote =
   versionParam && !pinnedVersion && selectedVersion
-    ? `Version ${versionParam} is not published; showing the latest, ${selectedVersion}.`
+    ? `${shownVersion ? `Version ${shownVersion}` : "That version"} is not published; showing the latest, ${selectedVersion}.`
     : null;
 if (unknownVersionNote && landing) {
   console.warn(
-    `[dataset/${id}/embed] ?v=${versionParam} is not a published version; serving ${selectedVersion}`,
+    `[dataset/${shownId ?? "?"}/embed] ?v=${shownVersion ?? "(not a version token)"} is not a published version; serving ${selectedVersion}`,
   );
 }
 

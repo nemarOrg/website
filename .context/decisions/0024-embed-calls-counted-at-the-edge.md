@@ -48,7 +48,7 @@ Where it lives:
   It is only the lookup, the write and the catch: it reads the binding from `locals.runtime.env.EMBED_ANALYTICS` and calls the synchronous, fire-and-forget `writeDataPoint`, and never waits on it.
   With no binding it does nothing, silently under `astro dev`, on a preview and on staging.
   On a production host, where a missing binding is a deploy fault, it logs once per isolate that embed calls are not being counted.
-  A write that throws is logged once per isolate, with the dataset id, and dropped, and never changes the response.
+  Anything that throws while building or writing the point is logged once per isolate, with the dataset id when there is one, and dropped, and never changes the response.
 - `wrangler.toml` binds `EMBED_ANALYTICS` to `nemar_website_embeds` for production and to `nemar_website_embeds_dev` for the preview environment, so a branch deploy never adds rows to production's counts.
   `wrangler.test.toml` binds the staging project to `nemar_website_embeds_dev`.
   Analytics Engine creates a dataset on its first write, so there is nothing to provision.
