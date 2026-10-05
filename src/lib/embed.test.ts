@@ -208,7 +208,13 @@ describe("displayableVersion", () => {
   });
 
   it("refuses the framing site's own text", () => {
-    for (const v of ["Your account is suspended, call 555-0100", "<b>", "", "v".repeat(41), "v1\n"]) {
+    for (const v of [
+      "Your account is suspended, call 555-0100",
+      "<b>",
+      "",
+      "v".repeat(41),
+      "v1\n",
+    ]) {
       expect(displayableVersion(v), JSON.stringify(v)).toBeNull();
     }
   });
