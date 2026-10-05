@@ -211,10 +211,12 @@ if (Astro.response.status === 200) {
             no cookie is set (settings and annotations the visitor creates stay
             in their browser), but the privacy policy still covers how its
             loads are counted (website#410). The icon is decorative; the label
-            names it. */}
+            names it. The fragment is the policy's "Embedded viewer" section
+            (nemarOrg/docs#60); `/privacy` 301s to the docs site and the browser
+            carries the fragment across the redirect. */}
         <a
           class="embed__privacy"
-          href={new URL("/privacy", origin).toString()}
+          href={new URL("/privacy#embedded-viewer", origin).toString()}
           target="_blank"
           rel="noopener"
           aria-label="Privacy: how NEMAR counts embedded views"
