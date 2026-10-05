@@ -1,10 +1,11 @@
-import type { MiddlewareHandler } from "astro";
+import type { MiddlewareHandler, MiddlewareNext } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
 import { edgeCacheUrl } from "./lib/edge-cache";
-import { isEmbedRoute } from "./lib/embed";
+import { embedRouteDatasetId, isEmbedRoute } from "./lib/embed";
+import { embedDataPoint } from "./lib/embed-analytics";
 import {
   getCrossHostRedirect,
   getLegacyRedirect,
@@ -386,8 +387,14 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
  * /auth/me; that overhead is acceptable since the cache is bypassed for
  * authed traffic anyway. Marketing-host requests never call /auth/me
  * regardless of any cookies present.
+ *
+ * `onRequest` wraps this handler and counts embed calls on whatever it returns
+ * (`countEmbedCall`); nothing in here knows about the count.
  */
-export const onRequest: MiddlewareHandler = async (context, next) => {
+const serve = async (
+  context: Parameters<MiddlewareHandler>[0],
+  next: MiddlewareNext,
+): Promise<Response> => {
   const url = new URL(context.request.url);
   // Staging (test.nemar.org) and preview (*.pages.dev) hosts get a blanket
   // noindex so they never compete with production in search results. See
@@ -533,6 +540,52 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   return withSecurityHeaders(response, url.pathname, noindex);
+};
+
+/**
+ * Count one embed call (website#410 phase 2, ADR 0024): a single Analytics
+ * Engine data point for a `GET /dataset/<id>/embed` that this request is
+ * answering with a 200. Never throws, and never touches the response.
+ *
+ * Called from `onRequest`, once per request, on the response `serve` finished
+ * with. That is what keeps passthrough, cache HIT, cache MISS and the
+ * no-cache-storage fallback from drifting: they are all the one return value
+ * of `serve`, so none of them can forget to count, and none can count twice.
+ *
+ * What counts is decided here, and what a point holds in `embedDataPoint`:
+ *
+ *   - a 200 only. The `ds*` to `on*` redirect is a 301 and is not counted; the
+ *     200 it leads to is. A 404 or 503 is not an embed that loaded.
+ *   - the dataset id is the `[id]` segment of the path as served, decoded so
+ *     it spells what the page looked up. It is not resolved again.
+ *   - with no `EMBED_ANALYTICS` binding (astro dev, a deploy without it) it
+ *     does nothing, silently.
+ *
+ * `writeDataPoint` is synchronous and returns at once; it is not awaited and
+ * adds no wait. A write that throws is logged once with the dataset id and
+ * dropped, because a counter must never be able to break the page it counts.
+ */
+function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Response): void {
+  if (response.status !== 200) return;
+  const rawId = embedRouteDatasetId(new URL(context.request.url).pathname);
+  if (rawId === null) return;
+
+  let datasetId = rawId;
+  try {
+    const binding = context.locals.runtime?.env?.EMBED_ANALYTICS;
+    if (binding == null) return;
+    datasetId = decodeURIComponent(rawId);
+    const point = embedDataPoint(context.request, datasetId);
+    if (point) binding.writeDataPoint(point);
+  } catch (err) {
+    console.warn(`[embed-analytics] could not count an embed call for ${datasetId}`, err);
+  }
+}
+
+export const onRequest: MiddlewareHandler = async (context, next) => {
+  const response = await serve(context, next);
+  countEmbedCall(context, response);
+  return response;
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {
