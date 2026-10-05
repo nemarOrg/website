@@ -1,16 +1,18 @@
-import type { MiddlewareHandler } from "astro";
+import type { MiddlewareHandler, MiddlewareNext } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
 import { edgeCacheUrl } from "./lib/edge-cache";
 import { isEmbedRoute } from "./lib/embed";
+import { embedCallPoint } from "./lib/embed-analytics";
 import {
   getCrossHostRedirect,
   getLegacyRedirect,
   getRetiredRedirect,
   hostMode,
   isNoindexHost,
+  isProductionHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 
@@ -352,7 +354,7 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
 }
 
 /**
- * Four responsibilities in one handler:
+ * Four responsibilities in `serve`, the handler `onRequest` wraps:
  *
  *   1. Two-host routing. `nemar.org` and `app.nemar.org` share one Astro
  *      build but expose different surfaces. Authenticated routes requested
@@ -386,8 +388,14 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
  * /auth/me; that overhead is acceptable since the cache is bypassed for
  * authed traffic anyway. Marketing-host requests never call /auth/me
  * regardless of any cookies present.
+ *
+ * `onRequest` wraps this handler and counts embed calls on whatever it returns
+ * (`countEmbedCall`); nothing in here knows about the count.
  */
-export const onRequest: MiddlewareHandler = async (context, next) => {
+const serve = async (
+  context: Parameters<MiddlewareHandler>[0],
+  next: MiddlewareNext,
+): Promise<Response> => {
   const url = new URL(context.request.url);
   // Staging (test.nemar.org) and preview (*.pages.dev) hosts get a blanket
   // noindex so they never compete with production in search results. See
@@ -533,6 +541,77 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   return withSecurityHeaders(response, url.pathname, noindex);
+};
+
+/**
+ * Whether this isolate has already said, once, that an embed call was not
+ * counted: because a production host has no `EMBED_ANALYTICS` binding, or
+ * because the write itself threw. A broken binding fails on every load, and a
+ * line per load would bury the one that matters, so each is logged once per
+ * isolate and then left alone.
+ */
+let warnedMissingBinding = false;
+let warnedWriteFailure = false;
+
+/** Forget what this isolate has warned about. For the middleware tests only. */
+export function resetEmbedCountWarnings(): void {
+  warnedMissingBinding = false;
+  warnedWriteFailure = false;
+}
+
+/**
+ * Count one embed call (website#410 phase 2, ADR 0024): a single Analytics
+ * Engine data point for a `GET /dataset/<id>/embed` that this request is
+ * answering with a 200. Never throws, and never touches the response.
+ *
+ * Called from `onRequest`, once per request, on the response `serve` finished
+ * with. That is what keeps passthrough, cache HIT, cache MISS and the
+ * no-cache-storage fallback from drifting: they are all the one return value
+ * of `serve`, so none of them can forget to count, and none can count twice.
+ *
+ * Whether the call counts, and with what id, is `embedCallPoint`'s decision
+ * (a 200 on the embed route, the percent-decoded id, no HEAD, no prefetch).
+ * This function is only the lookup, the write and the catch:
+ *
+ *   - with no `EMBED_ANALYTICS` binding it does nothing. That is silent under
+ *     `astro dev`, on a preview and on staging, which have none by design; on
+ *     a production host it is a deploy fault, so it logs once per isolate that
+ *     embed calls are not being counted.
+ *   - `writeDataPoint` is synchronous and returns at once; it is not awaited
+ *     and adds no wait. A write that throws is logged once per isolate, with
+ *     the dataset id, and dropped, because a counter must never be able to
+ *     break the page it counts.
+ */
+function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Response): void {
+  const point = embedCallPoint(context.request, response.status);
+  if (point === null) return;
+  try {
+    const binding = context.locals.runtime?.env?.EMBED_ANALYTICS;
+    if (binding == null) {
+      if (!warnedMissingBinding && isProductionHost(new URL(context.request.url).hostname)) {
+        warnedMissingBinding = true;
+        console.warn(
+          "[embed-analytics] EMBED_ANALYTICS is not bound on a production host; embed calls are not being counted",
+        );
+      }
+      return;
+    }
+    binding.writeDataPoint(point);
+  } catch (err) {
+    if (warnedWriteFailure) return;
+    warnedWriteFailure = true;
+    console.warn(
+      `[embed-analytics] could not count an embed call for ${point.indexes[0]}; further write failures in this isolate are not logged`,
+      err,
+    );
+  }
+}
+
+/** The middleware: `serve` handles the request, then `countEmbedCall` counts it. */
+export const onRequest: MiddlewareHandler = async (context, next) => {
+  const response = await serve(context, next);
+  countEmbedCall(context, response);
+  return response;
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {

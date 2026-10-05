@@ -10,6 +10,7 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  resetEmbedCountWarnings,
   routeAllowsFraming,
   routeNeedsUnsafeEval,
 } from "./middleware";
@@ -40,6 +41,317 @@ describe("isPublicCacheable", () => {
 
   it("returns true for public + s-maxage", () => {
     expect(isPublicCacheable(r("public, s-maxage=600"))).toBe(true);
+  });
+});
+
+/**
+ * The embed call count (website#410 phase 2, ADR 0024), through the real
+ * `onRequest` and real `Request` objects.
+ *
+ * There is no fake Analytics Engine binding here. What a point holds is pinned
+ * by `embedDataPoint`'s own tests; these tests pin when the middleware tries to
+ * write one, and that trying never changes the response. The two are joined by
+ * the one thing a junk binding does for real: a text variable bound under the
+ * dataset's name has no `writeDataPoint`, so the write genuinely throws, and
+ * the middleware's own `console.warn` (one line, naming the dataset) says it
+ * was attempted. A deploy that bound the wrong kind of thing under that name is
+ * a case worth surviving anyway.
+ *
+ * Both warnings are once per isolate, which in a test process is once per
+ * file, so `warningsDuring` resets the flags first and every case starts clean.
+ * What counts at all (status, route, decoded id) is `embedCallPoint`'s decision
+ * and is pinned in `lib/embed-analytics.test.ts`.
+ *
+ * The cache HIT and MISS serve paths are not exercised here: Node has no
+ * `caches`, and wrangler's `getPlatformProxy` hands back a Cache that stores
+ * nothing, so a unit test cannot reach them without faking the cache. They run
+ * through the same single call (the count sits on `serve`'s return value, not
+ * inside any path), and are checked against a deployed build in the phase's
+ * gate 2.
+ */
+describe("embed call counting", () => {
+  const EMBED = "/dataset/on007753/embed";
+  const MARKETING = `https://${MARKETING_HOST}`;
+  const LOCAL = "http://localhost:4321";
+
+  type Runtime = Record<string, unknown> | undefined;
+
+  function embedCtx(
+    url: string,
+    opts: {
+      method?: string;
+      headers?: Record<string, string>;
+      cookie?: boolean;
+      runtime?: Runtime;
+    },
+  ): APIContext {
+    return {
+      request: new Request(url, { method: opts.method ?? "GET", headers: opts.headers }),
+      locals: opts.runtime === undefined ? {} : { runtime: opts.runtime },
+      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+    } as unknown as APIContext;
+  }
+
+  /** A text variable where the dataset binding belongs: the write really throws. */
+  const JUNK_BINDING: Runtime = { env: { EMBED_ANALYTICS: "this is not a dataset binding" } };
+
+  /** `onRequest`, whose declared return type also allows `void`; this one returns a response. */
+  async function serve(context: APIContext, next: () => Promise<Response>): Promise<Response> {
+    return (await onRequest(context, next)) as Response;
+  }
+
+  const ok = async () => new Response("ok", { status: 200 });
+  const respond = (status: number) => async () =>
+    new Response(status === 304 || status === 301 ? null : "body", {
+      status,
+      headers: status === 301 ? { Location: "/dataset/on007753/embed" } : {},
+    });
+
+  /**
+   * What the middleware logs while `run` runs, first argument of each warning,
+   * with the once-per-isolate flags reset so the case starts clean.
+   */
+  async function warningsDuring(run: () => Promise<unknown>): Promise<string[]> {
+    resetEmbedCountWarnings();
+    const seen: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => {
+      seen.push(String(args[0]));
+    };
+    try {
+      await run();
+    } finally {
+      console.warn = original;
+    }
+    return seen;
+  }
+
+  async function snapshot(res: Response): Promise<{
+    status: number;
+    headers: [string, string][];
+    body: string;
+  }> {
+    return {
+      status: res.status,
+      headers: [...res.headers].sort(([a], [b]) => a.localeCompare(b)),
+      body: await res.text(),
+    };
+  }
+
+  it("serves an embed load untouched when there is no binding", async () => {
+    const expected = new Headers({ "content-type": "text/plain;charset=UTF-8" });
+    applySecurityHeaders(expected, EMBED);
+    const runtimes: [string, Runtime][] = [
+      ["no runtime", undefined],
+      ["an empty runtime", {}],
+      ["a runtime with no env", { env: undefined }],
+      ["an env with no binding", { env: {} }],
+      ["an env with the binding undefined", { env: { EMBED_ANALYTICS: undefined } }],
+      ["an env with the binding null", { env: { EMBED_ANALYTICS: null } }],
+    ];
+    // On localhost, where having no binding is the normal state and says nothing;
+    // the production-host case has its own test below.
+    for (const cookie of [false, true]) {
+      for (const [name, runtime] of runtimes) {
+        const label = `${name}, ${cookie ? "cookie-bearing" : "anonymous"}`;
+        let res: Response | undefined;
+        const seen = await warningsDuring(async () => {
+          res = await serve(
+            embedCtx(`${LOCAL}${EMBED}?view=sub-05`, {
+              headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
+              cookie,
+              runtime,
+            }),
+            ok,
+          );
+        });
+        expect(seen, label).toEqual([]);
+        expect(await snapshot(res as Response), label).toEqual({
+          status: 200,
+          headers: [...expected].sort(([a], [b]) => a.localeCompare(b)),
+          body: "ok",
+        });
+      }
+    }
+  });
+
+  it("serves the same response when the write itself fails, and says so once", async () => {
+    for (const cookie of [false, true]) {
+      const request = (runtime: Runtime) =>
+        embedCtx(`${MARKETING}${EMBED}`, {
+          headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
+          cookie,
+          runtime,
+        });
+      const without = await snapshot((await serve(request(undefined), ok)) as Response);
+      let res: Response | undefined;
+      const seen = await warningsDuring(async () => {
+        res = await serve(request(JUNK_BINDING), ok);
+      });
+      expect(seen, `cookie ${cookie}`).toHaveLength(1);
+      expect(seen[0]).toContain("on007753");
+      expect(await snapshot(res as Response), `cookie ${cookie}`).toEqual(without);
+    }
+  });
+
+  it("counts an embed GET answered with 200 on the passthrough and the no-cache-storage paths", async () => {
+    // Cookie-bearing requests skip the edge cache (passthrough); anonymous ones
+    // reach the cache lookup, find no `caches` in Node, and fall back.
+    for (const cookie of [true, false]) {
+      for (const host of [
+        MARKETING,
+        "http://localhost:4321",
+        "https://pr-1.nemar-website.pages.dev",
+      ]) {
+        const seen = await warningsDuring(() =>
+          serve(embedCtx(`${host}${EMBED}`, { cookie, runtime: JUNK_BINDING }), ok),
+        );
+        expect(seen, `${host} cookie ${cookie}`).toHaveLength(1);
+        expect(seen[0]).toContain("on007753");
+      }
+    }
+  });
+
+  it("counts the trailing-slash spelling, and the decoded dataset id", async () => {
+    const slash = await warningsDuring(() =>
+      serve(embedCtx(`${MARKETING}${EMBED}/`, { runtime: JUNK_BINDING }), ok),
+    );
+    expect(slash).toHaveLength(1);
+    const encoded = await warningsDuring(() =>
+      serve(
+        embedCtx(`${MARKETING}/dataset/on%30%30%37%37%35%33/embed`, { runtime: JUNK_BINDING }),
+        ok,
+      ),
+    );
+    expect(encoded).toHaveLength(1);
+    expect(encoded[0]).toContain("on007753");
+    expect(encoded[0]).not.toContain("%");
+  });
+
+  it("does not count a response that is not a 200", async () => {
+    // 301 is the page's own ds* to on* hop: the 200 it leads to is what counts.
+    for (const status of [301, 304, 404, 500, 503]) {
+      let res: Response | undefined;
+      const seen = await warningsDuring(async () => {
+        res = await serve(
+          embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }),
+          respond(status),
+        );
+      });
+      expect(seen, String(status)).toEqual([]);
+      expect(res?.status, String(status)).toBe(status);
+    }
+  });
+
+  it("does not count the cross-host redirect hop", async () => {
+    let res: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      res = await serve(embedCtx(`https://${APP_HOST}${EMBED}`, { runtime: JUNK_BINDING }), ok);
+    });
+    expect(res?.status).toBe(301);
+    expect(seen).toEqual([]);
+  });
+
+  it("does not count any other route, or another spelling of the embed route", async () => {
+    for (const path of [
+      "/",
+      "/dataset/on007753",
+      "/dataset/on007753/collaborators",
+      "/dataset/on007753/embed/extra",
+      "/dataset/on007753/%65mbed",
+      "/dataset/embed",
+      "/discover",
+    ]) {
+      const seen = await warningsDuring(() =>
+        serve(embedCtx(`${MARKETING}${path}`, { runtime: JUNK_BINDING }), ok),
+      );
+      expect(seen, path).toEqual([]);
+    }
+  });
+
+  it("does not count HEAD, a prefetch, or any other method", async () => {
+    for (const method of ["HEAD", "POST", "PUT", "DELETE", "OPTIONS"]) {
+      const seen = await warningsDuring(() =>
+        serve(embedCtx(`${MARKETING}${EMBED}`, { method, runtime: JUNK_BINDING }), ok),
+      );
+      expect(seen, method).toEqual([]);
+    }
+    const prefetches: Record<string, string>[] = [
+      { "Sec-Purpose": "prefetch" },
+      { "Sec-Purpose": "prefetch;prerender" },
+      { Purpose: "prefetch" },
+    ];
+    for (const headers of prefetches) {
+      const seen = await warningsDuring(() =>
+        serve(embedCtx(`${MARKETING}${EMBED}`, { headers, runtime: JUNK_BINDING }), ok),
+      );
+      expect(seen, JSON.stringify(headers)).toEqual([]);
+    }
+  });
+
+  it("does not count a dataset id that does not decode, and leaves the response alone", async () => {
+    let res: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      res = await serve(
+        embedCtx(`${MARKETING}/dataset/%E0%A4%A/embed`, { runtime: JUNK_BINDING }),
+        ok,
+      );
+    });
+    expect(seen).toEqual([]);
+    expect(res?.status).toBe(200);
+    expect(await res?.text()).toBe("ok");
+  });
+
+  it("says once per isolate that a production host has no binding, and serves normally", async () => {
+    let first: Response | undefined;
+    let second: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      first = await serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: { env: {} } }), ok);
+      second = await serve(embedCtx(`${MARKETING}${EMBED}`, { cookie: true }), ok);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("EMBED_ANALYTICS");
+    expect(seen[0]).toContain("not being counted");
+    for (const res of [first, second]) {
+      expect(res?.status).toBe(200);
+      expect(await res?.text()).toBe("ok");
+    }
+  });
+
+  it("stays silent without a binding everywhere but a production host", async () => {
+    for (const host of [LOCAL, "https://pr-1.nemar-website.pages.dev", "https://test.nemar.org"]) {
+      const seen = await warningsDuring(() => serve(embedCtx(`${host}${EMBED}`, {}), ok));
+      expect(seen, host).toEqual([]);
+    }
+  });
+
+  it("does not warn about a missing binding for a request that would not be counted", async () => {
+    const seen = await warningsDuring(async () => {
+      await serve(embedCtx(`${MARKETING}${EMBED}`, { method: "HEAD" }), ok);
+      await serve(embedCtx(`${MARKETING}/discover`, {}), ok);
+      await serve(embedCtx(`${MARKETING}${EMBED}`, {}), respond(404));
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("logs a failing write once per isolate, not on every load", async () => {
+    const responses: Response[] = [];
+    const seen = await warningsDuring(async () => {
+      for (let i = 0; i < 3; i++) {
+        responses.push(
+          await serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }), ok),
+        );
+      }
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("on007753");
+    expect(seen[0]).toContain("further write failures in this isolate are not logged");
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
+    // A new isolate, which is what the reset stands for, logs again.
+    const again = await warningsDuring(() =>
+      serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }), ok),
+    );
+    expect(again).toHaveLength(1);
   });
 });
 
