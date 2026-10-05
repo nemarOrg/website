@@ -66,7 +66,7 @@ A partner who writes their own iframe and omits the attribute is counted with wh
 Zone analytics needs no code, and was considered first.
 It has no `Sec-Fetch-Dest` dimension, so it cannot tell a partner's iframe from a crawler or a person who opened the URL, which is the distinction the third-party count exists for.
 Its adaptive dataset is sampled, and it is limited to one-day query windows, so a per-dataset, per-site history cannot be built from it directly.
-Analytics Engine costs one non-blocking call on one route, and keeps every point.
+Analytics Engine costs one non-blocking call on one route, and keeps points at full resolution until one index gets very busy.
 The dataset id is the index, which is Analytics Engine's sampling key, so a busy dataset is the only thing that could ever be sampled; queries should weight by `_sample_interval` (`SUM(_sample_interval * double1)`) so a sampled row is still counted correctly.
 
 ### Relation to ADR 0019
