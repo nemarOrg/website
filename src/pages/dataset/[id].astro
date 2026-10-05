@@ -1181,18 +1181,6 @@ Astro.response.headers.set(
   }
 
   /**
-   * Tear down the live viewer (if any), return the dialog to a clean state,
-   * and collapse the row that owned it (the session's `onRelease` above). Two
-   * call sites, both of which are about to make some other recording the
-   * single live instance: `openEegViewerInline` (another signal row opened, or
-   * the open one collapsed) and the session's `openRecording` (the action
-   * bar's "View data", website#260, and `?view=` links).
-   */
-  function releaseEegViewer(): void {
-    session.release();
-  }
-
-  /**
    * Open the EEG/MEG/iEEG/EMG signal viewer inline, in the clicked row's own
    * preview panel (website#217). Keeps every failure path the modal version
    * had — `zarrAvailable === "false"` with its recorded reason, the
@@ -1211,12 +1199,12 @@ Astro.response.headers.set(
       return;
     }
 
-    // Second click on the already-open row collapses it. `releaseEegViewer`
+    // Second click on the already-open row collapses it. `session.release()`
     // covers the case where this row holds the live viewer; the unconditional
     // reset also covers the rows that are expanded *without* one (a recorded
     // "unavailable", or a mount that failed).
     const wasExpanded = btn.getAttribute("aria-expanded") === "true";
-    releaseEegViewer();
+    session.release();
     resetEegRow(btn, slot);
     if (wasExpanded) return;
 
@@ -1258,7 +1246,7 @@ Astro.response.headers.set(
     //
     // This is the first await in the function, and it lands BEFORE the mount
     // makes this row the session's live instance — so a second click during the
-    // wait cannot be collapsed by `releaseEegViewer` (it sees no live viewer
+    // wait cannot be collapsed by `session.release()` (it sees no live viewer
     // yet). Claim a sequence number up front and stand down if a newer open
     // took it, undoing the row expansion above rather than leaving a row stuck
     // on "Loading".
@@ -1348,7 +1336,7 @@ Astro.response.headers.set(
       slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. ${fallbackActionHtml} instead.</p>`;
     }
     // A superseded open leaves the row to whoever superseded it
-    // (`releaseEegViewer` cleared it, or a newer open rebuilt it).
+    // (`session.release()` cleared it, or a newer open rebuilt it).
     if (session.isCurrent(outcome.seq)) {
       slot.removeAttribute("aria-busy");
       slot.dataset.loaded = "true";
