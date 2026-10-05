@@ -521,14 +521,20 @@ Astro.response.headers.set(
       const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
       if (!dialog || !dialogSlot) {
         console.error("[eeg-viewer] dialog markup missing");
-        return;
+        return false;
       }
       dialogSlot.replaceChildren(host);
       dialog.showModal();
+      return true;
     },
     onRelease: (released) => {
       const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-      if (dialog?.open) {
+      const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+      // Only when the released instance is the one IN the dialog: the session
+      // presents a new host before releasing the old one, so an open dialog
+      // can be holding the viewer that is about to mount, and that one must
+      // stay.
+      if (dialog?.open && released && dialogSlot?.contains(released.host)) {
         // Empty the dialog here rather than leaving it to the close handler.
         // `close()` only *queues* the close event, and both callers make a new
         // instance live synchronously before their first await — so by the
@@ -541,7 +547,7 @@ Astro.response.headers.set(
         // inert, so no tree row can be clicked while it is open. That is a
         // guarantee about the dialog being modal, though, not about this
         // function, and it costs one line not to depend on it.
-        document.querySelector<HTMLElement>("[data-eegv-slot]")?.replaceChildren();
+        dialogSlot.replaceChildren();
         dialog.close();
       }
       // A detached viewer's row was already collapsed when the user navigated

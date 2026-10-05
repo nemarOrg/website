@@ -306,7 +306,9 @@ if (Astro.response.status === 200) {
       if (titleLink) titleLink.textContent = name;
     },
     present: (host) => {
-      slot?.replaceChildren(host);
+      if (!slot) return false;
+      slot.replaceChildren(host);
+      return true;
     },
     mountOptions: ({ path }) => ({
       fitHeight: true,

@@ -138,9 +138,12 @@ export interface ViewerSessionHooks {
   setTitle(name: string): void;
   /**
    * Put the host `openRecording` just built where it is seen, and reveal it
-   * (the dialog fills its slot and calls `showModal`).
+   * (the dialog fills its slot and calls `showModal`). Returns false, having
+   * changed nothing, when it cannot (its markup is missing); `openRecording`
+   * then stops before releasing the current viewer or mounting anything,
+   * rather than tear down what is on screen to mount into a detached host.
    */
-  present(host: HTMLElement): void;
+  present(host: HTMLElement): boolean;
   /** After `release` tore the previous instance down: page-side cleanup. */
   onRelease?(released: LiveViewer | null): void;
   /** The first navigation away from an instance that was not yet detached. */
@@ -505,18 +508,26 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
    * the viewer back to, so ending the session ends the instance.
    */
   async function openRecording(target: RecordingEntry, ctx: SessionContext): Promise<void> {
-    // At most one viewer instance is ever live (website#199). Not a no-op on
-    // the dataset page: "View data" sits outside the dialog and outside the
-    // tree, so it is clickable while an INLINE viewer is open in a row below.
-    release();
-
     const fileUrl = fileDownloadUrl(ctx.datasetId, ctx.version, target.path);
     const host = document.createElement("div");
     host.setAttribute("data-eegv-host", "");
     host.innerHTML = `<p class="preview__loading" role="status">Loading viewer…</p>`;
     host.setAttribute("aria-busy", "true");
+    // Presented first, so a page that cannot show the new host keeps whatever
+    // it was showing: nothing is released, nothing mounts, and the title still
+    // names what is on screen.
+    if (!hooks.present(host)) {
+      console.error("[eeg-viewer] open aborted: the page could not present a viewer", {
+        datasetId: ctx.datasetId,
+        path: target.path,
+      });
+      return;
+    }
     hooks.setTitle(target.name);
-    hooks.present(host);
+    // At most one viewer instance is ever live (website#199). Not a no-op on
+    // the dataset page: "View data" sits outside the dialog and outside the
+    // tree, so it is clickable while an INLINE viewer is open in a row below.
+    release();
 
     const outcome = await mount({
       host,
