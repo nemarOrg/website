@@ -14,7 +14,8 @@
  *   not ours to put there;
  * - no Umami tracker (`installUmamiAnalytics` is never called): embed loads
  *   are to be counted at the edge from the embed's own request instead
- *   (website#410 phase 2), so nothing runs on a partner's visitors' devices;
+ *   (website#410 phase 2), so no analytics script runs and no cookie is set;
+ *   settings and annotations the visitor creates stay in their browser;
  * - no stored theme: `nemar:theme` in localStorage is a nemar.org visitor's
  *   choice, and inside a third-party frame it is partitioned away anyway.
  *   `?theme=light|dark` lets the embedder match its own page instead.

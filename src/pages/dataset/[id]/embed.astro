@@ -207,9 +207,11 @@ if (Astro.response.status === 200) {
           >Open on NEMAR</a
         >
         {/* Last, and a statement rather than "Your Privacy Choices": nothing
-            can be chosen inside an embed (it sets nothing on the visitor's
-            device), but the privacy policy still covers how its loads are
-            counted (website#410). The icon is decorative; the label names it. */}
+            can be chosen inside an embed, because no analytics script runs and
+            no cookie is set (settings and annotations the visitor creates stay
+            in their browser), but the privacy policy still covers how its
+            loads are counted (website#410). The icon is decorative; the label
+            names it. */}
         <a
           class="embed__privacy"
           href={new URL("/privacy", origin).toString()}

@@ -27,7 +27,7 @@ What the route is, and is not:
   `applySecurityHeaders` deletes it on that route, on all three serve paths.
 - No nav, footer, site notices, cookie notice, Open Science Assistant widget or Umami tracker (`src/layouts/Embed.astro`).
   The widget is an explicit exception to ADR 0018's site-wide embedding: a chat launcher floating over a partner's figure is not ours to put there.
-  Embed loads are to be counted at the edge instead (website#410 phase 2), so nothing runs on a partner's visitors' devices.
+  Embed loads are to be counted at the edge instead (website#410 phase 2), so no analytics script runs and no cookie is set; settings and annotations the visitor creates stay in their browser.
 - A NEMAR mark on the plot, on this route only, linking to the dataset page (`scopeOverlay` in `viewer.ts`).
 - The route matcher reads the raw path, so an encoded spelling of the route is served un-frameable: it fails closed.
 
