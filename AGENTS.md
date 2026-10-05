@@ -61,7 +61,7 @@ so is the failure mode this instruction exists to prevent.
 src/
   layouts/Base.astro                  shared shell (nav + footer + theme bootstrap)
   layouts/Embed.astro                 chrome-free shell for the embed route (?theme= bootstrap, noindex; ADR 0023)
-  middleware.ts                       two-host routing, session (/auth/me proxy), edge cache, security headers
+  middleware.ts                       two-host routing, session (/auth/me proxy), edge cache, security headers, embed call count (ADR 0024)
   pages/
     index.astro                       landing (hero + search + stat tiles)
     discover.astro                    filter sidebar + offset-paginated dataset list
@@ -93,7 +93,7 @@ src/
     flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
     host.ts                           two-host route classification + noindex/production host logic
     embed.ts                          embed route matcher, ?theme= parser, embed/dataset URLs, iframe snippet
-    embed-analytics.ts                pure Analytics Engine data point for an embed call (dataset, embedding host, kind); written by middleware.ts (ADR 0024)
+    embed-analytics.ts                pure Analytics Engine data point for an embed call (dataset, embedding host, kind) and whether a response counts; written by middleware.ts (ADR 0024)
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
     filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
     tags.ts                           modality/license/keyword classification + /discover hrefs
@@ -187,6 +187,9 @@ bun run bump <arg>            # version bump; workflows normally do this for you
    `-dev0` cycle on staging.
 9. **Verify production**, especially for anything staging structurally could not cover.
    `curl -s https://nemar.org/version.json` should report the clean version just tagged.
+   After the release that ships embed counting, load `https://nemar.org/dataset/<id>/embed` once with
+   `Sec-Fetch-Dest: iframe` and `Referer: https://smoke.invalid/`, then query `nemar_website_embeds`
+   for `blob2 = 'smoke.invalid'` (ADR 0024).
 
 **GitHub sometimes drops pushes to this repository (website#374).** The branch moves, but
 nothing runs: no deploy, no bump, no Release, no Cloudflare build, and once a merged PR stayed

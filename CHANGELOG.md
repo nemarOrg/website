@@ -23,7 +23,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **Embed calls are counted at the edge.**
   Each `GET /dataset/<id>/embed` answered with a 200 writes one Analytics Engine data point from the middleware, on every serve path: the dataset, the embedding site's hostname from `Referer`, and the kind of request from `Sec-Fetch-Dest` (`iframe`, `document`, `none` or `other`).
   Nothing runs on a partner's page or the visitor's device, and no IP address, user agent, country, cookie, query string or recording is recorded; `HEAD` requests and prefetches are not counted.
-  The binding is `EMBED_ANALYTICS`: `nemar_website_embeds` on production and `nemar_website_embeds_dev` on previews and staging, and with no binding the count is skipped (ADR 0024).
+  The binding is `EMBED_ANALYTICS`: `nemar_website_embeds` on production and `nemar_website_embeds_dev` on previews and staging, and with no binding the count is skipped, with one logged warning per isolate on a production host (ADR 0024).
   Refs #412, part of #410.
 - **A sign-in handoff page for `private.nemar.org`** at `/auth/private/authorize`.
   The private site sends a visitor there with a `state` it generated; the page checks the visitor is signed in, asks the backend for a one-time code bound to that `state`, and redirects to the private site's callback with the code alone.
