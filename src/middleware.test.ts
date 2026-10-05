@@ -10,6 +10,7 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  resetEmbedCountWarnings,
   routeAllowsFraming,
   routeNeedsUnsafeEval,
 } from "./middleware";
@@ -56,6 +57,11 @@ describe("isPublicCacheable", () => {
  * was attempted. A deploy that bound the wrong kind of thing under that name is
  * a case worth surviving anyway.
  *
+ * Both warnings are once per isolate, which in a test process is once per
+ * file, so `warningsDuring` resets the flags first and every case starts clean.
+ * What counts at all (status, route, decoded id) is `embedCallPoint`'s decision
+ * and is pinned in `lib/embed-analytics.test.ts`.
+ *
  * The cache HIT and MISS serve paths are not exercised here: Node has no
  * `caches`, and wrangler's `getPlatformProxy` hands back a Cache that stores
  * nothing, so a unit test cannot reach them without faking the cache. They run
@@ -66,6 +72,7 @@ describe("isPublicCacheable", () => {
 describe("embed call counting", () => {
   const EMBED = "/dataset/on007753/embed";
   const MARKETING = `https://${MARKETING_HOST}`;
+  const LOCAL = "http://localhost:4321";
 
   type Runtime = Record<string, unknown> | undefined;
 
@@ -100,8 +107,12 @@ describe("embed call counting", () => {
       headers: status === 301 ? { Location: "/dataset/on007753/embed" } : {},
     });
 
-  /** What the middleware logs while `run` runs, first argument of each warning. */
+  /**
+   * What the middleware logs while `run` runs, first argument of each warning,
+   * with the once-per-isolate flags reset so the case starts clean.
+   */
   async function warningsDuring(run: () => Promise<unknown>): Promise<string[]> {
+    resetEmbedCountWarnings();
     const seen: string[] = [];
     const original = console.warn;
     console.warn = (...args: unknown[]) => {
@@ -138,13 +149,15 @@ describe("embed call counting", () => {
       ["an env with the binding undefined", { env: { EMBED_ANALYTICS: undefined } }],
       ["an env with the binding null", { env: { EMBED_ANALYTICS: null } }],
     ];
+    // On localhost, where having no binding is the normal state and says nothing;
+    // the production-host case has its own test below.
     for (const cookie of [false, true]) {
       for (const [name, runtime] of runtimes) {
         const label = `${name}, ${cookie ? "cookie-bearing" : "anonymous"}`;
         let res: Response | undefined;
         const seen = await warningsDuring(async () => {
           res = await serve(
-            embedCtx(`${MARKETING}${EMBED}?view=sub-05`, {
+            embedCtx(`${LOCAL}${EMBED}?view=sub-05`, {
               headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
               cookie,
               runtime,
@@ -276,7 +289,7 @@ describe("embed call counting", () => {
     }
   });
 
-  it("survives a dataset id that does not decode, without touching the response", async () => {
+  it("does not count a dataset id that does not decode, and leaves the response alone", async () => {
     let res: Response | undefined;
     const seen = await warningsDuring(async () => {
       res = await serve(
@@ -284,9 +297,61 @@ describe("embed call counting", () => {
         ok,
       );
     });
-    expect(seen).toHaveLength(1);
+    expect(seen).toEqual([]);
     expect(res?.status).toBe(200);
     expect(await res?.text()).toBe("ok");
+  });
+
+  it("says once per isolate that a production host has no binding, and serves normally", async () => {
+    let first: Response | undefined;
+    let second: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      first = await serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: { env: {} } }), ok);
+      second = await serve(embedCtx(`${MARKETING}${EMBED}`, { cookie: true }), ok);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("EMBED_ANALYTICS");
+    expect(seen[0]).toContain("not being counted");
+    for (const res of [first, second]) {
+      expect(res?.status).toBe(200);
+      expect(await res?.text()).toBe("ok");
+    }
+  });
+
+  it("stays silent without a binding everywhere but a production host", async () => {
+    for (const host of [LOCAL, "https://pr-1.nemar-website.pages.dev", "https://test.nemar.org"]) {
+      const seen = await warningsDuring(() => serve(embedCtx(`${host}${EMBED}`, {}), ok));
+      expect(seen, host).toEqual([]);
+    }
+  });
+
+  it("does not warn about a missing binding for a request that would not be counted", async () => {
+    const seen = await warningsDuring(async () => {
+      await serve(embedCtx(`${MARKETING}${EMBED}`, { method: "HEAD" }), ok);
+      await serve(embedCtx(`${MARKETING}/discover`, {}), ok);
+      await serve(embedCtx(`${MARKETING}${EMBED}`, {}), respond(404));
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("logs a failing write once per isolate, not on every load", async () => {
+    const responses: Response[] = [];
+    const seen = await warningsDuring(async () => {
+      for (let i = 0; i < 3; i++) {
+        responses.push(
+          await serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }), ok),
+        );
+      }
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("on007753");
+    expect(seen[0]).toContain("further write failures in this isolate are not logged");
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
+    // A new isolate, which is what the reset stands for, logs again.
+    const again = await warningsDuring(() =>
+      serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }), ok),
+    );
+    expect(again).toHaveLength(1);
   });
 });
 
