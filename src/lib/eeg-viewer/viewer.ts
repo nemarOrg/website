@@ -2466,7 +2466,11 @@ function buildDom(
 
 function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts)}</p></div>`;
-  console.warn("[eeg-viewer] unavailable:", err);
+  console.warn(
+    "[eeg-viewer] unavailable:",
+    { datasetId: opts.datasetId, path: opts.filePath },
+    err,
+  );
 }
 
 /**

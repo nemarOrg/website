@@ -274,8 +274,19 @@ if (Astro.response.status === 200) {
     return a.outerHTML;
   }
 
-  /** Replace the viewer area with a sentence and a way to the dataset page. */
+  /**
+   * Replace the viewer area with a sentence and a way to the dataset page.
+   * Also the one console line a partner can paste into a report: which
+   * dataset, version and `?view=` the frame was asked for, and why it shows
+   * no viewer.
+   */
   function showNotice(message: string): void {
+    console.warn("[embed]", {
+      datasetId,
+      version,
+      view: new URL(window.location.href).searchParams.get(VIEW_PARAM),
+      reason: message,
+    });
     if (!notice || !slot) return;
     slot.replaceChildren();
     notice.replaceChildren(document.createTextNode(`${message} `));
