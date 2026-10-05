@@ -55,3 +55,4 @@ Add new entries here as you create ADRs:
 - ADR 0021 - [A page-set `no-referrer` survives the middleware's security headers](0021-page-set-no-referrer-wins-in-middleware.md) (accepted)
 - ADR 0022 - [Web approval is started by the backend and run by an executor, never driven by the page](0022-web-approval-is-dispatched-not-page-driven.md) (accepted)
 - ADR 0023 - [An embeddable viewer route, the only route other sites may frame](0023-embeddable-viewer-route-scoped-framing.md) (accepted)
+- ADR 0024 - [Embed calls are counted at the edge, from the request alone](0024-embed-calls-counted-at-the-edge.md) (accepted)

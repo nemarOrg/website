@@ -93,6 +93,7 @@ src/
     flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
     host.ts                           two-host route classification + noindex/production host logic
     embed.ts                          embed route matcher, ?theme= parser, embed/dataset URLs, iframe snippet
+    embed-analytics.ts                pure Analytics Engine data point for an embed call (dataset, embedding host, kind); written by middleware.ts (ADR 0024)
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
     filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
     tags.ts                           modality/license/keyword classification + /discover hrefs
