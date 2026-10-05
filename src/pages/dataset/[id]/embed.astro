@@ -34,7 +34,7 @@ import {
   outcomeValue,
   resolveDatasetPageStatus,
 } from "../../../lib/data-api";
-import { datasetPageUrl } from "../../../lib/embed";
+import { datasetPageUrl, displayableDatasetId } from "../../../lib/embed";
 import "../../../styles/eeg-viewer.css";
 
 const { id } = Astro.params;
@@ -78,6 +78,9 @@ interface EmbedProblem {
 }
 
 const datasetHome = datasetPageUrl(origin, id);
+// What the page may print for the id: never arbitrary path text, since any
+// site can frame this page (see `displayableDatasetId`).
+const shownId = displayableDatasetId(id);
 let problem: EmbedProblem | null = null;
 
 // The dataset page's 404 / 503 / 500 rules, with the same `no-store` so a
@@ -90,7 +93,7 @@ if (status.kind === "not_found") {
   Astro.response.status = 404;
   Astro.response.headers.set("Cache-Control", "no-store");
   problem = {
-    message: `NEMAR has no dataset ${id}.`,
+    message: shownId ? `NEMAR has no dataset ${shownId}.` : "NEMAR has no such dataset.",
     linkHref: new URL("/discover", origin).toString(),
     linkText: "Browse datasets on NEMAR",
   };
@@ -129,7 +132,7 @@ const pinnedVersion =
   versionParam && landing?.versions.some((v) => v.version === versionParam) ? versionParam : null;
 const selectedVersion = pinnedVersion ?? landing?.latest ?? landing?.versions[0]?.version ?? null;
 const datasetHref = datasetPageUrl(origin, id, { version: pinnedVersion });
-const datasetName = metadata?.name ?? id;
+const datasetName = metadata?.name ?? shownId ?? "NEMAR dataset";
 
 // A `?v=` that names no published version falls back to the latest, as on the
 // dataset page, but a partner pinning a version should be told the pin did
@@ -170,7 +173,7 @@ if (Astro.response.status === 200) {
 <Embed
   title={`${datasetName} - NEMAR signal viewer`}
   canonicalPath={`/dataset/${id}`}
-  description={`Signal viewer for ${datasetName} (${id}) on NEMAR.`}
+  description={shownId ? `Signal viewer for ${datasetName} (${shownId}) on NEMAR.` : undefined}
 >
   {problem ? (
     <main class="embed-msg">

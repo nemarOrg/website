@@ -3,6 +3,7 @@ import { buildRecordingList, formatViewSpec, resolveViewParam } from "./eeg-view
 import {
   EMBED_IFRAME_HEIGHT,
   datasetPageUrl,
+  displayableDatasetId,
   embedRouteDatasetId,
   embedSnippet,
   embedSnippetOrigin,
@@ -174,5 +175,26 @@ describe("embedSnippet", () => {
     );
     expect(snippet).toContain('title="NEMAR signal viewer: a&quot;&gt;&lt;script&gt;&amp;"');
     expect(snippet).not.toContain("<script>");
+  });
+});
+
+describe("displayableDatasetId", () => {
+  it("echoes ids shaped like NEMAR's and OpenNeuro's", () => {
+    for (const id of ["on007753", "ds007753", "nm000292", "on004696", "xx000001"]) {
+      expect(displayableDatasetId(id), id).toBe(id);
+    }
+  });
+
+  it("refuses arbitrary path text, which a framing site could use to put words on the page", () => {
+    for (const id of [
+      "Your account is suspended, call 555",
+      "<script>",
+      "on007753 visit example.com",
+      "",
+      "a".repeat(41),
+      "on007753\n",
+    ]) {
+      expect(displayableDatasetId(id), JSON.stringify(id)).toBeNull();
+    }
   });
 });

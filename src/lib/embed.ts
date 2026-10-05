@@ -43,6 +43,20 @@ export function isEmbedRoute(pathname: string): boolean {
   return embedRouteDatasetId(pathname) !== null;
 }
 
+/**
+ * The dataset id as the embed may print it, or null when it may not.
+ *
+ * Any site can frame this route, and its id segment is whatever the URL says,
+ * so a page that echoed it ("NEMAR has no dataset <id>.") would let anyone put
+ * their own sentence on a nemar.org page inside their frame. Ids that look
+ * like ids (NEMAR's and OpenNeuro's are short runs of letters, digits, dots,
+ * dashes and underscores) are echoed; anything else is not, and the page says
+ * "no such dataset" instead.
+ */
+export function displayableDatasetId(id: string): string | null {
+  return /^[A-Za-z0-9._-]{1,40}$/.test(id) ? id : null;
+}
+
 /** Query parameter an embedder uses to match the embed to its own page. */
 export const EMBED_THEME_PARAM = "theme";
 
