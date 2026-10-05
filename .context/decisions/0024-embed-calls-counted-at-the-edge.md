@@ -22,9 +22,9 @@ Exactly this, and nothing else:
 
 | Field | Value |
 |---|---|
-| `index1` | the dataset id, as served (the `[id]` segment of the path) |
+| `index1` | the dataset id from the path, percent-decoded (the `[id]` segment) |
 | `blob1` | the same dataset id |
-| `blob2` | the embedding site's hostname, from the `Referer` header, lowercased; empty when absent or unparseable |
+| `blob2` | the embedding site's hostname, from the `Referer` header, lowercased; empty when absent, unparseable, or longer than the 253 characters DNS allows |
 | `blob3` | the request kind, from `Sec-Fetch-Dest`: `iframe` (a real embed), `document` (the embed URL opened directly), `none` (no header: scripts, crawlers, link checkers), `other` (any other value) |
 | `double1` | 1 |
 
@@ -33,17 +33,22 @@ Analytics Engine adds its own timestamp to each point.
 Not recorded: the IP address, user agent, country, cookie, the query string (so not `?view=` or `?theme=`, which means not the recording either), the `Referer`'s scheme, port, userinfo, path or query, and any account or session information.
 Not counted: a request that is not a `GET` (so `HEAD`), a prefetch (`Sec-Purpose` containing `prefetch`, or `Purpose: prefetch`), and any response that is not a 200.
 The `ds*` to `on*` redirect is a 301 and is not counted; the 200 it leads to is.
-The dataset id is the one in the path, not re-resolved, so a mirror and its source can never be double counted from one load.
+The dataset id is the one in the path, percent-decoded, and not re-resolved, so a mirror and its source can never be double counted from one load.
+
+A 200 also covers the embed's own message pages: the one for a dataset with no published version yet, and the one for a `?view=` that matches nothing.
+The middleware cannot tell those from a loaded viewer without reading the response body, which it must not do, so they count as calls too.
 
 A change that adds a field to this list needs a new ADR, because the privacy policy states this list (nemarOrg/docs#60).
 
 Where it lives:
 
-- `src/lib/embed-analytics.ts` has `embedDataPoint(request, datasetId)`, pure and unit-tested, which builds the point or returns null.
+- `src/lib/embed-analytics.ts` is pure and unit-tested.
+  `embedCallPoint(request, status)` decides whether a response counts (exactly 200, the embed route, the percent-decoded id, no `HEAD`, no prefetch) and returns the point or null; `embedDataPoint` builds it.
 - `src/middleware.ts` has `countEmbedCall`, which `onRequest` calls once on the response the rest of the middleware produced.
-  It reads the binding from `locals.runtime.env.EMBED_ANALYTICS`, calls the synchronous, fire-and-forget `writeDataPoint`, and never waits on it.
-  With no binding (`astro dev`, a deploy without it) it does nothing.
-  A write that throws is logged once with the dataset id and dropped, and never changes the response.
+  It is only the lookup, the write and the catch: it reads the binding from `locals.runtime.env.EMBED_ANALYTICS` and calls the synchronous, fire-and-forget `writeDataPoint`, and never waits on it.
+  With no binding it does nothing, silently under `astro dev`, on a preview and on staging.
+  On a production host, where a missing binding is a deploy fault, it logs once per isolate that embed calls are not being counted.
+  A write that throws is logged once per isolate, with the dataset id, and dropped, and never changes the response.
 - `wrangler.toml` binds `EMBED_ANALYTICS` to `nemar_website_embeds` for production and to `nemar_website_embeds_dev` for the preview environment, so a branch deploy never adds rows to production's counts.
   `wrangler.test.toml` binds the staging project to `nemar_website_embeds_dev`.
   Analytics Engine creates a dataset on its first write, so there is nothing to provision.
@@ -73,7 +78,9 @@ The two measure different things, viewer mounts on our pages and embed page load
 ### Visitors cannot opt out of this, and the policy says so
 
 There is nothing to opt out of on the visitor's side: no script runs, no cookie is set, and nothing is written to their device.
-The edge handles the request it was already given, and keeps only the fields in the table above, none of which identifies a person.
+The edge handles the request it was already given, and the count keeps only the fields in the table above.
+Cloudflare's own infrastructure and Workers logs are outside this record: Cloudflare, like any host, sees the request, and what it logs is governed by its own terms, not by this count.
+A hostname can identify a person when the site is a personal one, so the privacy policy states the fields rather than calling the count anonymous.
 So the embed carries no consent control.
 It carries a small privacy icon whose accessible name is a statement, "Privacy: how NEMAR counts embedded views", linking to the policy, rather than "Your Privacy Choices", because there is no choice to make there.
 The privacy policy discloses the count (nemarOrg/docs#60), and that page merges before this one reaches production.
@@ -82,11 +89,16 @@ The privacy policy discloses the count (nemarOrg/docs#60), and that page merges 
 
 NEMAR can report embed loads per day, per dataset and per embedding site, split into embedded, opened directly and other, from `nemar_website_embeds`, without any code in a partner's page.
 Analytics Engine keeps three months of data, so the observability dashboard (phase 4) accumulates daily rows into its own storage to keep a longer history.
-The count is of page loads that reached the edge, not of people: a reload counts again, a cache HIT counts again, and a partner whose page loads the embed ten times counts ten.
+The count is of requests that reached the edge, not of people or of views.
+A browser may serve the embed from its own HTTP cache for 60 seconds (`Cache-Control: public, max-age=60`), so rapid repeat views by one browser count once; a load after that counts again, and a cache HIT at the edge counts like any other request.
+The message pages (no published version yet, a `?view=` that matches nothing) count too, because they are 200s.
 A request that sends no `Referer` is counted with an empty host; browsers drop it on some downgrades and under some policies, so the host list undercounts what it can name, and the `iframe` kind is the reliable total.
 `Sec-Fetch-Dest` can be set by anything that is not a browser, so the kinds are a classification of what the request says, not proof; the count is for usage reporting, not for anything that depends on it being tamper-proof.
-Previews and local runs write to the development dataset or to nothing, so production's counts hold only production traffic.
+Production deployments write to `nemar_website_embeds`, so it holds only traffic that production serves.
+Previews and staging both write to `nemar_website_embeds_dev`, and local runs write nothing, so a query on `_dev` should filter by time or host to pick out the traffic it means.
 The hook sits on the whole `onRequest` return value, so a future serve path added to the middleware is counted without anyone remembering to.
+A binding that is missing or broken fails quietly for visitors by design, so the check after the release that ships this is by hand: load `https://nemar.org/dataset/<id>/embed` once with `Sec-Fetch-Dest: iframe` and `Referer: https://smoke.invalid/`, then query `nemar_website_embeds` for `blob2 = 'smoke.invalid'` (AGENTS.md, step 9 of the development workflow).
+The two warnings above are the other signal, and each is logged once per isolate.
 
 ## Alternatives considered
 
