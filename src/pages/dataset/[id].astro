@@ -42,7 +42,13 @@ const url = new URL(Astro.request.url);
 // OpenNeuro source ids (ds*) redirect to their NEMAR canonical (on*) when a
 // mirror exists. Preserves the query string so deep links survive the hop.
 if (/^ds\d{6}$/.test(id)) {
-  const canonical = await resolveCanonical(id).catch(() => null);
+  const canonical = await resolveCanonical(id).catch((err) => {
+    // Served as-is rather than failing the page, but a lookup that rejects
+    // (the API unreachable, a timeout) is worth a trail: it silently strands
+    // every ds* link on the OpenNeuro id.
+    console.warn(`[dataset/${id}] canonical lookup failed; serving ${id} as-is:`, err);
+    return null;
+  });
   if (canonical) {
     return Astro.redirect(`/dataset/${canonical}${url.search}`, 301);
   }
