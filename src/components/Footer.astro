@@ -4,6 +4,7 @@ import { APP_VERSION, BUILD_REF } from "../lib/build-info";
 import { resolveDataBase } from "../lib/data-base";
 import { resolveDocsBase } from "../lib/docs-base";
 import ExternalLink from "./ExternalLink.astro";
+import PrivacyChoicesIcon from "./PrivacyChoicesIcon.astro";
 
 const year = new Date().getFullYear();
 
@@ -69,11 +70,6 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
               site (website#242): the footer never hardcodes the docs host,
               and the policy URLs can move without touching this file. */}
           <li><a href="/privacy">Privacy Policy</a></li>
-          <li>
-            <button class="site-footer__privacy-settings" type="button" data-cookie-open>
-              Privacy settings
-            </button>
-          </li>
           <li><a href="/terms">Terms &amp; Policies</a></li>
         </ul>
       </div>
@@ -207,25 +203,43 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   </div>
 
   <div class="container site-footer__bottom">
-    <p>&copy; {year} The Regents of the University of California</p>
-    <span class="site-footer__sep" aria-hidden="true">&middot;</span>
-    <p class="site-footer__build">
-      <a href={versionUrl} rel="external">v{APP_VERSION}</a>
-      {hasCommit && (
-        <>
-          <span aria-hidden="true">&middot;</span>
-          <a href={commitUrl} rel="external"><code>{BUILD_REF}</code></a>
-        </>
-      )}
-    </p>
-    <span class="site-footer__sep" aria-hidden="true">&middot;</span>
-    <p>
-      {/* Marked like every other outbound link. Two arrows in one short line
-          is busier than leaving them bare, but a marker applied only to the
-          links someone judged important stops being a reliable signal. */}
-      Built with <ExternalLink href="https://astro.build">Astro</ExternalLink> on
-      <ExternalLink href="https://pages.cloudflare.com">Cloudflare Pages</ExternalLink>
-    </p>
+    {/* Each separator leads the item after it, rather than sitting between
+        two items as a flex child of its own, so that an item which wraps onto
+        a new line takes its separator with it and the line clips it (see
+        `.site-footer__line`) instead of leaving a dot stranded at a line end. */}
+    <div class="site-footer__line">
+      <p>&copy; {year} The Regents of the University of California</p>
+      <p class="site-footer__build">
+        <span class="site-footer__sep" aria-hidden="true">&middot;</span>
+        <a href={versionUrl} rel="external">v{APP_VERSION}</a>
+        {hasCommit && (
+          <>
+            <span aria-hidden="true">&middot;</span>
+            <a href={commitUrl} rel="external"><code>{BUILD_REF}</code></a>
+          </>
+        )}
+      </p>
+      <p>
+        <span class="site-footer__sep" aria-hidden="true">&middot;</span>
+        {/* Marked like every other outbound link. Two arrows in one short line
+            is busier than leaving them bare, but a marker applied only to the
+            links someone judged important stops being a reliable signal. */}
+        Built with <ExternalLink href="https://astro.build">Astro</ExternalLink> on
+        <ExternalLink href="https://pages.cloudflare.com">Cloudflare Pages</ExternalLink>
+      </p>
+      {/* The analytics opt-out, labelled and drawn the way California's privacy
+          regulations ask for a choice of this kind (website#410, phase 3). It
+          stays a button: it changes this device's preference through the same
+          `data-cookie-open` hook the cookie notice already wires, and goes
+          nowhere. The icon is decorative, so the accessible name is the text. */}
+      <div>
+        <span class="site-footer__sep" aria-hidden="true">&middot;</span>
+        <button class="site-footer__privacy-choices" type="button" data-cookie-open>
+          <PrivacyChoicesIcon size={14} />
+          <span>Your Privacy Choices</span>
+        </button>
+      </div>
+    </div>
   </div>
 </footer>
 
@@ -236,24 +250,6 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     background: var(--color-bg-elevated);
     border-block-start: 1px solid var(--color-border);
     color: var(--color-fg-muted);
-  }
-  .site-footer__privacy-settings {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    text-align: start;
-    text-decoration: underline;
-    text-underline-offset: 0.18em;
-    cursor: pointer;
-  }
-  .site-footer__privacy-settings:hover {
-    color: var(--color-fg);
-  }
-  .site-footer__privacy-settings:focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 3px;
   }
   .site-footer__inner {
     display: grid;
@@ -423,19 +419,59 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
      left nothing sharing an alignment with anything above it. */
   .site-footer__bottom {
     margin-block-start: var(--space-12);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
     color: var(--color-fg-subtle);
     font-size: var(--fs-sm);
   }
-  /* Separators between the three groups, so the line reads as one statement
-     instead of three phrases that happen to be adjacent. Explicit elements
-     rather than ::before, to match how the version/commit separator above is
-     already done, and so they can be dropped outright in the stacked layout. */
+  /* The row itself. Items wrap when the line is too long (the commit hash and
+     the privacy control make it long enough to), so the separators are drawn
+     in the gap to the left of each item, and `overflow-x: clip` removes the
+     one that lands outside the row when its item starts a new line. The
+     inline padding, undone by the negative margin, keeps the first item's
+     focus ring inside the clip. `clip` rather than `hidden` so the ring is
+     not cut vertically, and a browser without it merely keeps the dot. */
+  .site-footer__line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: var(--space-6);
+    row-gap: var(--space-2);
+    padding-inline: var(--space-1);
+    margin-inline: calc(var(--space-1) * -1);
+    overflow-x: clip;
+  }
+  .site-footer__line > * {
+    position: relative;
+  }
+  /* Separators between the groups, so the line reads as one statement
+     instead of phrases that happen to be adjacent. Explicit elements rather
+     than ::before, to match how the version/commit separator is done, and so
+     they can be dropped outright in the stacked layout. */
   .site-footer__sep {
+    position: absolute;
+    inset-inline-start: calc(var(--space-6) / -2);
+    transform: translateX(-50%);
     color: var(--color-fg-subtle);
+  }
+  /* The privacy control is a button, so it restates what the line's links
+     inherit from the global `a` rule: link color, underline on hover, and the
+     global focus ring. Reset to the bare minimum otherwise, so it sits on the
+     baseline of its neighbors. */
+  .site-footer__privacy-choices {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-link);
+    font: inherit;
+    cursor: pointer;
+  }
+  .site-footer__privacy-choices:hover {
+    color: var(--color-link-hover);
+  }
+  .site-footer__privacy-choices:hover span {
+    text-decoration: underline;
   }
   /* Deployed build identity. Same information as the `x-nemar-version`
      header, put where someone reporting a bug can read it off the page
@@ -450,7 +486,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     font-size: var(--fs-xs);
   }
   @media (max-width: 600px) {
-    .site-footer__bottom {
+    .site-footer__line {
       flex-direction: column;
       align-items: flex-start;
       gap: var(--space-2);
