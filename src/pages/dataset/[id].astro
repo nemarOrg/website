@@ -456,9 +456,13 @@ Astro.response.headers.set(
     zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
-  import { VIEW_PARAM, buildRecordingList } from "../../lib/eeg-viewer/recording-nav";
+  import { VIEW_PARAM } from "../../lib/eeg-viewer/recording-nav";
   import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
-  import { type LiveViewer, createViewerSession } from "../../lib/eeg-viewer/viewer-session";
+  import {
+    type LiveViewer,
+    createViewerSession,
+    sessionContext,
+  } from "../../lib/eeg-viewer/viewer-session";
   import { embedSnippet, embedSnippetOrigin, embedUrl } from "../../lib/embed";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
@@ -946,16 +950,6 @@ Astro.response.headers.set(
   }
 
   /**
-   * Cache-busting token for the section owning `btn` (#240). Callers must
-   * `await zarrIndexReady(btn)` first; without that this returns "" whenever the
-   * index is still in flight, silently restoring the pre-#240 un-busted URL.
-   */
-  function zarrTokenForButton(btn: HTMLElement): string {
-    const section = btn.closest<HTMLElement>("[data-tree-defer]");
-    return (section ? zarrBySection.get(section)?.token : undefined) ?? "";
-  }
-
-  /**
    * Settle once the section's Zarr index has been applied to its rows, so
    * availability and the cache-busting token are both readable. Resolves
    * immediately when the index already landed (the common case: the user has to
@@ -1239,8 +1233,9 @@ Astro.response.headers.set(
     // The Zarr index races the dir listing, and the listing usually wins: it is
     // the smaller payload off the already-warm data plane. Until the index lands,
     // `annotateZarrRows` has not run, so `data-zarr-available` is UNSET — which
-    // the gate below reads as "available" — and `zarrTokenForButton` returns "",
-    // i.e. the un-busted URL #240 exists to avoid. Waiting here makes both reads
+    // the gate below reads as "available" — and the section has no Zarr state, so
+    // the session context below would carry the cache token "", i.e. the
+    // un-busted URL #240 exists to avoid. Waiting here makes both reads
     // meaningful. Bounded, so a wedged index fetch degrades to opening without a
     // token rather than a row that never opens.
     //
@@ -1303,16 +1298,9 @@ Astro.response.headers.set(
       host,
       path: filePath,
       fileName,
-      ctx: {
-        datasetId: treeId,
-        version: treeVersion,
-        // Built from the index, not from the DOM: the tree only holds the
-        // directories the user has expanded, while the index lists every
-        // viewable recording in the dataset (website#253).
-        recordings: zarr ? buildRecordingList(zarr.paths) : [],
-        zarrToken: zarrTokenForButton(btn),
-        zarr,
-      },
+      // Read after `zarrIndexReady` above, so the cache token is the
+      // section's (#240) whenever its index has landed.
+      ctx: sessionContext(treeId, treeVersion, zarr),
       // Tied to this row until the first navigation (`onDetach`).
       detached: false,
       // So the mount's own "unavailable" message offers the same fallback this
@@ -1400,13 +1388,7 @@ Astro.response.headers.set(
       console.warn("[eeg-viewer] view-data button clicked with no viewable recordings");
       return;
     }
-    await session.openFirst({
-      datasetId,
-      version,
-      recordings: buildRecordingList(state.paths),
-      zarrToken: state.token,
-      zarr: state,
-    });
+    await session.openFirst(sessionContext(datasetId, version, state));
   }
 
   // --- Recording navigation (website#253) and deep links (website#326) -----
@@ -1478,15 +1460,7 @@ Astro.response.headers.set(
     if (!datasetId || !version) return;
     await session.openViewParam(
       raw,
-      state && state.paths.size > 0
-        ? {
-            datasetId,
-            version,
-            recordings: buildRecordingList(state.paths),
-            zarrToken: state.token,
-            zarr: state,
-          }
-        : null,
+      state && state.paths.size > 0 ? sessionContext(datasetId, version, state) : null,
     );
   }
 

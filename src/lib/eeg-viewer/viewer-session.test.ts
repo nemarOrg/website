@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRecordingList } from "./recording-nav";
-import { navControlState, viewSpecForPath } from "./viewer-session";
+import { navControlState, sessionContext, viewSpecForPath } from "./viewer-session";
 
 /**
  * The pure half of the viewer session (website#410): what the nav controls
@@ -87,5 +87,41 @@ describe("viewSpecForPath", () => {
     // sub-05 is a real on007753 recording that this subset leaves out.
     const path = "sub-05/eeg/sub-05_task-BCCWJreading_eeg.vhdr";
     expect(viewSpecForPath(ON007753, path)).toBe(path);
+  });
+});
+
+describe("sessionContext", () => {
+  // The token and paths are on007753's index (updated_utc 2026-09-29T03:05:16Z).
+  const paths = [
+    "sub-01/eeg/sub-01_task-BCCWJreading_eeg.vhdr",
+    "sub-02/eeg/sub-02_task-BCCWJreading_eeg.vhdr",
+    "sub-05/eeg/sub-05_task-BCCWJreading_eeg.vhdr",
+  ];
+
+  it("builds the recording list from the index paths and carries its token", () => {
+    const zarr = {
+      paths: new Set(paths),
+      stores: new Map(),
+      prefetched: new Set<string>(),
+      token: "2026-09-29T03:05:16Z",
+    };
+    const ctx = sessionContext("on007753", "v1.0.0", zarr);
+    expect(ctx.datasetId).toBe("on007753");
+    expect(ctx.version).toBe("v1.0.0");
+    expect(ctx.recordings.map((e) => e.path)).toEqual(paths);
+    expect(ctx.recordings.map((e) => e.sub)).toEqual(["01", "02", "05"]);
+    expect(ctx.zarrToken).toBe("2026-09-29T03:05:16Z");
+    // The same object, so its prefetched set stays shared with the tree rows.
+    expect(ctx.zarr).toBe(zarr);
+  });
+
+  it("is empty, with the un-busted token, when there is no index", () => {
+    expect(sessionContext("on007753", "v1.0.0", null)).toEqual({
+      datasetId: "on007753",
+      version: "v1.0.0",
+      recordings: [],
+      zarrToken: "",
+      zarr: null,
+    });
   });
 });

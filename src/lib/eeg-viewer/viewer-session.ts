@@ -46,6 +46,7 @@ import {
   type NavOrder,
   type RecordingEntry,
   VIEW_PARAM,
+  buildRecordingList,
   firstRecording,
   formatViewSpec,
   orderedRecordings,
@@ -78,6 +79,39 @@ export interface SessionContext {
   recordings: RecordingEntry[];
   zarrToken: string;
   zarr: SessionZarr | null;
+}
+
+/** A dataset's Zarr state as a page holds it: the session's slice plus the
+ *  viewable paths the recording list is built from. */
+export interface SessionZarrState extends SessionZarr {
+  /** Every path with a served store (`zarrAvailablePaths`), in index order. */
+  paths: Iterable<string>;
+}
+
+/**
+ * The {@link SessionContext} for a dataset, built in one place for every page
+ * that opens a recording (the dataset page's inline row, its View data button
+ * and `?view=` link, and the embed).
+ *
+ * The recording list comes from the index, not from the DOM: the tree only
+ * holds the directories the user has expanded, while the index lists every
+ * viewable recording (website#253). `zarr` is passed through as is, so its
+ * `prefetched` set stays shared with whatever else warms stores (the tree
+ * rows). With no index the list is empty and the cache token "", which opens
+ * stores with the un-busted URL rather than not at all (#240).
+ */
+export function sessionContext(
+  datasetId: string,
+  version: string,
+  zarr: SessionZarrState | null,
+): SessionContext {
+  return {
+    datasetId,
+    version,
+    recordings: zarr ? buildRecordingList(zarr.paths) : [],
+    zarrToken: zarr?.token ?? "",
+    zarr,
+  };
 }
 
 /**

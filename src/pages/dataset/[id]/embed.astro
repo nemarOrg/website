@@ -264,10 +264,11 @@ if (Astro.response.status === 200) {
 </Embed>
 
 <script>
-  import { VIEW_PARAM, buildRecordingList } from "../../../lib/eeg-viewer/recording-nav";
+  import { VIEW_PARAM } from "../../../lib/eeg-viewer/recording-nav";
   import {
     type SessionContext,
     createViewerSession,
+    sessionContext,
     viewSpecForPath,
   } from "../../../lib/eeg-viewer/viewer-session";
   import { datasetPageUrl } from "../../../lib/embed";
@@ -384,13 +385,12 @@ if (Astro.response.status === 200) {
       return;
     }
     const index = outcome.index;
-    ctx = {
-      datasetId,
-      version,
-      recordings: buildRecordingList(zarrAvailablePaths(index)),
-      zarrToken: index.updated_utc,
-      zarr: { stores: zarrStoreByPath(index), prefetched: new Set(), token: index.updated_utc },
-    };
+    ctx = sessionContext(datasetId, version, {
+      paths: zarrAvailablePaths(index),
+      stores: zarrStoreByPath(index),
+      prefetched: new Set(),
+      token: index.updated_utc,
+    });
     if (raw) {
       await session.openViewParam(raw, ctx);
       return;
