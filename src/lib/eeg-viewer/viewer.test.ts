@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { gainCarriesOver, loadPreloadEnabled, saveDataRequested } from "./viewer";
+import {
+  FIT_MIN_PLOT_HEIGHT,
+  fitScopeHeight,
+  gainCarriesOver,
+  loadPreloadEnabled,
+  saveDataRequested,
+} from "./viewer";
 
 /**
  * Boundary fakes for the two browser globals these settings read. Real-shape
@@ -133,5 +139,46 @@ describe("gainCarriesOver", () => {
     expect(gainCarriesOver("", "MEG")).toBe(true);
     expect(gainCarriesOver("MEG", "")).toBe(true);
     expect(gainCarriesOver("  ", "MEG")).toBe(true);
+  });
+});
+
+/**
+ * The arithmetic behind `fitHeight` (website#410), which is what lets a 560 px
+ * embed iframe hold the whole viewer without a scrollbar. The inputs are the
+ * shapes the live layout produces: rect heights, often fractional.
+ */
+describe("fitScopeHeight", () => {
+  it("gives the scope whatever the host leaves after the chrome", () => {
+    // A 560 px frame, a 40 px header, 214 px of toolbar, minimap and legend.
+    expect(fitScopeHeight(520, 214)).toBe(306);
+  });
+
+  it("floors fractional chrome so the viewer never outgrows its host", () => {
+    // Rounding 258.5 up would make the root 0.5 px taller than the host,
+    // which is a one-pixel scrollbar on the embed document.
+    expect(fitScopeHeight(560, 301.5)).toBe(258);
+    expect(fitScopeHeight(400.75, 100)).toBe(300);
+  });
+
+  it("is a fixed point: re-measuring after applying it changes nothing", () => {
+    // The chrome is measured as host content minus the scope, so it does not
+    // move when the scope does. That is the property the resize observer's
+    // "no change, no render" exit relies on to avoid a feedback loop.
+    const host = 560;
+    const chrome = 247.25;
+    const applied = fitScopeHeight(host, chrome);
+    const rootAfter = chrome + applied;
+    expect(rootAfter).toBeLessThanOrEqual(host);
+    expect(fitScopeHeight(host, rootAfter - applied)).toBe(applied);
+  });
+
+  it("never goes below the minimum, even when the chrome alone overflows", () => {
+    expect(fitScopeHeight(300, 280)).toBe(FIT_MIN_PLOT_HEIGHT);
+    expect(fitScopeHeight(100, 400)).toBe(FIT_MIN_PLOT_HEIGHT);
+  });
+
+  it("falls back to the minimum for a host it could not measure", () => {
+    expect(fitScopeHeight(Number.NaN, 200)).toBe(FIT_MIN_PLOT_HEIGHT);
+    expect(fitScopeHeight(600, Number.POSITIVE_INFINITY)).toBe(FIT_MIN_PLOT_HEIGHT);
   });
 });

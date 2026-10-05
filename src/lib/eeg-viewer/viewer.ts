@@ -169,6 +169,54 @@ export interface ViewerOptions {
    * The dataset page passes none, and nothing about its viewer changes.
    */
   scopeOverlay?: HTMLElement;
+  /**
+   * Size the scope to the room the host element (`slot`) leaves after the
+   * viewer's other controls, instead of the default width-derived rule
+   * (website#410: the embed route, whose iframe has a height the embedder
+   * chose and must not scroll inside).
+   *
+   * Requires a host whose height does not depend on its own content: a flex
+   * item with `min-block-size: 0`, or anything with a definite block size.
+   * Measured against a content-sized host, the fit has nothing to fill and
+   * settles at `FIT_MIN_PLOT_HEIGHT`.
+   *
+   * Tracks resizes of the host and of the viewer's own chrome (the legend and
+   * minimap fill in after the first paint, the annotation panel opens and
+   * closes, the toolbar wraps at a new width) without a ResizeObserver
+   * feedback loop: setting the scope height changes the root's height, which
+   * the observer reports, but the recomputed fit is then the height already
+   * applied, so nothing re-renders. See `fitScopeHeight`.
+   *
+   * Off by default; the dataset page leaves it off and keeps its rule.
+   */
+  fitHeight?: boolean;
+}
+
+/**
+ * Smallest scope `fitHeight` will size to (CSS px). Below this the trace area
+ * is too short to read, so a host that cannot fit it gets a viewer that
+ * overflows it instead; the embed allows its document to scroll at that
+ * point rather than draw an unusable plot.
+ */
+export const FIT_MIN_PLOT_HEIGHT = 140;
+
+/**
+ * The scope height `fitHeight` applies: the host's content height less the
+ * height of everything in it that is not the scope, floored at
+ * `FIT_MIN_PLOT_HEIGHT`.
+ *
+ * Floored to a whole pixel rather than rounded, so fractional chrome never
+ * makes the viewer half a pixel taller than its host, which is a scrollbar.
+ * Pure and exported so the arithmetic the no-scroll guarantee rests on is
+ * covered by a test rather than living inside the mount closure.
+ *
+ * This is also what keeps the resize tracking free of a feedback loop: the
+ * result does not depend on the scope's current height, only on the host and
+ * the chrome, so re-measuring after applying it returns the same number.
+ */
+export function fitScopeHeight(hostHeight: number, chromeHeight: number): number {
+  if (!Number.isFinite(hostHeight) || !Number.isFinite(chromeHeight)) return FIT_MIN_PLOT_HEIGHT;
+  return Math.max(FIT_MIN_PLOT_HEIGHT, Math.floor(hostHeight - chromeHeight));
 }
 
 /**
@@ -871,16 +919,47 @@ export async function mountEegViewer(
     };
   }
 
+  /**
+   * `fitScopeHeight` against the live layout (`ViewerOptions.fitHeight`).
+   *
+   * The chrome is measured as everything in the host that is not the scope,
+   * summed over the host's children rather than read off the viewer root
+   * alone, so a sibling the caller appends after mounting (the units notice
+   * the dataset page adds) is budgeted for too. Rect heights, not
+   * `clientHeight`, because the latter is rounded and a rounded-up host is
+   * how a fit ends up one pixel too tall.
+   */
+  function fittedScopeHeight(): number {
+    const cs = getComputedStyle(slot);
+    const px = (v: string) => Number.parseFloat(v) || 0;
+    const host =
+      slot.getBoundingClientRect().height -
+      px(cs.borderTopWidth) -
+      px(cs.borderBottomWidth) -
+      px(cs.paddingTop) -
+      px(cs.paddingBottom);
+    let used = 0;
+    for (const child of slot.children) used += child.getBoundingClientRect().height;
+    return fitScopeHeight(host, used - ui.scope.getBoundingClientRect().height);
+  }
+
   function sizeCanvas(): { w: number; h: number } {
     // The scope is the positioned frame; both canvases fill it (CSS inset:0). Its
     // width comes from flex (shrinks when the topo panel opens); we set its height.
     const rectW = ui.scope.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
     const cssW = Math.max(320, Math.round(rectW) || 800);
-    // Fit the area the modal opens into: height tracks width (a ~2:1 scope) and
-    // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
-    // It does NOT vary with channel count (stable embed boundary).
-    const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
-    const cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
+    let cssH: number;
+    if (opts.fitHeight) {
+      // The embed route (website#410): fill what the host leaves over. Still
+      // independent of channel count, like the rule below.
+      cssH = fittedScopeHeight();
+    } else {
+      // Fit the area the modal opens into: height tracks width (a ~2:1 scope) and
+      // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
+      // It does NOT vary with channel count (stable embed boundary).
+      const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
+      cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
+    }
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
     ui.scope.style.height = `${cssH}px`;
     const pxW = Math.round(cssW * dpr);
@@ -1874,6 +1953,30 @@ export async function mountEegViewer(
     });
     ro.observe(ui.root);
     cleanups.push(() => ro.disconnect());
+  }
+  // `fitHeight` (website#410) also has to follow HEIGHT: the host's, when the
+  // frame resizes, and the chrome's, when the legend or minimap fills in or
+  // the annotation panel opens. A separate observer so the width-only one
+  // above keeps its exact behavior on the dataset page. It re-renders only
+  // when the fit actually moved: applying a height grows or shrinks the root,
+  // which this observer then reports, but the fit it recomputes is the one
+  // just applied, so that report ends here instead of looping.
+  if (opts.fitHeight && typeof ResizeObserver !== "undefined") {
+    let fitRaf = 0;
+    const fitRo = new ResizeObserver(() => {
+      cancelAnimationFrame(fitRaf);
+      fitRaf = requestAnimationFrame(() => {
+        if (disposed) return;
+        const applied = Math.round(ui.scope.getBoundingClientRect().height);
+        if (fittedScopeHeight() !== applied) render();
+      });
+    });
+    fitRo.observe(slot);
+    fitRo.observe(ui.root);
+    cleanups.push(() => {
+      fitRo.disconnect();
+      cancelAnimationFrame(fitRaf);
+    });
   }
   // Repaint when the site theme flips (the canvas reads CSS vars, so a light/dark
   // toggle on <html> must trigger a re-render to stay homogeneous).
