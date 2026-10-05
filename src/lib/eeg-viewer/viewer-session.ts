@@ -94,6 +94,14 @@ export interface LiveViewer extends SessionContext {
   /** BIDS path of the recording on screen; changes on every navigation. */
   path: string;
   /**
+   * The recording that last finished mounting live in `host`. Differs from
+   * `path` while a navigation is in flight, and is what a failed navigation
+   * puts the chrome back on: after A, next (B in flight), next (C throws), the
+   * one recording the visitor actually saw is A, not B.
+   */
+  shownPath: string;
+  shownName: string;
+  /**
    * False while the instance is still tied to wherever the page opened it
    * (the dataset page's inline tree row). The first navigation calls
    * `hooks.onDetach` and sets it: the viewer no longer shows that row's
@@ -417,6 +425,8 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       version: ctx.version,
       zarrToken: ctx.zarrToken,
       path,
+      shownPath: path,
+      shownName: fileName,
       recordings: ctx.recordings,
       zarr: ctx.zarr,
       detached: req.detached,
@@ -475,7 +485,11 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       live = null;
       return { seq: mySeq, kind: "unavailable" };
     }
-    if (live) live.destroy = destroy;
+    if (live) {
+      live.destroy = destroy;
+      live.shownPath = path;
+      live.shownName = fileName;
+    }
     // After the try, so neither can turn this live viewer into a failure.
     bestEffort("units notice", () => applyUnitsNotice(host, ctx.zarr?.stores.get(path)));
     bestEffort("viewer-open hook", () => hooks.onViewerOpen?.(host));
@@ -849,10 +863,6 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     // there is no later chance to ask.
     const transfer = current.snapshot?.();
     const mySeq = ++seq;
-    // Kept for the failure path below, which puts the chrome back rather than
-    // leaving it naming a recording that never opened.
-    const fromPath = current.path;
-    const fromName = current.fileName;
     current.path = target.path;
     current.fileName = target.name;
     current.snapshot = null;
@@ -908,12 +918,13 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       if (mySeq !== seq || !live) return;
       disposeHost(live, host);
       host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${hooks.fallbackActionHtml(target, current, "navigate")} instead.</p>`;
-      // Put the chrome back on the recording the user came from: it is the one
-      // they can still navigate relative to, and the message above already
-      // names the one that failed.
-      live.path = fromPath;
-      live.fileName = fromName;
-      hooks.setTitle(fromName);
+      // Put the chrome back on the last recording that actually finished
+      // mounting: it is the one the visitor saw and can still navigate
+      // relative to, and the message above already names the one that failed.
+      // Not the previous target, which may itself have been mid-mount.
+      live.path = live.shownPath;
+      live.fileName = live.shownName;
+      hooks.setTitle(live.shownName);
       syncNav();
       host.removeAttribute("aria-busy");
       return;
@@ -927,6 +938,10 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     host.removeAttribute("aria-busy");
     if (live) live.destroy = destroy ?? null;
     if (destroy) {
+      if (live) {
+        live.shownPath = target.path;
+        live.shownName = target.name;
+      }
       // Only after a live mount: a falsy `destroy` means the mount rendered its
       // own "unavailable" message in `host`, and the notice must never be
       // appended after that text.
