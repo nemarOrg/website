@@ -1,0 +1,622 @@
+---
+/**
+ * The embeddable signal viewer (website#410, ADR 0023): `/dataset/<id>/embed`,
+ * a chrome-free copy of the dataset page's viewer that partner sites put in an
+ * iframe. The snippet comes from the dataset page's "Embed" control.
+ *
+ * A separate route rather than a framed dataset page: framing that page would
+ * put the whole site (nav, sign-in, the assistant widget) inside partner pages
+ * and relax framing on a page that, on the app host, renders for signed-in
+ * users. This route is the only one `src/middleware.ts` lets another site
+ * frame (`routeAllowsFraming`), and it has no session, no forms and no
+ * actions, so there is nothing on it for a hostile frame to click-jack.
+ *
+ * The server half mirrors `src/pages/dataset/[id].astro`'s frontmatter: the
+ * same `ds*` redirect, the same landing + metadata fetch, the same 404 / 503 /
+ * 500 rules, the same `?v=` selection and the same public Cache-Control. It
+ * never reads the session. The client half is a thin shell over the shared
+ * viewer session (`src/lib/eeg-viewer/viewer-session.ts`), the same code the
+ * dataset page's dialog runs, so `?view=` means the same thing on both pages
+ * and a viewer feature lands on both at once.
+ *
+ * Every link out of the embed opens a new tab, on the origin that served the
+ * embed: a staging embed links to staging, a production one to production.
+ */
+import logoSvg from "../../../assets/nemar-logo.svg?raw";
+import EegViewerNav from "../../../components/EegViewerNav.astro";
+import PrivacyChoicesIcon from "../../../components/PrivacyChoicesIcon.astro";
+import Embed from "../../../layouts/Embed.astro";
+import { resolveCanonical } from "../../../lib/api";
+import {
+  getLandingOutcome,
+  getMetadataOutcome,
+  isUnpublished,
+  outcomeValue,
+  resolveDatasetPageStatus,
+} from "../../../lib/data-api";
+import { datasetPageUrl, displayableDatasetId } from "../../../lib/embed";
+import "../../../styles/eeg-viewer.css";
+
+const { id } = Astro.params;
+if (!id) {
+  return Astro.redirect("/discover");
+}
+
+const url = new URL(Astro.request.url);
+const origin = url.origin;
+
+// OpenNeuro source ids (ds*) redirect to their NEMAR canonical (on*) when a
+// mirror exists, exactly as the dataset page does. The query string survives
+// the hop, so `?view=` and `?theme=` reach the canonical embed.
+if (/^ds\d{6}$/.test(id)) {
+  const canonical = await resolveCanonical(id).catch((err) => {
+    // Served as-is rather than failing the page, but a lookup that rejects
+    // (the API unreachable, a timeout) is worth a trail: it silently strands
+    // every ds* link on the OpenNeuro id.
+    console.warn(`[dataset/${id}/embed] canonical lookup failed; serving ${id} as-is:`, err);
+    return null;
+  });
+  if (canonical) {
+    return Astro.redirect(`/dataset/${canonical}/embed${url.search}`, 301);
+  }
+}
+
+const versionParam = url.searchParams.get("v");
+
+// Landing for the versions, metadata for the dataset's name. The catalog row
+// the dataset page also fetches is for its rail, which the embed has none of.
+const [landingOut, metadataOut] = await Promise.all([
+  getLandingOutcome(id),
+  getMetadataOutcome(id),
+]);
+
+/** A state the embed explains in words instead of mounting a viewer. */
+interface EmbedProblem {
+  message: string;
+  linkHref: string;
+  linkText: string;
+}
+
+const datasetHome = datasetPageUrl(origin, id);
+// What the page may print for the id: never arbitrary path text, since any
+// site can frame this page (see `displayableDatasetId`).
+const shownId = displayableDatasetId(id);
+let problem: EmbedProblem | null = null;
+
+// The dataset page's 404 / 503 / 500 rules, with the same `no-store` so a
+// transient failure is never cached at the edge. The dataset page answers
+// these with an empty body; the embed renders a sentence and a link instead,
+// because an empty iframe on a partner's page reads as their site being
+// broken rather than as NEMAR missing a dataset.
+const status = resolveDatasetPageStatus(landingOut, metadataOut);
+if (status.kind === "not_found") {
+  Astro.response.status = 404;
+  Astro.response.headers.set("Cache-Control", "no-store");
+  problem = {
+    message: shownId ? `NEMAR has no dataset ${shownId}.` : "NEMAR has no such dataset.",
+    linkHref: new URL("/discover", origin).toString(),
+    linkText: "Browse datasets on NEMAR",
+  };
+} else if (status.kind === "degraded") {
+  console.warn(`[dataset/${id}/embed] ${status.signal} fetch failed: ${status.outcome}`);
+  Astro.response.status = 503;
+  Astro.response.headers.set("Cache-Control", "no-store");
+  problem = {
+    message: "NEMAR could not load this dataset right now. Try again in a moment.",
+    linkHref: datasetHome,
+    linkText: "Open the dataset on NEMAR",
+  };
+}
+
+const landing = outcomeValue(landingOut);
+const metadata = outcomeValue(metadataOut);
+if (!problem && (!landing || !metadata)) {
+  // Type-narrowing safety net, as on the dataset page: resolveDatasetPageStatus
+  // already caught every non-ok combination above.
+  console.error(
+    `[dataset/${id}/embed] safety-net 500: landing=${landingOut.kind} metadata=${metadataOut.kind}`,
+  );
+  Astro.response.status = 500;
+  Astro.response.headers.set("Cache-Control", "no-store");
+  problem = {
+    message: "Something went wrong loading this dataset.",
+    linkHref: datasetHome,
+    linkText: "Open the dataset on NEMAR",
+  };
+}
+
+// `?v=` exactly as the dataset page reads it. `pinnedVersion` is only set when
+// the embedder asked for a version that exists, so links out of the embed name
+// a version only when the embed itself was pinned to one.
+const pinnedVersion =
+  versionParam && landing?.versions.some((v) => v.version === versionParam) ? versionParam : null;
+const selectedVersion = pinnedVersion ?? landing?.latest ?? landing?.versions[0]?.version ?? null;
+const datasetHref = datasetPageUrl(origin, id, { version: pinnedVersion });
+const datasetName = metadata?.name ?? shownId ?? "NEMAR dataset";
+
+// A `?v=` that names no published version falls back to the latest, as on the
+// dataset page, but a partner pinning a version should be told the pin did
+// not take rather than shown a different version without a word.
+const unknownVersionNote =
+  versionParam && !pinnedVersion && selectedVersion
+    ? `Version ${versionParam} is not published; showing the latest, ${selectedVersion}.`
+    : null;
+if (unknownVersionNote && landing) {
+  console.warn(
+    `[dataset/${id}/embed] ?v=${versionParam} is not a published version; serving ${selectedVersion}`,
+  );
+}
+
+if (!problem && (isUnpublished(landing) || !selectedVersion)) {
+  problem = {
+    message: "This dataset has no published version to show yet.",
+    linkHref: datasetHref,
+    linkText: "Open the dataset on NEMAR",
+  };
+}
+
+// Every 200, the unpublished message included (the dataset page caches that
+// state too); the error states above already said `no-store`.
+if (Astro.response.status === 200) {
+  // The dataset page's own policy: the edge honours s-maxage, browsers
+  // revalidate after a minute, and stale-while-revalidate keeps the edge
+  // serving the last good copy while it refreshes. `?view=` and `?theme=` are
+  // stripped from the edge cache key (src/lib/edge-cache.ts), so every
+  // recording and both themes share one copy per dataset and version.
+  Astro.response.headers.set(
+    "Cache-Control",
+    "public, max-age=60, s-maxage=300, stale-while-revalidate=86400",
+  );
+}
+---
+
+<Embed
+  title={`${datasetName} - NEMAR signal viewer`}
+  canonicalPath={`/dataset/${id}`}
+  description={shownId ? `Signal viewer for ${datasetName} (${shownId}) on NEMAR.` : undefined}
+>
+  {problem ? (
+    <main class="embed-msg">
+      <p class="embed-msg__text">
+        {problem.message}{" "}
+        <a href={problem.linkHref} target="_blank" rel="noopener">{problem.linkText}</a>
+      </p>
+    </main>
+  ) : (
+    <div
+      class="embed"
+      data-embed
+      data-dataset-id={id}
+      data-version={selectedVersion}
+      data-pinned-version={pinnedVersion ?? ""}
+    >
+      <header class="embed__head">
+        {/* The recording name once the viewer resolves one; the dataset's name
+            until then. Its href, like "Open on NEMAR"'s and the mark's, follows
+            the recording on screen (the session's `onRecordingShown`). */}
+        <a
+          class="embed__title"
+          data-embed-title
+          href={datasetHref}
+          target="_blank"
+          rel="noopener"
+          title={`${datasetName} (${id}) on NEMAR`}
+        >{datasetName}</a>
+        <EegViewerNav />
+        <a class="embed__link" data-embed-open href={datasetHref} target="_blank" rel="noopener"
+          >Open on NEMAR</a
+        >
+        {/* Last, and a statement rather than "Your Privacy Choices": nothing
+            can be chosen inside an embed, because no analytics script runs and
+            no cookie is set (settings and annotations the visitor creates stay
+            in their browser), but the privacy policy still covers how its
+            loads are counted (website#410). The icon is decorative; the label
+            names it. */}
+        <a
+          class="embed__privacy"
+          href={new URL("/privacy", origin).toString()}
+          target="_blank"
+          rel="noopener"
+          aria-label="Privacy: how NEMAR counts embedded views"
+          title="Privacy: how NEMAR counts embedded views"
+        ><PrivacyChoicesIcon size={14} /></a>
+      </header>
+      {/* Why no viewer is on screen: a `?view=` that matched nothing, a dataset
+          with no viewable recordings, an index that would not load. Never a
+          blank frame (website#410). */}
+      {unknownVersionNote && (
+        <p class="embed__version-note" data-embed-version-note role="note" title={unknownVersionNote}>
+          {unknownVersionNote}
+        </p>
+      )}
+      <p class="embed__notice" data-embed-notice role="status" hidden></p>
+      <main class="embed__viewer" data-embed-slot>
+        <p class="preview__loading" role="status">Loading viewer…</p>
+        <noscript>
+          {/* With scripting off nothing will ever replace the loading line, so
+              it goes, leaving only the sentence below. */}
+          <style is:inline>
+            [data-embed-slot] > .preview__loading { display: none; }
+          </style>
+          <p class="embed-msg__text">
+            The signal viewer needs JavaScript.{" "}
+            <a href={datasetHref} target="_blank" rel="noopener">Open the dataset on NEMAR</a>
+          </p>
+        </noscript>
+      </main>
+      {/* The NEMAR mark on the plot. Rendered here so its markup and styles
+          live with the page that owns it, and moved into the viewer's scope on
+          every mount (`scopeOverlay`); the viewer keeps its own gestures off
+          it. The logo's wordmark is `currentColor` and its brain
+          `--brand-accent`, so both themes work from the one asset. */}
+      <div hidden>
+        <a
+          class="embed-mark"
+          data-embed-mark
+          href={datasetHref}
+          target="_blank"
+          rel="noopener"
+          aria-label="Open this dataset on NEMAR"
+        ><span class="embed-mark__logo" aria-hidden="true" set:html={logoSvg} /></a>
+      </div>
+    </div>
+  )}
+</Embed>
+
+<script>
+  import { VIEW_PARAM } from "../../../lib/eeg-viewer/recording-nav";
+  import {
+    type SessionContext,
+    createViewerSession,
+    sessionContext,
+    viewSpecForPath,
+  } from "../../../lib/eeg-viewer/viewer-session";
+  import { datasetPageUrl } from "../../../lib/embed";
+  import {
+    fetchZarrIndexOutcome,
+    zarrAvailablePaths,
+    zarrStoreByPath,
+  } from "../../../lib/zarr-index";
+
+  // Everything a viewer does here is the shared session's; this shell only
+  // says where things go on this page and what its links point at.
+  const root = document.querySelector<HTMLElement>("[data-embed]");
+  const slot = document.querySelector<HTMLElement>("[data-embed-slot]");
+  const notice = document.querySelector<HTMLElement>("[data-embed-notice]");
+  const titleLink = document.querySelector<HTMLAnchorElement>("[data-embed-title]");
+  const openLink = document.querySelector<HTMLAnchorElement>("[data-embed-open]");
+  const mark = document.querySelector<HTMLAnchorElement>("[data-embed-mark]");
+  const datasetId = root?.dataset.datasetId ?? "";
+  const version = root?.dataset.version ?? "";
+  const pinnedVersion = root?.dataset.pinnedVersion || null;
+  // The serving origin, so a staging embed links to staging.
+  const origin = window.location.origin;
+
+  let ctx: SessionContext | null = null;
+
+  /** The dataset page, opened on a recording when one is named. */
+  function pageHref(viewSpec: string | null): string {
+    return datasetPageUrl(origin, datasetId, { version: pinnedVersion, viewSpec });
+  }
+
+  /** A new-tab link as HTML, serialized by the DOM so it is escaped. */
+  function linkHtml(href: string, text: string): string {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = text;
+    return a.outerHTML;
+  }
+
+  /**
+   * Replace the viewer area with a sentence and a way to the dataset page.
+   * Also the one console line a partner can paste into a report: which
+   * dataset, version and `?view=` the frame was asked for, and why it shows
+   * no viewer.
+   */
+  function showNotice(message: string): void {
+    console.warn("[embed]", {
+      datasetId,
+      version,
+      view: new URL(window.location.href).searchParams.get(VIEW_PARAM),
+      reason: message,
+    });
+    if (!notice || !slot) return;
+    slot.replaceChildren();
+    notice.replaceChildren(document.createTextNode(`${message} `));
+    const a = document.createElement("a");
+    a.href = pageHref(null);
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = "Open the dataset on NEMAR";
+    notice.append(a);
+    notice.hidden = false;
+  }
+
+  const session = createViewerSession({
+    // The embed IS the viewer, so its chrome is always on screen.
+    isShowing: () => true,
+    setTitle: (name) => {
+      if (titleLink) titleLink.textContent = name;
+    },
+    present: (host) => {
+      if (!slot) return false;
+      slot.replaceChildren(host);
+      return true;
+    },
+    mountOptions: ({ path }) => ({
+      fitHeight: true,
+      scopeOverlay: mark ?? undefined,
+      // The dataset page's download link and "expand arrow" hint have nothing
+      // to point at in here; the dataset page has both.
+      unavailableLink: {
+        href: pageHref(ctx ? viewSpecForPath(ctx.recordings, path) : null),
+        text: "Open this recording on NEMAR",
+      },
+    }),
+    fallbackActionHtml: (target, context) =>
+      linkHtml(
+        pageHref(viewSpecForPath(context.recordings, target.path)),
+        "Open this recording on NEMAR",
+      ),
+    onViewParamMiss: (raw, reason) => showNotice(`This embed asked for ${raw}, but ${reason}`),
+    // Keep every link out of the embed on the recording on screen.
+    onRecordingShown: (_live, viewSpec) => {
+      const href = pageHref(viewSpec);
+      for (const link of [titleLink, openLink, mark]) if (link) link.href = href;
+    },
+  });
+  session.wire();
+
+  async function start(): Promise<void> {
+    if (!root || !slot || !datasetId || !version) return;
+    const raw = new URL(window.location.href).searchParams.get(VIEW_PARAM);
+    // A missing index and a failed one are different news for a visitor: the
+    // first is a dataset with no Zarr copy yet, the second an outage that a
+    // reload may fix. `fetchZarrIndexOutcome` never rejects.
+    const outcome = await fetchZarrIndexOutcome(datasetId);
+    if (outcome.kind === "absent") {
+      showNotice("This dataset has no interactive recordings yet.");
+      return;
+    }
+    if (outcome.kind === "error") {
+      showNotice("The signal viewer could not load this dataset's recordings right now.");
+      return;
+    }
+    const index = outcome.index;
+    ctx = sessionContext(datasetId, version, {
+      paths: zarrAvailablePaths(index),
+      stores: zarrStoreByPath(index),
+      prefetched: new Set(),
+      token: index.updated_utc,
+    });
+    if (raw) {
+      await session.openViewParam(raw, ctx);
+      return;
+    }
+    // No `?view=`: the first recording in nav order, as "View data" opens.
+    if (!(await session.openFirst(ctx))) {
+      showNotice("This dataset has no recordings the viewer can open yet.");
+    }
+  }
+
+  // Nothing below may leave the frame blank. `start` handles every outcome it
+  // knows about; this is for the ones it does not (a bug, a browser without
+  // something the viewer needs), so a partner's visitor still gets a sentence
+  // and a link, and the console a dataset id to report.
+  start().catch((err) => {
+    console.error(`[embed] ${datasetId}: the viewer failed to start`, err);
+    showNotice("The signal viewer could not start here.");
+  });
+</script>
+
+<style is:global>
+  /* Global, not scoped: the mark is moved into the viewer's runtime-built DOM,
+     whose elements carry no Astro scope attribute, and the rules that hide it
+     key on those elements. The `embed` prefix keeps the namespace safe. */
+  .embed {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  /* One line, wrapping on a narrow frame. */
+  .embed__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-block-end: 1px solid var(--color-border);
+    font-size: var(--fs-xs);
+  }
+  .embed__title {
+    flex: 1 1 12rem;
+    min-inline-size: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .embed__link {
+    color: var(--color-link);
+    white-space: nowrap;
+  }
+  .embed__privacy {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px;
+    line-height: 0;
+    border-radius: var(--radius-sm);
+  }
+  /* An outline of our own rather than reset.css's box-shadow ring, which
+     forced-colors mode drops. */
+  .embed__head a:focus-visible,
+  .embed-msg a:focus-visible,
+  .embed__notice a:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  /* One line, ellipsized (the full text is its title), so a pinned version
+     that did not take costs the plot a single line at any frame size. */
+  .embed__version-note {
+    margin: 0;
+    padding: 2px var(--space-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-block-end: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  .embed__notice {
+    margin: 0;
+    padding: var(--space-3);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  /* What `fitHeight` fills: the rest of the frame after the header. A flex
+     item with no minimum, so its height comes from the frame and never from
+     the viewer inside it. */
+  .embed__viewer {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  .embed__viewer > [data-eegv-host] {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-block-size: 0;
+  }
+  /* The frame is the viewer's border; a second one inside it is noise. */
+  .embed__viewer .eegv {
+    border: 0;
+    border-radius: 0;
+  }
+  /* The units notice (website#277) sits under the viewer, inside the space the
+     fit budgets. The dataset page pads it to line up with its tree rows; here
+     it lines up with the viewer's own edge, which keeps a narrow frame's notice
+     to two lines instead of three. */
+  .embed__viewer .eegv-units-notice {
+    padding: var(--space-1) var(--space-2);
+  }
+  /* A dropdown with one option has nothing to choose, and the title already
+     names the recording: a one-task dataset (the common case) loses its task
+     select here, which is what keeps a narrow header to two lines. */
+  .embed__head .eegv-nav__field:has(.eegv-nav__sel > option:only-child) {
+    display: none;
+  }
+
+  /* Small frames. The header and the viewer's toolbar wrap at a narrow width,
+     and every wrapped line comes out of the plot; these trims are what let the
+     smallest supported frame (360 x 480) hold the whole viewer without the
+     document scrolling (website#410 gate 3). The controls stay; only their
+     captions and spacing go. */
+  @media (max-width: 560px) {
+    .embed__head .eegv-nav__label,
+    .embed__viewer .eegv__group-label {
+      display: none;
+    }
+    .embed__head {
+      column-gap: var(--space-1);
+      padding-inline: var(--space-2);
+    }
+    .embed__head .eegv-nav {
+      column-gap: var(--space-1);
+    }
+    /* A select sizes to its longest option ("sub-emptyroom" on on000246),
+       which pushed the privacy link onto a third header line at 360 px; the
+       open list still shows every option in full. */
+    .embed__head .eegv-nav__sel {
+      max-inline-size: 5.5rem;
+    }
+    /* Still wide enough for "41 of 41" without the buttons shuffling. */
+    .embed__head .eegv-nav__pos {
+      min-inline-size: 3rem;
+    }
+  }
+  @media (max-height: 600px) {
+    .embed__head {
+      padding-block: var(--space-1);
+    }
+    .embed__viewer .eegv {
+      gap: var(--space-1);
+      padding-block: var(--space-1);
+    }
+    /* One row of event types, scrolling, rather than up to three. */
+    .embed__viewer .eegv__legend {
+      max-block-size: 1.6em;
+    }
+  }
+  .embed__viewer .preview__loading,
+  .embed__viewer .preview__error {
+    margin: 0;
+    padding: var(--space-3);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .embed__viewer .preview__error {
+    color: var(--color-warning);
+  }
+  .embed-msg {
+    padding: var(--space-4);
+  }
+  .embed-msg__text {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+
+  /* The NEMAR mark, bottom-right of the scope. Above the scope's layers
+     (canvases 0-1, annotation canvas 2, armed-annotation ring 3; see
+     `ViewerOptions.scopeOverlay`), and lifted clear of the time axis, which
+     `render.ts` draws in the bottom `axisHeight` (22 px) of the scope: tick
+     marks at 22 to 18 px and labels at 16 to 7 px from the bottom. Inside the
+     scope, so the topo panel and the channel scrollbar (both siblings of the
+     scope) push it along rather than covering it. */
+  .embed-mark {
+    position: absolute;
+    z-index: 4;
+    inset-block-end: 28px;
+    inset-inline-end: 12px;
+    display: block;
+    block-size: 18px;
+    line-height: 0;
+    color: var(--color-fg);
+    opacity: 0.55;
+    border-radius: var(--radius-sm);
+    transition: opacity 0.15s ease;
+  }
+  .embed-mark__logo,
+  .embed-mark__logo svg {
+    display: block;
+    block-size: 100%;
+    inline-size: auto;
+  }
+  .embed-mark:hover,
+  .embed-mark:focus-visible {
+    opacity: 1;
+  }
+  .embed-mark:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+  /* The cursor readout shares this corner of the plot. While it shows, the
+     mark steps aside entirely, pointer events included; the viewer treats the
+     mark's box as a no-readout zone, so moving onto it brings it back. */
+  .eegv__plot:has(.eegv__cursor:not(:empty)) .embed-mark {
+    opacity: 0;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .embed-mark {
+      transition: none;
+    }
+  }
+</style>

@@ -15,6 +15,11 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **An embeddable signal viewer** at `/dataset/<id>/embed`, for partner sites to put in an iframe.
+  It takes the dataset page's `?view=` and `?v=`, plus `?theme=light|dark`; it has no nav, footer, notices, assistant widget or analytics, and carries a NEMAR mark on the plot that links back to the dataset.
+  It is the only route another site may frame: `frame-ancestors *` and no `X-Frame-Options` there, `'self'` and `SAMEORIGIN` everywhere else (ADR 0023).
+  Refs #411, part of #410.
+- **An Embed control in the signal viewer dialog**, next to Copy link, that copies the `<iframe>` snippet for the recording on screen; when the clipboard refuses, the snippet appears selected in a read-only box (Refs #411).
 - **A sign-in handoff page for `private.nemar.org`** at `/auth/private/authorize`.
   The private site sends a visitor there with a `state` it generated; the page checks the visitor is signed in, asks the backend for a one-time code bound to that `state`, and redirects to the private site's callback with the code alone.
   The target host comes from `PRIVATE_SITE_BASE` (`https://private-test.nemar.org` on staging); a deployment other than production refuses with 501 when it is unset.
@@ -22,6 +27,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Changed
 
+- **A recording whose Zarr copy exists but would not load now says "The viewer could not load this recording."**, on the dataset page and in the embed, instead of claiming the copy "may still be generating", which is now said only of a store that is not there (Refs #411; a retry control is #416).
 - **The footer's "Privacy settings" control is now "Your Privacy Choices"**, with the standard toggle icon, and moves from the Project links to the end of the copyright line.
   It is still a button and opens the same analytics preference as before (ADR 0019).
   The icon is a shared component, `PrivacyChoicesIcon.astro`, for the embedded viewer page to reuse (#413, part of #410).

@@ -23,14 +23,16 @@
  * corner X and Esc are the only exits, and both return the viewer inline.
  *
  * The header row also carries the recording-navigation controls (website#253)
- * — subject and task dropdowns plus prev/next. They live here, and only here,
- * because this is the surface with room for them: the inline panel sits under
- * one specific tree row, where controls that swap the recording would leave
- * the row's own label describing something else. The markup is static (and
- * hidden until populated) so Astro's scoped styles apply to it; the page
- * script fills the options and drives the swap.
+ * — subject and task dropdowns plus prev/next. On the dataset page they live
+ * here, and only here, because this is the surface with room for them: the
+ * inline panel sits under one specific tree row, where controls that swap the
+ * recording would leave the row's own label describing something else. The
+ * markup is `EegViewerNav.astro`, shared with the embed route (website#410);
+ * it is static (and hidden until populated) so Astro's scoped styles apply to
+ * it, and the page script fills the options and drives the swap.
  */
 import DialogCloseButton from "./DialogCloseButton.astro";
+import EegViewerNav from "./EegViewerNav.astro";
 ---
 
 <dialog class="eegv-dialog" data-eeg-dialog aria-label="Signal viewer">
@@ -38,37 +40,7 @@ import DialogCloseButton from "./DialogCloseButton.astro";
   <div class="eegv-dialog__scroll">
     <div class="eegv-dialog__head">
       <h2 class="eegv-dialog__title" data-eegv-title>Signal viewer</h2>
-      <div class="eegv-nav" data-eegv-nav hidden>
-        <label class="eegv-nav__field" data-eegv-nav-sub-field>
-          <span class="eegv-nav__label">Subject</span>
-          <select class="eegv-nav__sel" data-eegv-nav-sub></select>
-        </label>
-        <label class="eegv-nav__field" data-eegv-nav-task-field>
-          <span class="eegv-nav__label">Task</span>
-          <select class="eegv-nav__sel" data-eegv-nav-task></select>
-        </label>
-        {/* The `title`/`aria-label` pair here is only the pre-population
-            state; `syncEegNavControls` rewrites BOTH on every navigation so
-            they name the actual target ("Next recording: sub-02_…"). They have
-            to move together: an element with an aria-label takes its
-            accessible name from that label, so leaving this one static would
-            hide every update from a screen reader. */}
-        <div class="eegv-nav__steps">
-          <button
-            type="button"
-            class="eegv-nav__btn"
-            data-eegv-nav-prev
-            title="Previous recording"
-            aria-label="Previous recording">&lsaquo;</button>
-          <span class="eegv-nav__pos" data-eegv-nav-pos aria-live="polite"></span>
-          <button
-            type="button"
-            class="eegv-nav__btn"
-            data-eegv-nav-next
-            title="Next recording"
-            aria-label="Next recording">&rsaquo;</button>
-        </div>
-      </div>
+      <EegViewerNav />
       {/* Copy link (website#326). A SIBLING of `.eegv-nav`, not a child of it:
           the nav group hides itself for a dataset with fewer than two
           recordings, and such a dataset is precisely one whose single recording
@@ -80,7 +52,13 @@ import DialogCloseButton from "./DialogCloseButton.astro";
           which is what makes "the link is in the address bar" an honest
           fallback when the Clipboard API is missing (an insecure context) or
           refuses. The live region is separate from the button's own label so
-          the label never changes out from under a screen reader mid-press. */}
+          the label never changes out from under a screen reader mid-press.
+
+          Embed (website#410) copies an <iframe> snippet for the recording on
+          screen, for a partner site. It shares the live region. Unlike the
+          link, the snippet is nowhere else on the page, so a refused clipboard
+          reveals it in the read-only textarea below, pre-selected for a
+          manual copy; the session hides it again on the next navigation. */}
       <div class="eegv-share" data-eegv-share hidden>
         <button
           type="button"
@@ -88,8 +66,22 @@ import DialogCloseButton from "./DialogCloseButton.astro";
           data-eegv-copy-link
           title="Copy a link that opens this recording"
           aria-describedby="eegv-copy-status">Copy link</button>
+        <button
+          type="button"
+          class="eegv-nav__btn eegv-nav__btn--wide"
+          data-eegv-copy-embed
+          title="Copy code that embeds this recording's viewer in another site"
+          aria-describedby="eegv-copy-status">Embed</button>
         <span class="eegv-share__status" id="eegv-copy-status" data-eegv-copy-status role="status"
         ></span>
+        <textarea
+          class="eegv-share__code"
+          data-eegv-embed-code
+          aria-label="Embed code"
+          readonly
+          rows="3"
+          spellcheck="false"
+          hidden></textarea>
       </div>
     </div>
     {/* No `aria-live` (dropped in website#217): what lands here is a live
@@ -171,46 +163,11 @@ import DialogCloseButton from "./DialogCloseButton.astro";
     min-inline-size: 0;
     overflow-wrap: anywhere;
   }
-  /* Recording navigation (website#253). Sized down from the title so it reads
-     as chrome, not as a second heading. */
-  .eegv-nav {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
-    font-size: var(--fs-xs);
-  }
-  /* `display: flex` above outranks the `hidden` attribute's UA rule, so both
-     the group and the per-entity fields need it restated. */
-  .eegv-nav[hidden],
-  .eegv-nav__field[hidden] {
-    display: none;
-  }
-  .eegv-nav__field {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    color: var(--color-fg-muted);
-  }
-  .eegv-nav__label {
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .eegv-nav__sel {
-    max-inline-size: 12rem;
-    padding: var(--space-1) var(--space-2);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    color: var(--color-fg);
-    font: inherit;
-    font-size: var(--fs-xs);
-  }
-  .eegv-nav__steps {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
+  /* The share buttons below borrow the nav's button look. The nav itself
+     (EegViewerNav.astro) carries the same `.eegv-nav__btn` rules for its
+     prev/next buttons; keep the two in sync. Scoped styles do not cross
+     component boundaries, so each component states its own copy (AGENTS.md,
+     "Astro scoped <style> doesn't cross component boundaries"). */
   .eegv-nav__btn {
     display: inline-flex;
     align-items: center;
@@ -234,6 +191,10 @@ import DialogCloseButton from "./DialogCloseButton.astro";
     opacity: 0.45;
     cursor: default;
   }
+  .eegv-nav__btn:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
   /* Copy link (website#326). Matches `.eegv-nav`'s chrome sizing so the head
      reads as one row of controls rather than two tiers. */
   .eegv-share {
@@ -256,23 +217,36 @@ import DialogCloseButton from "./DialogCloseButton.astro";
   .eegv-share__status {
     color: var(--color-fg-muted);
   }
+  /* The embed-code fallback takes a line of its own, and the share group the
+     whole width of the head while it shows. */
+  .eegv-share:has(> .eegv-share__code:not([hidden])) {
+    flex-basis: 100%;
+  }
+  .eegv-share__code {
+    flex-basis: 100%;
+    inline-size: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    resize: vertical;
+  }
+  .eegv-share__code[hidden] {
+    display: none;
+  }
+  /* Our own outline, not reset.css's box-shadow ring, which forced-colors
+     mode drops. */
+  .eegv-share__code:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
   /* Takes no space while empty, so the button does not shift when a message
      appears and disappears. */
   .eegv-share__status:empty {
     display: none;
-  }
-  .eegv-nav__sel:focus-visible,
-  .eegv-nav__btn:focus-visible {
-    outline: 2px solid var(--color-focus);
-    outline-offset: 2px;
-  }
-  /* Fixed-ish width so the buttons don't shuffle sideways as the counter goes
-     from "9 of 12" to "10 of 12" during a fast next/next/next. */
-  .eegv-nav__pos {
-    min-inline-size: 5.5rem;
-    text-align: center;
-    color: var(--color-fg-muted);
-    font-variant-numeric: tabular-nums;
   }
   /* A floor, not a target: if the host arrives before its first paint (or a
      move races a repaint) the box shouldn't collapse to nothing and read as

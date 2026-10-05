@@ -16,6 +16,7 @@
  */
 
 import { VIEW_PARAM } from "./eeg-viewer/recording-nav";
+import { EMBED_THEME_PARAM } from "./embed";
 
 /**
  * Parameters that never reach the server's rendering path, and so must not
@@ -25,8 +26,15 @@ import { VIEW_PARAM } from "./eeg-viewer/recording-nav";
  * parameter the SSR path reads (`?v=` for the dataset version, `/discover`'s
  * filters) belongs in the key: stripping it would serve one URL's HTML for
  * another's.
+ *
+ * - `view`: the recording to open, resolved in the browser against the Zarr
+ *   index (website#326), on the dataset page and the embed route alike.
+ * - `theme`: the embed route's `?theme=light|dark` (website#410), applied by
+ *   an inline script in `src/layouts/Embed.astro` before first paint. No page
+ *   reads it on the server, which is what keeps every embedder's theme choice
+ *   on one cached copy of the embed.
  */
-export const CLIENT_ONLY_QUERY_PARAMS: readonly string[] = [VIEW_PARAM];
+export const CLIENT_ONLY_QUERY_PARAMS: readonly string[] = [VIEW_PARAM, EMBED_THEME_PARAM];
 
 /**
  * The URL a request should be cached under.

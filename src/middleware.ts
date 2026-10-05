@@ -4,6 +4,7 @@ import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
 import { edgeCacheUrl } from "./lib/edge-cache";
+import { isEmbedRoute } from "./lib/embed";
 import {
   getCrossHostRedirect,
   getLegacyRedirect,
@@ -48,6 +49,7 @@ import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
  *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
  *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
  *   - frame-src the two notebook hosts, for the widget's notebook tab (OSA_FRAME_SRC).
+ *   - frame-ancestors 'self', except `*` on the embed route (see routeAllowsFraming).
  *
  * README-borne script injection is already blocked at the markdown sanitizer
  * (it strips <script>, unit-tested), so this is defense-in-depth.
@@ -69,6 +71,27 @@ const UMAMI_SCRIPT_HOST = "https://analytics.nemar.org";
  */
 export function routeNeedsUnsafeEval(pathname: string): boolean {
   return pathname.startsWith("/dataset/");
+}
+
+/**
+ * Whether another site may put this route in a frame (website#410, ADR 0023).
+ *
+ * True for the embeddable signal viewer, `/dataset/<id>/embed`, and for
+ * nothing else. That route gets `frame-ancestors *` and no `X-Frame-Options`
+ * (which has no way to say "any site"); every other route keeps
+ * `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`.
+ *
+ * Any site, with no allowlist, because the route has nothing to protect from
+ * a hostile frame: it never reads the session, has no forms and no actions,
+ * and shows only public data. An allowlist would make every partner (and
+ * every partner's localhost while they develop) a deploy of this repository.
+ * The matcher reads the raw path, so an encoded spelling of the route fails
+ * closed rather than open; see `isEmbedRoute`.
+ *
+ * Exported for the middleware unit tests.
+ */
+export function routeAllowsFraming(pathname: string): boolean {
+  return isEmbedRoute(pathname);
 }
 
 /** Base connect-src for every route: same-site APIs plus the raw README host. */
@@ -207,7 +230,7 @@ export function contentSecurityPolicy(pathname: string): string {
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    "frame-ancestors 'self'",
+    routeAllowsFraming(pathname) ? "frame-ancestors *" : "frame-ancestors 'self'",
     `img-src 'self' data: ${OSA_LOGO_HOSTS}`,
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
@@ -226,7 +249,8 @@ export function contentSecurityPolicy(pathname: string): string {
  * cache MISS) can't drift. Static asset responses (/_astro/*, images) get
  * `nosniff` from the trimmed `public/_headers` instead, since those never hit
  * this worker. The Content-Security-Policy is added separately because it
- * varies by route.
+ * varies by route, and `X-Frame-Options` is removed again on the one route
+ * other sites may frame (`routeAllowsFraming`).
  *
  * Exported (with the strict base CSP folded in) for the middleware unit tests.
  */
@@ -289,6 +313,10 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * checking which build is live follows the redirect to a real response
  * anyway.
  *
+ * Framing is the one header pair that varies by route: `frame-ancestors *`
+ * and no `X-Frame-Options` on the embed route, `'self'` and `SAMEORIGIN`
+ * everywhere else (`routeAllowsFraming`, ADR 0023).
+ *
  * `Referrer-Policy` is the one header a page may tighten: a response that
  * already says `no-referrer` keeps it, and anything else gets the site-wide
  * `strict-origin-when-cross-origin`. The private-site sign-in hop
@@ -306,6 +334,12 @@ export function applySecurityHeaders(headers: Headers, pathname: string, noindex
     headers.set(name, value);
   }
   if (pageSetNoReferrer) headers.set("Referrer-Policy", "no-referrer");
+  // The embed route (website#410): `frame-ancestors *` in the CSP below says
+  // "any site", which X-Frame-Options cannot, and a browser that honours both
+  // would refuse the frame on SAMEORIGIN alone. Deleted rather than never
+  // set, so a value that arrived from anywhere upstream (a cached response's
+  // headers, a page) cannot survive either.
+  if (routeAllowsFraming(pathname)) headers.delete("X-Frame-Options");
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
   headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");

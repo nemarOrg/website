@@ -107,6 +107,32 @@ export interface AnnotationRect {
   height: number;
 }
 
+/**
+ * The attribute `mountEegViewer` stamps on a caller-supplied scope overlay
+ * (`ViewerOptions.scopeOverlay`, website#410: the embed route's NEMAR mark).
+ * Defined here rather than in `viewer.ts` because this module is the one that
+ * has to recognize it, and `viewer.ts` already imports from here; the reverse
+ * import would be circular.
+ */
+export const SCOPE_OVERLAY_ATTR = "data-eegv-overlay";
+
+/**
+ * Whether a pointer event began on the scope overlay rather than on the plot.
+ *
+ * The overlay sits inside the scope, so every gesture this layer binds there
+ * in the capture phase sees presses aimed at it first. Without this check a
+ * click on the embed's NEMAR link, with the pencil armed, would drop a marker
+ * under the link as well as following it; the overlay is the caller's, and
+ * the plot's gestures must never claim it, armed or not.
+ */
+export function startsInScopeOverlay(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    target.closest(`[${SCOPE_OVERLAY_ATTR}]`) !== null
+  );
+}
+
 // --- pure geometry ---------------------------------------------------------
 // Module level rather than closed over a layer instance so they can be unit
 // tested without a DOM; the layer passes its current frame geometry in.
@@ -735,11 +761,15 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
    * canvas handlers (cursor readout, bad-channel toggle). Only presses inside
    * the plot area are taken: a press in the gutter falls through untouched, so
    * clicking a channel label still marks the channel — which is exactly the
-   * selection this layer then annotates.
+   * selection this layer then annotates. A press that starts on a scope
+   * overlay is not taken either (see `startsInScopeOverlay`).
    */
   function onPointerDown(event: PointerEvent): void {
     const g = geometry;
     if (!mode || !g || event.button !== 0) return;
+    // A press on the caller's overlay is the overlay's, not a gesture on the
+    // trace under it (website#410).
+    if (startsInScopeOverlay(event.target)) return;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -826,6 +856,9 @@ export function createAnnotationLayer(opts: AnnotationLayerOptions): AnnotationL
   function onClickCapture(event: MouseEvent): void {
     const g = geometry;
     if (!mode || !g) return;
+    // Never ours to swallow: onPointerDown declined it, so there is no gesture
+    // of this layer's for the click to belong to.
+    if (startsInScopeOverlay(event.target)) return;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     if (x < g.plotLeft) return; // gutter: the viewer's channel marking owns it

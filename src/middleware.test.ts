@@ -10,6 +10,7 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  routeAllowsFraming,
   routeNeedsUnsafeEval,
 } from "./middleware";
 
@@ -866,5 +867,154 @@ describe("security headers", () => {
 
     const prod = await onRequest(ctx(`https://${MARKETING_HOST}/discover`), passthrough);
     expect(prod?.headers.get("X-Robots-Tag")).toBeNull();
+  });
+});
+
+/**
+ * Route-scoped framing (website#410, ADR 0023): the embed route, and only the
+ * embed route, may be framed by another site.
+ */
+describe("framing", () => {
+  const EMBED = "/dataset/on007753/embed";
+  const frameAncestors = (csp: string | null) =>
+    csp
+      ?.split("; ")
+      .find((d) => d.startsWith("frame-ancestors"))
+      ?.slice("frame-ancestors ".length);
+
+  function anonCtx(url: string, method = "GET"): APIContext {
+    return {
+      request: new Request(url, { method }),
+      locals: {},
+      cookies: { get: () => undefined },
+    } as unknown as APIContext;
+  }
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  it("allows framing on the embed route only", () => {
+    expect(routeAllowsFraming(EMBED)).toBe(true);
+    expect(routeAllowsFraming(`${EMBED}/`)).toBe(true);
+    for (const path of [
+      "/",
+      "/dataset/on007753",
+      "/dataset/on007753/collaborators",
+      "/dataset/on007753/embed/extra",
+      "/dataset/on007753/%65mbed",
+      "/login",
+      "/settings",
+      "/upload",
+    ]) {
+      expect(routeAllowsFraming(path), path).toBe(false);
+    }
+  });
+
+  it("sends frame-ancestors * and no X-Frame-Options on the embed route", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, EMBED);
+    expect(frameAncestors(headers.get("Content-Security-Policy"))).toBe("*");
+    expect(headers.get("X-Frame-Options")).toBeNull();
+    // Everything else about the policy is unchanged on that route.
+    expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("removes an X-Frame-Options that arrived with the response", () => {
+    // The cache HIT path rebuilds headers from the cached response before
+    // calling applySecurityHeaders, so a stray value must not survive there.
+    const fromCache = new Headers({ "X-Frame-Options": "SAMEORIGIN" });
+    applySecurityHeaders(fromCache, EMBED);
+    expect(fromCache.get("X-Frame-Options")).toBeNull();
+  });
+
+  it("differs from the dataset page's CSP in frame-ancestors and nothing else", () => {
+    // A policy widened for the embed (or one the page gains that the embed
+    // misses) would fail here: framing is the only thing ADR 0023 changes.
+    const embed = contentSecurityPolicy(EMBED);
+    const page = contentSecurityPolicy("/dataset/on007753");
+    expect(embed).not.toBe(page);
+    expect(embed.replace("frame-ancestors *", "frame-ancestors 'self'")).toBe(page);
+  });
+
+  it("keeps the embed route's viewer CSP: 'unsafe-eval' for the zarr codecs", () => {
+    // The embed mounts the same viewer, so it needs the same codec grant
+    // (ADR 0009); the existing `/dataset/` prefix already covers it.
+    expect(routeNeedsUnsafeEval(EMBED)).toBe(true);
+    expect(contentSecurityPolicy(EMBED)).toContain("'unsafe-eval'");
+  });
+
+  it("stamps the framing headers through the middleware on every host", async () => {
+    for (const origin of [`https://${MARKETING_HOST}`, "http://localhost:4321"]) {
+      const embed = await onRequest(anonCtx(`${origin}${EMBED}?view=sub-05`), passthrough);
+      expect(embed?.status, origin).toBe(200);
+      expect(frameAncestors(embed?.headers.get("Content-Security-Policy") ?? null), origin).toBe(
+        "*",
+      );
+      expect(embed?.headers.get("X-Frame-Options"), origin).toBeNull();
+
+      const page = await onRequest(anonCtx(`${origin}/dataset/on007753`), passthrough);
+      expect(frameAncestors(page?.headers.get("Content-Security-Policy") ?? null), origin).toBe(
+        "'self'",
+      );
+      expect(page?.headers.get("X-Frame-Options"), origin).toBe("SAMEORIGIN");
+    }
+    // Non-GET takes its own early passthrough; it must agree.
+    const post = await onRequest(anonCtx(`https://${MARKETING_HOST}${EMBED}`, "POST"), passthrough);
+    expect(post?.headers.get("X-Frame-Options")).toBeNull();
+  });
+
+  /**
+   * Every page under src/pages, by a representative pathname derived from its
+   * file name, so a new route cannot quietly become frameable (or the embed
+   * route quietly stop being so). Lazy glob: the keys are all this reads, and
+   * no page module is imported.
+   */
+  const SAMPLE_PARAMS: Record<string, string> = {
+    id: "on007753",
+    slug: "welcome",
+    file: "4f2a9c.png",
+    username: "nemarAdmin",
+  };
+  function representativePath(file: string): string {
+    const route = file
+      .replace(/^\.\/pages/, "")
+      .replace(/\.(astro|ts)$/, "")
+      .replace(/\[\.\.\.[^\]]+\]/g, "datasets/on007753")
+      .replace(/\[([^\]]+)\]/g, (_, name: string) => SAMPLE_PARAMS[name] ?? "x")
+      .replace(/\/index$/, "");
+    return route === "" ? "/" : route;
+  }
+  const pageFiles = Object.keys(import.meta.glob("./pages/**/*.{astro,ts}"));
+
+  it("finds the page files to walk", () => {
+    expect(pageFiles.length).toBeGreaterThan(40);
+    expect(pageFiles).toContain("./pages/dataset/[id]/embed.astro");
+    expect(pageFiles).toContain("./pages/dataset/[id].astro");
+  });
+
+  it("makes exactly one page frameable: the embed route", async () => {
+    const frameable: string[] = [];
+    for (const file of pageFiles) {
+      const path = representativePath(file);
+      for (const variant of path === "/" ? [path] : [path, `${path}/`]) {
+        const headers = new Headers();
+        applySecurityHeaders(headers, variant);
+        const ancestors = frameAncestors(headers.get("Content-Security-Policy"));
+        const xfo = headers.get("X-Frame-Options");
+        if (routeAllowsFraming(variant)) {
+          frameable.push(file);
+          expect(ancestors, variant).toBe("*");
+          expect(xfo, variant).toBeNull();
+        } else {
+          expect(ancestors, variant).toBe("'self'");
+          expect(xfo, variant).toBe("SAMEORIGIN");
+        }
+        // And through the middleware's passthrough serve path.
+        const res = await onRequest(anonCtx(`http://localhost:4321${variant}`), passthrough);
+        expect(res?.headers.get("X-Frame-Options") ?? null, variant).toBe(
+          routeAllowsFraming(variant) ? null : "SAMEORIGIN",
+        );
+      }
+    }
+    expect([...new Set(frameable)]).toEqual(["./pages/dataset/[id]/embed.astro"]);
   });
 });

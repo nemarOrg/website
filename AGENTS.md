@@ -60,12 +60,14 @@ so is the failure mode this instruction exists to prevent.
 ```
 src/
   layouts/Base.astro                  shared shell (nav + footer + theme bootstrap)
+  layouts/Embed.astro                 chrome-free shell for the embed route (?theme= bootstrap, noindex; ADR 0023)
   middleware.ts                       two-host routing, session (/auth/me proxy), edge cache, security headers
   pages/
     index.astro                       landing (hero + search + stat tiles)
     discover.astro                    filter sidebar + offset-paginated dataset list
     dataset/[id].astro                detail (SSR fetch fan-out, prov toggle, README, BIDS tree, rail)
     dataset/[id]/collaborators.astro  per-dataset collaborator management (app host)
+    dataset/[id]/embed.astro          embeddable signal viewer, the only frameable route (ADR 0023)
     login.astro login/*.astro signup.astro welcome.astro    sign-in (ORCID + email code) + onboarding
     auth/orcid/{start.ts,callback.ts,complete.astro}        ORCID OAuth proxy flow
     cli/authorize.astro               device-auth grant confirm/deny page (epic #1272 phase 2; app host)
@@ -78,6 +80,7 @@ src/
     about.astro support.astro community.astro
     og/** robots.txt.ts 404.astro
   components/                         all .astro components; scoped <style> per file
+    EegViewerNav.astro                subject/task/prev/next markup shared by the viewer dialog and the embed
   lib/                                 typed helpers + clients
     api.ts / api-base.ts              api.nemar.org client (unwraps {dataset:...}); env-aware base
     data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
@@ -89,6 +92,7 @@ src/
     bids-precheck.ts                  hand-rolled client-side BIDS structural pre-check (upload)
     flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
     host.ts                           two-host route classification + noindex/production host logic
+    embed.ts                          embed route matcher, ?theme= parser, embed/dataset URLs, iframe snippet
     qa.ts                             /qa/* contract (Phase 3, pending nemar-cli#511 backend)
     filters.ts                        FilterState ↔ URL params; modality AND/OR; license tier
     tags.ts                           modality/license/keyword classification + /discover hrefs
@@ -98,9 +102,11 @@ src/
     neuroschema.ts                    types mirroring data.nemar.org/<id>/metadata.json
     markdown.ts                       zero-dep CommonMark subset
     eeg-viewer/                       WebGL EEG viewer (traces, topo, montages, recording nav, background preload, HED/SCORE annotation authoring)
+    eeg-viewer/viewer-session.ts      live instance + recording nav + ?view= + share controls, shared by dialog and embed
   styles/
     tokens.css                        CSS variables; light + dark themes
     reset.css global.css
+    eeg-viewer.css                    global signal-viewer styles (runtime-built DOM), imported by BidsTree and the embed
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)

@@ -34,3 +34,11 @@ The inline panel stays a one-recording surface, which is what keeps it cheap: no
 - Issue nemarOrg/website#253 (part of epic #256), which specifies enlarge-mode-first navigation and leaves the inline behaviour to implementation.
 - `navigateEegViewer` in `src/pages/dataset/[id].astro` and the `detached` flag on `eegLive`.
 - ADR-adjacent prior art: website#217 (inline-first viewer with an enlarge handoff) and website#208 (mount supersession, which the swap reuses).
+
+## Update, 2026-10-05
+
+The code this ADR describes moved, and the decision stands.
+Website#410 lifted the dialog's recording navigation out of `src/pages/dataset/[id].astro` into `src/lib/eeg-viewer/viewer-session.ts`, so the embed route can drive the same implementation.
+`navigateEegViewer` is now the session's `navigate`, and the `detached` flag lives on the session's `LiveViewer` record.
+The first navigation from a viewer that is not yet detached calls the session's `onDetach` hook, which is where the dataset page collapses the originating row; the dialog `close` handler still branches on the flag.
+A viewer the embed opens is detached from birth, like one opened by "View data", because there is no row to return it to.

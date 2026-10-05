@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import * as zarr from "zarrita";
 import {
   aggregateOverview,
   chooseWindowLevel,
   dedupingFetch,
+  isMissingStoreError,
   openRecording,
   parseChannels,
   predictedViewLevelCount,
@@ -933,5 +935,26 @@ describe("abort propagation into the interactive path (website#208)", () => {
     // true for a caller-driven cancellation.
     expect(settled).toBe("resolved");
     expect(result).toBeNull();
+  });
+});
+
+/**
+ * What the viewer's "unavailable" sentence keys on (website#410 review): only
+ * a store that is not there may be called "still generating".
+ */
+describe("isMissingStoreError", () => {
+  it("is true for zarrita's own not-found failure on an empty store", async () => {
+    // A real zarrita open against its in-memory store with nothing in it,
+    // which is what a 404 on every key looks like to zarrita.
+    const err = await zarr.open(new Map(), { kind: "group" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(isMissingStoreError(err)).toBe(true);
+  });
+
+  it("is false for anything else a failed open throws", () => {
+    expect(isMissingStoreError(new TypeError("Failed to fetch"))).toBe(false);
+    expect(isMissingStoreError(new Error("HTTP 503"))).toBe(false);
+    expect(isMissingStoreError(new Error("store has no channel groups"))).toBe(false);
+    expect(isMissingStoreError(undefined)).toBe(false);
   });
 });
