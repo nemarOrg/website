@@ -18,6 +18,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **An embeddable signal viewer** at `/dataset/<id>/embed`, for partner sites to put in an iframe.
   It takes the dataset page's `?view=` and `?v=`, plus `?theme=light|dark`; it has no nav, footer, notices, assistant widget or analytics, and carries a NEMAR mark on the plot that links back to the dataset.
   It is the only route another site may frame: `frame-ancestors *` and no `X-Frame-Options` there, `'self'` and `SAMEORIGIN` everywhere else (ADR 0023).
+  Its privacy icon links to the privacy policy's "Embedded viewer" section (`/privacy#embedded-viewer`).
   Refs #411, part of #410.
 - **An Embed control in the signal viewer dialog**, next to Copy link, that copies the `<iframe>` snippet for the recording on screen; when the clipboard refuses, the snippet appears selected in a read-only box (Refs #411).
 - **Embed calls are counted at the edge.**
