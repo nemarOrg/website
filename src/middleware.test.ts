@@ -926,6 +926,15 @@ describe("framing", () => {
     expect(fromCache.get("X-Frame-Options")).toBeNull();
   });
 
+  it("differs from the dataset page's CSP in frame-ancestors and nothing else", () => {
+    // A policy widened for the embed (or one the page gains that the embed
+    // misses) would fail here: framing is the only thing ADR 0023 changes.
+    const embed = contentSecurityPolicy(EMBED);
+    const page = contentSecurityPolicy("/dataset/on007753");
+    expect(embed).not.toBe(page);
+    expect(embed.replace("frame-ancestors *", "frame-ancestors 'self'")).toBe(page);
+  });
+
   it("keeps the embed route's viewer CSP: 'unsafe-eval' for the zarr codecs", () => {
     // The embed mounts the same viewer, so it needs the same codec grant
     // (ADR 0009); the existing `/dataset/` prefix already covers it.
