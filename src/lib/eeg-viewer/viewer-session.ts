@@ -617,19 +617,28 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
   function draftBlocksNavigation(): boolean {
     const handle = live?.annotations;
     if (!handle) return false;
+    let open: boolean;
     try {
-      if (!handle.isPopoverOpen()) return false;
-      handle.focusPopover();
-      return true;
+      open = handle.isPopoverOpen();
     } catch (err) {
-      // Fail OPEN, deliberately. A guard that throws while answering "is there
-      // a draft?" would otherwise refuse every prev/next and every dropdown
-      // for the rest of the session, with the selects re-syncing away from
-      // whatever the user picked and no gesture that recovers. Losing at most
-      // one unsaved draft is much the smaller failure.
+      // Fail OPEN, deliberately, and only here. A guard that throws while
+      // answering "is there a draft?" would otherwise refuse every prev/next
+      // and every dropdown for the rest of the session, with the selects
+      // re-syncing away from whatever the user picked and no gesture that
+      // recovers. Losing at most one unsaved draft is much the smaller failure.
       console.error("[eeg-viewer] annotation draft guard failed; allowing navigation:", err);
       return false;
     }
+    if (!open) return false;
+    // A draft IS open, so the navigation is refused whatever happens next.
+    // Pointing at the popover is a courtesy; failing to is no reason to let
+    // the navigation through and lose the draft it exists to protect.
+    try {
+      handle.focusPopover();
+    } catch (err) {
+      console.error("[eeg-viewer] could not focus the open annotation popover:", err);
+    }
+    return true;
   }
 
   /** The entry for the recording currently on screen, if it parsed. */
