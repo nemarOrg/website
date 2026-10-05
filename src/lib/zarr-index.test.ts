@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import on000246 from "../../test/fixtures/zarr/on000246-index.json";
 import on008083V1 from "../../test/fixtures/zarr/on008083-index-v1.json";
 import v3Sample from "../../test/fixtures/zarr/v3-sample-index.json";
 import {
   fetchZarrIndex,
+  fetchZarrIndexOutcome,
   parseZarrIndex,
   prefetchZarrStoreMetadata,
   unitsNoticeText,
@@ -10,6 +12,7 @@ import {
   zarrCoverage,
   zarrFailureReasonByPath,
   zarrHasAnyStore,
+  zarrIndexOutcomeFromResponse,
   zarrPendingPaths,
   zarrStoreByPath,
 } from "./zarr-index";
@@ -823,6 +826,104 @@ describe("fetchZarrIndex logging (PR #278 review)", () => {
       const index = await fetchZarrIndex("nm000132");
       expect(index?.dataset_id).toBe("nm000132");
       expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+/**
+ * The outcome split the embed relies on (website#410 review): a missing index
+ * and a failed one say different things to a visitor. Exercised with real
+ * `Response` objects carrying a captured index (on000246, served by
+ * zarr.nemar.org on 2026-10-05) and the status codes the Zarr host returns,
+ * not with a replaced fetch.
+ */
+describe("zarrIndexOutcomeFromResponse", () => {
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+  it("is ok, with the parsed index, for a real index", async () => {
+    const outcome = await zarrIndexOutcomeFromResponse("on000246", json(on000246));
+    expect(outcome.kind).toBe("ok");
+    if (outcome.kind !== "ok") return;
+    expect(outcome.index.dataset_id).toBe("on000246");
+    expect([...zarrAvailablePaths(outcome.index)]).toEqual([
+      "sub-0001/meg/sub-0001_task-AEF_run-01_meg.ds",
+      "sub-0001/meg/sub-0001_task-AEF_run-02_meg.ds",
+      "sub-emptyroom/meg/sub-emptyroom_task-noise_run-01_meg.ds",
+    ]);
+  });
+
+  it("is absent, quietly, for the index's 404 (a dataset not converted yet)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = new Response("Not Found", { status: 404, statusText: "Not Found" });
+      expect(await zarrIndexOutcomeFromResponse("on999999", res)).toEqual({ kind: "absent" });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("is an error, logged with the id, for any other failing status", async () => {
+    for (const [status, statusText] of [
+      [503, "Service Unavailable"],
+      [500, "Internal Server Error"],
+      [403, "Forbidden"],
+    ] as const) {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const res = new Response(null, { status, statusText });
+        expect(await zarrIndexOutcomeFromResponse("on000246", res)).toEqual({ kind: "error" });
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0][0]).toContain("on000246");
+        expect(warn.mock.calls[0][0]).toContain(String(status));
+      } finally {
+        warn.mockRestore();
+      }
+    }
+  });
+
+  it("is an error, logged, for a 200 whose body is not JSON", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const res = new Response("<html>gateway</html>", { status: 200 });
+      expect(await zarrIndexOutcomeFromResponse("on000246", res)).toEqual({ kind: "error" });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("on000246");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("is an error, logged, for JSON the parser rejects (which logged nothing before)", async () => {
+    // The captured index with its stores list gone: valid JSON, not an index.
+    const { stores: _dropped, ...withoutStores } = on000246;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await zarrIndexOutcomeFromResponse("on000246", json(withoutStores))).toEqual({
+        kind: "error",
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("on000246");
+      expect(warn.mock.calls[0][0]).toContain("not a Zarr index");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("fetchZarrIndexOutcome", () => {
+  it("is an error, logged, when the request itself fails", async () => {
+    // A real refused connection (the discard port on loopback), not a stub.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await fetchZarrIndexOutcome("on000246", "http://127.0.0.1:9")).toEqual({
+        kind: "error",
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("on000246");
     } finally {
       warn.mockRestore();
     }

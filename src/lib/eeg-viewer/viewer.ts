@@ -21,7 +21,12 @@ import { zarrStoreUrl } from "../zarr-base";
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
-import { type AnnotationLayer, annotateGlyph, createAnnotationLayer } from "./annotation-ui";
+import {
+  type AnnotationLayer,
+  SCOPE_OVERLAY_ATTR,
+  annotateGlyph,
+  createAnnotationLayer,
+} from "./annotation-ui";
 import {
   type Modality,
   autoscaleGain,
@@ -69,6 +74,7 @@ import {
   type RecordingStore,
   type WindowData,
   chooseWindowLevel,
+  isMissingStoreError,
   openRecording,
   readLevel0,
   readOverview,
@@ -141,6 +147,94 @@ export interface ViewerOptions {
    * chrome around the viewer has to be able to ask before it navigates.
    */
   onAnnotations?: (handle: ViewerAnnotationHandle) => void;
+  /**
+   * An element the caller wants floated over the signal plot, appended into
+   * `.eegv__scope` on every mount and stamped with `data-eegv-overlay`
+   * (website#410: the embed route's NEMAR mark, a link back to the dataset).
+   * The caller owns its content, position and styling; the same node is moved
+   * into each new scope, so a recording swap keeps one element rather than
+   * accumulating copies. To sit above the plot it needs a z-index of at least
+   * 4: the scope stacks the WebGL and chrome canvases at 0 and 1, the
+   * annotation canvas at 2 and the armed-annotation ring at 3 (see
+   * `src/styles/eeg-viewer.css`). The cursor readout, at 5, stays above it.
+   *
+   * The viewer's own gestures stay off it. The annotation layer's
+   * capture-phase handlers on the scope ignore presses that start inside it
+   * (`startsInScopeOverlay`), and the cursor readout treats its box as a
+   * no-readout zone, because the readout shares the plot's bottom-right
+   * corner and a caller may well hide the overlay while the readout shows.
+   * Without that zone a hidden overlay with `pointer-events: none` would let
+   * the canvas under it keep the readout up, and the overlay could never be
+   * reached with a mouse.
+   *
+   * The dataset page passes none, and nothing about its viewer changes.
+   */
+  scopeOverlay?: HTMLElement;
+  /**
+   * Size the scope to the room the host element (`slot`) leaves after the
+   * viewer's other controls, instead of the default width-derived rule
+   * (website#410: the embed route, whose iframe has a height the embedder
+   * chose and must not scroll inside).
+   *
+   * Requires a host whose height does not depend on its own content: a flex
+   * item with `min-block-size: 0`, or anything with a definite block size.
+   * Measured against a content-sized host, the fit has nothing to fill and
+   * settles at `FIT_MIN_PLOT_HEIGHT`.
+   *
+   * Tracks resizes of the host and of the viewer's own chrome (the legend and
+   * minimap fill in after the first paint, the annotation panel opens and
+   * closes, the toolbar wraps at a new width) without a ResizeObserver
+   * feedback loop: setting the scope height changes the root's height, which
+   * the observer reports, but the recomputed fit is then the height already
+   * applied, so nothing re-renders. See `fitScopeHeight`.
+   *
+   * Off by default; the dataset page leaves it off and keeps its rule.
+   */
+  fitHeight?: boolean;
+  /**
+   * The link the "unavailable" fallback offers, in place of the download link
+   * and the directory recording's "use the expand arrow" hint (website#410).
+   *
+   * Both defaults assume the dataset page: a download is one click away in
+   * the file tree, and the expand arrow is on the tree row. The embed has
+   * neither, so it points at the dataset page instead. Rendered as
+   * `<a href target="_blank" rel="noopener">text</a> instead.`, with both
+   * values escaped; a new tab because the one caller is a framed page, where
+   * following the link in place would replace the viewer the embedder put
+   * there.
+   */
+  unavailableLink?: { href: string; text: string };
+}
+
+/**
+ * Smallest scope `fitHeight` will size to (CSS px). Below this the trace area
+ * is too short to read, so a host that cannot fit it gets a viewer that
+ * overflows it instead; the embed allows its document to scroll at that
+ * point rather than draw an unusable plot.
+ */
+export const FIT_MIN_PLOT_HEIGHT = 140;
+
+/**
+ * The scope height `fitHeight` applies: the host's content height less the
+ * height of everything in it that is not the scope, floored at
+ * `FIT_MIN_PLOT_HEIGHT`.
+ *
+ * Floored to a whole pixel rather than rounded, so fractional chrome never
+ * makes the viewer half a pixel taller than its host, which is a scrollbar.
+ * Pure and exported so the arithmetic the no-scroll guarantee rests on is
+ * covered by a test rather than living inside the mount closure.
+ *
+ * This is also what keeps the resize tracking free of a feedback loop: the
+ * result does not depend on the scope's current height, only on the host and
+ * the chrome, so re-measuring after applying it returns the same number. That
+ * holds only while the chrome's height does not change with each render, which
+ * is why a fit viewer's status line is held to one line (`.eegv--fit`): on a
+ * narrow host "Signal loading…" fits one line and the full summary wraps to
+ * two, so every render would move the fit and every fit would start a render.
+ */
+export function fitScopeHeight(hostHeight: number, chromeHeight: number): number {
+  if (!Number.isFinite(hostHeight) || !Number.isFinite(chromeHeight)) return FIT_MIN_PLOT_HEIGHT;
+  return Math.max(FIT_MIN_PLOT_HEIGHT, Math.floor(hostHeight - chromeHeight));
 }
 
 /**
@@ -611,6 +705,9 @@ export async function mountEegViewer(
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB);
   const cleanups: Array<() => void> = [];
+  // `fitHeight` hosts get chrome whose height cannot change from one render to
+  // the next (`.eegv--fit` in eeg-viewer.css); see `fitScopeHeight`.
+  if (opts.fitHeight) ui.root.classList.add("eegv--fit");
   // Default the notch filter from the recording's PowerLineFrequency (the converter
   // embeds it in the store attrs; the Notch select already reflects it). Datasets
   // without the sidecar field stay unfiltered. The declared line frequency can
@@ -658,6 +755,17 @@ export async function mountEegViewer(
   cleanups.push(() => annotations.destroy());
   if (opts.transfer?.annotating) annotations.setActive(true);
 
+  // After the annotation layer, which appends its own canvas to the scope, so
+  // the overlay is the scope's last child. Stacking is still the caller's CSS
+  // to settle (see `ViewerOptions.scopeOverlay`). `append` moves the node out
+  // of a previous mount's already-discarded DOM, which is what keeps it one
+  // element across recording swaps.
+  const scopeOverlay = opts.scopeOverlay ?? null;
+  if (scopeOverlay) {
+    scopeOverlay.setAttribute(SCOPE_OVERLAY_ATTR, "");
+    ui.scope.append(scopeOverlay);
+  }
+
   function group(): GroupHandle {
     return store.groups[groupIndex];
   }
@@ -681,7 +789,7 @@ export async function mountEegViewer(
    * way: reload.
    */
   function degradedNote(g: GroupHandle): string {
-    return g.viewLevelsDegraded ? " · overview incomplete" : "";
+    return g.viewLevelsDegraded ? " · zoom levels incomplete" : "";
   }
 
   /**
@@ -694,6 +802,8 @@ export async function mountEegViewer(
   function renderStatus(): void {
     if (!statusBase) return;
     ui.status.textContent = statusBase + degradedNote(group());
+    // Held to one line in a `fitHeight` host, so the whole line is a tooltip.
+    if (opts.fitHeight) ui.status.title = ui.status.textContent;
   }
 
   function syncDegradedNote(): void {
@@ -701,7 +811,7 @@ export async function mountEegViewer(
     const degraded = group().viewLevelsDegraded;
     ui.overviewNote.hidden = !degraded;
     ui.overviewNote.textContent = degraded
-      ? "Overview incomplete — some zoom levels failed to load. Reload to try again."
+      ? "Some zoom levels failed to load. Reload to try again."
       : "";
   }
 
@@ -832,16 +942,47 @@ export async function mountEegViewer(
     };
   }
 
+  /**
+   * `fitScopeHeight` against the live layout (`ViewerOptions.fitHeight`).
+   *
+   * The chrome is measured as everything in the host that is not the scope,
+   * summed over the host's children rather than read off the viewer root
+   * alone, so a sibling the caller appends after mounting (the units notice
+   * the dataset page adds) is budgeted for too. Rect heights, not
+   * `clientHeight`, because the latter is rounded and a rounded-up host is
+   * how a fit ends up one pixel too tall.
+   */
+  function fittedScopeHeight(): number {
+    const cs = getComputedStyle(slot);
+    const px = (v: string) => Number.parseFloat(v) || 0;
+    const host =
+      slot.getBoundingClientRect().height -
+      px(cs.borderTopWidth) -
+      px(cs.borderBottomWidth) -
+      px(cs.paddingTop) -
+      px(cs.paddingBottom);
+    let used = 0;
+    for (const child of slot.children) used += child.getBoundingClientRect().height;
+    return fitScopeHeight(host, used - ui.scope.getBoundingClientRect().height);
+  }
+
   function sizeCanvas(): { w: number; h: number } {
     // The scope is the positioned frame; both canvases fill it (CSS inset:0). Its
     // width comes from flex (shrinks when the topo panel opens); we set its height.
     const rectW = ui.scope.getBoundingClientRect().width || ui.root.getBoundingClientRect().width;
     const cssW = Math.max(320, Math.round(rectW) || 800);
-    // Fit the area the modal opens into: height tracks width (a ~2:1 scope) and
-    // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
-    // It does NOT vary with channel count (stable embed boundary).
-    const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
-    const cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
+    let cssH: number;
+    if (opts.fitHeight) {
+      // The embed route (website#410): fill what the host leaves over. Still
+      // independent of channel count, like the rule below.
+      cssH = fittedScopeHeight();
+    } else {
+      // Fit the area the modal opens into: height tracks width (a ~2:1 scope) and
+      // is capped by MAX_PLOT_HEIGHT and 70% of the viewport, so it never overflows.
+      // It does NOT vary with channel count (stable embed boundary).
+      const vpCap = Math.round((globalThis.innerHeight || 900) * 0.7);
+      cssH = Math.max(280, Math.min(Math.round(cssW * 0.5), MAX_PLOT_HEIGHT, vpCap));
+    }
     const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
     ui.scope.style.height = `${cssH}px`;
     const pxW = Math.round(cssW * dpr);
@@ -1068,10 +1209,25 @@ export async function mountEegViewer(
     } else {
       ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s`;
     }
-    ui.chanInfo.textContent =
+    // Written once per render, in full, before the read: the Hide bad count
+    // comes from the montage rows in view, which are known now. Written in two
+    // steps (the range here, the count after the read), the text grew and
+    // shrank within every render, and in a `fitHeight` viewer each wrap of
+    // the toolbar moved the plot and started another render.
+    const visible = g.channelsByRow.slice(chanStart, visEnd);
+    const hiddenInView =
+      hideBad && badChannels.size > 0
+        ? visible.filter((ch) => badChannels.has(ch.label)).length
+        : 0;
+    const chanRange =
       visEnd - chanStart >= g.nChannels
         ? `all ${g.nChannels}`
         : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
+    // Mirrors the reject-mode guard below: a view that is all bad channels
+    // keeps them, so it reports none hidden.
+    const hiddenNote =
+      hiddenInView > 0 && hiddenInView < visible.length ? ` · ${hiddenInView} hidden` : "";
+    ui.chanInfo.textContent = `${chanRange}${hiddenNote}`;
 
     // Paint a "loading" state immediately so the scope never sits blank while a
     // read (or its retries) is in flight; the first paint also covers the gap
@@ -1140,7 +1296,6 @@ export async function mountEegViewer(
       }
     }
 
-    const visible = g.channelsByRow.slice(chanStart, visEnd);
     const n = Math.min(visible.length, win.channels.length);
     let channels: FrameChannel[] = visible.slice(0, n).map((ch, i) => {
       const color =
@@ -1160,14 +1315,11 @@ export async function mountEegViewer(
 
     // Reject mode: drop bad channels from the montage entirely (the survivors take
     // the full height) rather than only dimming them in place. Never blank the scope
-    // if every visible channel is marked bad.
+    // if every visible channel is marked bad. The readout's count was written
+    // before the read, from the same rows.
     if (hideBad && badChannels.size > 0) {
       const kept = channels.filter((c) => !badChannels.has(c.label));
-      const hidden = channels.length - kept.length;
-      if (kept.length > 0) {
-        channels = kept;
-        if (hidden > 0) ui.chanInfo.textContent += ` · ${hidden} hidden`;
-      }
+      if (kept.length > 0) channels = kept;
     }
 
     const frame: ViewerFrame = {
@@ -1266,7 +1418,10 @@ export async function mountEegViewer(
     // covers the narrower case of a group switch superseding this load.
     if (disposed || seq !== overviewSeq) return;
     overviewData = data;
-    ui.minimap.style.display = data && data.length > 0 ? "block" : "none";
+    // "" hands display back to the stylesheet (`display: block`), so a page can
+    // still hide the strip with an ordinary rule; the embed route does in
+    // small frames.
+    ui.minimap.style.display = data && data.length > 0 ? "" : "none";
     drawOverview();
   }
 
@@ -1675,8 +1830,21 @@ export async function mountEegViewer(
   });
 
   // --- Cursor readout (mousemove) -----------------------------------------
+  /** True when the pointer is inside the scope overlay's box (see
+   *  `ViewerOptions.scopeOverlay` for why that box shows no readout). */
+  function pointerOverOverlay(e: MouseEvent): boolean {
+    if (!scopeOverlay?.isConnected) return false;
+    const r = scopeOverlay.getBoundingClientRect();
+    return (
+      e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+    );
+  }
   ui.canvas.addEventListener("mousemove", (e) => {
     if (!lastFrame) return;
+    if (pointerOverOverlay(e)) {
+      ui.cursor.textContent = "";
+      return;
+    }
     const rect = ui.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -1823,6 +1991,55 @@ export async function mountEegViewer(
     ro.observe(ui.root);
     cleanups.push(() => ro.disconnect());
   }
+  // `fitHeight` (website#410) also has to follow HEIGHT: the host's, when the
+  // frame resizes, and the chrome's, when the legend or minimap fills in or
+  // the annotation panel opens. A separate observer so the width-only one
+  // above keeps its exact behavior on the dataset page. It re-renders only
+  // when the fit actually moved: applying a height grows or shrinks the root,
+  // which this observer then reports, but the fit it recomputes is the one
+  // just applied, so that report ends here instead of looping.
+  if (opts.fitHeight && typeof ResizeObserver !== "undefined") {
+    let fitRaf = 0;
+    const refit = (): void => {
+      cancelAnimationFrame(fitRaf);
+      fitRaf = requestAnimationFrame(() => {
+        if (disposed) return;
+        const applied = Math.round(ui.scope.getBoundingClientRect().height);
+        const fit = fittedScopeHeight();
+        if (fit === applied) return;
+        // Applied now, not when `render` gets to it: a render already in
+        // flight (a window read can take seconds) would otherwise leave the
+        // viewer taller than its host, and the embed document scrolling, for
+        // that whole read. The canvases are 100% of the scope, so until the
+        // render below resizes their bitmaps the last frame is only stretched.
+        ui.scope.style.height = `${fit}px`;
+        render();
+      });
+    };
+    const fitRo = new ResizeObserver(refit);
+    fitRo.observe(slot);
+    fitRo.observe(ui.root);
+    // A sibling the caller appends to the host after mounting (the session's
+    // units notice) is chrome too, but appending it resizes neither the host,
+    // whose height the frame decides, nor the viewer root. Watch the host's
+    // children, and each one's own size from then on (a wrapped notice grows
+    // when the frame narrows), so it is budgeted rather than scrolled.
+    const fitMo =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver((records) => {
+            for (const r of records) {
+              for (const n of r.addedNodes) if (n instanceof Element) fitRo.observe(n);
+            }
+            refit();
+          })
+        : null;
+    fitMo?.observe(slot, { childList: true });
+    cleanups.push(() => {
+      fitRo.disconnect();
+      fitMo?.disconnect();
+      cancelAnimationFrame(fitRaf);
+    });
+  }
   // Repaint when the site theme flips (the canvas reads CSS vars, so a light/dark
   // toggle on <html> must trigger a re-render to stay homogeneous).
   if (typeof MutationObserver !== "undefined") {
@@ -1854,7 +2071,8 @@ export async function mountEegViewer(
   cleanups.push(() => abortController.abort());
   cleanups.push(() => glRenderer?.dispose());
   // Idempotent. The page holds up to three handles on this one function — the
-  // disposer returned below, `slot._eegvCleanup`, and `eegLive.destroy` — and a
+  // disposer returned below, `slot._eegvCleanup`, and the viewer session's
+  // `live.destroy` (viewer-session.ts) — and a
   // dialog close landing during a navigate mount genuinely fires two of them.
   // Running the cleanups twice is not harmless: it double-disposes the GL
   // context and takes the annotation layer down in the middle of its own final
@@ -1988,8 +2206,9 @@ function buildDom(
     bar.append(grouped("Group", groupSel));
   }
 
-  // Time group.
-  const time = el("span", "eegv__readout");
+  // Time group. The `--time` modifier is for the embed route, which hides
+  // this readout (src/pages/dataset/[id]/embed.astro).
+  const time = el("span", "eegv__readout eegv__readout--time");
   const win = compactSelect(
     WINDOW_CHOICES.map((s) => [String(s), `${s} s`]),
     "10",
@@ -2262,24 +2481,49 @@ function buildDom(
 }
 
 function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
+  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts, isMissingStoreError(err))}</p></div>`;
+  console.warn(
+    "[eeg-viewer] unavailable:",
+    { datasetId: opts.datasetId, path: opts.filePath },
+    err,
+  );
+}
+
+/**
+ * The "no viewer for this recording" sentence, as escaped HTML. Split out of
+ * `renderUnavailable` so the choice of action and its escaping are unit
+ * tested (website#410 added a caller-supplied action whose values come from
+ * the embed page).
+ */
+export function unavailableMessageHtml(
+  opts: Pick<ViewerOptions, "failureReason" | "dirRecording" | "downloadUrl" | "unavailableLink">,
+  storeMissing = true,
+): string {
   // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
   // to download: `downloadUrl` names a data.nemar.org directory, which answers
   // with raw listing JSON. Point at the row's expand arrow instead, in the same
   // words `fallbackActionHtml` uses in dataset/[id].astro — the two are one
-  // sentence on two surfaces, so keep them in sync.
-  const dl = opts.dirRecording
-    ? " Use the expand arrow next to its name to browse the recording's files instead."
-    : opts.downloadUrl
-      ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
-      : "";
+  // sentence on two surfaces, so keep them in sync. A caller-supplied
+  // `unavailableLink` (the embed route, website#410) replaces both.
+  const dl = opts.unavailableLink
+    ? ` <a href="${escapeAttr(opts.unavailableLink.href)}" target="_blank" rel="noopener">${escapeAttr(opts.unavailableLink.text)}</a> instead.`
+    : opts.dirRecording
+      ? " Use the expand arrow next to its name to browse the recording's files instead."
+      : opts.downloadUrl
+        ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
+        : "";
   // A recorded data failure (derivative, corrupt, unsupported) has a specific,
-  // permanent reason -> show it. Otherwise the store is just missing: still
-  // generating, or a transient failure that will retry.
+  // permanent reason -> show it. Otherwise "may still be generating" is only
+  // true of a store that is not there (`isMissingStoreError`); a store that
+  // exists and would not load (an outage, metadata it cannot read, a browser
+  // without a canvas) is said to be just that. A retry control for the second
+  // case is website#416.
   const msg = opts.failureReason
     ? escapeAttr(opts.failureReason)
-    : "No interactive viewer for this recording yet (the Zarr serving copy may still be generating).";
-  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${msg}${dl}</p></div>`;
-  console.warn("[eeg-viewer] unavailable:", err);
+    : storeMissing
+      ? "No interactive viewer for this recording yet (the Zarr serving copy may still be generating)."
+      : "The viewer could not load this recording.";
+  return `${msg}${dl}`;
 }
 
 function el(tag: string, className: string): HTMLElement {

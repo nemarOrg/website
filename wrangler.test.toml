@@ -26,6 +26,18 @@ PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
 # deploy-test.yml's build step. It must be on one of OSA_NOTEBOOK_ORIGINS (src/lib/osa-widget.ts),
 # the two hosts this site's frame-src allows, because the widget frames the notebook (OSA #470).
 PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/"
+# Private-site sign-in handoff target (src/lib/private-authorize.ts), reference only, same caveat
+# as above: not PUBLIC_, but Vite still inlines it into the worker bundle at build time, so the
+# real value lives in deploy-test.yml's build step.
+PRIVATE_SITE_BASE = "https://private-test.nemar.org"
+
+# Embed call counts (ADR 0024), development dataset: staging and production never share rows.
+# deploy-test.yml publishes with `--branch main`, which is this project's production environment,
+# so the top-level binding is the one that applies. Analytics Engine creates the dataset on its
+# first write.
+[[analytics_engine_datasets]]
+binding = "EMBED_ANALYTICS"
+dataset = "nemar_website_embeds_dev"
 
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
 # per-project, not shared with prod. Set it via the Cloudflare Pages

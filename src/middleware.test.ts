@@ -10,6 +10,8 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  resetEmbedCountWarnings,
+  routeAllowsFraming,
   routeNeedsUnsafeEval,
 } from "./middleware";
 
@@ -39,6 +41,317 @@ describe("isPublicCacheable", () => {
 
   it("returns true for public + s-maxage", () => {
     expect(isPublicCacheable(r("public, s-maxage=600"))).toBe(true);
+  });
+});
+
+/**
+ * The embed call count (website#410 phase 2, ADR 0024), through the real
+ * `onRequest` and real `Request` objects.
+ *
+ * There is no fake Analytics Engine binding here. What a point holds is pinned
+ * by `embedDataPoint`'s own tests; these tests pin when the middleware tries to
+ * write one, and that trying never changes the response. The two are joined by
+ * the one thing a junk binding does for real: a text variable bound under the
+ * dataset's name has no `writeDataPoint`, so the write genuinely throws, and
+ * the middleware's own `console.warn` (one line, naming the dataset) says it
+ * was attempted. A deploy that bound the wrong kind of thing under that name is
+ * a case worth surviving anyway.
+ *
+ * Both warnings are once per isolate, which in a test process is once per
+ * file, so `warningsDuring` resets the flags first and every case starts clean.
+ * What counts at all (status, route, decoded id) is `embedCallPoint`'s decision
+ * and is pinned in `lib/embed-analytics.test.ts`.
+ *
+ * The cache HIT and MISS serve paths are not exercised here: Node has no
+ * `caches`, and wrangler's `getPlatformProxy` hands back a Cache that stores
+ * nothing, so a unit test cannot reach them without faking the cache. They run
+ * through the same single call (the count sits on `serve`'s return value, not
+ * inside any path), and are checked against a deployed build in the phase's
+ * gate 2.
+ */
+describe("embed call counting", () => {
+  const EMBED = "/dataset/on007753/embed";
+  const MARKETING = `https://${MARKETING_HOST}`;
+  const LOCAL = "http://localhost:4321";
+
+  type Runtime = Record<string, unknown> | undefined;
+
+  function embedCtx(
+    url: string,
+    opts: {
+      method?: string;
+      headers?: Record<string, string>;
+      cookie?: boolean;
+      runtime?: Runtime;
+    },
+  ): APIContext {
+    return {
+      request: new Request(url, { method: opts.method ?? "GET", headers: opts.headers }),
+      locals: opts.runtime === undefined ? {} : { runtime: opts.runtime },
+      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+    } as unknown as APIContext;
+  }
+
+  /** A text variable where the dataset binding belongs: the write really throws. */
+  const JUNK_BINDING: Runtime = { env: { EMBED_ANALYTICS: "this is not a dataset binding" } };
+
+  /** `onRequest`, whose declared return type also allows `void`; this one returns a response. */
+  async function serve(context: APIContext, next: () => Promise<Response>): Promise<Response> {
+    return (await onRequest(context, next)) as Response;
+  }
+
+  const ok = async () => new Response("ok", { status: 200 });
+  const respond = (status: number) => async () =>
+    new Response(status === 304 || status === 301 ? null : "body", {
+      status,
+      headers: status === 301 ? { Location: "/dataset/on007753/embed" } : {},
+    });
+
+  /**
+   * What the middleware logs while `run` runs, first argument of each warning,
+   * with the once-per-isolate flags reset so the case starts clean.
+   */
+  async function warningsDuring(run: () => Promise<unknown>): Promise<string[]> {
+    resetEmbedCountWarnings();
+    const seen: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => {
+      seen.push(String(args[0]));
+    };
+    try {
+      await run();
+    } finally {
+      console.warn = original;
+    }
+    return seen;
+  }
+
+  async function snapshot(res: Response): Promise<{
+    status: number;
+    headers: [string, string][];
+    body: string;
+  }> {
+    return {
+      status: res.status,
+      headers: [...res.headers].sort(([a], [b]) => a.localeCompare(b)),
+      body: await res.text(),
+    };
+  }
+
+  it("serves an embed load untouched when there is no binding", async () => {
+    const expected = new Headers({ "content-type": "text/plain;charset=UTF-8" });
+    applySecurityHeaders(expected, EMBED);
+    const runtimes: [string, Runtime][] = [
+      ["no runtime", undefined],
+      ["an empty runtime", {}],
+      ["a runtime with no env", { env: undefined }],
+      ["an env with no binding", { env: {} }],
+      ["an env with the binding undefined", { env: { EMBED_ANALYTICS: undefined } }],
+      ["an env with the binding null", { env: { EMBED_ANALYTICS: null } }],
+    ];
+    // On localhost, where having no binding is the normal state and says nothing;
+    // the production-host case has its own test below.
+    for (const cookie of [false, true]) {
+      for (const [name, runtime] of runtimes) {
+        const label = `${name}, ${cookie ? "cookie-bearing" : "anonymous"}`;
+        let res: Response | undefined;
+        const seen = await warningsDuring(async () => {
+          res = await serve(
+            embedCtx(`${LOCAL}${EMBED}?view=sub-05`, {
+              headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
+              cookie,
+              runtime,
+            }),
+            ok,
+          );
+        });
+        expect(seen, label).toEqual([]);
+        expect(await snapshot(res as Response), label).toEqual({
+          status: 200,
+          headers: [...expected].sort(([a], [b]) => a.localeCompare(b)),
+          body: "ok",
+        });
+      }
+    }
+  });
+
+  it("serves the same response when the write itself fails, and says so once", async () => {
+    for (const cookie of [false, true]) {
+      const request = (runtime: Runtime) =>
+        embedCtx(`${MARKETING}${EMBED}`, {
+          headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
+          cookie,
+          runtime,
+        });
+      const without = await snapshot((await serve(request(undefined), ok)) as Response);
+      let res: Response | undefined;
+      const seen = await warningsDuring(async () => {
+        res = await serve(request(JUNK_BINDING), ok);
+      });
+      expect(seen, `cookie ${cookie}`).toHaveLength(1);
+      expect(seen[0]).toContain("on007753");
+      expect(await snapshot(res as Response), `cookie ${cookie}`).toEqual(without);
+    }
+  });
+
+  it("counts an embed GET answered with 200 on the passthrough and the no-cache-storage paths", async () => {
+    // Cookie-bearing requests skip the edge cache (passthrough); anonymous ones
+    // reach the cache lookup, find no `caches` in Node, and fall back.
+    for (const cookie of [true, false]) {
+      for (const host of [
+        MARKETING,
+        "http://localhost:4321",
+        "https://pr-1.nemar-website.pages.dev",
+      ]) {
+        const seen = await warningsDuring(() =>
+          serve(embedCtx(`${host}${EMBED}`, { cookie, runtime: JUNK_BINDING }), ok),
+        );
+        expect(seen, `${host} cookie ${cookie}`).toHaveLength(1);
+        expect(seen[0]).toContain("on007753");
+      }
+    }
+  });
+
+  it("counts the trailing-slash spelling, and the decoded dataset id", async () => {
+    const slash = await warningsDuring(() =>
+      serve(embedCtx(`${MARKETING}${EMBED}/`, { runtime: JUNK_BINDING }), ok),
+    );
+    expect(slash).toHaveLength(1);
+    const encoded = await warningsDuring(() =>
+      serve(
+        embedCtx(`${MARKETING}/dataset/on%30%30%37%37%35%33/embed`, { runtime: JUNK_BINDING }),
+        ok,
+      ),
+    );
+    expect(encoded).toHaveLength(1);
+    expect(encoded[0]).toContain("on007753");
+    expect(encoded[0]).not.toContain("%");
+  });
+
+  it("does not count a response that is not a 200", async () => {
+    // 301 is the page's own ds* to on* hop: the 200 it leads to is what counts.
+    for (const status of [301, 304, 404, 500, 503]) {
+      let res: Response | undefined;
+      const seen = await warningsDuring(async () => {
+        res = await serve(
+          embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }),
+          respond(status),
+        );
+      });
+      expect(seen, String(status)).toEqual([]);
+      expect(res?.status, String(status)).toBe(status);
+    }
+  });
+
+  it("does not count the cross-host redirect hop", async () => {
+    let res: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      res = await serve(embedCtx(`https://${APP_HOST}${EMBED}`, { runtime: JUNK_BINDING }), ok);
+    });
+    expect(res?.status).toBe(301);
+    expect(seen).toEqual([]);
+  });
+
+  it("does not count any other route, or another spelling of the embed route", async () => {
+    for (const path of [
+      "/",
+      "/dataset/on007753",
+      "/dataset/on007753/collaborators",
+      "/dataset/on007753/embed/extra",
+      "/dataset/on007753/%65mbed",
+      "/dataset/embed",
+      "/discover",
+    ]) {
+      const seen = await warningsDuring(() =>
+        serve(embedCtx(`${MARKETING}${path}`, { runtime: JUNK_BINDING }), ok),
+      );
+      expect(seen, path).toEqual([]);
+    }
+  });
+
+  it("does not count HEAD, a prefetch, or any other method", async () => {
+    for (const method of ["HEAD", "POST", "PUT", "DELETE", "OPTIONS"]) {
+      const seen = await warningsDuring(() =>
+        serve(embedCtx(`${MARKETING}${EMBED}`, { method, runtime: JUNK_BINDING }), ok),
+      );
+      expect(seen, method).toEqual([]);
+    }
+    const prefetches: Record<string, string>[] = [
+      { "Sec-Purpose": "prefetch" },
+      { "Sec-Purpose": "prefetch;prerender" },
+      { Purpose: "prefetch" },
+    ];
+    for (const headers of prefetches) {
+      const seen = await warningsDuring(() =>
+        serve(embedCtx(`${MARKETING}${EMBED}`, { headers, runtime: JUNK_BINDING }), ok),
+      );
+      expect(seen, JSON.stringify(headers)).toEqual([]);
+    }
+  });
+
+  it("does not count a dataset id that does not decode, and leaves the response alone", async () => {
+    let res: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      res = await serve(
+        embedCtx(`${MARKETING}/dataset/%E0%A4%A/embed`, { runtime: JUNK_BINDING }),
+        ok,
+      );
+    });
+    expect(seen).toEqual([]);
+    expect(res?.status).toBe(200);
+    expect(await res?.text()).toBe("ok");
+  });
+
+  it("says once per isolate that a production host has no binding, and serves normally", async () => {
+    let first: Response | undefined;
+    let second: Response | undefined;
+    const seen = await warningsDuring(async () => {
+      first = await serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: { env: {} } }), ok);
+      second = await serve(embedCtx(`${MARKETING}${EMBED}`, { cookie: true }), ok);
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("EMBED_ANALYTICS");
+    expect(seen[0]).toContain("not being counted");
+    for (const res of [first, second]) {
+      expect(res?.status).toBe(200);
+      expect(await res?.text()).toBe("ok");
+    }
+  });
+
+  it("stays silent without a binding everywhere but a production host", async () => {
+    for (const host of [LOCAL, "https://pr-1.nemar-website.pages.dev", "https://test.nemar.org"]) {
+      const seen = await warningsDuring(() => serve(embedCtx(`${host}${EMBED}`, {}), ok));
+      expect(seen, host).toEqual([]);
+    }
+  });
+
+  it("does not warn about a missing binding for a request that would not be counted", async () => {
+    const seen = await warningsDuring(async () => {
+      await serve(embedCtx(`${MARKETING}${EMBED}`, { method: "HEAD" }), ok);
+      await serve(embedCtx(`${MARKETING}/discover`, {}), ok);
+      await serve(embedCtx(`${MARKETING}${EMBED}`, {}), respond(404));
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("logs a failing write once per isolate, not on every load", async () => {
+    const responses: Response[] = [];
+    const seen = await warningsDuring(async () => {
+      for (let i = 0; i < 3; i++) {
+        responses.push(
+          await serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }), ok),
+        );
+      }
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("on007753");
+    expect(seen[0]).toContain("further failures in this isolate are not logged");
+    expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
+    // A new isolate, which is what the reset stands for, logs again.
+    const again = await warningsDuring(() =>
+      serve(embedCtx(`${MARKETING}${EMBED}`, { runtime: JUNK_BINDING }), ok),
+    );
+    expect(again).toHaveLength(1);
   });
 });
 
@@ -605,6 +918,47 @@ describe("security headers", () => {
     expect(noindexed.get("X-Robots-Tag")).toBe("noindex, nofollow");
   });
 
+  it("keeps a page's own no-referrer, and only that, over the site-wide policy", () => {
+    // The private-site sign-in hop sets `no-referrer` because its URL carries a `state`;
+    // applySecurityHeaders runs after every page, so it must not overwrite that value.
+    const tightened = new Headers({ "Referrer-Policy": "no-referrer" });
+    applySecurityHeaders(tightened, "/auth/private/authorize");
+    expect(tightened.get("Referrer-Policy")).toBe("no-referrer");
+
+    // A page can make the policy stricter, never looser.
+    const loosened = new Headers({ "Referrer-Policy": "unsafe-url" });
+    applySecurityHeaders(loosened, "/auth/private/authorize");
+    expect(loosened.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+
+    // The path alone does not opt in: the page's header is the signal.
+    const unset = new Headers();
+    applySecurityHeaders(unset, "/auth/private/authorize");
+    expect(unset.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("keeps no-referrer through the whole middleware, percent-encoded paths included", async () => {
+    // Astro decodes the path before routing, so both encoded spellings render the authorize page.
+    // A path comparison in the middleware would miss them and overwrite the page's header.
+    const page = async () =>
+      new Response(null, {
+        status: 302,
+        headers: { Location: "/login", "Referrer-Policy": "no-referrer" },
+      });
+    const state = "a".repeat(43);
+    for (const path of [
+      "/auth/private/authorize",
+      "/auth/private/%61uthorize",
+      "/auth/%70rivate/authorize",
+    ]) {
+      const res = await onRequest(ctx(`https://${APP_HOST}${path}?state=${state}`), page);
+      expect(res?.status, path).toBe(302);
+      expect(res?.headers.get("Referrer-Policy"), path).toBe("no-referrer");
+    }
+
+    const elsewhere = await onRequest(ctx(`https://${APP_HOST}/dashboard`), passthrough);
+    expect(elsewhere?.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
   it("CSP allows the origins the client actually fetches (regression guards)", () => {
     const csp = SECURITY_HEADERS["Content-Security-Policy"];
     // raw.githubusercontent.com is deliberately NOT allowed: the README fetch
@@ -825,5 +1179,154 @@ describe("security headers", () => {
 
     const prod = await onRequest(ctx(`https://${MARKETING_HOST}/discover`), passthrough);
     expect(prod?.headers.get("X-Robots-Tag")).toBeNull();
+  });
+});
+
+/**
+ * Route-scoped framing (website#410, ADR 0023): the embed route, and only the
+ * embed route, may be framed by another site.
+ */
+describe("framing", () => {
+  const EMBED = "/dataset/on007753/embed";
+  const frameAncestors = (csp: string | null) =>
+    csp
+      ?.split("; ")
+      .find((d) => d.startsWith("frame-ancestors"))
+      ?.slice("frame-ancestors ".length);
+
+  function anonCtx(url: string, method = "GET"): APIContext {
+    return {
+      request: new Request(url, { method }),
+      locals: {},
+      cookies: { get: () => undefined },
+    } as unknown as APIContext;
+  }
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  it("allows framing on the embed route only", () => {
+    expect(routeAllowsFraming(EMBED)).toBe(true);
+    expect(routeAllowsFraming(`${EMBED}/`)).toBe(true);
+    for (const path of [
+      "/",
+      "/dataset/on007753",
+      "/dataset/on007753/collaborators",
+      "/dataset/on007753/embed/extra",
+      "/dataset/on007753/%65mbed",
+      "/login",
+      "/settings",
+      "/upload",
+    ]) {
+      expect(routeAllowsFraming(path), path).toBe(false);
+    }
+  });
+
+  it("sends frame-ancestors * and no X-Frame-Options on the embed route", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, EMBED);
+    expect(frameAncestors(headers.get("Content-Security-Policy"))).toBe("*");
+    expect(headers.get("X-Frame-Options")).toBeNull();
+    // Everything else about the policy is unchanged on that route.
+    expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+  });
+
+  it("removes an X-Frame-Options that arrived with the response", () => {
+    // The cache HIT path rebuilds headers from the cached response before
+    // calling applySecurityHeaders, so a stray value must not survive there.
+    const fromCache = new Headers({ "X-Frame-Options": "SAMEORIGIN" });
+    applySecurityHeaders(fromCache, EMBED);
+    expect(fromCache.get("X-Frame-Options")).toBeNull();
+  });
+
+  it("differs from the dataset page's CSP in frame-ancestors and nothing else", () => {
+    // A policy widened for the embed (or one the page gains that the embed
+    // misses) would fail here: framing is the only thing ADR 0023 changes.
+    const embed = contentSecurityPolicy(EMBED);
+    const page = contentSecurityPolicy("/dataset/on007753");
+    expect(embed).not.toBe(page);
+    expect(embed.replace("frame-ancestors *", "frame-ancestors 'self'")).toBe(page);
+  });
+
+  it("keeps the embed route's viewer CSP: 'unsafe-eval' for the zarr codecs", () => {
+    // The embed mounts the same viewer, so it needs the same codec grant
+    // (ADR 0009); the existing `/dataset/` prefix already covers it.
+    expect(routeNeedsUnsafeEval(EMBED)).toBe(true);
+    expect(contentSecurityPolicy(EMBED)).toContain("'unsafe-eval'");
+  });
+
+  it("stamps the framing headers through the middleware on every host", async () => {
+    for (const origin of [`https://${MARKETING_HOST}`, "http://localhost:4321"]) {
+      const embed = await onRequest(anonCtx(`${origin}${EMBED}?view=sub-05`), passthrough);
+      expect(embed?.status, origin).toBe(200);
+      expect(frameAncestors(embed?.headers.get("Content-Security-Policy") ?? null), origin).toBe(
+        "*",
+      );
+      expect(embed?.headers.get("X-Frame-Options"), origin).toBeNull();
+
+      const page = await onRequest(anonCtx(`${origin}/dataset/on007753`), passthrough);
+      expect(frameAncestors(page?.headers.get("Content-Security-Policy") ?? null), origin).toBe(
+        "'self'",
+      );
+      expect(page?.headers.get("X-Frame-Options"), origin).toBe("SAMEORIGIN");
+    }
+    // Non-GET takes its own early passthrough; it must agree.
+    const post = await onRequest(anonCtx(`https://${MARKETING_HOST}${EMBED}`, "POST"), passthrough);
+    expect(post?.headers.get("X-Frame-Options")).toBeNull();
+  });
+
+  /**
+   * Every page under src/pages, by a representative pathname derived from its
+   * file name, so a new route cannot quietly become frameable (or the embed
+   * route quietly stop being so). Lazy glob: the keys are all this reads, and
+   * no page module is imported.
+   */
+  const SAMPLE_PARAMS: Record<string, string> = {
+    id: "on007753",
+    slug: "welcome",
+    file: "4f2a9c.png",
+    username: "nemarAdmin",
+  };
+  function representativePath(file: string): string {
+    const route = file
+      .replace(/^\.\/pages/, "")
+      .replace(/\.(astro|ts)$/, "")
+      .replace(/\[\.\.\.[^\]]+\]/g, "datasets/on007753")
+      .replace(/\[([^\]]+)\]/g, (_, name: string) => SAMPLE_PARAMS[name] ?? "x")
+      .replace(/\/index$/, "");
+    return route === "" ? "/" : route;
+  }
+  const pageFiles = Object.keys(import.meta.glob("./pages/**/*.{astro,ts}"));
+
+  it("finds the page files to walk", () => {
+    expect(pageFiles.length).toBeGreaterThan(40);
+    expect(pageFiles).toContain("./pages/dataset/[id]/embed.astro");
+    expect(pageFiles).toContain("./pages/dataset/[id].astro");
+  });
+
+  it("makes exactly one page frameable: the embed route", async () => {
+    const frameable: string[] = [];
+    for (const file of pageFiles) {
+      const path = representativePath(file);
+      for (const variant of path === "/" ? [path] : [path, `${path}/`]) {
+        const headers = new Headers();
+        applySecurityHeaders(headers, variant);
+        const ancestors = frameAncestors(headers.get("Content-Security-Policy"));
+        const xfo = headers.get("X-Frame-Options");
+        if (routeAllowsFraming(variant)) {
+          frameable.push(file);
+          expect(ancestors, variant).toBe("*");
+          expect(xfo, variant).toBeNull();
+        } else {
+          expect(ancestors, variant).toBe("'self'");
+          expect(xfo, variant).toBe("SAMEORIGIN");
+        }
+        // And through the middleware's passthrough serve path.
+        const res = await onRequest(anonCtx(`http://localhost:4321${variant}`), passthrough);
+        expect(res?.headers.get("X-Frame-Options") ?? null, variant).toBe(
+          routeAllowsFraming(variant) ? null : "SAMEORIGIN",
+        );
+      }
+    }
+    expect([...new Set(frameable)]).toEqual(["./pages/dataset/[id]/embed.astro"]);
   });
 });

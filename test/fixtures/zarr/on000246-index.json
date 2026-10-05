@@ -1,0 +1,138 @@
+{
+    "format": "nemar-zarr-index",
+    "format_version": 3,
+    "dataset_id": "on000246",
+    "contract_base": "https://zarr.nemar.org/on000246/zarr/",
+    "data_base": "https://nemar.s3.us-east-2.amazonaws.com/on000246/zarr/",
+    "data_base_kind": "s3-public",
+    "s3_uri": "s3://nemar/on000246/zarr/",
+    "s3_region": "us-east-2",
+    "s3_anonymous": true,
+    "source_commit": "d29615e5b075ed563a3a964d338ae041b797490c",
+    "engine_version": "3",
+    "biosigio_version": "1.2.7",
+    "updated_utc": "2026-09-06T19:29:00Z",
+    "doi": "10.82901/nemar.on000246",
+    "license": "CC0",
+    "citation": "Elizabeth Bock, Peter Donhauser, Francois Tadel, Guiomar Niso, Sylvain Baillet (2026) MEG-BIDS Brainstorm data sample (v1.0.0). NEMAR. https://doi.org/10.82901/nemar.on000246",
+    "hed_version": null,
+    "layout": {
+        "level0": "<zarr>/<group>/0",
+        "view": "<zarr>/<group>/view/<L>",
+        "view_levels": "1..n_view_levels from the group attrs",
+        "scale_offset": "level-0 array attrs scale[] and offset[]; physical = digital * scale + offset",
+        "events": "<data_base>events.parquet"
+    },
+    "discovered_count": 3,
+    "store_count": 3,
+    "n_recordings": 3,
+    "errors": 0,
+    "failure_count": 0,
+    "pending_count": 0,
+    "stores": [
+        {
+            "path": "sub-0001/meg/sub-0001_task-AEF_run-01_meg.ds",
+            "zarr": "sub-0001/meg/sub-0001_task-AEF_run-01_meg.zarr",
+            "updated_utc": "2026-09-06T19:29:00Z",
+            "source_tree": "raw",
+            "derived": false,
+            "modalities": [
+                "meg"
+            ],
+            "groups": [
+                {
+                    "name": "meg_250hz",
+                    "modality": "MEG",
+                    "rate": 250.0,
+                    "n_channels": 340,
+                    "n_samples": 90000,
+                    "duration_s": 360.0,
+                    "n_view_levels": 4,
+                    "view_chunk_columns": 1024,
+                    "source_rate_hz": 2400.0,
+                    "chunk_samples": 1000,
+                    "shard_samples": 75000
+                }
+            ],
+            "power_line_frequency": 60.0,
+            "units_report": {
+                "converted": 0,
+                "relabelled": 0,
+                "kept_importer_unit": 16,
+                "units_column_present": true,
+                "sidecar": "sub-0001/meg/sub-0001_task-AEF_run-01_channels.tsv",
+                "sidecar_supplied": true
+            }
+        },
+        {
+            "path": "sub-0001/meg/sub-0001_task-AEF_run-02_meg.ds",
+            "zarr": "sub-0001/meg/sub-0001_task-AEF_run-02_meg.zarr",
+            "updated_utc": "2026-09-06T19:29:00Z",
+            "source_tree": "raw",
+            "derived": false,
+            "modalities": [
+                "meg"
+            ],
+            "groups": [
+                {
+                    "name": "meg_250hz",
+                    "modality": "MEG",
+                    "rate": 250.0,
+                    "n_channels": 340,
+                    "n_samples": 90000,
+                    "duration_s": 360.0,
+                    "n_view_levels": 4,
+                    "view_chunk_columns": 1024,
+                    "source_rate_hz": 2400.0,
+                    "chunk_samples": 1000,
+                    "shard_samples": 75000
+                }
+            ],
+            "power_line_frequency": 60.0,
+            "units_report": {
+                "converted": 0,
+                "relabelled": 0,
+                "kept_importer_unit": 16,
+                "units_column_present": true,
+                "sidecar": "sub-0001/meg/sub-0001_task-AEF_run-02_channels.tsv",
+                "sidecar_supplied": true
+            }
+        },
+        {
+            "path": "sub-emptyroom/meg/sub-emptyroom_task-noise_run-01_meg.ds",
+            "zarr": "sub-emptyroom/meg/sub-emptyroom_task-noise_run-01_meg.zarr",
+            "updated_utc": "2026-09-06T19:29:00Z",
+            "source_tree": "raw",
+            "derived": false,
+            "modalities": [
+                "meg"
+            ],
+            "groups": [
+                {
+                    "name": "meg_250hz",
+                    "modality": "MEG",
+                    "rate": 250.0,
+                    "n_channels": 301,
+                    "n_samples": 7500,
+                    "duration_s": 30.0,
+                    "n_view_levels": 2,
+                    "view_chunk_columns": 1024,
+                    "source_rate_hz": 2400.0,
+                    "chunk_samples": 1000,
+                    "shard_samples": 8000
+                }
+            ],
+            "power_line_frequency": 60.0,
+            "units_report": {
+                "converted": 0,
+                "relabelled": 0,
+                "kept_importer_unit": 1,
+                "units_column_present": true,
+                "sidecar": "sub-emptyroom/meg/sub-emptyroom_task-noise_run-01_channels.tsv",
+                "sidecar_supplied": true
+            }
+        }
+    ],
+    "failures": [],
+    "pending": []
+}

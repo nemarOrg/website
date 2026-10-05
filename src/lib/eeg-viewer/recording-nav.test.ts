@@ -4,6 +4,7 @@ import {
   NAV_ORDER_STORAGE_KEY,
   type RecordingEntry,
   buildRecordingList,
+  displayableViewParam,
   firstRecording,
   formatViewSpec,
   matchRecordingSpec,
@@ -713,5 +714,37 @@ describe("nav order persistence", () => {
       },
     } as unknown as Storage;
     expect(writeNavOrder("file", () => storage)).toBe(false);
+  });
+});
+
+describe("displayableViewParam", () => {
+  it("quotes values shaped like entity strings, filenames and BIDS paths", () => {
+    for (const raw of [
+      "sub-05_task-BCCWJreading",
+      "sub-01_task-rest_run-1",
+      "sub-01_task-rest_eeg.set",
+      "sub-01/ses-1/eeg/sub-01_ses-1_task-rest_eeg.vhdr",
+    ]) {
+      expect(displayableViewParam(raw), raw).toBe(raw);
+    }
+  });
+
+  it("refuses free text, which a link's author could use to put words on the page", () => {
+    for (const raw of [
+      "Your account is suspended, call 555",
+      "sub-01 visit example.com",
+      "<script>",
+      "",
+      "a".repeat(121),
+      "sub-01\nvisit example.com",
+    ]) {
+      expect(displayableViewParam(raw), JSON.stringify(raw)).toBeNull();
+    }
+  });
+});
+
+describe("displayableViewParam trimming", () => {
+  it("trims surrounding whitespace, as parseViewSpec does", () => {
+    expect(displayableViewParam(" sub-01_task-rest \n")).toBe("sub-01_task-rest");
   });
 });

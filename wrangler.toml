@@ -30,6 +30,21 @@ PUBLIC_API_BASE_URL = "https://api.nemar.org"
 PUBLIC_DATA_BASE_URL = "https://data.nemar.org"
 PUBLIC_ZARR_BASE_URL = "https://zarr.nemar.org"
 
+# Embed call counts (ADR 0024). The middleware writes one data point per `GET /dataset/<id>/embed`
+# answered with a 200 (src/lib/embed-analytics.ts). Analytics Engine creates a dataset on its first
+# write, so there is nothing to provision. Non-inheritable: `[env.preview.vars]` above already
+# overrides one non-inheritable key, so the preview environment must restate this binding or it
+# would have none.
+[[analytics_engine_datasets]]
+binding = "EMBED_ANALYTICS"
+dataset = "nemar_website_embeds"
+
+# Previews write to the development dataset, so a branch deploy can never add rows to production's
+# counts. The staging project (wrangler.test.toml) binds the same dataset.
+[[env.preview.analytics_engine_datasets]]
+binding = "EMBED_ANALYTICS"
+dataset = "nemar_website_embeds_dev"
+
 # SESSION_SECRET is a server-only secret used to HMAC-sign the auth cookie.
 # Set it via `wrangler secret put SESSION_SECRET` or the Cloudflare Pages
 # dashboard. In local dev an insecure fallback is used; see src/lib/auth.ts.

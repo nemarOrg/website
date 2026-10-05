@@ -42,7 +42,13 @@ const url = new URL(Astro.request.url);
 // OpenNeuro source ids (ds*) redirect to their NEMAR canonical (on*) when a
 // mirror exists. Preserves the query string so deep links survive the hop.
 if (/^ds\d{6}$/.test(id)) {
-  const canonical = await resolveCanonical(id).catch(() => null);
+  const canonical = await resolveCanonical(id).catch((err) => {
+    // Served as-is rather than failing the page, but a lookup that rejects
+    // (the API unreachable, a timeout) is worth a trail: it silently strands
+    // every ds* link on the OpenNeuro id.
+    console.warn(`[dataset/${id}] canonical lookup failed; serving ${id} as-is:`, err);
+    return null;
+  });
   if (canonical) {
     return Astro.redirect(`/dataset/${canonical}${url.search}`, 301);
   }
@@ -444,36 +450,20 @@ Astro.response.headers.set(
     type ZarrIndexStore,
     fetchZarrIndex,
     prefetchZarrStoreMetadata,
-    unitsNoticeText,
     zarrAvailablePaths,
     zarrFailureReasonByPath,
     zarrHasAnyStore,
     zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
-  import {
-    NAV_ORDER_CHANGED_EVENT,
-    type RecordingEntry,
-    VIEW_PARAM,
-    buildRecordingList,
-    firstRecording,
-    formatViewSpec,
-    orderedRecordings,
-    readNavOrder,
-    recordingPosition,
-    resolveViewParam,
-    selectRecording,
-    stepRecording,
-    subjectValues,
-    taskValues,
-  } from "../../lib/eeg-viewer/recording-nav";
+  import { VIEW_PARAM, displayableViewParam } from "../../lib/eeg-viewer/recording-nav";
   import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
-  // Type-only, so this does not pull the (WebGL-carrying) viewer module into
-  // the page bundle; the mount itself stays behind the dynamic import below.
-  import type {
-    ViewerAnnotationHandle,
-    ViewerTransferState,
-  } from "../../lib/eeg-viewer/viewer";
+  import {
+    type LiveViewer,
+    createViewerSession,
+    sessionContext,
+  } from "../../lib/eeg-viewer/viewer-session";
+  import { embedSnippet, embedSnippetOrigin, embedUrl } from "../../lib/embed";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
   // doesn't pay for parsing the TSV renderer's bundle.
@@ -516,66 +506,114 @@ Astro.response.headers.set(
   // control, and it receives the already-mounted host rather than hosting a
   // mount of its own.
   //
-  // At most one viewer is live page-wide. That constraint arrived with the
-  // modal in website#199 but is not about the modal: each mount holds a WebGL
-  // context and browsers cap those (~16), so opening a second signal file
-  // releases the first instead of accumulating one per row.
-  //
-  // `eegSeq` is bumped on every open *and* every release; a mount attempt
-  // whose captured `seq` no longer matches by the time it resolves was
-  // superseded and tears itself down instead of touching the DOM. `eegLive`
-  // holds the row, the portable host element, and the teardown handle
-  // `mountEegViewer` returns, so a new open, a collapse, and a dialog close
-  // can each find the current instance and its DOM.
-  let eegSeq = 0;
-  let eegLive: {
-    /**
-     * Null when the viewer was opened directly into the dialog with no
-     * originating tree row (the "View data" action-bar button, website#260)
-     * — `detached` is always true in that case, so nothing here ever reads
-     * `btn`/`slot` for it. Non-null for every row-opened viewer.
-     */
-    btn: HTMLButtonElement | null;
-    /** The row's `[data-preview-slot]` — the viewer's home. Null; see `btn`. */
-    slot: HTMLElement | null;
-    /** The element `mountEegViewer` owns; moves between `slot` and the dialog. */
-    host: HTMLElement;
-    fileName: string;
-    destroy: (() => void) | null;
-    /**
-     * Dataset context (website#253). Held here rather than re-read from the
-     * row, because a navigation remounts the viewer after the row it came from
-     * has been collapsed — and the recording it swaps to may have no row in the
-     * tree at all, since directories load lazily.
-     */
-    datasetId: string;
-    version: string;
-    zarrToken: string;
-    /** BIDS path of the recording on screen; changes on every navigation. */
-    path: string;
-    /** Every viewable recording in this dataset, in Zarr index order. */
-    recordings: RecordingEntry[];
-    /** The section's Zarr state, for warming the next recording's metadata. */
-    zarr: {
-      stores: Map<string, ZarrIndexStore>;
-      prefetched: Set<string>;
-      token: string;
-    } | null;
-    /**
-     * True once the user has navigated within the dialog. The viewer then no
-     * longer shows the row it was opened from, so that row has been collapsed
-     * and the dialog owns the instance outright.
-     */
-    detached: boolean;
-    /** Settings to carry into the next recording (website#253). */
-    snapshot: (() => ViewerTransferState) | null;
-    /**
-     * The instance's annotation layer, for asking whether an unsaved draft is
-     * open before a navigation destroys it. Null until the mount reports one
-     * (and for a mount that produced no viewer, which has no drafts to lose).
-     */
-    annotations: ViewerAnnotationHandle | null;
-  } | null = null;
+  // The live instance, its supersession counter, and everything the dialog's
+  // recording navigation does with it belong to the shared viewer session
+  // (`src/lib/eeg-viewer/viewer-session.ts`, website#410), which the embed
+  // route drives too. What stays here is this page's own: the inline tree
+  // row, Enlarge, and handing the instance back to its row when the dialog
+  // closes. At most one viewer is live page-wide (website#199); the session
+  // enforces that for every entry point, the inline row included.
+
+  /**
+   * The tree row an inline-opened instance came from, keyed by the session's
+   * live record. Absent for a viewer opened straight into the dialog ("View
+   * data", a `?view=` link), which has no row to return to.
+   */
+  const inlineRowOf = new WeakMap<LiveViewer, { btn: HTMLButtonElement; slot: HTMLElement }>();
+
+  const session = createViewerSession({
+    // Only the dialog is a surface the session's chrome describes: an inline
+    // viewer under a tree row is a glance, not a destination (website#326).
+    isShowing: () => Boolean(document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.open),
+    setTitle: (name) => setEegDialogTitle(name),
+    present: (host) => {
+      const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+      const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+      if (!dialog || !dialogSlot) {
+        console.error("[eeg-viewer] dialog markup missing");
+        return false;
+      }
+      dialogSlot.replaceChildren(host);
+      dialog.showModal();
+      return true;
+    },
+    onRelease: (released) => {
+      const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
+      const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
+      // Only when the released instance is the one IN the dialog: the session
+      // presents a new host before releasing the old one, so an open dialog
+      // can be holding the viewer that is about to mount, and that one must
+      // stay.
+      if (dialog?.open && released && dialogSlot?.contains(released.host)) {
+        // Empty the dialog here rather than leaving it to the close handler.
+        // `close()` only *queues* the close event, and both callers make a new
+        // instance live synchronously before their first await — so by the
+        // time that handler runs it can already be looking at a different
+        // recording, and would not recognise this host as something to clear.
+        // Doing it synchronously means a released host can never be stranded
+        // inside a closed dialog.
+        //
+        // Unreachable today: a modal <dialog> makes the rest of the document
+        // inert, so no tree row can be clicked while it is open. That is a
+        // guarantee about the dialog being modal, though, not about this
+        // function, and it costs one line not to depend on it.
+        dialogSlot.replaceChildren();
+        dialog.close();
+      }
+      // A detached viewer's row was already collapsed when the user navigated
+      // away from it (see `onDetach`); resetting it again could clobber a panel
+      // the user has since reopened.
+      if (released && !released.detached) {
+        const row = inlineRowOf.get(released);
+        resetEegRow(row?.btn ?? null, row?.slot ?? null);
+      }
+    },
+    // The first navigation **collapses the tree row the viewer was opened
+    // from** and hands ownership to the dialog (ADR 0012). Closing the dialog
+    // therefore ends a navigated viewer's life instead of returning it inline
+    // (see the `close` handler).
+    onDetach: (live) => {
+      const row = inlineRowOf.get(live);
+      resetEegRow(row?.btn ?? null, row?.slot ?? null);
+    },
+    onViewerOpen: (host) => {
+      window.nemarAnalytics?.track("viewer_open");
+      window.nemarAnalytics?.trackViewerInteraction(host);
+    },
+    // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
+    // to download, so it points at the tree instead. Two wordings, as before
+    // the session existed: an open has no row on screen to point at, a
+    // navigation has just left one.
+    fallbackActionHtml: (target, ctx, phase) =>
+      isDirRecordingName(target.name)
+        ? phase === "open"
+          ? "Use the file tree's expand arrow to browse the recording's files"
+          : "Use the expand arrow next to its name to browse the recording's files"
+        : `<a href="${escapeHtml(fileDownloadUrl(ctx.datasetId, ctx.version, target.path))}" rel="external" download="${escapeHtml(target.name)}">Download the file</a>`,
+    onViewParamMiss: (raw, reason) => showViewParamNotice(raw, reason),
+    // The deep link for the recording on screen, absolute so it can be pasted
+    // anywhere.
+    shareLink: (viewSpec) => {
+      const url = new URL(window.location.href);
+      url.searchParams.set(VIEW_PARAM, viewSpec);
+      return url.toString();
+    },
+    // The iframe a partner pastes (website#410). Pinned to a version only when
+    // this page was opened on one with `?v=`; otherwise the embed follows the
+    // dataset's latest version, as the page does. The origin is the marketing
+    // host from either production host (`embedSnippetOrigin`), and this
+    // deploy's own origin anywhere else, so a staging snippet embeds staging.
+    embedSnippet: (live, entry, viewSpec) => {
+      const pinned = new URL(window.location.href).searchParams.get("v") === live.version;
+      const src = embedUrl(
+        embedSnippetOrigin(window.location),
+        live.datasetId,
+        viewSpec,
+        pinned ? live.version : null,
+      );
+      return embedSnippet(src, entry?.name ?? live.fileName);
+    },
+  });
 
   /**
    * Client-side hydration for the README and BIDS tree panels. Pre-#76 these
@@ -912,16 +950,6 @@ Astro.response.headers.set(
   }
 
   /**
-   * Cache-busting token for the section owning `btn` (#240). Callers must
-   * `await zarrIndexReady(btn)` first; without that this returns "" whenever the
-   * index is still in flight, silently restoring the pre-#240 un-busted URL.
-   */
-  function zarrTokenForButton(btn: HTMLElement): string {
-    const section = btn.closest<HTMLElement>("[data-tree-defer]");
-    return (section ? zarrBySection.get(section)?.token : undefined) ?? "";
-  }
-
-  /**
    * Settle once the section's Zarr index has been applied to its rows, so
    * availability and the cache-busting token are both readable. Resolves
    * immediately when the index already landed (the common case: the user has to
@@ -1147,71 +1175,16 @@ Astro.response.headers.set(
   }
 
   /**
-   * Tear down the live viewer (if any), return the dialog to a clean state,
-   * and collapse the row that owned it. Two call sites, both of which are
-   * about to make some other recording the single live instance:
-   * `openEegViewerInline` (another signal row opened, or the open one
-   * collapsed) and `openRecordingInDialog` (the action bar's "View data",
-   * website#260).
-   */
-  function releaseEegViewer(): void {
-    eegSeq++; // invalidate any mount still in flight
-    const live = eegLive;
-    eegLive = null;
-    live?.destroy?.();
-    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-    if (dialog?.open) {
-      // Empty the dialog here rather than leaving it to the close handler.
-      // `close()` only *queues* the close event, and both callers assign a new
-      // `eegLive` synchronously before their first await — so by the time that
-      // handler runs it can already be looking at a different recording, and
-      // would not recognise this host as something to clear. Doing it
-      // synchronously means a released host can never be stranded inside a
-      // closed dialog.
-      //
-      // Unreachable today: a modal <dialog> makes the rest of the document
-      // inert, so no tree row can be clicked while it is open. That is a
-      // guarantee about the dialog being modal, though, not about this
-      // function, and it costs one line not to depend on it.
-      document.querySelector<HTMLElement>("[data-eegv-slot]")?.replaceChildren();
-      dialog.close();
-    }
-    // A detached viewer's row was already collapsed when the user navigated
-    // away from it (see `navigateEegViewer`); resetting it again could clobber
-    // a panel the user has since reopened.
-    if (live && !live.detached) resetEegRow(live.btn, live.slot);
-  }
-
-  /**
    * Open the EEG/MEG/iEEG/EMG signal viewer inline, in the clicked row's own
    * preview panel (website#217). Keeps every failure path the modal version
    * had — `zarrAvailable === "false"` with its recorded reason, the
    * mount-failure catch, both with a download fallback — plus the aria-busy /
    * data-loaded markers and the code-split dynamic import.
    *
-   * `eegSeq` supersedes rather than merely bails: a second file opened before
-   * the first finishes loading must actively tear the first one down, since
-   * by then it may already hold a store and a GL context.
+   * The session's sequence supersedes rather than merely bails: a second file
+   * opened before the first finishes loading must actively tear the first one
+   * down, since by then it may already hold a store and a GL context.
    */
-  /**
-   * Append the units notice (website#277 decision 4) as the last child of a
-   * just-mounted viewer host. Safe at every one of the three mount call
-   * sites: `host` is either freshly created (inline open, dialog open) or
-   * `mountEegViewer` tore down and rebuilt its own contents as its first act
-   * (navigate) before this runs, so there is never a stale notice to clear
-   * first. No-ops when `unitsNoticeText` has nothing to say (v1 stores, or a
-   * store with nothing to flag).
-   */
-  function applyUnitsNotice(host: HTMLElement, store: ZarrIndexStore | undefined): void {
-    const text = unitsNoticeText(store);
-    if (!text) return;
-    const p = document.createElement("p");
-    p.className = "eegv-units-notice";
-    p.setAttribute("role", "note");
-    p.textContent = text;
-    host.appendChild(p);
-  }
-
   async function openEegViewerInline(btn: HTMLButtonElement): Promise<void> {
     const wrap = btn.closest<HTMLElement>("[data-preview-wrap]");
     const slot = wrap?.querySelector<HTMLElement>("[data-preview-slot]");
@@ -1220,12 +1193,12 @@ Astro.response.headers.set(
       return;
     }
 
-    // Second click on the already-open row collapses it. `releaseEegViewer`
+    // Second click on the already-open row collapses it. `session.release()`
     // covers the case where this row holds the live viewer; the unconditional
     // reset also covers the rows that are expanded *without* one (a recorded
     // "unavailable", or a mount that failed).
     const wasExpanded = btn.getAttribute("aria-expanded") === "true";
-    releaseEegViewer();
+    session.release();
     resetEegRow(btn, slot);
     if (wasExpanded) return;
 
@@ -1260,19 +1233,21 @@ Astro.response.headers.set(
     // The Zarr index races the dir listing, and the listing usually wins: it is
     // the smaller payload off the already-warm data plane. Until the index lands,
     // `annotateZarrRows` has not run, so `data-zarr-available` is UNSET — which
-    // the gate below reads as "available" — and `zarrTokenForButton` returns "",
-    // i.e. the un-busted URL #240 exists to avoid. Waiting here makes both reads
+    // the gate below reads as "available" — and the section has no Zarr state, so
+    // the session context below would carry the cache token "", i.e. the
+    // un-busted URL #240 exists to avoid. Waiting here makes both reads
     // meaningful. Bounded, so a wedged index fetch degrades to opening without a
     // token rather than a row that never opens.
     //
     // This is the first await in the function, and it lands BEFORE the mount
-    // registers this row in `eegLive` — so a second click during the wait cannot
-    // be collapsed by `releaseEegViewer` (it sees no live viewer yet). Claim a
-    // sequence number up front and stand down if a newer open took it, undoing
-    // the row expansion above rather than leaving a row stuck on "Loading".
-    const openSeq = ++eegSeq;
+    // makes this row the session's live instance — so a second click during the
+    // wait cannot be collapsed by `session.release()` (it sees no live viewer
+    // yet). Claim a sequence number up front and stand down if a newer open
+    // took it, undoing the row expansion above rather than leaving a row stuck
+    // on "Loading".
+    const openSeq = session.claim();
     await zarrIndexReady(btn);
-    if (openSeq !== eegSeq) {
+    if (!session.isCurrent(openSeq)) {
       resetEegRow(btn, slot);
       return;
     }
@@ -1305,8 +1280,8 @@ Astro.response.headers.set(
     if (!host) {
       // Unreachable short of the shell markup above being edited out of sync
       // with this query — there is no await between writing it and reading it
-      // back. Handled fully anyway, because this return sits *before*
-      // `eegSeq`/`eegLive` are assigned and so is the one path the try/finally
+      // back. Handled fully anyway, because this return sits *before* the
+      // session claims the instance and so is the one path the outcome handling
       // below can never clean up: a bare return would leave the row spinning
       // on "Loading viewer…" behind a stuck `aria-busy` forever, with an
       // Enlarge control that silently no-ops (`enlargeEegViewer` would find no
@@ -1318,89 +1293,41 @@ Astro.response.headers.set(
       return;
     }
 
-    const seq = ++eegSeq;
     const zarr = section ? (zarrBySection.get(section) ?? null) : null;
-    eegLive = {
-      btn,
-      slot,
+    const outcome = await session.mount({
       host,
-      fileName,
-      destroy: null,
-      datasetId: treeId,
-      version: treeVersion,
-      zarrToken: zarrTokenForButton(btn),
       path: filePath,
-      // Built from the index, not from the DOM: the tree only holds the
-      // directories the user has expanded, while the index lists every
-      // viewable recording in the dataset (website#253).
-      recordings: zarr ? buildRecordingList(zarr.paths) : [],
-      zarr,
+      fileName,
+      // Read after `zarrIndexReady` above, so the cache token is the
+      // section's (#240) whenever its index has landed.
+      ctx: sessionContext(treeId, treeVersion, zarr),
+      // Tied to this row until the first navigation (`onDetach`).
       detached: false,
-      snapshot: null,
-      annotations: null,
-    };
-    try {
-      const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
-      if (seq !== eegSeq) return; // superseded by a newer open, or released
-      const destroy = await mountEegViewer(host, {
-        datasetId: treeId,
-        version: treeVersion,
-        filePath,
-        zarrToken: zarrTokenForButton(btn),
-        downloadUrl: fileUrl,
-        // So the mount's own "unavailable" message offers the same fallback
-        // this function does for a directory recording (website#252), instead
-        // of a download link onto raw directory listing JSON.
-        dirRecording: isDirRecording,
-        // Checked *inside* the mount, right after its own async gap, so a
-        // superseded attempt returns before it writes into the host. The
-        // check below only runs once the mount has already written its DOM,
-        // too late to protect whatever got there first.
-        isStale: () => seq !== eegSeq,
-        onTransfer: (snapshot) => {
-          if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
-        },
-        onAnnotations: (handle) => {
-          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
-        },
-      });
-      if (seq !== eegSeq) {
-        // Superseded while mounting. Tear it down rather than let it keep
-        // rendering and streaming unseen; whoever superseded us already owns
-        // the DOM (`releaseEegViewer` cleared this row, or a newer open
-        // rebuilt it), so there is nothing here to clean up beyond the
-        // instance's own side effects.
-        destroy?.();
-        return;
-      }
-      if (!destroy) {
-        // `mountEegViewer` returns no disposer precisely when it mounted no
-        // viewer — the store wouldn't open, it has no channel groups, or
-        // there is no canvas context — and left a static "unavailable"
-        // message in the host instead. Two consequences. There is nothing to
-        // enlarge, so drop the bar: otherwise the row offers a control that
-        // opens a full-screen modal onto a single line of text. And there is
-        // nothing to release (that path registers no observers and no GL
-        // context), so this row must stop counting as the live instance,
-        // or the next open would "release" a viewer that never existed.
-        slot.querySelector(".eegv-inline__bar")?.remove();
-        eegLive = null;
-        return;
-      }
-      if (eegLive) eegLive.destroy = destroy;
-      applyUnitsNotice(host, zarr?.stores.get(filePath));
-      window.nemarAnalytics?.track("viewer_open");
-      window.nemarAnalytics?.trackViewerInteraction(host);
-    } catch (err) {
-      console.error("[eeg-viewer] mount failed:", err);
-      if (seq !== eegSeq) return;
-      eegLive = null;
+      // So the mount's own "unavailable" message offers the same fallback this
+      // function does for a directory recording (website#252), instead of a
+      // download link onto raw directory listing JSON.
+      dirRecording: isDirRecording,
+      downloadUrl: fileUrl,
+      logLabel: "[eeg-viewer] mount failed:",
+      afterClaim: () => {
+        const live = session.live;
+        if (live) inlineRowOf.set(live, { btn, slot });
+      },
+    });
+    if (outcome.kind === "unavailable") {
+      // The mount mounted no viewer and left a static "unavailable" message in
+      // the host instead. There is nothing to enlarge, so drop the bar:
+      // otherwise the row offers a control that opens a full-screen modal onto
+      // a single line of text.
+      slot.querySelector(".eegv-inline__bar")?.remove();
+    } else if (outcome.kind === "failed") {
       slot.innerHTML = `<p class="preview__error" role="alert">Viewer failed to load. ${fallbackActionHtml} instead.</p>`;
-    } finally {
-      if (seq === eegSeq) {
-        slot.removeAttribute("aria-busy");
-        slot.dataset.loaded = "true";
-      }
+    }
+    // A superseded open leaves the row to whoever superseded it
+    // (`session.release()` cleared it, or a newer open rebuilt it).
+    if (session.isCurrent(outcome.seq)) {
+      slot.removeAttribute("aria-busy");
+      slot.dataset.loaded = "true";
     }
   }
 
@@ -1419,7 +1346,7 @@ Astro.response.headers.set(
    * holds a reference to the host element, which the move does not invalidate.
    */
   function enlargeEegViewer(): void {
-    const live = eegLive;
+    const live = session.live;
     const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
     const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
     if (!dialog || !dialogSlot) {
@@ -1438,159 +1365,16 @@ Astro.response.headers.set(
     dialog.showModal();
     // Recording navigation is a dialog-only affordance (website#253) — the
     // controls only exist here, so they are populated on the way in.
-    syncEegNavControls();
-    prefetchAdjacentRecordings();
-  }
-
-  /**
-   * Open a recording straight into the enlarge dialog, with no originating
-   * tree row — the "View data" action-bar button (website#260), which
-   * reaches a recording through the Zarr index rather than a tree click.
-   *
-   * Starts `detached: true` from birth (ADR 0012): there is no inline row to
-   * hand the viewer back to, so closing the dialog always destroys the
-   * instance, the same as navigating away from a row-opened viewer already
-   * does. Reuses the same `eegLive`/`eegSeq` machinery as
-   * `openEegViewerInline`/`navigateEegViewer` — the single-live-viewer
-   * invariant, the recording-nav dropdowns, prev/next — so nothing else in
-   * this file has to special-case a button-opened viewer.
-   *
-   * Callable only while the eeg dialog is closed: every dialog on this page
-   * is modal, which makes the rest of the document (the action bar
-   * included) inert while one is open, so the button this calls from can
-   * never be clicked mid-dialog. `releaseEegViewer`'s `dialog.close()` path
-   * is therefore unreachable here, same as the "Unreachable today" case it
-   * already documents for the row-open path.
-   */
-  async function openRecordingInDialog(
-    target: RecordingEntry,
-    ctx: {
-      datasetId: string;
-      version: string;
-      recordings: RecordingEntry[];
-      zarrToken: string;
-      zarr: { stores: Map<string, ZarrIndexStore>; prefetched: Set<string>; token: string } | null;
-    },
-  ): Promise<void> {
-    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-    const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
-    if (!dialog || !dialogSlot) {
-      console.error("[eeg-viewer] dialog markup missing");
-      return;
-    }
-    // At most one viewer instance is ever live page-wide (website#199). Not a
-    // no-op: the action bar sits outside the dialog and outside the tree, so
-    // "View data" is perfectly clickable while an INLINE viewer is open in a
-    // row below. That instance is released (and its row collapsed) here.
-    // `releaseEegViewer`'s `dialog.close()` branch is what cannot be reached
-    // from here — every dialog on this page is modal, so the button could not
-    // have been clicked with one open.
-    releaseEegViewer();
-
-    const fileUrl = fileDownloadUrl(ctx.datasetId, ctx.version, target.path);
-    const isDirRecording = isDirRecordingName(target.name);
-    const fallbackActionHtml = isDirRecording
-      ? "Use the file tree's expand arrow to browse the recording's files"
-      : `<a href="${escapeHtml(fileUrl)}" rel="external" download="${escapeHtml(target.name)}">Download the file</a>`;
-
-    const host = document.createElement("div");
-    host.setAttribute("data-eegv-host", "");
-    host.innerHTML = `<p class="preview__loading" role="status">Loading viewer…</p>`;
-    dialogSlot.replaceChildren(host);
-    host.setAttribute("aria-busy", "true");
-    setEegDialogTitle(target.name);
-    dialog.showModal();
-
-    const seq = ++eegSeq;
-    eegLive = {
-      btn: null,
-      slot: null,
-      host,
-      fileName: target.name,
-      destroy: null,
-      datasetId: ctx.datasetId,
-      version: ctx.version,
-      zarrToken: ctx.zarrToken,
-      path: target.path,
-      recordings: ctx.recordings,
-      zarr: ctx.zarr,
-      detached: true,
-      snapshot: null,
-      annotations: null,
-    };
-    // The target itself has had no chance to warm (unlike a tree-row open,
-    // which prefetches on hover/focus before the click) — mirror what
-    // `prefetchZarrButton` does for a row, so the mount below hits a warm
-    // cache the same as every other entry point does.
-    if (ctx.zarr && !ctx.zarr.prefetched.has(target.path)) {
-      ctx.zarr.prefetched.add(target.path);
-      prefetchZarrStoreMetadata(
-        ctx.datasetId,
-        target.path,
-        ctx.zarr.stores.get(target.path),
-        ctx.zarrToken,
-      );
-    }
-    // Nav controls and neighbour prefetch depend only on `recordings`/`path`,
-    // both already final — populate them now rather than waiting on the
-    // mount, the same as `navigateEegViewer` does for an in-dialog swap.
-    syncEegNavControls();
-    prefetchAdjacentRecordings();
-
-    try {
-      const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
-      if (seq !== eegSeq || !eegLive) return; // superseded while importing
-      const destroy = await mountEegViewer(host, {
-        datasetId: ctx.datasetId,
-        version: ctx.version,
-        filePath: target.path,
-        zarrToken: ctx.zarrToken,
-        downloadUrl: fileUrl,
-        dirRecording: isDirRecording,
-        isStale: () => seq !== eegSeq,
-        onTransfer: (snapshot) => {
-          if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
-        },
-        onAnnotations: (handle) => {
-          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
-        },
-      });
-      if (seq !== eegSeq) {
-        // Superseded mid-mount by a faster click elsewhere; whoever
-        // superseded us owns the dialog now.
-        destroy?.();
-        return;
-      }
-      if (!destroy) {
-        // Mount rendered its own explanation (unavailable / no channel
-        // groups) — nothing to release and nothing to navigate from.
-        eegLive = null;
-        syncEegNavControls();
-        return;
-      }
-      if (eegLive) eegLive.destroy = destroy;
-      applyUnitsNotice(host, ctx.zarr?.stores.get(target.path));
-      window.nemarAnalytics?.track("viewer_open");
-      window.nemarAnalytics?.trackViewerInteraction(host);
-    } catch (err) {
-      // Mirrors `navigateEegViewer`'s failure state: an explicit error in
-      // the dialog, never a blank one (website#260).
-      console.error("[eeg-viewer] view-data open failed:", err);
-      if (seq !== eegSeq) return;
-      eegLive = null;
-      host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${fallbackActionHtml} instead.</p>`;
-      syncEegNavControls(); // nothing to navigate from; hide the now-dead controls
-    } finally {
-      if (seq === eegSeq) host.removeAttribute("aria-busy");
-    }
+    session.syncNav();
+    session.prefetchAdjacent();
   }
 
   /**
    * Click handler for the action bar's "View data" button (website#260).
-   * Picks the first recording in the user's current nav order from the same
-   * Zarr-index state the tree rows use, then hands it to
-   * `openRecordingInDialog`. There is exactly one `[data-tree-defer]`
-   * section per dataset page.
+   * Opens the first recording in the user's current nav order, from the same
+   * Zarr-index state the tree rows use, straight into the dialog through the
+   * session's `openFirst` (detached from birth, ADR 0012). There is exactly
+   * one `[data-tree-defer]` section per dataset page.
    */
   async function openViewDataButton(): Promise<void> {
     const section = document.querySelector<HTMLElement>("[data-tree-defer]");
@@ -1604,62 +1388,15 @@ Astro.response.headers.set(
       console.warn("[eeg-viewer] view-data button clicked with no viewable recordings");
       return;
     }
-    const recordings = buildRecordingList(state.paths);
-    const target = firstRecording(recordings, readNavOrder());
-    if (!target) return;
-    await openRecordingInDialog(target, {
-      datasetId,
-      version,
-      recordings,
-      zarrToken: state.token,
-      zarr: state,
-    });
+    await session.openFirst(sessionContext(datasetId, version, state));
   }
 
-  // --- Recording navigation (website#253) ----------------------------------
-  // The dialog's subject/task dropdowns and prev/next buttons swap the mounted
-  // recording in place. The list comes from the Zarr index (every viewable
-  // recording), the order from the gear setting, and the swap reuses the same
-  // `eegSeq` supersession the tree-click path uses, so a fast next/next/next
-  // cannot strand a mount, a store fetch, or a WebGL context (website#208).
-
-  function eegNavEl<T extends HTMLElement>(selector: string): T | null {
-    return document.querySelector<T>(selector);
-  }
-
-  /**
-   * Refuse a recording swap while the live viewer holds an unsaved annotation
-   * draft, and point at the thing doing the refusing.
-   *
-   * Deliberately NOT a `window.confirm`. A confirm blocks the whole page on a
-   * dialog that cannot be styled or dismissed by Escape-then-save, and it asks
-   * a question ("discard your half-written annotation?") whose answer is almost
-   * always no — so it costs every annotator a modal in exchange for a mistake
-   * they were not going to make. Refusing the navigation and flashing the
-   * popover already on screen says the same thing without stealing control:
-   * Escape or Save, then the same click works.
-   *
-   * Every caller returns on true; each is responsible for re-syncing its own
-   * chrome (the dropdowns in particular, which have already moved to the value
-   * the user picked).
-   */
-  function eegDraftBlocksNavigation(): boolean {
-    const handle = eegLive?.annotations;
-    if (!handle) return false;
-    try {
-      if (!handle.isPopoverOpen()) return false;
-      handle.focusPopover();
-      return true;
-    } catch (err) {
-      // Fail OPEN, deliberately. A guard that throws while answering "is there
-      // a draft?" would otherwise refuse every prev/next and every dropdown
-      // for the rest of the session, with the selects re-syncing away from
-      // whatever the user picked and no gesture that recovers. Losing at most
-      // one unsaved draft is much the smaller failure.
-      console.error("[eeg-viewer] annotation draft guard failed; allowing navigation:", err);
-      return false;
-    }
-  }
+  // --- Recording navigation (website#253) and deep links (website#326) -----
+  // The dialog's subject/task dropdowns, prev/next, Copy link, and `?view=`
+  // handling are the shared viewer session's (`viewer-session.ts`), driven by
+  // the embed route as well. Wired once: the dialog markup is static and
+  // outside the tree section that hydration replaces.
+  session.wire();
 
   /**
    * Whether closing the enlarge dialog right now would destroy an unsaved
@@ -1676,211 +1413,8 @@ Astro.response.headers.set(
    * covered separately, by the annotation layer's own `cancel` guard.
    */
   function eegDraftBlocksDialogClose(): boolean {
-    if (!eegLive?.detached) return false;
-    return eegDraftBlocksNavigation();
-  }
-
-  /** The entry for the recording currently on screen, if it parsed. */
-  function currentEegRecording(): RecordingEntry | null {
-    const live = eegLive;
-    if (!live) return null;
-    return live.recordings.find((e) => e.path === live.path) ?? null;
-  }
-
-  /**
-   * Fill one of the entity dropdowns. A current value that is not among the
-   * options — the recording on screen has no `task` while its siblings do —
-   * gets a leading placeholder entry rather than silently displaying some
-   * other recording's label.
-   */
-  function fillEegNavSelect(
-    sel: HTMLSelectElement,
-    values: string[],
-    prefix: string,
-    current: string | null,
-  ): void {
-    sel.replaceChildren();
-    if (current === null) {
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = "—";
-      sel.append(none);
-    }
-    for (const value of values) {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = `${prefix}${value}`;
-      sel.append(option);
-    }
-    sel.value = current ?? "";
-  }
-
-  /**
-   * Reflect the live viewer's position in the dialog's navigation controls.
-   * Safe to call at any time: with no live viewer, fewer than two recordings,
-   * or a dataset whose paths do not parse into entities, it just hides what
-   * cannot be driven.
-   */
-  function syncEegNavControls(): void {
-    // First, and outside every early return below: the URL has to track the
-    // recording even for a dataset with too few of them to show any controls.
-    syncEegViewerLinkState();
-    clearEegCopyStatus();
-    const nav = eegNavEl("[data-eegv-nav]");
-    const subSel = eegNavEl<HTMLSelectElement>("[data-eegv-nav-sub]");
-    const taskSel = eegNavEl<HTMLSelectElement>("[data-eegv-nav-task]");
-    const subField = eegNavEl("[data-eegv-nav-sub-field]");
-    const taskField = eegNavEl("[data-eegv-nav-task-field]");
-    const pos = eegNavEl("[data-eegv-nav-pos]");
-    const prev = eegNavEl<HTMLButtonElement>("[data-eegv-nav-prev]");
-    const next = eegNavEl<HTMLButtonElement>("[data-eegv-nav-next]");
-    if (!nav || !subSel || !taskSel || !subField || !taskField || !pos || !prev || !next) {
-      // The dialog markup and this script ship together; a mismatch means the
-      // component was edited without its driver.
-      console.warn("[eeg-viewer] navigation controls missing from the dialog");
-      return;
-    }
-    const live = eegLive;
-    if (!live || live.recordings.length < 2) {
-      nav.hidden = true;
-      return;
-    }
-    const current = currentEegRecording();
-    const subs = subjectValues(live.recordings);
-    // Tasks are scoped to the subject on screen, so every option the dropdown
-    // offers resolves to a real recording for that subject.
-    const tasks = taskValues(live.recordings, current?.sub ?? null);
-    fillEegNavSelect(subSel, subs, "sub-", current?.sub ?? null);
-    fillEegNavSelect(taskSel, tasks, "task-", current?.task ?? null);
-    // A dataset that names no subjects (or no tasks) gets no dropdown for them
-    // rather than an empty one; prev/next still walks every recording.
-    subField.hidden = subs.length === 0;
-    taskField.hidden = tasks.length === 0;
-
-    const ordered = orderedRecordings(live.recordings, readNavOrder());
-    const at = recordingPosition(ordered, live.path);
-    pos.textContent = at >= 0 ? `${at + 1} of ${ordered.length}` : `${ordered.length} recordings`;
-    const before = at > 0 ? ordered[at - 1] : null;
-    const after = at >= 0 ? (ordered[at + 1] ?? null) : null;
-    // Stepping onto the last recording disables the button the user is holding
-    // focus on, which would drop focus to the document body mid-task. Hand it
-    // to the opposite button instead, which by construction is now enabled.
-    const focused = document.activeElement;
-    prev.disabled = !before;
-    next.disabled = !after;
-    if (focused === next && next.disabled && !prev.disabled) prev.focus();
-    else if (focused === prev && prev.disabled && !next.disabled) next.focus();
-    // `aria-label`, not just `title`: an element with both takes its accessible
-    // name from the label, so a screen reader would otherwise be stuck with the
-    // markup's generic "Next recording" and never hear which recording that is.
-    const prevLabel = before ? `Previous recording: ${before.name}` : "No previous recording";
-    const nextLabel = after ? `Next recording: ${after.name}` : "No next recording";
-    prev.title = prevLabel;
-    next.title = nextLabel;
-    prev.setAttribute("aria-label", prevLabel);
-    next.setAttribute("aria-label", nextLabel);
-    nav.hidden = false;
-  }
-
-  // --- Deep links (website#326) ---------------------------------------------
-  // `?view=sub-01_task-rest` opens the viewer on a named recording, so an
-  // external catalog (EBRAINS asked for this at COST Action INDoS) can point at
-  // a subject and a task rather than only at the dataset page. The parameter is
-  // written back as the user navigates, which makes the address bar the link to
-  // share and the copy-link control below a convenience rather than the only
-  // way to obtain one.
-  //
-  // Entirely client-side: the SSR'd HTML does not depend on the parameter (the
-  // recording list comes from the Zarr index, which is fetched in the browser),
-  // which is why `src/middleware.ts` drops it from the edge cache key.
-
-  /**
-   * Reflect the live viewer in the URL and in the copy-link control, both of
-   * which follow one condition: the dialog is open on a live viewer.
-   *
-   * `?view=` names the recording on screen and disappears when nothing is on
-   * screen. `replaceState`, not `pushState`: stepping through twelve runs should
-   * not leave twelve entries for the back button to walk out through, and
-   * Escape or the corner X is how the user leaves the dialog.
-   *
-   * Only the dialog counts. An inline viewer under a tree row is a glance
-   * rather than a destination, and a link that reopened it as a modal would
-   * describe something other than what the sharer was looking at.
-   *
-   * Note the URL ends up naming what is actually **shown**, which for a relaxed
-   * match is not what the incoming link asked for: arriving on
-   * `?view=sub-01_task-nope` rewrites the parameter to the recording that
-   * resolved. That is the honest form — the address bar should describe the
-   * screen — and it means a visitor can pass on a link that lands where theirs
-   * did not.
-   */
-  function syncEegViewerLinkState(): void {
-    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-    const share = document.querySelector<HTMLElement>("[data-eegv-share]");
-    const live = eegLive;
-    const showing = Boolean(dialog?.open && live);
-    if (share) share.hidden = !showing;
-    const url = new URL(window.location.href);
-    if (showing && live) {
-      // `formatViewSpec` falls back to the path itself for a recording that
-      // names no entities, so a non-BIDS dataset still gets a working link.
-      const current = currentEegRecording();
-      url.searchParams.set(VIEW_PARAM, current ? formatViewSpec(current) : live.path);
-    } else {
-      url.searchParams.delete(VIEW_PARAM);
-    }
-    // Guarded: this runs on every nav sync, and an unchanged `replaceState`
-    // still rewrites the history entry for no reason.
-    if (url.toString() !== window.location.href) {
-      history.replaceState(history.state, "", url.toString());
-    }
-  }
-
-  /** The deep link for the recording on screen, absolute so it can be pasted
-   *  anywhere. Null when no viewer is live. */
-  function currentEegViewerLink(): string | null {
-    const live = eegLive;
-    if (!live) return null;
-    const current = currentEegRecording();
-    const url = new URL(window.location.href);
-    url.searchParams.set(VIEW_PARAM, current ? formatViewSpec(current) : live.path);
-    return url.toString();
-  }
-
-  /** Pending reset of the copy-link confirmation. */
-  let eegCopyStatusTimer = 0;
-
-  /** Drop the copy confirmation. Called on every nav sync as well as on the
-   *  timer, so a "Copied" left over from the previous recording can never
-   *  appear to describe the current one. */
-  function clearEegCopyStatus(): void {
-    window.clearTimeout(eegCopyStatusTimer);
-    const status = eegNavEl("[data-eegv-copy-status]");
-    if (status) status.textContent = "";
-  }
-
-  /**
-   * Put the current recording's deep link on the clipboard.
-   *
-   * The failure path is not an error state: `navigator.clipboard` is absent in
-   * an insecure context and can reject on a permission policy, and in both
-   * cases `syncEegViewerLinkState` has already put the identical link in the
-   * address bar — so the message points there rather than apologizing.
-   */
-  async function copyEegViewerLink(): Promise<void> {
-    const status = eegNavEl("[data-eegv-copy-status]");
-    const link = currentEegViewerLink();
-    if (!link || !status) return;
-    let message = "Link copied";
-    try {
-      await navigator.clipboard.writeText(link);
-    } catch (err) {
-      console.warn("[eeg-viewer] clipboard write failed", err);
-      message = "Couldn't copy — the link is in the address bar";
-    }
-    window.clearTimeout(eegCopyStatusTimer);
-    status.textContent = message;
-    eegCopyStatusTimer = window.setTimeout(clearEegCopyStatus, 5000);
+    if (!session.live?.detached) return false;
+    return session.draftBlocksNavigation();
   }
 
   /**
@@ -1895,7 +1429,9 @@ Astro.response.headers.set(
   function showViewParamNotice(raw: string, reason: string): void {
     const notice = document.querySelector<HTMLElement>("[data-view-link-notice]");
     if (!notice) return;
-    notice.textContent = `This link asked for ${raw} — ${reason} Showing the dataset instead.`;
+    // Whoever wrote the link wrote `raw`; quote it only when it looks like a
+    // recording name (see `displayableViewParam`).
+    notice.textContent = `This link asked for ${displayableViewParam(raw) ?? "a recording"} — ${reason} Showing the dataset instead.`;
     notice.hidden = false;
   }
 
@@ -1906,7 +1442,8 @@ Astro.response.headers.set(
    * Waits on the same per-section index promise the tree rows wait on, so this
    * costs no extra request: `hydrateTree` already has the fetch in flight by
    * the time this runs. Resolution (and its deliberate refusal to relax down to
-   * "somebody else's recording") lives in `resolveViewParam`.
+   * "somebody else's recording") lives in `resolveViewParam`, behind the
+   * session's `openViewParam`.
    */
   async function openViewParamRecording(): Promise<void> {
     const raw = new URL(window.location.href).searchParams.get(VIEW_PARAM);
@@ -1923,162 +1460,15 @@ Astro.response.headers.set(
     const datasetId = section.dataset.id;
     const version = section.dataset.version;
     if (!datasetId || !version) return;
-    if (!state || state.paths.size === 0) {
-      showViewParamNotice(raw, "this dataset has no recordings the viewer can open yet.");
-      return;
-    }
-    const recordings = buildRecordingList(state.paths);
-    const target = resolveViewParam(recordings, raw, readNavOrder());
-    if (!target) {
-      showViewParamNotice(raw, "no recording in this dataset matches it.");
-      return;
-    }
-    await openRecordingInDialog(target, {
-      datasetId,
-      version,
-      recordings,
-      zarrToken: state.token,
-      zarr: state,
-    });
-  }
-
-  /** Warm the neighbours' store metadata, the same warmup a hovered tree row
-   *  gets. Best-effort: a miss costs one extra request at navigation time. */
-  function prefetchAdjacentRecordings(): void {
-    const live = eegLive;
-    if (!live?.zarr) return;
-    const order = readNavOrder();
-    for (const delta of [1, -1]) {
-      const target = stepRecording(live.recordings, live.path, order, delta);
-      if (!target || live.zarr.prefetched.has(target.path)) continue;
-      live.zarr.prefetched.add(target.path);
-      prefetchZarrStoreMetadata(
-        live.datasetId,
-        target.path,
-        live.zarr.stores.get(target.path),
-        live.zarr.token,
-      );
-    }
+    await session.openViewParam(
+      raw,
+      state && state.paths.size > 0 ? sessionContext(datasetId, version, state) : null,
+    );
   }
 
   /**
-   * Swap the enlarged viewer to another recording, in place.
-   *
-   * The first navigation **collapses the tree row the viewer was opened from**
-   * and hands ownership to the dialog. The alternative — re-anchoring the
-   * viewer under the new recording's row — cannot be done honestly: the
-   * recording list comes from the Zarr index, so the target may sit in a
-   * directory the user never expanded and therefore have no row to anchor to.
-   * Leaving the viewer anchored under a row that names a different file would
-   * be worse still. Closing the dialog therefore ends a navigated viewer's
-   * life instead of returning it inline (see the `close` handler).
-   */
-  async function navigateEegViewer(target: RecordingEntry): Promise<void> {
-    const live = eegLive;
-    const dialog = document.querySelector<HTMLDialogElement>("[data-eeg-dialog]");
-    if (!live || !dialog?.open) return;
-    if (target.path === live.path) {
-      // The pick resolved to what is already on screen; nothing to swap, but
-      // the dropdowns may be showing the request rather than the reality.
-      syncEegNavControls();
-      return;
-    }
-    // The swap destroys this instance, and an open annotation popover holds a
-    // draft that exists nowhere else yet. Refuse rather than discard it.
-    if (eegDraftBlocksNavigation()) return;
-
-    if (!live.detached) {
-      resetEegRow(live.btn, live.slot);
-      live.detached = true;
-    }
-
-    // Read the outgoing instance's settings BEFORE anything supersedes it;
-    // `mountEegViewer` tears down whatever is in the host as its first act, so
-    // there is no later chance to ask.
-    const transfer = live.snapshot?.();
-    const seq = ++eegSeq;
-    // Kept for the failure path below, which puts the chrome back rather than
-    // leaving it naming a recording that never opened.
-    const fromPath = live.path;
-    const fromName = live.fileName;
-    live.path = target.path;
-    live.fileName = target.name;
-    live.snapshot = null;
-    live.annotations = null; // belongs to the instance the mount below replaces
-    // The title and controls move immediately: the mount can take a moment,
-    // and chrome that still names the previous recording reads as a no-op.
-    setEegDialogTitle(target.name);
-    syncEegNavControls();
-    const host = live.host;
-    host.setAttribute("aria-busy", "true");
-    try {
-      const { mountEegViewer } = await import("../../lib/eeg-viewer/viewer");
-      if (seq !== eegSeq || !eegLive) return;
-      // The mount disposes the instance currently in this host, so drop our
-      // handle to it rather than risk destroying it twice. Done here and not
-      // before the await: until the mount actually starts, the old instance is
-      // still the one on screen and a dialog close must still be able to
-      // release it.
-      eegLive.destroy = null;
-      const destroy = await mountEegViewer(host, {
-        datasetId: live.datasetId,
-        version: live.version,
-        filePath: target.path,
-        zarrToken: live.zarrToken,
-        downloadUrl: fileDownloadUrl(live.datasetId, live.version, target.path),
-        // The target may be a `.mefd`/`.ds`/BTi directory recording
-        // (website#252) with no row in the tree to read `data-dir-recording`
-        // from, so it is decided from the name — see `isDirRecordingName`.
-        dirRecording: isDirRecordingName(target.name),
-        isStale: () => seq !== eegSeq,
-        transfer,
-        onTransfer: (snapshot) => {
-          if (seq === eegSeq && eegLive) eegLive.snapshot = snapshot;
-        },
-        onAnnotations: (handle) => {
-          if (seq === eegSeq && eegLive) eegLive.annotations = handle;
-        },
-      });
-      if (seq !== eegSeq) {
-        // Superseded mid-mount by a faster click: whoever superseded us owns
-        // the host now, so this instance only has itself to clean up.
-        destroy?.();
-        return;
-      }
-      if (eegLive) eegLive.destroy = destroy ?? null;
-      // Unlike the other two mount sites, a falsy `destroy` here still falls
-      // through to this point (mount rendered its own "unavailable" message
-      // in `host` instead of a viewer) -- guard so the notice is never
-      // appended after that text.
-      if (destroy) applyUnitsNotice(host, live.zarr?.stores.get(target.path));
-      prefetchAdjacentRecordings();
-    } catch (err) {
-      // Reaching here means the mount threw somewhere its own try/catch does
-      // not cover — that only wraps `openRecording`, so a failure in the DOM
-      // build, the WebGL setup or the transfer lands here. By then the previous
-      // instance has already been torn down (the mount's first act), so there
-      // is nothing on screen to keep: without this branch the dialog would name
-      // the target while the host held a half-built viewer and no explanation.
-      console.error("[eeg-viewer] navigation failed:", err);
-      if (seq !== eegSeq || !eegLive) return;
-      const fallback = isDirRecordingName(target.name)
-        ? "Use the expand arrow next to its name to browse the recording's files"
-        : `<a href="${escapeHtml(fileDownloadUrl(live.datasetId, live.version, target.path))}" rel="external" download="${escapeHtml(target.name)}">Download the file</a>`;
-      host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${fallback} instead.</p>`;
-      // Put the chrome back on the recording the user came from: it is the one
-      // they can still navigate relative to, and the message above already
-      // names the one that failed.
-      eegLive.path = fromPath;
-      eegLive.fileName = fromName;
-      setEegDialogTitle(fromName);
-      syncEegNavControls();
-    } finally {
-      if (seq === eegSeq) host.removeAttribute("aria-busy");
-    }
-  }
-
-  /**
-   * The dialog heading, which follows the recording the chrome is describing.
+   * The dialog heading, which follows the recording the chrome is describing
+   * (the session's `setTitle`).
    *
    * Also updates the dialog's own `aria-label`, which otherwise stays the
    * static "Signal viewer" from `EegViewerDialog.astro` markup — a screen
@@ -2094,74 +1484,6 @@ Astro.response.headers.set(
       dialog.setAttribute("aria-label", name ? `Signal viewer: ${name}` : "Signal viewer");
     }
   }
-
-  function stepEegViewer(delta: number): void {
-    const live = eegLive;
-    if (!live) return;
-    // Checked here as well as inside `navigateEegViewer` so prev/next refuses
-    // without any of the chrome having moved first.
-    if (eegDraftBlocksNavigation()) return;
-    const target = stepRecording(live.recordings, live.path, readNavOrder(), delta);
-    if (target) void navigateEegViewer(target);
-    else syncEegNavControls(); // at an end; make sure the button reads disabled
-  }
-
-  // Wired once — the dialog markup is static and outside the tree section that
-  // hydration replaces.
-  eegNavEl<HTMLButtonElement>("[data-eegv-nav-prev]")?.addEventListener("click", () =>
-    stepEegViewer(-1),
-  );
-  eegNavEl<HTMLButtonElement>("[data-eegv-nav-next]")?.addEventListener("click", () =>
-    stepEegViewer(1),
-  );
-  eegNavEl<HTMLSelectElement>("[data-eegv-nav-sub]")?.addEventListener("change", (event) => {
-    const live = eegLive;
-    const sel = event.currentTarget as HTMLSelectElement;
-    if (!live) return;
-    // The `<select>` has already moved to the picked value, so a refusal has to
-    // put it back — otherwise the dropdown names a subject the viewer is not on.
-    if (eegDraftBlocksNavigation()) {
-      syncEegNavControls();
-      return;
-    }
-    // `prefer: "sub"` keeps the subject the user just picked when it has no
-    // recording of the current task.
-    const target = selectRecording(
-      live.recordings,
-      { sub: sel.value || null, task: currentEegRecording()?.task ?? null },
-      readNavOrder(),
-      "sub",
-    );
-    // `navigateEegViewer` re-syncs the controls itself; the else branch covers
-    // a pick that resolved to nothing, which must not leave the dropdown
-    // displaying a subject the viewer is not on.
-    if (target) void navigateEegViewer(target);
-    else syncEegNavControls();
-  });
-  eegNavEl<HTMLSelectElement>("[data-eegv-nav-task]")?.addEventListener("change", (event) => {
-    const live = eegLive;
-    const sel = event.currentTarget as HTMLSelectElement;
-    if (!live) return;
-    // As above: the dropdown has moved, so a refusal has to move it back.
-    if (eegDraftBlocksNavigation()) {
-      syncEegNavControls();
-      return;
-    }
-    const target = selectRecording(
-      live.recordings,
-      { sub: currentEegRecording()?.sub ?? null, task: sel.value || null },
-      readNavOrder(),
-      "task",
-    );
-    if (target) void navigateEegViewer(target);
-    else syncEegNavControls();
-  });
-  eegNavEl<HTMLButtonElement>("[data-eegv-copy-link]")?.addEventListener("click", () => {
-    void copyEegViewerLink();
-  });
-  // The gear setting lives inside the viewer instance; it announces a change
-  // rather than reaching into this chrome (the two are separately mounted).
-  document.addEventListener(NAV_ORDER_CHANGED_EVENT, () => syncEegNavControls());
 
   // The corner X's pre-close veto (see `lib/dialog-close.ts`). The X reaches
   // `.close()` directly, whose `close` event is not cancelable — so without
@@ -2180,41 +1502,25 @@ Astro.response.headers.set(
   // the same montage and time window they left with.
   document.querySelector<HTMLDialogElement>("[data-eeg-dialog]")?.addEventListener("close", () => {
     const dialogSlot = document.querySelector<HTMLElement>("[data-eegv-slot]");
-    const live = eegLive;
+    const live = session.live;
     const nav = document.querySelector<HTMLElement>("[data-eegv-nav]");
     if (nav) nav.hidden = true; // the controls only make sense in the dialog
     // Drop `?view=` (website#326): the dialog is the only surface the parameter
     // describes, so leaving it behind would make a reload reopen something the
     // user just dismissed. Safe this early — `dialog.open` is already false by
     // the time the `close` event fires, whichever branch below runs.
-    syncEegViewerLinkState();
+    session.syncLinkState();
     if (live?.detached) {
       // The user navigated away from the row this viewer came from, so there
-      // is nothing to hand back to (see `navigateEegViewer`): closing the
-      // dialog is the end of this instance. Bump the sequence first so any
-      // mount still in flight stands down instead of writing into a host that
-      // is about to be discarded.
-      eegSeq++;
-      eegLive = null;
-      // `navigateEegViewer` nulls `live.destroy` before awaiting the new mount,
-      // so between the mount publishing its own `_eegvCleanup` on the host and
-      // returning the disposer to us there is a window where closing the dialog
-      // has no handle to call — the instance would keep its observers, GL
-      // context and background reads alive until the post-await staleness check
-      // happened to run. The host's own cleanup is the backstop for exactly
-      // that window; taking whichever handle exists (and clearing the host's)
-      // keeps this call site down to one teardown. What makes "never twice"
-      // true overall is `mountEegViewer`'s own `disposed` guard, though — the
-      // superseded branch of `navigateEegViewer` can still call the same
-      // disposer after we have, and only the closure can see that.
-      const host = live.host as HTMLElement & { _eegvCleanup?: () => void };
-      const cleanup = live.destroy ?? host._eegvCleanup;
-      host._eegvCleanup = undefined;
-      cleanup?.();
+      // is nothing to hand back to (see the session's `onDetach`): closing the
+      // dialog is the end of this instance. `end` also covers a navigate that
+      // is still mid-mount, through the host's own cleanup.
+      session.end();
       dialogSlot?.replaceChildren();
       return;
     }
-    const anchor = live?.slot?.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
+    const row = live ? inlineRowOf.get(live) : undefined;
+    const anchor = row?.slot.querySelector<HTMLElement>("[data-eegv-inline-anchor]");
     if (live && anchor) {
       anchor.replaceWith(live.host);
       return;
@@ -2227,16 +1533,16 @@ Astro.response.headers.set(
       // patching over a broken invariant, not handling an expected state.
       // (Unreachable for a detached-from-birth viewer, website#260: that
       // branch above always returns first since `detached` is true from
-      // the start, so `live.slot` here is only ever null in a case this
-      // code never actually reaches.)
+      // the start, so `row` here is only ever absent in a case this code
+      // never actually reaches.)
       console.warn("[eeg-viewer] inline anchor missing; returning viewer to the end of its panel");
-      live.slot?.append(live.host);
+      row?.slot.append(live.host);
       return;
     }
     // Nothing of ours is in the dialog: either it was released while enlarged
-    // (already torn down, no row to go back to) or `eegLive` has since moved
-    // on to a row that was never enlarged. Drop whatever is left so the next
-    // enlarge doesn't flash a dead viewer.
+    // (already torn down, no row to go back to) or the session's live instance
+    // has since moved on to a row that was never enlarged. Drop whatever is
+    // left so the next enlarge doesn't flash a dead viewer.
     dialogSlot?.replaceChildren();
   });
 

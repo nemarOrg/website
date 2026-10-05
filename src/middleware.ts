@@ -1,15 +1,18 @@
-import type { MiddlewareHandler } from "astro";
+import type { MiddlewareHandler, MiddlewareNext } from "astro";
 import { apiBase } from "./lib/api-base";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
 import { edgeCacheUrl } from "./lib/edge-cache";
+import { isEmbedRoute } from "./lib/embed";
+import { embedCallPoint } from "./lib/embed-analytics";
 import {
   getCrossHostRedirect,
   getLegacyRedirect,
   getRetiredRedirect,
   hostMode,
   isNoindexHost,
+  isProductionHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 
@@ -48,6 +51,7 @@ import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
  *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
  *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
  *   - frame-src the two notebook hosts, for the widget's notebook tab (OSA_FRAME_SRC).
+ *   - frame-ancestors 'self', except `*` on the embed route (see routeAllowsFraming).
  *
  * README-borne script injection is already blocked at the markdown sanitizer
  * (it strips <script>, unit-tested), so this is defense-in-depth.
@@ -69,6 +73,27 @@ const UMAMI_SCRIPT_HOST = "https://analytics.nemar.org";
  */
 export function routeNeedsUnsafeEval(pathname: string): boolean {
   return pathname.startsWith("/dataset/");
+}
+
+/**
+ * Whether another site may put this route in a frame (website#410, ADR 0023).
+ *
+ * True for the embeddable signal viewer, `/dataset/<id>/embed`, and for
+ * nothing else. That route gets `frame-ancestors *` and no `X-Frame-Options`
+ * (which has no way to say "any site"); every other route keeps
+ * `frame-ancestors 'self'` and `X-Frame-Options: SAMEORIGIN`.
+ *
+ * Any site, with no allowlist, because the route has nothing to protect from
+ * a hostile frame: it never reads the session, has no forms and no actions,
+ * and shows only public data. An allowlist would make every partner (and
+ * every partner's localhost while they develop) a deploy of this repository.
+ * The matcher reads the raw path, so an encoded spelling of the route fails
+ * closed rather than open; see `isEmbedRoute`.
+ *
+ * Exported for the middleware unit tests.
+ */
+export function routeAllowsFraming(pathname: string): boolean {
+  return isEmbedRoute(pathname);
 }
 
 /** Base connect-src for every route: same-site APIs plus the raw README host. */
@@ -207,7 +232,7 @@ export function contentSecurityPolicy(pathname: string): string {
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    "frame-ancestors 'self'",
+    routeAllowsFraming(pathname) ? "frame-ancestors *" : "frame-ancestors 'self'",
     `img-src 'self' data: ${OSA_LOGO_HOSTS}`,
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
@@ -226,7 +251,8 @@ export function contentSecurityPolicy(pathname: string): string {
  * cache MISS) can't drift. Static asset responses (/_astro/*, images) get
  * `nosniff` from the trimmed `public/_headers` instead, since those never hit
  * this worker. The Content-Security-Policy is added separately because it
- * varies by route.
+ * varies by route, and `X-Frame-Options` is removed again on the one route
+ * other sites may frame (`routeAllowsFraming`).
  *
  * Exported (with the strict base CSP folded in) for the middleware unit tests.
  */
@@ -288,11 +314,34 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * inline and are deliberately left out: they carry no body, and anyone
  * checking which build is live follows the redirect to a real response
  * anyway.
+ *
+ * Framing is the one header pair that varies by route: `frame-ancestors *`
+ * and no `X-Frame-Options` on the embed route, `'self'` and `SAMEORIGIN`
+ * everywhere else (`routeAllowsFraming`, ADR 0023).
+ *
+ * `Referrer-Policy` is the one header a page may tighten: a response that
+ * already says `no-referrer` keeps it, and anything else gets the site-wide
+ * `strict-origin-when-cross-origin`. The private-site sign-in hop
+ * (`/auth/private/authorize`) relies on this, because its own URL carries a
+ * `state` that must not leave in a `Referer`. The value the page set is the
+ * signal, not the path: Astro decodes a request path before routing, so
+ * `/auth/private/%61uthorize` renders that page while a path comparison here
+ * would not recognize it. Only `no-referrer` is honored, so a page can make
+ * the policy stricter and never looser (ADR 0021).
  */
 export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
+  // Read BEFORE the loop below overwrites it.
+  const pageSetNoReferrer = headers.get("Referrer-Policy") === "no-referrer";
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
+  if (pageSetNoReferrer) headers.set("Referrer-Policy", "no-referrer");
+  // The embed route (website#410): `frame-ancestors *` in the CSP below says
+  // "any site", which X-Frame-Options cannot, and a browser that honours both
+  // would refuse the frame on SAMEORIGIN alone. Deleted rather than never
+  // set, so a value that arrived from anywhere upstream (a cached response's
+  // headers, a page) cannot survive either.
+  if (routeAllowsFraming(pathname)) headers.delete("X-Frame-Options");
   headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
   headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
@@ -305,7 +354,7 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
 }
 
 /**
- * Four responsibilities in one handler:
+ * Four responsibilities in `serve`, the handler `onRequest` wraps:
  *
  *   1. Two-host routing. `nemar.org` and `app.nemar.org` share one Astro
  *      build but expose different surfaces. Authenticated routes requested
@@ -339,8 +388,14 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
  * /auth/me; that overhead is acceptable since the cache is bypassed for
  * authed traffic anyway. Marketing-host requests never call /auth/me
  * regardless of any cookies present.
+ *
+ * `onRequest` wraps this handler and counts embed calls on whatever it returns
+ * (`countEmbedCall`); nothing in here knows about the count.
  */
-export const onRequest: MiddlewareHandler = async (context, next) => {
+const serve = async (
+  context: Parameters<MiddlewareHandler>[0],
+  next: MiddlewareNext,
+): Promise<Response> => {
   const url = new URL(context.request.url);
   // Staging (test.nemar.org) and preview (*.pages.dev) hosts get a blanket
   // noindex so they never compete with production in search results. See
@@ -486,6 +541,80 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   return withSecurityHeaders(response, url.pathname, noindex);
+};
+
+/**
+ * Whether this isolate has already said, once, that an embed call was not
+ * counted: because a production host has no `EMBED_ANALYTICS` binding, or
+ * because building or writing the point threw. A broken binding fails on every load, and a
+ * line per load would bury the one that matters, so each is logged once per
+ * isolate and then left alone.
+ */
+let warnedMissingBinding = false;
+let warnedWriteFailure = false;
+
+/** Forget what this isolate has warned about. For the middleware tests only. */
+export function resetEmbedCountWarnings(): void {
+  warnedMissingBinding = false;
+  warnedWriteFailure = false;
+}
+
+/**
+ * Count one embed call (website#410 phase 2, ADR 0024): a single Analytics
+ * Engine data point for a `GET /dataset/<id>/embed` that this request is
+ * answering with a 200. Never throws, and never touches the response.
+ *
+ * Called from `onRequest`, once per request, on the response `serve` finished
+ * with. That is what keeps passthrough, cache HIT, cache MISS and the
+ * no-cache-storage fallback from drifting: they are all the one return value
+ * of `serve`, so none of them can forget to count, and none can count twice.
+ *
+ * Whether the call counts, and with what id, is `embedCallPoint`'s decision
+ * (a 200 on the embed route, the percent-decoded id, no HEAD, no prefetch).
+ * This function is only the lookup, the write and the catch:
+ *
+ *   - with no `EMBED_ANALYTICS` binding it does nothing. That is silent under
+ *     `astro dev`, on a preview and on staging, which have none by design; on
+ *     a production host it is a deploy fault, so it logs once per isolate that
+ *     embed calls are not being counted.
+ *   - `writeDataPoint` is synchronous and returns at once; it is not awaited
+ *     and adds no wait. Anything that throws, building the point or writing
+ *     it, is logged once per isolate (with the dataset id when there is one)
+ *     and dropped, because a counter must never be able to break the page it
+ *     counts.
+ */
+function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Response): void {
+  let datasetId: string | null = null;
+  try {
+    const point = embedCallPoint(context.request, response.status);
+    if (point === null) return;
+    datasetId = point.indexes[0];
+    const binding = context.locals.runtime?.env?.EMBED_ANALYTICS;
+    if (binding == null) {
+      if (!warnedMissingBinding && isProductionHost(new URL(context.request.url).hostname)) {
+        warnedMissingBinding = true;
+        console.warn(
+          "[embed-analytics] EMBED_ANALYTICS is not bound on a production host; embed calls are not being counted",
+        );
+      }
+      return;
+    }
+    binding.writeDataPoint(point);
+  } catch (err) {
+    if (warnedWriteFailure) return;
+    warnedWriteFailure = true;
+    console.warn(
+      `[embed-analytics] could not count an embed call${datasetId ? ` for ${datasetId}` : ""}; further failures in this isolate are not logged`,
+      err,
+    );
+  }
+}
+
+/** The middleware: `serve` handles the request, then `countEmbedCall` counts it. */
+export const onRequest: MiddlewareHandler = async (context, next) => {
+  const response = await serve(context, next);
+  countEmbedCall(context, response);
+  return response;
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {
