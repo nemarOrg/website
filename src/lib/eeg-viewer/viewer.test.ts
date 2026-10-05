@@ -5,6 +5,7 @@ import {
   gainCarriesOver,
   loadPreloadEnabled,
   saveDataRequested,
+  unavailableMessageHtml,
 } from "./viewer";
 
 /**
@@ -180,5 +181,69 @@ describe("fitScopeHeight", () => {
   it("falls back to the minimum for a host it could not measure", () => {
     expect(fitScopeHeight(Number.NaN, 200)).toBe(FIT_MIN_PLOT_HEIGHT);
     expect(fitScopeHeight(600, Number.POSITIVE_INFINITY)).toBe(FIT_MIN_PLOT_HEIGHT);
+  });
+});
+
+/**
+ * The fallback sentence when a recording has no viewer. The embed route
+ * (website#410) supplies its own link, because the dataset page's two actions
+ * (download, the tree row's expand arrow) do not exist inside an iframe.
+ */
+describe("unavailableMessageHtml", () => {
+  const generic =
+    "No interactive viewer for this recording yet (the Zarr serving copy may still be generating).";
+
+  it("offers the download on the dataset page", () => {
+    expect(
+      unavailableMessageHtml({
+        downloadUrl:
+          "https://data.nemar.org/on007753/v1.0.0/sub-05/eeg/sub-05_task-BCCWJreading_eeg.vhdr",
+      }),
+    ).toBe(
+      `${generic} <a href="https://data.nemar.org/on007753/v1.0.0/sub-05/eeg/sub-05_task-BCCWJreading_eeg.vhdr" download>Download the file</a> instead.`,
+    );
+  });
+
+  it("points a directory recording at the tree's expand arrow on the dataset page", () => {
+    expect(
+      unavailableMessageHtml({
+        dirRecording: true,
+        downloadUrl:
+          "https://data.nemar.org/on004696/v1.0.0/sub-01/ses-ieeg01/ieeg/sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+      }),
+    ).toBe(
+      `${generic} Use the expand arrow next to its name to browse the recording's files instead.`,
+    );
+  });
+
+  it("uses the caller's link instead of either, in a new tab", () => {
+    const link = { href: "https://nemar.org/dataset/on004696", text: "Open the dataset on NEMAR" };
+    const expected = `${generic} <a href="https://nemar.org/dataset/on004696" target="_blank" rel="noopener">Open the dataset on NEMAR</a> instead.`;
+    expect(unavailableMessageHtml({ unavailableLink: link, dirRecording: true })).toBe(expected);
+    expect(
+      unavailableMessageHtml({
+        unavailableLink: link,
+        downloadUrl:
+          "https://data.nemar.org/on004696/v1.0.0/sub-01/ses-ieeg01/ieeg/sub-01_ses-ieeg01_task-ccep_run-01_ieeg.mefd",
+      }),
+    ).toBe(expected);
+  });
+
+  it("escapes the caller's link and the producer's failure reason", () => {
+    expect(
+      unavailableMessageHtml({
+        failureReason: "epoched <derivative> & averaged",
+        unavailableLink: {
+          href: 'https://nemar.org/dataset/on004696?v="v1.0.0"&view=sub-01',
+          text: "<b>Open</b>",
+        },
+      }),
+    ).toBe(
+      'epoched &lt;derivative&gt; &amp; averaged <a href="https://nemar.org/dataset/on004696?v=&quot;v1.0.0&quot;&amp;view=sub-01" target="_blank" rel="noopener">&lt;b&gt;Open&lt;/b&gt;</a> instead.',
+    );
+  });
+
+  it("says nothing more than the reason when there is no action to offer", () => {
+    expect(unavailableMessageHtml({})).toBe(generic);
   });
 });

@@ -190,6 +190,19 @@ export interface ViewerOptions {
    * Off by default; the dataset page leaves it off and keeps its rule.
    */
   fitHeight?: boolean;
+  /**
+   * The link the "unavailable" fallback offers, in place of the download link
+   * and the directory recording's "use the expand arrow" hint (website#410).
+   *
+   * Both defaults assume the dataset page: a download is one click away in
+   * the file tree, and the expand arrow is on the tree row. The embed has
+   * neither, so it points at the dataset page instead. Rendered as
+   * `<a href target="_blank" rel="noopener">text</a> instead.`, with both
+   * values escaped; a new tab because the one caller is a framed page, where
+   * following the link in place would replace the viewer the embedder put
+   * there.
+   */
+  unavailableLink?: { href: string; text: string };
 }
 
 /**
@@ -2417,24 +2430,39 @@ function buildDom(
 }
 
 function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
+  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts)}</p></div>`;
+  console.warn("[eeg-viewer] unavailable:", err);
+}
+
+/**
+ * The "no viewer for this recording" sentence, as escaped HTML. Split out of
+ * `renderUnavailable` so the choice of action and its escaping are unit
+ * tested (website#410 added a caller-supplied action whose values come from
+ * the embed page).
+ */
+export function unavailableMessageHtml(
+  opts: Pick<ViewerOptions, "failureReason" | "dirRecording" | "downloadUrl" | "unavailableLink">,
+): string {
   // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
   // to download: `downloadUrl` names a data.nemar.org directory, which answers
   // with raw listing JSON. Point at the row's expand arrow instead, in the same
   // words `fallbackActionHtml` uses in dataset/[id].astro — the two are one
-  // sentence on two surfaces, so keep them in sync.
-  const dl = opts.dirRecording
-    ? " Use the expand arrow next to its name to browse the recording's files instead."
-    : opts.downloadUrl
-      ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
-      : "";
+  // sentence on two surfaces, so keep them in sync. A caller-supplied
+  // `unavailableLink` (the embed route, website#410) replaces both.
+  const dl = opts.unavailableLink
+    ? ` <a href="${escapeAttr(opts.unavailableLink.href)}" target="_blank" rel="noopener">${escapeAttr(opts.unavailableLink.text)}</a> instead.`
+    : opts.dirRecording
+      ? " Use the expand arrow next to its name to browse the recording's files instead."
+      : opts.downloadUrl
+        ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
+        : "";
   // A recorded data failure (derivative, corrupt, unsupported) has a specific,
   // permanent reason -> show it. Otherwise the store is just missing: still
   // generating, or a transient failure that will retry.
   const msg = opts.failureReason
     ? escapeAttr(opts.failureReason)
     : "No interactive viewer for this recording yet (the Zarr serving copy may still be generating).";
-  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${msg}${dl}</p></div>`;
-  console.warn("[eeg-viewer] unavailable:", err);
+  return `${msg}${dl}`;
 }
 
 function el(tag: string, className: string): HTMLElement {
