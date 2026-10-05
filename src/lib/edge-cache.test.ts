@@ -35,7 +35,24 @@ describe("edgeCacheUrl", () => {
     expect(edgeCacheUrl("not-a-url")).toBe("not-a-url");
   });
 
+  it("collapses the embed's theme choice too", () => {
+    // `?theme=` is applied before first paint in the browser (website#410), so
+    // a partner's light embed and another's dark one are the same HTML.
+    const light = edgeCacheUrl(
+      "https://nemar.org/dataset/on007753/embed?view=sub-05_task-BCCWJreading&theme=light",
+    );
+    const dark = edgeCacheUrl(
+      "https://nemar.org/dataset/on007753/embed?theme=dark&view=sub-05_task-BCCWJreading",
+    );
+    expect(light).toBe("https://nemar.org/dataset/on007753/embed");
+    expect(dark).toBe(light);
+    // `?v=` is still the server's to read on the embed route as on the page.
+    expect(edgeCacheUrl("https://nemar.org/dataset/on007753/embed?v=v1.0.0&theme=dark")).toBe(
+      "https://nemar.org/dataset/on007753/embed?v=v1.0.0",
+    );
+  });
+
   it("lists only parameters read in the browser", () => {
-    expect(CLIENT_ONLY_QUERY_PARAMS).toEqual(["view"]);
+    expect(CLIENT_ONLY_QUERY_PARAMS).toEqual(["view", "theme"]);
   });
 });
