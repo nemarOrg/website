@@ -57,6 +57,16 @@ export function displayableDatasetId(id: string): string | null {
   return /^[A-Za-z0-9._-]{1,40}$/.test(id) ? id : null;
 }
 
+/**
+ * A `?v=` value as the embed may print it ("Version <v> is not published"), or
+ * null. Same reason and same shape as `displayableDatasetId`: published
+ * versions are short tokens such as `v1.0.1`, and anything else is the framing
+ * site's own text, which the note then calls "that version".
+ */
+export function displayableVersion(version: string): string | null {
+  return /^[A-Za-z0-9._-]{1,40}$/.test(version) ? version : null;
+}
+
 /** Query parameter an embedder uses to match the embed to its own page. */
 export const EMBED_THEME_PARAM = "theme";
 

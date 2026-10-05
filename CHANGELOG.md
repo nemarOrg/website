@@ -32,11 +32,14 @@ The release pull request from `staging` to `main` moves those entries under the 
   Refs #412, part of #410.
 - **A sign-in handoff page for `private.nemar.org`** at `/auth/private/authorize`.
   The private site sends a visitor there with a `state` it generated; the page checks the visitor is signed in, asks the backend for a one-time code bound to that `state`, and redirects to the private site's callback with the code alone.
-  The target host comes from `PRIVATE_SITE_BASE` (`https://private-test.nemar.org` on staging); a deployment other than production refuses with 501 when it is unset.
-  Every response carries `no-store`, `no-referrer` and `noindex`, and a drift test pins the paths to nemar-cli's `shared/contract/private-site.ts` (#396).
+  The target host comes from `PRIVATE_SITE_BASE` (`https://private-test.nemar.org` on staging); when it is unset, a deployment on the production API targets `https://private.nemar.org` and any other refuses with 501.
+  Every response the page itself sends carries `no-store`, `no-referrer` and `noindex` (a cross-host redirect to it carries `no-store`), and a drift test pins the paths to nemar-cli's `shared/contract/private-site.ts` (#396).
 
 ### Changed
 
+- **The dataset page's viewer dialog runs on a shared viewer session** (`src/lib/eeg-viewer/viewer-session.ts`), which the embed uses too, so a viewer feature is built once for both.
+  Recording navigation, `?view=` links, Copy link and the units notice moved out of the dataset page's script unchanged, checked against characterization runs of the dialog recorded before the move, and the viewer's global styles moved out of `BidsTree.astro` into `src/styles/eeg-viewer.css` (#415, part of #410).
+  The edge cache now ignores `?theme=` on every route, since nothing reads it on the server.
 - **A recording whose Zarr copy exists but would not load now says "The viewer could not load this recording."**, on the dataset page and in the embed, instead of claiming the copy "may still be generating", which is now said only of a store that is not there (Refs #411; a retry control is #416).
 - **The footer's "Privacy settings" control is now "Your Privacy Choices"**, with the standard toggle icon, and moves from the Project links to the end of the copyright line.
   It is still a button and opens the same analytics preference as before (ADR 0019).
@@ -54,6 +57,9 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Fixed
 
+- **The dataset page and the embed quote a link's `?view=` and `?v=` only when they look like a recording or a version.**
+  The "no recording matches" notice and the embed's unknown-version note quoted the raw values, so anyone writing a link, or framing the embed, could put their own sentence on a nemar.org page.
+  A `?view=` shaped like an entity string, filename or path, and a `?v=` shaped like a version token, are still quoted; anything else reads "a recording" or "That version" (#426, from the #424 release review).
 - **The publication queue lists requests again.**
   `/admin/publication-requests` listed nothing, under every tab: it read the owner-side status object, while the admin list route returns the raw request row.
   It now reads the real row, and the All tab is gone: Pending (which includes a request mid-approval), Published, Denied and Blocked, each with a count.

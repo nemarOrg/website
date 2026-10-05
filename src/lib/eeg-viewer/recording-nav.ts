@@ -322,6 +322,23 @@ export type RecordingSpec = Partial<Record<keyof RecordingEntities, string>>;
 const MAX_VIEW_PARAM_LENGTH = 256;
 
 /**
+ * A `?view=` value fit to quote back in a "no recording matches" notice, or
+ * null. The value comes from whoever wrote the link, so quoting it as-is would
+ * let anyone put their own sentence on a nemar.org page ("This link asked for
+ * Your account is suspended, call ..."), and inside their own frame on the
+ * embed route. Values shaped like BIDS entity strings, filenames or paths
+ * (letters, digits, `.`, `_`, `-`, `/`; trimmed, as `parseViewSpec` trims) are
+ * quoted; anything else is described as "a recording". The same guard as
+ * `displayableDatasetId` for the path id. It narrows what can be quoted to a
+ * single hyphenated token without spaces or punctuation; it cannot rule out
+ * every phrase, because an entity label may be any text.
+ */
+export function displayableViewParam(raw: string): string | null {
+  const value = raw.trim();
+  return /^[A-Za-z0-9._/-]{1,120}$/.test(value) ? value : null;
+}
+
+/**
  * Entities named by a `?view=` value, or null when it names none.
  *
  * Delegates to `parseRecordingPath`, which buys tolerance for free: a bare

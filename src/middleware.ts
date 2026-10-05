@@ -546,7 +546,7 @@ const serve = async (
 /**
  * Whether this isolate has already said, once, that an embed call was not
  * counted: because a production host has no `EMBED_ANALYTICS` binding, or
- * because the write itself threw. A broken binding fails on every load, and a
+ * because building or writing the point threw. A broken binding fails on every load, and a
  * line per load would bury the one that matters, so each is logged once per
  * isolate and then left alone.
  */
@@ -578,14 +578,17 @@ export function resetEmbedCountWarnings(): void {
  *     a production host it is a deploy fault, so it logs once per isolate that
  *     embed calls are not being counted.
  *   - `writeDataPoint` is synchronous and returns at once; it is not awaited
- *     and adds no wait. A write that throws is logged once per isolate, with
- *     the dataset id, and dropped, because a counter must never be able to
- *     break the page it counts.
+ *     and adds no wait. Anything that throws, building the point or writing
+ *     it, is logged once per isolate (with the dataset id when there is one)
+ *     and dropped, because a counter must never be able to break the page it
+ *     counts.
  */
 function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Response): void {
-  const point = embedCallPoint(context.request, response.status);
-  if (point === null) return;
+  let datasetId: string | null = null;
   try {
+    const point = embedCallPoint(context.request, response.status);
+    if (point === null) return;
+    datasetId = point.indexes[0];
     const binding = context.locals.runtime?.env?.EMBED_ANALYTICS;
     if (binding == null) {
       if (!warnedMissingBinding && isProductionHost(new URL(context.request.url).hostname)) {
@@ -601,7 +604,7 @@ function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Res
     if (warnedWriteFailure) return;
     warnedWriteFailure = true;
     console.warn(
-      `[embed-analytics] could not count an embed call for ${point.indexes[0]}; further write failures in this isolate are not logged`,
+      `[embed-analytics] could not count an embed call${datasetId ? ` for ${datasetId}` : ""}; further failures in this isolate are not logged`,
       err,
     );
   }

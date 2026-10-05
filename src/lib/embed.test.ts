@@ -4,6 +4,7 @@ import {
   EMBED_IFRAME_HEIGHT,
   datasetPageUrl,
   displayableDatasetId,
+  displayableVersion,
   embedRouteDatasetId,
   embedSnippet,
   embedSnippetOrigin,
@@ -195,6 +196,26 @@ describe("displayableDatasetId", () => {
       "on007753\n",
     ]) {
       expect(displayableDatasetId(id), JSON.stringify(id)).toBeNull();
+    }
+  });
+});
+
+describe("displayableVersion", () => {
+  it("echoes version tokens", () => {
+    for (const v of ["v1.0.0", "v1.0.1", "1.0.2", "v2.0.0-rc.1"]) {
+      expect(displayableVersion(v), v).toBe(v);
+    }
+  });
+
+  it("refuses the framing site's own text", () => {
+    for (const v of [
+      "Your account is suspended, call 555-0100",
+      "<b>",
+      "",
+      "v".repeat(41),
+      "v1\n",
+    ]) {
+      expect(displayableVersion(v), JSON.stringify(v)).toBeNull();
     }
   });
 });
