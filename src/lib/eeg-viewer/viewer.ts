@@ -225,7 +225,11 @@ export const FIT_MIN_PLOT_HEIGHT = 140;
  *
  * This is also what keeps the resize tracking free of a feedback loop: the
  * result does not depend on the scope's current height, only on the host and
- * the chrome, so re-measuring after applying it returns the same number.
+ * the chrome, so re-measuring after applying it returns the same number. That
+ * holds only while the chrome's height does not change with each render, which
+ * is why a fit viewer's status line is held to one line (`.eegv--fit`): on a
+ * narrow host "Signal loading…" fits one line and the full summary wraps to
+ * two, so every render would move the fit and every fit would start a render.
  */
 export function fitScopeHeight(hostHeight: number, chromeHeight: number): number {
   if (!Number.isFinite(hostHeight) || !Number.isFinite(chromeHeight)) return FIT_MIN_PLOT_HEIGHT;
@@ -700,6 +704,9 @@ export async function mountEegViewer(
   slot.innerHTML = "";
   const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB);
   const cleanups: Array<() => void> = [];
+  // `fitHeight` hosts get chrome whose height cannot change from one render to
+  // the next (`.eegv--fit` in eeg-viewer.css); see `fitScopeHeight`.
+  if (opts.fitHeight) ui.root.classList.add("eegv--fit");
   // Default the notch filter from the recording's PowerLineFrequency (the converter
   // embeds it in the store attrs; the Notch select already reflects it). Datasets
   // without the sidecar field stay unfiltered. The declared line frequency can
@@ -794,6 +801,8 @@ export async function mountEegViewer(
   function renderStatus(): void {
     if (!statusBase) return;
     ui.status.textContent = statusBase + degradedNote(group());
+    // Held to one line in a `fitHeight` host, so the whole line is a tooltip.
+    if (opts.fitHeight) ui.status.title = ui.status.textContent;
   }
 
   function syncDegradedNote(): void {
@@ -1981,7 +1990,15 @@ export async function mountEegViewer(
       fitRaf = requestAnimationFrame(() => {
         if (disposed) return;
         const applied = Math.round(ui.scope.getBoundingClientRect().height);
-        if (fittedScopeHeight() !== applied) render();
+        const fit = fittedScopeHeight();
+        if (fit === applied) return;
+        // Applied now, not when `render` gets to it: a render already in
+        // flight (a window read can take seconds) would otherwise leave the
+        // viewer taller than its host, and the embed document scrolling, for
+        // that whole read. The canvases are 100% of the scope, so until the
+        // render below resizes their bitmaps the last frame is only stretched.
+        ui.scope.style.height = `${fit}px`;
+        render();
       });
     });
     fitRo.observe(slot);

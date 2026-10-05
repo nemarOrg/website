@@ -325,6 +325,17 @@
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
+/* A `fitHeight` viewer (website#410's embed) takes the plot's height from what
+   its chrome leaves, so no line of chrome may change height between renders.
+   The status line would: "Signal loading…" is one line, and the summary that
+   replaces it wraps on a narrow host, so each render would move the fit and
+   each fit would start another render. One line, ellipsized; the full text
+   is the element's title. */
+.eegv--fit .eegv__status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Floating readout tucked into the scope's bottom-right corner: the JS sets its
    text on hover and clears it on leave, so :empty hides it. Out of flow (absolute)
    so it never resizes the scope; pointer-events:none so it can't block canvas hover. */
