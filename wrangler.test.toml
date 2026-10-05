@@ -31,6 +31,14 @@ PUBLIC_OSA_NOTEBOOK_URL = "https://develop-notebook.osc.earth/osa/"
 # real value lives in deploy-test.yml's build step.
 PRIVATE_SITE_BASE = "https://private-test.nemar.org"
 
+# Embed call counts (ADR 0024), development dataset: staging and production never share rows.
+# deploy-test.yml publishes with `--branch main`, which is this project's production environment,
+# so the top-level binding is the one that applies. Analytics Engine creates the dataset on its
+# first write.
+[[analytics_engine_datasets]]
+binding = "EMBED_ANALYTICS"
+dataset = "nemar_website_embeds_dev"
+
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
 # per-project, not shared with prod. Set it via the Cloudflare Pages
 # dashboard for nemar-website-test, or `wrangler pages secret put
