@@ -2193,7 +2193,7 @@ function buildDom(
   }
 
   // Time group. The `--time` modifier is for the embed route, which hides
-  // this readout in narrow frames (src/pages/dataset/[id]/embed.astro).
+  // this readout (src/pages/dataset/[id]/embed.astro).
   const time = el("span", "eegv__readout eegv__readout--time");
   const win = compactSelect(
     WINDOW_CHOICES.map((s) => [String(s), `${s} s`]),

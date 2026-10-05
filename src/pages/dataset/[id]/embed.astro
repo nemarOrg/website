@@ -507,6 +507,27 @@ if (Astro.response.status === 200) {
   .embed__viewer .eegv-units-notice {
     padding: var(--space-1) var(--space-2);
   }
+  /* The time readout ("0.0–10.0 s") is hidden at every frame size, kept for
+     screen readers, which cannot read the canvas axis. The time axis under
+     the plot already labels where the window is, and the readout is the one
+     piece of toolbar whose width follows the data: its text grows past
+     1000 s and in clock mode, which can wrap the toolbar onto another row
+     mid-session and take that row out of the plot (website#421). Without it,
+     a 360 px frame's toolbar takes two rows instead of three (for a
+     recording with one channel group, so no Group select). The rule is
+     global.css's `.visually-hidden`, without the `!important`s nothing here
+     has to beat; the class is set in viewer.ts's buildDom. */
+  .embed__viewer .eegv__readout--time {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    min-inline-size: 0;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
   /* A dropdown with one option has nothing to choose, and the title already
      names the recording: a one-task dataset (the common case) loses its task
      select here, which is what keeps a narrow header to two lines. */
@@ -518,7 +539,7 @@ if (Astro.response.status === 200) {
      and every wrapped line comes out of the plot; these trims are what let the
      smallest supported frame (360 x 480) hold the whole viewer without the
      document scrolling (website#410 gate 3). The controls stay; only their
-     captions, some spacing, and the time readout go. */
+     captions and some spacing go. */
   @media (max-width: 560px) {
     /* The toolbar's captions, not the gear popover's: the popover floats
        over the plot, so its captions cost no plot height, and without them
@@ -543,24 +564,6 @@ if (Astro.response.status === 200) {
     /* Still wide enough for "41 of 41" without the buttons shuffling. */
     .embed__head .eegv-nav__pos {
       min-inline-size: 3rem;
-    }
-    /* Two toolbar rows instead of three at 360 px for a recording with one
-       channel group (no Group select), which hands the plot back a row. The
-       time axis under the plot already labels where the window is, so the
-       "0.0–10.0 s" readout above it goes, kept for screen readers, which
-       cannot read the canvas axis: global.css's `.visually-hidden`, without
-       the `!important`s nothing here has to beat. The class is set in
-       viewer.ts's buildDom. */
-    .embed__viewer .eegv__readout--time {
-      position: absolute;
-      inline-size: 1px;
-      block-size: 1px;
-      min-inline-size: 0;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
     }
     /* Closer groups take 4 px off the row gap, and keep frames of 320 to
        330 px at two rows too. Only the toolbar's own groups: the gear
