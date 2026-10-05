@@ -1,0 +1,110 @@
+---
+/**
+ * The document shell for the embeddable signal viewer (website#410, ADR 0023).
+ *
+ * Deliberately not `Base.astro`. Everything Base adds around a page is either
+ * meaningless inside a partner's iframe or something NEMAR should not run
+ * there:
+ *
+ * - no Nav, Footer, SiteNotices or CookieNotice: the embed is one viewer in
+ *   someone else's page, and an outage banner or a cookie prompt inside it
+ *   would be read as theirs;
+ * - no Open Science Assistant widget, an explicit exception to ADR 0018's
+ *   site-wide embedding: a chat launcher floating over a partner's figure is
+ *   not ours to put there;
+ * - no Umami tracker (`installUmamiAnalytics` is never called): embed loads
+ *   are to be counted at the edge from the embed's own request instead
+ *   (website#410 phase 2), so nothing runs on a partner's visitors' devices;
+ * - no stored theme: `nemar:theme` in localStorage is a nemar.org visitor's
+ *   choice, and inside a third-party frame it is partitioned away anyway.
+ *   `?theme=light|dark` lets the embedder match its own page instead.
+ *
+ * What it keeps: the global tokens and CSS, the favicon, a `noindex` robots
+ * meta (the embed is a copy of the dataset page's viewer, not a page to rank),
+ * and a canonical link to the dataset page itself, resolved the way
+ * `Base.astro` resolves canonicals so the two cannot disagree.
+ */
+import { canonicalOriginFor } from "../lib/host";
+import { zarrBase } from "../lib/zarr-base";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  /** Path of the page this embed stands in for: the dataset page. */
+  canonicalPath: string;
+  description?: string;
+}
+
+const { title, canonicalPath, description } = Astro.props;
+const canonicalUrl = new URL(
+  canonicalPath,
+  canonicalOriginFor(canonicalPath, Astro.url.hostname),
+).toString();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    {description && <meta name="description" content={description} />}
+    <meta name="generator" content={Astro.generator} />
+    <link rel="canonical" href={canonicalUrl} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="alternate icon" href="/favicon.ico" />
+    {/* The viewer's first request is the Zarr index, then the store itself. */}
+    <link rel="preconnect" href={zarrBase()} crossorigin />
+    <title>{title}</title>
+    <script is:inline>
+      // Apply `?theme=light|dark` before first paint, so a dark embedder never
+      // sees a flash of the light theme. Anything else leaves the visitor's
+      // system preference in charge (tokens.css resolves it). Mirrors
+      // `parseEmbedTheme` in src/lib/embed.ts, which this inline script cannot
+      // import; keep the two in step.
+      (() => {
+        try {
+          const raw = new URLSearchParams(window.location.search).get("theme");
+          const theme = raw ? raw.trim().toLowerCase() : "";
+          if (theme === "light" || theme === "dark") {
+            document.documentElement.setAttribute("data-theme", theme);
+          }
+        } catch {
+          /* A malformed query string costs the theme, never the viewer. */
+        }
+      })();
+    </script>
+  </head>
+  <body class="embed-body">
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  /* The frame is the page: the body is exactly the iframe's height, so the
+     viewer (`fitHeight`) sizes itself to what is left after the header and the
+     document never scrolls at a usable frame size. A frame too short to hold
+     the viewer's controls and its minimum plot overflows the body, and the
+     document scrolls then rather than drawing an unusable plot. */
+  html,
+  body.embed-body {
+    block-size: 100%;
+  }
+  body.embed-body {
+    block-size: 100vh;
+    block-size: 100dvh;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+  /* Native controls (selects, scrollbars) follow a forced theme as well as the
+     tokens do; global.css leaves `color-scheme: light dark` to the system. */
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+  }
+</style>
