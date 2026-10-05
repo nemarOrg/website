@@ -518,7 +518,7 @@ if (Astro.response.status === 200) {
      and every wrapped line comes out of the plot; these trims are what let the
      smallest supported frame (360 x 480) hold the whole viewer without the
      document scrolling (website#410 gate 3). The controls stay; only their
-     captions and spacing go. */
+     captions, some spacing, and the time readout go. */
   @media (max-width: 560px) {
     .embed__head .eegv-nav__label,
     .embed__viewer .eegv__group-label {
@@ -540,6 +540,29 @@ if (Astro.response.status === 200) {
     /* Still wide enough for "41 of 41" without the buttons shuffling. */
     .embed__head .eegv-nav__pos {
       min-inline-size: 3rem;
+    }
+    /* Two toolbar rows instead of three at 360 px, which hands the plot back
+       a row. The time axis under the plot already labels where the window
+       is, so the "0.0–10.0 s" readout above it goes, kept for screen
+       readers, which cannot read the canvas axis. The groups also sit
+       closer; without that the second row is still a few pixels too wide
+       for the gear. */
+    .embed__viewer .eegv__readout--time {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      min-inline-size: 0;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+    }
+    .embed__viewer .eegv__toolbar {
+      gap: var(--space-2);
+    }
+    .embed__viewer .eegv__group + .eegv__group {
+      padding-inline-start: var(--space-2);
     }
   }
   @media (max-height: 600px) {

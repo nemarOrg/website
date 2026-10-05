@@ -2193,7 +2193,7 @@ function buildDom(
   }
 
   // Time group.
-  const time = el("span", "eegv__readout");
+  const time = el("span", "eegv__readout eegv__readout--time");
   const win = compactSelect(
     WINDOW_CHOICES.map((s) => [String(s), `${s} s`]),
     "10",
