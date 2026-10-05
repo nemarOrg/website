@@ -520,8 +520,11 @@ if (Astro.response.status === 200) {
      document scrolling (website#410 gate 3). The controls stay; only their
      captions, some spacing, and the time readout go. */
   @media (max-width: 560px) {
+    /* The toolbar's captions, not the gear popover's: the popover floats
+       over the plot, so its captions cost no plot height, and without them
+       "Filter (Hz)" loses its unit and the Next-order select its meaning. */
     .embed__head .eegv-nav__label,
-    .embed__viewer .eegv__group-label {
+    .embed__viewer .eegv__toolbar > .eegv__group > .eegv__group-label {
       display: none;
     }
     .embed__head {
@@ -541,12 +544,13 @@ if (Astro.response.status === 200) {
     .embed__head .eegv-nav__pos {
       min-inline-size: 3rem;
     }
-    /* Two toolbar rows instead of three at 360 px, which hands the plot back
-       a row. The time axis under the plot already labels where the window
-       is, so the "0.0–10.0 s" readout above it goes, kept for screen
-       readers, which cannot read the canvas axis. The groups also sit
-       closer; without that the second row is still a few pixels too wide
-       for the gear. */
+    /* Two toolbar rows instead of three at 360 px for a recording with one
+       channel group (no Group select), which hands the plot back a row. The
+       time axis under the plot already labels where the window is, so the
+       "0.0–10.0 s" readout above it goes, kept for screen readers, which
+       cannot read the canvas axis: global.css's `.visually-hidden`, without
+       the `!important`s nothing here has to beat. The class is set in
+       viewer.ts's buildDom. */
     .embed__viewer .eegv__readout--time {
       position: absolute;
       inline-size: 1px;
@@ -558,11 +562,25 @@ if (Astro.response.status === 200) {
       clip: rect(0, 0, 0, 0);
       white-space: nowrap;
     }
+    /* Closer groups take 4 px off the row gap, and keep frames of 320 to
+       330 px at two rows too. Only the toolbar's own groups: the gear
+       popover's groups are `.eegv__group`s inside `.embed__viewer` as well,
+       and stack without an inline divider. */
     .embed__viewer .eegv__toolbar {
       gap: var(--space-2);
     }
-    .embed__viewer .eegv__group + .eegv__group {
+    .embed__viewer .eegv__toolbar > .eegv__group + .eegv__group {
       padding-inline-start: var(--space-2);
+    }
+    /* The popover keeps its captions, so it pays for them in spacing:
+       otherwise it runs past the bottom of a 360 x 480 frame and the
+       document scrolls while it is open. */
+    .embed__viewer .eegv__menu {
+      gap: var(--space-2);
+      padding: var(--space-2);
+    }
+    .embed__viewer .eegv__menu .eegv__group + .eegv__group {
+      padding-block-start: var(--space-2);
     }
   }
   @media (max-height: 600px) {
