@@ -22,6 +22,8 @@
  * privacy policy describes exactly this list (nemarOrg/docs#60).
  */
 
+import { embedRouteDatasetId } from "./embed";
+
 /**
  * How the browser says it is loading the document (`Sec-Fetch-Dest`).
  *
@@ -112,4 +114,32 @@ export function embedDataPoint(request: Request, datasetId: string): EmbedDataPo
     blobs: [datasetId, embedderHost(request.headers), embedKind(request.headers)],
     doubles: [1],
   };
+}
+
+/**
+ * The data point for the response a request is about to get, or null when it
+ * must not be counted. This is everything the middleware decides, in one pure
+ * function, so the success path is pinned without a stand-in for the binding:
+ *
+ *   - `status` must be exactly 200. The `ds*` to `on*` redirect (301) is not
+ *     counted, and neither is a 304, 404, 500 or 503; the 200 a redirect leads
+ *     to is.
+ *   - the path must be the embed route (`embedRouteDatasetId`, which reads the
+ *     raw path, so an encoded spelling of the route is not counted).
+ *   - the id is the `[id]` segment percent-decoded, so it spells what the page
+ *     looked up. A malformed escape cannot have been served as a 200 and is not
+ *     counted. The id is not resolved again.
+ *   - then `embedDataPoint`'s own rules: `GET` only, no prefetch.
+ */
+export function embedCallPoint(request: Request, status: number): EmbedDataPoint | null {
+  if (status !== 200) return null;
+  const rawId = embedRouteDatasetId(new URL(request.url).pathname);
+  if (rawId === null) return null;
+  let datasetId: string;
+  try {
+    datasetId = decodeURIComponent(rawId);
+  } catch {
+    return null;
+  }
+  return embedDataPoint(request, datasetId);
 }

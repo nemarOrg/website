@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { embedDataPoint } from "./embed-analytics";
+import { embedCallPoint, embedDataPoint } from "./embed-analytics";
 
 const EMBED_URL = "https://nemar.org/dataset/on007753/embed";
 
@@ -232,5 +232,73 @@ describe("embedDataPoint: the combinations a deployed build sees", () => {
 
   it("curl, which sends neither header", () => {
     expect(embedDataPoint(embedRequest(), "on007753")?.blobs).toEqual(["on007753", "", "none"]);
+  });
+});
+
+describe("embedCallPoint: does this response count, and with what id", () => {
+  const framed = { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" };
+  const call = (
+    path: string,
+    status = 200,
+    headers: Record<string, string> = framed,
+    method = "GET",
+  ) => embedCallPoint(new Request(`https://nemar.org${path}`, { method, headers }), status);
+
+  it("builds the exact point for a 200 on the embed route", () => {
+    expect(call("/dataset/on007753/embed?view=sub-05&theme=dark")).toStrictEqual({
+      indexes: ["on007753"],
+      blobs: ["on007753", "example.org", "iframe"],
+      doubles: [1],
+    });
+  });
+
+  it("counts the trailing-slash spelling", () => {
+    expect(call("/dataset/on007753/embed/")?.indexes).toEqual(["on007753"]);
+  });
+
+  it("puts the percent-decoded id in both indexes[0] and blobs[0]", () => {
+    const point = call("/dataset/on%30%30%37%37%35%33/embed");
+    expect(point?.indexes[0]).toBe("on007753");
+    expect(point?.blobs[0]).toBe("on007753");
+    expect(JSON.stringify(point)).not.toContain("%");
+  });
+
+  it("decodes a multi-byte escape the way the page would", () => {
+    expect(call("/dataset/caf%C3%A9/embed")?.indexes[0]).toBe("caf\u00e9");
+  });
+
+  it("is null for every status that is not exactly 200", () => {
+    for (const status of [201, 204, 206, 301, 302, 304, 400, 404, 500, 503]) {
+      expect(call("/dataset/on007753/embed", status), String(status)).toBeNull();
+    }
+  });
+
+  it("is null for a malformed percent escape", () => {
+    for (const bad of ["%E0%A4%A", "%", "%zz", "on0077%"]) {
+      expect(call(`/dataset/${bad}/embed`), bad).toBeNull();
+    }
+  });
+
+  it("is null for every path that is not the embed route", () => {
+    for (const path of [
+      "/",
+      "/dataset/on007753",
+      "/dataset/on007753/collaborators",
+      "/dataset/on007753/embed/extra",
+      "/dataset/on007753/%65mbed",
+      "/dataset/embed",
+      "/dataset//embed",
+      "/discover",
+    ]) {
+      expect(call(path), path).toBeNull();
+    }
+  });
+
+  it("keeps embedDataPoint's own refusals: HEAD, a prefetch", () => {
+    expect(call("/dataset/on007753/embed", 200, framed, "HEAD")).toBeNull();
+    expect(
+      call("/dataset/on007753/embed", 200, { ...framed, "Sec-Purpose": "prefetch" }),
+    ).toBeNull();
+    expect(call("/dataset/on007753/embed", 200, { ...framed, Purpose: "prefetch" })).toBeNull();
   });
 });
