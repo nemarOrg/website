@@ -344,6 +344,40 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     return hooks.mountOptions?.({ path, fileName }) ?? {};
   }
 
+  /**
+   * Dispose whatever viewer `host` holds: the session's handle on it, or, for
+   * a mount that threw before handing one back, the host's own cleanup
+   * (`mountEegViewer` registers one before its first await). Clears both, so
+   * nothing can dispose the same instance twice, and a throw from the
+   * teardown itself is logged rather than allowed to mask the failure that
+   * led here.
+   */
+  function disposeHost(record: LiveViewer | null, host: HTMLElement): void {
+    const owned = host as HTMLElement & { _eegvCleanup?: () => void };
+    const cleanup = record?.destroy ?? owned._eegvCleanup;
+    if (record) record.destroy = null;
+    owned._eegvCleanup = undefined;
+    try {
+      cleanup?.();
+    } catch (err) {
+      console.error("[eeg-viewer] teardown threw:", err);
+    }
+  }
+
+  /**
+   * Run a side effect of a mount that has already succeeded (the units
+   * notice, analytics, neighbour prefetch). Logged, never rethrown: a failure
+   * here must not turn a working viewer into a "couldn't open" message while
+   * the viewer keeps running unowned underneath it.
+   */
+  function bestEffort(what: string, fn: () => void): void {
+    try {
+      fn();
+    } catch (err) {
+      console.error(`[eeg-viewer] ${what} failed; the viewer is unaffected:`, err);
+    }
+  }
+
   function release(): void {
     seq++; // invalidate any mount still in flight
     const released = live;
@@ -369,10 +403,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     // makes "never twice" true overall is `mountEegViewer`'s own `disposed`
     // guard: the superseded branch of `navigate` can still call the same
     // disposer after this has, and only the closure can see that.
-    const host = ended.host as HTMLElement & { _eegvCleanup?: () => void };
-    const cleanup = ended.destroy ?? host._eegvCleanup;
-    host._eegvCleanup = undefined;
-    cleanup?.();
+    disposeHost(ended, ended.host);
   }
 
   async function mount(req: MountRequest): Promise<MountOutcome> {
@@ -392,13 +423,14 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       snapshot: null,
       annotations: null,
     };
+    let destroy: (() => void) | undefined;
     try {
       // Inside the try: a throwing hook must end in the same "failed" outcome
       // (and the same explicit message) as a throwing mount, not escape it.
       req.afterClaim?.();
       const { mountEegViewer } = await import("./viewer");
       if (mySeq !== seq || !live) return { seq: mySeq, kind: "superseded" };
-      const destroy = await mountEegViewer(host, {
+      destroy = await mountEegViewer(host, {
         datasetId: ctx.datasetId,
         version: ctx.version,
         filePath: path,
@@ -418,32 +450,36 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         },
         ...mountOptionsFor(path, fileName),
       });
-      if (mySeq !== seq) {
-        // Superseded mid-mount by a faster click elsewhere; whoever superseded
-        // us owns the host now, so this instance only cleans up after itself.
-        destroy?.();
-        return { seq: mySeq, kind: "superseded" };
-      }
-      if (!destroy) {
-        // `mountEegViewer` returns no disposer precisely when it mounted no
-        // viewer (the store wouldn't open, it has no channel groups, or there
-        // is no canvas context) and left a static "unavailable" message in the
-        // host instead. Nothing to release, so it must stop counting as the
-        // live instance, or the next open would "release" a viewer that never
-        // existed.
-        live = null;
-        return { seq: mySeq, kind: "unavailable" };
-      }
-      if (live) live.destroy = destroy;
-      applyUnitsNotice(host, ctx.zarr?.stores.get(path));
-      hooks.onViewerOpen?.(host);
-      return { seq: mySeq, kind: "live" };
     } catch (err) {
-      console.error(req.logLabel, err);
+      console.error(req.logLabel, { datasetId: ctx.datasetId, path }, err);
       if (mySeq !== seq) return { seq: mySeq, kind: "superseded" };
+      // A mount that threw part-way may already hold observers, a store fetch
+      // and a GL context; dispose it before letting go of the only handle.
+      disposeHost(live, host);
       live = null;
       return { seq: mySeq, kind: "failed" };
     }
+    if (mySeq !== seq) {
+      // Superseded mid-mount by a faster click elsewhere; whoever superseded
+      // us owns the host now, so this instance only cleans up after itself.
+      destroy?.();
+      return { seq: mySeq, kind: "superseded" };
+    }
+    if (!destroy) {
+      // `mountEegViewer` returns no disposer precisely when it mounted no
+      // viewer (the store wouldn't open, it has no channel groups, or there
+      // is no canvas context) and left a static "unavailable" message in the
+      // host instead. Nothing to release, so it must stop counting as the
+      // live instance, or the next open would "release" a viewer that never
+      // existed.
+      live = null;
+      return { seq: mySeq, kind: "unavailable" };
+    }
+    if (live) live.destroy = destroy;
+    // After the try, so neither can turn this live viewer into a failure.
+    bestEffort("units notice", () => applyUnitsNotice(host, ctx.zarr?.stores.get(path)));
+    bestEffort("viewer-open hook", () => hooks.onViewerOpen?.(host));
+    return { seq: mySeq, kind: "live" };
   }
 
   /**
@@ -827,6 +863,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     syncNav();
     const host = current.host;
     host.setAttribute("aria-busy", "true");
+    let destroy: (() => void) | undefined;
     try {
       const { mountEegViewer } = await import("./viewer");
       if (mySeq !== seq || !live) return;
@@ -835,7 +872,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       // before the await: until the mount actually starts, the old instance is
       // still the one on screen and ending the session must still release it.
       live.destroy = null;
-      const destroy = await mountEegViewer(host, {
+      destroy = await mountEegViewer(host, {
         datasetId: current.datasetId,
         version: current.version,
         filePath: target.path,
@@ -855,28 +892,21 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         },
         ...mountOptionsFor(target.path, target.name),
       });
-      if (mySeq !== seq) {
-        // Superseded mid-mount by a faster click: whoever superseded us owns
-        // the host now, so this instance only has itself to clean up.
-        destroy?.();
-        return;
-      }
-      if (live) live.destroy = destroy ?? null;
-      // Unlike the other mount sites, a falsy `destroy` here still falls
-      // through to this point (the mount rendered its own "unavailable"
-      // message in `host` instead of a viewer); guard so the notice is never
-      // appended after that text.
-      if (destroy) applyUnitsNotice(host, current.zarr?.stores.get(target.path));
-      prefetchAdjacent();
     } catch (err) {
       // Reaching here means the mount threw somewhere its own try/catch does
       // not cover (that only wraps `openRecording`), so a failure in the DOM
       // build, the WebGL setup or the transfer lands here. By then the previous
-      // instance has already been torn down (the mount's first act), so there
-      // is nothing on screen to keep: without this branch the host would hold
-      // a half-built viewer and no explanation.
-      console.error("[eeg-viewer] navigation failed:", err);
+      // instance has been torn down (the mount's first act), and whatever the
+      // failed mount built is disposed below, so there is nothing on screen to
+      // keep: without this branch the host would hold a half-built viewer and
+      // no explanation.
+      console.error(
+        "[eeg-viewer] navigation failed:",
+        { datasetId: current.datasetId, path: target.path },
+        err,
+      );
       if (mySeq !== seq || !live) return;
+      disposeHost(live, host);
       host.innerHTML = `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(target.name)}. ${hooks.fallbackActionHtml(target, current, "navigate")} instead.</p>`;
       // Put the chrome back on the recording the user came from: it is the one
       // they can still navigate relative to, and the message above already
@@ -885,9 +915,26 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       live.fileName = fromName;
       hooks.setTitle(fromName);
       syncNav();
-    } finally {
-      if (mySeq === seq) host.removeAttribute("aria-busy");
+      host.removeAttribute("aria-busy");
+      return;
     }
+    if (mySeq !== seq) {
+      // Superseded mid-mount by a faster click: whoever superseded us owns the
+      // host now, so this instance only has itself to clean up.
+      destroy?.();
+      return;
+    }
+    host.removeAttribute("aria-busy");
+    if (live) live.destroy = destroy ?? null;
+    if (destroy) {
+      // Only after a live mount: a falsy `destroy` means the mount rendered its
+      // own "unavailable" message in `host`, and the notice must never be
+      // appended after that text.
+      bestEffort("units notice", () =>
+        applyUnitsNotice(host, current.zarr?.stores.get(target.path)),
+      );
+    }
+    bestEffort("neighbour prefetch", () => prefetchAdjacent());
   }
 
   function step(delta: number): void {
