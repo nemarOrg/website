@@ -392,8 +392,10 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       snapshot: null,
       annotations: null,
     };
-    req.afterClaim?.();
     try {
+      // Inside the try: a throwing hook must end in the same "failed" outcome
+      // (and the same explicit message) as a throwing mount, not escape it.
+      req.afterClaim?.();
       const { mountEegViewer } = await import("./viewer");
       if (mySeq !== seq || !live) return { seq: mySeq, kind: "superseded" };
       const destroy = await mountEegViewer(host, {

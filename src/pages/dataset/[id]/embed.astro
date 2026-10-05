@@ -354,7 +354,14 @@ if (Astro.response.status === 200) {
     }
   }
 
-  void start();
+  // Nothing below may leave the frame blank. `start` handles every outcome it
+  // knows about; this is for the ones it does not (a bug, a browser without
+  // something the viewer needs), so a partner's visitor still gets a sentence
+  // and a link, and the console a dataset id to report.
+  start().catch((err) => {
+    console.error(`[embed] ${datasetId}: the viewer failed to start`, err);
+    showNotice("The signal viewer could not start here.");
+  });
 </script>
 
 <style is:global>
