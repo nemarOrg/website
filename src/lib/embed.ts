@@ -68,9 +68,10 @@ export type EmbedTheme = "light" | "dark";
  * which is also what an unrecognized value falls back to rather than an error:
  * a typo in a partner's snippet should cost them the theme, not the viewer.
  *
- * The embed's inline bootstrap in `src/layouts/Embed.astro` applies the same
- * rule before first paint and cannot import this module (it is `is:inline`),
- * so the two are kept in step by hand and by the test that pins this one.
+ * The other copy of this rule is the `is:inline` theme bootstrap in the
+ * `<head>` of `src/layouts/Embed.astro`, which applies it before first paint
+ * and cannot import this module. The two are kept in step by hand: the unit
+ * tests cover this function only, not the inline script.
  */
 export function parseEmbedTheme(raw: string | null | undefined): EmbedTheme | null {
   const value = raw?.trim().toLowerCase();

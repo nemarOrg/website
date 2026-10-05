@@ -35,7 +35,7 @@ The inline panel stays a one-recording surface, which is what keeps it cheap: no
 - `navigateEegViewer` in `src/pages/dataset/[id].astro` and the `detached` flag on `eegLive`.
 - ADR-adjacent prior art: website#217 (inline-first viewer with an enlarge handoff) and website#208 (mount supersession, which the swap reuses).
 
-## Update — 2026-10-05
+## Update, 2026-10-05
 
 The code this ADR describes moved, and the decision stands.
 Website#410 lifted the dialog's recording navigation out of `src/pages/dataset/[id].astro` into `src/lib/eeg-viewer/viewer-session.ts`, so the embed route can drive the same implementation.
