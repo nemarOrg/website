@@ -452,26 +452,31 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
     transform: translateX(-50%);
     color: var(--color-fg-subtle);
   }
-  /* The privacy control is a button, so it restates what the line's links
-     inherit from the global `a` rule: link color, underline on hover, and the
-     global focus ring. Reset to the bare minimum otherwise, so it sits on the
-     baseline of its neighbors. */
+  /* The privacy control is a button, so it takes the global button reset
+     (no padding, border, or background; inherited font) and only adds what
+     makes it read as one of this line's links: link color, an underline on
+     hover, and an icon-and-text layout. Its focus ring is an outline, not the
+     global box-shadow: a shadow is dropped in forced-colors mode, so this is
+     the one control on the line that would show no focus there. The 2px
+     offset keeps the ring inside the row's inline padding, so `overflow-x:
+     clip` on `.site-footer__line` does not cut it when the control starts a
+     wrapped line. */
   .site-footer__privacy-choices {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 0;
-    border: 0;
-    background: transparent;
     color: var(--color-link);
-    font: inherit;
-    cursor: pointer;
   }
   .site-footer__privacy-choices:hover {
     color: var(--color-link-hover);
   }
   .site-footer__privacy-choices:hover span {
     text-decoration: underline;
+  }
+  .site-footer__privacy-choices:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+    box-shadow: none;
   }
   /* Deployed build identity. Same information as the `x-nemar-version`
      header, put where someone reporting a bug can read it off the page
