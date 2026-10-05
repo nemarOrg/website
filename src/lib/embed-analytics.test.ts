@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import stagingWranglerToml from "../../wrangler.test.toml?raw";
+import productionWranglerToml from "../../wrangler.toml?raw";
 import { embedCallPoint, embedDataPoint } from "./embed-analytics";
 
 const EMBED_URL = "https://nemar.org/dataset/on007753/embed";
@@ -312,5 +314,63 @@ describe("embedCallPoint: does this response count, and with what id", () => {
       call("/dataset/on007753/embed", 200, { ...framed, "Sec-Purpose": "prefetch" }),
     ).toBeNull();
     expect(call("/dataset/on007753/embed", 200, { ...framed, Purpose: "prefetch" })).toBeNull();
+  });
+});
+
+// Which dataset a deploy writes to is the whole point of having two. A production build that
+// bound the `_dev` dataset would count nothing a dashboard reads, and a preview or staging build
+// that bound the production one would add test traffic to production's counts; neither fails
+// anything at build time, so the files are read here, as the production pin in
+// osa-widget.test.ts is.
+describe("the Analytics Engine bindings in the wrangler files", () => {
+  /** The `binding` and `dataset` of every `[[<table>]]` entry in a wrangler file. */
+  function datasets(toml: string, table: string): { binding?: string; dataset?: string }[] {
+    const entries: { binding?: string; dataset?: string }[] = [];
+    let current: { binding?: string; dataset?: string } | null = null;
+    for (const line of toml.split("\n")) {
+      const header = /^\s*\[\[?([^\]]+)\]\]?\s*$/.exec(line);
+      if (header) {
+        current = header[1].trim() === table ? {} : null;
+        if (current) entries.push(current);
+        continue;
+      }
+      const field = /^\s*(binding|dataset)\s*=\s*"([^"]*)"/.exec(line);
+      if (current && field) current[field[1] as "binding" | "dataset"] = field[2];
+    }
+    return entries;
+  }
+
+  const PRODUCTION = "nemar_website_embeds";
+  const DEVELOPMENT = "nemar_website_embeds_dev";
+
+  it("binds production's top level to the production dataset, never a _dev one", () => {
+    expect(datasets(productionWranglerToml, "analytics_engine_datasets")).toEqual([
+      { binding: "EMBED_ANALYTICS", dataset: PRODUCTION },
+    ]);
+  });
+
+  it("binds the preview environment to the development dataset", () => {
+    expect(datasets(productionWranglerToml, "env.preview.analytics_engine_datasets")).toEqual([
+      { binding: "EMBED_ANALYTICS", dataset: DEVELOPMENT },
+    ]);
+  });
+
+  it("declares no other Analytics Engine binding in the production file", () => {
+    // An `[env.production...]` block would override the top level for production.
+    expect(productionWranglerToml).not.toMatch(/env\.production\.analytics_engine_datasets/);
+    const declared = [...productionWranglerToml.matchAll(/^\s*dataset\s*=\s*"([^"]*)"/gm)].map(
+      (m) => m[1],
+    );
+    expect(declared.sort()).toEqual([PRODUCTION, DEVELOPMENT].sort());
+  });
+
+  it("binds the staging project to the development dataset, and only to it", () => {
+    expect(datasets(stagingWranglerToml, "analytics_engine_datasets")).toEqual([
+      { binding: "EMBED_ANALYTICS", dataset: DEVELOPMENT },
+    ]);
+    const declared = [...stagingWranglerToml.matchAll(/^\s*dataset\s*=\s*"([^"]*)"/gm)].map(
+      (m) => m[1],
+    );
+    expect(declared).toEqual([DEVELOPMENT]);
   });
 });
