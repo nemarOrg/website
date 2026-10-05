@@ -516,8 +516,9 @@ if (Astro.response.status === 200) {
      Without it, a 360 px frame's toolbar takes two rows instead of three
      (for a recording with one channel group, so no Group select). The
      channel readout ("all 64", "101–120/340 · 5 hidden") stays: nothing else
-     shows which channels are in view, and it changes only when the reader
-     zooms the channels or hides bad ones, which settles in one refit. The
+     shows which channels are in view, and it changes only on a reader
+     action (zooming or scrolling the channels, marking bad channels while
+     Hide bad is on, a group switch), which settles in one refit. The
      rule is global.css's `.visually-hidden`, without the `!important`s
      nothing here has to beat; the class is set in viewer.ts's buildDom. */
   .embed__viewer .eegv__readout--time {

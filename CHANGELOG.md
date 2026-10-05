@@ -54,7 +54,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 ### Fixed
 
 - **The signal viewer's channel readout keeps its "· N hidden" count while a window loads.**
-  With Hide bad on, the count was cleared at the start of every render and added back once the read landed; in the embed, where the plot is fitted to the frame, that flip could wrap and unwrap the toolbar and keep re-rendering for half a second or more per page step, with a brief scrollbar in WebKit.
+  With Hide bad on, the count was cleared at the start of every render and added back once the read landed; in the embed, where the plot is fitted to the frame, that flip could wrap and unwrap the toolbar and keep re-rendering for half a second or more per page step, with a brief scrollbar.
   The count now comes from the channels in view and is written once, before the read.
   A degraded view pyramid now reads "Some zoom levels failed to load" rather than "Overview incomplete", which also makes sense where the overview strip is hidden.
   Refs #421, part of #410.
