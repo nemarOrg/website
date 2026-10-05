@@ -781,7 +781,11 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     const current = live;
     const status = navEl("[data-eegv-copy-status]");
     if (!current || !status || !hooks.shareLink) return;
-    const link = hooks.shareLink(viewSpecForPath(current.recordings, current.path));
+    // Captured before the await: the visitor can navigate while the clipboard
+    // decides, and a "Link copied" landing after that would describe a
+    // recording no longer on screen.
+    const path = current.path;
+    const link = hooks.shareLink(viewSpecForPath(current.recordings, path));
     let message = "Link copied";
     try {
       await navigator.clipboard.writeText(link);
@@ -789,6 +793,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       console.warn("[eeg-viewer] clipboard write failed", err);
       message = "Couldn't copy — the link is in the address bar";
     }
+    if (live?.path !== path) return;
     setCopyStatus(message);
   }
 
@@ -805,19 +810,24 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     const current = live;
     const status = navEl("[data-eegv-copy-status]");
     if (!current || !status || !hooks.embedSnippet) return;
+    // Captured before the await, as in `copyLink`: neither the status nor the
+    // fallback textarea may describe a recording the visitor has since left.
+    const path = current.path;
     const entry = currentRecording();
-    const snippet = hooks.embedSnippet(
-      current,
-      entry,
-      viewSpecForPath(current.recordings, current.path),
-    );
+    const snippet = hooks.embedSnippet(current, entry, viewSpecForPath(current.recordings, path));
     const code = navEl<HTMLTextAreaElement>("[data-eegv-embed-code]");
     let message = "Embed code copied";
+    let copied = true;
     try {
       await navigator.clipboard.writeText(snippet);
-      if (code) code.hidden = true;
     } catch (err) {
       console.warn("[eeg-viewer] clipboard write failed", err);
+      copied = false;
+    }
+    if (live?.path !== path) return;
+    if (copied) {
+      if (code) code.hidden = true;
+    } else {
       if (code) {
         code.value = snippet;
         code.hidden = false;
