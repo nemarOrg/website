@@ -246,4 +246,24 @@ describe("unavailableMessageHtml", () => {
   it("says nothing more than the reason when there is no action to offer", () => {
     expect(unavailableMessageHtml({})).toBe(generic);
   });
+
+  it("says the viewer could not load, not that it is still generating, for a store that exists", () => {
+    const html = unavailableMessageHtml(
+      {
+        downloadUrl:
+          "https://data.nemar.org/on007753/v1.0.0/sub-05/eeg/sub-05_task-BCCWJreading_eeg.vhdr",
+      },
+      false,
+    );
+    expect(html).toBe(
+      'The viewer could not load this recording. <a href="https://data.nemar.org/on007753/v1.0.0/sub-05/eeg/sub-05_task-BCCWJreading_eeg.vhdr" download>Download the file</a> instead.',
+    );
+    expect(html).not.toContain("generating");
+  });
+
+  it("lets a producer's recorded reason win either way", () => {
+    expect(unavailableMessageHtml({ failureReason: "epoched derivative" }, false)).toBe(
+      "epoched derivative",
+    );
+  });
 });

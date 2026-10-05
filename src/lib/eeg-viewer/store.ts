@@ -359,6 +359,18 @@ async function openNode(
 }
 
 /**
+ * Whether a failed `openRecording` means "there is no store at this URL": the
+ * store answered nothing for its root metadata, which on the Zarr host is a
+ * 404, i.e. a conversion that has not been written (yet). Everything else (a
+ * 5xx, a refused or CORS-blocked fetch, metadata zarrita cannot read) is a
+ * store that exists and could not be loaded, which says something different
+ * to the person looking at the viewer (website#410 review).
+ */
+export function isMissingStoreError(err: unknown): boolean {
+  return zarr.isZarritaError(err, "NotFoundError");
+}
+
+/**
  * Open a recording store and read all group + event metadata. `signal` cancels
  * every fetch this open makes -- the root/group/level-0 opens, view-level
  * discovery, and the events read -- so a superseded or closed mount (website#208)

@@ -74,6 +74,7 @@ import {
   type RecordingStore,
   type WindowData,
   chooseWindowLevel,
+  isMissingStoreError,
   openRecording,
   readLevel0,
   readOverview,
@@ -2465,7 +2466,7 @@ function buildDom(
 }
 
 function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
-  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts)}</p></div>`;
+  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts, isMissingStoreError(err))}</p></div>`;
   console.warn(
     "[eeg-viewer] unavailable:",
     { datasetId: opts.datasetId, path: opts.filePath },
@@ -2481,6 +2482,7 @@ function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown)
  */
 export function unavailableMessageHtml(
   opts: Pick<ViewerOptions, "failureReason" | "dirRecording" | "downloadUrl" | "unavailableLink">,
+  storeMissing = true,
 ): string {
   // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
   // to download: `downloadUrl` names a data.nemar.org directory, which answers
@@ -2496,11 +2498,16 @@ export function unavailableMessageHtml(
         ? ` <a href="${escapeAttr(opts.downloadUrl)}" download>Download the file</a> instead.`
         : "";
   // A recorded data failure (derivative, corrupt, unsupported) has a specific,
-  // permanent reason -> show it. Otherwise the store is just missing: still
-  // generating, or a transient failure that will retry.
+  // permanent reason -> show it. Otherwise "may still be generating" is only
+  // true of a store that is not there (`isMissingStoreError`); a store that
+  // exists and would not load (an outage, metadata it cannot read, a browser
+  // without a canvas) is said to be just that. A retry control for the second
+  // case is website#416.
   const msg = opts.failureReason
     ? escapeAttr(opts.failureReason)
-    : "No interactive viewer for this recording yet (the Zarr serving copy may still be generating).";
+    : storeMissing
+      ? "No interactive viewer for this recording yet (the Zarr serving copy may still be generating)."
+      : "The viewer could not load this recording.";
   return `${msg}${dl}`;
 }
 
