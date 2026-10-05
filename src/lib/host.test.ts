@@ -87,6 +87,10 @@ describe("isAppRoute", () => {
     "/signup",
     "/dataset/nm000103",
     "/dataset/nm000103/",
+    // The embeddable viewer (website#410) is the dataset page's sibling, not
+    // its collaborators page: public, anonymous, edge-cached.
+    "/dataset/on007753/embed",
+    "/dataset/on007753/embed/",
     "/api/dataset/nm000103/readme",
   ])("treats %s as marketing", (path) => {
     expect(isAppRoute(path)).toBe(false);
@@ -563,5 +567,28 @@ describe("SIGNED_OUT_PATH", () => {
     expect(getCrossHostRedirect(url(APP_HOST, "/"), { hasSession: false })).toBe(
       `${MARKETING_BASE_URL}/`,
     );
+  });
+});
+
+describe("the embed route's host (website#410)", () => {
+  it("is served by the marketing host, never redirected to the app host", () => {
+    for (const host of [MARKETING_HOST, `www.${MARKETING_HOST}`, BETA_HOST]) {
+      expect(
+        getCrossHostRedirect(new URL(`https://${host}/dataset/on007753/embed?view=sub-05`)),
+        host,
+      ).toBeNull();
+    }
+  });
+
+  it("is sent to the marketing host from an anonymous app-host request", () => {
+    // A snippet should never name the app host (embedSnippetOrigin), and one
+    // that does still lands on the marketing copy.
+    expect(
+      getCrossHostRedirect(new URL(`https://${APP_HOST}/dataset/on007753/embed?view=sub-05`)),
+    ).toBe(`${MARKETING_BASE_URL}/dataset/on007753/embed?view=sub-05`);
+  });
+
+  it("canonicalizes to the marketing origin", () => {
+    expect(canonicalOriginFor("/dataset/on007753/embed", APP_HOST)).toBe(MARKETING_BASE_URL);
   });
 });
