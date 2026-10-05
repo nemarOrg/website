@@ -345,7 +345,7 @@ describe("embed call counting", () => {
     });
     expect(seen).toHaveLength(1);
     expect(seen[0]).toContain("on007753");
-    expect(seen[0]).toContain("further write failures in this isolate are not logged");
+    expect(seen[0]).toContain("further failures in this isolate are not logged");
     expect(responses.map((r) => r.status)).toEqual([200, 200, 200]);
     // A new isolate, which is what the reset stands for, logs again.
     const again = await warningsDuring(() =>
