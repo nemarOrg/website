@@ -24,6 +24,7 @@
  */
 import logoSvg from "../../../assets/nemar-logo.svg?raw";
 import EegViewerNav from "../../../components/EegViewerNav.astro";
+import PrivacyChoicesIcon from "../../../components/PrivacyChoicesIcon.astro";
 import Embed from "../../../layouts/Embed.astro";
 import { resolveCanonical } from "../../../lib/api";
 import {
@@ -183,6 +184,18 @@ if (Astro.response.status === 200) {
         <a class="embed__link" data-embed-open href={datasetHref} target="_blank" rel="noopener"
           >Open on NEMAR</a
         >
+        {/* Last, and a statement rather than "Your Privacy Choices": nothing
+            can be chosen inside an embed (it sets nothing on the visitor's
+            device), but the privacy policy still covers how its loads are
+            counted (website#410). The icon is decorative; the label names it. */}
+        <a
+          class="embed__privacy"
+          href={new URL("/privacy", origin).toString()}
+          target="_blank"
+          rel="noopener"
+          aria-label="Privacy: how NEMAR counts embedded views"
+          title="Privacy: how NEMAR counts embedded views"
+        ><PrivacyChoicesIcon size={14} /></a>
       </header>
       {/* Why no viewer is on screen: a `?view=` that matched nothing, a dataset
           with no viewable recordings, an index that would not load. Never a
@@ -366,6 +379,13 @@ if (Astro.response.status === 200) {
     color: var(--color-link);
     white-space: nowrap;
   }
+  .embed__privacy {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px;
+    line-height: 0;
+    border-radius: var(--radius-sm);
+  }
   /* An outline of our own rather than reset.css's box-shadow ring, which
      forced-colors mode drops. */
   .embed__head a:focus-visible,
@@ -417,8 +437,16 @@ if (Astro.response.status === 200) {
     .embed__viewer .eegv__group-label {
       display: none;
     }
+    .embed__head {
+      column-gap: var(--space-2);
+      padding-inline: var(--space-2);
+    }
+    .embed__head .eegv-nav {
+      column-gap: var(--space-2);
+    }
+    /* Still wide enough for "41 of 41" without the buttons shuffling. */
     .embed__head .eegv-nav__pos {
-      min-inline-size: 4rem;
+      min-inline-size: 3rem;
     }
   }
   @media (max-height: 600px) {
