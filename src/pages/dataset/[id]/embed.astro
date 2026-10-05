@@ -49,7 +49,13 @@ const origin = url.origin;
 // mirror exists, exactly as the dataset page does. The query string survives
 // the hop, so `?view=` and `?theme=` reach the canonical embed.
 if (/^ds\d{6}$/.test(id)) {
-  const canonical = await resolveCanonical(id).catch(() => null);
+  const canonical = await resolveCanonical(id).catch((err) => {
+    // Served as-is rather than failing the page, but a lookup that rejects
+    // (the API unreachable, a timeout) is worth a trail: it silently strands
+    // every ds* link on the OpenNeuro id.
+    console.warn(`[dataset/${id}/embed] canonical lookup failed; serving ${id} as-is:`, err);
+    return null;
+  });
   if (canonical) {
     return Astro.redirect(`/dataset/${canonical}/embed${url.search}`, 301);
   }
@@ -124,6 +130,19 @@ const pinnedVersion =
 const selectedVersion = pinnedVersion ?? landing?.latest ?? landing?.versions[0]?.version ?? null;
 const datasetHref = datasetPageUrl(origin, id, { version: pinnedVersion });
 const datasetName = metadata?.name ?? id;
+
+// A `?v=` that names no published version falls back to the latest, as on the
+// dataset page, but a partner pinning a version should be told the pin did
+// not take rather than shown a different version without a word.
+const unknownVersionNote =
+  versionParam && !pinnedVersion && selectedVersion
+    ? `Version ${versionParam} is not published; showing the latest, ${selectedVersion}.`
+    : null;
+if (unknownVersionNote && landing) {
+  console.warn(
+    `[dataset/${id}/embed] ?v=${versionParam} is not a published version; serving ${selectedVersion}`,
+  );
+}
 
 if (!problem && (isUnpublished(landing) || !selectedVersion)) {
   problem = {
@@ -200,6 +219,11 @@ if (Astro.response.status === 200) {
       {/* Why no viewer is on screen: a `?view=` that matched nothing, a dataset
           with no viewable recordings, an index that would not load. Never a
           blank frame (website#410). */}
+      {unknownVersionNote && (
+        <p class="embed__version-note" data-embed-version-note role="note" title={unknownVersionNote}>
+          {unknownVersionNote}
+        </p>
+      )}
       <p class="embed__notice" data-embed-notice role="status" hidden></p>
       <main class="embed__viewer" data-embed-slot>
         <p class="preview__loading" role="status">Loading viewer…</p>
@@ -425,6 +449,18 @@ if (Astro.response.status === 200) {
   .embed__notice a:focus-visible {
     outline: 2px solid var(--color-focus);
     outline-offset: 2px;
+  }
+  /* One line, ellipsized (the full text is its title), so a pinned version
+     that did not take costs the plot a single line at any frame size. */
+  .embed__version-note {
+    margin: 0;
+    padding: 2px var(--space-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-block-end: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
   }
   .embed__notice {
     margin: 0;
