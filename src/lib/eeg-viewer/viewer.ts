@@ -789,7 +789,7 @@ export async function mountEegViewer(
    * way: reload.
    */
   function degradedNote(g: GroupHandle): string {
-    return g.viewLevelsDegraded ? " · overview incomplete" : "";
+    return g.viewLevelsDegraded ? " · zoom levels incomplete" : "";
   }
 
   /**
@@ -811,7 +811,7 @@ export async function mountEegViewer(
     const degraded = group().viewLevelsDegraded;
     ui.overviewNote.hidden = !degraded;
     ui.overviewNote.textContent = degraded
-      ? "Overview incomplete — some zoom levels failed to load. Reload to try again."
+      ? "Some zoom levels failed to load. Reload to try again."
       : "";
   }
 
@@ -1418,7 +1418,10 @@ export async function mountEegViewer(
     // covers the narrower case of a group switch superseding this load.
     if (disposed || seq !== overviewSeq) return;
     overviewData = data;
-    ui.minimap.style.display = data && data.length > 0 ? "block" : "none";
+    // "" hands display back to the stylesheet (`display: block`), so a page can
+    // still hide the strip with an ordinary rule; the embed route does in
+    // small frames.
+    ui.minimap.style.display = data && data.length > 0 ? "" : "none";
     drawOverview();
   }
 

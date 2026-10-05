@@ -19,8 +19,8 @@ The release pull request from `staging` to `main` moves those entries under the 
   It takes the dataset page's `?view=` and `?v=`, plus `?theme=light|dark`; it has no nav, footer, notices, assistant widget or analytics, and carries a NEMAR mark on the plot that links back to the dataset.
   It is the only route another site may frame: `frame-ancestors *` and no `X-Frame-Options` there, `'self'` and `SAMEORIGIN` everywhere else (ADR 0023).
   Its privacy icon links to the privacy policy's "Embedded viewer" section (`/privacy#embedded-viewer`).
-  Its toolbar hides the time readout, which the plot's time axis already shows: the readout's text grows past 1000 s and in clock mode, which could add a toolbar row mid-session and shrink the plot (#421), and without it a 360 px frame's toolbar takes two rows instead of three for a recording with one channel group.
-  In a frame 560 px wide or less, the overview strip under the scrubber is hidden too, which leaves a 360 x 480 frame's plot at about 270 px, up from about 180.
+  Its toolbar hides the time readout, which the plot's time axis already shows: the readout's text grows with the window's start and in clock mode, which could add a toolbar row while paging and shrink the plot (#421), and without it a 360 px frame's toolbar takes two rows instead of three for a recording with one channel group.
+  In a frame 560 px wide or less, the overview strip under the scrubber is hidden too, with the annotation ticks and preload progress bar drawn on it, which leaves a 360 x 480 frame about 270 px of plot.
   Refs #411, part of #410.
 - **An Embed control in the signal viewer dialog**, next to Copy link, that copies the `<iframe>` snippet for the recording on screen; when the clipboard refuses, the snippet appears selected in a read-only box (Refs #411).
 - **Embed calls are counted at the edge.**
@@ -53,6 +53,11 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Fixed
 
+- **The signal viewer's channel readout keeps its "· N hidden" count while a window loads.**
+  With Hide bad on, the count was cleared at the start of every render and added back once the read landed; in the embed, where the plot is fitted to the frame, that flip could wrap and unwrap the toolbar and keep re-rendering for half a second or more per page step, with a brief scrollbar in WebKit.
+  The count now comes from the channels in view and is written once, before the read.
+  A degraded view pyramid now reads "Some zoom levels failed to load" rather than "Overview incomplete", which also makes sense where the overview strip is hidden.
+  Refs #421, part of #410.
 - **Sign in and the account menu show on phones.**
   At 880 px and below the header hid its whole actions group, so a phone had no Sign in link and a signed-in person could not reach Upload dataset, My datasets, Settings or Admin.
   The account control now stays in the header row, just left of the hamburger.
