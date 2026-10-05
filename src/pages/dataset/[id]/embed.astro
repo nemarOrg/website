@@ -237,7 +237,11 @@ if (Astro.response.status === 200) {
     viewSpecForPath,
   } from "../../../lib/eeg-viewer/viewer-session";
   import { datasetPageUrl } from "../../../lib/embed";
-  import { fetchZarrIndex, zarrAvailablePaths, zarrStoreByPath } from "../../../lib/zarr-index";
+  import {
+    fetchZarrIndexOutcome,
+    zarrAvailablePaths,
+    zarrStoreByPath,
+  } from "../../../lib/zarr-index";
 
   // Everything a viewer does here is the shared session's; this shell only
   // says where things go on this page and what its links point at.
@@ -320,11 +324,19 @@ if (Astro.response.status === 200) {
   async function start(): Promise<void> {
     if (!root || !slot || !datasetId || !version) return;
     const raw = new URL(window.location.href).searchParams.get(VIEW_PARAM);
-    const index = await fetchZarrIndex(datasetId).catch(() => null);
-    if (!index) {
+    // A missing index and a failed one are different news for a visitor: the
+    // first is a dataset with no Zarr copy yet, the second an outage that a
+    // reload may fix. `fetchZarrIndexOutcome` never rejects.
+    const outcome = await fetchZarrIndexOutcome(datasetId);
+    if (outcome.kind === "absent") {
+      showNotice("This dataset has no interactive recordings yet.");
+      return;
+    }
+    if (outcome.kind === "error") {
       showNotice("The signal viewer could not load this dataset's recordings right now.");
       return;
     }
+    const index = outcome.index;
     ctx = {
       datasetId,
       version,
