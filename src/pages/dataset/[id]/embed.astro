@@ -585,6 +585,15 @@ if (Astro.response.status === 200) {
     .embed__viewer .eegv__menu .eegv__group + .eegv__group {
       padding-block-start: var(--space-2);
     }
+    /* The overview strip (the recording-wide event map under the scrubber)
+       goes too: in a frame this narrow its event ticks blur together, and
+       the scrubber above it still moves through the whole recording.
+       viewer.ts sets its `display` inline once the overview loads, which is
+       why this needs `!important`. Each render redraws it, so a frame
+       widened past 560 px gets it back at its new width. */
+    .embed__viewer .eegv__minimap {
+      display: none !important;
+    }
   }
   @media (max-height: 600px) {
     .embed__head {

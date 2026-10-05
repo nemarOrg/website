@@ -20,6 +20,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   It is the only route another site may frame: `frame-ancestors *` and no `X-Frame-Options` there, `'self'` and `SAMEORIGIN` everywhere else (ADR 0023).
   Its privacy icon links to the privacy policy's "Embedded viewer" section (`/privacy#embedded-viewer`).
   Its toolbar hides the time readout, which the plot's time axis already shows: the readout's text grows past 1000 s and in clock mode, which could add a toolbar row mid-session and shrink the plot (#421), and without it a 360 px frame's toolbar takes two rows instead of three for a recording with one channel group.
+  In a frame 560 px wide or less, the overview strip under the scrubber is hidden too, which leaves a 360 x 480 frame's plot at about 270 px, up from about 180.
   Refs #411, part of #410.
 - **An Embed control in the signal viewer dialog**, next to Copy link, that copies the `<iframe>` snippet for the recording on screen; when the clipboard refuses, the snippet appears selected in a read-only box (Refs #411).
 - **Embed calls are counted at the edge.**
