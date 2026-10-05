@@ -21,7 +21,12 @@ import { zarrStoreUrl } from "../zarr-base";
  *   128-channel "see all" and "inspect a slice" use cases both work.
  * - The canvas reads the page design tokens, so it matches light/dark exactly.
  */
-import { type AnnotationLayer, annotateGlyph, createAnnotationLayer } from "./annotation-ui";
+import {
+  type AnnotationLayer,
+  SCOPE_OVERLAY_ATTR,
+  annotateGlyph,
+  createAnnotationLayer,
+} from "./annotation-ui";
 import {
   type Modality,
   autoscaleGain,
@@ -141,6 +146,29 @@ export interface ViewerOptions {
    * chrome around the viewer has to be able to ask before it navigates.
    */
   onAnnotations?: (handle: ViewerAnnotationHandle) => void;
+  /**
+   * An element the caller wants floated over the signal plot, appended into
+   * `.eegv__scope` on every mount and stamped with `data-eegv-overlay`
+   * (website#410: the embed route's NEMAR mark, a link back to the dataset).
+   * The caller owns its content, position and styling; the same node is moved
+   * into each new scope, so a recording swap keeps one element rather than
+   * accumulating copies. To sit above the plot it needs a z-index of at least
+   * 4: the scope stacks the WebGL and chrome canvases at 0 and 1, the
+   * annotation canvas at 2 and the armed-annotation ring at 3 (see
+   * `src/styles/eeg-viewer.css`). The cursor readout, at 5, stays above it.
+   *
+   * The viewer's own gestures stay off it. The annotation layer's
+   * capture-phase handlers on the scope ignore presses that start inside it
+   * (`startsInScopeOverlay`), and the cursor readout treats its box as a
+   * no-readout zone, because the readout shares the plot's bottom-right
+   * corner and a caller may well hide the overlay while the readout shows.
+   * Without that zone a hidden overlay with `pointer-events: none` would let
+   * the canvas under it keep the readout up, and the overlay could never be
+   * reached with a mouse.
+   *
+   * The dataset page passes none, and nothing about its viewer changes.
+   */
+  scopeOverlay?: HTMLElement;
 }
 
 /**
@@ -657,6 +685,17 @@ export async function mountEegViewer(
   });
   cleanups.push(() => annotations.destroy());
   if (opts.transfer?.annotating) annotations.setActive(true);
+
+  // After the annotation layer, which appends its own canvas to the scope, so
+  // the overlay is the scope's last child. Stacking is still the caller's CSS
+  // to settle (see `ViewerOptions.scopeOverlay`). `append` moves the node out
+  // of a previous mount's already-discarded DOM, which is what keeps it one
+  // element across recording swaps.
+  const scopeOverlay = opts.scopeOverlay ?? null;
+  if (scopeOverlay) {
+    scopeOverlay.setAttribute(SCOPE_OVERLAY_ATTR, "");
+    ui.scope.append(scopeOverlay);
+  }
 
   function group(): GroupHandle {
     return store.groups[groupIndex];
@@ -1675,8 +1714,21 @@ export async function mountEegViewer(
   });
 
   // --- Cursor readout (mousemove) -----------------------------------------
+  /** True when the pointer is inside the scope overlay's box (see
+   *  `ViewerOptions.scopeOverlay` for why that box shows no readout). */
+  function pointerOverOverlay(e: MouseEvent): boolean {
+    if (!scopeOverlay?.isConnected) return false;
+    const r = scopeOverlay.getBoundingClientRect();
+    return (
+      e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+    );
+  }
   ui.canvas.addEventListener("mousemove", (e) => {
     if (!lastFrame) return;
+    if (pointerOverOverlay(e)) {
+      ui.cursor.textContent = "";
+      return;
+    }
     const rect = ui.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
