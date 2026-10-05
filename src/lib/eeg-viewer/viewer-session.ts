@@ -15,7 +15,7 @@
  * how `?view=` resolves) is written once and lands on both surfaces. What
  * differs between them arrives as hooks (`ViewerSessionHooks`), never as a
  * branch on "is this the embed": how the host is presented, whether the chrome
- * is on screen, and how share links are built.
+ * is on screen, the extra mount options, and how share links are built.
  *
  * What this module owns:
  * - the live instance and the `seq` supersession counter, so a fast
@@ -59,7 +59,7 @@ import {
 } from "./recording-nav";
 // Type-only, so importing this module does not pull the (WebGL-carrying)
 // viewer into a page bundle; the mount stays behind the dynamic import below.
-import type { ViewerAnnotationHandle, ViewerTransferState } from "./viewer";
+import type { ViewerAnnotationHandle, ViewerOptions, ViewerTransferState } from "./viewer";
 
 /** The slice of a dataset's Zarr index state the session reads and warms. */
 export interface SessionZarr {
@@ -110,6 +110,12 @@ export interface LiveViewer extends SessionContext {
   annotations: ViewerAnnotationHandle | null;
 }
 
+/** Mount options a page adds to every mount the session makes. */
+export type SessionMountOptions = Pick<
+  ViewerOptions,
+  "fitHeight" | "scopeOverlay" | "unavailableLink"
+>;
+
 /** Where the session is opening or navigating, for hooks that need to say so. */
 export type SessionPhase = "open" | "navigate";
 
@@ -134,12 +140,24 @@ export interface ViewerSessionHooks {
   /** A mount through `openRecording` or `mount` produced a live viewer. */
   onViewerOpen?(host: HTMLElement): void;
   /**
+   * Extra options for every mount, decided per recording (the embed's
+   * `fitHeight`, its NEMAR mark as `scopeOverlay`, and an `unavailableLink`
+   * back to the dataset page). The dataset page passes none.
+   */
+  mountOptions?(recording: { path: string; fileName: string }): SessionMountOptions;
+  /**
    * The action a "couldn't open" message offers when a mount threw, as HTML,
    * phrased to complete "Couldn't open NAME. … instead.".
    */
   fallbackActionHtml(target: RecordingEntry, ctx: SessionContext, phase: SessionPhase): string;
   /** A `?view=` value resolved to nothing; say so where the visitor can see it. */
   onViewParamMiss?(raw: string, reason: string): void;
+  /**
+   * The recording on screen changed (or none is). Called on every link-state
+   * sync with the `?view=` value now in the address bar, so chrome that links
+   * to the recording (the embed's "Open on NEMAR") can follow it.
+   */
+  onRecordingShown?(live: LiveViewer | null, viewSpec: string | null): void;
   /** The Copy link control's link for a `?view=` value. Absent: no-op control. */
   shareLink?(viewSpec: string): string;
 }
@@ -320,6 +338,10 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
   /** Pending reset of the copy confirmation. */
   let copyStatusTimer = 0;
 
+  function mountOptionsFor(path: string, fileName: string): SessionMountOptions {
+    return hooks.mountOptions?.({ path, fileName }) ?? {};
+  }
+
   function release(): void {
     seq++; // invalidate any mount still in flight
     const released = live;
@@ -390,6 +412,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         onAnnotations: (handle) => {
           if (mySeq === seq && live) live.annotations = handle;
         },
+        ...mountOptionsFor(path, fileName),
       });
       if (mySeq !== seq) {
         // Superseded mid-mount by a faster click elsewhere; whoever superseded
@@ -640,6 +663,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     if (url.toString() !== window.location.href) {
       history.replaceState(history.state, "", url.toString());
     }
+    hooks.onRecordingShown?.(showing ? current : null, viewSpec);
   }
 
   /** Drop the copy confirmation. Called on every nav sync as well as on the
@@ -774,6 +798,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         onAnnotations: (handle) => {
           if (mySeq === seq && live) live.annotations = handle;
         },
+        ...mountOptionsFor(target.path, target.name),
       });
       if (mySeq !== seq) {
         // Superseded mid-mount by a faster click: whoever superseded us owns
