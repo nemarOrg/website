@@ -439,6 +439,13 @@ if (Astro.response.status === 200) {
     border: 0;
     border-radius: 0;
   }
+  /* The units notice (website#277) sits under the viewer, inside the space the
+     fit budgets. The dataset page pads it to line up with its tree rows; here
+     it lines up with the viewer's own edge, which keeps a narrow frame's notice
+     to two lines instead of three. */
+  .embed__viewer .eegv-units-notice {
+    padding: var(--space-1) var(--space-2);
+  }
   /* A dropdown with one option has nothing to choose, and the title already
      names the recording: a one-task dataset (the common case) loses its task
      select here, which is what keeps a narrow header to two lines. */
@@ -457,11 +464,17 @@ if (Astro.response.status === 200) {
       display: none;
     }
     .embed__head {
-      column-gap: var(--space-2);
+      column-gap: var(--space-1);
       padding-inline: var(--space-2);
     }
     .embed__head .eegv-nav {
-      column-gap: var(--space-2);
+      column-gap: var(--space-1);
+    }
+    /* A select sizes to its longest option ("sub-emptyroom" on on000246),
+       which pushed the privacy link onto a third header line at 360 px; the
+       open list still shows every option in full. */
+    .embed__head .eegv-nav__sel {
+      max-inline-size: 5.5rem;
     }
     /* Still wide enough for "41 of 41" without the buttons shuffling. */
     .embed__head .eegv-nav__pos {

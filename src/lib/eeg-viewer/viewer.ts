@@ -1985,7 +1985,7 @@ export async function mountEegViewer(
   // just applied, so that report ends here instead of looping.
   if (opts.fitHeight && typeof ResizeObserver !== "undefined") {
     let fitRaf = 0;
-    const fitRo = new ResizeObserver(() => {
+    const refit = (): void => {
       cancelAnimationFrame(fitRaf);
       fitRaf = requestAnimationFrame(() => {
         if (disposed) return;
@@ -2000,11 +2000,28 @@ export async function mountEegViewer(
         ui.scope.style.height = `${fit}px`;
         render();
       });
-    });
+    };
+    const fitRo = new ResizeObserver(refit);
     fitRo.observe(slot);
     fitRo.observe(ui.root);
+    // A sibling the caller appends to the host after mounting (the session's
+    // units notice) is chrome too, but appending it resizes neither the host,
+    // whose height the frame decides, nor the viewer root. Watch the host's
+    // children, and each one's own size from then on (a wrapped notice grows
+    // when the frame narrows), so it is budgeted rather than scrolled.
+    const fitMo =
+      typeof MutationObserver !== "undefined"
+        ? new MutationObserver((records) => {
+            for (const r of records) {
+              for (const n of r.addedNodes) if (n instanceof Element) fitRo.observe(n);
+            }
+            refit();
+          })
+        : null;
+    fitMo?.observe(slot, { childList: true });
     cleanups.push(() => {
       fitRo.disconnect();
+      fitMo?.disconnect();
       cancelAnimationFrame(fitRaf);
     });
   }
