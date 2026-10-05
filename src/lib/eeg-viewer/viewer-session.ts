@@ -26,7 +26,7 @@
  * - the unsaved-annotation draft guard, the settings carried across a swap,
  *   neighbour prefetch, and the units notice;
  * - `?view=` resolution on load and keeping `?view=` in the address bar;
- * - the Copy link control.
+ * - the Copy link and Embed controls.
  *
  * What it does not own: anything about the BIDS tree (the dataset page's
  * inline row, its Enlarge control, handing the instance back on close). The
@@ -160,6 +160,8 @@ export interface ViewerSessionHooks {
   onRecordingShown?(live: LiveViewer | null, viewSpec: string | null): void;
   /** The Copy link control's link for a `?view=` value. Absent: no-op control. */
   shareLink?(viewSpec: string): string;
+  /** The Embed control's snippet for the recording on screen. Absent: no-op control. */
+  embedSnippet?(live: LiveViewer, entry: RecordingEntry | null, viewSpec: string): string;
 }
 
 /** What `mount` produced, with the sequence number it claimed. */
@@ -585,6 +587,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     // recording even for a dataset with too few of them to show any controls.
     syncLinkState();
     clearCopyStatus();
+    hideEmbedCode();
     const nav = navEl("[data-eegv-nav]");
     const subSel = navEl<HTMLSelectElement>("[data-eegv-nav-sub]");
     const taskSel = navEl<HTMLSelectElement>("[data-eegv-nav-task]");
@@ -675,6 +678,17 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     if (status) status.textContent = "";
   }
 
+  /** Hide the embed-code fallback. On nav sync only, never on the status
+   *  timer: it holds the code someone is about to copy by hand, and it would
+   *  describe the previous recording once the viewer has moved on. */
+  function hideEmbedCode(): void {
+    const code = navEl<HTMLTextAreaElement>("[data-eegv-embed-code]");
+    if (code && !code.hidden) {
+      code.hidden = true;
+      code.value = "";
+    }
+  }
+
   function setCopyStatus(message: string): void {
     const status = navEl("[data-eegv-copy-status]");
     if (!status) return;
@@ -702,6 +716,45 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     } catch (err) {
       console.warn("[eeg-viewer] clipboard write failed", err);
       message = "Couldn't copy — the link is in the address bar";
+    }
+    setCopyStatus(message);
+  }
+
+  /**
+   * Put an `<iframe>` snippet for the current recording on the clipboard
+   * (website#410).
+   *
+   * Unlike Copy link there is no address-bar fallback (the snippet is not the
+   * page URL), so a refused clipboard reveals the code in a read-only,
+   * pre-selected textarea instead: one Ctrl or Cmd+C from done, and never a
+   * dead end.
+   */
+  async function copySnippet(): Promise<void> {
+    const current = live;
+    const status = navEl("[data-eegv-copy-status]");
+    if (!current || !status || !hooks.embedSnippet) return;
+    const entry = currentRecording();
+    const snippet = hooks.embedSnippet(
+      current,
+      entry,
+      viewSpecForPath(current.recordings, current.path),
+    );
+    const code = navEl<HTMLTextAreaElement>("[data-eegv-embed-code]");
+    let message = "Embed code copied";
+    try {
+      await navigator.clipboard.writeText(snippet);
+      if (code) code.hidden = true;
+    } catch (err) {
+      console.warn("[eeg-viewer] clipboard write failed", err);
+      if (code) {
+        code.value = snippet;
+        code.hidden = false;
+        code.focus();
+        code.select();
+        message = "Couldn't copy. The embed code is selected below.";
+      } else {
+        message = "Couldn't copy the embed code";
+      }
     }
     setCopyStatus(message);
   }
@@ -894,6 +947,9 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     });
     navEl<HTMLButtonElement>("[data-eegv-copy-link]")?.addEventListener("click", () => {
       void copyLink();
+    });
+    navEl<HTMLButtonElement>("[data-eegv-copy-embed]")?.addEventListener("click", () => {
+      void copySnippet();
     });
     // The gear setting lives inside the viewer instance; it announces a change
     // rather than reaching into this chrome (the two are separately mounted).

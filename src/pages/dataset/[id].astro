@@ -453,6 +453,7 @@ Astro.response.headers.set(
   import { VIEW_PARAM, buildRecordingList } from "../../lib/eeg-viewer/recording-nav";
   import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
   import { type LiveViewer, createViewerSession } from "../../lib/eeg-viewer/viewer-session";
+  import { embedSnippet, embedSnippetOrigin, embedUrl } from "../../lib/embed";
   // The preview renderers are dynamic-imported on first click (one bundle
   // per format, code-split by Vite) so a user who never opens a TSV
   // doesn't pay for parsing the TSV renderer's bundle.
@@ -580,6 +581,21 @@ Astro.response.headers.set(
       const url = new URL(window.location.href);
       url.searchParams.set(VIEW_PARAM, viewSpec);
       return url.toString();
+    },
+    // The iframe a partner pastes (website#410). Pinned to a version only when
+    // this page was opened on one with `?v=`; otherwise the embed follows the
+    // dataset's latest version, as the page does. The origin is the marketing
+    // host from either production host (`embedSnippetOrigin`), and this
+    // deploy's own origin anywhere else, so a staging snippet embeds staging.
+    embedSnippet: (live, entry, viewSpec) => {
+      const pinned = new URL(window.location.href).searchParams.get("v") === live.version;
+      const src = embedUrl(
+        embedSnippetOrigin(window.location),
+        live.datasetId,
+        viewSpec,
+        pinned ? live.version : null,
+      );
+      return embedSnippet(src, entry?.name ?? live.fileName);
     },
   });
 

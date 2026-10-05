@@ -52,7 +52,13 @@ import EegViewerNav from "./EegViewerNav.astro";
           which is what makes "the link is in the address bar" an honest
           fallback when the Clipboard API is missing (an insecure context) or
           refuses. The live region is separate from the button's own label so
-          the label never changes out from under a screen reader mid-press. */}
+          the label never changes out from under a screen reader mid-press.
+
+          Embed (website#410) copies an <iframe> snippet for the recording on
+          screen, for a partner site. It shares the live region. Unlike the
+          link, the snippet is nowhere else on the page, so a refused clipboard
+          reveals it in the read-only textarea below, pre-selected for a
+          manual copy; the session hides it again on the next navigation. */}
       <div class="eegv-share" data-eegv-share hidden>
         <button
           type="button"
@@ -60,8 +66,22 @@ import EegViewerNav from "./EegViewerNav.astro";
           data-eegv-copy-link
           title="Copy a link that opens this recording"
           aria-describedby="eegv-copy-status">Copy link</button>
+        <button
+          type="button"
+          class="eegv-nav__btn eegv-nav__btn--wide"
+          data-eegv-copy-embed
+          title="Copy code that embeds this recording's viewer in another site"
+          aria-describedby="eegv-copy-status">Embed</button>
         <span class="eegv-share__status" id="eegv-copy-status" data-eegv-copy-status role="status"
         ></span>
+        <textarea
+          class="eegv-share__code"
+          data-eegv-embed-code
+          aria-label="Embed code"
+          readonly
+          rows="3"
+          spellcheck="false"
+          hidden></textarea>
       </div>
     </div>
     {/* No `aria-live` (dropped in website#217): what lands here is a live
@@ -196,6 +216,32 @@ import EegViewerNav from "./EegViewerNav.astro";
   }
   .eegv-share__status {
     color: var(--color-fg-muted);
+  }
+  /* The embed-code fallback takes a line of its own, and the share group the
+     whole width of the head while it shows. */
+  .eegv-share:has(> .eegv-share__code:not([hidden])) {
+    flex-basis: 100%;
+  }
+  .eegv-share__code {
+    flex-basis: 100%;
+    inline-size: 100%;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    resize: vertical;
+  }
+  .eegv-share__code[hidden] {
+    display: none;
+  }
+  /* Our own outline, not reset.css's box-shadow ring, which forced-colors
+     mode drops. */
+  .eegv-share__code:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
   }
   /* Takes no space while empty, so the button does not shift when a message
      appears and disappears. */
