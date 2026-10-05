@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.28] - 2026-10-05
+
 ### Added
 
 - **An embeddable signal viewer** at `/dataset/<id>/embed`, for partner sites to put in an iframe.
@@ -41,6 +43,26 @@ The release pull request from `staging` to `main` moves those entries under the 
   The icon is a shared component, `PrivacyChoicesIcon.astro`, for the embedded viewer page to reuse (#413, part of #410).
 - **The middleware keeps a page-set `Referrer-Policy: no-referrer`** instead of overwriting it with the site-wide policy, whatever spelling of the path reached the page (ADR 0021, #396).
 - **The docs handoff's grant call no longer follows redirects** (#396).
+- **Approving a publication request on the web runs through a backend dispatch** (ADR 0022).
+  Approval is not one request: after the DOI is published, S3 Object Lock runs in batches of 100 objects that the caller must keep requesting, which the page could not finish.
+  Approve now calls `POST /admin/publish/:id/approve-dispatch`, a GitHub Action in `nemarDatasets/.github` carries the approval out, and the page only watches the request's `status` and `current_step`.
+  A row shows Approve, Queued, or Running with its current step, and Resume or Retry when a run stalls; the page refreshes every 20 s while a row runs.
+  A backend that does not report `approval_in_flight` gets the CLI command instead of a button, and `WEB_PUBLISH_APPROVE_ENABLED` is the kill switch (#408).
+- **The publication queue shows 50 rows per page**, with Previous and Next, "Page 3 of 16", and "Showing 101 to 150 of 780".
+  The page is `?page=N`; a malformed value is page 1 and one past the end is the last page, tab counts stay totals, and the 20-second refresh keeps the page you are on.
+  The list is still fetched whole, so this cuts the Published tab's HTML from about 3.5 MB to 365 KB, not the fetch (#409).
+
+### Fixed
+
+- **The publication queue lists requests again.**
+  `/admin/publication-requests` listed nothing, under every tab: it read the owner-side status object, while the admin list route returns the raw request row.
+  It now reads the real row, and the All tab is gone: Pending (which includes a request mid-approval), Published, Denied and Blocked, each with a count.
+  Each dataset appears once, under its latest request, and SQLite timestamps are read as UTC, so ages no longer shift by the viewer's time zone (#407).
+- **The signal viewer's channel readout keeps its "· N hidden" count while a window loads.**
+  With Hide bad on, the count was cleared at the start of every render and added back once the read landed; in the embed, where the plot is fitted to the frame, that flip could wrap and unwrap the toolbar and keep re-rendering for half a second or more per page step, with a brief scrollbar.
+  The count now comes from the channels in view and is written once, before the read.
+  A degraded view pyramid now reads "Some zoom levels failed to load" rather than "Overview incomplete", which also makes sense where the overview strip is hidden.
+  Refs #421, part of #410.
 
 ## [0.2.27] - 2026-10-01
 
@@ -53,11 +75,6 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Fixed
 
-- **The signal viewer's channel readout keeps its "· N hidden" count while a window loads.**
-  With Hide bad on, the count was cleared at the start of every render and added back once the read landed; in the embed, where the plot is fitted to the frame, that flip could wrap and unwrap the toolbar and keep re-rendering for half a second or more per page step, with a brief scrollbar.
-  The count now comes from the channels in view and is written once, before the read.
-  A degraded view pyramid now reads "Some zoom levels failed to load" rather than "Overview incomplete", which also makes sense where the overview strip is hidden.
-  Refs #421, part of #410.
 - **Sign in and the account menu show on phones.**
   At 880 px and below the header hid its whole actions group, so a phone had no Sign in link and a signed-in person could not reach Upload dataset, My datasets, Settings or Admin.
   The account control now stays in the header row, just left of the hamburger.
