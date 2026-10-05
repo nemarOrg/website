@@ -266,7 +266,7 @@ if (Astro.response.status === 200) {
 </Embed>
 
 <script>
-  import { VIEW_PARAM } from "../../../lib/eeg-viewer/recording-nav";
+  import { VIEW_PARAM, displayableViewParam } from "../../../lib/eeg-viewer/recording-nav";
   import {
     type SessionContext,
     createViewerSession,
@@ -362,7 +362,10 @@ if (Astro.response.status === 200) {
         pageHref(viewSpecForPath(context.recordings, target.path)),
         "Open this recording on NEMAR",
       ),
-    onViewParamMiss: (raw, reason) => showNotice(`This embed asked for ${raw}, but ${reason}`),
+    // The framing site wrote `raw`; quote it only when it looks like a
+    // recording name, so the frame cannot be made to say their sentence.
+    onViewParamMiss: (raw, reason) =>
+      showNotice(`This embed asked for ${displayableViewParam(raw) ?? "a recording"}, but ${reason}`),
     // Keep every link out of the embed on the recording on screen.
     onRecordingShown: (_live, viewSpec) => {
       const href = pageHref(viewSpec);

@@ -456,7 +456,7 @@ Astro.response.headers.set(
     zarrPendingPaths,
     zarrStoreByPath,
   } from "../../lib/zarr-index";
-  import { VIEW_PARAM } from "../../lib/eeg-viewer/recording-nav";
+  import { VIEW_PARAM, displayableViewParam } from "../../lib/eeg-viewer/recording-nav";
   import { DIALOG_CLOSE_REQUEST_EVENT } from "../../lib/dialog-close";
   import {
     type LiveViewer,
@@ -1429,7 +1429,9 @@ Astro.response.headers.set(
   function showViewParamNotice(raw: string, reason: string): void {
     const notice = document.querySelector<HTMLElement>("[data-view-link-notice]");
     if (!notice) return;
-    notice.textContent = `This link asked for ${raw} — ${reason} Showing the dataset instead.`;
+    // Whoever wrote the link wrote `raw`; quote it only when it looks like a
+    // recording name (see `displayableViewParam`).
+    notice.textContent = `This link asked for ${displayableViewParam(raw) ?? "a recording"} — ${reason} Showing the dataset instead.`;
     notice.hidden = false;
   }
 
