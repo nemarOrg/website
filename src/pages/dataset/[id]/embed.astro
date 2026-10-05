@@ -228,6 +228,11 @@ if (Astro.response.status === 200) {
       <main class="embed__viewer" data-embed-slot>
         <p class="preview__loading" role="status">Loading viewer…</p>
         <noscript>
+          {/* With scripting off nothing will ever replace the loading line, so
+              it goes, leaving only the sentence below. */}
+          <style is:inline>
+            [data-embed-slot] > .preview__loading { display: none; }
+          </style>
           <p class="embed-msg__text">
             The signal viewer needs JavaScript.{" "}
             <a href={datasetHref} target="_blank" rel="noopener">Open the dataset on NEMAR</a>
