@@ -789,7 +789,7 @@ export async function mountEegViewer(
    * way: reload.
    */
   function degradedNote(g: GroupHandle): string {
-    return g.viewLevelsDegraded ? " · overview incomplete" : "";
+    return g.viewLevelsDegraded ? " · zoom levels incomplete" : "";
   }
 
   /**
@@ -811,7 +811,7 @@ export async function mountEegViewer(
     const degraded = group().viewLevelsDegraded;
     ui.overviewNote.hidden = !degraded;
     ui.overviewNote.textContent = degraded
-      ? "Overview incomplete — some zoom levels failed to load. Reload to try again."
+      ? "Some zoom levels failed to load. Reload to try again."
       : "";
   }
 
@@ -1209,10 +1209,25 @@ export async function mountEegViewer(
     } else {
       ui.time.textContent = `${start.toFixed(1)}–${end.toFixed(1)} s`;
     }
-    ui.chanInfo.textContent =
+    // Written once per render, in full, before the read: the Hide bad count
+    // comes from the montage rows in view, which are known now. Written in two
+    // steps (the range here, the count after the read), the text grew and
+    // shrank within every render, and in a `fitHeight` viewer each wrap of
+    // the toolbar moved the plot and started another render.
+    const visible = g.channelsByRow.slice(chanStart, visEnd);
+    const hiddenInView =
+      hideBad && badChannels.size > 0
+        ? visible.filter((ch) => badChannels.has(ch.label)).length
+        : 0;
+    const chanRange =
       visEnd - chanStart >= g.nChannels
         ? `all ${g.nChannels}`
         : `${chanStart + 1}–${visEnd}/${g.nChannels}`;
+    // Mirrors the reject-mode guard below: a view that is all bad channels
+    // keeps them, so it reports none hidden.
+    const hiddenNote =
+      hiddenInView > 0 && hiddenInView < visible.length ? ` · ${hiddenInView} hidden` : "";
+    ui.chanInfo.textContent = `${chanRange}${hiddenNote}`;
 
     // Paint a "loading" state immediately so the scope never sits blank while a
     // read (or its retries) is in flight; the first paint also covers the gap
@@ -1281,7 +1296,6 @@ export async function mountEegViewer(
       }
     }
 
-    const visible = g.channelsByRow.slice(chanStart, visEnd);
     const n = Math.min(visible.length, win.channels.length);
     let channels: FrameChannel[] = visible.slice(0, n).map((ch, i) => {
       const color =
@@ -1301,14 +1315,11 @@ export async function mountEegViewer(
 
     // Reject mode: drop bad channels from the montage entirely (the survivors take
     // the full height) rather than only dimming them in place. Never blank the scope
-    // if every visible channel is marked bad.
+    // if every visible channel is marked bad. The readout's count was written
+    // before the read, from the same rows.
     if (hideBad && badChannels.size > 0) {
       const kept = channels.filter((c) => !badChannels.has(c.label));
-      const hidden = channels.length - kept.length;
-      if (kept.length > 0) {
-        channels = kept;
-        if (hidden > 0) ui.chanInfo.textContent += ` · ${hidden} hidden`;
-      }
+      if (kept.length > 0) channels = kept;
     }
 
     const frame: ViewerFrame = {
@@ -1407,7 +1418,10 @@ export async function mountEegViewer(
     // covers the narrower case of a group switch superseding this load.
     if (disposed || seq !== overviewSeq) return;
     overviewData = data;
-    ui.minimap.style.display = data && data.length > 0 ? "block" : "none";
+    // "" hands display back to the stylesheet (`display: block`), so a page can
+    // still hide the strip with an ordinary rule; the embed route does in
+    // small frames.
+    ui.minimap.style.display = data && data.length > 0 ? "" : "none";
     drawOverview();
   }
 
@@ -2193,7 +2207,7 @@ function buildDom(
   }
 
   // Time group. The `--time` modifier is for the embed route, which hides
-  // this readout in narrow frames (src/pages/dataset/[id]/embed.astro).
+  // this readout (src/pages/dataset/[id]/embed.astro).
   const time = el("span", "eegv__readout eegv__readout--time");
   const win = compactSelect(
     WINDOW_CHOICES.map((s) => [String(s), `${s} s`]),

@@ -507,6 +507,31 @@ if (Astro.response.status === 200) {
   .embed__viewer .eegv-units-notice {
     padding: var(--space-1) var(--space-2);
   }
+  /* The time readout ("0.0–10.0 s") is hidden at every frame size, kept for
+     screen readers, which cannot read the canvas axis. The time axis under
+     the plot already labels where the window is, and the readout's text
+     grows with the window's start (10 characters at 0 s, 11 from 10 s, 15
+     past 1000 s) and in clock mode (17), so paging could wrap the toolbar
+     onto another row and take that row out of the plot (website#421).
+     Without it, a 360 px frame's toolbar takes two rows instead of three
+     (for a recording with one channel group, so no Group select). The
+     channel readout ("all 64", "101–120/340 · 5 hidden") stays: nothing else
+     shows which channels are in view, and it changes only on a reader
+     action (zooming or scrolling the channels, marking bad channels while
+     Hide bad is on, a group switch), which settles in one refit. The
+     rule is global.css's `.visually-hidden`, without the `!important`s
+     nothing here has to beat; the class is set in viewer.ts's buildDom. */
+  .embed__viewer .eegv__readout--time {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    min-inline-size: 0;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
   /* A dropdown with one option has nothing to choose, and the title already
      names the recording: a one-task dataset (the common case) loses its task
      select here, which is what keeps a narrow header to two lines. */
@@ -517,8 +542,8 @@ if (Astro.response.status === 200) {
   /* Small frames. The header and the viewer's toolbar wrap at a narrow width,
      and every wrapped line comes out of the plot; these trims are what let the
      smallest supported frame (360 x 480) hold the whole viewer without the
-     document scrolling (website#410 gate 3). The controls stay; only their
-     captions, some spacing, and the time readout go. */
+     document scrolling (website#410 gate 3). The toolbar's controls stay;
+     their captions, some spacing and the overview strip go. */
   @media (max-width: 560px) {
     /* The toolbar's captions, not the gear popover's: the popover floats
        over the plot, so its captions cost no plot height, and without them
@@ -544,24 +569,6 @@ if (Astro.response.status === 200) {
     .embed__head .eegv-nav__pos {
       min-inline-size: 3rem;
     }
-    /* Two toolbar rows instead of three at 360 px for a recording with one
-       channel group (no Group select), which hands the plot back a row. The
-       time axis under the plot already labels where the window is, so the
-       "0.0–10.0 s" readout above it goes, kept for screen readers, which
-       cannot read the canvas axis: global.css's `.visually-hidden`, without
-       the `!important`s nothing here has to beat. The class is set in
-       viewer.ts's buildDom. */
-    .embed__viewer .eegv__readout--time {
-      position: absolute;
-      inline-size: 1px;
-      block-size: 1px;
-      min-inline-size: 0;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-    }
     /* Closer groups take 4 px off the row gap, and keep frames of 320 to
        330 px at two rows too. Only the toolbar's own groups: the gear
        popover's groups are `.eegv__group`s inside `.embed__viewer` as well,
@@ -581,6 +588,17 @@ if (Astro.response.status === 200) {
     }
     .embed__viewer .eegv__menu .eegv__group + .eegv__group {
       padding-block-start: var(--space-2);
+    }
+    /* The overview strip (the recording-wide event map under the scrubber)
+       goes too: in a frame this narrow its event ticks blur together, and
+       the scrubber above it still moves through the whole recording. Two
+       things drawn on it go with it: the reader's own annotation ticks
+       (the annotations stay on the plot and in their panel) and the
+       buffered-region bar of "Preload full recording". Each render redraws
+       the strip, so a frame widened past 560 px gets it back at its new
+       width. */
+    .embed__viewer .eegv__minimap {
+      display: none;
     }
   }
   @media (max-height: 600px) {
