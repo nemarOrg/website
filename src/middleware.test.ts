@@ -141,20 +141,17 @@ describe("embed call counting", () => {
     for (const cookie of [false, true]) {
       for (const [name, runtime] of runtimes) {
         const label = `${name}, ${cookie ? "cookie-bearing" : "anonymous"}`;
-        const seen: string[] = [];
         let res: Response | undefined;
-        seen.push(
-          ...(await warningsDuring(async () => {
-            res = await serve(
-              embedCtx(`${MARKETING}${EMBED}?view=sub-05`, {
-                headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
-                cookie,
-                runtime,
-              }),
-              ok,
-            );
-          })),
-        );
+        const seen = await warningsDuring(async () => {
+          res = await serve(
+            embedCtx(`${MARKETING}${EMBED}?view=sub-05`, {
+              headers: { Referer: "https://example.org/", "Sec-Fetch-Dest": "iframe" },
+              cookie,
+              runtime,
+            }),
+            ok,
+          );
+        });
         expect(seen, label).toEqual([]);
         expect(await snapshot(res as Response), label).toEqual({
           status: 200,
