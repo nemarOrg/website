@@ -65,9 +65,17 @@ function isPrefetch(headers: Headers): boolean {
 }
 
 /**
+ * The longest hostname DNS allows. The URL parser accepts longer ones, and a
+ * request header can carry kilobytes of them, so a hostname past this is not a
+ * site and is recorded as no host rather than as junk in the host list.
+ */
+const MAX_HOSTNAME_LENGTH = 253;
+
+/**
  * The embedding site's hostname, from `Referer`: lowercased, with no scheme,
- * port, path, query or userinfo. Empty when the header is absent or is not a
- * URL with a host (`about:blank`, `null`, garbage).
+ * port, path, query or userinfo. Empty when the header is absent, is not a URL
+ * with a host (`about:blank`, `null`, garbage), or names a host longer than DNS
+ * allows (253 characters).
  *
  * An IPv6 literal keeps its brackets (`[::1]`), as the URL parser spells it, so
  * a row never reads as a hostname it is not.
@@ -80,7 +88,8 @@ function embedderHost(headers: Headers): string {
   const referer = headers.get("Referer");
   if (!referer) return "";
   try {
-    return new URL(referer).hostname.toLowerCase();
+    const host = new URL(referer).hostname.toLowerCase();
+    return host.length > MAX_HOSTNAME_LENGTH ? "" : host;
   } catch {
     return "";
   }

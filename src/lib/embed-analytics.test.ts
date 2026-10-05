@@ -164,6 +164,18 @@ describe("embedDataPoint: the embedding site", () => {
     expect(host("HTTPS://Docs.NEMAR.org/")).toBe("docs.nemar.org");
   });
 
+  it("is empty for a hostname longer than DNS allows, and kept at exactly the limit", () => {
+    // 63 + 1 + 63 + 1 + 63 + 1 + 61 = 253 characters; one more is 254.
+    const atLimit = [..."abc"]
+      .map((c) => c.repeat(63))
+      .concat("d".repeat(61))
+      .join(".");
+    expect(atLimit).toHaveLength(253);
+    expect(host(`https://${atLimit}/`)).toBe(atLimit);
+    expect(host(`https://${atLimit}e/`)).toBe("");
+    expect(host(`https://${"a".repeat(5000)}.example/`)).toBe("");
+  });
+
   it("keeps a subdomain, so two sites on one domain stay distinct", () => {
     expect(host("https://ebrains.example.eu/")).toBe("ebrains.example.eu");
     expect(host("https://www.example.eu/")).toBe("www.example.eu");
