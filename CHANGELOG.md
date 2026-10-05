@@ -22,6 +22,9 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Changed
 
+- **The footer's "Privacy settings" control is now "Your Privacy Choices"**, with the standard toggle icon, and moves from the Project links to the end of the copyright line.
+  It is still a button and opens the same analytics preference as before (ADR 0019).
+  The icon is a shared component, `PrivacyChoicesIcon.astro`, for the embedded viewer page to reuse (#413, part of #410).
 - **The middleware keeps a page-set `Referrer-Policy: no-referrer`** instead of overwriting it with the site-wide policy, whatever spelling of the path reached the page (ADR 0021, #396).
 - **The docs handoff's grant call no longer follows redirects** (#396).
 
