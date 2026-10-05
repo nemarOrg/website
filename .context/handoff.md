@@ -1,6 +1,44 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-09-29.
+**Last session:** 2026-10-05.
+
+## 2026-10-05 — Embeddable signal viewer, edge counting, release 0.2.28 (website#410)
+
+Released to production as **0.2.28** (#424, `51160dad`); staging is at `0.2.29-dev0`.
+
+- **Embed route** `/dataset/<id>/embed` (ADR 0023): the only frameable route (`frame-ancestors *`, no
+  `X-Frame-Options`); everything else stays `'self'` + `SAMEORIGIN`. Verified on production for
+  nemar.org, www and ww2; app.nemar.org 301s to the apex. The viewer orchestration is shared with the
+  dataset page through `src/lib/eeg-viewer/viewer-session.ts`, so a viewer feature is built once.
+  The embed hides the time readout everywhere and the overview strip at 560 px or less
+  (#420, #422); at 360 x 480 the toolbar is two rows.
+- **Edge counting** (ADR 0024): each GET 200 on the embed route writes one Analytics Engine point
+  (`EMBED_ANALYTICS`: `nemar_website_embeds` on production, `nemar_website_embeds_dev` on
+  previews and staging). The production smoke row (`on007753`, `smoke.invalid`, `iframe`) is in.
+- **Reading the counts:** an Account Analytics Read token is in Infisical (project `nemar`, env
+  `dev`, path `/observability/cloudflare`) and on the `nemar-observability-dev` Worker. The
+  scratch script that queried it (`query-smoke.sh`, in that session's scratchpad) injected it with
+  `infisical run` and printed counts only; an agent must not read or print the token itself.
+- **Footer:** "Your Privacy Choices" at the end of the copyright line (#414).
+- **Cloudflare Web Analytics** automatic setup is off for the nemar.org site (#418); its beacon
+  was always blocked by the CSP and is gone from every host.
+- **Docs:** nemarOrg/docs#61 is live (privacy policy "Embedded viewer" section, embedding guide).
+  docs#62 (the dashboard sentences) is a draft that merges with nemar-observability#98.
+- **Release-review fixes** (#426): `?view=` and `?v=` are quoted back only when they look like a
+  recording name or a version (`displayableViewParam`, `displayableVersion`).
+
+### Open
+
+- nemar-observability#98, the dashboard "Signal viewer" entry: reviewed through four rounds and
+  clean; merging it to `main` deploys production (migrations 0006 to 0009). Embedding sites are
+  counted on the public page and never named; admins get hosts through the bearer drill-down
+  `embed-sites`. Follow-ups: nemar-observability#99 (Umami vars on dev), #100 (`resolveAdmin`),
+  #101 (preset-claim nits). The dev Worker's cron fires at :17, not :47 (likely a stale trigger;
+  check the Triggers tab).
+- website#416 (Try again in the viewer), website#425 (admin portal list of embedding sites).
+- `private.nemar.org` does not resolve yet; nothing links to `/auth/private/authorize`.
+- The embed uses the "Your Privacy Choices" icon for a link to the policy; the release reviewer
+  suggested a legal look, since that icon usually signals an opt-out.
 
 ## 2026-09-29 — News section and landing highlights (website#371)
 
