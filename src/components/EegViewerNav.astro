@@ -1,0 +1,138 @@
+---
+/**
+ * Recording navigation for the signal viewer (website#253): subject and task
+ * dropdowns plus prev/next with a position counter.
+ *
+ * Two hosts render this markup: the dataset page's enlarge dialog
+ * (`EegViewerDialog.astro`, driven by the page script in
+ * `src/pages/dataset/[id].astro`) and the chrome-free embed route
+ * (`src/pages/dataset/[id]/embed.astro`, driven by
+ * `src/lib/eeg-viewer/embed-controller.ts`, website#410). It was extracted from
+ * the dialog so both get the same controls rather than two copies that drift.
+ *
+ * The markup is static and the drivers find it by its `data-eegv-nav*`
+ * attributes, so those attributes ARE the contract: rename one here and both
+ * drivers stop finding it. Each page renders exactly one instance, which is
+ * why the drivers can use `document.querySelector`.
+ *
+ * Hidden until a driver populates it: a dataset with fewer than two
+ * recordings has nothing to navigate between, and an empty group of selects
+ * would read as broken.
+ */
+---
+
+<div class="eegv-nav" data-eegv-nav hidden>
+  <label class="eegv-nav__field" data-eegv-nav-sub-field>
+    <span class="eegv-nav__label">Subject</span>
+    <select class="eegv-nav__sel" data-eegv-nav-sub></select>
+  </label>
+  <label class="eegv-nav__field" data-eegv-nav-task-field>
+    <span class="eegv-nav__label">Task</span>
+    <select class="eegv-nav__sel" data-eegv-nav-task></select>
+  </label>
+  {/* The `title`/`aria-label` pair here is only the pre-population
+      state; `syncEegNavControls` rewrites BOTH on every navigation so
+      they name the actual target ("Next recording: sub-02_…"). They have
+      to move together: an element with an aria-label takes its
+      accessible name from that label, so leaving this one static would
+      hide every update from a screen reader. */}
+  <div class="eegv-nav__steps">
+    <button
+      type="button"
+      class="eegv-nav__btn"
+      data-eegv-nav-prev
+      title="Previous recording"
+      aria-label="Previous recording">&lsaquo;</button>
+    <span class="eegv-nav__pos" data-eegv-nav-pos aria-live="polite"></span>
+    <button
+      type="button"
+      class="eegv-nav__btn"
+      data-eegv-nav-next
+      title="Next recording"
+      aria-label="Next recording">&rsaquo;</button>
+  </div>
+</div>
+
+<style>
+  /* Recording navigation (website#253). Sized down from the dialog title so it
+     reads as chrome, not as a second heading. */
+  .eegv-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: var(--fs-xs);
+  }
+  /* `display: flex` above outranks the `hidden` attribute's UA rule, so both
+     the group and the per-entity fields need it restated. */
+  .eegv-nav[hidden],
+  .eegv-nav__field[hidden] {
+    display: none;
+  }
+  .eegv-nav__field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-fg-muted);
+  }
+  .eegv-nav__label {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .eegv-nav__sel {
+    max-inline-size: 12rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-xs);
+  }
+  .eegv-nav__steps {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  /* Kept in sync with the `.eegv-nav__btn` rules in EegViewerDialog.astro,
+     which styles its own share buttons the same way. Scoped
+     styles do not cross component boundaries, so the dialog cannot reuse
+     these (AGENTS.md, "Astro scoped <style> doesn't cross component
+     boundaries"). */
+  .eegv-nav__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-inline-size: 1.75rem;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-bg);
+    color: var(--color-fg-muted);
+    font: inherit;
+    font-size: var(--fs-sm);
+    line-height: 1;
+    cursor: pointer;
+  }
+  .eegv-nav__btn:hover:not(:disabled) {
+    color: var(--color-fg);
+    border-color: var(--color-link);
+  }
+  .eegv-nav__btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .eegv-nav__sel:focus-visible,
+  .eegv-nav__btn:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  /* Fixed-ish width so the buttons don't shuffle sideways as the counter goes
+     from "9 of 12" to "10 of 12" during a fast next/next/next. */
+  .eegv-nav__pos {
+    min-inline-size: 5.5rem;
+    text-align: center;
+    color: var(--color-fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+</style>
