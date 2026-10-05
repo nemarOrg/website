@@ -4,18 +4,18 @@
  * dropdowns plus prev/next with a position counter.
  *
  * Two hosts render this markup: the dataset page's enlarge dialog
- * (`EegViewerDialog.astro`, driven by the page script in
- * `src/pages/dataset/[id].astro`) and the chrome-free embed route
- * (`src/pages/dataset/[id]/embed.astro`, driven by
- * `src/lib/eeg-viewer/embed-controller.ts`, website#410). It was extracted from
- * the dialog so both get the same controls rather than two copies that drift.
+ * (`EegViewerDialog.astro`) and the chrome-free embed route
+ * (`src/pages/dataset/[id]/embed.astro`, website#410). Both drive it through
+ * one implementation, the viewer session in
+ * `src/lib/eeg-viewer/viewer-session.ts`. It was extracted from the dialog so
+ * both get the same controls rather than two copies that drift.
  *
- * The markup is static and the drivers find it by its `data-eegv-nav*`
- * attributes, so those attributes ARE the contract: rename one here and both
- * drivers stop finding it. Each page renders exactly one instance, which is
- * why the drivers can use `document.querySelector`.
+ * The markup is static and the session finds it by its `data-eegv-nav*`
+ * attributes, so those attributes ARE the contract: rename one here and the
+ * session stops finding it. Each page renders exactly one instance, which is
+ * why the session can use `document.querySelector`.
  *
- * Hidden until a driver populates it: a dataset with fewer than two
+ * Hidden until the session populates it: a dataset with fewer than two
  * recordings has nothing to navigate between, and an empty group of selects
  * would read as broken.
  */
@@ -31,7 +31,7 @@
     <select class="eegv-nav__sel" data-eegv-nav-task></select>
   </label>
   {/* The `title`/`aria-label` pair here is only the pre-population
-      state; `syncEegNavControls` rewrites BOTH on every navigation so
+      state; the session's `syncNav` rewrites BOTH on every navigation so
       they name the actual target ("Next recording: sub-02_…"). They have
       to move together: an element with an aria-label takes its
       accessible name from that label, so leaving this one static would

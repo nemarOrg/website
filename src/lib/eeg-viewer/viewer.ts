@@ -2022,7 +2022,8 @@ export async function mountEegViewer(
   cleanups.push(() => abortController.abort());
   cleanups.push(() => glRenderer?.dispose());
   // Idempotent. The page holds up to three handles on this one function — the
-  // disposer returned below, `slot._eegvCleanup`, and `eegLive.destroy` — and a
+  // disposer returned below, `slot._eegvCleanup`, and the viewer session's
+  // `live.destroy` (viewer-session.ts) — and a
   // dialog close landing during a navigate mount genuinely fires two of them.
   // Running the cleanups twice is not harmless: it double-disposes the GL
   // context and takes the annotation layer down in the middle of its own final
