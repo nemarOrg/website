@@ -6,10 +6,15 @@ import { configDefaults, defineConfig } from "vitest/config";
  * bare `defineConfig` rather than `getViteConfig` from `astro/config`. Adding
  * the Astro pipeline here would change how these tests resolve for no benefit.
  *
- * The only thing this file exists for is the exclude below.
+ * It exists for the exclude below and for letting the viewer's stylesheet through
+ * (see `css`), so a test can read it.
  */
 export default defineConfig({
   test: {
+    // Vitest blanks every stylesheet it imports, `?raw` included. The viewer's
+    // retry button class is tied to its CSS by a test that reads the file, so
+    // that one stylesheet is let through.
+    css: { include: [/eeg-viewer\.css/] },
     exclude: [
       ...configDefaults.exclude,
       // Agent subtasks get their own git worktree, created *inside* the repo

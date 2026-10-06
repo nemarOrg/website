@@ -91,8 +91,9 @@
   cursor: not-allowed;
 }
 /* Try again (or Reload page) in the viewer's failed-open messages (website#416).
-   Those sit in a plain host or in the viewer's own message, outside the
-   toolbar's .eegv scope, so this takes the page tokens, not --eegv-accent. */
+   One look for both messages: the session's own (in a plain host) and the
+   viewer's "could not load" one (inside .eegv, which has --eegv-accent). It
+   takes the page tokens so the two buttons match, not the viewer's accent. */
 .preview__retry {
   padding: var(--space-1) var(--space-3);
   cursor: pointer;

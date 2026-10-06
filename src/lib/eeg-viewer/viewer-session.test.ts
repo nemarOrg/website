@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import viewerCss from "../../styles/eeg-viewer.css?raw";
 import { buildRecordingList } from "./recording-nav";
+import { RETRY_CLASS } from "./retry";
 import {
-  RETRY_CLASS,
   navControlState,
   openFailureHtml,
   reloadUrl,
@@ -190,5 +191,13 @@ describe("reloadUrl", () => {
     expect(reloadUrl("https://nemar.org/dataset/on007753?v=1.0.1", null)).toBe(
       "https://nemar.org/dataset/on007753?v=1.0.1",
     );
+  });
+});
+
+describe("RETRY_CLASS", () => {
+  it("is the class the stylesheet styles, so the buttons cannot lose their look", () => {
+    for (const state of ["", ":hover", ":focus-visible", ":disabled"]) {
+      expect(viewerCss).toContain(`.${RETRY_CLASS}${state} {`);
+    }
   });
 });
