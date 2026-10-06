@@ -4,7 +4,7 @@
   "version": "0.2.29",
   "private": true,
   "license": "CC-BY-NC-ND-4.0",
-  "description": "nemar.org redesign on Astro + Cloudflare Pages",
+  "description": "nemar.org is the largest archive tool and compute resource for human biosignals",
   "engines": {
     "node": ">=22.12.0"
   },
