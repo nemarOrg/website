@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-10-06
+
 ### Added
 
 - **A Try again button when the signal viewer fails to open a recording**, on the dataset page's viewer dialog and in the embed (#416).
