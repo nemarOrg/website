@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import * as zarr from "zarrita";
+import { isMissingStoreError } from "./store";
 import {
   FIT_MIN_PLOT_HEIGHT,
   fitScopeHeight,
   gainCarriesOver,
+  isRetryableUnavailable,
   loadPreloadEnabled,
   saveDataRequested,
   unavailableMessageHtml,
@@ -214,6 +217,34 @@ describe("unavailableMessageHtml", () => {
     ).toBe(
       `${generic} Use the expand arrow next to its name to browse the recording's files instead.`,
     );
+  });
+
+  it("says a store that would not open could not load, and still could not after a retry", () => {
+    expect(unavailableMessageHtml({}, false)).toBe("The viewer could not load this recording.");
+    expect(unavailableMessageHtml({ retried: true }, false)).toBe(
+      "The viewer still could not load this recording.",
+    );
+    // A missing store or a recorded reason does not change with a retry.
+    expect(unavailableMessageHtml({ retried: true }, true)).toBe(generic);
+    expect(unavailableMessageHtml({ retried: true, failureReason: "Corrupt." }, false)).toBe(
+      "Corrupt.",
+    );
+  });
+
+  it("offers a retry exactly when the message says the viewer could not load", async () => {
+    const missing = await zarr.open(new Map(), { kind: "group" }).catch((e: unknown) => e);
+    const outage = new TypeError("Failed to fetch");
+    const cases = [
+      { opts: {}, err: outage, retryable: true },
+      { opts: {}, err: missing, retryable: false },
+      { opts: { failureReason: "Corrupt." }, err: outage, retryable: false },
+      { opts: { failureReason: "Corrupt." }, err: missing, retryable: false },
+    ];
+    for (const { opts, err, retryable } of cases) {
+      expect(isRetryableUnavailable(opts, err)).toBe(retryable);
+      const html = unavailableMessageHtml(opts, isMissingStoreError(err));
+      expect(html.includes("could not load")).toBe(retryable);
+    }
   });
 
   it("uses the caller's link instead of either, in a new tab", () => {

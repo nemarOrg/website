@@ -534,7 +534,8 @@ Astro.response.headers.set(
         return false;
       }
       dialogSlot.replaceChildren(host);
-      dialog.showModal();
+      // Already open when Try again re-opens a recording that failed to mount.
+      if (!dialog.open) dialog.showModal();
       return true;
     },
     onRelease: (released) => {

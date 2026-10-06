@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildRecordingList } from "./recording-nav";
-import { navControlState, sessionContext, viewSpecForPath } from "./viewer-session";
+import {
+  RETRY_CLASS,
+  navControlState,
+  openFailureHtml,
+  reloadUrl,
+  sessionContext,
+  viewSpecForPath,
+} from "./viewer-session";
 
 /**
  * The pure half of the viewer session (website#410): what the nav controls
@@ -123,5 +130,65 @@ describe("sessionContext", () => {
       zarrToken: "",
       zarr: null,
     });
+  });
+});
+
+describe("openFailureHtml", () => {
+  const fallback = '<a href="/dataset/on007753">Open this recording on NEMAR</a>';
+
+  it("names the recording, keeps the page's fallback sentence and offers Try again in the alert", () => {
+    const html = openFailureHtml("sub-01_task-rest_eeg.vhdr", fallback);
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Couldn't open sub-01_task-rest_eeg.vhdr.");
+    expect(html).toContain(`${fallback} instead.`);
+    expect(html).toContain(`class="${RETRY_CLASS}"`);
+    expect(html).toContain(">Try again</button>");
+    // One alert, with the button inside it and described by the sentence.
+    expect(html.match(/<p /g)).toHaveLength(1);
+    expect(html.indexOf("<button")).toBeGreaterThan(html.indexOf("instead."));
+    expect(html.indexOf("</button>")).toBeLessThan(html.indexOf("</p>"));
+    const id = /<span id="([^"]+)">/.exec(html)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`aria-describedby="${id}"`);
+  });
+
+  it("says Still after a failed retry, so a click that changed nothing else still shows", () => {
+    expect(openFailureHtml("a.vhdr", fallback, { again: true })).toContain(
+      "Still couldn't open a.vhdr.",
+    );
+    expect(openFailureHtml("a.vhdr", fallback)).not.toContain("Still");
+  });
+
+  it("offers Reload page instead when the viewer's code did not load", () => {
+    const html = openFailureHtml("a.vhdr", fallback, { reload: true });
+    expect(html).toContain(">Reload page</button>");
+    expect(html).not.toContain("Try again");
+    expect(html).toContain(`class="${RETRY_CLASS}"`);
+  });
+
+  it("escapes a file name that carries markup", () => {
+    const html = openFailureHtml('"><img src=x onerror=alert(1)>.vhdr', "fallback");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+  });
+});
+
+describe("reloadUrl", () => {
+  it("names the failed recording where the session stripped it", () => {
+    expect(
+      reloadUrl("https://nemar.org/dataset/on007753/embed?theme=dark", "sub-03_task-rest"),
+    ).toBe("https://nemar.org/dataset/on007753/embed?theme=dark&view=sub-03_task-rest");
+  });
+
+  it("replaces a ?view= that is still there and keeps the version and the hash", () => {
+    expect(
+      reloadUrl("https://nemar.org/dataset/on007753?v=1.0.1&view=old#readme", "sub-02_task-rest"),
+    ).toBe("https://nemar.org/dataset/on007753?v=1.0.1&view=sub-02_task-rest#readme");
+  });
+
+  it("is the address unchanged when there is no recording to name", () => {
+    expect(reloadUrl("https://nemar.org/dataset/on007753?v=1.0.1", null)).toBe(
+      "https://nemar.org/dataset/on007753?v=1.0.1",
+    );
   });
 });
