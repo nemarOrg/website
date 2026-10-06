@@ -13,6 +13,18 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.29] - 2026-10-06
+
+### Added
+
+- **A Try again button when the signal viewer fails to open a recording**, on the dataset page's viewer dialog and in the embed (#416).
+  Before, a failed first open left an error and a link and only a page reload recovered, which is the worst case in an embed, where a partner's visitor has nothing else on screen.
+  The button re-runs the same open through the viewer session, so it is superseded and guarded like any other open.
+  It is offered when the mount threw and when the recording's store would not open (an outage), not when the recording has no viewer yet.
+  A failed retry says "Still couldn't open" ("still could not load", for an outage), and leaves the keyboard focus on the new button, which is described by the message so a screen reader reads both; when the retry ends in a message with no button (the recording's store is simply not there), the message takes the focus.
+  When the viewer's own code failed to load (a network blip), the button reads "Reload page" and reloads with `?view=` naming the recording, so an embed reopens on the same one: Chromium and WebKit remember a failed dynamic import for the life of the document, and a re-run would fail again without asking the network.
+  A failed in-place navigation is unchanged: it keeps its controls.
+
 ## [0.2.28] - 2026-10-05
 
 ### Added
