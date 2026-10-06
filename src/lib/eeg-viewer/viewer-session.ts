@@ -213,6 +213,13 @@ export interface ViewerSessionHooks {
 export interface MountOutcome {
   seq: number;
   kind: "live" | "unavailable" | "failed" | "superseded";
+  /**
+   * With `kind: "failed"`: the viewer's own code failed to load. Chromium and
+   * WebKit remember a failed dynamic `import()` for the life of the document and
+   * answer the next one from that failure without asking the network, so
+   * re-running the open cannot recover from it; only a reload can.
+   */
+  moduleFailed?: boolean;
 }
 
 export interface MountRequest {
@@ -225,6 +232,8 @@ export interface MountRequest {
   downloadUrl: string;
   /** Console prefix for a mount that threw. */
   logLabel: string;
+  /** What Try again does on the viewer's own "could not load" message (website#416). */
+  onRetry?: () => void;
   /** Runs after the session claimed the instance, before the mount starts. */
   afterClaim?(): void;
 }
@@ -326,18 +335,41 @@ function escapeHtml(s: string): string {
 
 /** The class of the retry button, so the page that styles it and the session that wires it agree. */
 export const RETRY_CLASS = "preview__retry";
+const FAILURE_TEXT_ID = "eegv-open-failure";
 
 /**
  * The message a first open that threw leaves in its host. `fallbackHtml`
  * completes "Couldn't open NAME. … instead." and is trusted markup from the
  * page's hook; the name is a file name and is escaped. The button sits inside
- * the alert so it wraps with the sentence at any width. It says "Try again"
- * when pressing it re-runs the open, and "Reload" when the viewer's code did not
- * load, which only a reload can fix (see `viewerModuleFailed`).
+ * the alert so it wraps with the sentence at any width, and is described by the
+ * sentence so focus landing on it still reads the error aloud.
+ *
+ * The button says "Try again" when pressing it re-runs the open, and "Reload
+ * page" when the viewer's code did not load (`MountOutcome.moduleFailed`),
+ * which only a reload can fix. `again` marks a message shown after a retry
+ * failed, so a click that changed nothing else on screen still reads as having
+ * done something.
  */
-export function openFailureHtml(name: string, fallbackHtml: string, reload = false): string {
-  const label = reload ? "Reload" : "Try again";
-  return `<p class="preview__error" role="alert">Couldn't open ${escapeHtml(name)}. ${fallbackHtml} instead. <button type="button" class="${RETRY_CLASS}">${label}</button></p>`;
+export function openFailureHtml(
+  name: string,
+  fallbackHtml: string,
+  state: { reload?: boolean; again?: boolean } = {},
+): string {
+  const label = state.reload ? "Reload page" : "Try again";
+  const lead = state.again ? "Still couldn't open" : "Couldn't open";
+  return `<p class="preview__error" role="alert"><span id="${FAILURE_TEXT_ID}">${lead} ${escapeHtml(name)}. ${fallbackHtml} instead.</span> <button type="button" class="${RETRY_CLASS}" aria-describedby="${FAILURE_TEXT_ID}">${label}</button></p>`;
+}
+
+/**
+ * Where Reload goes: the current address with `?view=` naming the recording
+ * that failed. By the time the button is on screen the session has already
+ * stripped `?view=` (nothing is live), so a bare reload would land the visitor
+ * on a different recording, or none, without a word.
+ */
+export function reloadUrl(href: string, viewSpec: string | null): string {
+  const url = new URL(href);
+  if (viewSpec !== null) url.searchParams.set(VIEW_PARAM, viewSpec);
+  return url.toString();
 }
 
 function navEl<T extends HTMLElement>(selector: string): T | null {
@@ -467,14 +499,6 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     disposeHost(ended, ended.host);
   }
 
-  /**
-   * True once the viewer's code failed to load and has not loaded since. Chromium
-   * and WebKit remember a failed dynamic `import()` for the life of the document
-   * and answer the next one from that failure without asking the network, so
-   * re-running the open cannot recover from it; only a reload can.
-   */
-  let viewerModuleFailed = false;
-
   async function mount(req: MountRequest): Promise<MountOutcome> {
     const { host, path, fileName, ctx } = req;
     const mySeq = ++seq;
@@ -495,20 +519,15 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       annotations: null,
     };
     let destroy: (() => void) | undefined;
+    let moduleFailed = false;
     try {
       // Inside the try: a throwing hook must end in the same "failed" outcome
       // (and the same explicit message) as a throwing mount, not escape it.
       req.afterClaim?.();
-      const { mountEegViewer } = await import("./viewer").then(
-        (loaded) => {
-          viewerModuleFailed = false;
-          return loaded;
-        },
-        (err) => {
-          viewerModuleFailed = true;
-          throw err;
-        },
-      );
+      const { mountEegViewer } = await import("./viewer").catch((err) => {
+        moduleFailed = true;
+        throw err;
+      });
       if (mySeq !== seq || !live) return { seq: mySeq, kind: "superseded" };
       destroy = await mountEegViewer(host, {
         datasetId: ctx.datasetId,
@@ -522,6 +541,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         // below only runs once the mount has already written its DOM, too late
         // to protect whatever got there first.
         isStale: () => mySeq !== seq,
+        onRetry: req.onRetry,
         onTransfer: (snapshot) => {
           if (mySeq === seq && live) live.snapshot = snapshot;
         },
@@ -537,7 +557,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       // and a GL context; dispose it before letting go of the only handle.
       disposeHost(live, host);
       live = null;
-      return { seq: mySeq, kind: "failed" };
+      return { seq: mySeq, kind: "failed", moduleFailed };
     }
     if (mySeq !== seq) {
       // Superseded mid-mount by a faster click elsewhere; whoever superseded
@@ -564,6 +584,61 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     bestEffort("units notice", () => applyUnitsNotice(host, ctx.zarr?.stores.get(path)));
     bestEffort("viewer-open hook", () => hooks.onViewerOpen?.(host));
     return { seq: mySeq, kind: "live" };
+  }
+
+  /**
+   * An explicit error, never a blank host (website#260), with a way to try
+   * again: `live` is null, so the nav controls hide and nothing else would
+   * recover this open short of a reload (website#416). Try again is the same
+   * open, through the same claim and supersession as any other; Reload (the
+   * viewer's code did not load) goes back to the page with `?view=` naming this
+   * recording. `again` is true when this message follows a failed retry.
+   */
+  function showOpenFailure(
+    host: HTMLElement,
+    target: RecordingEntry,
+    ctx: SessionContext,
+    reload: boolean,
+    again: boolean,
+  ): void {
+    host.innerHTML = openFailureHtml(target.name, hooks.fallbackActionHtml(target, ctx, "open"), {
+      reload,
+      again,
+    });
+    const button = host.querySelector<HTMLButtonElement>(`.${RETRY_CLASS}`);
+    if (!button) {
+      console.error("[eeg-viewer] the open-failure message has no retry button", {
+        datasetId: ctx.datasetId,
+        path: target.path,
+      });
+      return;
+    }
+    button.addEventListener("click", () => {
+      if (reload) {
+        const viewSpec = hooks.isShowing() ? viewSpecForPath(ctx.recordings, target.path) : null;
+        window.location.replace(reloadUrl(window.location.href, viewSpec));
+        return;
+      }
+      button.disabled = true;
+      openRecordingFrom(target, ctx, true)
+        .catch((err) => console.error("[eeg-viewer] retry failed:", err))
+        // A retry that did not replace this message (the page could not present
+        // the new host) leaves the button pressable; one that did replaced it.
+        .finally(() => {
+          button.disabled = false;
+        });
+    });
+    if (again) refocusRetry(host);
+  }
+
+  /**
+   * The pressed button left with its message, so focus fell to the body: put it
+   * on the new retry button, unless the visitor has since moved it elsewhere.
+   */
+  function refocusRetry(host: HTMLElement): void {
+    const active = document.activeElement;
+    if (active && active !== document.body && !host.contains(active)) return;
+    host.querySelector<HTMLButtonElement>(`.${RETRY_CLASS}`)?.focus();
   }
 
   /**
@@ -619,6 +694,13 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       dirRecording: isDirRecordingName(target.name),
       downloadUrl: fileUrl,
       logLabel: "[eeg-viewer] open failed:",
+      // The viewer's own "could not load" message (an outage reading the store)
+      // offers the same retry as a failed mount.
+      onRetry: () => {
+        openRecordingFrom(target, ctx, true).catch((err) =>
+          console.error("[eeg-viewer] retry failed:", err),
+        );
+      },
       afterClaim: () => {
         // The target itself has had no chance to warm (unlike a tree-row
         // open, which prefetches on hover/focus before the click), so warm it
@@ -639,39 +721,18 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         prefetchAdjacent();
       },
     });
+    // Not busy before the message arrives: a live region that is still marked
+    // busy may be announced late or not at all.
+    if (outcome.seq === seq) host.removeAttribute("aria-busy");
     if (outcome.kind === "unavailable") {
-      // The mount rendered its own explanation; nothing to navigate from.
+      // The mount rendered its own explanation (with its own Try again, for an
+      // outage); nothing to navigate from.
+      if (retry) refocusRetry(host);
       syncNav();
     } else if (outcome.kind === "failed") {
-      // An explicit error, never a blank host (website#260), with a way to try
-      // again: `live` is null, so the nav controls hide and nothing else would
-      // recover this open short of a reload (website#416). The retry is the same
-      // open, through the same claim and supersession as any other.
-      const reload = viewerModuleFailed;
-      host.innerHTML = openFailureHtml(
-        target.name,
-        hooks.fallbackActionHtml(target, ctx, "open"),
-        reload,
-      );
-      const retryButton = host.querySelector<HTMLButtonElement>(`.${RETRY_CLASS}`);
-      retryButton?.addEventListener("click", () => {
-        if (reload) {
-          location.reload();
-          return;
-        }
-        retryButton.disabled = true;
-        openRecordingFrom(target, ctx, true)
-          .catch((err) => console.error("[eeg-viewer] retry failed:", err))
-          // A retry that did not replace this message (the page could not
-          // present it) leaves the button pressable; one that did replaced it.
-          .finally(() => {
-            retryButton.disabled = false;
-          });
-      });
-      if (retry) retryButton?.focus();
+      showOpenFailure(host, target, ctx, outcome.moduleFailed === true, retry);
       syncNav(); // nothing to navigate from; hide the now-dead controls
     }
-    if (outcome.seq === seq) host.removeAttribute("aria-busy");
   }
 
   async function openFirst(ctx: SessionContext): Promise<boolean> {

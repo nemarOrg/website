@@ -90,10 +90,11 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* Try again in the failed-open message (website#416). That message is a plain
-   host, outside .eegv, so this takes the page tokens, not --eegv-accent. */
+/* Try again (or Reload page) in the viewer's failed-open messages (website#416).
+   Those sit in a plain host or in the viewer's own message, outside the
+   toolbar's .eegv scope, so this takes the page tokens, not --eegv-accent. */
 .preview__retry {
-  padding: 2px var(--space-3);
+  padding: var(--space-1) var(--space-3);
   cursor: pointer;
   background: var(--color-bg);
   color: var(--color-fg);
@@ -106,7 +107,7 @@
   border-color: var(--color-link);
 }
 .preview__retry:focus-visible {
-  outline: 2px solid var(--color-link);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 .preview__retry:disabled {

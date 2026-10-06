@@ -204,6 +204,13 @@ export interface ViewerOptions {
    * there.
    */
   unavailableLink?: { href: string; text: string };
+  /**
+   * What a Try again button does, for the one "unavailable" case a retry can
+   * fix: the store exists but would not open (an outage), with no recorded data
+   * failure. Absent: no button, as on a tree row, which has its own collapse and
+   * reopen (website#416).
+   */
+  onRetry?: () => void;
 }
 
 /**
@@ -514,7 +521,7 @@ export async function mountEegViewer(
     // fetch was cancelled on purpose (superseded or closed), not a real
     // failure worth surfacing.
     if (opts.isStale?.() || abortController.signal.aborted) return undefined;
-    renderUnavailable(slot, opts, err);
+    renderUnavailable(slot, opts, err, !opts.failureReason && !isMissingStoreError(err));
     return undefined;
   }
   // Past the await, so a newer mount may already own this slot. Return before
@@ -2480,8 +2487,25 @@ function buildDom(
   };
 }
 
-function renderUnavailable(slot: HTMLElement, opts: ViewerOptions, err: unknown): void {
+function renderUnavailable(
+  slot: HTMLElement,
+  opts: ViewerOptions,
+  err: unknown,
+  retryable = false,
+): void {
   slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts, isMissingStoreError(err))}</p></div>`;
+  const onRetry = opts.onRetry;
+  if (retryable && onRetry) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "preview__retry";
+    button.textContent = "Try again";
+    button.addEventListener("click", () => {
+      button.disabled = true;
+      onRetry();
+    });
+    slot.querySelector(".eegv__msg")?.append(" ", button);
+  }
   console.warn(
     "[eeg-viewer] unavailable:",
     { datasetId: opts.datasetId, path: opts.filePath },
@@ -2516,8 +2540,8 @@ export function unavailableMessageHtml(
   // permanent reason -> show it. Otherwise "may still be generating" is only
   // true of a store that is not there (`isMissingStoreError`); a store that
   // exists and would not load (an outage, metadata it cannot read, a browser
-  // without a canvas) is said to be just that. A retry control for the second
-  // case is website#416.
+  // without a canvas) is said to be just that. The outage case offers a retry
+  // when the caller supplies `onRetry` (website#416).
   const msg = opts.failureReason
     ? escapeAttr(opts.failureReason)
     : storeMissing
