@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { buildRecordingList } from "./recording-nav";
-import { navControlState, sessionContext, viewSpecForPath } from "./viewer-session";
+import {
+  RETRY_CLASS,
+  navControlState,
+  openFailureHtml,
+  sessionContext,
+  viewSpecForPath,
+} from "./viewer-session";
 
 /**
  * The pure half of the viewer session (website#410): what the nav controls
@@ -123,5 +129,36 @@ describe("sessionContext", () => {
       zarrToken: "",
       zarr: null,
     });
+  });
+});
+
+describe("openFailureHtml", () => {
+  it("names the recording, keeps the page's fallback sentence and offers Try again in the alert", () => {
+    const html = openFailureHtml(
+      "sub-01_task-rest_eeg.vhdr",
+      '<a href="/dataset/on007753">Open this recording on NEMAR</a>',
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Couldn't open sub-01_task-rest_eeg.vhdr.");
+    expect(html).toContain('<a href="/dataset/on007753">Open this recording on NEMAR</a> instead.');
+    expect(html).toContain(`<button type="button" class="${RETRY_CLASS}">Try again</button>`);
+    // One alert, with the button inside it.
+    expect(html.match(/<p /g)).toHaveLength(1);
+    expect(html.indexOf("<button")).toBeGreaterThan(html.indexOf("instead."));
+    expect(html.indexOf("</button>")).toBeLessThan(html.indexOf("</p>"));
+  });
+
+  it("escapes a file name that carries markup", () => {
+    const html = openFailureHtml('"><img src=x onerror=alert(1)>.vhdr', "fallback");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+  });
+});
+
+describe("openFailureHtml, when the viewer's code did not load", () => {
+  it("offers Reload instead, in the same place with the same class", () => {
+    const html = openFailureHtml("sub-01_task-rest_eeg.vhdr", "fallback", true);
+    expect(html).toContain(`<button type="button" class="${RETRY_CLASS}">Reload</button>`);
+    expect(html).not.toContain("Try again");
   });
 });
