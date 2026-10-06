@@ -233,7 +233,9 @@ export interface MountRequest {
   /** Console prefix for a mount that threw. */
   logLabel: string;
   /** What Try again does on the viewer's own "could not load" message (website#416). */
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
+  /** This mount is a retry, so the viewer's own message says "still". */
+  retried?: boolean;
   /** Runs after the session claimed the instance, before the mount starts. */
   afterClaim?(): void;
 }
@@ -542,6 +544,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         // to protect whatever got there first.
         isStale: () => mySeq !== seq,
         onRetry: req.onRetry,
+        retried: req.retried,
         onTransfer: (snapshot) => {
           if (mySeq === seq && live) live.snapshot = snapshot;
         },
@@ -696,11 +699,8 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
       logLabel: "[eeg-viewer] open failed:",
       // The viewer's own "could not load" message (an outage reading the store)
       // offers the same retry as a failed mount.
-      onRetry: () => {
-        openRecordingFrom(target, ctx, true).catch((err) =>
-          console.error("[eeg-viewer] retry failed:", err),
-        );
-      },
+      onRetry: () => openRecordingFrom(target, ctx, true),
+      retried: retry,
       afterClaim: () => {
         // The target itself has had no chance to warm (unlike a tree-row
         // open, which prefetches on hover/focus before the click), so warm it

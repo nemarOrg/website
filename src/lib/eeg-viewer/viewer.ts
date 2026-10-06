@@ -210,7 +210,9 @@ export interface ViewerOptions {
    * failure. Absent: no button, as on a tree row, which has its own collapse and
    * reopen (website#416).
    */
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
+  /** This mount is a retry of a load that already failed, so the message says "still". */
+  retried?: boolean;
 }
 
 /**
@@ -521,7 +523,7 @@ export async function mountEegViewer(
     // fetch was cancelled on purpose (superseded or closed), not a real
     // failure worth surfacing.
     if (opts.isStale?.() || abortController.signal.aborted) return undefined;
-    renderUnavailable(slot, opts, err, !opts.failureReason && !isMissingStoreError(err));
+    renderUnavailable(slot, opts, err, isRetryableUnavailable(opts, err));
     return undefined;
   }
   // Past the await, so a newer mount may already own this slot. Return before
@@ -2502,7 +2504,14 @@ function renderUnavailable(
     button.textContent = "Try again";
     button.addEventListener("click", () => {
       button.disabled = true;
-      onRetry();
+      // Re-enabled when the retry settles: if it did not replace this message
+      // (the page could not present the new host) the button must still work.
+      Promise.resolve()
+        .then(onRetry)
+        .catch((e) => console.error("[eeg-viewer] retry failed:", e))
+        .finally(() => {
+          button.disabled = false;
+        });
     });
     slot.querySelector(".eegv__msg")?.append(" ", button);
   }
@@ -2520,7 +2529,10 @@ function renderUnavailable(
  * the embed page).
  */
 export function unavailableMessageHtml(
-  opts: Pick<ViewerOptions, "failureReason" | "dirRecording" | "downloadUrl" | "unavailableLink">,
+  opts: Pick<
+    ViewerOptions,
+    "failureReason" | "dirRecording" | "downloadUrl" | "unavailableLink" | "retried"
+  >,
   storeMissing = true,
 ): string {
   // A directory recording (`.mefd`/`.ds`/BTi, website#252) has no single file
@@ -2546,8 +2558,23 @@ export function unavailableMessageHtml(
     ? escapeAttr(opts.failureReason)
     : storeMissing
       ? "No interactive viewer for this recording yet (the Zarr serving copy may still be generating)."
-      : "The viewer could not load this recording.";
+      : opts.retried
+        ? "The viewer still could not load this recording."
+        : "The viewer could not load this recording.";
   return `${msg}${dl}`;
+}
+
+/**
+ * Whether a failed store open is the "could not load" case, the one a retry can
+ * fix (an outage): no recorded data failure and not a store that is simply not
+ * there. It is the same split `unavailableMessageHtml` makes, kept here so the
+ * message and the Try again button cannot disagree.
+ */
+export function isRetryableUnavailable(
+  opts: Pick<ViewerOptions, "failureReason">,
+  err: unknown,
+): boolean {
+  return !opts.failureReason && !isMissingStoreError(err);
 }
 
 function el(tag: string, className: string): HTMLElement {
