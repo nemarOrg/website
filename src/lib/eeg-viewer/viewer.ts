@@ -67,6 +67,7 @@ import {
   renderMessage,
   traceLayout,
 } from "./render";
+import { RETRY_CLASS } from "./retry";
 import { standardMontageFor } from "./standard-montage";
 import {
   type ChannelWindow,
@@ -2495,13 +2496,11 @@ function renderUnavailable(
   err: unknown,
   retryable = false,
 ): void {
-  slot.innerHTML = `<div class="eegv"><p class="eegv__msg">${unavailableMessageHtml(opts, isMissingStoreError(err))}</p></div>`;
   const onRetry = opts.onRetry;
-  if (retryable && onRetry) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "preview__retry";
-    button.textContent = "Try again";
+  const offerRetry = retryable && Boolean(onRetry);
+  slot.innerHTML = unavailableHtml(opts, isMissingStoreError(err), offerRetry);
+  const button = slot.querySelector<HTMLButtonElement>(`.${RETRY_CLASS}`);
+  if (button && onRetry) {
     button.addEventListener("click", () => {
       button.disabled = true;
       // Re-enabled when the retry settles: if it did not replace this message
@@ -2513,13 +2512,35 @@ function renderUnavailable(
           button.disabled = false;
         });
     });
-    slot.querySelector(".eegv__msg")?.append(" ", button);
   }
   console.warn(
     "[eeg-viewer] unavailable:",
     { datasetId: opts.datasetId, path: opts.filePath },
     err,
   );
+}
+
+const UNAVAILABLE_TEXT_ID = "eegv-unavailable-text";
+
+/**
+ * The whole "no viewer for this recording" block: the sentence, and Try again
+ * after it when `retry` is set. The button is described by the sentence, so
+ * focus landing on it after a failed retry reads the message too. The sentence
+ * only carries an id when there is a button, because only the one live viewer
+ * message ever has one (inline viewers under tree rows offer no retry, and
+ * several can be on a page at once).
+ */
+export function unavailableHtml(
+  opts: Parameters<typeof unavailableMessageHtml>[0],
+  storeMissing: boolean,
+  retry: boolean,
+): string {
+  const text = unavailableMessageHtml(opts, storeMissing);
+  const sentence = retry ? `<span id="${UNAVAILABLE_TEXT_ID}">${text}</span>` : text;
+  const button = retry
+    ? ` <button type="button" class="${RETRY_CLASS}" aria-describedby="${UNAVAILABLE_TEXT_ID}">Try again</button>`
+    : "";
+  return `<div class="eegv"><p class="eegv__msg">${sentence}${button}</p></div>`;
 }
 
 /**
@@ -2567,8 +2588,14 @@ export function unavailableMessageHtml(
 /**
  * Whether a failed store open is the "could not load" case, the one a retry can
  * fix (an outage): no recorded data failure and not a store that is simply not
- * there. It is the same split `unavailableMessageHtml` makes, kept here so the
- * message and the Try again button cannot disagree.
+ * there. It is the store-open half of the split `unavailableMessageHtml` makes
+ * (the same two conditions pick its "could not load" sentence), so on that path
+ * the message and the Try again button agree. The two other callers of
+ * `renderUnavailable` (no channel groups, no 2D canvas) say the same sentence
+ * with no button, on purpose: nothing a retry does changes them. Metadata the
+ * reader cannot parse counts as retryable too, since from here it looks the
+ * same as an outage; a permanent one answers every retry with "still could not
+ * load".
  */
 export function isRetryableUnavailable(
   opts: Pick<ViewerOptions, "failureReason">,

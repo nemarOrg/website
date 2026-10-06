@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as zarr from "zarrita";
+import { RETRY_CLASS } from "./retry";
 import { isMissingStoreError } from "./store";
 import {
   FIT_MIN_PLOT_HEIGHT,
@@ -8,6 +9,7 @@ import {
   isRetryableUnavailable,
   loadPreloadEnabled,
   saveDataRequested,
+  unavailableHtml,
   unavailableMessageHtml,
 } from "./viewer";
 
@@ -231,7 +233,7 @@ describe("unavailableMessageHtml", () => {
     );
   });
 
-  it("offers a retry exactly when the message says the viewer could not load", async () => {
+  it("pairs the retry with the could-not-load sentence for a failed store open", async () => {
     const missing = await zarr.open(new Map(), { kind: "group" }).catch((e: unknown) => e);
     const outage = new TypeError("Failed to fetch");
     const cases = [
@@ -296,5 +298,44 @@ describe("unavailableMessageHtml", () => {
     expect(unavailableMessageHtml({ failureReason: "epoched derivative" }, false)).toBe(
       "epoched derivative",
     );
+  });
+});
+
+describe("unavailableHtml", () => {
+  const link = { href: "https://nemar.org/dataset/on004696", text: "Open the dataset on NEMAR" };
+
+  it("puts Try again inside the message, described by the sentence it follows", () => {
+    const html = unavailableHtml({ unavailableLink: link }, false, true);
+    expect(html.match(/<p /g)).toHaveLength(1);
+    const id = /<span id="([^"]+)">/.exec(html)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(
+      `<button type="button" class="${RETRY_CLASS}" aria-describedby="${id}">Try again</button>`,
+    );
+    // The sentence, with its link, is what the span holds; the button follows it.
+    const spanEnd = html.indexOf("</span>");
+    expect(html.indexOf("could not load this recording")).toBeLessThan(spanEnd);
+    expect(html.indexOf("Open the dataset on NEMAR")).toBeLessThan(spanEnd);
+    expect(html.indexOf("<button")).toBeGreaterThan(spanEnd);
+    expect(html.indexOf("</button>")).toBeLessThan(html.indexOf("</p>"));
+  });
+
+  it("has no button and no id when there is nothing to retry", () => {
+    for (const html of [
+      unavailableHtml({}, true, false),
+      unavailableHtml({ failureReason: "Corrupt." }, false, false),
+    ]) {
+      expect(html).not.toContain("<button");
+      expect(html).not.toContain("id=");
+      expect(html).toContain('<p class="eegv__msg">');
+    }
+  });
+
+  it("says still after a retry that failed again, and keeps the escaping", () => {
+    expect(unavailableHtml({ retried: true }, false, true)).toContain(
+      "The viewer still could not load this recording.",
+    );
+    const html = unavailableHtml({ failureReason: '"><img src=x>' }, false, true);
+    expect(html).not.toContain("<img");
   });
 });

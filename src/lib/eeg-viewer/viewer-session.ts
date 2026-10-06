@@ -60,6 +60,7 @@ import {
 } from "./recording-nav";
 // Type-only, so importing this module does not pull the (WebGL-carrying)
 // viewer into a page bundle; the mount stays behind the dynamic import below.
+import { RETRY_CLASS } from "./retry";
 import type { ViewerAnnotationHandle, ViewerOptions, ViewerTransferState } from "./viewer";
 
 /** The slice of a dataset's Zarr index state the session reads and warms. */
@@ -214,7 +215,8 @@ export interface MountOutcome {
   seq: number;
   kind: "live" | "unavailable" | "failed" | "superseded";
   /**
-   * With `kind: "failed"`: the viewer's own code failed to load. Chromium and
+   * With `kind: "failed"`: the viewer's own code failed to load (or to run its
+   * top level, which a retry cannot fix either). Chromium and
    * WebKit remember a failed dynamic `import()` for the life of the document and
    * answer the next one from that failure without asking the network, so
    * re-running the open cannot recover from it; only a reload can.
@@ -335,8 +337,6 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** The class of the retry button, so the page that styles it and the session that wires it agree. */
-export const RETRY_CLASS = "preview__retry";
 const FAILURE_TEXT_ID = "eegv-open-failure";
 
 /**
@@ -618,6 +618,8 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     }
     button.addEventListener("click", () => {
       if (reload) {
+        // In an embed this is one more counted request, attributed to the
+        // embed's own host rather than the partner's (website#434).
         const viewSpec = hooks.isShowing() ? viewSpecForPath(ctx.recordings, target.path) : null;
         window.location.replace(reloadUrl(window.location.href, viewSpec));
         return;
@@ -631,17 +633,29 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
           button.disabled = false;
         });
     });
-    if (again) refocusRetry(host);
+    if (again) refocusAfterRetry(host);
   }
 
   /**
    * The pressed button left with its message, so focus fell to the body: put it
    * on the new retry button, unless the visitor has since moved it elsewhere.
+   * A retry can end in a message with no button (the store turned out not to be
+   * there); the message takes the focus then, so it is read and the visitor is
+   * not left on the page body.
    */
-  function refocusRetry(host: HTMLElement): void {
+  function refocusAfterRetry(host: HTMLElement): void {
     const active = document.activeElement;
     if (active && active !== document.body && !host.contains(active)) return;
-    host.querySelector<HTMLButtonElement>(`.${RETRY_CLASS}`)?.focus();
+    const button = host.querySelector<HTMLButtonElement>(`.${RETRY_CLASS}`);
+    if (button) {
+      button.focus();
+      return;
+    }
+    const message = host.querySelector<HTMLElement>(".eegv__msg");
+    if (message) {
+      message.tabIndex = -1;
+      message.focus();
+    }
   }
 
   /**
@@ -727,7 +741,7 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
     if (outcome.kind === "unavailable") {
       // The mount rendered its own explanation (with its own Try again, for an
       // outage); nothing to navigate from.
-      if (retry) refocusRetry(host);
+      if (retry) refocusAfterRetry(host);
       syncNav();
     } else if (outcome.kind === "failed") {
       showOpenFailure(host, target, ctx, outcome.moduleFailed === true, retry);

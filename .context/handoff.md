@@ -1,6 +1,28 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-10-05.
+**Last session:** 2026-10-06.
+
+## 2026-10-06 — Release 0.2.29: Try again in the viewer (website#416)
+
+Staging `0.2.29-dev2` was prepared as `0.2.29` and promoted through #433.
+The release holds one change, the viewer's Try again button (#428), plus the changelog cut (#431),
+the `package.json` description (#432) and the release-review fixes (#436).
+
+- **`private.nemar.org` is deliberately not advertised.**
+  The host does not resolve yet and nothing links to `/auth/private/authorize`;
+  that surface has its own suite of work and ships separately, so do not add a link until the host is live.
+- **Release review (two Sonnet reviewers):** no blocker. Fixed in #436: the outage message's Try again is
+  now described by its sentence and the changelog says so only where it is true, a failed retry that ends
+  in a message with no button puts the focus on the message, `RETRY_CLASS` lives in `eeg-viewer/retry.ts`
+  with a test that reads the stylesheet, and three comments were corrected.
+- **Filed, not fixed:** website#434 (Reload page in an embed counts one more call under the embed's own
+  host; measured in Chromium and WebKit, and the suggested `replaceState` plus `reload` does not help)
+  and website#435 (no end-to-end spec: eight mutations of the retry code left all 3010 tests green).
+- **Known flake:** `generate-og-images.mjs` failed one CI build on a 500 from `api.nemar.org/datasets`
+  (the same URL answered 200 six times a minute later); the re-run passed. A production build runs the
+  same script, so if a Cloudflare build fails on `[og] catalog fetch failed`, retry the deployment.
+- Still open from 2026-10-05: nemar-observability#98, website#425, and the legal look at the
+  "Your Privacy Choices" icon on the embed.
 
 ## 2026-10-05 — Embeddable signal viewer, edge counting, release 0.2.28 (website#410)
 
@@ -35,7 +57,7 @@ Released to production as **0.2.28** (#424, `51160dad`); staging is at `0.2.29-d
   `embed-sites`. Follow-ups: nemar-observability#99 (Umami vars on dev), #100 (`resolveAdmin`),
   #101 (preset-claim nits). The dev Worker's cron fires at :17, not :47 (likely a stale trigger;
   check the Triggers tab).
-- website#416 (Try again in the viewer), website#425 (admin portal list of embedding sites).
+- website#425 (admin portal list of embedding sites). website#416 shipped in 0.2.29.
 - `private.nemar.org` does not resolve yet; nothing links to `/auth/private/authorize`.
 - The embed uses the "Your Privacy Choices" icon for a link to the policy; the release reviewer
   suggested a legal look, since that icon usually signals an opt-out.
