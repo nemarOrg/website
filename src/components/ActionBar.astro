@@ -129,8 +129,8 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
   <h2>Download this dataset</h2>
   <p class="compute-dialog__intro">
     {archiveSkipReason
-      ? `${archiveSkipReason}. Use one of the streaming methods below — all resumable.`
-      : "Pick a method. Large datasets skip the zip and use the streaming methods below — all resumable."}
+      ? `${archiveSkipReason}. Choose a download method below; resume support depends on each file's storage type.`
+      : "Pick a method. Large datasets skip the zip; resume support depends on each file's storage type."}
     {" "}<a href={downloadGuideUrl} rel="external">Full download guide →</a>
   </p>
 
@@ -190,8 +190,9 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     <li>
       <strong>Direct files (wget / curl / rclone)</strong>
       <p>
-        Every file with a stable URL from the manifest. Range requests are supported;
-        real chunk-only byte delivery still awaits isolated, non-synthetic acceptance. Needs
+        Every file is listed by its stable manifest URL. Single-range requests and resume are currently
+        supported for annex-backed entries; git-tracked files are served as full bodies. Real chunk-only
+        byte delivery still awaits isolated, non-synthetic acceptance. Needs
         <code>curl</code>, <code>jq</code>, <code>wget</code> (or rclone/aria2c).
         <a href={`${downloadGuideUrl}#direct-download`} rel="external">Docs →</a>
       </p>
@@ -244,8 +245,9 @@ cd {datasetId} && nemar dataset get</code></pre>
       <p>
         <code>rclone</code>, <code>aria2c</code>, or any HTTPS client
         works against <a href={`${dataBase}/${datasetId}/`} rel="external">{dataHost}/{datasetId}/</a>
-        — the manifest carries stable data-plane file URLs. They support byte-range requests;
-        real chunk-only byte delivery remains under isolated acceptance.
+        — the manifest carries stable data-plane file URLs. Single-range requests are supported for
+        annex-backed entries; git-tracked files are served as full bodies. Real chunk-only byte delivery
+        remains under isolated acceptance.
       </p>
     </li>
   </ol>
