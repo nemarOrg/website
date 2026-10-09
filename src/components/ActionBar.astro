@@ -54,7 +54,7 @@ const dataladCmd = ghCloneUrl
   ? `datalad clone ${ghCloneUrl} ${ds}\ncd ${ds} && datalad get .`
   : null;
 const annexCmd = ghCloneUrl ? `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .` : null;
-const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq -r '.[].bytes_url' > urls.txt\nwget -xc -i urls.txt`;
+const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq -r '.[].url' > urls.txt\nwget -xc -i urls.txt`;
 ---
 
 <div class="actions">
@@ -190,7 +190,8 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     <li>
       <strong>Direct files (wget / curl / rclone)</strong>
       <p>
-        Every file with a stable, range-resumable URL from the manifest. Needs
+        Every file with a stable URL from the manifest. Range requests are supported;
+        real chunk-only byte delivery still awaits isolated, non-synthetic acceptance. Needs
         <code>curl</code>, <code>jq</code>, <code>wget</code> (or rclone/aria2c).
         <a href={`${downloadGuideUrl}#direct-download`} rel="external">Docs →</a>
       </p>
@@ -243,8 +244,8 @@ cd {datasetId} && nemar dataset get</code></pre>
       <p>
         <code>rclone</code>, <code>aria2c</code>, or any HTTPS client
         works against <a href={`${dataBase}/${datasetId}/`} rel="external">{dataHost}/{datasetId}/</a>
-        — the manifest carries stable data-plane file URLs
-        that support byte-range downloads.
+        — the manifest carries stable data-plane file URLs. They support byte-range requests;
+        real chunk-only byte delivery remains under isolated acceptance.
       </p>
     </li>
   </ol>

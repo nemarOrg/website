@@ -233,8 +233,8 @@ Remember: this is a frontend over established backends. The interesting decision
 - `formatDate(null) === ""`, `formatRelativeTime(null) === ""`, `splitModalities("") === []`. **Don't tighten these types** — Astro silently drops cards whose render throws.
 
 ### Download links must route through `data.nemar.org`
-- Never use the manifest's direct `url` field for downloads. Always build `data.nemar.org/<id>/<v>/<bids-path>`.
-- This puts the Worker in the chain so it can set `Content-Disposition` (filename preservation, tracked at nemar-cli#513).
+- Use the manifest's stable `url` field for downloads; it points through `data.nemar.org/<id>/<v>/<bids-path>`.
+- Preserve that route through the CDN so the Worker can set `Content-Disposition` (filename preservation, tracked at nemar-cli#513). Do not replace it with a storage URL.
 
 ### Backend reuse: don't reimplement filters
 - `api.nemar.org/datasets` supports `limit`, `offset`, `search`, `modality` (single), `sort`. Use those.
@@ -246,7 +246,7 @@ Remember: this is a frontend over established backends. The interesting decision
 - Never change `imageService: "passthrough"` to anything else (sharp breaks Workers)
 - Never use mocks, stubs, or fake data in tests
 - Never commit `.env` or credentials. The `CLOUDFLARE_API_TOKEN` is read from the environment by `cfman`, never write it to a file in this repo.
-- Never use the manifest's direct `url` field for download links — route through `data.nemar.org/<id>/<v>/<path>`
+- Never replace the manifest's stable `url` with a direct storage URL or redirected origin — preserve its `data.nemar.org/<id>/<v>/<path>` route.
 - Never use emojis in commits, PRs, or code
 - Never carry forward review findings as "deferred"; file an issue and link it
 
