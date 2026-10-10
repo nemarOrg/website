@@ -62,7 +62,7 @@ nemar.org
   ├─ api.nemar.org/datasets                 catalog list/search (D1)
   ├─ data.nemar.org/<id>/metadata.json      per-dataset neuroschema doc
   ├─ data.nemar.org/<id>/<ver>/manifest.json   BIDS file index
-  ├─ data.nemar.org/<id>/<ver>/<path>       302 -> presigned S3
+  ├─ data.nemar.org/<id>/<ver>/<path>       stable route; Range for annex-backed files; visibility cache <=300 s
   └─ data.nemar.org/<id>/qa/*               QA artifacts (mirrored from hallu, Phase 3)
 ```
 
