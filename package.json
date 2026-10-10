@@ -1,5 +1,6 @@
 {
   "name": "nemar-website",
+  "packageManager": "bun@1.4.3",
   "type": "module",
   "version": "0.2.30-dev1",
   "private": true,
