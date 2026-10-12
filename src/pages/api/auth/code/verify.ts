@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../../lib/api-base";
+import { apiFetch } from "../../../../lib/api-fetch";
 import { isValidEmail } from "../../../../lib/auth";
 import {
   DEV_ACCEPTED_CODE,
@@ -53,7 +54,7 @@ export const POST: APIRoute = async ({ request }) => {
   const origin = browserOrigin ?? "https://app.nemar.org";
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}/auth/code/verify`, {
+    res = await apiFetch(`${apiBase()}/auth/code/verify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

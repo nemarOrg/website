@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
+import { apiFetch } from "../../../lib/api-fetch";
 import { isSafeProxyPath } from "../../../lib/proxy-path";
 
 /**
@@ -62,7 +63,7 @@ const proxy: APIRoute = async ({ params, request }) => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(targetUrl, {
+    upstream = await apiFetch(targetUrl, {
       method: request.method,
       headers: upstreamHeaders,
       body,
