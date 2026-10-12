@@ -15,6 +15,13 @@ import {
   isProductionHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
+import {
+  type RequestContext,
+  dataWasStale,
+  runWithRequestContext,
+  sealRequestContext,
+} from "./lib/request-context";
+import { privateIfPublicHtml, withStaleDataHeaders } from "./lib/response-cache-policy";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -462,7 +469,9 @@ const serve = async (
   // resolved session would put that render in the shared cache; keying it on
   // the cookie keeps every personalizable response out of it.
   if (hasSessionCookie || context.locals.session) {
-    return withSecurityHeaders(await next(), url.pathname, noindex);
+    // The edge never stores these, but a page's own `public` header would let
+    // the visitor's browser keep HTML that names them (response-cache-policy.ts).
+    return withSecurityHeaders(privateIfPublicHtml(await next()), url.pathname, noindex);
   }
 
   type Runtime = { caches?: CacheStorage };
@@ -520,13 +529,18 @@ const serve = async (
   const response = await next();
   if (response.status === 200 && isPublicCacheable(response)) {
     const clone = response.clone();
-    type EdgeCtx = { waitUntil?: (p: Promise<unknown>) => void };
-    const ctx = (context.locals as { runtime?: { ctx?: EdgeCtx } } | undefined)?.runtime?.ctx;
-    const putPromise = cache.put(cacheKey, clone).catch(() => {
-      /* cache.put rejects on Vary:* / Range responses — drop silently. */
+    const putPromise = cache.put(cacheKey, clone).catch((err) => {
+      // cache.put rejects on `Vary: *` and Range responses, which is expected.
+      // A page cache that can never be written is not, and with hour-long pages
+      // it would be invisible. A benign rejection must not use up the one line
+      // a real, persistent failure needs, so each distinct message is logged
+      // once, up to a few. The message only: not the error object, which may
+      // carry the request URL.
+      warnPageCachePutOnce(err instanceof Error ? err.message : String(err), url.pathname);
     });
-    if (ctx && typeof ctx.waitUntil === "function") {
-      ctx.waitUntil(putPromise);
+    const waitUntil = edgeWaitUntil(context);
+    if (waitUntil) {
+      waitUntil(putPromise);
     } else {
       void putPromise;
     }
@@ -610,9 +624,58 @@ function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Res
   }
 }
 
-/** The middleware: `serve` handles the request, then `countEmbedCall` counts it. */
+/**
+ * The distinct reasons this isolate has already logged for a failed page-cache
+ * write (`cache.put`), so each is said once and the log is not flooded.
+ */
+const warnedPageCachePuts = new Set<string>();
+const MAX_PAGE_CACHE_PUT_REASONS = 5;
+
+function warnPageCachePutOnce(reason: string, pathname: string): void {
+  if (warnedPageCachePuts.has(reason) || warnedPageCachePuts.size >= MAX_PAGE_CACHE_PUT_REASONS) {
+    return;
+  }
+  warnedPageCachePuts.add(reason);
+  console.warn(
+    `[edge-cache] cache.put failed for ${pathname}: ${reason} (each distinct reason is logged once per isolate)`,
+  );
+}
+
+/** Forget what this isolate has warned about. For the middleware tests only. */
+export function resetPageCacheWarningsForTests(): void {
+  warnedPageCachePuts.clear();
+}
+
+/** The platform's `waitUntil` for this request, called as a method (it needs its `this`), or `undefined`. */
+function edgeWaitUntil(
+  context: Parameters<MiddlewareHandler>[0],
+): ((work: Promise<unknown>) => void) | undefined {
+  type EdgeCtx = { waitUntil?: (work: Promise<unknown>) => void };
+  const edge = (context.locals as { runtime?: { ctx?: EdgeCtx } } | undefined)?.runtime?.ctx;
+  if (!edge || typeof edge.waitUntil !== "function") return undefined;
+  return (work) => edge.waitUntil?.(work);
+}
+
+/**
+ * The middleware: `serve` handles the request, then `countEmbedCall` counts it.
+ * The render runs inside a request context carrying `waitUntil`, so code far
+ * from here (the catalog cache's background refresh) can reach it, and the
+ * context hears back when the render used data that was not fresh, in which case
+ * the page leaves the edge cache within a minute (response-cache-policy.ts).
+ */
 export const onRequest: MiddlewareHandler = async (context, next) => {
-  const response = await serve(context, next);
+  const requestContext: RequestContext = { waitUntil: edgeWaitUntil(context) };
+  const guardedNext: typeof next = async (...args) => {
+    const response = await next(...args);
+    // The flag is read once, here. Every catalog read today happens in page
+    // frontmatter, before the response exists; one made later (a component
+    // while the response streams) would be too late, so the context is sealed
+    // and a late mark is logged instead of being silently ignored.
+    const stale = dataWasStale(requestContext);
+    sealRequestContext(requestContext);
+    return stale ? withStaleDataHeaders(response) : response;
+  };
+  const response = await runWithRequestContext(requestContext, () => serve(context, guardedNext));
   countEmbedCall(context, response);
   return response;
 };

@@ -3,6 +3,7 @@ import CollaboratorList from "../../../components/CollaboratorList.astro";
 import InviteCollaboratorForm from "../../../components/InviteCollaboratorForm.astro";
 import Base from "../../../layouts/Base.astro";
 import { getDataset } from "../../../lib/api";
+import { isMissing } from "../../../lib/api-cache";
 import { getSession } from "../../../lib/auth";
 import {
   type Collaborator,
@@ -26,9 +27,20 @@ let collaborators: readonly Collaborator[] = [];
 let loadError: string | null = null;
 try {
   // getDataset reads the public catalog; the dataset has to exist to land here.
-  dataset = await getDataset(datasetId);
-} catch {
-  return Astro.redirect("/404");
+  // Past the cache: this page decides who may manage collaborators from the row
+  // (`owner_username`), and must not act on a copy hours or days old.
+  dataset = await getDataset(datasetId, { fresh: true });
+} catch (err) {
+  console.error(
+    `[collaborators] dataset ${datasetId} lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  // Not found is a 404. An API that is limited or slow is not "not found": an
+  // owner must be told to try again, not that their dataset does not exist.
+  if (isMissing(err)) return Astro.redirect("/404");
+  return new Response(null, {
+    status: 503,
+    headers: { "Retry-After": "15", "Cache-Control": "no-store" },
+  });
 }
 if (!dataset) {
   return Astro.redirect("/404");

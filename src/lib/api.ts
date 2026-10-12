@@ -1,5 +1,6 @@
 import { apiBase } from "./api-base";
 import { cachedJson } from "./api-cache";
+import { markDataStale } from "./request-context";
 import type {
   Dataset,
   DatasetListResponse,
@@ -115,14 +116,30 @@ function buildQuery(params: DatasetQuery): string {
   return qs ? `?${qs}` : "";
 }
 
+/** Whether `value` is a plain object, for the shape checks below. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// What each catalog endpoint returns, as far as a stored body must satisfy it
+// to be allowed to replace a good one (api-cache.ts). The pages do the detailed
+// null-handling; this only keeps `null`, `{}`, and an error envelope out of the
+// cache.
+const isListResponse = (p: unknown): boolean => isRecord(p) && Array.isArray(p.datasets);
+const isSearchResponse = (p: unknown): boolean => isRecord(p) && Array.isArray(p.results);
+const isDatasetResponse = (p: unknown): boolean =>
+  isRecord(p) && (isRecord(p.dataset) || typeof p.dataset_id === "string");
+
 export async function listDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<DatasetListResponse> {
   const url = `${apiBase()}/datasets${buildQuery(query)}`;
   return cachedJson<DatasetListResponse>(url, {
     signal: resolveSignal(init),
     label: "list datasets",
+    accept: isListResponse,
+    refresh: init.fresh,
   });
 }
 
@@ -138,23 +155,67 @@ export async function listDatasets(
  */
 export async function listAllDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<Dataset[]> {
-  const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
-  const first = await listDatasets({ ...query, limit: PAGE, offset: 0 }, init);
-  const total = first.total_count ?? first.count ?? first.datasets.length;
-  const byId = new Map<string, Dataset>();
-  for (const d of first.datasets) byId.set(d.dataset_id, d);
+  return (await listAllDatasetsWithTotal(query, init)).datasets;
+}
 
-  const offsets: number[] = [];
-  for (let off = PAGE; off < total; off += PAGE) offsets.push(off);
-  if (offsets.length > 0) {
-    const pages = await Promise.all(
-      offsets.map((off) => listDatasets({ ...query, limit: PAGE, offset: off }, init)),
+/**
+ * {@link listAllDatasets}, and the catalog size the pages reported (for a caller
+ * that wants to check it got most of them).
+ */
+export async function listAllDatasetsWithTotal(
+  query: DatasetQuery = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
+): Promise<{ datasets: Dataset[]; total: number }> {
+  const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
+
+  const readPages = async (fresh: boolean): Promise<DatasetListResponse[]> => {
+    const opts = { ...init, fresh };
+    const first = await listDatasets({ ...query, limit: PAGE, offset: 0 }, opts);
+    const total = first.total_count ?? first.count ?? first.datasets.length;
+    const offsets: number[] = [];
+    for (let off = PAGE; off < total; off += PAGE) offsets.push(off);
+    const rest = await Promise.all(
+      offsets.map((off) => listDatasets({ ...query, limit: PAGE, offset: off }, opts)),
     );
-    for (const p of pages) for (const d of p.datasets) byId.set(d.dataset_id, d);
+    return [first, ...rest];
+  };
+
+  let pages = await readPages(init.fresh ?? false);
+
+  // The pages are cached one by one, so after a partial refresh they can come
+  // from different moments, and a row that moved across a page boundary in
+  // between would be dropped. Each page reports the catalog's size as of its
+  // own moment: if they disagree, read them again past the cache, which also
+  // stores the new pages, so the next render finds them consistent. (Two moments
+  // that differ by one dataset added and one removed report the same size and
+  // are not caught; that is rare enough to accept.)
+  const sizes = new Set(
+    pages.map((p) => p.total_count).filter((n): n is number => typeof n === "number"),
+  );
+  if (sizes.size > 1 && !init.fresh) {
+    console.warn(
+      `[api] list all datasets: pages disagree on the catalog size (${[...sizes].join(", ")}); reading them again past the cache`,
+    );
+    try {
+      pages = await readPages(true);
+    } catch (err) {
+      // The API is refusing right now; a list stitched from two moments beats
+      // none, but a page built from it must not sit at the edge for an hour.
+      markDataStale();
+      console.warn(
+        `[api] list all datasets: fresh read failed, keeping the mixed pages: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
-  return [...byId.values()];
+
+  // De-duplicate by id in case the window shifts between requests.
+  const byId = new Map<string, Dataset>();
+  for (const p of pages) for (const d of p.datasets) byId.set(d.dataset_id, d);
+  const first = pages[0];
+  const total = first.total_count ?? first.count ?? first.datasets.length;
+  return { datasets: [...byId.values()], total };
 }
 
 /**
@@ -189,6 +250,7 @@ export async function searchDatasets(
   return cachedJson<DatasetSearchResponse>(url, {
     signal: resolveSignal(init),
     label: "search",
+    accept: isSearchResponse,
   });
 }
 
@@ -208,9 +270,15 @@ export function isManagedDatasetId(id: string): boolean {
   return /^(nm|on|xx)\d{6}$/.test(id);
 }
 
+/**
+ * `fresh: true` reads past the stored copy, and stores the answer (or drops the
+ * copy if the API says the dataset is gone). A page that decides who may do what
+ * from the row (the collaborators page reads `owner_username`) must not act on a
+ * copy that is hours or days old.
+ */
 export async function getDataset(
   id: string,
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<Dataset> {
   const url = `${apiBase()}/datasets/${encodeURIComponent(id)}`;
   // The endpoint returns { dataset: {...} } whereas the list endpoint
@@ -218,6 +286,8 @@ export async function getDataset(
   const raw = await cachedJson<Dataset | { dataset: Dataset }>(url, {
     signal: resolveSignal(init),
     label: "get dataset",
+    accept: isDatasetResponse,
+    refresh: init.fresh,
   });
   return "dataset" in raw ? raw.dataset : raw;
 }

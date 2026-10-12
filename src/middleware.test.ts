@@ -1,8 +1,14 @@
 import type { APIContext } from "astro";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
+import {
+  currentWaitUntil,
+  markDataStale,
+  resetRequestContextWarningsForTests,
+} from "./lib/request-context";
 import {
   SECURITY_HEADERS,
   applySecurityHeaders,
@@ -11,9 +17,35 @@ import {
   onRequest,
   parseAuthMeResponse,
   resetEmbedCountWarnings,
+  resetPageCacheWarningsForTests,
   routeAllowsFraming,
   routeNeedsUnsafeEval,
 } from "./middleware";
+
+// A cookie-bearing request on the app host asks the API who the visitor is
+// (`applySession`). These tests used to make that call to production: slow
+// enough that two of them could reach the 5 s test timeout, and a draw on the
+// same per-IP budget this site is trying not to exhaust. An HTTP response
+// fixture answers it the way the API answers an unknown session; any other
+// network call is a bug in the test.
+const realFetch = globalThis.fetch;
+
+beforeEach(() => {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/auth/me")) {
+      return new Response('{"error":"Unauthorized"}', {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw new Error(`unexpected network call in a middleware test: ${url}`);
+  }) as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
 
 describe("isPublicCacheable", () => {
   const r = (cc: string | null) =>
@@ -1328,5 +1360,346 @@ describe("framing", () => {
       }
     }
     expect([...new Set(frameable)]).toEqual(["./pages/dataset/[id]/embed.astro"]);
+  });
+});
+
+describe("request context for background work", () => {
+  /** A stand-in for the platform's execution context. `waitUntil` needs its `this`: detached, it throws. */
+  class FakeExecutionContext {
+    readonly kept: Promise<unknown>[] = [];
+    waitUntil(work: Promise<unknown>): void {
+      this.kept.push(work);
+    }
+  }
+
+  function ctxWith(runtime: unknown): APIContext {
+    return {
+      request: new Request(`https://${MARKETING_HOST}/discover`),
+      locals: runtime === undefined ? {} : { runtime },
+      cookies: { get: () => undefined },
+    } as unknown as APIContext;
+  }
+
+  afterEach(() => {
+    resetApiCacheStateForTests();
+  });
+
+  it("is a stand-in that really does fail when waitUntil is called detached", () => {
+    const detached = new FakeExecutionContext().waitUntil;
+    expect(() => detached(Promise.resolve())).toThrow(TypeError);
+  });
+
+  it("lets the render hand work to the platform's waitUntil, called as a method", async () => {
+    const platform = new FakeExecutionContext();
+    const work = Promise.resolve("refreshed");
+    // A detached call would throw inside the render and fail this test.
+    await onRequest(ctxWith({ ctx: platform }), async () => {
+      currentWaitUntil()?.(work);
+      return new Response("ok");
+    });
+    expect(platform.kept).toEqual([work]);
+  });
+
+  it.each([
+    ["no runtime", undefined],
+    ["a runtime with no ctx", {}],
+    ["a ctx with no waitUntil", { ctx: {} }],
+  ])("offers no waitUntil with %s, so callers refresh inline", async (_name, runtime) => {
+    let seen: unknown = "unset";
+    await onRequest(ctxWith(runtime), async () => {
+      seen = currentWaitUntil();
+      return new Response("ok");
+    });
+    expect(seen).toBeUndefined();
+  });
+
+  it("keeps two overlapping requests apart: each render reaches only its own platform", async () => {
+    const a = new FakeExecutionContext();
+    const b = new FakeExecutionContext();
+    const render = (label: string, delayMs: number) => async () => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      currentWaitUntil()?.(Promise.resolve(label));
+      return new Response("ok");
+    };
+    await Promise.all([
+      onRequest(ctxWith({ ctx: a }), render("a", 8)),
+      onRequest(ctxWith({ ctx: b }), render("b", 1)),
+    ]);
+    await expect(Promise.all(a.kept)).resolves.toEqual(["a"]);
+    await expect(Promise.all(b.kept)).resolves.toEqual(["b"]);
+  });
+
+  describe("a page built from stale catalog data", () => {
+    const URL = "https://api.nemar.org/datasets?limit=10";
+    const PAGE_CACHE = "public, max-age=60, s-maxage=3600";
+    const html = (cacheControl: string) =>
+      new Response("page", {
+        headers: { "Content-Type": "text/html", "Cache-Control": cacheControl },
+      });
+
+    function storeWith(entries: Map<string, { body: string; storedAt: number }>): BodyStore {
+      return {
+        async get(key) {
+          return entries.get(key);
+        },
+        async set(key, value) {
+          entries.set(key, value);
+        },
+        async delete(key) {
+          entries.delete(key);
+        },
+      };
+    }
+
+    it("goes through the real cache end to end: stale header, a minute at the edge, a refresh behind", async () => {
+      const platform = new FakeExecutionContext();
+      const entries = new Map([[URL, { body: '{"n":1}', storedAt: Date.now() - FRESH_MS - 1000 }]]);
+      const original = globalThis.fetch;
+      globalThis.fetch = (async () => new Response('{"n":2}')) as unknown as typeof fetch;
+      try {
+        const res = await onRequest(ctxWith({ ctx: platform }), async () => {
+          // No waitUntil is passed: it has to arrive through the request context.
+          const data = await cachedJson<{ n: number }>(URL, {
+            signal: AbortSignal.timeout(5000),
+            label: "list datasets",
+            store: storeWith(entries),
+          });
+          return new Response(`n=${data.n}`, {
+            headers: { "Content-Type": "text/html", "Cache-Control": PAGE_CACHE },
+          });
+        });
+        expect(await (res as Response).text()).toBe("n=1"); // the stored copy, at once
+        expect((res as Response).headers.get("x-nemar-data")).toBe("stale");
+        expect((res as Response).headers.get("Cache-Control")).toBe(
+          "public, max-age=0, s-maxage=60",
+        );
+        expect(platform.kept).toHaveLength(1); // and the refresh is running behind it
+        await Promise.all(platform.kept);
+        expect(entries.get(URL)?.body).toBe('{"n":2}');
+      } finally {
+        globalThis.fetch = original;
+      }
+    });
+
+    it("leaves a page built from fresh data alone", async () => {
+      const entries = new Map([[URL, { body: '{"n":1}', storedAt: Date.now() }]]);
+      const res = (await onRequest(ctxWith(undefined), async () => {
+        await cachedJson(URL, {
+          signal: AbortSignal.timeout(5000),
+          label: "list datasets",
+          store: storeWith(entries),
+        });
+        return html(PAGE_CACHE);
+      })) as Response;
+      expect(res.headers.get("x-nemar-data")).toBeNull();
+      expect(res.headers.get("Cache-Control")).toBe(PAGE_CACHE);
+    });
+
+    it.each(["no-store", "private, max-age=0"])(
+      "marks the response but keeps a %s header as it was",
+      async (cacheControl) => {
+        const res = (await onRequest(ctxWith(undefined), async () => {
+          markDataStale();
+          return html(cacheControl);
+        })) as Response;
+        expect(res.headers.get("x-nemar-data")).toBe("stale");
+        expect(res.headers.get("Cache-Control")).toBe(cacheControl);
+      },
+    );
+  });
+});
+
+describe("signed-in pages are not public", () => {
+  const cookieCtx = (host: string): APIContext =>
+    ({
+      request: new Request(`https://${host}/discover`),
+      locals: {},
+      cookies: { get: () => ({ value: "a-session-cookie" }) },
+    }) as unknown as APIContext;
+  const anon = (): APIContext =>
+    ({
+      request: new Request(`https://${MARKETING_HOST}/discover`),
+      locals: {},
+      cookies: { get: () => undefined },
+    }) as unknown as APIContext;
+  const PUBLIC = "public, max-age=60, s-maxage=3600, stale-while-revalidate=600";
+
+  it("makes a public HTML page private when the request carries a session cookie", async () => {
+    const res = (await onRequest(
+      cookieCtx(APP_HOST),
+      async () =>
+        new Response("<html>you@example.org</html>", {
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": PUBLIC },
+        }),
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  it("leaves an immutable asset alone: it is the same for everyone", async () => {
+    const asset = "public, max-age=31536000, immutable";
+    const res = (await onRequest(
+      cookieCtx(APP_HOST),
+      async () =>
+        new Response("a{}", { headers: { "Content-Type": "text/css", "Cache-Control": asset } }),
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe(asset);
+  });
+
+  it("leaves an anonymous page public", async () => {
+    const res = (await onRequest(
+      anon(),
+      async () =>
+        new Response("<html></html>", {
+          headers: { "Content-Type": "text/html", "Cache-Control": PUBLIC },
+        }),
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe(PUBLIC);
+  });
+});
+
+describe("the page cache: MISS, HIT, and what is stored", () => {
+  class Platform {
+    readonly kept: Promise<unknown>[] = [];
+    waitUntil(work: Promise<unknown>): void {
+      this.kept.push(work);
+    }
+  }
+
+  /** A stand-in for the platform's CacheStorage, keyed by URL like the real one: real Request and Response objects. */
+  function fakeCacheStorage(putFails: () => Error | undefined = () => undefined) {
+    const entries = new Map<string, Response>();
+    const cache = {
+      async match(request: Request) {
+        return entries.get(request.url)?.clone();
+      },
+      async put(request: Request, response: Response) {
+        const failure = putFails();
+        if (failure) throw failure;
+        entries.set(request.url, response);
+      },
+    };
+    return { entries, storage: { open: async () => cache } as unknown as CacheStorage };
+  }
+
+  const ctxFor = (path: string, runtime: unknown): APIContext =>
+    ({
+      request: new Request(`https://${MARKETING_HOST}${path}`),
+      locals: { runtime },
+      cookies: { get: () => undefined },
+    }) as unknown as APIContext;
+
+  const PAGE = "public, max-age=60, s-maxage=3600";
+  const page = (cacheControl = PAGE) =>
+    new Response("page", {
+      headers: { "Content-Type": "text/html", "Cache-Control": cacheControl },
+    });
+
+  beforeEach(() => {
+    resetPageCacheWarningsForTests();
+    resetRequestContextWarningsForTests();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiCacheStateForTests();
+  });
+
+  it("stores a public page on a MISS, hands the write to waitUntil, and serves the next request from the cache", async () => {
+    const platform = new Platform();
+    const { entries, storage } = fakeCacheStorage();
+    const runtime = { caches: storage, ctx: platform };
+    let renders = 0;
+    const render = async () => {
+      renders++;
+      return page();
+    };
+    const first = (await onRequest(ctxFor("/discover", runtime), render)) as Response;
+    expect(first.headers.get("x-nemar-cache")).toBe("MISS");
+    expect(platform.kept).toHaveLength(1); // the write is not left to chance
+    await Promise.all(platform.kept);
+    expect(entries.size).toBe(1);
+
+    const second = (await onRequest(ctxFor("/discover", runtime), render)) as Response;
+    expect(second.headers.get("x-nemar-cache")).toBe("HIT");
+    expect(await second.text()).toBe("page");
+    expect(renders).toBe(1); // the second request never rendered
+  });
+
+  it("stores a page built from stale data with the shortened header, not the page's own", async () => {
+    const platform = new Platform();
+    const { entries, storage } = fakeCacheStorage();
+    const res = (await onRequest(
+      ctxFor("/discover", { caches: storage, ctx: platform }),
+      async () => {
+        markDataStale();
+        return page();
+      },
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=0, s-maxage=60");
+    await Promise.all(platform.kept);
+    const stored = [...entries.values()][0];
+    expect(stored.headers.get("Cache-Control")).toBe("public, max-age=0, s-maxage=60");
+    expect(stored.headers.get("x-nemar-data")).toBe("stale");
+  });
+
+  it("does not store a failed page or one that is not public", async () => {
+    const platform = new Platform();
+    const { entries, storage } = fakeCacheStorage();
+    const runtime = { caches: storage, ctx: platform };
+    await onRequest(ctxFor("/a", runtime), async () => page("no-store"));
+    await onRequest(ctxFor("/b", runtime), async () => new Response("down", { status: 503 }));
+    await Promise.all(platform.kept);
+    expect(entries.size).toBe(0);
+  });
+
+  it("says why a page-cache write failed once per distinct reason, with the message and not the error", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const platform = new Platform();
+    let reason = "quota exceeded";
+    const { storage } = fakeCacheStorage(() => new Error(reason));
+    const runtime = { caches: storage, ctx: platform };
+    for (const path of ["/p1", "/p2", "/p3"]) {
+      await onRequest(ctxFor(path, runtime), async () => page());
+    }
+    await Promise.all(platform.kept);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("cache.put failed"))).toHaveLength(
+      1,
+    );
+    expect(String(warn.mock.calls[0][0])).toContain("quota exceeded");
+    expect(warn.mock.calls[0]).toHaveLength(1); // no error object riding along
+
+    // A different reason is not hidden by the first one.
+    reason = "storage unavailable";
+    await onRequest(ctxFor("/p4", runtime), async () => page());
+    await Promise.all(platform.kept);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("cache.put failed"))).toHaveLength(
+      2,
+    );
+  });
+});
+
+describe("the stale flag is read once, and a late mark is not silent", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetRequestContextWarningsForTests();
+  });
+
+  it("logs an error when data is marked stale after the response was built", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ctx = {
+      request: new Request(`https://${MARKETING_HOST}/discover`),
+      locals: {},
+      cookies: { get: () => undefined },
+    } as unknown as APIContext;
+    const res = (await onRequest(ctx, async () => {
+      // A catalog read made after the response exists (a component while it streams).
+      setTimeout(() => markDataStale(), 5);
+      return new Response("ok", {
+        headers: { "Content-Type": "text/html", "Cache-Control": "public, s-maxage=3600" },
+      });
+    })) as Response;
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(res.headers.get("x-nemar-data")).toBeNull(); // too late to act on
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("after the response was built"));
   });
 });

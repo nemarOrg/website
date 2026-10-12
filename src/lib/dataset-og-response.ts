@@ -4,6 +4,7 @@ import { getLandingOutcome, getMetadataOutcome, outcomeValue } from "./data-api"
 import type { DatasetOgModel } from "./og-image";
 import { buildDatasetOgModel, renderDatasetOgSvg } from "./og-image";
 import { fetchParticipants } from "./participants";
+import { markDataStale } from "./request-context";
 import type { Dataset } from "./types";
 
 export async function datasetOgSvgResponse(id: string | undefined): Promise<Response> {
@@ -54,7 +55,13 @@ async function getCatalog(id: string): Promise<Dataset | null> {
   try {
     return await getDataset(id);
   } catch (err) {
-    console.warn(`[og/dataset/${id}] catalog fetch failed`, err);
+    // The card renders without the catalog facts, so it is degraded: keep it
+    // from sitting at the edge for long (lib/response-cache-policy.ts). The
+    // message only, not the error object.
+    console.warn(
+      `[og/dataset/${id}] catalog fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    markDataStale();
     return null;
   }
 }
