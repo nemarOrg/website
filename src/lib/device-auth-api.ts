@@ -33,6 +33,7 @@
  */
 
 import { apiBase } from "./api-base";
+import { apiFetch } from "./api-fetch";
 import { type DeadlineInit, resolveSignal } from "./request-deadline";
 
 /** Every call takes an optional `fetch` override (the `account-api.test.ts`
@@ -92,7 +93,7 @@ export async function lookupDeviceCode(
   code: string,
   init: DeviceAuthInit = {},
 ): Promise<DeviceApiResult<unknown>> {
-  const fetchImpl = init.fetch ?? fetch;
+  const fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = init.fetch ?? apiFetch;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   try {
@@ -128,7 +129,7 @@ export async function decideDeviceCode(
   code: string,
   init: DeviceAuthMutationInit,
 ): Promise<DeviceApiResult<unknown>> {
-  const fetchImpl = init.fetch ?? fetch;
+  const fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = init.fetch ?? apiFetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
@@ -162,7 +163,7 @@ export async function decideDeviceCode(
  * Worker fetch carries no Origin of its own, unlike a browser request.
  */
 export async function listApiKeys(init: DeviceAuthMutationInit): Promise<DeviceApiResult<unknown>> {
-  const fetchImpl = init.fetch ?? fetch;
+  const fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = init.fetch ?? apiFetch;
   const headers: Record<string, string> = { Accept: "application/json", Origin: init.origin };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   try {

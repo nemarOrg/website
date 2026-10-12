@@ -12,6 +12,7 @@
  */
 
 import { apiBase } from "./api-base";
+import { apiFetch } from "./api-fetch";
 import { type DeadlineInit, resolveSignal } from "./request-deadline";
 
 export interface PrivateGrantInit extends DeadlineInit {
@@ -40,7 +41,7 @@ export type PrivateGrantResult =
  * "invalid_request" }` on 400 and the rate-limit body on 429.
  */
 export async function requestPrivateGrant(init: PrivateGrantInit): Promise<PrivateGrantResult> {
-  const fetchImpl = init.fetch ?? fetch;
+  const fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = init.fetch ?? apiFetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",

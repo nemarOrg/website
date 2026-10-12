@@ -38,6 +38,7 @@ export const GET: APIRoute = async ({ params }) => {
   }
   if (upstream.status === 404) return notFound();
   if (!upstream.ok || !upstream.body) {
+    console.warn(`[news/media] ${file}: the API answered ${upstream.status}`);
     return new Response(null, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 

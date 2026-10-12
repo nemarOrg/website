@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase } from "../../lib/api-base";
+import { apiFetch } from "../../lib/api-fetch";
 import { fetchActiveNotices } from "../../lib/notices-api";
 
 /**
@@ -35,7 +36,7 @@ export const GET: APIRoute = async ({ request }) => {
   //
   // Never throws — see fetchActiveNotices. A notices outage degrades to an
   // empty array (no banner), never to an error the visitor has to see.
-  const notices = await fetchActiveNotices({ cookieHeader, baseUrl: apiBase() });
+  const notices = await fetchActiveNotices({ cookieHeader, baseUrl: apiBase(), fetch: apiFetch });
   return new Response(JSON.stringify({ notices }), {
     status: 200,
     headers: {
