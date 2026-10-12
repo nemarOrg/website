@@ -7,6 +7,8 @@ const API = "https://api.nemar.org";
 interface Call {
   url: string;
   init: RequestInit | undefined;
+  /** The headers as they were when the call was made: a later edit of the caller's own object cannot rewrite them. */
+  headers: Headers;
 }
 
 /** A service binding that answers from `reply` and records what it was asked. */
@@ -19,7 +21,7 @@ function binding(reply: (call: Call) => Response | Promise<Response>): {
     calls,
     binding: {
       async fetch(url, init) {
-        const call = { url, init };
+        const call = { url, init, headers: new Headers(init?.headers) };
         calls.push(call);
         return reply(call);
       },
@@ -43,7 +45,14 @@ const ok = (headers: Record<string, string> = {}) =>
 const redirect = (status: number, location: string) =>
   new Response(null, { status, headers: { location } });
 
-const headersOf = (call: Call | undefined) => new Headers(call?.init?.headers);
+const headersOf = (call: Call | undefined) => call?.headers ?? new Headers();
+
+/** Run `fn` as a request whose project binds the API and whose visitor is `visitorIp`. */
+const within = <T>(
+  b: ApiBinding,
+  fn: () => Promise<T>,
+  visitorIp: string | undefined = "198.51.100.7",
+) => runWithRequestContext({ apiBinding: b, visitorIp }, fn);
 
 // The public network, answered by a fixture: any call that reaches it is recorded.
 const realFetch = globalThis.fetch;
@@ -54,7 +63,7 @@ beforeEach(() => {
   publicCalls = [];
   publicReply = () => new Response("public", { status: 200 });
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const call = { url: String(input), init };
+    const call = { url: String(input), init, headers: new Headers(init?.headers) };
     publicCalls.push(call);
     return publicReply(call);
   }) as typeof fetch;
@@ -463,6 +472,218 @@ describe("apiFetch redirects over a binding", () => {
   });
 });
 
+describe("apiFetch decides which URLs are the API's", () => {
+  it.each([
+    "http://api.nemar.org/datasets",
+    "https://api.nemar.org:8443/datasets",
+    "https://api.nemar.org.evil.example/datasets",
+    "https://evil.example/https://api.nemar.org/datasets",
+  ])("leaves %s on the public network, with no visitor header", async (url) => {
+    const b = binding(() => ok());
+    await within(b.binding, () => apiFetch(url, { headers: { Cookie: "s=1" } }));
+    expect(b.calls).toHaveLength(0);
+    expect(publicCalls).toHaveLength(1);
+    expect(headersOf(publicCalls[0]).get("x-forwarded-for")).toBeNull();
+  });
+});
+
+describe("apiFetch reads the headers a caller gives it in any shape", () => {
+  it.each([
+    [
+      "a Headers instance",
+      () =>
+        new Headers({
+          Cookie: "s=1",
+          "X-Forwarded-For": "203.0.113.9",
+          "X-Real-IP": "203.0.113.9",
+        }),
+    ],
+    [
+      "an array of tuples",
+      () =>
+        [
+          ["Cookie", "s=1"],
+          ["x-forwarded-for", "203.0.113.9"],
+          ["X-REAL-IP", "203.0.113.9"],
+        ] as [string, string][],
+    ],
+    [
+      "a record with mixed-case names",
+      () => ({ cookie: "s=1", "x-Forwarded-FOR": "203.0.113.9", "X-Real-Ip": "203.0.113.9" }),
+    ],
+  ])("replaces the identity headers and keeps the rest when given %s", async (_name, make) => {
+    const b = binding(() => ok());
+    await within(b.binding, () => apiFetch(`${API}/auth/me`, { headers: make() }));
+    expect(headersOf(b.calls[0]).get("cookie")).toBe("s=1");
+    expect(headersOf(b.calls[0]).get("x-forwarded-for")).toBe("198.51.100.7");
+    expect(headersOf(b.calls[0]).get("x-real-ip")).toBeNull();
+  });
+
+  it("does not change a Headers instance the caller keeps", async () => {
+    const mine = new Headers({ "X-Forwarded-For": "203.0.113.9", Cookie: "s=1" });
+    const b = binding(() => ok());
+    await within(b.binding, () => apiFetch(`${API}/auth/me`, { headers: mine }));
+    expect(mine.get("x-forwarded-for")).toBe("203.0.113.9");
+    expect(mine.get("cookie")).toBe("s=1");
+  });
+
+  it("reads an address with stray spaces around it", async () => {
+    const b = binding(() => ok());
+    await within(b.binding, () => apiFetch(`${API}/datasets`), " 198.51.100.7 ");
+    expect(headersOf(b.calls[0]).get("x-forwarded-for")).toBe("198.51.100.7");
+  });
+});
+
+describe("apiFetch follows redirects the way fetch does", () => {
+  it.each([301, 302, 303, 307, 308])("follows a %i for a GET", async (status) => {
+    const b = binding(({ url }) => (url.endsWith("/a") ? redirect(status, "/b") : ok()));
+    await within(b.binding, () => apiFetch(`${API}/a`));
+    expect(b.calls.map((c) => c.url)).toEqual([`${API}/a`, `${API}/b`]);
+  });
+
+  it.each([300, 304, 305])(
+    "returns a %i that names a Location instead of following it",
+    async (status) => {
+      const b = binding(() => new Response(null, { status, headers: { location: "/elsewhere" } }));
+      const res = await within(b.binding, () => apiFetch(`${API}/a`));
+      expect(res.status).toBe(status);
+      expect(b.calls).toHaveLength(1);
+    },
+  );
+
+  it("returns a 200 that carries a Location header", async () => {
+    const b = binding(() => ok({ location: "/elsewhere" }));
+    const res = await within(b.binding, () => apiFetch(`${API}/a`));
+    expect(res.status).toBe(200);
+    expect(b.calls).toHaveLength(1);
+  });
+
+  it.each(["HEAD", "head", "get"])(
+    "sends a redirect off the API for method %s to the public network, keeping the verb",
+    async (method) => {
+      const b = binding(() => redirect(302, "https://files.example.org/blob"));
+      await within(b.binding, () => apiFetch(`${API}/datasets/x/file`, { method }));
+      expect(b.calls).toHaveLength(1);
+      expect(publicCalls.map((c) => c.url)).toEqual(["https://files.example.org/blob"]);
+      expect(publicCalls[0].init?.method).toBe(method);
+    },
+  );
+
+  it.each(["POST", "post"])(
+    "returns the 303 of a %s itself, since a body cannot be replayed",
+    async (method) => {
+      const b = binding(() => redirect(303, "https://files.example.org/done"));
+      const res = await within(b.binding, () => apiFetch(`${API}/x`, { method, body: "{}" }));
+      expect(res.status).toBe(303);
+      expect(b.calls).toHaveLength(1);
+      expect(publicCalls).toHaveLength(0);
+    },
+  );
+
+  it("resolves each relative Location against the hop that sent it", async () => {
+    const answers: Record<string, string> = { "/x/y": "/dir/one", "/dir/one": "two?q=1" };
+    const b = binding(({ url }) => {
+      const to = answers[new URL(url).pathname];
+      return to ? redirect(302, to) : ok();
+    });
+    await within(b.binding, () => apiFetch(`${API}/x/y`));
+    expect(b.calls.map((c) => c.url)).toEqual([
+      `${API}/x/y`,
+      `${API}/dir/one`,
+      `${API}/dir/two?q=1`,
+    ]);
+  });
+
+  it("treats a protocol-relative Location as the host it names", async () => {
+    const b = binding(() => redirect(302, "//files.example.org/blob"));
+    await within(b.binding, () =>
+      apiFetch(`${API}/datasets/x/file`, { headers: { Cookie: "s=1" } }),
+    );
+    expect(publicCalls.map((c) => c.url)).toEqual(["https://files.example.org/blob"]);
+    expect(headersOf(publicCalls[0]).get("cookie")).toBeNull();
+  });
+
+  it("keeps Authorization and Cookie on a redirect that stays on the API", async () => {
+    const b = binding(({ url }) => (url.endsWith("/a") ? redirect(302, "/b") : ok()));
+    await within(b.binding, () =>
+      apiFetch(`${API}/a`, { headers: { Authorization: "Bearer t", Cookie: "s=1" } }),
+    );
+    expect(b.calls).toHaveLength(2);
+    for (const call of b.calls) {
+      expect(headersOf(call).get("authorization")).toBe("Bearer t");
+      expect(headersOf(call).get("cookie")).toBe("s=1");
+    }
+  });
+
+  it("hands the abort signal to the public hop too", async () => {
+    const controller = new AbortController();
+    const b = binding(() => redirect(302, "https://files.example.org/blob"));
+    await within(b.binding, () => apiFetch(`${API}/f`, { signal: controller.signal }));
+    expect(publicCalls[0].init?.signal).toBe(controller.signal);
+  });
+
+  it("releases the body of a redirect it follows, even when cancelling it fails", async () => {
+    let cancelled = 0;
+    const body = () =>
+      new ReadableStream({
+        cancel() {
+          cancelled++;
+          throw new Error("already locked");
+        },
+      });
+    const b = binding(({ url }) =>
+      url.endsWith("/a")
+        ? new Response(body(), { status: 302, headers: { location: "/b" } })
+        : ok(),
+    );
+    const res = await within(b.binding, () => apiFetch(`${API}/a`));
+    expect(res.status).toBe(200);
+    expect(cancelled).toBe(1);
+  });
+
+  it("follows a redirect with no visitor to forward, and still sends none", async () => {
+    const b = binding(({ url }) => (url.endsWith("/a") ? redirect(302, "/b") : ok()));
+    await runWithRequestContext({ apiBinding: b.binding, visitorIp: undefined }, () =>
+      apiFetch(`${API}/a`, { headers: { "X-Forwarded-For": "203.0.113.9" } }),
+    );
+    expect(b.calls).toHaveLength(2);
+    for (const call of b.calls) expect(headersOf(call).get("x-forwarded-for")).toBeNull();
+  });
+
+  it("follows exactly 20 redirects and gives up on the 21st", async () => {
+    const chain = (n: number) =>
+      binding(({ url }) => {
+        const i = Number(new URL(url).pathname.slice(1) || 0);
+        return i < n ? redirect(302, `/${i + 1}`) : ok();
+      });
+    const twenty = chain(20);
+    expect((await within(twenty.binding, () => apiFetch(`${API}/0`))).status).toBe(200);
+    expect(twenty.calls).toHaveLength(21);
+    const twentyOne = chain(21);
+    await expect(within(twentyOne.binding, () => apiFetch(`${API}/0`))).rejects.toThrow(
+      /too many redirects/,
+    );
+    expect(twentyOne.calls).toHaveLength(21);
+  });
+});
+
+describe("apiFetch with a binding that throws", () => {
+  const failing: ApiBinding = {
+    fetch: async () => {
+      throw new Error("Worker exceeded CPU");
+    },
+  };
+  it.each([
+    ["a POST", { method: "POST", body: "{}" }],
+    ["a manual redirect", { redirect: "manual" as const }],
+  ])("reaches the caller for %s, with no retry on the public network", async (_name, init) => {
+    await expect(within(failing, () => apiFetch(`${API}/x`, init))).rejects.toThrow(
+      "Worker exceeded CPU",
+    );
+    expect(publicCalls).toHaveLength(0);
+  });
+});
+
 describe("apiFetch says how the API counted the first calls over the binding", () => {
   const callWith = (b: ApiBinding, url = `${API}/datasets`) =>
     runWithRequestContext({ apiBinding: b, visitorIp: "198.51.100.7" }, () => apiFetch(url));
@@ -477,6 +698,20 @@ describe("apiFetch says how the API counted the first calls over the binding", (
     expect(String(info.mock.calls[0][0])).toContain("API api.nemar.org");
     expect(String(info.mock.calls[0][0])).toContain("remaining 1999");
     expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("does not put the visitor's address on any of its lines", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const b = binding(() => ok());
+    await within(b.binding, () => apiFetch(`${API}/datasets`), "198.51.100.7");
+    const shared = binding(() => ok({ "x-ratelimit-bucket": "ip" }));
+    await within(shared.binding, () => apiFetch(`${API}/datasets`), "198.51.100.7");
+    expect(info).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
+    for (const c of [...info.mock.calls, ...warn.mock.calls]) {
+      expect(String(c[0])).not.toContain("198.51.100.7");
+    }
   });
 
   it("warns once when the call was counted under the shared address", async () => {
@@ -624,15 +859,50 @@ describe("apiFetch notices a rate-limit count that never falls", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it("judges each visitor on their own count", async () => {
-    const b = answering([1999]);
-    for (let round = 0; round < 3; round++) {
-      for (const visitor of ["198.51.100.1", "198.51.100.2", "198.51.100.3"]) {
-        await call(b.binding, visitor);
+  /** Each visitor's own count, falling by one a call from its base; a stuck visitor never falls. */
+  const counters = (bases: Record<string, number>, stuck: string[] = []) => {
+    const left = new Map(Object.entries(bases));
+    return binding((c) => {
+      const visitor = headersOf(c).get("x-forwarded-for") ?? "";
+      const n = left.get(visitor) ?? 0;
+      if (!stuck.includes(visitor)) left.set(visitor, n - 1);
+      return ok({ "x-ratelimit-remaining": String(n) });
+    });
+  };
+
+  /** Each visitor in turn, 1.5 s apart, `rounds` times. */
+  const interleave = async (b: ApiBinding, visitors: string[], rounds: number) => {
+    for (let r = 0; r < rounds; r++) {
+      for (const v of visitors) {
+        await call(b, v);
+        now += 1_500;
       }
-      now += 2_000;
     }
+  };
+
+  it("does not mistake healthy visitors with different counts for one stuck counter", async () => {
+    // Read as one counter, the rises from each visitor to the next would look like a count that never falls.
+    const bases = {
+      "198.51.100.1": 1000,
+      "198.51.100.2": 1500,
+      "198.51.100.3": 2000,
+      "198.51.100.4": 2500,
+    };
+    await interleave(counters(bases).binding, Object.keys(bases), 3);
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it("finds a stuck visitor among healthy ones", async () => {
+    const bases = { "198.51.100.1": 1999, "198.51.100.2": 1500, "198.51.100.3": 1000 };
+    await interleave(counters(bases, ["198.51.100.1"]).binding, Object.keys(bases), 5);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a rise as no fall", async () => {
+    // A counter that goes up between calls seconds apart is not counting those calls either.
+    const b = answering([1000, 1500, 1800, 1900]);
+    await spaced(b.binding, 4);
+    expect(error).toHaveBeenCalledTimes(1);
   });
 
   it("skips a refusal, a spent allowance, and answers that name no count", async () => {
@@ -671,6 +941,17 @@ describe("apiFetch notices a rate-limit count that never falls", () => {
     expect(error).not.toHaveBeenCalled();
   });
 
+  it("remembers a visitor while fewer than 200 others have come since", async () => {
+    const b = answering([1999]);
+    await call(b.binding, "198.51.100.1");
+    for (let i = 0; i < 100; i++) await call(b.binding, `10.0.0.${i}`);
+    for (let i = 0; i < 4; i++) {
+      now += 2_000;
+      await call(b.binding, "198.51.100.1");
+    }
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
   it("forgets the oldest visitors past its bound, without failing", async () => {
     const b = answering([1999]);
     for (let i = 0; i < 260; i++) await call(b.binding, `10.0.${Math.floor(i / 250)}.${i % 250}`);
@@ -678,5 +959,21 @@ describe("apiFetch notices a rate-limit count that never falls", () => {
     now += 2_000;
     await spaced(b.binding, 3, 2_000, "10.0.0.0");
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it("keeps a visitor it has just seen when it drops the oldest", async () => {
+    const b = answering([1999]);
+    await call(b.binding, "198.51.100.1");
+    for (let i = 0; i < 100; i++) await call(b.binding, `10.0.0.${i}`);
+    // Seen again well below the bound, this visitor is no longer the oldest.
+    now += 2_000;
+    await call(b.binding, "198.51.100.1");
+    // Past the bound the oldest are dropped, which must be the 100 above and not this visitor.
+    for (let i = 0; i < 150; i++) await call(b.binding, `10.0.1.${i}`);
+    for (let i = 0; i < 3; i++) {
+      now += 2_000;
+      await call(b.binding, "198.51.100.1");
+    }
+    expect(error).toHaveBeenCalledTimes(1);
   });
 });
