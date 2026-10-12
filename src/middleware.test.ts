@@ -1,9 +1,10 @@
 import type { APIContext } from "astro";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
-import { currentWaitUntil } from "./lib/request-context";
+import { currentWaitUntil, markDataStale } from "./lib/request-context";
 import {
   SECURITY_HEADERS,
   applySecurityHeaders,
@@ -1333,12 +1334,10 @@ describe("framing", () => {
 });
 
 describe("request context for background work", () => {
-  /** A stand-in for the platform's execution context: `waitUntil` needs its `this`. */
+  /** A stand-in for the platform's execution context. `waitUntil` needs its `this`: detached, it throws. */
   class FakeExecutionContext {
     readonly kept: Promise<unknown>[] = [];
-    calledWithOwnThis = true;
     waitUntil(work: Promise<unknown>): void {
-      if (!(this instanceof FakeExecutionContext)) this.calledWithOwnThis = false;
       this.kept.push(work);
     }
   }
@@ -1351,15 +1350,24 @@ describe("request context for background work", () => {
     } as unknown as APIContext;
   }
 
+  afterEach(() => {
+    resetApiCacheStateForTests();
+  });
+
+  it("is a stand-in that really does fail when waitUntil is called detached", () => {
+    const detached = new FakeExecutionContext().waitUntil;
+    expect(() => detached(Promise.resolve())).toThrow(TypeError);
+  });
+
   it("lets the render hand work to the platform's waitUntil, called as a method", async () => {
     const platform = new FakeExecutionContext();
     const work = Promise.resolve("refreshed");
+    // A detached call would throw inside the render and fail this test.
     await onRequest(ctxWith({ ctx: platform }), async () => {
       currentWaitUntil()?.(work);
       return new Response("ok");
     });
     expect(platform.kept).toEqual([work]);
-    expect(platform.calledWithOwnThis).toBe(true);
   });
 
   it.each([
@@ -1375,12 +1383,146 @@ describe("request context for background work", () => {
     expect(seen).toBeUndefined();
   });
 
-  it("does not leak one request's waitUntil into the next", async () => {
-    const platform = new FakeExecutionContext();
-    await onRequest(ctxWith({ ctx: platform }), async () => new Response("ok"));
-    await onRequest(ctxWith(undefined), async () => {
-      expect(currentWaitUntil()).toBeUndefined();
+  it("keeps two overlapping requests apart: each render reaches only its own platform", async () => {
+    const a = new FakeExecutionContext();
+    const b = new FakeExecutionContext();
+    const render = (label: string, delayMs: number) => async () => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      currentWaitUntil()?.(Promise.resolve(label));
       return new Response("ok");
+    };
+    await Promise.all([
+      onRequest(ctxWith({ ctx: a }), render("a", 8)),
+      onRequest(ctxWith({ ctx: b }), render("b", 1)),
+    ]);
+    await expect(Promise.all(a.kept)).resolves.toEqual(["a"]);
+    await expect(Promise.all(b.kept)).resolves.toEqual(["b"]);
+  });
+
+  describe("a page built from stale catalog data", () => {
+    const URL = "https://api.nemar.org/datasets?limit=10";
+    const PAGE_CACHE = "public, max-age=60, s-maxage=3600";
+    const html = (cacheControl: string) =>
+      new Response("page", {
+        headers: { "Content-Type": "text/html", "Cache-Control": cacheControl },
+      });
+
+    function storeWith(entries: Map<string, { body: string; storedAt: number }>): BodyStore {
+      return {
+        async get(key) {
+          return entries.get(key);
+        },
+        async set(key, value) {
+          entries.set(key, value);
+        },
+        async delete(key) {
+          entries.delete(key);
+        },
+      };
+    }
+
+    it("goes through the real cache end to end: stale header, a minute at the edge, a refresh behind", async () => {
+      const platform = new FakeExecutionContext();
+      const entries = new Map([[URL, { body: '{"n":1}', storedAt: Date.now() - FRESH_MS - 1000 }]]);
+      const original = globalThis.fetch;
+      globalThis.fetch = (async () => new Response('{"n":2}')) as unknown as typeof fetch;
+      try {
+        const res = await onRequest(ctxWith({ ctx: platform }), async () => {
+          // No waitUntil is passed: it has to arrive through the request context.
+          const data = await cachedJson<{ n: number }>(URL, {
+            signal: AbortSignal.timeout(5000),
+            label: "list datasets",
+            store: storeWith(entries),
+          });
+          return new Response(`n=${data.n}`, {
+            headers: { "Content-Type": "text/html", "Cache-Control": PAGE_CACHE },
+          });
+        });
+        expect(await (res as Response).text()).toBe("n=1"); // the stored copy, at once
+        expect((res as Response).headers.get("x-nemar-data")).toBe("stale");
+        expect((res as Response).headers.get("Cache-Control")).toBe(
+          "public, max-age=0, s-maxage=60",
+        );
+        expect(platform.kept).toHaveLength(1); // and the refresh is running behind it
+        await Promise.all(platform.kept);
+        expect(entries.get(URL)?.body).toBe('{"n":2}');
+      } finally {
+        globalThis.fetch = original;
+      }
     });
+
+    it("leaves a page built from fresh data alone", async () => {
+      const entries = new Map([[URL, { body: '{"n":1}', storedAt: Date.now() }]]);
+      const res = (await onRequest(ctxWith(undefined), async () => {
+        await cachedJson(URL, {
+          signal: AbortSignal.timeout(5000),
+          label: "list datasets",
+          store: storeWith(entries),
+        });
+        return html(PAGE_CACHE);
+      })) as Response;
+      expect(res.headers.get("x-nemar-data")).toBeNull();
+      expect(res.headers.get("Cache-Control")).toBe(PAGE_CACHE);
+    });
+
+    it.each(["no-store", "private, max-age=0"])(
+      "marks the response but keeps a %s header as it was",
+      async (cacheControl) => {
+        const res = (await onRequest(ctxWith(undefined), async () => {
+          markDataStale();
+          return html(cacheControl);
+        })) as Response;
+        expect(res.headers.get("x-nemar-data")).toBe("stale");
+        expect(res.headers.get("Cache-Control")).toBe(cacheControl);
+      },
+    );
+  });
+});
+
+describe("signed-in pages are not public", () => {
+  const cookieCtx = (host: string): APIContext =>
+    ({
+      request: new Request(`https://${host}/discover`),
+      locals: {},
+      cookies: { get: () => ({ value: "a-session-cookie" }) },
+    }) as unknown as APIContext;
+  const anon = (): APIContext =>
+    ({
+      request: new Request(`https://${MARKETING_HOST}/discover`),
+      locals: {},
+      cookies: { get: () => undefined },
+    }) as unknown as APIContext;
+  const PUBLIC = "public, max-age=60, s-maxage=3600, stale-while-revalidate=600";
+
+  it("makes a public HTML page private when the request carries a session cookie", async () => {
+    const res = (await onRequest(
+      cookieCtx(APP_HOST),
+      async () =>
+        new Response("<html>you@example.org</html>", {
+          headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": PUBLIC },
+        }),
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  it("leaves an immutable asset alone: it is the same for everyone", async () => {
+    const asset = "public, max-age=31536000, immutable";
+    const res = (await onRequest(
+      cookieCtx(APP_HOST),
+      async () =>
+        new Response("a{}", { headers: { "Content-Type": "text/css", "Cache-Control": asset } }),
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe(asset);
+  });
+
+  it("leaves an anonymous page public", async () => {
+    const res = (await onRequest(
+      anon(),
+      async () =>
+        new Response("<html></html>", {
+          headers: { "Content-Type": "text/html", "Cache-Control": PUBLIC },
+        }),
+    )) as Response;
+    expect(res.headers.get("Cache-Control")).toBe(PUBLIC);
   });
 });
