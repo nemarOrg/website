@@ -36,7 +36,12 @@ export const GET: APIRoute = async ({ request }) => {
   //
   // Never throws — see fetchActiveNotices. A notices outage degrades to an
   // empty array (no banner), never to an error the visitor has to see.
-  const notices = await fetchActiveNotices({ cookieHeader, baseUrl: apiBase(), fetch: apiFetch });
+  const notices = await fetchActiveNotices({
+    cookieHeader,
+    baseUrl: apiBase(),
+    // `fetchActiveNotices` calls with a URL string; `apiFetch` takes no `Request`.
+    fetch: (input, init) => apiFetch(input instanceof Request ? input.url : input, init),
+  });
   return new Response(JSON.stringify({ notices }), {
     status: 200,
     headers: {
