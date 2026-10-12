@@ -1894,7 +1894,7 @@ describe("the API service binding", () => {
           async () => new Response("ok"),
         );
       }
-      // Not declared at all is the ordinary case, and says nothing.
+      // Not declared at all is not a mistake of this kind, and says nothing at error level.
       await onRequest(
         ctxAt(`https://${APP_HOST}/dashboard`, {
           api: null,
@@ -1911,5 +1911,48 @@ describe("the API service binding", () => {
     expect(String(error.mock.calls[0][0])).toContain(
       "env.API is declared but is not a service binding",
     );
+  });
+  describe("a project that declares no binding", () => {
+    const missing = "env.API is not bound on a production host";
+
+    it("says so once per isolate on a production host, however the absence shows", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      for (const api of [undefined, null, undefined]) {
+        for (const host of [APP_HOST, MARKETING_HOST]) {
+          await onRequest(
+            ctxAt(`https://${host}/about`, { api, visitor: "198.51.100.7" }),
+            async () => new Response("ok"),
+          );
+        }
+      }
+      const said = warn.mock.calls.filter((c) => String(c[0]).includes(missing));
+      expect(said).toHaveLength(1);
+      expect(String(said[0][0])).not.toContain("198.51.100.7");
+    });
+
+    it.each(["test.nemar.org", "a1b2c3.nemar-website.pages.dev", "localhost"])(
+      "says nothing on %s, which is not meant to have one",
+      async (host) => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await onRequest(
+          ctxAt(`https://${host}/about`, { visitor: "198.51.100.7" }),
+          async () => new Response("ok"),
+        );
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(0);
+      },
+    );
+
+    it("says nothing on a production host that has one", async () => {
+      vi.spyOn(console, "info").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await onRequest(
+        ctxAt(`https://${MARKETING_HOST}/about`, {
+          api: recordingBinding().binding,
+          visitor: "198.51.100.7",
+        }),
+        async () => new Response("ok"),
+      );
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(0);
+    });
   });
 });
