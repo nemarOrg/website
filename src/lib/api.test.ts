@@ -184,6 +184,22 @@ describe("searchDatasets", () => {
     expect(sent.has("sort")).toBe(false);
   });
 
+  it("sends a modality and HED as their own parameters, never folded into the query", async () => {
+    const captured: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      captured.push(typeof input === "string" ? input : input.toString());
+      return new Response(
+        JSON.stringify({ results: [], count: 0, method: "semantic", min_score: 0.6 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    await searchDatasets("brain", { filters: { modality: "MEG", has_hed: true } });
+    const sent = new URL(captured[0]).searchParams;
+    expect(sent.get("q")).toBe("brain");
+    expect(sent.get("modality")).toBe("MEG");
+    expect(sent.get("has_hed")).toBe("true");
+  });
+
   it("url-encodes the query", async () => {
     const captured: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {

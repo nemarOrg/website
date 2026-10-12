@@ -1,4 +1,4 @@
-# ADR 0025: Catalog reads are cached for a minute and fall back to a stale copy
+# ADR 0025: Catalog reads are cached for minutes to hours and fall back to a stale copy
 
 **Status:** accepted
 **Date:** 2026-10-11
