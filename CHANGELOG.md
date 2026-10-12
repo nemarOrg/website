@@ -17,7 +17,9 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 - **Server-side calls to the API can name the visitor** (#449, ADR 0026).
   A new `apiFetch` sends the catalog reads, the session lookup, the notices feed, and the sign-in, ORCID, news-media, device-authorization and `/api/v1` proxy calls over a Cloudflare service binding when the project declares one, with the visitor's address in `X-Forwarded-For`, so the API's rate limiter counts each visitor on their own instead of the site's few shared addresses as one.
-  Nothing changes until the binding is declared in `wrangler.toml` and `wrangler.test.toml`, which waits for the API side (nemar-cli#1710) to be deployed.
+  The project declares the binding in `wrangler.toml` (production, the `nemar-api` Worker) and `wrangler.test.toml` (staging, `nemar-api-dev`); previews go without, because a branch build must not be able to name a visitor at the production API.
+  A production host with no binding logs one warning per isolate.
+  This needs the API side (nemar-cli#1710), which reads the visitor from `X-Forwarded-For` for a call that arrives over a binding, to be deployed to the production API (`nemar-api`) before this release is promoted to `main`.
 
 ## [0.2.30] - 2026-10-12
 

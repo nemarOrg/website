@@ -1,6 +1,14 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-10-06.
+**Last session:** 2026-10-12.
+
+## 2026-10-12 — Server-side API calls over a service binding (website#449, #450, #452)
+
+`apiFetch` (ADR 0026) sends server-only API calls over a Cloudflare service binding named `API`, with the visitor's address in `X-Forwarded-For`, so the API's rate limiter counts each visitor on their own. The code is on `staging` (#450); the wiring (`[[services]]` in `wrangler.toml` and `wrangler.test.toml`) is #452.
+
+- **Gate before promoting to `main`:** the production API (`nemar-api`) must run nemar-cli#1710 (merged to nemar-cli `dev` on 2026-10-12; released to `main` separately). Bound first, every call lands in the API's shared unattributed bucket, which is worse than today. Rollback: remove the `[[services]]` block or roll back the Pages deployment; the production host then logs one `env.API is not bound` warning per isolate.
+- **test.nemar.org** is bound to `nemar-api-dev`, which bypasses its limiter: expect the no-rate-limit-headers warning there (it proves the binding applied, not the keying). Production keying is confirmed by `site-ip` in the first-call `[api-fetch]` line and a falling `X-RateLimit-Remaining` across two calls.
+- Previews have no binding on purpose (branch builds run unreviewed code); wrangler warns about that and the warning is expected.
 
 ## 2026-10-06 — Release 0.2.29: Try again in the viewer (website#416)
 

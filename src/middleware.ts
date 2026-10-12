@@ -665,7 +665,18 @@ function apiBindingOf(context: Parameters<MiddlewareHandler>[0]): ApiBinding | u
   // over the network, as it always has.
   if (import.meta.env.DEV) return undefined;
   const binding: unknown = context.locals.runtime?.env?.API;
-  if (binding === undefined || binding === null) return undefined;
+  if (binding === undefined || binding === null) {
+    // Previews and local runs go without one, and staging has one but is not a production host,
+    // so none of those are warned about. A production host without one is a mistake that nothing
+    // else would say: the site works, it just stays in the API's shared pool.
+    if (!warnedUnboundApi && isProductionHost(new URL(context.request.url).hostname)) {
+      warnedUnboundApi = true;
+      console.warn(
+        "[api-fetch] env.API is not bound on a production host; server calls to the API stay on the shared addresses and can be rate limited together (logged once per isolate)",
+      );
+    }
+    return undefined;
+  }
   if (typeof (binding as { fetch?: unknown }).fetch === "function") return binding as ApiBinding;
   // Declared, but not a service binding (a variable or a namespace that took the name): the site
   // would silently stay on the shared addresses, so say so.
@@ -679,10 +690,12 @@ function apiBindingOf(context: Parameters<MiddlewareHandler>[0]): ApiBinding | u
 }
 
 let warnedBadApiBinding = false;
+let warnedUnboundApi = false;
 
 /** Forget what this isolate has warned about the API binding. For the middleware tests only. */
 export function resetApiBindingWarningForTests(): void {
   warnedBadApiBinding = false;
+  warnedUnboundApi = false;
 }
 
 /**
