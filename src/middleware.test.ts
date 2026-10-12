@@ -1740,9 +1740,15 @@ describe("the API service binding", () => {
 
   function ctxAt(
     url: string,
-    opts: { api?: unknown; visitor?: string; cookie?: boolean } = {},
+    opts: {
+      api?: unknown;
+      visitor?: string;
+      cookie?: boolean;
+      /** Headers a client set itself, which the edge does not vouch for. */
+      spoofed?: Record<string, string>;
+    } = {},
   ): APIContext {
-    const headers = new Headers();
+    const headers = new Headers(opts.spoofed);
     if (opts.visitor) headers.set("CF-Connecting-IP", opts.visitor);
     if (opts.cookie) headers.set("Cookie", "nemar_session=a-session-cookie");
     return {
@@ -1756,6 +1762,9 @@ describe("the API service binding", () => {
   // that wants a binding says it is not in dev.
   beforeEach(() => {
     vi.stubEnv("DEV", false);
+    // Both keep state for the life of the module, so each test starts from none.
+    resetApiFetchWarningsForTests();
+    resetApiBindingWarningForTests();
   });
 
   afterEach(() => {
@@ -1779,6 +1788,34 @@ describe("the API service binding", () => {
     expect(seen).toEqual([
       { url: `${API_URL}/datasets?limit=5`, forwardedFor: "198.51.100.7", cookie: null },
     ]);
+  });
+
+  it("takes the visitor from CF-Connecting-IP and from nothing a client can set", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const spoofed = {
+      "X-Forwarded-For": "203.0.113.9",
+      "X-Real-IP": "203.0.113.9",
+      "True-Client-IP": "203.0.113.9",
+    };
+    const named = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${APP_HOST}/dashboard`, {
+        api: named.binding,
+        visitor: "198.51.100.7",
+        cookie: true,
+        spoofed,
+      }),
+      async () => new Response("ok"),
+    );
+    expect(named.seen.map((s) => s.forwardedFor)).toEqual(["198.51.100.7"]);
+    // With no CF-Connecting-IP the visitor is unknown, and a spoofed header does not stand in for it.
+    const unnamed = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${APP_HOST}/dashboard`, { api: unnamed.binding, cookie: true, spoofed }),
+      async () => new Response("ok"),
+    );
+    expect(unnamed.seen.map((s) => s.forwardedFor)).toEqual([null]);
   });
 
   it("asks who a signed-in visitor is over the binding, for that visitor", async () => {
