@@ -181,7 +181,12 @@ if (fetchError) {
   <section class="discover container">
     <header class="discover__head">
       <h1>Discover datasets</h1>
-      <SearchBar value={state.q} size="md" placeholder="Search by dataset name, ID, or description..." />
+      <SearchBar
+        value={state.q}
+        size="md"
+        form="discover-filters"
+        placeholder="Search by dataset name, ID, or description..."
+      />
     </header>
     <div class="discover__layout">
       <aside class="discover__rail" aria-label="Filters">

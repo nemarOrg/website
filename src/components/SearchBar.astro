@@ -8,6 +8,13 @@ interface Props {
   size?: "md" | "lg";
   /** Optional aria-label override for the input. */
   label?: string;
+  /**
+   * `id` of a form elsewhere on the page to submit with, instead of being a
+   * form of its own. /discover uses this so the search box and the filter
+   * sidebar are ONE form: a search carries the selected filters, and applying a
+   * filter carries the search, rather than each submit dropping the other.
+   */
+  form?: string;
 }
 
 const {
@@ -16,11 +23,16 @@ const {
   action = "/discover",
   size = "md",
   label = "Search datasets",
+  form,
 } = Astro.props;
 const inputId = `search-${Math.random().toString(36).slice(2, 8)}`;
+// Standalone (the landing hero) it is a form; joined to another form it is just
+// the landmark, and the input and button carry `form=` to that form instead.
+const Wrapper = form ? "div" : "form";
+const wrapperProps = form ? {} : { action, method: "get" };
 ---
 
-<form class:list={["searchbar", `searchbar--${size}`]} action={action} method="get" role="search">
+<Wrapper class:list={["searchbar", `searchbar--${size}`]} role="search" {...wrapperProps}>
   <label class="visually-hidden" for={inputId}>{label}</label>
   <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
@@ -33,9 +45,10 @@ const inputId = `search-${Math.random().toString(36).slice(2, 8)}`;
     value={value}
     placeholder={placeholder}
     autocomplete="off"
+    form={form}
   />
-  <button type="submit" class="searchbar__submit">Search</button>
-</form>
+  <button type="submit" class="searchbar__submit" form={form}>Search</button>
+</Wrapper>
 
 <style>
   .searchbar {

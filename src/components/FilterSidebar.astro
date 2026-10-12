@@ -26,10 +26,11 @@ interface Props {
 const { state, searchActive = false } = Astro.props;
 ---
 
-{/* `id` is the target of the results toolbar's `<select form=...>`: the
-    Sort by control lives above the list (website#346) but submits with this
-    form, so a re-sort carries any filter edit not yet applied, and Apply
-    keeps the chosen order. */}
+{/* `id` is the target of two controls that live elsewhere on the page and
+    submit with this form: the results toolbar's Sort by (website#346) and the
+    search box in the page header. Being one form is what makes a search carry
+    the selected filters and a filter carry the search, and a re-sort carry any
+    edit not yet applied. */}
 <form
   id="discover-filters"
   class="filters"
