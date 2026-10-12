@@ -18,6 +18,7 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  resetApiBindingWarningForTests,
   resetEmbedCountWarnings,
   resetPageCacheWarningsForTests,
   routeAllowsFraming,
@@ -1751,9 +1752,17 @@ describe("the API service binding", () => {
     } as unknown as APIContext;
   }
 
+  // Vitest runs with DEV set, and the middleware leaves the binding alone under DEV, so a test
+  // that wants a binding says it is not in dev.
+  beforeEach(() => {
+    vi.stubEnv("DEV", false);
+  });
+
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
     resetApiFetchWarningsForTests();
+    resetApiBindingWarningForTests();
   });
 
   it("gives the render the binding and the visitor, so a page's API calls are counted as theirs", async () => {
@@ -1807,7 +1816,34 @@ describe("the API service binding", () => {
     expect(seen).toEqual([`${API_URL}/auth/me`]);
   });
 
-  it("ignores a binding that is not one", async () => {
+  it("leaves a declared binding alone under astro dev, where the platform proxy's is a stub that answers 503", async () => {
+    vi.stubEnv("DEV", true);
+    const { binding, seen } = recordingBinding();
+    const publicSeen: string[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      publicSeen.push(String(input));
+      return new Response('{"error":"Unauthorized"}', { status: 401 });
+    }) as typeof fetch;
+    try {
+      await onRequest(
+        ctxAt(`https://${APP_HOST}/dashboard`, {
+          api: binding,
+          visitor: "198.51.100.7",
+          cookie: true,
+        }),
+        async () => new Response("ok"),
+      );
+    } finally {
+      globalThis.fetch = before;
+      vi.unstubAllEnvs();
+    }
+    expect(seen).toHaveLength(0);
+    expect(publicSeen).toEqual([`${API_URL}/auth/me`]);
+  });
+
+  it("ignores a binding that is not one, and says so once", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const seen: string[] = [];
     const before = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -1815,15 +1851,28 @@ describe("the API service binding", () => {
       return new Response('{"error":"Unauthorized"}', { status: 401 });
     }) as typeof fetch;
     try {
-      for (const api of ["not-a-binding", {}, { fetch: "no" }, null]) {
+      for (const api of ["not-a-binding", {}, { fetch: "no" }]) {
         await onRequest(
           ctxAt(`https://${APP_HOST}/dashboard`, { api, visitor: "198.51.100.7", cookie: true }),
           async () => new Response("ok"),
         );
       }
+      // Not declared at all is the ordinary case, and says nothing.
+      await onRequest(
+        ctxAt(`https://${APP_HOST}/dashboard`, {
+          api: null,
+          visitor: "198.51.100.7",
+          cookie: true,
+        }),
+        async () => new Response("ok"),
+      );
     } finally {
       globalThis.fetch = before;
     }
     expect(seen).toHaveLength(4);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toContain(
+      "env.API is declared but is not a service binding",
+    );
   });
 });

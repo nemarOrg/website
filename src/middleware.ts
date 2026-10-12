@@ -660,8 +660,29 @@ function edgeWaitUntil(
 
 /** The service binding to the API Worker, when the project declares one (`wrangler.toml`), else `undefined`. */
 function apiBindingOf(context: Parameters<MiddlewareHandler>[0]): ApiBinding | undefined {
-  const binding = context.locals.runtime?.env?.API;
-  return binding && typeof binding.fetch === "function" ? binding : undefined;
+  // `astro dev` loads the project's bindings through a platform proxy, and a service binding there
+  // is a stub that answers 503 unless the API Worker is running beside it. Dev calls the API
+  // over the network, as it always has.
+  if (import.meta.env.DEV) return undefined;
+  const binding: unknown = context.locals.runtime?.env?.API;
+  if (binding === undefined || binding === null) return undefined;
+  if (typeof (binding as { fetch?: unknown }).fetch === "function") return binding as ApiBinding;
+  // Declared, but not a service binding (a variable or a namespace that took the name): the site
+  // would silently stay on the shared addresses, so say so.
+  if (!warnedBadApiBinding) {
+    warnedBadApiBinding = true;
+    console.error(
+      "[api-fetch] env.API is declared but is not a service binding; server calls to the API stay on the public network (logged once per isolate)",
+    );
+  }
+  return undefined;
+}
+
+let warnedBadApiBinding = false;
+
+/** Forget what this isolate has warned about the API binding. For the middleware tests only. */
+export function resetApiBindingWarningForTests(): void {
+  warnedBadApiBinding = false;
 }
 
 /**
