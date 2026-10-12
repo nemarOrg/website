@@ -207,6 +207,8 @@ const { state, searchActive = false } = Astro.props;
 </form>
 
 <script>
+  import { isRedundantField } from "../lib/filter-form";
+
   // Apply filters as they are selected, instead of making people hit Apply.
   // Without this script the form still works: Apply submits it.
   const form = document.querySelector<HTMLFormElement>("[data-filter-form]");
@@ -223,11 +225,12 @@ const { state, searchActive = false } = Astro.props;
 
     // Leave empty fields and untouched defaults out of the address, so a shared
     // or cached URL is `?modality=EEG` and not
-    // `?q=&modality_op=OR&modality=EEG&p_min=&p_max=&sort=newest`.
-    const DEFAULTS: Record<string, string> = { modality_op: "OR", sort: "newest" };
+    // `?q=&modality_op=OR&modality=EEG&p_min=&p_max=&sort=newest`. What counts as
+    // untouched comes from the server's own defaults (lib/filter-form.ts), so a
+    // changed default cannot make this strip a choice.
     form.addEventListener("formdata", (event) => {
       for (const [name, value] of [...event.formData.entries()]) {
-        if (value === "" || DEFAULTS[name] === value) event.formData.delete(name);
+        if (isRedundantField(name, value)) event.formData.delete(name);
       }
     });
 
