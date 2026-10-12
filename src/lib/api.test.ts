@@ -9,6 +9,7 @@ import {
   searchDatasets,
   searchResultToDataset,
 } from "./api";
+import { type RequestContext, dataWasStale, runWithRequestContext } from "./request-context";
 import type { Dataset, SearchResult } from "./types";
 
 const originalFetch = globalThis.fetch;
@@ -349,6 +350,163 @@ describe("what the cache is allowed to keep", () => {
       async () => new Response(JSON.stringify(wrapped.dataset), { status: 200 }),
     ) as unknown as typeof fetch;
     expect((await getDataset("nm000001")).name).toBe("A");
+  });
+});
+
+describe("what the endpoints accept: the real shape checks", () => {
+  const answer = (body: unknown): void => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify(body), { status: 200 }),
+    ) as unknown as typeof fetch;
+  };
+
+  it.each([
+    ["an empty object", {}],
+    ["an error envelope", { error: "Rate limit exceeded" }],
+    ["a list that is not an array", { datasets: {} }],
+    ["an array", []],
+  ])("refuses %s as a catalog list", async (_name, body) => {
+    answer(body);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(listDatasets({})).rejects.toThrow(/invalid response/);
+  });
+
+  it.each([
+    ["an empty object", {}],
+    ["an error envelope", { error: "Search failed" }],
+    ["results that are not an array", { results: "none" }],
+    ["an array", []],
+  ])("refuses %s as search results", async (_name, body) => {
+    answer(body);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(searchDatasets("eeg")).rejects.toThrow(/invalid response/);
+  });
+
+  it.each([
+    ["an empty object", {}],
+    ["an error envelope", { error: "Dataset not found" }],
+    ["a dataset that is not an object", { dataset: "x" }],
+    ["an array", []],
+  ])("refuses %s as a dataset", async (_name, body) => {
+    answer(body);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(getDataset("nm000001")).rejects.toThrow(/invalid response/);
+  });
+
+  it("accepts an empty but well-formed list and result set", async () => {
+    answer({ datasets: [], total_count: 0 });
+    expect((await listDatasets({})).datasets).toEqual([]);
+    answer({ results: [], count: 0 });
+    expect((await searchDatasets("zzz")).results).toEqual([]);
+  });
+});
+
+describe("fresh reads, with a cache to read past", () => {
+  const row = (id: string) => ({ dataset_id: id, id, name: id });
+  const original = (globalThis as { caches?: unknown }).caches;
+
+  function installCache() {
+    const entries = new Map<string, Response>();
+    (globalThis as { caches?: unknown }).caches = {
+      default: {
+        async match(request: Request) {
+          return entries.get(request.url)?.clone();
+        },
+        async put(request: Request, response: Response) {
+          entries.set(request.url, response);
+        },
+        async delete(request: Request) {
+          return entries.delete(request.url);
+        },
+      },
+    };
+    return entries;
+  }
+
+  afterEach(() => {
+    (globalThis as { caches?: unknown }).caches = original;
+  });
+
+  it("getDataset reads past a stored copy, and stores the answer for the next reader", async () => {
+    installCache();
+    let name = "old";
+    let calls = 0;
+    globalThis.fetch = vi.fn(async () => {
+      calls++;
+      return new Response(JSON.stringify({ dataset: { dataset_id: "nm000001", name } }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    expect((await getDataset("nm000001")).name).toBe("old");
+    name = "new";
+    expect((await getDataset("nm000001")).name).toBe("old"); // an ordinary read: the stored copy
+    expect(calls).toBe(1);
+    expect((await getDataset("nm000001", { fresh: true })).name).toBe("new"); // past it
+    expect(calls).toBe(2);
+    expect((await getDataset("nm000001")).name).toBe("new"); // and the cache is better for it
+    expect(calls).toBe(2);
+  });
+
+  it("listAllDatasets reads inconsistent pages again past the cache, and the next render finds them consistent", async () => {
+    installCache();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let secondPageReads = 0;
+    let calls = 0;
+    const page = (ids: string[], total: number) =>
+      new Response(
+        JSON.stringify({ datasets: ids.map(row), total_count: total, count: ids.length }),
+        { status: 200 },
+      );
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls++;
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      if (offset === 0)
+        return page(
+          Array.from({ length: 200 }, (_, i) => `a${i}`),
+          201,
+        );
+      // The first read of the second page comes from an older moment (a smaller
+      // catalog); a read made after that is consistent.
+      return secondPageReads++ === 0 ? page(["old"], 200) : page(["last"], 201);
+    }) as unknown as typeof fetch;
+
+    const first = await listAllDatasets();
+    expect(first.map((r) => r.dataset_id)).not.toContain("old");
+    expect(first.map((r) => r.dataset_id)).toContain("last");
+    const callsAfterFirst = calls;
+
+    // The fresh pages were stored: reading again asks nothing.
+    const again = await listAllDatasets();
+    expect(again).toHaveLength(first.length);
+    expect(calls).toBe(callsAfterFirst);
+  });
+
+  it("marks the request stale when the fresh re-read fails and the mixed pages are kept", async () => {
+    installCache();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let offsetZeroReads = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      if (offset === 0) {
+        offsetZeroReads++;
+        if (offsetZeroReads > 1) return new Response("boom", { status: 503 });
+        return new Response(
+          JSON.stringify({
+            datasets: Array.from({ length: 200 }, (_, i) => row(`a${i}`)),
+            total_count: 201,
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ datasets: [row("old")], total_count: 200 }), {
+        status: 200,
+      });
+    }) as unknown as typeof fetch;
+    const ctx: RequestContext = {};
+    const rows = await runWithRequestContext(ctx, () => listAllDatasets());
+    expect(rows).toHaveLength(201);
+    expect(dataWasStale(ctx)).toBe(true);
   });
 });
 

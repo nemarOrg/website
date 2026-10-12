@@ -1,5 +1,6 @@
 import { apiBase } from "./api-base";
 import { cachedJson } from "./api-cache";
+import { markDataStale } from "./request-context";
 import type {
   Dataset,
   DatasetListResponse,
@@ -138,7 +139,7 @@ export async function listDatasets(
     signal: resolveSignal(init),
     label: "list datasets",
     accept: isListResponse,
-    store: init.fresh ? null : undefined,
+    refresh: init.fresh,
   });
 }
 
@@ -156,6 +157,17 @@ export async function listAllDatasets(
   query: DatasetQuery = {},
   init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<Dataset[]> {
+  return (await listAllDatasetsWithTotal(query, init)).datasets;
+}
+
+/**
+ * {@link listAllDatasets}, and the catalog size the pages reported (for a caller
+ * that wants to check it got most of them).
+ */
+export async function listAllDatasetsWithTotal(
+  query: DatasetQuery = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
+): Promise<{ datasets: Dataset[]; total: number }> {
   const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
 
   const readPages = async (fresh: boolean): Promise<DatasetListResponse[]> => {
@@ -175,7 +187,10 @@ export async function listAllDatasets(
   // The pages are cached one by one, so after a partial refresh they can come
   // from different moments, and a row that moved across a page boundary in
   // between would be dropped. Each page reports the catalog's size as of its
-  // own moment: if they disagree, read them again past the cache.
+  // own moment: if they disagree, read them again past the cache, which also
+  // stores the new pages, so the next render finds them consistent. (Two moments
+  // that differ by one dataset added and one removed report the same size and
+  // are not caught; that is rare enough to accept.)
   const sizes = new Set(
     pages.map((p) => p.total_count).filter((n): n is number => typeof n === "number"),
   );
@@ -186,7 +201,9 @@ export async function listAllDatasets(
     try {
       pages = await readPages(true);
     } catch (err) {
-      // The API is refusing right now; a list stitched from two moments beats none.
+      // The API is refusing right now; a list stitched from two moments beats
+      // none, but a page built from it must not sit at the edge for an hour.
+      markDataStale();
       console.warn(
         `[api] list all datasets: fresh read failed, keeping the mixed pages: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -196,7 +213,9 @@ export async function listAllDatasets(
   // De-duplicate by id in case the window shifts between requests.
   const byId = new Map<string, Dataset>();
   for (const p of pages) for (const d of p.datasets) byId.set(d.dataset_id, d);
-  return [...byId.values()];
+  const first = pages[0];
+  const total = first.total_count ?? first.count ?? first.datasets.length;
+  return { datasets: [...byId.values()], total };
 }
 
 /**
@@ -252,8 +271,9 @@ export function isManagedDatasetId(id: string): boolean {
 }
 
 /**
- * `fresh: true` reads past the cache. A page that decides who may do what from
- * the row (the collaborators page reads `owner_username`) must not act on a
+ * `fresh: true` reads past the stored copy, and stores the answer (or drops the
+ * copy if the API says the dataset is gone). A page that decides who may do what
+ * from the row (the collaborators page reads `owner_username`) must not act on a
  * copy that is hours or days old.
  */
 export async function getDataset(
@@ -267,7 +287,7 @@ export async function getDataset(
     signal: resolveSignal(init),
     label: "get dataset",
     accept: isDatasetResponse,
-    store: init.fresh ? null : undefined,
+    refresh: init.fresh,
   });
   return "dataset" in raw ? raw.dataset : raw;
 }
