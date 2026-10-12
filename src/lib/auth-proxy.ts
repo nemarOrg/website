@@ -14,6 +14,7 @@
  */
 
 import { apiBase, copySetCookies } from "./api-base";
+import { apiFetch } from "./api-fetch";
 
 const FORWARD_REQUEST_HEADERS = ["cookie", "origin", "content-type", "accept"];
 
@@ -36,7 +37,7 @@ export async function forwardAuthMutation(
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${apiBase()}${upstreamPath}`, {
+    upstream = await apiFetch(`${apiBase()}${upstreamPath}`, {
       method: request.method,
       headers: upstreamHeaders,
       body: body.length > 0 ? body : undefined,

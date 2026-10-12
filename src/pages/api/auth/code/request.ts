@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase } from "../../../../lib/api-base";
+import { apiFetch } from "../../../../lib/api-fetch";
 import { isValidEmail } from "../../../../lib/auth";
 
 /**
@@ -38,7 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
   const origin = browserOrigin ?? "https://app.nemar.org";
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}/auth/code/request`, {
+    res = await apiFetch(`${apiBase()}/auth/code/request`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

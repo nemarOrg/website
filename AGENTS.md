@@ -83,6 +83,8 @@ src/
     EegViewerNav.astro                subject/task/prev/next markup shared by the viewer dialog and the embed
   lib/                                 typed helpers + clients
     api.ts / api-base.ts              api.nemar.org client (unwraps {dataset:...}); env-aware base
+    api-fetch.ts request-context.ts   server calls to the API over a service binding naming the visitor (ADR 0026); the per-request context (waitUntil, binding, visitor, stale flag) the middleware opens
+    api-cache.ts                      catalog reads cached for minutes to hours, stale copies kept three days (ADR 0025)
     data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
     auth.ts auth-dev.ts auth-proxy.ts orcid-proxy.ts   session types/helpers, dev mock session, backend proxies
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients

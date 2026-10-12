@@ -60,6 +60,7 @@
  * `request-context.ts`.
  */
 
+import { apiFetch } from "./api-fetch";
 import { currentWaitUntil, markDataStale } from "./request-context";
 
 /** How long a stored body answers requests with no API call. */
@@ -449,7 +450,7 @@ async function fetchBody(
   signal: AbortSignal,
   opts: Pick<CachedJsonOptions, "label" | "accept" | "invalidBodyMessage">,
 ): Promise<{ body: string; parsed: unknown }> {
-  const res = await fetch(url, { signal, headers: { Accept: "application/json" } });
+  const res = await apiFetch(url, { signal, headers: { Accept: "application/json" } });
   if (!res.ok) {
     // Release the connection: an unread body can hold one of the few a Worker
     // may have open until it is garbage collected.
