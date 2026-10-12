@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   SESSION_CACHE_CONTROL,
   STALE_DATA_CACHE_CONTROL,
+  discoverCacheControl,
   privateIfPublicHtml,
   withStaleDataHeaders,
 } from "./response-cache-policy";
@@ -74,5 +75,57 @@ describe("privateIfPublicHtml", () => {
     expect(
       privateIfPublicHtml(page({ "Cache-Control": PUBLIC })).headers.get("Cache-Control"),
     ).toBe(PUBLIC);
+  });
+});
+
+describe("withStaleDataHeaders: only ever shortens", () => {
+  it.each([
+    ["public, s-maxage=30", "public, s-maxage=30"],
+    ["public, max-age=5, s-maxage=60", "public, max-age=5, s-maxage=60"],
+  ])("leaves %s as it is, because it already asks for no more than a minute", (value, expected) => {
+    expect(
+      withStaleDataHeaders(new Response("x", { headers: { "Cache-Control": value } })).headers.get(
+        "Cache-Control",
+      ),
+    ).toBe(expected);
+  });
+
+  it.each([
+    "public, s-maxage=61",
+    "public, max-age=60, s-maxage=3600, stale-while-revalidate=600",
+    "public, max-age=3600",
+  ])("shortens %s to a minute", (value) => {
+    expect(
+      withStaleDataHeaders(new Response("x", { headers: { "Cache-Control": value } })).headers.get(
+        "Cache-Control",
+      ),
+    ).toBe(STALE_DATA_CACHE_CONTROL);
+  });
+});
+
+describe("discoverCacheControl", () => {
+  const base = { failed: false, degraded: false, search: false };
+
+  it("never stores a failed load", () => {
+    expect(discoverCacheControl({ ...base, failed: true })).toBe("no-store");
+    expect(discoverCacheControl({ ...base, failed: true, degraded: true, search: true })).toBe(
+      "no-store",
+    );
+  });
+
+  it("keeps a page with cards that fell back to the search projection to a minute", () => {
+    expect(discoverCacheControl({ ...base, degraded: true })).toBe(STALE_DATA_CACHE_CONTROL);
+    expect(discoverCacheControl({ ...base, degraded: true, search: true })).toBe(
+      STALE_DATA_CACHE_CONTROL,
+    );
+  });
+
+  it("keeps a browse page an hour at the edge and a search half that, with a short browser window", () => {
+    expect(discoverCacheControl(base)).toBe(
+      "public, max-age=60, s-maxage=3600, stale-while-revalidate=600",
+    );
+    expect(discoverCacheControl({ ...base, search: true })).toBe(
+      "public, max-age=60, s-maxage=1800, stale-while-revalidate=600",
+    );
   });
 });

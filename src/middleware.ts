@@ -15,7 +15,12 @@ import {
   isProductionHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
-import { type RequestContext, dataWasStale, runWithRequestContext } from "./lib/request-context";
+import {
+  type RequestContext,
+  dataWasStale,
+  runWithRequestContext,
+  sealRequestContext,
+} from "./lib/request-context";
 import { privateIfPublicHtml, withStaleDataHeaders } from "./lib/response-cache-policy";
 
 /**
@@ -527,13 +532,11 @@ const serve = async (
     const putPromise = cache.put(cacheKey, clone).catch((err) => {
       // cache.put rejects on `Vary: *` and Range responses, which is expected.
       // A page cache that can never be written is not, and with hour-long pages
-      // it would be invisible, so say so once per isolate.
-      if (warnedPageCachePut) return;
-      warnedPageCachePut = true;
-      console.warn(
-        `[edge-cache] cache.put failed for ${url.pathname}; further failures in this isolate are not logged`,
-        err,
-      );
+      // it would be invisible. A benign rejection must not use up the one line
+      // a real, persistent failure needs, so each distinct message is logged
+      // once, up to a few. The message only: not the error object, which may
+      // carry the request URL.
+      warnPageCachePutOnce(err instanceof Error ? err.message : String(err), url.pathname);
     });
     const waitUntil = edgeWaitUntil(context);
     if (waitUntil) {
@@ -622,10 +625,26 @@ function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Res
 }
 
 /**
- * Whether this isolate has already said, once, that the page cache could not be
- * written (`cache.put` rejected for a reason other than `Vary: *` or a Range).
+ * The distinct reasons this isolate has already logged for a failed page-cache
+ * write (`cache.put`), so each is said once and the log is not flooded.
  */
-let warnedPageCachePut = false;
+const warnedPageCachePuts = new Set<string>();
+const MAX_PAGE_CACHE_PUT_REASONS = 5;
+
+function warnPageCachePutOnce(reason: string, pathname: string): void {
+  if (warnedPageCachePuts.has(reason) || warnedPageCachePuts.size >= MAX_PAGE_CACHE_PUT_REASONS) {
+    return;
+  }
+  warnedPageCachePuts.add(reason);
+  console.warn(
+    `[edge-cache] cache.put failed for ${pathname}: ${reason} (each distinct reason is logged once per isolate)`,
+  );
+}
+
+/** Forget what this isolate has warned about. For the middleware tests only. */
+export function resetPageCacheWarningsForTests(): void {
+  warnedPageCachePuts.clear();
+}
 
 /** The platform's `waitUntil` for this request, called as a method (it needs its `this`), or `undefined`. */
 function edgeWaitUntil(
@@ -646,9 +665,15 @@ function edgeWaitUntil(
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
   const requestContext: RequestContext = { waitUntil: edgeWaitUntil(context) };
-  const guardedNext: typeof next = async () => {
-    const response = await next();
-    return dataWasStale(requestContext) ? withStaleDataHeaders(response) : response;
+  const guardedNext: typeof next = async (...args) => {
+    const response = await next(...args);
+    // The flag is read once, here. Every catalog read today happens in page
+    // frontmatter, before the response exists; one made later (a component
+    // while the response streams) would be too late, so the context is sealed
+    // and a late mark is logged instead of being silently ignored.
+    const stale = dataWasStale(requestContext);
+    sealRequestContext(requestContext);
+    return stale ? withStaleDataHeaders(response) : response;
   };
   const response = await runWithRequestContext(requestContext, () => serve(context, guardedNext));
   countEmbedCall(context, response);

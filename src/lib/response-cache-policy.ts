@@ -34,14 +34,49 @@ function rebuilt(response: Response, headers: Headers): Response {
   });
 }
 
-/** Mark a response built from stale data, and shorten its shared-cache lifetime. */
+/** The `s-maxage` of a header value, in seconds, or `undefined` when it has none. */
+function sMaxAge(cacheControl: string): number | undefined {
+  const match = /(?:^|[\s,])s-maxage\s*=\s*(\d+)/i.exec(cacheControl);
+  return match ? Number(match[1]) : undefined;
+}
+
+const STALE_DATA_S_MAXAGE = 60;
+
+/**
+ * Mark a response built from stale data, and shorten its shared-cache lifetime.
+ * Only shorten: a page that already asks for less than a minute keeps what it asked for.
+ */
 export function withStaleDataHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("x-nemar-data", "stale");
-  if (isShared(headers.get("Cache-Control"))) {
-    headers.set("Cache-Control", STALE_DATA_CACHE_CONTROL);
+  const current = headers.get("Cache-Control");
+  if (isShared(current)) {
+    const existing = current ? sMaxAge(current) : undefined;
+    if (existing === undefined || existing > STALE_DATA_S_MAXAGE) {
+      headers.set("Cache-Control", STALE_DATA_CACHE_CONTROL);
+    }
   }
   return rebuilt(response, headers);
+}
+
+/**
+ * The `/discover` page's own cache lifetime, from what its fetches did (the
+ * same idea as `landing-cache.ts`): a failed load is never stored; a page with
+ * cards that fell back to the search projection is kept a minute; otherwise an
+ * hour at the edge (half that for a search, whose ranking moves with the index).
+ * The browser's own `stale-while-revalidate` stays at ten minutes, because the
+ * edge treats `s-maxage` as a hard limit and only a browser would use more.
+ */
+export function discoverCacheControl(state: {
+  failed: boolean;
+  degraded: boolean;
+  search: boolean;
+}): string {
+  if (state.failed) return "no-store";
+  if (state.degraded) return STALE_DATA_CACHE_CONTROL;
+  return state.search
+    ? "public, max-age=60, s-maxage=1800, stale-while-revalidate=600"
+    : "public, max-age=60, s-maxage=3600, stale-while-revalidate=600";
 }
 
 /**
