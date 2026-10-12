@@ -208,6 +208,30 @@ describe("converted call sites leave over the API service binding", () => {
     expect(seen[0].cookie).toBe("nemar_session=a");
   });
 
+  it("api/v1/[...path].ts says so when a request with a body is answered with a redirect, instead of passing on a bare 3xx", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const b = bindingReplying(
+      () =>
+        new Response(null, {
+          status: 308,
+          headers: { Location: "https://api.nemar.org/elsewhere" },
+        }),
+    );
+    const res = await inRequest(b, () =>
+      callRoute(
+        v1Get,
+        "https://app.nemar.org/api/v1/datasets/x",
+        { path: "datasets/x" },
+        { method: "POST", body: "{}" },
+      ),
+    );
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "upstream_redirect" });
+    expect(res.headers.get("location")).toBeNull();
+    expect(seen).toHaveLength(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("308"));
+  });
+
   it("api/auth/code/request.ts", async () => {
     const res = await inRequest(
       bindingReplying(() => json({ ok: true })),

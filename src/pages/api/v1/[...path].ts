@@ -73,6 +73,17 @@ const proxy: APIRoute = async ({ params, request }) => {
     return json({ error: "upstream_unreachable" }, 502);
   }
 
+  // apiFetch follows a redirect for a GET but hands back the redirect of a request with a body,
+  // which it cannot replay. This proxy copies no Location, so the browser would see a bare 3xx
+  // with nowhere to go; say what happened instead, here and to the caller.
+  if (upstream.status >= 300 && upstream.status < 400) {
+    console.warn(
+      `[api/v1 proxy] ${request.method} /${rawPath} was answered with a ${upstream.status} redirect, which the proxy does not follow`,
+    );
+    void upstream.body?.cancel().catch(() => {});
+    return json({ error: "upstream_redirect" }, 502);
+  }
+
   // Forward a tight set of response headers. Skip Cloudflare / CORS /
   // transport-layer headers that don't apply to the same-origin client
   // response — they'd either confuse the browser or pin the body to the
