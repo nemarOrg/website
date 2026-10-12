@@ -100,9 +100,11 @@ export async function fetchDirListing(
 
 /**
  * Compose the public download URL for a file inside the version tree. The
- * worker at data.nemar.org turns this into a 302 to a presigned S3 URL
- * (with Content-Disposition handling and the BIDS-shaped filename rewrite
- * tracked in nemar-cli#513). Pure URL construction, no fetch.
+ * worker at data.nemar.org resolves this stable route to file bytes after
+ * checking publication, version, and path. A plain annex object may redirect
+ * to its backing object; chunked content uses the same route. Preserve the
+ * data-plane URL instead of the redirect target. The BIDS-shaped filename
+ * rewrite is tracked in nemar-cli#513. Pure URL construction, no fetch.
  */
 export function fileDownloadUrl(
   datasetId: string,

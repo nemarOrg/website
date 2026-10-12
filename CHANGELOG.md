@@ -13,6 +13,52 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-10-12
+
+### Changed
+
+- **Catalog reads are cached for hours and kept for three days** (#439, #443, #444).
+  The site's server-side calls to the API share a few Cloudflare addresses, and the API limits each address, so visitors were drawing on one budget together and Discover showed "Could not load datasets" for minutes at a time.
+  A catalog response is now served from the edge cache for ten minutes without asking the API, served at once and refreshed behind the response for up to six hours, and, when the API is failing, served stale for up to three days.
+  A 404 or 410 for a dataset drops its stored copy (the API answers 404 for one that went private), while any other 4xx, such as a gateway 403, keeps the copy and logs an error; a response that is not the shape an endpoint returns (`null`, an error envelope) is never stored over a good one.
+  While the API is refusing requests it is left alone for a minute, concurrent calls for one URL share one request, and no caller waits past its own deadline for it.
+  A page built from stale data answers with `x-nemar-data: stale` and stays at the edge for a minute instead of an hour.
+  Discover pages are cached at the edge for an hour (thirty minutes for a search), so a new dataset reaches a page within about an hour and ten minutes.
+  When there is nothing to show, Discover answers `503` with `Retry-After`, says the service is busy, and no longer repeats "Could not load datasets" twice in the banner (ADR 0025).
+- **Signed-in pages are sent `private`, and the collaborators page reads past the cache** (#443).
+  A browser no longer keeps a page that names the visitor, and the page that decides who may manage collaborators no longer acts on a copy that is hours old.
+  That page now answers `503` with `Retry-After` when the API is limited or slow, instead of telling an owner their dataset does not exist.
+  Discover no longer writes the visitor's search text to the logs when a search fails.
+- **Discover search keeps its filters, and filters keep the search** (#440).
+  The search box and the filter sidebar were two forms, so each submit dropped the other.
+  They are one form now.
+  Search sends license, HED, Zarr, and single-modality filters to the API and pages with it, so the count is the real number of matches (a search for "eeg" showed 100 results; the API reports 754), and the pager stops where the API stops.
+  Channel density and electrode system stay off during a search, and Sort stays on Relevance, which the API does not change.
+- **Filters apply as you select them** (#440).
+  A short pause lets two quick clicks make one reload; Apply remains for a browser without JavaScript.
+  The page keeps its scroll position and the focused control, and the address leaves out empty and default parameters.
+- **The signal viewer's frame is a pale teal in light mode** (#441), where it was a neutral gray-blue. Dark mode is unchanged.
+- **The landing page's brain is clearly visible in light mode** (#442).
+  The dark image holds its line work in brightness under a constant faint alpha, which light mode inverted and multiplied down to about seven percent ink.
+  Light mode now uses its own ink-on-transparent image, made by `scripts/make-hero-brain-light.py`.
+- **Download guidance describes stable per-file URLs and byte-range downloads** (#437), and no longer says manifests carry presigned S3 URLs.
+- **Bun is pinned to 1.4.3** (#438): every Bun setup step in the CI and staging deploy workflows, and `packageManager` in `package.json`. Dependencies and the lockfile are unchanged.
+
+### Fixed
+
+- **Selected filter chips could not be unselected** (#440).
+  A chip the server had rendered as selected kept looking selected after it was unchecked.
+- **A participant range typed into the filters could be silently dropped** (#447).
+  Typing a minimum and tabbing through the maximum without editing it left the range unapplied, with the Apply button hidden.
+  Applying now waits while a range field has focus and resumes when focus leaves the range fields.
+- **Back after a live filter showed a control that did not match the page** (#447).
+  A chip just clicked stayed checked over the unfiltered list; the filter form is now put back to what the server rendered when the page is restored.
+- **A Discover page past the last page** (#447) answered "6 results" over "No datasets match", and was cached for an hour. It now redirects to the last page that has results.
+- **A search carrying a leftover density, electrode, or channel filter** (#447) dropped to a 100-result window for a filter that does nothing during a search. It now pages the real results.
+- **A search for one modality inside the 100-result window** (#447) let iEEG-only datasets through for EEG; the window now checks the exact modality. (The API's own `modality` is a substring match; that is filed upstream.)
+- **The collaborators page** (#447) shows an explanation with a `503` when the dataset service is busy, instead of an empty response.
+- **A catalog read that falls well short of the size the API reported** (#447), a markdown mirror built without its catalog row, and a paged read whose time is spent now keep their page out of the edge cache for long, and a consistency re-read no longer adds calls while the API is refusing.
+
 ## [0.2.29] - 2026-10-06
 
 ### Added

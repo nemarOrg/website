@@ -1,9 +1,12 @@
 import { apiBase } from "./api-base";
+import { cachedJson, isApiPaused, isMissing } from "./api-cache";
+import { markDataStale } from "./request-context";
 import type {
   Dataset,
   DatasetListResponse,
   DatasetQuery,
   DatasetSearchResponse,
+  SearchFilters,
   SearchResult,
 } from "./types";
 
@@ -113,21 +116,47 @@ function buildQuery(params: DatasetQuery): string {
   return qs ? `?${qs}` : "";
 }
 
+/**
+ * Call from a `catch` where a page gives up on a catalog row and renders
+ * without it. A page that renders without data it could not fetch is degraded,
+ * and must not sit at the edge for an hour (lib/response-cache-policy.ts). A row
+ * that is simply not there (404, 410) is a normal page, not a degraded one, and
+ * keeps its cache lifetime.
+ */
+export function markDegradedUnlessMissing(err: unknown): void {
+  if (!isMissing(err)) markDataStale();
+}
+
+/** Whether `value` is a plain object, for the shape checks below. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The most time a whole paged catalog read may take, first pass and any re-read together. */
+const CATALOG_READ_BUDGET_MS = 8000;
+
+// What each catalog endpoint returns, as far as a stored body must satisfy it
+// to be allowed to replace a good one (api-cache.ts). The pages do the detailed
+// null-handling; this only keeps `null`, `{}`, and an error envelope out of the
+// cache.
+const isListResponse = (p: unknown): boolean => isRecord(p) && Array.isArray(p.datasets);
+// The page prints `count` and pages by it, so a body without one is no answer.
+const isSearchResponse = (p: unknown): boolean =>
+  isRecord(p) && Array.isArray(p.results) && typeof p.count === "number";
+const isDatasetResponse = (p: unknown): boolean =>
+  isRecord(p) && (isRecord(p.dataset) || typeof p.dataset_id === "string");
+
 export async function listDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<DatasetListResponse> {
   const url = `${apiBase()}/datasets${buildQuery(query)}`;
-  const res = await fetch(url, {
+  return cachedJson<DatasetListResponse>(url, {
     signal: resolveSignal(init),
-    headers: { Accept: "application/json" },
+    label: "list datasets",
+    accept: isListResponse,
+    refresh: init.fresh,
   });
-  if (!res.ok) {
-    console.error(`[api] listDatasets: ${res.status} ${res.statusText}`);
-    throw new Error(`api.nemar.org list datasets failed: ${res.status} ${res.statusText}`);
-  }
-  const json = (await res.json()) as DatasetListResponse;
-  return json;
 }
 
 /**
@@ -142,23 +171,92 @@ export async function listDatasets(
  */
 export async function listAllDatasets(
   query: DatasetQuery = {},
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<Dataset[]> {
-  const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
-  const first = await listDatasets({ ...query, limit: PAGE, offset: 0 }, init);
-  const total = first.total_count ?? first.count ?? first.datasets.length;
-  const byId = new Map<string, Dataset>();
-  for (const d of first.datasets) byId.set(d.dataset_id, d);
+  return (await listAllDatasetsWithTotal(query, init)).datasets;
+}
 
-  const offsets: number[] = [];
-  for (let off = PAGE; off < total; off += PAGE) offsets.push(off);
-  if (offsets.length > 0) {
-    const pages = await Promise.all(
-      offsets.map((off) => listDatasets({ ...query, limit: PAGE, offset: off }, init)),
+/**
+ * {@link listAllDatasets}, and the catalog size the pages reported (for a caller
+ * that wants to check it got most of them).
+ */
+export async function listAllDatasetsWithTotal(
+  query: DatasetQuery = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
+): Promise<{ datasets: Dataset[]; total: number }> {
+  const PAGE = 200; // api.nemar.org clamps `limit` to 200 per request
+  // One budget for the whole read, so a first pass and a consistency re-read
+  // cannot each take the full time. A caller's own signal is that budget.
+  const budget = init.signal ?? AbortSignal.timeout(CATALOG_READ_BUDGET_MS);
+
+  const readPages = async (fresh: boolean): Promise<DatasetListResponse[]> => {
+    const opts = { ...init, signal: budget, fresh };
+    const first = await listDatasets({ ...query, limit: PAGE, offset: 0 }, opts);
+    const total = first.total_count ?? first.count ?? first.datasets.length;
+    const offsets: number[] = [];
+    for (let off = PAGE; off < total; off += PAGE) offsets.push(off);
+    const rest = await Promise.all(
+      offsets.map((off) => listDatasets({ ...query, limit: PAGE, offset: off }, opts)),
     );
-    for (const p of pages) for (const d of p.datasets) byId.set(d.dataset_id, d);
+    return [first, ...rest];
+  };
+
+  let pages = await readPages(init.fresh ?? false);
+
+  // The pages are cached one by one, so after a partial refresh they can come
+  // from different moments, and a row that moved across a page boundary in
+  // between would be dropped. Each page reports the catalog's size as of its
+  // own moment: if they disagree, read them again past the cache, which also
+  // stores the new pages, so the next render finds them consistent. (Two moments
+  // that differ by one dataset added and one removed report the same size and
+  // are not caught; that is rare enough to accept.)
+  const sizes = new Set(
+    pages.map((p) => p.total_count).filter((n): n is number => typeof n === "number"),
+  );
+  if (sizes.size > 1 && !init.fresh) {
+    if (isApiPaused() || budget.aborted) {
+      // The API is refusing, or the time is spent: do not add a read to either.
+      // The mixed pages stand, and the page built from them is kept short.
+      markDataStale();
+      console.warn(
+        `[api] list all datasets: pages disagree on the catalog size (${[...sizes].join(", ")}); not reading them again while the API is refusing or the time is spent`,
+      );
+    } else {
+      console.warn(
+        `[api] list all datasets: pages disagree on the catalog size (${[...sizes].join(", ")}); reading them again past the cache`,
+      );
+      try {
+        pages = await readPages(true);
+      } catch (err) {
+        // The API is refusing right now; a list stitched from two moments beats
+        // none, but a page built from it must not sit at the edge for an hour.
+        markDataStale();
+        console.warn(
+          `[api] list all datasets: fresh read failed, keeping the mixed pages: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
-  return [...byId.values()];
+
+  // De-duplicate by id in case the window shifts between requests.
+  const byId = new Map<string, Dataset>();
+  for (const p of pages) for (const d of p.datasets) byId.set(d.dataset_id, d);
+  const first = pages[0];
+  const total = first.total_count ?? first.count ?? first.datasets.length;
+  const datasets = [...byId.values()];
+
+  // If the collected rows fall well short of the size the API reported, some
+  // pages came back short or empty (a drifted count, a glitch) and anything
+  // built from them is understated: the landing stats, the sitemap, a
+  // client-filtered Discover page. Say so, and keep the page that is built from
+  // it out of the edge cache for long.
+  if (total > PAGE && datasets.length < total * 0.9) {
+    markDataStale();
+    console.warn(
+      `[api] list all datasets: expected about ${total} rows, received ${datasets.length}; anything built from them may be understated`,
+    );
+  }
+  return { datasets, total };
 }
 
 /**
@@ -168,34 +266,33 @@ export async function listAllDatasets(
  * highlights) with Vectorize semantic recall via reciprocal rank fusion and
  * returns id-keyed hits ranked by relevance.
  *
- * Unlike {@link listDatasets} this endpoint returns a reduced projection and
- * has NO `offset` support, so callers paginate client-side over the ranked
- * list and hydrate the visible page to full {@link Dataset} rows by id.
+ * Unlike {@link listDatasets} this endpoint returns a reduced projection, so
+ * callers hydrate the visible page to full {@link Dataset} rows by id. It
+ * pages with `limit` (at most 100) and `offset`, and enforces `filters`
+ * server-side (nemar-cli#683), so `count` is the true number of matches. It
+ * ranks by relevance and ignores `sort`.
  */
 export async function searchDatasets(
   q: string,
-  init: { limit?: number; signal?: AbortSignal; timeoutMs?: number } = {},
+  init: {
+    limit?: number;
+    offset?: number;
+    filters?: SearchFilters;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  } = {},
 ): Promise<DatasetSearchResponse> {
   const sp = new URLSearchParams({ q });
-  if (init.limit != null) sp.set("limit", String(init.limit));
+  // buildQuery drops the filters that are unset and serializes booleans the
+  // way the backend accepts them.
+  const rest = buildQuery({ ...init.filters, limit: init.limit, offset: init.offset });
+  for (const [key, value] of new URLSearchParams(rest)) sp.set(key, value);
   const url = `${apiBase()}/datasets/search?${sp.toString()}`;
-  const res = await fetch(url, {
+  return cachedJson<DatasetSearchResponse>(url, {
     signal: resolveSignal(init),
-    headers: { Accept: "application/json" },
+    label: "search",
+    accept: isSearchResponse,
   });
-  if (!res.ok) {
-    // Log before throwing so a backend outage is visible in Worker logs even
-    // if the caller's catch only surfaces a sanitized message.
-    console.error(`[api] searchDatasets q="${q}": ${res.status} ${res.statusText}`);
-    throw new Error(`api.nemar.org search failed: ${res.status} ${res.statusText}`);
-  }
-  try {
-    return (await res.json()) as DatasetSearchResponse;
-  } catch {
-    // A 2xx with a non-JSON body (e.g. an edge timeout HTML page) lands here.
-    console.error(`[api] searchDatasets q="${q}": response body was not valid JSON`);
-    throw new Error("api.nemar.org search returned an invalid response");
-  }
 }
 
 /**
@@ -214,21 +311,25 @@ export function isManagedDatasetId(id: string): boolean {
   return /^(nm|on|xx)\d{6}$/.test(id);
 }
 
+/**
+ * `fresh: true` reads past the stored copy, and stores the answer (or drops the
+ * copy if the API says the dataset is gone). A page that decides who may do what
+ * from the row (the collaborators page reads `owner_username`) must not act on a
+ * copy that is hours or days old.
+ */
 export async function getDataset(
   id: string,
-  init: { signal?: AbortSignal; timeoutMs?: number } = {},
+  init: { signal?: AbortSignal; timeoutMs?: number; fresh?: boolean } = {},
 ): Promise<Dataset> {
   const url = `${apiBase()}/datasets/${encodeURIComponent(id)}`;
-  const res = await fetch(url, {
-    signal: resolveSignal(init),
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) {
-    throw new Error(`api.nemar.org get dataset failed: ${res.status} ${res.statusText}`);
-  }
   // The endpoint returns { dataset: {...} } whereas the list endpoint
   // returns { datasets: [...] }. Unwrap so callers always get a Dataset.
-  const raw = (await res.json()) as Dataset | { dataset: Dataset };
+  const raw = await cachedJson<Dataset | { dataset: Dataset }>(url, {
+    signal: resolveSignal(init),
+    label: "get dataset",
+    accept: isDatasetResponse,
+    refresh: init.fresh,
+  });
   return "dataset" in raw ? raw.dataset : raw;
 }
 

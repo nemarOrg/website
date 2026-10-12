@@ -24,8 +24,8 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-2);
-  background: var(--color-bg-subtle);
-  border: 1px solid var(--color-border);
+  background: var(--viewer-frame-bg, var(--color-bg-subtle));
+  border: 1px solid var(--viewer-frame-border, var(--color-border));
   border-radius: var(--radius-md, 8px);
 }
 .eegv:focus {

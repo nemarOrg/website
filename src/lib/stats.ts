@@ -18,7 +18,7 @@
  * a cache miss. A server-side aggregate endpoint (filtered by `source_type`)
  * would collapse this to one call — worth filing upstream in nemar-cli.
  */
-import { listDatasets } from "./api";
+import { listAllDatasets } from "./api";
 import type { Dataset } from "./types";
 
 export interface HostedStats {
@@ -57,8 +57,6 @@ export function aggregateHostedStats(rows: Dataset[]): HostedStats {
   return acc;
 }
 
-const PAGE_SIZE = 200; // api.nemar.org caps a page at 200.
-
 /**
  * The first row per dataset id. The catalog pages by offset under
  * `ORDER BY published_at DESC`, so a dataset published between two page
@@ -85,28 +83,10 @@ export function dedupeById<T extends Pick<Dataset, "id" | "dataset_id">>(rows: r
  * catalog is downloaded once per render.
  */
 export async function fetchHostedRows(init: { signal?: AbortSignal } = {}): Promise<Dataset[]> {
-  const first = await listDatasets({ limit: PAGE_SIZE, offset: 0 }, init);
-  const total = first.total_count ?? first.count ?? first.datasets.length;
-  const rows: Dataset[] = [...first.datasets];
-
-  const offsets: number[] = [];
-  for (let offset = PAGE_SIZE; offset < total; offset += PAGE_SIZE) offsets.push(offset);
-  if (offsets.length > 0) {
-    const pages = await Promise.all(
-      offsets.map((offset) => listDatasets({ limit: PAGE_SIZE, offset }, init)),
-    );
-    for (const page of pages) rows.push(...page.datasets);
-  }
-
-  // If the collected rows fall well short of total_count, some pages came back
-  // empty (e.g. a drifted/stale count) and anything built from them would be
-  // silently understated; surface it in the Worker log rather than show a
-  // wrong number.
-  if (total > PAGE_SIZE && rows.length < total * 0.9) {
-    console.warn(
-      `[stats] fetchHostedRows: expected ~${total} catalog rows, received ${rows.length}; hosted totals may be understated`,
-    );
-  }
-
+  // The same paged read Discover and the sitemap use, so the hero stats get its
+  // checks too: pages from different moments are read again, a read that falls
+  // well short of the catalog's size is logged and keeps the landing page out of
+  // the edge cache for long, and the whole read has one time budget.
+  const rows = await listAllDatasets({}, init);
   return dedupeById(rows);
 }

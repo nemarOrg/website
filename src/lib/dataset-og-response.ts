@@ -1,5 +1,5 @@
 import logoSvg from "../assets/nemar-logo.svg?raw";
-import { getDataset, isManagedDatasetId } from "./api";
+import { getDataset, isManagedDatasetId, markDegradedUnlessMissing } from "./api";
 import { getLandingOutcome, getMetadataOutcome, outcomeValue } from "./data-api";
 import type { DatasetOgModel } from "./og-image";
 import { buildDatasetOgModel, renderDatasetOgSvg } from "./og-image";
@@ -54,7 +54,13 @@ async function getCatalog(id: string): Promise<Dataset | null> {
   try {
     return await getDataset(id);
   } catch (err) {
-    console.warn(`[og/dataset/${id}] catalog fetch failed`, err);
+    // A failed fetch leaves the card without the catalog facts, so it is
+    // degraded and is kept from sitting at the edge for long; a row that is
+    // simply not there is a normal card. The message only, not the error object.
+    console.warn(
+      `[og/dataset/${id}] catalog fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    markDegradedUnlessMissing(err);
     return null;
   }
 }

@@ -11,7 +11,12 @@ import TagSeparator from "../../components/TagSeparator.astro";
 import UseThisData from "../../components/UseThisData.astro";
 import VersionSwitcher from "../../components/VersionSwitcher.astro";
 import Base from "../../layouts/Base.astro";
-import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
+import {
+  getDataset,
+  isManagedDatasetId,
+  markDegradedUnlessMissing,
+  resolveCanonical,
+} from "../../lib/api";
 import { apiBase } from "../../lib/api-base";
 import { datasetCitation } from "../../lib/cite";
 import {
@@ -77,6 +82,10 @@ const [landingOut, metadataOut, catalogRow] = await Promise.all([
         console.warn(
           `[dataset/${id}] catalog row fetch failed, omitting channel stat: ${err instanceof Error ? err.message : String(err)}`,
         );
+        // A failed lookup leaves the page without the stat, so it is degraded and
+        // is kept from sitting at the edge for long; a row that is simply not
+        // there is a normal page.
+        markDegradedUnlessMissing(err);
         return null;
       })
     : Promise.resolve(null),

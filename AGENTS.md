@@ -233,8 +233,8 @@ Remember: this is a frontend over established backends. The interesting decision
 - `formatDate(null) === ""`, `formatRelativeTime(null) === ""`, `splitModalities("") === []`. **Don't tighten these types** — Astro silently drops cards whose render throws.
 
 ### Download links must route through `data.nemar.org`
-- Never use the manifest's direct `url` field for downloads. Always build `data.nemar.org/<id>/<v>/<bids-path>`.
-- This puts the Worker in the chain so it can set `Content-Disposition` (filename preservation, tracked at nemar-cli#513).
+- Use the manifest's stable `url` field for downloads; it points through `data.nemar.org/<id>/<v>/<bids-path>`.
+- Preserve that route through the CDN so the Worker can set `Content-Disposition` (filename preservation, tracked at nemar-cli#513). Do not replace it with a storage URL.
 
 ### Backend reuse: don't reimplement filters
 - `api.nemar.org/datasets` supports `limit`, `offset`, `search`, `modality` (single), `sort`. Use those.
@@ -246,7 +246,7 @@ Remember: this is a frontend over established backends. The interesting decision
 - Never change `imageService: "passthrough"` to anything else (sharp breaks Workers)
 - Never use mocks, stubs, or fake data in tests
 - Never commit `.env` or credentials. The `CLOUDFLARE_API_TOKEN` is read from the environment by `cfman`, never write it to a file in this repo.
-- Never use the manifest's direct `url` field for download links — route through `data.nemar.org/<id>/<v>/<path>`
+- Never replace the manifest's stable `url` with a direct storage URL or redirected origin — preserve its `data.nemar.org/<id>/<v>/<path>` route.
 - Never use emojis in commits, PRs, or code
 - Never carry forward review findings as "deferred"; file an issue and link it
 
@@ -255,7 +255,7 @@ Remember: this is a frontend over established backends. The interesting decision
 - **Astro scoped `<style>` doesn't cross component boundaries.** If two components share styling (e.g., `SiteNotices.astro` and `src/pages/admin/notices.astro`'s matched notice-tone rules), duplicate the CSS in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the components are intentionally self-contained.
 - **Multi-modality filtering is a known tradeoff.** Server-side offset pagination + client-side AND/OR multi-modality means the `total_count` in the count display reflects server total, not client-filtered count when 2+ modalities are selected. Move AND/OR to the API only when the backend supports it.
 - **Logo SVG (`public/nemar-logo.svg`) uses `currentColor`** — themes via parent color inheritance. Don't hardcode fill.
-- **Brain hero (`public/hero-brain.png`) uses mix-blend-mode tricks.** Dark mode: `screen` blend; light mode: `filter: invert + multiply`. Don't refactor without verifying both themes.
+- **The brain hero has a separate image per theme** (`--hero-brain-image` in `src/pages/index.astro`). Dark mode: `public/hero-brain.png` with a `screen` blend. Light mode: `public/hero-brain-light.png` (blue ink on transparent, made from the dark image by `scripts/make-hero-brain-light.py`) with normal blending. The dark image keeps its line work in brightness under a constant 18% alpha, so inverting and multiplying it leaves almost no ink; do not go back to that. Don't refactor without verifying both themes.
 ---
 
 ## Everything else is on the documentation site
