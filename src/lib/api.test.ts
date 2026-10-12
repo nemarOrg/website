@@ -5,10 +5,12 @@ import {
   isManagedDatasetId,
   listAllDatasets,
   listDatasets,
+  markDegradedUnlessMissing,
   resolveCanonical,
   searchDatasets,
   searchResultToDataset,
 } from "./api";
+import { UpstreamError } from "./api-cache";
 import { type RequestContext, dataWasStale, runWithRequestContext } from "./request-context";
 import type { Dataset, SearchResult } from "./types";
 
@@ -631,5 +633,30 @@ describe("searchResultToDataset", () => {
     expect(d.description).toBeNull();
     // license omitted -> license filtering stays inactive for search rows
     expect(d.license).toBeUndefined();
+  });
+});
+
+describe("markDegradedUnlessMissing", () => {
+  const marks = (err: unknown): boolean => {
+    const ctx: RequestContext = {};
+    runWithRequestContext(ctx, () => markDegradedUnlessMissing(err));
+    return dataWasStale(ctx);
+  };
+
+  it.each([404, 410, 400])(
+    "does not mark a page for a %i: the row is simply not there",
+    (status) => {
+      expect(marks(new UpstreamError("gone", status))).toBe(false);
+    },
+  );
+
+  it.each([
+    ["a 429", new UpstreamError("busy", 429)],
+    ["a 503", new UpstreamError("down", 503)],
+    ["a 403", new UpstreamError("blocked", 403)],
+    ["a network error", new TypeError("fetch failed")],
+    ["a timeout", Object.assign(new Error("timed out"), { name: "TimeoutError" })],
+  ])("marks a page for %s: the page is rendering without data it could not fetch", (_name, err) => {
+    expect(marks(err)).toBe(true);
   });
 });

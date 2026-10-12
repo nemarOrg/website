@@ -1,5 +1,5 @@
 import { apiBase } from "./api-base";
-import { cachedJson } from "./api-cache";
+import { cachedJson, isMissing } from "./api-cache";
 import { markDataStale } from "./request-context";
 import type {
   Dataset,
@@ -114,6 +114,17 @@ function buildQuery(params: DatasetQuery): string {
   }
   const qs = sp.toString();
   return qs ? `?${qs}` : "";
+}
+
+/**
+ * Call from a `catch` where a page gives up on a catalog row and renders
+ * without it. A page that renders without data it could not fetch is degraded,
+ * and must not sit at the edge for an hour (lib/response-cache-policy.ts). A row
+ * that is simply not there (404, 410, 400) is a normal page, not a degraded one,
+ * and keeps its cache lifetime.
+ */
+export function markDegradedUnlessMissing(err: unknown): void {
+  if (!isMissing(err)) markDataStale();
 }
 
 /** Whether `value` is a plain object, for the shape checks below. */
