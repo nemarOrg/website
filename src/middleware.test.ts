@@ -1915,7 +1915,7 @@ describe("the API service binding", () => {
   describe("a project that declares no binding", () => {
     const missing = "env.API is not bound on a production host";
 
-    it("says so once per isolate on a production host, however the absence shows", async () => {
+    it("says so once per isolate on a production host, however many requests follow", async () => {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       for (const api of [undefined, null, undefined]) {
         for (const host of [APP_HOST, MARKETING_HOST]) {
@@ -1930,8 +1930,20 @@ describe("the API service binding", () => {
       expect(String(said[0][0])).not.toContain("198.51.100.7");
     });
 
+    it.each([APP_HOST, MARKETING_HOST, "www.nemar.org", "ww2.nemar.org"])(
+      "says so on %s, the first request an isolate serves",
+      async (host) => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await onRequest(
+          ctxAt(`https://${host}/about`, { visitor: "198.51.100.7" }),
+          async () => new Response("ok"),
+        );
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(1);
+      },
+    );
+
     it.each(["test.nemar.org", "a1b2c3.nemar-website.pages.dev", "localhost"])(
-      "says nothing on %s, which is not meant to have one",
+      "says nothing on %s, which is not a production host",
       async (host) => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
         await onRequest(

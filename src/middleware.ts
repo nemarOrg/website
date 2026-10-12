@@ -666,8 +666,9 @@ function apiBindingOf(context: Parameters<MiddlewareHandler>[0]): ApiBinding | u
   if (import.meta.env.DEV) return undefined;
   const binding: unknown = context.locals.runtime?.env?.API;
   if (binding === undefined || binding === null) {
-    // Previews and staging are meant to go without one; a production host is not, and nothing
-    // else would say so (the site works, it just stays in the API's shared pool).
+    // Previews and local runs go without one, and staging has one but is not a production host,
+    // so none of those are warned about. A production host without one is a mistake that nothing
+    // else would say: the site works, it just stays in the API's shared pool.
     if (!warnedUnboundApi && isProductionHost(new URL(context.request.url).hostname)) {
       warnedUnboundApi = true;
       console.warn(
