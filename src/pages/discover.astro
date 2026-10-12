@@ -180,17 +180,19 @@ if (isSearch) {
 }
 
 // Cache keyed on the full URL (query params) so each filter+page+query combo
-// gets its own edge entry. On error, never cache — a brief upstream hiccup
-// must not pin an error page at the edge for the SWR window. Search responses
-// use a short SWR so newly relevant datasets surface promptly; browse pages
-// (stable "newest" ordering) keep the long SWR.
+// gets its own edge entry. On error, never cache: a brief upstream hiccup must
+// not pin an error page at the edge. The catalog changes slowly and robots and
+// people alike should find it, so a page lives an hour at the edge (half that
+// for a search, whose ranking moves with the index). The data behind it is
+// itself cached for ten minutes (lib/api-cache.ts), so a new dataset reaches a
+// page within about an hour and ten minutes at most.
 Astro.response.headers.set(
   "Cache-Control",
   fetchError
     ? "no-store"
     : isSearch
-      ? "public, max-age=30, s-maxage=120, stale-while-revalidate=300"
-      : "public, max-age=30, s-maxage=120, stale-while-revalidate=3600",
+      ? "public, max-age=60, s-maxage=1800, stale-while-revalidate=86400"
+      : "public, max-age=60, s-maxage=3600, stale-while-revalidate=86400",
 );
 if (fetchError) {
   // A failed load is not a successful page: answering 200 let crawlers index
