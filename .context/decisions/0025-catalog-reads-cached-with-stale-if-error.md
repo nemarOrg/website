@@ -1,0 +1,43 @@
+# ADR 0025: Catalog reads are cached for a minute and fall back to a stale copy
+
+**Status:** accepted
+**Date:** 2026-10-11
+**Owner:** Seyed Yahya Shirazi
+
+## Context
+
+Pages that render on the server call api.nemar.org from inside a Cloudflare Worker, so every visitor reaches the API from one small pool of Cloudflare egress IPs.
+The API rate-limits anonymous requests per IP (`backend/src/middleware/rateLimit.ts` in nemar-cli, 500 requests per 60 seconds, counted in the per-data-center Cache API), which turns that pool into one shared budget.
+When it is spent the API answers `429 Too Many Requests`, and `/discover` showed "Could not load datasets" to everyone, for minutes at a time.
+A sample of the production log on 2026-10-11 caught 18 of 43 `/discover` requests in 86 seconds failing this way, and dataset pages degrading the same way.
+The API Worker also runs with Smart Placement (`cf-placement: local-LAX` on its responses), which can concentrate its requests, and so its counters, in fewer data centers.
+The real fix is on the API side (nemar-cli#1709 asks for the website's server-side traffic to stop sharing the anonymous bucket), and this site cannot make it alone.
+
+## Decision
+
+Public catalog reads in `src/lib/api.ts` (list, search, dataset detail) go through `src/lib/api-cache.ts`.
+A response fetched in the last 60 seconds is served from `caches.default` without calling the API.
+When the API fails (429, 5xx, timeout, network error) and a stored copy exists, up to 24 hours old, the copy is served and a warning is logged.
+A 4xx other than 429 is never answered from a stale copy, so a removed dataset stays removed.
+Only successful JSON bodies are stored.
+`/discover` answers `503` with `Retry-After` when it has nothing to show, and says the service is busy on a 429.
+
+## Consequences
+
+Repeat visits to the same data stop spending the shared budget: a search page's ten dataset hydrations and a client-filtered browse page's five catalog pages are now mostly cache hits.
+A catalog change takes up to a minute to show, on top of the existing page cache.
+During an API outage visitors see data that may be hours old instead of an error, and nothing on the page says so; the log line is the only signal.
+A stale entry that is never refreshed because the API stays down keeps being served for up to a day.
+The cache is per data center, so a cold data center still depends on the API.
+`caches.default` does not exist under `astro dev`, so dev never caches; the behavior was checked in a built site under local workerd.
+
+## Alternatives considered
+
+- **Retry on 429:** the API's `Retry-After` is 60 seconds, longer than a render can wait.
+- **Raise the API's cap:** a safety floor against runaway loops, and the wrong place to absorb server-side fan-out; tracked as nemar-cli#1709.
+- **Cache the rendered `/discover` HTML longer:** crawlers walk unique filter and page URLs, so most requests would still miss.
+
+## Receipts
+
+- website: the commits for this ADR.
+- nemar-cli `backend/src/middleware/rateLimit.ts` (the bucket policy and its comment on the shared egress IPs).

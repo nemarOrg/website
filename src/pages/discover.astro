@@ -13,6 +13,7 @@ import {
   searchDatasets,
   searchResultToDataset,
 } from "../lib/api";
+import { isRateLimited } from "../lib/api-cache";
 import {
   applyClientFilters,
   filterStateFromURL,
@@ -36,6 +37,10 @@ const SEARCH_FETCH_LIMIT = 240;
 let cards: Array<{ dataset: Dataset; snippet?: string }> = [];
 let totalReturned = 0;
 let fetchError: string | null = null;
+// The API answered 429: its anonymous budget is shared by every visitor this
+// site serves, so "busy, try again in a minute" is more useful than a generic
+// failure, and it tells a crawler to back off (see the 503 below).
+let rateLimited = false;
 
 // Cap every backend hop so a stalled upstream fails fast (and falls back)
 // instead of holding the SSR response until the Worker CPU limit kills it.
@@ -130,9 +135,12 @@ try {
   console.error(
     `[discover] load failed (q="${state.q}"): ${err instanceof Error ? err.message : String(err)}`,
   );
-  fetchError = isSearch
-    ? "Search is temporarily unavailable. Please try again in a moment."
-    : "Could not load datasets. Please try again.";
+  rateLimited = isRateLimited(err);
+  fetchError = rateLimited
+    ? "The dataset service is busy right now. Please try again in a minute."
+    : isSearch
+      ? "Search is temporarily unavailable. Please try again in a moment."
+      : "Please try again in a moment.";
 }
 
 const pageCount = Math.max(1, Math.ceil(totalReturned / PAGE_SIZE));
@@ -161,6 +169,12 @@ Astro.response.headers.set(
       ? "public, max-age=30, s-maxage=120, stale-while-revalidate=300"
       : "public, max-age=30, s-maxage=120, stale-while-revalidate=3600",
 );
+if (fetchError) {
+  // A failed load is not a successful page: answering 200 let crawlers index
+  // the error and gave a retrying client no signal to wait.
+  Astro.response.status = 503;
+  Astro.response.headers.set("Retry-After", rateLimited ? "60" : "15");
+}
 ---
 
 <Base title="Discover datasets">
