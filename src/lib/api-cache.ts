@@ -128,11 +128,22 @@ export function isRateLimited(err: unknown): boolean {
   return err instanceof UpstreamError && err.status === 429;
 }
 
-/** True when the API said the thing asked for does not exist (or the request was malformed). */
+/**
+ * True when the API said the thing asked for does not exist (404 or 410). A 400
+ * is not "missing": a page that asks only for ids it has already validated can
+ * get a 400 only from something broken between here and the API.
+ */
 export function isMissing(err: unknown): boolean {
-  return (
-    err instanceof UpstreamError && (err.status === 404 || err.status === 410 || err.status === 400)
-  );
+  return err instanceof UpstreamError && (err.status === 404 || err.status === 410);
+}
+
+/**
+ * Whether the API refused with a 429 within the last minute, so a caller that
+ * is about to make an optional extra call (a consistency re-read) can leave the
+ * API alone instead of adding to a budget that is already spent.
+ */
+export function isApiPaused(now: () => number = Date.now): boolean {
+  return refusedAt !== undefined && now() - refusedAt < RETRY_AFTER_FAILURE_MS;
 }
 
 const STORED_AT_HEADER = "x-nemar-stored-at";

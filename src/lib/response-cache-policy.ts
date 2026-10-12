@@ -60,6 +60,15 @@ export function withStaleDataHeaders(response: Response): Response {
 }
 
 /**
+ * How long a client should wait before retrying a failed `/discover` load: a
+ * minute when the API said its budget is spent (that is how long it stays so),
+ * a short wait for any other failure.
+ */
+export function discoverRetryAfter(rateLimited: boolean): string {
+  return rateLimited ? "60" : "15";
+}
+
+/**
  * The `/discover` page's own cache lifetime, from what its fetches did (the
  * same idea as `landing-cache.ts`): a failed load is never stored; a page with
  * cards that fell back to the search projection is kept a minute; otherwise an

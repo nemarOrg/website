@@ -1,5 +1,10 @@
 import type { APIRoute } from "astro";
-import { getDataset, isManagedDatasetId, resolveCanonical } from "../../lib/api";
+import {
+  getDataset,
+  isManagedDatasetId,
+  markDegradedUnlessMissing,
+  resolveCanonical,
+} from "../../lib/api";
 import {
   getLandingOutcome,
   getMetadataOutcome,
@@ -35,7 +40,12 @@ export const GET: APIRoute = async ({ params, url, redirect }) => {
   // Mirrors [id].astro's ds* -> canonical redirect, preserving the query
   // string and appending .md so the hop lands back on this same route.
   if (/^ds\d{6}$/.test(id)) {
-    const canonical = await resolveCanonical(id).catch(() => null);
+    const canonical = await resolveCanonical(id).catch((err) => {
+      console.warn(
+        `[dataset/${id}.md] canonical lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    });
     if (canonical) {
       return redirect(`/dataset/${canonical}.md${url.search}`, 301);
     }
@@ -51,6 +61,10 @@ export const GET: APIRoute = async ({ params, url, redirect }) => {
           console.warn(
             `[dataset/${id}.md] catalog row fetch failed, omitting zarr/channel facts: ${err instanceof Error ? err.message : String(err)}`,
           );
+          // The document is built without them, so it is degraded and is kept
+          // from sitting at the edge for long; a row that is simply not there is
+          // a normal document.
+          markDegradedUnlessMissing(err);
           return null;
         })
       : Promise.resolve(null),

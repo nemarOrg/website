@@ -291,15 +291,26 @@ export function filterStateToSearchFilters(state: FilterState): SearchFilters {
  * a single-value LIKE). Those prune a page after the server has already counted
  * and paged it, so the caller must hold the whole candidate set, filter it as a
  * unit, and page it locally for the count and pager to stay honest.
+ *
+ * While `searching`, the channel, density, and electrode-system filters do not
+ * count: search rows carry no channel facts, so they cannot be evaluated, and
+ * the sidebar disables them. A stale link or an earlier browse selection that
+ * still carries one must not push a search into the best-100 window for a
+ * filter that does nothing.
  */
-export function hasClientOnlyFilters(state: FilterState): boolean {
-  return (
-    state.participants.min != null ||
-    state.participants.max != null ||
+export function hasClientOnlyFilters(
+  state: FilterState,
+  opts: { searching?: boolean } = {},
+): boolean {
+  const channelFacts =
     state.channels.min != null ||
     state.channels.max != null ||
     state.density !== "" ||
-    state.electrodeSystem !== "" ||
+    state.electrodeSystem !== "";
+  return (
+    state.participants.min != null ||
+    state.participants.max != null ||
+    (channelFacts && !opts.searching) ||
     state.modalities.length >= 2
   );
 }
@@ -308,8 +319,14 @@ export function hasClientOnlyFilters(state: FilterState): boolean {
  * Apply the parts of the filter state that the server can't enforce. Generic
  * over the row shape so it serves both browse (full Dataset) and freetext
  * search (reduced SearchResult) rows — see {@link FilterableRow}. License is
- * intentionally NOT here: browse filters it server-side via `?license=`, and
- * the hybrid search endpoint doesn't support it at all.
+ * intentionally NOT here: both endpoints filter it server-side via `?license=`
+ * (the search endpoint since nemar-cli#683).
+ *
+ * `allModalitiesClientSide` also enforces a single selected modality here, by
+ * exact token. The API's `modality` is a substring match, so `EEG` also matches
+ * an iEEG-only dataset; a caller that holds the whole candidate window (the
+ * search window branch) can afford the exact check, one that pages on the server
+ * cannot.
  */
 export function applyClientFilters<T extends FilterableRow>(
   datasets: T[],

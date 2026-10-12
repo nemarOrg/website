@@ -37,6 +37,8 @@ def main() -> None:
     p.add_argument("--levels", type=int, default=64, help="distinct alpha steps (smaller file)")
     p.add_argument("--fill", type=float, default=0.0, help="alpha of the silhouette between lines, 0..1")
     args = p.parse_args()
+    if args.hi <= args.lo:
+        p.error("--hi must be greater than --lo")
 
     im = Image.open(args.src).convert("RGBA")
     px = np.asarray(im).astype(np.float64)
@@ -52,6 +54,10 @@ def main() -> None:
     # every index and whose transparency table is the index itself. The same
     # picture as RGBA is about three times the size.
     levels = np.round(out_alpha * (args.levels - 1)).astype(np.uint8)
+    if levels.max() == 0:
+        # A source with no line work (replaced, or not the brain at all) would
+        # otherwise write a fully transparent image and exit 0.
+        raise SystemExit(f"{args.src} has no line work to read; nothing written")
     out = Image.fromarray(levels, "P")
     out.putpalette(list(ink) * 256)
     table = bytes(round(i * 255 / (args.levels - 1)) if i < args.levels else 255 for i in range(256))

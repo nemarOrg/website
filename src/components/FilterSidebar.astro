@@ -38,6 +38,7 @@ const { state, searchActive = false } = Astro.props;
   method="get"
   action="/discover"
   data-filter-form
+  autocomplete="off"
   aria-label="Dataset filters"
 >
   <div class="filters__group">
@@ -174,18 +175,18 @@ const { state, searchActive = false } = Astro.props;
     <label class="filters__field">
       <span class="filters__field-label">Channel density</span>
       <select name="density" disabled={searchActive}>
-        <option value="" selected={!state.density}>Any density</option>
+        <option value="" selected={searchActive || !state.density}>Any density</option>
         {DENSITY_OPTIONS.map(([value, bucket]) => (
-          <option value={value} selected={state.density === value}>{bucket.label}</option>
+          <option value={value} selected={!searchActive && state.density === value}>{bucket.label}</option>
         ))}
       </select>
     </label>
     <label class="filters__field">
       <span class="filters__field-label">Electrode system</span>
       <select name="es" disabled={searchActive}>
-        <option value="" selected={!state.electrodeSystem}>Any system</option>
+        <option value="" selected={searchActive || !state.electrodeSystem}>Any system</option>
         {ELECTRODE_SYSTEMS.map((sys) => (
-          <option value={sys.value} selected={state.electrodeSystem === sys.value}>{sys.label}</option>
+          <option value={sys.value} selected={!searchActive && state.electrodeSystem === sys.value}>{sys.label}</option>
         ))}
       </select>
     </label>
@@ -206,28 +207,38 @@ const { state, searchActive = false } = Astro.props;
 </form>
 
 <script>
+  import { isRedundantField } from "../lib/filter-form";
+
   // Apply filters as they are selected, instead of making people hit Apply.
   // Without this script the form still works: Apply submits it.
   const form = document.querySelector<HTMLFormElement>("[data-filter-form]");
   const RESTORE_KEY = "nemar:discover:restore";
   // Long enough that picking two chips in a row is one reload, not two.
   const DEBOUNCE_MS = 600;
+  // A saved scroll position older than this belongs to some earlier visit.
+  const RESTORE_MAX_AGE_MS = 10_000;
 
-  if (form) {
+  // `requestSubmit` is what auto-apply is built on; a browser without it keeps
+  // the Apply button, which is the whole form's fallback.
+  if (form && typeof form.requestSubmit === "function") {
     form.dataset.autoApply = "";
 
     // Leave empty fields and untouched defaults out of the address, so a shared
     // or cached URL is `?modality=EEG` and not
-    // `?q=&modality_op=OR&modality=EEG&p_min=&p_max=&sort=newest`.
-    const DEFAULTS: Record<string, string> = { modality_op: "OR", sort: "newest" };
+    // `?q=&modality_op=OR&modality=EEG&p_min=&p_max=&sort=newest`. What counts as
+    // untouched comes from the server's own defaults (lib/filter-form.ts), so a
+    // changed default cannot make this strip a choice.
     form.addEventListener("formdata", (event) => {
       for (const [name, value] of [...event.formData.entries()]) {
-        if (value === "" || DEFAULTS[name] === value) event.formData.delete(name);
+        if (isRedundantField(name, value)) event.formData.delete(name);
       }
     });
 
     // A submit is a new page load, which would scroll back to the top and drop
-    // focus. Keep both across it, only for a submit this script started.
+    // focus. Keep both across it. Saved on the form's own `submit` event, which
+    // fires only for a valid form and for every way of submitting (auto-apply,
+    // Enter in a field, the Search button), so nothing is saved for a submit
+    // that validation stopped.
     const remember = () => {
       const active = document.activeElement;
       const control =
@@ -236,49 +247,92 @@ const { state, searchActive = false } = Astro.props;
         sessionStorage.setItem(
           RESTORE_KEY,
           JSON.stringify({
+            t: Date.now(),
             y: window.scrollY,
             name: control?.name ?? null,
             value: control instanceof HTMLInputElement ? control.value : null,
           }),
         );
-      } catch {
+      } catch (err) {
         // Storage can be blocked; the page then loads at the top, as before.
+        console.debug("[discover] could not save the scroll position", err);
       }
     };
+    form.addEventListener("submit", remember);
 
+    // A range typed into a number field is not finished until focus leaves it,
+    // so apply waits while one has focus. That wait must not be a drop: when
+    // focus later leaves the number fields, the apply is armed again, even if
+    // the field it left was never edited (which fires no `change` of its own).
     let timer: number | undefined;
-    const apply = () => {
-      // Someone typing a range has not finished: their field's own `change`
-      // (on leaving it, or Enter) applies everything, this field included.
+    let pending = false;
+    const numberFieldFocused = () => {
       const active = document.activeElement;
-      if (active instanceof HTMLInputElement && active.type === "number" && form.contains(active)) {
+      return active instanceof HTMLInputElement && active.type === "number" && form.contains(active);
+    };
+    const apply = () => {
+      if (numberFieldFocused()) {
+        pending = true;
         return;
       }
-      remember();
-      form.requestSubmit();
+      pending = false;
+      try {
+        form.requestSubmit();
+      } catch (err) {
+        // Submit anyway rather than leave a selection that does nothing.
+        console.debug("[discover] requestSubmit failed; submitting directly", err);
+        remember();
+        form.submit();
+      }
     };
-    form.addEventListener("change", () => {
+    const schedule = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(apply, DEBOUNCE_MS);
+    };
+    form.addEventListener("change", schedule);
+    form.addEventListener("focusout", (event) => {
+      if (!pending) return;
+      const to = event.relatedTarget;
+      if (to instanceof HTMLInputElement && to.type === "number" && form.contains(to)) return;
+      schedule();
     });
+
+    // Back to this page from the result of an apply: the browser may restore
+    // the page as it was left (the cache of the page, or the form's saved
+    // values), with the control just clicked still checked, over the HTML of
+    // the earlier address. The controls then say a filter is on that is not.
+    // Put them back to what the server rendered.
+    window.addEventListener("pageshow", (event) => {
+      if (!event.persisted) return;
+      window.clearTimeout(timer);
+      pending = false;
+      form.reset();
+    });
+    window.addEventListener("pagehide", () => window.clearTimeout(timer));
 
     try {
       const raw = sessionStorage.getItem(RESTORE_KEY);
       if (raw) {
         sessionStorage.removeItem(RESTORE_KEY);
-        const saved = JSON.parse(raw) as { y?: number; name?: string | null; value?: string | null };
-        if (typeof saved.y === "number") window.scrollTo(0, saved.y);
-        if (saved.name) {
-          const byValue =
-            saved.value != null ? `[value="${CSS.escape(saved.value)}"]` : "";
+        const saved = JSON.parse(raw) as {
+          t?: number;
+          y?: number;
+          name?: string | null;
+          value?: string | null;
+        };
+        const fresh = typeof saved.t === "number" && Date.now() - saved.t <= RESTORE_MAX_AGE_MS;
+        if (fresh && typeof saved.y === "number") window.scrollTo(0, saved.y);
+        if (fresh && saved.name) {
+          const byValue = saved.value != null ? `[value="${CSS.escape(saved.value)}"]` : "";
           const target =
             form.querySelector<HTMLElement>(`[name="${CSS.escape(saved.name)}"]${byValue}`) ??
             form.querySelector<HTMLElement>(`[name="${CSS.escape(saved.name)}"]`);
           target?.focus({ preventScroll: true });
         }
       }
-    } catch {
-      // Nothing to restore, or storage is unavailable.
+    } catch (err) {
+      // Nothing to restore, a payload that is not ours, or storage is blocked.
+      console.debug("[discover] could not restore the scroll position", err);
     }
   }
 </script>

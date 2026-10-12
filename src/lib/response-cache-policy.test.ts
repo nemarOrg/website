@@ -3,6 +3,7 @@ import {
   SESSION_CACHE_CONTROL,
   STALE_DATA_CACHE_CONTROL,
   discoverCacheControl,
+  discoverRetryAfter,
   privateIfPublicHtml,
   withStaleDataHeaders,
 } from "./response-cache-policy";
@@ -127,5 +128,12 @@ describe("discoverCacheControl", () => {
     expect(discoverCacheControl({ ...base, search: true })).toBe(
       "public, max-age=60, s-maxage=1800, stale-while-revalidate=600",
     );
+  });
+});
+
+describe("discoverRetryAfter", () => {
+  it("asks for a minute when the API's budget is spent, and a short wait otherwise", () => {
+    expect(discoverRetryAfter(true)).toBe("60");
+    expect(discoverRetryAfter(false)).toBe("15");
   });
 });

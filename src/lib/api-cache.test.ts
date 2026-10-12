@@ -11,6 +11,7 @@ import {
   type StoredBody,
   UpstreamError,
   cachedJson,
+  isApiPaused,
   isMissing,
   isRateLimited,
   resetApiCacheStateForTests,
@@ -1534,12 +1535,31 @@ describe("workersStore: an entry with no usable stamp", () => {
 });
 
 describe("isMissing", () => {
-  it("is true for the answers that mean the thing is not there or the request was malformed", () => {
+  it("is true for the answers that mean the thing is not there, and not for a 400", () => {
     expect(isMissing(new UpstreamError("x", 404))).toBe(true);
     expect(isMissing(new UpstreamError("x", 410))).toBe(true);
-    expect(isMissing(new UpstreamError("x", 400))).toBe(true);
+    // A page asks only for ids it has validated, so a 400 is something broken, not "missing".
+    expect(isMissing(new UpstreamError("x", 400))).toBe(false);
     expect(isMissing(new UpstreamError("x", 429))).toBe(false);
     expect(isMissing(new UpstreamError("x", 503))).toBe(false);
     expect(isMissing(new Error("404"))).toBe(false);
+  });
+});
+
+describe("isApiPaused", () => {
+  it("is true for a minute after a 429, and not before one or after the minute", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(isApiPaused(() => 1_000)).toBe(false);
+    respondWith(tooMany);
+    await cachedJson(URL_A, { ...base, store: memoryStore(), now: () => 1_000 }).catch(() => {});
+    expect(isApiPaused(() => 1_000 + RETRY_AFTER_FAILURE_MS - 1)).toBe(true);
+    expect(isApiPaused(() => 1_000 + RETRY_AFTER_FAILURE_MS)).toBe(false);
+  });
+
+  it("is not set by a failure that is not a 429", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    respondWith(() => new Response("boom", { status: 503 }));
+    await cachedJson(URL_A, { ...base, store: memoryStore(), now: () => 1_000 }).catch(() => {});
+    expect(isApiPaused(() => 1_000)).toBe(false);
   });
 });
