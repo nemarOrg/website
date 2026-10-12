@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { currentWaitUntil, runWithRequestContext } from "./request-context";
+import {
+  type RequestContext,
+  currentWaitUntil,
+  dataWasStale,
+  markDataStale,
+  runWithRequestContext,
+} from "./request-context";
 
 describe("request context", () => {
   it("has no waitUntil outside a request", () => {
@@ -39,5 +45,31 @@ describe("request context", () => {
 
   it("allows a request with no waitUntil, as under astro dev", () => {
     expect(runWithRequestContext({}, () => currentWaitUntil())).toBeUndefined();
+  });
+
+  describe("the stale-data flag", () => {
+    it("is raised for the request that raised it, across awaits, and for no other", async () => {
+      const a: RequestContext = {};
+      const b: RequestContext = {};
+      await Promise.all([
+        runWithRequestContext(a, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 3));
+          markDataStale();
+        }),
+        runWithRequestContext(b, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }),
+      ]);
+      expect(dataWasStale(a)).toBe(true);
+      expect(dataWasStale(b)).toBe(false);
+    });
+
+    it("starts lowered", () => {
+      expect(dataWasStale({})).toBe(false);
+    });
+
+    it("is a no-op outside a request", () => {
+      expect(() => markDataStale()).not.toThrow();
+    });
   });
 });
