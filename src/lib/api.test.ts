@@ -395,6 +395,12 @@ describe("what the endpoints accept: the real shape checks", () => {
     await expect(getDataset("nm000001")).rejects.toThrow(/invalid response/);
   });
 
+  it("refuses a search body with no count, which the page prints and pages by", async () => {
+    answer({ results: [] });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(searchDatasets("eeg")).rejects.toThrow(/invalid response/);
+  });
+
   it("accepts an empty but well-formed list and result set", async () => {
     answer({ datasets: [], total_count: 0 });
     expect((await listDatasets({})).datasets).toEqual([]);
@@ -636,6 +642,71 @@ describe("searchResultToDataset", () => {
   });
 });
 
+describe("listAllDatasets: shortfall, pause, and budget", () => {
+  const row = (id: string) => ({ dataset_id: id, id, name: id });
+  const pageOf = (ids: string[], total: number) =>
+    new Response(
+      JSON.stringify({ datasets: ids.map(row), total_count: total, count: ids.length }),
+      {
+        status: 200,
+      },
+    );
+  const ctxStale = async (run: () => Promise<unknown>) => {
+    const ctx: RequestContext = {};
+    await runWithRequestContext(ctx, run);
+    return dataWasStale(ctx);
+  };
+
+  it("marks the request stale and says so when the pages fall well short of the reported size", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The catalog reports 858 rows; the later pages come back empty.
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      return offset === 0
+        ? pageOf(
+            Array.from({ length: 200 }, (_, i) => `a${i}`),
+            858,
+          )
+        : pageOf([], 858);
+    }) as unknown as typeof fetch;
+    expect(await ctxStale(() => listAllDatasets())).toBe(true);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("expected about 858"))).toBe(true);
+  });
+
+  it("does not mark a read whose pages add up", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      return offset === 0
+        ? pageOf(
+            Array.from({ length: 200 }, (_, i) => `a${i}`),
+            201,
+          )
+        : pageOf(["last"], 201);
+    }) as unknown as typeof fetch;
+    expect(await ctxStale(() => listAllDatasets())).toBe(false);
+  });
+
+  it("does not read again when the time is already spent, and keeps the mixed pages short-lived", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let calls = 0;
+    const budget = new AbortController();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls++;
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      if (offset === 0)
+        return pageOf(
+          Array.from({ length: 200 }, (_, i) => `a${i}`),
+          201,
+        );
+      budget.abort(); // the time runs out while the second page is read
+      return pageOf(["old"], 200);
+    }) as unknown as typeof fetch;
+    const stale = await ctxStale(() => listAllDatasets({}, { signal: budget.signal }));
+    expect(stale).toBe(true);
+    expect(calls).toBe(2); // no third and fourth call for a re-read
+  });
+});
+
 describe("markDegradedUnlessMissing", () => {
   const marks = (err: unknown): boolean => {
     const ctx: RequestContext = {};
@@ -643,17 +714,18 @@ describe("markDegradedUnlessMissing", () => {
     return dataWasStale(ctx);
   };
 
-  it.each([404, 410, 400])(
-    "does not mark a page for a %i: the row is simply not there",
-    (status) => {
-      expect(marks(new UpstreamError("gone", status))).toBe(false);
-    },
-  );
+  it.each([404, 410])("does not mark a page for a %i: the row is simply not there", (status) => {
+    expect(marks(new UpstreamError("gone", status))).toBe(false);
+  });
 
   it.each([
     ["a 429", new UpstreamError("busy", 429)],
     ["a 503", new UpstreamError("down", 503)],
     ["a 403", new UpstreamError("blocked", 403)],
+    [
+      "a 400, which a validated id can only get from something broken",
+      new UpstreamError("bad", 400),
+    ],
     ["a network error", new TypeError("fetch failed")],
     ["a timeout", Object.assign(new Error("timed out"), { name: "TimeoutError" })],
   ])("marks a page for %s: the page is rendering without data it could not fetch", (_name, err) => {
