@@ -18,9 +18,11 @@ import {
   applyClientFilters,
   filterStateFromURL,
   filterStateToAPIQuery,
+  filterStateToSearchFilters,
   filterStateToURL,
+  hasClientOnlyFilters,
 } from "../lib/filters";
-import { type Dataset, SORT_OPTIONS } from "../lib/types";
+import { type Dataset, SORT_OPTIONS, type SearchResult } from "../lib/types";
 
 const url = new URL(Astro.request.url);
 const state = filterStateFromURL(url.searchParams);
@@ -29,13 +31,19 @@ const PAGE_SIZE = state.pageSize;
 // (nemar-cli#646, closes website#12); an empty box keeps the browse flow.
 const isSearch = state.q.trim().length > 0;
 
-// Max ranked hits to pull from the hybrid endpoint in one shot. It has no
-// `offset`, so we fetch the full ranked list once and paginate client-side.
-const SEARCH_FETCH_LIMIT = 240;
+// The most hits the hybrid endpoint returns per call (its `limit` ceiling). Used
+// as the candidate window when a client-only filter must prune the ranked list
+// before it is paged locally.
+const SEARCH_WINDOW = 100;
 
 // Each rendered card pairs a full Dataset with an optional FTS5 snippet.
 let cards: Array<{ dataset: Dataset; snippet?: string }> = [];
 let totalReturned = 0;
+// How many rows the pager can reach. Equal to `totalReturned` except when a
+// search has more matches than the endpoint can page through.
+let pageableTotal = 0;
+// Appended to the result count when the list is a window onto more matches.
+let countNote = "";
 let fetchError: string | null = null;
 // The API answered 429: its anonymous budget is shared by every visitor this
 // site serves, so "busy, try again in a minute" is more useful than a generic
@@ -48,13 +56,36 @@ const signal = AbortSignal.timeout(8000);
 
 try {
   if (isSearch) {
-    const res = await searchDatasets(state.q, { limit: SEARCH_FETCH_LIMIT, signal });
-    // The hybrid endpoint doesn't filter by modality/range, so every
-    // selection is enforced client-side over the full ranked list (relevance
-    // order preserved; the `sort` control is a no-op while searching).
-    const ranked = applyClientFilters(res.results, state, { allModalitiesClientSide: true });
-    totalReturned = ranked.length;
-    const slice = ranked.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
+    const filters = filterStateToSearchFilters(state);
+    let slice: SearchResult[];
+    if (hasClientOnlyFilters(state)) {
+      // A participant range or 2+ modalities prune after the server has
+      // counted and paged, so take the best matches in one call, filter them as
+      // a unit, and page locally. Relevance order is preserved.
+      const res = await searchDatasets(state.q, { limit: SEARCH_WINDOW, filters, signal });
+      const ranked = applyClientFilters(res.results, state);
+      totalReturned = ranked.length;
+      pageableTotal = ranked.length;
+      slice = ranked.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
+      if (res.count > res.results.length) {
+        countNote = `filtered from the ${res.results.length} best matches`;
+      }
+    } else {
+      // License, Zarr, HED, and a single modality are enforced by the endpoint,
+      // which also pages and counts, so the numbers here are the real ones.
+      // Past `candidate_ceiling` it returns empty pages though `count` is
+      // truthful, so the pager stops there.
+      const res = await searchDatasets(state.q, {
+        limit: PAGE_SIZE,
+        offset: (state.page - 1) * PAGE_SIZE,
+        filters,
+        signal,
+      });
+      totalReturned = res.count;
+      pageableTotal = Math.min(res.count, res.candidate_ceiling ?? res.count);
+      slice = res.results;
+      if (pageableTotal < res.count) countNote = `showing the best ${pageableTotal}`;
+    }
     // Hydrate the visible page to full rows (parallel) for the richer card.
     // Only managed ids (nm*/on*/xx*) are addressable at /datasets/:id; ds* legacy
     // rows 400 there, so they render straight from the reduced search
@@ -101,19 +132,11 @@ try {
     // 65 pages" with most pages empty. When a client-only filter is active we
     // pull the whole server-prefiltered set, filter it as a unit, and paginate
     // client-side so the count and pager are honest.
-    const needsClientPaging =
-      state.participants.min != null ||
-      state.participants.max != null ||
-      state.channels.min != null ||
-      state.channels.max != null ||
-      state.density !== "" ||
-      state.electrodeSystem !== "" ||
-      state.modalities.length >= 2;
-
-    if (needsClientPaging) {
+    if (hasClientOnlyFilters(state)) {
       const all = await listAllDatasets(baseQuery, { signal });
       const filtered = applyClientFilters(all, state);
       totalReturned = filtered.length;
+      pageableTotal = filtered.length;
       cards = filtered
         .slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE)
         .map((d) => ({ dataset: d }));
@@ -127,6 +150,7 @@ try {
       );
       cards = page.datasets.map((d) => ({ dataset: d }));
       totalReturned = page.total_count ?? page.count ?? page.datasets.length;
+      pageableTotal = totalReturned;
     }
   }
 } catch (err) {
@@ -143,16 +167,15 @@ try {
       : "Please try again in a moment.";
 }
 
-const pageCount = Math.max(1, Math.ceil(totalReturned / PAGE_SIZE));
+const pageCount = Math.max(1, Math.ceil(pageableTotal / PAGE_SIZE));
 
 // Re-serialize the canonical filter state to drop unknown params.
 const canonicalParams = filterStateToURL(state);
 canonicalParams.delete("page");
-// While searching, license + sort don't apply (the hybrid endpoint ignores
-// them), so keep them out of pagination links rather than implying they're
-// active. Re-enable once nemar-cli#683 lands server-side support.
+// While searching, sort doesn't apply (the hybrid endpoint ranks by relevance
+// and ignores it), so keep it out of pagination links rather than implying it
+// is active. License is enforced server-side since nemar-cli#683.
 if (isSearch) {
-  canonicalParams.delete("license");
   canonicalParams.delete("sort");
 }
 
@@ -205,6 +228,7 @@ if (fetchError) {
               {isSearch
                 ? `${totalReturned.toLocaleString()} ${totalReturned === 1 ? "result" : "results"} for "${state.q}"`
                 : `Showing ${cards.length} of ${totalReturned.toLocaleString()} datasets`}
+              {countNote && ` · ${countNote}`}
               {pageCount > 1 && ` · page ${state.page} of ${pageCount}`}
             </p>
           )}
@@ -217,7 +241,11 @@ if (fetchError) {
             {isSearch ? (
               // The hybrid search endpoint ranks by relevance and takes no
               // sort, so say so instead of offering orders it would ignore.
-              <select id="discover-sort" disabled>
+              <select
+                id="discover-sort"
+                disabled
+                title="Search results are ranked by relevance. Clear the search to sort."
+              >
                 <option selected>Relevance</option>
               </select>
             ) : (
