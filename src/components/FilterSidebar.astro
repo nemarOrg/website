@@ -197,10 +197,91 @@ const { state, searchActive = false } = Astro.props;
   </div>
 
   <div class="filters__actions">
+    {/* Without JavaScript this is how a selection is applied. With it, the
+        script below applies as you select and this gives way to the note. */}
     <button type="submit" class="filters__apply">Apply</button>
+    <p class="filters__auto" aria-live="polite">Filters apply as you select them.</p>
     <a href="/discover" class="filters__reset">Reset</a>
   </div>
 </form>
+
+<script>
+  // Apply filters as they are selected, instead of making people hit Apply.
+  // Without this script the form still works: Apply submits it.
+  const form = document.querySelector<HTMLFormElement>("[data-filter-form]");
+  const RESTORE_KEY = "nemar:discover:restore";
+  // Long enough that picking two chips in a row is one reload, not two.
+  const DEBOUNCE_MS = 600;
+
+  if (form) {
+    form.dataset.autoApply = "";
+
+    // Leave empty fields and untouched defaults out of the address, so a shared
+    // or cached URL is `?modality=EEG` and not
+    // `?q=&modality_op=OR&modality=EEG&p_min=&p_max=&sort=newest`.
+    const DEFAULTS: Record<string, string> = { modality_op: "OR", sort: "newest" };
+    form.addEventListener("formdata", (event) => {
+      for (const [name, value] of [...event.formData.entries()]) {
+        if (value === "" || DEFAULTS[name] === value) event.formData.delete(name);
+      }
+    });
+
+    // A submit is a new page load, which would scroll back to the top and drop
+    // focus. Keep both across it, only for a submit this script started.
+    const remember = () => {
+      const active = document.activeElement;
+      const control =
+        active instanceof HTMLInputElement || active instanceof HTMLSelectElement ? active : null;
+      try {
+        sessionStorage.setItem(
+          RESTORE_KEY,
+          JSON.stringify({
+            y: window.scrollY,
+            name: control?.name ?? null,
+            value: control instanceof HTMLInputElement ? control.value : null,
+          }),
+        );
+      } catch {
+        // Storage can be blocked; the page then loads at the top, as before.
+      }
+    };
+
+    let timer: number | undefined;
+    const apply = () => {
+      // Someone typing a range has not finished: their field's own `change`
+      // (on leaving it, or Enter) applies everything, this field included.
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement && active.type === "number" && form.contains(active)) {
+        return;
+      }
+      remember();
+      form.requestSubmit();
+    };
+    form.addEventListener("change", () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(apply, DEBOUNCE_MS);
+    });
+
+    try {
+      const raw = sessionStorage.getItem(RESTORE_KEY);
+      if (raw) {
+        sessionStorage.removeItem(RESTORE_KEY);
+        const saved = JSON.parse(raw) as { y?: number; name?: string | null; value?: string | null };
+        if (typeof saved.y === "number") window.scrollTo(0, saved.y);
+        if (saved.name) {
+          const byValue =
+            saved.value != null ? `[value="${CSS.escape(saved.value)}"]` : "";
+          const target =
+            form.querySelector<HTMLElement>(`[name="${CSS.escape(saved.name)}"]${byValue}`) ??
+            form.querySelector<HTMLElement>(`[name="${CSS.escape(saved.name)}"]`);
+          target?.focus({ preventScroll: true });
+        }
+      }
+    } catch {
+      // Nothing to restore, or storage is unavailable.
+    }
+  }
+</script>
 
 <style>
   .filters {
@@ -422,6 +503,22 @@ const { state, searchActive = false } = Astro.props;
     border-radius: var(--radius-pill);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
+  }
+  /* JS-only: with the script running, filters apply on their own, so the
+     button is hidden and a one-line note says so (WCAG 3.2.2: tell people
+     before a control changes the page). */
+  .filters__auto {
+    display: none;
+    flex: 1;
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .filters[data-auto-apply] .filters__apply {
+    display: none;
+  }
+  .filters[data-auto-apply] .filters__auto {
+    display: block;
   }
   .filters__reset {
     color: var(--color-fg-muted);
