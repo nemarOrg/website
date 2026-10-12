@@ -1,4 +1,5 @@
 import { apiBase } from "./api-base";
+import { cachedJson } from "./api-cache";
 import type {
   Dataset,
   DatasetListResponse,
@@ -118,16 +119,10 @@ export async function listDatasets(
   init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<DatasetListResponse> {
   const url = `${apiBase()}/datasets${buildQuery(query)}`;
-  const res = await fetch(url, {
+  return cachedJson<DatasetListResponse>(url, {
     signal: resolveSignal(init),
-    headers: { Accept: "application/json" },
+    label: "list datasets",
   });
-  if (!res.ok) {
-    console.error(`[api] listDatasets: ${res.status} ${res.statusText}`);
-    throw new Error(`api.nemar.org list datasets failed: ${res.status} ${res.statusText}`);
-  }
-  const json = (await res.json()) as DatasetListResponse;
-  return json;
 }
 
 /**
@@ -179,23 +174,10 @@ export async function searchDatasets(
   const sp = new URLSearchParams({ q });
   if (init.limit != null) sp.set("limit", String(init.limit));
   const url = `${apiBase()}/datasets/search?${sp.toString()}`;
-  const res = await fetch(url, {
+  return cachedJson<DatasetSearchResponse>(url, {
     signal: resolveSignal(init),
-    headers: { Accept: "application/json" },
+    label: "search",
   });
-  if (!res.ok) {
-    // Log before throwing so a backend outage is visible in Worker logs even
-    // if the caller's catch only surfaces a sanitized message.
-    console.error(`[api] searchDatasets q="${q}": ${res.status} ${res.statusText}`);
-    throw new Error(`api.nemar.org search failed: ${res.status} ${res.statusText}`);
-  }
-  try {
-    return (await res.json()) as DatasetSearchResponse;
-  } catch {
-    // A 2xx with a non-JSON body (e.g. an edge timeout HTML page) lands here.
-    console.error(`[api] searchDatasets q="${q}": response body was not valid JSON`);
-    throw new Error("api.nemar.org search returned an invalid response");
-  }
 }
 
 /**
@@ -219,16 +201,12 @@ export async function getDataset(
   init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<Dataset> {
   const url = `${apiBase()}/datasets/${encodeURIComponent(id)}`;
-  const res = await fetch(url, {
-    signal: resolveSignal(init),
-    headers: { Accept: "application/json" },
-  });
-  if (!res.ok) {
-    throw new Error(`api.nemar.org get dataset failed: ${res.status} ${res.statusText}`);
-  }
   // The endpoint returns { dataset: {...} } whereas the list endpoint
   // returns { datasets: [...] }. Unwrap so callers always get a Dataset.
-  const raw = (await res.json()) as Dataset | { dataset: Dataset };
+  const raw = await cachedJson<Dataset | { dataset: Dataset }>(url, {
+    signal: resolveSignal(init),
+    label: "get dataset",
+  });
   return "dataset" in raw ? raw.dataset : raw;
 }
 
