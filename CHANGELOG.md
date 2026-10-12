@@ -13,9 +13,11 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.30] - 2026-10-12
+
 ### Changed
 
-- **Catalog reads are cached for hours and kept for three days** (#439, #443).
+- **Catalog reads are cached for hours and kept for three days** (#439, #443, #444).
   The site's server-side calls to the API share a few Cloudflare addresses, and the API limits each address, so visitors were drawing on one budget together and Discover showed "Could not load datasets" for minutes at a time.
   A catalog response is now served from the edge cache for ten minutes without asking the API, served at once and refreshed behind the response for up to six hours, and, when the API is failing, served stale for up to three days.
   A 404 or 410 for a dataset drops its stored copy (the API answers 404 for one that went private), while any other 4xx, such as a gateway 403, keeps the copy and logs an error; a response that is not the shape an endpoint returns (`null`, an error envelope) is never stored over a good one.
@@ -40,6 +42,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   The dark image holds its line work in brightness under a constant faint alpha, which light mode inverted and multiplied down to about seven percent ink.
   Light mode now uses its own ink-on-transparent image, made by `scripts/make-hero-brain-light.py`.
 - **Download guidance describes stable per-file URLs and byte-range downloads** (#437), and no longer says manifests carry presigned S3 URLs.
+- **Bun is pinned to 1.4.3** (#438): every Bun setup step in the CI and staging deploy workflows, and `packageManager` in `package.json`. Dependencies and the lockfile are unchanged.
 
 ### Fixed
 
