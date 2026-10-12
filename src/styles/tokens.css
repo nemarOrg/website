@@ -35,6 +35,12 @@
   --color-warning: #b45309;
   --color-danger: #b91c1c;
   --color-info: var(--brand-teal);
+  /* Signal viewer frame, the box that holds the toolbar, trace scope and legend.
+     A pale brand-teal wash on light so the viewer reads as NEMAR, not as a
+     neutral gray panel (it was --color-bg-subtle). Dark keeps the navy
+     surface it always had, set in the dark blocks below. */
+  --viewer-frame-bg: color-mix(in srgb, var(--brand-teal) 14%, var(--color-bg));
+  --viewer-frame-border: color-mix(in srgb, var(--brand-teal) 32%, var(--color-border));
   /* Planned/in-progress work — the notice `maintenance` level (website#180).
      Violet keeps "scheduled" visibly distinct from "broken now" (danger red)
      and "degraded" (warning amber), which is the whole point of the level.
@@ -221,6 +227,10 @@
     --news-feature: var(--brand-teal);
     --news-data: #a78bfa;
 
+    /* Signal viewer frame, dark: the navy surface (see :root). */
+    --viewer-frame-bg: var(--color-bg-subtle);
+    --viewer-frame-border: var(--color-border);
+
     /* Admin portal roles, dark (see :root). */
     --admin-page: #0a1224;
     --admin-surface: #111d36;
@@ -288,6 +298,10 @@
   --keyword: #cbd5e1;
   --news-feature: var(--brand-teal);
   --news-data: #a78bfa;
+
+  /* Signal viewer frame, dark: the navy surface (see :root). */
+  --viewer-frame-bg: var(--color-bg-subtle);
+  --viewer-frame-border: var(--color-border);
 
   /* Admin portal roles, dark (see :root). */
   --admin-page: #0a1224;
