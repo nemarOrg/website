@@ -8,6 +8,7 @@ import {
   MODALITY_CODES,
   type ModalityCode,
   type ModalityOp,
+  type SearchFilters,
   type SortOption,
   asDensityBucket,
   asElectrodeSystem,
@@ -271,6 +272,36 @@ export function filterStateToAPIQuery(state: FilterState): DatasetQuery {
     q.has_zarr = true;
   }
   return q;
+}
+
+/**
+ * The subset of {@link filterStateToAPIQuery} that `GET /datasets/search`
+ * enforces server-side (nemar-cli#683): modality (one), license tiers, HED, and
+ * Zarr. Derived from the browse mapping rather than restated, so the two
+ * endpoints cannot drift on what "Has viewer" or a license tier means.
+ */
+export function filterStateToSearchFilters(state: FilterState): SearchFilters {
+  const { modality, license, has_hed, has_zarr } = filterStateToAPIQuery(state);
+  return { modality, license, has_hed, has_zarr };
+}
+
+/**
+ * Whether a selection can only be applied client-side: participant and channel
+ * ranges, density, electrode system, and 2+ modalities (the API's `modality` is
+ * a single-value LIKE). Those prune a page after the server has already counted
+ * and paged it, so the caller must hold the whole candidate set, filter it as a
+ * unit, and page it locally for the count and pager to stay honest.
+ */
+export function hasClientOnlyFilters(state: FilterState): boolean {
+  return (
+    state.participants.min != null ||
+    state.participants.max != null ||
+    state.channels.min != null ||
+    state.channels.max != null ||
+    state.density !== "" ||
+    state.electrodeSystem !== "" ||
+    state.modalities.length >= 2
+  );
 }
 
 /**

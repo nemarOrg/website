@@ -5,7 +5,9 @@ import {
   defaultFilterState,
   filterStateFromURL,
   filterStateToAPIQuery,
+  filterStateToSearchFilters,
   filterStateToURL,
+  hasClientOnlyFilters,
 } from "./filters";
 import type { Dataset } from "./types";
 
@@ -436,5 +438,84 @@ describe("applyReservedKeyword", () => {
     s.modalities = ["EEG"];
     const { state } = applyReservedKeyword(s, "eeg");
     expect(state.modalities).toEqual(["EEG"]);
+  });
+});
+
+describe("filterStateToSearchFilters", () => {
+  const base = defaultFilterState();
+
+  it("sends nothing for an unfiltered search", () => {
+    expect(filterStateToSearchFilters(base)).toEqual({
+      modality: undefined,
+      license: undefined,
+      has_hed: undefined,
+      has_zarr: undefined,
+    });
+  });
+
+  it("sends the filters the search endpoint enforces (nemar-cli#683)", () => {
+    const f = filterStateToSearchFilters({
+      ...base,
+      modalities: ["MEG"],
+      licenseTiers: ["public", "attribution"],
+      hasHed: true,
+      hasZarr: true,
+    });
+    expect(f).toEqual({
+      modality: "MEG",
+      license: "public,attribution",
+      has_hed: true,
+      has_zarr: true,
+    });
+  });
+
+  it("treats Has viewer as the Zarr predicate, exactly as browse does", () => {
+    expect(filterStateToSearchFilters({ ...base, hasViewer: true }).has_zarr).toBe(true);
+  });
+
+  it("leaves 2+ modalities to the client: the endpoint's modality is a single value", () => {
+    expect(
+      filterStateToSearchFilters({ ...base, modalities: ["EEG", "MEG"] }).modality,
+    ).toBeUndefined();
+  });
+
+  it("carries no range, channel, or sort fields the endpoint would ignore", () => {
+    const f = filterStateToSearchFilters({
+      ...base,
+      participants: { min: 10, max: 50 },
+      density: "high",
+      sort: "name",
+    });
+    expect(Object.keys(f).sort()).toEqual(["has_hed", "has_zarr", "license", "modality"]);
+  });
+});
+
+describe("hasClientOnlyFilters", () => {
+  const base = defaultFilterState();
+
+  it("is false for nothing, and for filters the server enforces", () => {
+    expect(hasClientOnlyFilters(base)).toBe(false);
+    expect(
+      hasClientOnlyFilters({
+        ...base,
+        modalities: ["EEG"],
+        licenseTiers: ["public"],
+        hasHed: true,
+        hasZarr: true,
+        hasViewer: true,
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["a participant minimum", { participants: { min: 5, max: null } }],
+    ["a participant maximum", { participants: { min: null, max: 5 } }],
+    ["a channel minimum", { channels: { min: 5, max: null } }],
+    ["a channel maximum", { channels: { min: null, max: 5 } }],
+    ["a density preset", { density: "high" as const }],
+    ["an electrode system", { electrodeSystem: "10-20" as const }],
+    ["two modalities", { modalities: ["EEG", "MEG"] as const }],
+  ])("is true for %s", (_label, patch) => {
+    expect(hasClientOnlyFilters({ ...base, ...patch } as never)).toBe(true);
   });
 });
