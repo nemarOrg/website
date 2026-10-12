@@ -33,6 +33,7 @@ nemar-cli ADR 0098 gives the API a way to count the right party: a request with 
    `redirect: "manual"` is honored and returns the 3xx, as the ORCID proxy needs.
    A request that is not a GET or HEAD is not followed at all: its 3xx is the answer, because a body cannot be replayed and a binding left to follow it would send the target to the API Worker.
    (Measured under workerd on 2026-10-12: with the default redirect mode, a binding fetched a cross-origin redirect target from the bound Worker, and turned a POST into a GET there.)
+   The `/api/v1` proxy, which copies no `Location` to the browser, turns such a 3xx into a logged 502 (`upstream_redirect`) instead of passing on a bare redirect.
    The responses of a followed redirect report `redirected: false`; no code here reads it.
 5. **A failure of the binding is not retried on the public network.**
    It reaches the caller like any failed fetch.
@@ -59,8 +60,11 @@ The server-only call sites use it: the catalog reads (`api.ts`, `api-cache.ts`),
   Until then nothing changes, which is why this lands before the wiring: wiring first would put every call in the API's shared unattributed bucket, which is worse than today.
 - The API's records of a caller's address (sign-in and session audit) become the visitor's, taken from `X-Forwarded-For` (nemar-cli `web-session.ts`), where they were the Worker's.
 - Modules that also run in the browser cannot import `apiFetch`, because the request context needs `node:async_hooks`.
+  `test/client-bundle-guard.test.ts` follows the imports of every client `<script>` in an `.astro` file and fails if one reaches `api-fetch.ts` or `request-context.ts`.
   They keep `fetch`: the dashboard, account, collaborators, admin, news and users-admin clients (a server caller can pass `apiFetch` as their `fetch` option, as `/api/notices` does), and the data and Zarr hosts' clients.
   Those calls still leave from the shared addresses; the data and Zarr hosts need a decision about zone-level caching in front of them first (website#449).
+- **A call site left on `fetch` is invisible at runtime**: it still works and simply stays in the shared pool, and the first-call report is satisfied by any one site that is counted per visitor.
+  `test/routes/api-binding-call-sites.test.ts` runs every converted site under a recording binding with a `fetch` that fails the test, so switching one back fails a test.
 - **A broken binding fails closed.**
   There is no retry on the public network, so a misconfigured or failing binding fails every catalog read the cache cannot answer, and the session lookup, which treats an error as signed out, drops every signed-in visitor.
   The logs above say so; the stale copies (ADR 0025) keep the catalog pages up for up to three days.
