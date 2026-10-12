@@ -73,7 +73,11 @@ The server-only call sites use it: the catalog reads (`api.ts`, `api-cache.ts`),
   Previews go without: `services` is not inherited into an environment, and a branch build runs unreviewed code that must not be able to name a visitor at the production API.
   A production host with no binding logs one warning per isolate (the way `EMBED_ANALYTICS` is checked, ADR 0024), since the site would otherwise work and quietly stay in the shared pool.
   The first-call lines above are read on test.nemar.org and then on nemar.org after each release.
+  What to expect differs: the development API bypasses its limiter and sends no rate-limit headers, so on test.nemar.org the line is the warning that an answer carried none.
+  That shows the binding applied (the watching runs only for calls over a binding) and says nothing about the visitor's address.
+  The keying is confirmed only on nemar.org, by `site-ip` in the first-call line and a falling `X-RateLimit-Remaining` across two calls.
 - Any Worker in the account that binds to the API can name any visitor (nemar-cli ADR 0098); the account is the trust boundary, as it is for the private-site binding.
+  A binding call also reaches the API without the zone's WAF, rate-limiting rules and bot management, so the API's own counters are the only floor for these calls (nemar-cli ADR 0098).
 - Local workerd shows the shape (a binding call carries no `CF-Connecting-IP` and the visitor in `X-Forwarded-For`), but the API's development Worker bypasses the limiter, so the keying itself can be confirmed only on production.
 
 ## Alternatives considered
