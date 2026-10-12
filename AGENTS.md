@@ -255,7 +255,7 @@ Remember: this is a frontend over established backends. The interesting decision
 - **Astro scoped `<style>` doesn't cross component boundaries.** If two components share styling (e.g., `SiteNotices.astro` and `src/pages/admin/notices.astro`'s matched notice-tone rules), duplicate the CSS in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the components are intentionally self-contained.
 - **Multi-modality filtering is a known tradeoff.** Server-side offset pagination + client-side AND/OR multi-modality means the `total_count` in the count display reflects server total, not client-filtered count when 2+ modalities are selected. Move AND/OR to the API only when the backend supports it.
 - **Logo SVG (`public/nemar-logo.svg`) uses `currentColor`** — themes via parent color inheritance. Don't hardcode fill.
-- **Brain hero (`public/hero-brain.png`) uses mix-blend-mode tricks.** Dark mode: `screen` blend; light mode: `filter: invert + multiply`. Don't refactor without verifying both themes.
+- **The brain hero has a separate image per theme** (`--hero-brain-image` in `src/pages/index.astro`). Dark mode: `public/hero-brain.png` with a `screen` blend. Light mode: `public/hero-brain-light.png` (blue ink on transparent, made from the dark image by `scripts/make-hero-brain-light.py`) with normal blending. The dark image keeps its line work in brightness under a constant 18% alpha, so inverting and multiplying it leaves almost no ink; do not go back to that. Don't refactor without verifying both themes.
 ---
 
 ## Everything else is on the documentation site
