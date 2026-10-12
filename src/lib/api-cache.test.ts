@@ -7,9 +7,11 @@ import {
   RETAIN_S,
   RETRY_AFTER_FAILURE_MS,
   REVALIDATE_MS,
+  STUCK_FLIGHT_MS,
   type StoredBody,
   UpstreamError,
   cachedJson,
+  isMissing,
   isRateLimited,
   resetApiCacheStateForTests,
   workersStore,
@@ -36,7 +38,7 @@ afterEach(() => {
 /** A real, in-memory implementation of the store interface (not a stub of logic). */
 function memoryStore(
   seed: Record<string, StoredBody> = {},
-  faults: { set?: boolean; get?: boolean } = {},
+  faults: { set?: boolean; get?: boolean; delete?: boolean } = {},
 ): BodyStore & { entries: Map<string, StoredBody> } {
   const entries = new Map(Object.entries(seed));
   return {
@@ -50,6 +52,7 @@ function memoryStore(
       entries.set(key, value);
     },
     async delete(key) {
+      if (faults.delete) throw new Error("cache unavailable");
       entries.delete(key);
     },
   };
@@ -90,6 +93,8 @@ function pendingFetch(): { release: (res: Response) => void; calls: () => number
 
 const URL_A = "https://api.nemar.org/datasets?limit=10";
 const URL_B = "https://api.nemar.org/datasets?limit=20";
+/** One dataset's own URL: the only kind a 404 or 410 can mean "gone" for. */
+const DETAIL = "https://api.nemar.org/datasets/nm000123";
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
     status,
@@ -117,6 +122,8 @@ function backgroundWork(): {
 }
 
 const storedAt = 1_000_000;
+/** Let a call that has been started run to its first suspension. */
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const stale = { body: '{"n":1}', storedAt };
 /** A clock `ms` after the stored copy was fetched. */
 const msAfter = (ms: number) => () => storedAt + ms;
@@ -306,22 +313,103 @@ describe("cachedJson: served at once, refreshed behind", () => {
     expect(store.entries.get(URL_A)).toEqual(stale);
   });
 
-  it.each([400, 403, 404, 410])(
-    "drops the copy when the refresh is told %i: the request is wrong, not the service",
+  it.each([404, 410])(
+    "drops a dataset's copy when the refresh is told %i: the dataset is gone",
     async (status) => {
-      const store = memoryStore({ [URL_A]: stale });
+      const store = memoryStore({ [DETAIL]: stale });
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       respondWith(() => new Response("no", { status }));
       const bg = backgroundWork();
       const opts = { ...base, store, now: inWindow, waitUntil: bg.waitUntil };
-      expect(await cachedJson(URL_A, opts)).toEqual({ n: 1 }); // this visitor still has it
+      expect(await cachedJson(DETAIL, opts)).toEqual({ n: 1 }); // this visitor still has it
       await bg.settled();
-      expect(store.entries.has(URL_A)).toBe(false);
+      expect(store.entries.has(DETAIL)).toBe(false);
       expect(error).toHaveBeenCalledWith(expect.stringContaining("dropping the stored copy"));
       // The next visitor hears the answer.
-      await expect(cachedJson(URL_A, opts)).rejects.toMatchObject({ status });
+      await expect(cachedJson(DETAIL, opts)).rejects.toMatchObject({ status });
     },
   );
+
+  it.each([
+    ["a 400", 400, DETAIL],
+    ["a 401", 401, DETAIL],
+    ["a 403", 403, DETAIL],
+    ["a 404 on a list route, which always exists", 404, URL_A],
+    ["a 403 on a list route", 403, URL_A],
+  ])(
+    "keeps the copy and logs an error when the refresh is told %s: something is broken, not gone",
+    async (_name, status, url) => {
+      const store = memoryStore({ [url]: stale });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      respondWith(() => new Response("blocked", { status }));
+      const bg = backgroundWork();
+      await cachedJson(url, { ...base, store, now: inWindow, waitUntil: bg.waitUntil });
+      await bg.settled();
+      expect(store.entries.get(url)).toEqual(stale);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("background refresh failed"));
+    },
+  );
+
+  it.each([
+    ["a 429", tooMany],
+    ["a 408", () => new Response("slow", { status: 408 })],
+  ])("keeps the copy when the refresh is told %s", async (_name, answer) => {
+    const store = memoryStore({ [URL_A]: stale });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    respondWith(answer);
+    const bg = backgroundWork();
+    await cachedJson(URL_A, { ...base, store, now: inWindow, waitUntil: bg.waitUntil });
+    await bg.settled();
+    expect(store.entries.get(URL_A)).toEqual(stale);
+  });
+
+  it("pauses every other URL when a refresh is told 429: the budget is shared", async () => {
+    const store = memoryStore({ [URL_A]: stale, [URL_B]: stale });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const api = respondWith(tooMany);
+    const bg = backgroundWork();
+    const opts = { ...base, store, now: inWindow, waitUntil: bg.waitUntil };
+    await cachedJson(URL_A, opts);
+    await bg.settled();
+    expect(api.calls()).toBe(1);
+    // Another URL, also stale in the window: served, and no refresh is started for it.
+    expect(await cachedJson(URL_B, opts)).toEqual({ n: 1 });
+    expect(bg.count()).toBe(1);
+    expect(api.calls()).toBe(1);
+  });
+
+  it("does not let a refresh's own deadline be the caller's, nor end with the request", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    // A fetch that honors its signal, so the caller's abort could reach the refresh if it were wired to it.
+    let release!: (res: Response) => void;
+    const answer = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      calls++;
+      return new Promise<Response>((resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        answer.then(resolve);
+      });
+    }) as unknown as typeof fetch;
+    const bg = backgroundWork();
+    const caller = new AbortController();
+    await cachedJson(URL_A, {
+      ...base,
+      signal: caller.signal,
+      store,
+      now: inWindow,
+      waitUntil: bg.waitUntil,
+    });
+    caller.abort(); // the page's own timer ends once the response is sent
+    release(json({ n: 2 }));
+    await bg.settled();
+    expect(store.entries.get(URL_A)?.body).toBe('{"n":2}');
+    expect(calls).toBe(1);
+  });
 
   it("does not drop the copy for a 5xx: the service is struggling", async () => {
     const store = memoryStore({ [URL_A]: stale });
@@ -409,9 +497,12 @@ describe("cachedJson: served at once, refreshed behind", () => {
       now: msAfter(REVALIDATE_MS),
       waitUntil: bg.waitUntil,
     });
+    // The answer is the API's, not the stored copy: nothing was served behind.
     expect(got).toEqual({ n: 2 });
-    expect(bg.count()).toBe(0);
     expect(api.calls()).toBe(1);
+    // The call is handed to waitUntil all the same, so a request that is
+    // canceled midway does not take the cache's answer with it.
+    expect(bg.count()).toBe(1);
   });
 
   it("still serves behind the response one millisecond inside the revalidate window", async () => {
@@ -482,18 +573,48 @@ describe("cachedJson: stale-if-error, between six hours and three days", () => {
     expect(new Headers(api.last().init.headers).get("Accept")).toBe("application/json");
   });
 
-  it.each([400, 403, 404, 410])(
-    "does not hide a %i behind the copy, and drops the copy",
+  it.each([404, 410])(
+    "does not hide a %i for a dataset behind the copy, and drops the copy",
     async (status) => {
-      const store = memoryStore({ [URL_A]: stale });
+      const store = memoryStore({ [DETAIL]: stale });
       respondWith(() => new Response("no", { status }));
-      await expect(cachedJson(URL_A, { ...base, store, now: later })).rejects.toMatchObject({
+      await expect(cachedJson(DETAIL, { ...base, store, now: later })).rejects.toMatchObject({
         name: "UpstreamError",
         status,
       });
-      expect(store.entries.has(URL_A)).toBe(false);
+      expect(store.entries.has(DETAIL)).toBe(false);
     },
   );
+
+  it.each([
+    ["a 400", 400, DETAIL],
+    ["a 401", 401, DETAIL],
+    ["a 403", 403, DETAIL],
+    ["a 404 on a list route", 404, URL_A],
+    ["a 403 on a list route", 403, URL_A],
+  ])(
+    "serves the copy and logs an error on %s: something between here and the API is broken",
+    async (_name, status, url) => {
+      const store = memoryStore({ [url]: stale });
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      respondWith(() => new Response("blocked", { status }));
+      const ctx: RequestContext = {};
+      const got = await runWithRequestContext(ctx, () =>
+        cachedJson(url, { ...base, store, now: later }),
+      );
+      expect(got).toEqual({ n: 1 });
+      expect(dataWasStale(ctx)).toBe(true);
+      expect(store.entries.get(url)).toEqual(stale);
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("serving a copy"));
+    },
+  );
+
+  it("throws a 4xx with no copy to fall back on", async () => {
+    respondWith(() => new Response("blocked", { status: 403 }));
+    await expect(
+      cachedJson(URL_A, { ...base, store: memoryStore(), now: later }),
+    ).rejects.toMatchObject({ status: 403 });
+  });
 
   it("serves a copy just inside three days, and not one a millisecond older", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -816,5 +937,609 @@ describe("isRateLimited", () => {
 describe("markDataStale outside a request", () => {
   it("does nothing, rather than throw", () => {
     expect(() => markDataStale()).not.toThrow();
+  });
+});
+
+// --- the default store, through cachedJson --------------------------------------
+
+/** A stand-in for the platform's Cache, keyed by URL like the real one: real Request and Response objects. */
+function fakePlatformCache() {
+  const entries = new Map<string, Response>();
+  return {
+    entries,
+    async match(request: Request) {
+      return entries.get(request.url)?.clone();
+    },
+    async put(request: Request, response: Response) {
+      entries.set(request.url, response);
+    },
+    async delete(request: Request) {
+      return entries.delete(request.url);
+    },
+  };
+}
+
+describe("cachedJson: the platform cache is the default store", () => {
+  it("uses it when no store is given: a second call within the fresh window is free", async () => {
+    (globalThis as { caches?: unknown }).caches = { default: fakePlatformCache() };
+    const api = respondWith(() => json({ n: 1 }));
+    await cachedJson(URL_A, base);
+    await cachedJson(URL_A, base);
+    expect(api.calls()).toBe(1);
+  });
+
+  it("is bypassed, and not written, by store: null", async () => {
+    const platform = fakePlatformCache();
+    (globalThis as { caches?: unknown }).caches = { default: platform };
+    const api = respondWith(() => json({ n: 1 }));
+    await cachedJson(URL_A, { ...base, store: null });
+    await cachedJson(URL_A, { ...base, store: null });
+    expect(api.calls()).toBe(2);
+    expect(platform.entries.size).toBe(0);
+  });
+});
+
+describe("cachedJson: refresh reads past the stored copy and leaves the cache better", () => {
+  it("ignores a fresh copy, asks the API, and stores the answer", async () => {
+    const store = memoryStore({ [URL_A]: { body: '{"n":1}', storedAt } });
+    const api = respondWith(() => json({ n: 2 }));
+    const got = await cachedJson(URL_A, { ...base, store, now: msAfter(1000), refresh: true });
+    expect(got).toEqual({ n: 2 });
+    expect(api.calls()).toBe(1);
+    expect(store.entries.get(URL_A)?.body).toBe('{"n":2}');
+    // The next ordinary read finds the new copy.
+    await cachedJson(URL_A, { ...base, store, now: msAfter(2000) });
+    expect(api.calls()).toBe(1);
+  });
+
+  it("drops the stored copy when the API says the dataset is gone, though it never read it", async () => {
+    const store = memoryStore({ [DETAIL]: stale });
+    respondWith(() => new Response("no", { status: 404 }));
+    await expect(
+      cachedJson(DETAIL, { ...base, store, now: msAfter(1000), refresh: true }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(store.entries.has(DETAIL)).toBe(false);
+  });
+
+  it("serves no stale copy when the API is failing: it is a read that must not act on old data", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    respondWith(() => new Response("boom", { status: 503 }));
+    await expect(
+      cachedJson(URL_A, { ...base, store, now: msAfter(1000), refresh: true }),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+});
+
+// --- the pause, from start to finish -----------------------------------------------
+
+describe("cachedJson: the 429 pause", () => {
+  const later = msAfter(REVALIDATE_MS + 60 * 60 * 1000);
+
+  it("marks the request stale for every copy served under the pause", async () => {
+    const store = memoryStore({ [URL_A]: stale, [URL_B]: stale });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    respondWith(tooMany);
+    await cachedJson(URL_A, { ...base, store, now: later });
+    const ctx: RequestContext = {};
+    await runWithRequestContext(ctx, () => cachedJson(URL_B, { ...base, store, now: later }));
+    expect(dataWasStale(ctx)).toBe(true);
+  });
+
+  it("ends exactly a minute after the 429, for URLs with a copy and for those without", async () => {
+    const store = memoryStore({ [URL_A]: stale, [URL_B]: stale });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let recovered = false;
+    const api = respondWith(() => (recovered ? json({ n: 9 }) : tooMany()));
+    let clock = later();
+    const at = () => clock;
+    await cachedJson(URL_A, { ...base, store, now: at });
+    expect(api.calls()).toBe(1);
+
+    clock += RETRY_AFTER_FAILURE_MS - 1;
+    await cachedJson(URL_B, { ...base, store, now: at });
+    await cachedJson(DETAIL, { ...base, store, now: at }).catch(() => {});
+    expect(api.calls()).toBe(1); // still paused, with a copy and without one
+
+    recovered = true;
+    clock += 1;
+    // A URL with a copy goes first: a success for any other URL would end the
+    // pause by itself, and hide a pause that never ends on its own.
+    await cachedJson(URL_B, { ...base, store, now: at });
+    expect(api.calls()).toBe(2); // the pause is over, and a URL with a copy is asked
+    await cachedJson(DETAIL, { ...base, store, now: at });
+    expect(api.calls()).toBe(3); // and so is one with none
+  });
+
+  it("is not ended by an answer to a call that started before the refusal", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const calls: string[] = [];
+    let releaseA!: (res: Response) => void;
+    const heldA = new Promise<Response>((resolve) => {
+      releaseA = resolve;
+    });
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      return url === URL_A ? heldA : url === URL_B ? tooMany() : json({ n: 3 });
+    }) as unknown as typeof fetch;
+
+    const t = storedAt + FRESH_MS; // a moment when the stored copy is past fresh
+    const store = memoryStore({ [DETAIL]: stale });
+    // A starts first and is held; B is refused later; C has a copy and is read just afterwards.
+    const a = cachedJson(URL_A, { ...base, store: memoryStore(), now: () => t + 1000 });
+    await tick();
+    await cachedJson(URL_B, { ...base, store: memoryStore(), now: () => t + 1500 }).catch(() => {});
+    releaseA(json({ n: 1 }));
+    await a;
+    // A succeeded, but it started before the 429 and says nothing about now.
+    const got = await cachedJson(DETAIL, { ...base, store, now: () => t + 1600 });
+    expect(got).toEqual({ n: 1 });
+    expect(calls).not.toContain(DETAIL);
+  });
+
+  it("is ended by an answer to a call made after the refusal", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const api = respondWith((call) => (call.url === URL_B ? tooMany() : json({ n: 5 })));
+    const t = storedAt + FRESH_MS;
+    await cachedJson(URL_B, { ...base, store: memoryStore(), now: () => t + 1000 }).catch(() => {});
+    // A read that bypasses the cache is made inside the pause and succeeds.
+    await cachedJson(URL_A, { ...base, store: null, now: () => t + 2000 });
+    const store = memoryStore({ [DETAIL]: stale });
+    await cachedJson(DETAIL, { ...base, store, now: () => t + 3000 });
+    expect(api.calls()).toBe(3); // the stored copy was asked about, so the pause had ended
+  });
+
+  it("is noted once a minute, not once a request, and the note counts what was served", async () => {
+    const store = memoryStore({ [URL_A]: stale, [URL_B]: stale });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    respondWith(tooMany);
+    let clock = storedAt + FRESH_MS + 1; // copies young enough that a note is a warning
+    const at = () => clock;
+    await cachedJson(URL_A, { ...base, store, now: at });
+    warn.mockClear();
+    for (let i = 0; i < 5; i++) await cachedJson(URL_B, { ...base, store, now: at });
+    const notes = warn.mock.calls.filter((c) => String(c[0]).includes("the API is refusing"));
+    expect(notes).toHaveLength(1);
+    expect(String(notes[0][0])).toContain("1 stored copy");
+
+    clock += RETRY_AFTER_FAILURE_MS - 1; // the pause is almost over; still one note a minute
+    await cachedJson(URL_B, { ...base, store, now: at });
+    expect(
+      warn.mock.calls.filter((c) => String(c[0]).includes("the API is refusing")),
+    ).toHaveLength(1);
+  });
+
+  it("escalates to an error once the API has been failing for hours", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    respondWith(() => new Response("boom", { status: 503 }));
+    let clock = storedAt + FRESH_MS + 1;
+    const at = () => clock;
+    // The first failure starts the outage; the copy is young, so it is a warning.
+    await cachedJson(URL_A, { ...base, store, now: at });
+    expect(error.mock.calls.some((c) => String(c[0]).includes("failing for hours"))).toBe(false);
+    // Hours later the copy is still young enough to serve behind a refresh, but the outage is not.
+    clock += REVALIDATE_MS + 1;
+    store.entries.set(URL_A, { body: '{"n":1}', storedAt: clock - FRESH_MS - 1 });
+    await cachedJson(URL_A, { ...base, store, now: at });
+    expect(error.mock.calls.some((c) => String(c[0]).includes("failing for hours"))).toBe(true);
+  });
+});
+
+// --- a caller's own deadline --------------------------------------------------------
+
+describe("cachedJson: a caller's own deadline", () => {
+  it("does not ask the API when the caller's deadline is already gone, and serves the copy", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const api = respondWith(() => json({ n: 2 }));
+    const ctx: RequestContext = {};
+    const got = await runWithRequestContext(ctx, () =>
+      cachedJson(URL_A, {
+        ...base,
+        signal: AbortSignal.abort(),
+        store,
+        now: msAfter(REVALIDATE_MS + 1),
+      }),
+    );
+    expect(got).toEqual({ n: 1 });
+    expect(api.calls()).toBe(0);
+    expect(dataWasStale(ctx)).toBe(true);
+    // And nothing was held against the API: the next caller with time is not turned away.
+    await cachedJson(URL_A, { ...base, store, now: msAfter(REVALIDATE_MS + 1) });
+    expect(api.calls()).toBe(1);
+  });
+
+  it("throws the abort when there is no copy to serve", async () => {
+    respondWith(() => json({ n: 2 }));
+    await expect(
+      cachedJson(URL_A, { ...base, signal: AbortSignal.abort(), store: memoryStore() }),
+    ).rejects.toBeDefined();
+  });
+
+  it("does not make a caller wait past its own deadline for a call another started", async () => {
+    const api = pendingFetch();
+    const store = memoryStore();
+    const creator = cachedJson(URL_A, { ...base, store, now: () => 5_000 });
+    const started = Date.now();
+    const joiner = cachedJson(URL_A, {
+      ...base,
+      signal: AbortSignal.timeout(20),
+      store,
+      now: () => 5_000,
+    });
+    await expect(joiner).rejects.toMatchObject({ name: "TimeoutError" });
+    expect(Date.now() - started).toBeLessThan(1000);
+    // The call itself carries on for the one that started it.
+    api.release(json({ n: 4 }));
+    expect(await creator).toEqual({ n: 4 });
+    expect(api.calls()).toBe(1);
+  });
+
+  it("asks for itself when the call it joined ended on the creator's shorter deadline", async () => {
+    let n = 0;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      n++;
+      if (n === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        });
+      }
+      return json({ n: 5 });
+    }) as unknown as typeof fetch;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = memoryStore();
+    const creator = cachedJson(URL_A, {
+      ...base,
+      signal: AbortSignal.timeout(10),
+      store,
+      now: () => 5_000,
+    }).catch((e: unknown) => e);
+    const joiner = cachedJson<{ n: number }>(URL_A, {
+      ...base,
+      signal: AbortSignal.timeout(2000),
+      store,
+      now: () => 5_000,
+    });
+    expect(((await creator) as Error).name).toBe("TimeoutError");
+    expect(await joiner).toEqual({ n: 5 });
+    expect(n).toBe(2);
+  });
+});
+
+// --- a store that will not delete ----------------------------------------------------
+
+describe("cachedJson: a store that cannot drop an entry, on the inline path", () => {
+  it("remembers the failure, so the next visitor does not spend another call", async () => {
+    const store = memoryStore({ [DETAIL]: stale }, { delete: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const api = respondWith(() => new Response("no", { status: 404 }));
+    const opts = { ...base, store, now: msAfter(REVALIDATE_MS + 1) };
+    // Past the window: the API is asked first, says the dataset is gone, and the copy cannot be dropped.
+    await expect(cachedJson(DETAIL, opts)).rejects.toMatchObject({ status: 404 });
+    expect(api.calls()).toBe(1);
+    // The next visitor within the minute is not sent to the API again.
+    await cachedJson(DETAIL, opts);
+    expect(api.calls()).toBe(1);
+  });
+});
+
+describe("cachedJson: a store that cannot drop an entry", () => {
+  it("still tells the caller the dataset is gone, and does not hammer the API about it", async () => {
+    const store = memoryStore({ [DETAIL]: stale }, { delete: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const api = respondWith(() => new Response("no", { status: 404 }));
+    const bg = backgroundWork();
+    const opts = {
+      ...base,
+      store,
+      now: msAfter(FRESH_MS + 1),
+      waitUntil: bg.waitUntil,
+    };
+    // The visitor still has the copy; the refresh learns it is gone but cannot drop it.
+    expect(await cachedJson(DETAIL, opts)).toEqual({ n: 1 });
+    await bg.settled();
+    expect(api.calls()).toBe(1);
+    // The failure is remembered, so the next visitors do not each spend a call.
+    await cachedJson(DETAIL, opts);
+    await cachedJson(DETAIL, opts);
+    expect(api.calls()).toBe(1);
+  });
+});
+
+// --- what the log may say ------------------------------------------------------------
+
+describe("cachedJson: logs carry the path, never the query", () => {
+  const SEARCH = "https://api.nemar.org/datasets/search?q=secret-name&limit=10";
+
+  function everythingLogged(spies: Array<ReturnType<typeof vi.spyOn>>): string {
+    return spies
+      .map((spy) => spy.mock.calls.map((c) => c.map(String).join(" ")).join("\n"))
+      .join("\n");
+  }
+
+  it("keeps a visitor's search words out of every line, on every path", async () => {
+    const spies = [
+      vi.spyOn(console, "error").mockImplementation(() => {}),
+      vi.spyOn(console, "warn").mockImplementation(() => {}),
+      vi.spyOn(console, "log").mockImplementation(() => {}),
+    ];
+    // Serving a stale copy after a failure, past the window.
+    respondWith(() => new Response("boom", { status: 503 }));
+    await cachedJson(SEARCH, {
+      ...base,
+      label: "search",
+      store: memoryStore({ [SEARCH]: stale }),
+      now: msAfter(REVALIDATE_MS + 1),
+    });
+    // A refresh behind the response that fails, then a note under the pause.
+    resetApiCacheStateForTests();
+    const bg = backgroundWork();
+    const store = memoryStore({ [SEARCH]: stale });
+    await cachedJson(SEARCH, {
+      ...base,
+      label: "search",
+      store,
+      now: msAfter(FRESH_MS + 1),
+      waitUntil: bg.waitUntil,
+    });
+    await bg.settled();
+    await cachedJson(SEARCH, {
+      ...base,
+      label: "search",
+      store,
+      now: msAfter(FRESH_MS + 2),
+      waitUntil: bg.waitUntil,
+    });
+    // A body that is not JSON, one that is not accepted, and a cache that cannot be written.
+    resetApiCacheStateForTests();
+    respondWith(() => new Response("<html>", { status: 200 }));
+    await cachedJson(SEARCH, { ...base, label: "search", store: memoryStore() }).catch(() => {});
+    respondWith(() => json({ nope: true }));
+    await cachedJson(SEARCH, {
+      ...base,
+      label: "search",
+      store: memoryStore(),
+      accept: () => false,
+    }).catch(() => {});
+    await cachedJson(SEARCH, {
+      ...base,
+      label: "search",
+      store: memoryStore({}, { set: true }),
+    }).catch(() => {});
+    // A stored body that is unusable.
+    await cachedJson(SEARCH, {
+      ...base,
+      label: "search",
+      store: memoryStore({ [SEARCH]: { body: "{", storedAt } }),
+      now: msAfter(1000),
+    }).catch(() => {});
+
+    const text = everythingLogged(spies);
+    expect(text.length).toBeGreaterThan(0);
+    expect(text).not.toContain("secret-name");
+    expect(text).not.toContain("q=");
+    expect(text).toContain("/datasets/search");
+  });
+});
+
+// --- a stored body that fails on the way out -----------------------------------------
+
+describe("cachedJson: a stored body is checked on the way out too", () => {
+  it("drops a stored body of the wrong shape and asks the API", async () => {
+    const store = memoryStore({ [URL_A]: { body: "null", storedAt } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const api = respondWith(() => json({ datasets: [] }));
+    const got = await cachedJson(URL_A, {
+      ...base,
+      store,
+      now: msAfter(1000),
+      accept: (p) => typeof p === "object" && p !== null,
+    });
+    expect(got).toEqual({ datasets: [] });
+    expect(api.calls()).toBe(1);
+    expect(store.entries.get(URL_A)?.body).toBe('{"datasets":[]}');
+  });
+
+  it("drops a stored body that is not JSON, so it is not read and logged on every request", async () => {
+    const store = memoryStore({ [URL_A]: { body: "{", storedAt } });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    respondWith(() => new Response("boom", { status: 503 }));
+    await cachedJson(URL_A, { ...base, store, now: msAfter(1000) }).catch(() => {});
+    expect(store.entries.has(URL_A)).toBe(false);
+  });
+});
+
+// --- flights ---------------------------------------------------------------------------
+
+describe("cachedJson: shared flights", () => {
+  it("gives every one of thirty callers an object of its own", async () => {
+    const api = pendingFetch();
+    const opts = { ...base, store: memoryStore(), now: () => 5_000 };
+    const callers = Array.from({ length: 30 }, () => cachedJson<{ n: number }>(URL_A, opts));
+    api.release(json({ n: 7 }));
+    const results = await Promise.all(callers);
+    expect(new Set(results).size).toBe(30);
+  });
+
+  it("waits for a flight up to the stuck threshold, and replaces it just past it", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n++;
+      return new Promise<Response>(() => {});
+    }) as unknown as typeof fetch;
+    expect(STUCK_FLIGHT_MS).toBe(30_000);
+    let clock = 0;
+    const opts = { ...base, store: memoryStore(), now: () => clock };
+    void cachedJson(URL_A, opts).catch(() => {});
+    await tick();
+    clock = STUCK_FLIGHT_MS;
+    void cachedJson(URL_A, opts).catch(() => {});
+    await tick();
+    expect(n).toBe(1); // exactly at the threshold, still joined
+    clock = STUCK_FLIGHT_MS + 1;
+    void cachedJson(URL_A, opts).catch(() => {});
+    await tick();
+    expect(n).toBe(2); // one millisecond past it, replaced
+  });
+
+  it("does not let a replaced flight, settling late, remove the one that replaced it", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const releases: Array<(res: Response) => void> = [];
+    let n = 0;
+    globalThis.fetch = (async () => {
+      n++;
+      return new Promise<Response>((resolve) => {
+        releases.push(resolve);
+      });
+    }) as unknown as typeof fetch;
+    let clock = 0;
+    // No store: an answer must not become a stored copy that serves the third
+    // caller before it ever looks at the flights.
+    const opts = { ...base, store: null, now: () => clock };
+    const first = cachedJson(URL_A, opts);
+    await tick();
+    clock = STUCK_FLIGHT_MS + 1;
+    const second = cachedJson(URL_A, opts); // replaces the first
+    await tick();
+    expect(n).toBe(2);
+    releases[0](json({ n: 1 })); // the lost one finally answers
+    await first;
+    // The replacement is still in flight and still shared: a new caller joins it.
+    void cachedJson(URL_A, opts);
+    await tick();
+    expect(n).toBe(2);
+    releases[1](json({ n: 2 }));
+    await second;
+  });
+});
+
+// --- clock boundaries -----------------------------------------------------------------
+
+describe("cachedJson: a stamp ahead of the clock", () => {
+  it("is believed up to a minute ahead, and not a millisecond more", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const store = memoryStore({ [URL_A]: { body: '{"n":1}', storedAt: storedAt + 60_000 } });
+    const api = respondWith(() => json({ n: 2 }));
+    expect(await cachedJson(URL_A, { ...base, store, now: () => storedAt })).toEqual({ n: 1 });
+    expect(api.calls()).toBe(0);
+    const farther = memoryStore({ [URL_A]: { body: '{"n":1}', storedAt: storedAt + 60_001 } });
+    expect(await cachedJson(URL_A, { ...base, store: farther, now: () => storedAt })).toEqual({
+      n: 2,
+    });
+    expect(api.calls()).toBe(1);
+  });
+
+  it("says so once per isolate", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    respondWith(() => json({ n: 2 }));
+    const ahead = () => memoryStore({ [URL_A]: { body: '{"n":1}', storedAt: storedAt + 120_000 } });
+    await cachedJson(URL_A, { ...base, store: ahead(), now: () => storedAt });
+    await cachedJson(URL_A, { ...base, store: ahead(), now: () => storedAt });
+    expect(
+      warn.mock.calls.filter((c) => String(c[0]).includes("ahead of this clock")),
+    ).toHaveLength(1);
+  });
+});
+
+// --- how many failing URLs are remembered ---------------------------------------------
+
+describe("cachedJson: the failure memory", () => {
+  const later = msAfter(REVALIDATE_MS + 60 * 60 * 1000);
+  const urlN = (i: number) => `https://api.nemar.org/datasets/nm${String(i).padStart(6, "0")}`;
+
+  it("keeps exactly MAX_TRACKED_KEYS and moves a URL that fails again to the newest slot", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const urls = Array.from({ length: MAX_TRACKED_KEYS + 1 }, (_, i) => urlN(i));
+    const store = memoryStore(Object.fromEntries(urls.map((u) => [u, stale])));
+    const api = respondWith(() => new Response("boom", { status: 503 }));
+    let clock = later();
+    const at = () => clock;
+    const opts = { ...base, store, now: at };
+
+    for (const u of urls.slice(0, MAX_TRACKED_KEYS)) await cachedJson(u, opts); // exactly MAX
+    expect(api.calls()).toBe(MAX_TRACKED_KEYS);
+    await cachedJson(urls[0], opts); // all remembered, the first included
+    expect(api.calls()).toBe(MAX_TRACKED_KEYS);
+
+    clock += RETRY_AFTER_FAILURE_MS; // the first fails again: now the newest
+    await cachedJson(urls[0], opts);
+    expect(api.calls()).toBe(MAX_TRACKED_KEYS + 1);
+    await cachedJson(urls[MAX_TRACKED_KEYS], opts); // one more URL: the oldest goes
+    expect(api.calls()).toBe(MAX_TRACKED_KEYS + 2);
+
+    await cachedJson(urls[0], opts); // still remembered: it moved to the back
+    expect(api.calls()).toBe(MAX_TRACKED_KEYS + 2);
+    await cachedJson(urls[1], opts); // the oldest was forgotten, so it is asked again
+    expect(api.calls()).toBe(MAX_TRACKED_KEYS + 3);
+  });
+
+  it("does not remember a failure for a URL with no copy to protect", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const api = respondWith(() => new Response("boom", { status: 503 }));
+    const opts = { ...base, store: memoryStore(), now: later };
+    await cachedJson(URL_A, opts).catch(() => {});
+    await cachedJson(URL_A, opts).catch(() => {});
+    expect(api.calls()).toBe(2);
+  });
+});
+
+// --- a cache write that never answers ------------------------------------------------
+
+describe("cachedJson: a cache write has a deadline", () => {
+  it("counts a write that never answers as failed, so the page is not held up", async () => {
+    vi.useFakeTimers();
+    try {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      respondWith(() => json({ n: 8 }));
+      const store: BodyStore = {
+        async get() {
+          return undefined;
+        },
+        set: () => new Promise<void>(() => {}),
+        async delete() {},
+      };
+      const pending = cachedJson<{ n: number }>(URL_A, { ...base, store, now: () => 5_000 });
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(await pending).toEqual({ n: 8 });
+      expect(error).toHaveBeenCalledWith(expect.stringContaining("write failed"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("workersStore: an entry with no usable stamp", () => {
+  it("is a miss, and the isolate says so once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const platform = fakePlatformCache();
+    (globalThis as { caches?: unknown }).caches = { default: platform };
+    const key = `https://api-cache.internal/${CACHE_GENERATION}/${encodeURIComponent(URL_A)}`;
+    platform.entries.set(key, new Response("{}"));
+    const store = workersStore();
+    expect(await store?.get(URL_A)).toBeUndefined();
+    expect(await store?.get(URL_A)).toBeUndefined();
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("no usable stamp"))).toHaveLength(1);
+  });
+});
+
+describe("isMissing", () => {
+  it("is true for the answers that mean the thing is not there or the request was malformed", () => {
+    expect(isMissing(new UpstreamError("x", 404))).toBe(true);
+    expect(isMissing(new UpstreamError("x", 410))).toBe(true);
+    expect(isMissing(new UpstreamError("x", 400))).toBe(true);
+    expect(isMissing(new UpstreamError("x", 429))).toBe(false);
+    expect(isMissing(new UpstreamError("x", 503))).toBe(false);
+    expect(isMissing(new Error("404"))).toBe(false);
   });
 });
