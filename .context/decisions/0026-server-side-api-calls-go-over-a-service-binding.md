@@ -32,9 +32,12 @@ nemar-cli ADR 0098 gives the API a way to count the right party: a request with 
 5. **A failure of the binding is not retried on the public network.**
    It reaches the caller like any failed fetch.
    The same Worker answers the public network, so a retry would most likely fail the same way, later.
-6. **The first call over the binding in an isolate is logged with the rate-limit bucket the API counted it in.**
-   `site-ip` is the expected value; anything else, or none, is a warning, because it means the API did not read the visitor.
+6. **The calls are watched for the two ways the API's counting can fail without an error.**
+   The first call over the binding in an isolate is logged with the rate-limit bucket the API counted it in and the count it had left.
+   `site-ip` is the expected bucket; anything else, or none, is a warning, because it means the API did not read the visitor.
+   And when five calls for one visitor in one rate-limit window leave `X-RateLimit-Remaining` where it started, one error is logged per isolate, because the API's counter may not persist for a call that arrives over a binding (nothing in Cloudflare's documentation says it does), and then nothing is limited and every answer looks healthy.
    A request that reaches the binding with no usable address is logged once and shares the API's unattributed bucket.
+   None of the lines carries an address.
 
 The server-only call sites use it: the catalog reads (`api.ts`, `api-cache.ts`), the session lookup in the middleware, and the sign-in, ORCID, news-media and generic `/api/v1` proxies.
 

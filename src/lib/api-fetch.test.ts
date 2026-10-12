@@ -307,3 +307,122 @@ describe("apiFetch reports the first call over the binding", () => {
     expect(String(warn.mock.calls[0][0])).toContain("rate-limit bucket none");
   });
 });
+
+describe("apiFetch notices a rate-limit count that never moves", () => {
+  /** A binding whose answers carry the API's rate-limit headers, `remaining` read from `next`. */
+  function counting(next: (visitor: string) => number, reset = "1790000000") {
+    return binding(({ init }) => {
+      const visitor = new Headers(init?.headers).get("x-forwarded-for") ?? "";
+      return new Response("{}", {
+        headers: {
+          "x-ratelimit-bucket": "site-ip",
+          "x-ratelimit-remaining": String(next(visitor)),
+          "x-ratelimit-reset": reset,
+        },
+      });
+    });
+  }
+
+  const callTimes = async (b: ApiBinding, visitorIp: string, times: number) => {
+    for (let i = 0; i < times; i++) {
+      await runWithRequestContext({ apiBinding: b, visitorIp }, () => apiFetch(`${API}/datasets`));
+    }
+  };
+
+  it("says nothing while the count falls", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    let left = 2000;
+    const b = counting(() => --left);
+    await callTimes(b.binding, "198.51.100.7", 12);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("says so once when five calls leave the count where it started", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const b = counting(() => 1999);
+    await callTimes(b.binding, "198.51.100.7", 4);
+    expect(error).not.toHaveBeenCalled();
+    await callTimes(b.binding, "198.51.100.7", 10);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toContain("did not move over 5 calls");
+    expect(String(error.mock.calls[0][0])).not.toContain("198.51.100.7");
+  });
+
+  it("judges each visitor on their own count", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const left = new Map<string, number>();
+    const b = counting((visitor) => {
+      const next = (left.get(visitor) ?? 2000) - 1;
+      left.set(visitor, next);
+      return next;
+    });
+    for (let round = 0; round < 6; round++) {
+      for (const visitor of ["198.51.100.1", "198.51.100.2", "198.51.100.3"]) {
+        await callTimes(b.binding, visitor, 1);
+      }
+    }
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("does not pool the counts of different visitors", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const b = counting(() => 1999);
+    for (const visitor of ["198.51.100.1", "198.51.100.2", "198.51.100.3"]) {
+      await callTimes(b.binding, visitor, 2);
+    }
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("says so once per isolate, however many visitors are stuck", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const b = counting(() => 1999);
+    await callTimes(b.binding, "198.51.100.1", 5);
+    await callTimes(b.binding, "198.51.100.2", 5);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts again when the window does", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Three calls that leave the count alone in one window, then three in the next: six in all, never five in one.
+    let calls = 0;
+    const b = binding(
+      () =>
+        new Response("{}", {
+          headers: {
+            "x-ratelimit-bucket": "site-ip",
+            "x-ratelimit-remaining": "1999",
+            "x-ratelimit-reset": ++calls <= 3 ? "1790000000" : "1790000060",
+          },
+        }),
+    );
+    await callTimes(b.binding, "198.51.100.7", 6);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("ignores answers that name no count, or a bucket other than site-ip", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const bare = binding(
+      () => new Response("{}", { headers: { "x-ratelimit-bucket": "site-ip" } }),
+    );
+    await callTimes(bare.binding, "198.51.100.7", 8);
+    const noCount = binding(
+      () =>
+        new Response("{}", {
+          headers: { "x-ratelimit-bucket": "site-ip", "x-ratelimit-reset": "1790000000" },
+        }),
+    );
+    await callTimes(noCount.binding, "198.51.100.9", 8);
+    const other = binding(
+      () =>
+        new Response("{}", {
+          headers: {
+            "x-ratelimit-bucket": "ip",
+            "x-ratelimit-remaining": "999",
+            "x-ratelimit-reset": "1790000000",
+          },
+        }),
+    );
+    await callTimes(other.binding, "198.51.100.8", 8);
+    expect(error).not.toHaveBeenCalled();
+  });
+});

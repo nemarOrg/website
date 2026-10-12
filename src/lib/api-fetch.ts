@@ -30,13 +30,28 @@ const IDENTITY_HEADERS = ["x-forwarded-for", "x-real-ip", "cf-connecting-ip"];
 /** Headers that must not follow a redirect to another origin. */
 const CREDENTIAL_HEADERS = ["authorization", "cookie"];
 
+/** What the API counted for a visitor in one rate-limit window, to notice a counter that never moves. */
+interface WindowSighting {
+  first: number;
+  lowest: number;
+  calls: number;
+}
+/** The distinct (visitor, window) pairs kept in memory; the oldest is dropped past this. */
+const SIGHTINGS_KEPT = 200;
+/** Calls for one visitor in one window before the counter is expected to have moved. */
+const CALLS_BEFORE_JUDGING = 5;
+
 let warnedNoVisitor = false;
 let reportedFirstCall = false;
+let warnedStuckCounter = false;
+const sightings = new Map<string, WindowSighting>();
 
 /** Forget what this isolate has already said. For the unit tests only. */
 export function resetApiFetchWarningsForTests(): void {
   warnedNoVisitor = false;
   reportedFirstCall = false;
+  warnedStuckCounter = false;
+  sightings.clear();
 }
 
 /** `fetch`, over the API service binding when this request has one and `input` is on the API's origin. */
@@ -88,7 +103,7 @@ async function viaBinding(
   // A request with a body cannot be replayed down a redirect chain, and a caller that
   // asked for "manual" wants the 3xx itself; both go straight to the binding.
   if ((method !== "GET" && method !== "HEAD") || redirect === "manual") {
-    return reportFirstCall(await binding.fetch(url, { ...init, headers }));
+    return observe(await binding.fetch(url, { ...init, headers }), visitor);
   }
 
   // A binding follows a redirect by sending the new URL back to the bound Worker, whatever
@@ -98,8 +113,9 @@ async function viaBinding(
   for (let hops = 0; ; hops++) {
     const onApi = isApiUrl(target);
     const res = onApi
-      ? reportFirstCall(
+      ? observe(
           await binding.fetch(target, { ...init, headers: hopHeaders, redirect: "manual" }),
+          visitor,
         )
       : await fetch(target, { ...init, headers: hopHeaders, redirect: "follow" });
     const location = REDIRECT_STATUSES.has(res.status) ? res.headers.get("location") : null;
@@ -122,15 +138,50 @@ async function viaBinding(
   }
 }
 
-/** Say once per isolate how the API counted the first call over the binding, then pass the response on. */
-function reportFirstCall(res: Response): Response {
-  if (reportedFirstCall) return res;
-  reportedFirstCall = true;
+/**
+ * Watch how the API counts calls over the binding, then pass the response on.
+ *
+ * Two things can go wrong without any error: the API may not read the visitor (the bucket is
+ * not `site-ip`), and its counter may not persist for a call that arrives over a binding, in
+ * which case nothing is ever limited and every answer says the same thing. The first is
+ * reported once, from the first call; the second when five calls for one visitor in one
+ * window leave the remaining count where it started.
+ */
+function observe(res: Response, visitor: string | undefined): Response {
   const bucket = res.headers.get("x-ratelimit-bucket");
-  const line = `[api-fetch] first call over the API service binding: status ${res.status}, rate-limit bucket ${bucket ?? "none"} (logged once per isolate)`;
-  // "site-ip" is the bucket a forwarded visitor lands in; anything else means the API did not
-  // read the visitor, which is the one thing worth reading this line for.
-  if (bucket === "site-ip") console.info(line);
-  else console.warn(line);
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  if (!reportedFirstCall) {
+    reportedFirstCall = true;
+    const line = `[api-fetch] first call over the API service binding: status ${res.status}, rate-limit bucket ${bucket ?? "none"}, remaining ${remaining ?? "none"} (logged once per isolate)`;
+    // "site-ip" is the bucket a forwarded visitor lands in; anything else means the API did not
+    // read the visitor, which is the one thing worth reading this line for.
+    if (bucket === "site-ip") console.info(line);
+    else console.warn(line);
+  }
+  if (!warnedStuckCounter && visitor && bucket === "site-ip") noteCount(visitor, res);
   return res;
+}
+
+function noteCount(visitor: string, res: Response): void {
+  const left = Number(res.headers.get("x-ratelimit-remaining"));
+  const reset = res.headers.get("x-ratelimit-reset");
+  if (!reset || res.headers.get("x-ratelimit-remaining") === null || !Number.isFinite(left)) return;
+  const key = `${visitor}|${reset}`;
+  let sighting = sightings.get(key);
+  if (!sighting) {
+    if (sightings.size >= SIGHTINGS_KEPT) {
+      const oldest = sightings.keys().next().value;
+      if (oldest !== undefined) sightings.delete(oldest);
+    }
+    sighting = { first: left, lowest: left, calls: 0 };
+    sightings.set(key, sighting);
+  }
+  sighting.calls++;
+  sighting.lowest = Math.min(sighting.lowest, left);
+  if (sighting.calls === CALLS_BEFORE_JUDGING && sighting.lowest >= sighting.first) {
+    warnedStuckCounter = true;
+    console.error(
+      `[api-fetch] the API's rate-limit count did not move over ${CALLS_BEFORE_JUDGING} calls for one visitor in one window (remaining stayed at ${sighting.first}); calls over the binding may not be limited at all (logged once per isolate)`,
+    );
+  }
 }
