@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
+import { currentWaitUntil } from "./lib/request-context";
 import {
   SECURITY_HEADERS,
   applySecurityHeaders,
@@ -1328,5 +1329,58 @@ describe("framing", () => {
       }
     }
     expect([...new Set(frameable)]).toEqual(["./pages/dataset/[id]/embed.astro"]);
+  });
+});
+
+describe("request context for background work", () => {
+  /** A stand-in for the platform's execution context: `waitUntil` needs its `this`. */
+  class FakeExecutionContext {
+    readonly kept: Promise<unknown>[] = [];
+    calledWithOwnThis = true;
+    waitUntil(work: Promise<unknown>): void {
+      if (!(this instanceof FakeExecutionContext)) this.calledWithOwnThis = false;
+      this.kept.push(work);
+    }
+  }
+
+  function ctxWith(runtime: unknown): APIContext {
+    return {
+      request: new Request(`https://${MARKETING_HOST}/discover`),
+      locals: runtime === undefined ? {} : { runtime },
+      cookies: { get: () => undefined },
+    } as unknown as APIContext;
+  }
+
+  it("lets the render hand work to the platform's waitUntil, called as a method", async () => {
+    const platform = new FakeExecutionContext();
+    const work = Promise.resolve("refreshed");
+    await onRequest(ctxWith({ ctx: platform }), async () => {
+      currentWaitUntil()?.(work);
+      return new Response("ok");
+    });
+    expect(platform.kept).toEqual([work]);
+    expect(platform.calledWithOwnThis).toBe(true);
+  });
+
+  it.each([
+    ["no runtime", undefined],
+    ["a runtime with no ctx", {}],
+    ["a ctx with no waitUntil", { ctx: {} }],
+  ])("offers no waitUntil with %s, so callers refresh inline", async (_name, runtime) => {
+    let seen: unknown = "unset";
+    await onRequest(ctxWith(runtime), async () => {
+      seen = currentWaitUntil();
+      return new Response("ok");
+    });
+    expect(seen).toBeUndefined();
+  });
+
+  it("does not leak one request's waitUntil into the next", async () => {
+    const platform = new FakeExecutionContext();
+    await onRequest(ctxWith({ ctx: platform }), async () => new Response("ok"));
+    await onRequest(ctxWith(undefined), async () => {
+      expect(currentWaitUntil()).toBeUndefined();
+      return new Response("ok");
+    });
   });
 });

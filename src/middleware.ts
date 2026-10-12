@@ -15,6 +15,7 @@ import {
   isProductionHost,
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
+import { runWithRequestContext } from "./lib/request-context";
 
 /**
  * Content-Security-Policy shipped on every SSR page response.
@@ -610,9 +611,20 @@ function countEmbedCall(context: Parameters<MiddlewareHandler>[0], response: Res
   }
 }
 
-/** The middleware: `serve` handles the request, then `countEmbedCall` counts it. */
+/**
+ * The middleware: `serve` handles the request, then `countEmbedCall` counts it.
+ * The render runs inside a request context carrying `waitUntil`, so code far
+ * from here (the catalog cache's background refresh) can reach it.
+ */
 export const onRequest: MiddlewareHandler = async (context, next) => {
-  const response = await serve(context, next);
+  type EdgeCtx = { waitUntil?: (work: Promise<unknown>) => void };
+  const edge = (context.locals as { runtime?: { ctx?: EdgeCtx } } | undefined)?.runtime?.ctx;
+  // Called as a method, never detached: `waitUntil` needs its `this`.
+  const waitUntil =
+    edge && typeof edge.waitUntil === "function"
+      ? (work: Promise<unknown>) => edge.waitUntil?.(work)
+      : undefined;
+  const response = await runWithRequestContext({ waitUntil }, () => serve(context, next));
   countEmbedCall(context, response);
   return response;
 };
