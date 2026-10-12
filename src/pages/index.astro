@@ -228,9 +228,14 @@ Astro.response.headers.set(
     --hero-bg-1: #eef3fb;
     --hero-bg-2: #f5f8fd;
     --hero-bg-3: #e6edf9;
-    --hero-brain-blend: multiply;
-    --hero-brain-filter: invert(1) hue-rotate(180deg) saturate(0.7) brightness(0.85);
-    --hero-brain-opacity: 0.4;
+    /* Light uses its own ink-on-transparent image (scripts/make-hero-brain-light.py),
+       not a blend of the dark one: that image carries 18% alpha and its lines
+       in brightness, so inverting and multiplying it left ~7% ink and the
+       brain all but vanished. */
+    --hero-brain-image: url("/hero-brain-light.png");
+    --hero-brain-blend: normal;
+    --hero-brain-filter: none;
+    --hero-brain-opacity: 0.38;
     --hero-veil: radial-gradient(ellipse at 42% 52%, transparent 45%, rgb(245 248 253 / 60%) 100%);
     --hero-stat-bg: rgb(255 255 255 / 72%);
     --hero-stat-border: rgb(15 23 42 / 8%);
@@ -258,6 +263,7 @@ Astro.response.headers.set(
       --hero-bg-1: #060d24;
       --hero-bg-2: #0a1638;
       --hero-bg-3: #112a5c;
+      --hero-brain-image: url("/hero-brain.png");
       --hero-brain-blend: screen;
       --hero-brain-filter: hue-rotate(-8deg) saturate(1.15) brightness(1.05);
       --hero-brain-opacity: 0.6;
@@ -278,6 +284,7 @@ Astro.response.headers.set(
     --hero-bg-1: #060d24;
     --hero-bg-2: #0a1638;
     --hero-bg-3: #112a5c;
+    --hero-brain-image: url("/hero-brain.png");
     --hero-brain-blend: screen;
     --hero-brain-filter: hue-rotate(-8deg) saturate(1.15) brightness(1.05);
     --hero-brain-opacity: 0.6;
@@ -289,11 +296,10 @@ Astro.response.headers.set(
     --hero-search-border: transparent;
   }
 
-  /* Large wireframe brain (legacy hero-brain.png: teal lines on transparent
-     black). Centered behind the content; screen-blends on the dark ground so
-     the teal glows and the black drops out. In the light theme the blend
-     switches to multiply (inverted + hue-rotated) so the lines read as dark
-     blue-grey on the pale ground. */
+  /* Large wireframe brain, centered behind the content. Dark: the legacy
+     hero-brain.png (teal lines, line work in brightness) screen-blended so the
+     teal glows and the dark drops out. Light: hero-brain-light.png, the same
+     line work as blue ink on transparent, shown with normal blending. */
   .hero__brain {
     position: absolute;
     inset-block: 50% auto;
@@ -301,7 +307,7 @@ Astro.response.headers.set(
     translate: -50% -50%;
     inline-size: min(1500px, 165%);
     aspect-ratio: 1 / 1;
-    background: url("/hero-brain.png") no-repeat center / contain;
+    background: var(--hero-brain-image) no-repeat center / contain;
     mix-blend-mode: var(--hero-brain-blend);
     filter: var(--hero-brain-filter);
     opacity: var(--hero-brain-opacity);
