@@ -1,5 +1,6 @@
 import type { MiddlewareHandler, MiddlewareNext } from "astro";
 import { apiBase } from "./lib/api-base";
+import { apiFetch } from "./lib/api-fetch";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
@@ -16,6 +17,7 @@ import {
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
+  type ApiBinding,
   type RequestContext,
   dataWasStale,
   runWithRequestContext,
@@ -656,6 +658,12 @@ function edgeWaitUntil(
   return (work) => edge.waitUntil?.(work);
 }
 
+/** The service binding to the API Worker, when the project declares one (`wrangler.toml`), else `undefined`. */
+function apiBindingOf(context: Parameters<MiddlewareHandler>[0]): ApiBinding | undefined {
+  const binding = context.locals.runtime?.env?.API;
+  return binding && typeof binding.fetch === "function" ? binding : undefined;
+}
+
 /**
  * The middleware: `serve` handles the request, then `countEmbedCall` counts it.
  * The render runs inside a request context carrying `waitUntil`, so code far
@@ -664,7 +672,11 @@ function edgeWaitUntil(
  * the page leaves the edge cache within a minute (response-cache-policy.ts).
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
-  const requestContext: RequestContext = { waitUntil: edgeWaitUntil(context) };
+  const requestContext: RequestContext = {
+    waitUntil: edgeWaitUntil(context),
+    apiBinding: apiBindingOf(context),
+    visitorIp: context.request.headers.get("cf-connecting-ip") ?? undefined,
+  };
   const guardedNext: typeof next = async (...args) => {
     const response = await next(...args);
     // The flag is read once, here. Every catalog read today happens in page
@@ -705,7 +717,7 @@ async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<
   const fullCookie = context.request.headers.get("cookie") ?? `${SESSION_COOKIE_NAME}=${cookie}`;
   let session: AuthSession | null = null;
   try {
-    const res = await fetch(`${apiBase()}/auth/me`, {
+    const res = await apiFetch(`${apiBase()}/auth/me`, {
       method: "GET",
       headers: { Cookie: fullCookie, Accept: "application/json" },
     });

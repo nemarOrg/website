@@ -2,13 +2,15 @@
  * What the code deep inside a render needs from the request that started it,
  * without threading it through every signature.
  *
- * Two things: `waitUntil`, so a cache can refresh a stale entry after the
- * response has been sent, and a flag the cache raises when it answered this
+ * Three things: `waitUntil`, so a cache can refresh a stale entry after the
+ * response has been sent; a flag the cache raises when it answered this
  * request from data that was not fresh, so the middleware can keep such a page
- * out of the edge cache for long (`api-cache.ts`, `middleware.ts`). The Workers
- * runtime hands `waitUntil` to the middleware as `locals.runtime.ctx`; the lib
- * code that fetches data has no Astro context, so the middleware opens this
- * scope around the render and the lib reads it back.
+ * out of the edge cache for long (`api-cache.ts`, `middleware.ts`); and the
+ * service binding to the API Worker with the visitor this request acts for, so
+ * a call to the API can be counted as that visitor's (`api-fetch.ts`). The
+ * Workers runtime hands `waitUntil` to the middleware as `locals.runtime.ctx`;
+ * the lib code that fetches data has no Astro context, so the middleware opens
+ * this scope around the render and the lib reads it back.
  *
  * `AsyncLocalStorage` (available under `nodejs_compat`, which both wrangler
  * configs set) follows the request across `await`s. Outside a request, or in a
@@ -24,9 +26,18 @@
 // @ts-ignore TS2591 where Node types are absent; a `@ts-expect-error` would fail where they exist
 import { AsyncLocalStorage } from "node:async_hooks";
 
+/** What a Workers service binding offers that this site uses: `fetch`, with the caller's own URL. */
+export interface ApiBinding {
+  fetch(input: string, init?: RequestInit): Promise<Response>;
+}
+
 export interface RequestContext {
   /** Keeps the isolate alive for `work` after the response is sent. */
   readonly waitUntil?: (work: Promise<unknown>) => void;
+  /** The service binding to the API Worker, where the project has one configured. */
+  readonly apiBinding?: ApiBinding;
+  /** The visitor this request acts for: the `CF-Connecting-IP` it arrived with. */
+  readonly visitorIp?: string;
   /** Raised by {@link markDataStale}: this render used data that was not fresh. */
   dataStale?: boolean;
   /** Set once the middleware has read `dataStale`; a later {@link markDataStale} is too late to act on. */
@@ -48,6 +59,12 @@ export function runWithRequestContext<T>(ctx: RequestContext, fn: () => T): T {
 /** The current request's `waitUntil`, or `undefined` when there is none. */
 export function currentWaitUntil(): RequestContext["waitUntil"] {
   return scope.getStore()?.waitUntil;
+}
+
+/** The service binding and visitor of the current request, or `undefined` outside one. */
+export function currentApiRoute(): Pick<RequestContext, "apiBinding" | "visitorIp"> | undefined {
+  const store = scope.getStore();
+  return store ? { apiBinding: store.apiBinding, visitorIp: store.visitorIp } : undefined;
 }
 
 let warnedOutsideRequest = false;

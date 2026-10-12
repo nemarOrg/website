@@ -1,10 +1,12 @@
 import type { APIContext } from "astro";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
+import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
+  type ApiBinding,
   currentWaitUntil,
   markDataStale,
   resetRequestContextWarningsForTests,
@@ -1701,5 +1703,127 @@ describe("the stale flag is read once, and a late mark is not silent", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(res.headers.get("x-nemar-data")).toBeNull(); // too late to act on
     expect(error).toHaveBeenCalledWith(expect.stringContaining("after the response was built"));
+  });
+});
+
+describe("the API service binding", () => {
+  const API_URL = "https://api.nemar.org";
+
+  interface Seen {
+    url: string;
+    forwardedFor: string | null;
+    cookie: string | null;
+  }
+
+  /** A binding that answers every call like the API answers an unknown session, and records it. */
+  function recordingBinding(): { binding: ApiBinding; seen: Seen[] } {
+    const seen: Seen[] = [];
+    return {
+      seen,
+      binding: {
+        async fetch(url, init) {
+          const headers = new Headers(init?.headers);
+          seen.push({
+            url,
+            forwardedFor: headers.get("x-forwarded-for"),
+            cookie: headers.get("cookie"),
+          });
+          return new Response('{"error":"Unauthorized"}', {
+            status: 401,
+            headers: { "Content-Type": "application/json", "X-RateLimit-Bucket": "site-ip" },
+          });
+        },
+      },
+    };
+  }
+
+  function ctxAt(
+    url: string,
+    opts: { api?: unknown; visitor?: string; cookie?: boolean } = {},
+  ): APIContext {
+    const headers = new Headers();
+    if (opts.visitor) headers.set("CF-Connecting-IP", opts.visitor);
+    if (opts.cookie) headers.set("Cookie", "nemar_session=a-session-cookie");
+    return {
+      request: new Request(url, { headers }),
+      locals: opts.api === undefined ? {} : { runtime: { env: { API: opts.api } } },
+      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+    } as unknown as APIContext;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetApiFetchWarningsForTests();
+  });
+
+  it("gives the render the binding and the visitor, so a page's API calls are counted as theirs", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { binding, seen } = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${MARKETING_HOST}/discover`, { api: binding, visitor: "198.51.100.7" }),
+      async () => {
+        // What a page's frontmatter does.
+        await apiFetch(`${API_URL}/datasets?limit=5`);
+        return new Response("ok");
+      },
+    );
+    expect(seen).toEqual([
+      { url: `${API_URL}/datasets?limit=5`, forwardedFor: "198.51.100.7", cookie: null },
+    ]);
+  });
+
+  it("asks who a signed-in visitor is over the binding, for that visitor", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { binding, seen } = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${APP_HOST}/dashboard`, {
+        api: binding,
+        visitor: "198.51.100.7",
+        cookie: true,
+      }),
+      async () => new Response("ok"),
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe(`${API_URL}/auth/me`);
+    expect(seen[0].forwardedFor).toBe("198.51.100.7");
+    expect(seen[0].cookie).toContain("nemar_session=a-session-cookie");
+  });
+
+  it("uses the public network when the project declares no binding", async () => {
+    const seen: string[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return new Response('{"error":"Unauthorized"}', { status: 401 });
+    }) as typeof fetch;
+    try {
+      await onRequest(
+        ctxAt(`https://${APP_HOST}/dashboard`, { visitor: "198.51.100.7", cookie: true }),
+        async () => new Response("ok"),
+      );
+    } finally {
+      globalThis.fetch = before;
+    }
+    expect(seen).toEqual([`${API_URL}/auth/me`]);
+  });
+
+  it("ignores a binding that is not one", async () => {
+    const seen: string[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return new Response('{"error":"Unauthorized"}', { status: 401 });
+    }) as typeof fetch;
+    try {
+      for (const api of ["not-a-binding", {}, { fetch: "no" }, null]) {
+        await onRequest(
+          ctxAt(`https://${APP_HOST}/dashboard`, { api, visitor: "198.51.100.7", cookie: true }),
+          async () => new Response("ok"),
+        );
+      }
+    } finally {
+      globalThis.fetch = before;
+    }
+    expect(seen).toHaveLength(4);
   });
 });
