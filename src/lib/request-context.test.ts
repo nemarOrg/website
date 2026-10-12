@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type RequestContext,
   currentWaitUntil,
   dataWasStale,
   markDataStale,
+  resetRequestContextWarningsForTests,
   runWithRequestContext,
+  sealRequestContext,
 } from "./request-context";
 
 describe("request context", () => {
@@ -71,5 +73,65 @@ describe("request context", () => {
     it("is a no-op outside a request", () => {
       expect(() => markDataStale()).not.toThrow();
     });
+  });
+});
+
+describe("request context: overlap in either order", () => {
+  it("keeps two requests apart when the one that started first also finishes first", async () => {
+    const a = () => {};
+    const b = () => {};
+    const [gotA, gotB] = await Promise.all([
+      runWithRequestContext({ waitUntil: a }, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return currentWaitUntil();
+      }),
+      runWithRequestContext({ waitUntil: b }, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 8));
+        return currentWaitUntil();
+      }),
+    ]);
+    expect(gotA).toBe(a);
+    expect(gotB).toBe(b);
+  });
+});
+
+describe("request context: a flag that has nowhere to land says so", () => {
+  beforeEach(() => {
+    resetRequestContextWarningsForTests();
+  });
+
+  afterEach(() => {
+    resetRequestContextWarningsForTests();
+    vi.restoreAllMocks();
+  });
+
+  it("warns once per isolate when the scope was lost", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    markDataStale();
+    markDataStale();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("outside a request context");
+  });
+
+  it("is quiet inside a request", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    runWithRequestContext({}, () => markDataStale());
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("errors once when the flag is raised after the middleware has read it, and still records it", () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ctx: RequestContext = {};
+    runWithRequestContext(ctx, () => {
+      markDataStale(); // in time
+      sealRequestContext(ctx);
+      markDataStale(); // too late
+      markDataStale();
+    });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0][0]).toContain("after the response was built");
+    expect(dataWasStale(ctx)).toBe(true);
   });
 });

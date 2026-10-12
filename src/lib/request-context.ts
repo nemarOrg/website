@@ -29,6 +29,8 @@ export interface RequestContext {
   readonly waitUntil?: (work: Promise<unknown>) => void;
   /** Raised by {@link markDataStale}: this render used data that was not fresh. */
   dataStale?: boolean;
+  /** Set once the middleware has read `dataStale`; a later {@link markDataStale} is too late to act on. */
+  sealed?: boolean;
 }
 
 interface Scope {
@@ -48,13 +50,50 @@ export function currentWaitUntil(): RequestContext["waitUntil"] {
   return scope.getStore()?.waitUntil;
 }
 
-/** Say that this request was answered from data that was not fresh. A no-op outside a request. */
+let warnedOutsideRequest = false;
+let warnedTooLate = false;
+
+/**
+ * Say that this request was answered from data that was not fresh (or missing),
+ * so the page built from it must not stay at the edge for long.
+ *
+ * It cannot say so quietly when it has nowhere to say it: outside any request
+ * (the scope was lost, which would silently stop every stale page being marked)
+ * or after the middleware has already read the flag (a catalog read made while
+ * the response streamed). Each is logged once per isolate.
+ */
 export function markDataStale(): void {
   const store = scope.getStore();
-  if (store) store.dataStale = true;
+  if (!store) {
+    if (!warnedOutsideRequest) {
+      warnedOutsideRequest = true;
+      console.warn(
+        "[request-context] stale data was used outside a request context; the page cannot be marked (logged once per isolate)",
+      );
+    }
+    return;
+  }
+  if (store.sealed && !warnedTooLate) {
+    warnedTooLate = true;
+    console.error(
+      "[request-context] stale data was marked after the response was built; its cache lifetime was not shortened (logged once per isolate)",
+    );
+  }
+  store.dataStale = true;
 }
 
 /** Whether {@link markDataStale} was called for this request. */
 export function dataWasStale(ctx: RequestContext): boolean {
   return ctx.dataStale === true;
+}
+
+/** Declare that the flag has been read: any later {@link markDataStale} is too late to act on. */
+export function sealRequestContext(ctx: RequestContext): void {
+  ctx.sealed = true;
+}
+
+/** Forget the once-per-isolate warnings. For the unit tests only. */
+export function resetRequestContextWarningsForTests(): void {
+  warnedOutsideRequest = false;
+  warnedTooLate = false;
 }
