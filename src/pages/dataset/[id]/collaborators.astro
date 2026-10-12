@@ -25,52 +25,78 @@ const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 let dataset: Dataset | null = null;
 let collaborators: readonly Collaborator[] = [];
 let loadError: string | null = null;
+// The catalog could not be read (the API is limited or slow). Not the same as a
+// dataset that is not there: the owner is told to try again.
+let unavailable = false;
 try {
   // getDataset reads the public catalog; the dataset has to exist to land here.
   // Past the cache: this page decides who may manage collaborators from the row
   // (`owner_username`), and must not act on a copy hours or days old.
   dataset = await getDataset(datasetId, { fresh: true });
 } catch (err) {
-  console.error(
-    `[collaborators] dataset ${datasetId} lookup failed: ${err instanceof Error ? err.message : String(err)}`,
-  );
-  // Not found is a 404. An API that is limited or slow is not "not found": an
-  // owner must be told to try again, not that their dataset does not exist.
-  if (isMissing(err)) return Astro.redirect("/404");
-  return new Response(null, {
-    status: 503,
-    headers: { "Retry-After": "15", "Cache-Control": "no-store" },
-  });
+  const reason = err instanceof Error ? err.message : String(err);
+  // Not found is a 404, and an ordinary one: a typo'd id is not an incident.
+  if (isMissing(err)) {
+    console.warn(`[collaborators] dataset ${datasetId} not found: ${reason}`);
+    return Astro.redirect("/404");
+  }
+  // An API that is limited or slow is not "not found": an owner must be told to
+  // try again, not that their dataset does not exist.
+  console.error(`[collaborators] dataset ${datasetId} lookup failed: ${reason}`);
+  unavailable = true;
 }
-if (!dataset) {
+if (!unavailable && !dataset) {
   return Astro.redirect("/404");
 }
 
-try {
-  const result = await listCollaborators(datasetId, { cookieHeader });
-  collaborators = result.collaborators;
-} catch (err) {
-  // 403 or 404 from the backend → render the surface as not-found (don't
-  // leak the existence of a collaborators page to outsiders). Log the
-  // actual status to the Worker tail so we can debug backend/frontend
-  // role drift later.
-  if (err instanceof DashboardApiError && (err.status === 403 || err.status === 404)) {
-    console.warn(
-      `[collaborators] listCollaborators returned ${err.status} for ${datasetId}; redirecting to /404`,
-    );
-    return Astro.redirect("/404");
+if (!unavailable) {
+  try {
+    const result = await listCollaborators(datasetId, { cookieHeader });
+    collaborators = result.collaborators;
+  } catch (err) {
+    // 403 or 404 from the backend → render the surface as not-found (don't
+    // leak the existence of a collaborators page to outsiders). Log the
+    // actual status to the Worker tail so we can debug backend/frontend
+    // role drift later.
+    if (err instanceof DashboardApiError && (err.status === 403 || err.status === 404)) {
+      console.warn(
+        `[collaborators] listCollaborators returned ${err.status} for ${datasetId}; redirecting to /404`,
+      );
+      return Astro.redirect("/404");
+    }
+    loadError = err instanceof Error ? err.message : "Could not load this dataset's collaborators.";
   }
-  loadError = err instanceof Error ? err.message : "Could not load this dataset's collaborators.";
 }
 
-const canManage = isCollaboratorManager(session, dataset);
-const ownerUsername = dataset.owner_username ?? "";
+const canManage = dataset ? isCollaboratorManager(session, dataset) : false;
+const ownerUsername = dataset?.owner_username ?? "";
+
+if (unavailable) {
+  Astro.response.status = 503;
+  Astro.response.headers.set("Retry-After", "15");
+  Astro.response.headers.set("Cache-Control", "no-store");
+}
 ---
 
 <Base
-  title={`Collaborators - ${dataset.name}`}
-  description={`Manage collaborators on ${dataset.name}.`}
+  title={dataset ? `Collaborators - ${dataset.name}` : "Collaborators"}
+  description={dataset ? `Manage collaborators on ${dataset.name}.` : "Manage collaborators."}
 >
+  {unavailable && (
+    <section class="collab-shell">
+      <header class="collab-header">
+        <a class="collab-header__back" href="/dashboard">&larr; Back to my datasets</a>
+        <div>
+          <h1 class="collab-header__title">The dataset service is busy</h1>
+          <p class="collab-header__lede">
+            We could not load this dataset just now. Your dataset is fine; reload this page in a
+            minute.
+          </p>
+        </div>
+      </header>
+    </section>
+  )}
+  {dataset && (
   <section class="collab-shell">
     <header class="collab-header">
       <a class="collab-header__back" href="/dashboard">&larr; Back to my datasets</a>
@@ -103,6 +129,7 @@ const ownerUsername = dataset.owner_username ?? "";
       </p>
     )}
   </section>
+  )}
 </Base>
 
 <style>
