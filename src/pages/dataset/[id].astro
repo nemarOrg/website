@@ -27,6 +27,7 @@ import { splitModalities } from "../../lib/format";
 import { canonicalOriginFor } from "../../lib/host";
 import { datasetJsonLdScript } from "../../lib/jsonld";
 import { detectProvenance } from "../../lib/provenance";
+import { markDataStale } from "../../lib/request-context";
 import { buildSignposting, signpostingLinkHeader } from "../../lib/signposting";
 import { modalityHref, zarrTag } from "../../lib/tags";
 import { buildUseThisData, markdownMirrorUrl } from "../../lib/use-this-data";
@@ -77,6 +78,9 @@ const [landingOut, metadataOut, catalogRow] = await Promise.all([
         console.warn(
           `[dataset/${id}] catalog row fetch failed, omitting channel stat: ${err instanceof Error ? err.message : String(err)}`,
         );
+        // The page renders without the stat, so it is degraded: keep it from
+        // sitting at the edge for long (lib/response-cache-policy.ts).
+        markDataStale();
         return null;
       })
     : Promise.resolve(null),

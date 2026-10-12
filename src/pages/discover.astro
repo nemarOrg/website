@@ -22,6 +22,7 @@ import {
   filterStateToURL,
   hasClientOnlyFilters,
 } from "../lib/filters";
+import { discoverCacheControl } from "../lib/response-cache-policy";
 import { type Dataset, SORT_OPTIONS, type SearchResult } from "../lib/types";
 
 const url = new URL(Astro.request.url);
@@ -167,9 +168,10 @@ try {
   }
 } catch (err) {
   // Log the raw detail to Worker logs; show users a sanitized message rather
-  // than leaking internal service names / status codes.
+  // than leaking internal service names / status codes. Not the search text:
+  // what someone searched for is theirs, and a failure is logged on every try.
   console.error(
-    `[discover] load failed (q="${state.q}"): ${err instanceof Error ? err.message : String(err)}`,
+    `[discover] load failed (${isSearch ? `a search of ${state.q.length} characters` : "browse"}): ${err instanceof Error ? err.message : String(err)}`,
   );
   rateLimited = isRateLimited(err);
   fetchError = rateLimited
@@ -204,13 +206,11 @@ if (isSearch) {
 // stale-while-revalidate stays short for the same reason.
 Astro.response.headers.set(
   "Cache-Control",
-  fetchError
-    ? "no-store"
-    : hydrationFailures > 0
-      ? "public, max-age=0, s-maxage=60"
-      : isSearch
-        ? "public, max-age=60, s-maxage=1800, stale-while-revalidate=600"
-        : "public, max-age=60, s-maxage=3600, stale-while-revalidate=600",
+  discoverCacheControl({
+    failed: fetchError !== null,
+    degraded: hydrationFailures > 0,
+    search: isSearch,
+  }),
 );
 if (fetchError) {
   // A failed load is not a successful page: answering 200 let crawlers index
