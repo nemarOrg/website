@@ -51,6 +51,8 @@ dataset = "nemar_website_embeds_dev"
 # server calls share one allowance. Previews deliberately go without: `services` is
 # non-inheritable and `[env.preview.*]` above declares an environment, so a preview has none, and
 # a branch build runs unreviewed code that must not be able to name a visitor at the production API.
+# Wrangler warns that `services` is missing from `env.preview`; that warning is expected, so do not
+# silence it by restating the binding there (test/wrangler-bindings.test.ts fails if you do).
 [[services]]
 binding = "API"
 service = "nemar-api"
