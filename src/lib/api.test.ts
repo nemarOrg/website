@@ -328,6 +328,101 @@ describe("listAllDatasets", () => {
   });
 });
 
+describe("what the cache is allowed to keep", () => {
+  it("refuses a body that is not what an endpoint returns, rather than hand it to a page", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response("null", { status: 200 }),
+    ) as unknown as typeof fetch;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(listDatasets({})).rejects.toThrow(/invalid response/);
+    await expect(getDataset("nm000001")).rejects.toThrow(/invalid response/);
+    await expect(searchDatasets("eeg")).rejects.toThrow(/invalid response/);
+  });
+
+  it("accepts the detail endpoint's wrapped and unwrapped shapes", async () => {
+    const wrapped = { dataset: { dataset_id: "nm000001", name: "A" } };
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify(wrapped), { status: 200 }),
+    ) as unknown as typeof fetch;
+    expect((await getDataset("nm000001")).name).toBe("A");
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify(wrapped.dataset), { status: 200 }),
+    ) as unknown as typeof fetch;
+    expect((await getDataset("nm000001")).name).toBe("A");
+  });
+});
+
+describe("listAllDatasets: pages from different moments", () => {
+  const row = (id: string) => ({ dataset_id: id, id, name: id });
+  const page = (ids: string[], total: number) =>
+    new Response(
+      JSON.stringify({ datasets: ids.map(row), total_count: total, count: ids.length }),
+      {
+        status: 200,
+      },
+    );
+
+  it("reads the pages again when they disagree about the catalog's size", async () => {
+    const asked: string[] = [];
+    // First read: page 2 comes from an older moment (a smaller catalog). Second read: consistent.
+    let reads = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const offset = Number(url.searchParams.get("offset"));
+      asked.push(`${reads}:${offset}`);
+      if (offset === 0) {
+        reads++;
+        return page(
+          Array.from({ length: 200 }, (_, i) => `a${i}`),
+          201,
+        );
+      }
+      return reads === 1 ? page(["old"], 200) : page(["last"], 201);
+    }) as unknown as typeof fetch;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const rows = await listAllDatasets();
+    expect(rows.map((r) => r.dataset_id)).toContain("last");
+    expect(rows.map((r) => r.dataset_id)).not.toContain("old");
+    expect(reads).toBe(2);
+  });
+
+  it("keeps the mixed pages when the second read fails: a list stitched from two moments beats none", async () => {
+    let offsetZeroReads = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      if (offset === 0) {
+        offsetZeroReads++;
+        if (offsetZeroReads > 1) return new Response("boom", { status: 503 });
+        return page(
+          Array.from({ length: 200 }, (_, i) => `a${i}`),
+          201,
+        );
+      }
+      return page(["old"], 200);
+    }) as unknown as typeof fetch;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const rows = await listAllDatasets();
+    expect(rows).toHaveLength(201);
+  });
+
+  it("does not read twice when the pages agree", async () => {
+    let calls = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls++;
+      const offset = Number(new URL(String(input)).searchParams.get("offset"));
+      return offset === 0
+        ? page(
+            Array.from({ length: 200 }, (_, i) => `a${i}`),
+            201,
+          )
+        : page(["last"], 201);
+    }) as unknown as typeof fetch;
+    await listAllDatasets();
+    expect(calls).toBe(2);
+  });
+});
+
 describe("isManagedDatasetId", () => {
   it("accepts managed nm*/on*/xx* ids the detail endpoint serves", () => {
     expect(isManagedDatasetId("nm000156")).toBe(true);
