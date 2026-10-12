@@ -41,3 +41,29 @@ The cache is per data center, so a cold data center still depends on the API.
 
 - website: the commits for this ADR.
 - nemar-cli `backend/src/middleware/rateLimit.ts` (the bucket policy and its comment on the shared egress IPs).
+
+## Update 2026-10-12: longer lives, refresh behind the response
+
+The numbers in Decision above (60 seconds fresh, 24 hours kept) are superseded by this section.
+The data is public and changes slowly, and robots and people alike should find it, so the site answers from a stored copy far more often than it asks.
+
+A stored body is now in one of four states, by age:
+
+| Age | What happens |
+|---|---|
+| under 10 minutes | served, no API call |
+| 10 minutes to 6 hours | served at once, and refreshed after the response (`waitUntil`), so the next visitor gets the new data |
+| 6 hours to 3 days | the API is asked first; on 429, 5xx, timeout, or network error the stored copy is served |
+| over 3 days, or never stored | the API is the only source |
+
+Three days is a ceiling, not a target: it is checked in code as well as set as the cache entry's own lifetime.
+Where there is no `waitUntil` (`astro dev`, unit tests) the second state does not exist and the entry is refreshed inline.
+
+- **`waitUntil` reaches the cache through `src/lib/request-context.ts`.** The middleware opens an `AsyncLocalStorage` scope around the render; the lib has no Astro context of its own.
+- **A failing API is left alone.** When a refresh or an inline call fails, a stale entry is served for the next minute without calling the API again. Without this, every visitor spends a request on an API that is already refusing them, which prolongs the outage the cache exists to hide. The memory is per isolate and bounded to 500 keys, because a crawler can mint unlimited queries.
+- **One refresh per key per isolate at a time**, so a burst of visitors starts one call.
+- **`/discover` pages are cached at the edge for an hour** (30 minutes for a search), up from two minutes. A new dataset therefore reaches a page within about an hour and ten minutes at most.
+
+Consequences added: the first visitor after a quiet period can see data up to 6 hours old, once; a dataset withdrawn from the catalog can still be listed for the same period; the cache is per data center, so a cold data center is as dependent on the API as before.
+Checked in local workerd with the timings shortened: a copy past fresh answered in 6 ms while a 1.5 s API call ran behind it, the next request had the new data, and with the API returning 429 two further requests made no API call.
+
