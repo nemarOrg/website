@@ -68,7 +68,11 @@ The server-only call sites use it: the catalog reads (`api.ts`, `api-cache.ts`),
 - **A broken binding fails closed.**
   There is no retry on the public network, so a misconfigured or failing binding fails every catalog read the cache cannot answer, and the session lookup, which treats an error as signed out, drops every signed-in visitor.
   The logs above say so; the stale copies (ADR 0025) keep the catalog pages up for up to three days.
-- **The wiring change carries three more checks**, because the code cannot know whether a project is meant to have a binding: a once-per-isolate warning when a production host has none (the way `EMBED_ANALYTICS` is checked, ADR 0024), the `[env.preview]` restatement the non-inheritable binding needs, and the first-call lines above read on test.nemar.org and then on nemar.org.
+- **The wiring is declared, and checked.**
+  `wrangler.toml` binds `API` to `nemar-api` and `wrangler.test.toml` binds it to `nemar-api-dev`.
+  Previews go without: `services` is not inherited into an environment, and a branch build runs unreviewed code that must not be able to name a visitor at the production API.
+  A production host with no binding logs one warning per isolate (the way `EMBED_ANALYTICS` is checked, ADR 0024), since the site would otherwise work and quietly stay in the shared pool.
+  The first-call lines above are read on test.nemar.org and then on nemar.org after each release.
 - Any Worker in the account that binds to the API can name any visitor (nemar-cli ADR 0098); the account is the trust boundary, as it is for the private-site binding.
 - Local workerd shows the shape (a binding call carries no `CF-Connecting-IP` and the visitor in `X-Forwarded-For`), but the API's development Worker bypasses the limiter, so the keying itself can be confirmed only on production.
 
