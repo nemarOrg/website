@@ -48,6 +48,16 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 - **Selected filter chips could not be unselected** (#440).
   A chip the server had rendered as selected kept looking selected after it was unchecked.
+- **A participant range typed into the filters could be silently dropped** (#446).
+  Typing a minimum and tabbing through the maximum without editing it left the range unapplied, with the Apply button hidden.
+  Applying now waits while a range field has focus and resumes when focus leaves the range fields.
+- **Back after a live filter showed a control that did not match the page** (#446).
+  A chip just clicked stayed checked over the unfiltered list; the filter form is now put back to what the server rendered when the page is restored.
+- **A Discover page past the last page** (#446) answered "6 results" over "No datasets match", and was cached for an hour. It now redirects to the last page that has results.
+- **A search carrying a leftover density, electrode, or channel filter** (#446) dropped to a 100-result window for a filter that does nothing during a search. It now pages the real results.
+- **A search for one modality inside the 100-result window** (#446) let iEEG-only datasets through for EEG; the window now checks the exact modality. (The API's own `modality` is a substring match; that is filed upstream.)
+- **The collaborators page** (#446) shows an explanation with a `503` when the dataset service is busy, instead of an empty response.
+- **A catalog read that falls well short of the size the API reported** (#446), a markdown mirror built without its catalog row, and a paged read whose time is spent now keep their page out of the edge cache for long, and a consistency re-read no longer adds calls while the API is refusing.
 
 ## [0.2.29] - 2026-10-06
 
