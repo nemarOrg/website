@@ -5,6 +5,7 @@ import type {
   DatasetListResponse,
   DatasetQuery,
   DatasetSearchResponse,
+  SearchFilters,
   SearchResult,
 } from "./types";
 
@@ -163,16 +164,27 @@ export async function listAllDatasets(
  * highlights) with Vectorize semantic recall via reciprocal rank fusion and
  * returns id-keyed hits ranked by relevance.
  *
- * Unlike {@link listDatasets} this endpoint returns a reduced projection and
- * has NO `offset` support, so callers paginate client-side over the ranked
- * list and hydrate the visible page to full {@link Dataset} rows by id.
+ * Unlike {@link listDatasets} this endpoint returns a reduced projection, so
+ * callers hydrate the visible page to full {@link Dataset} rows by id. It
+ * pages with `limit` (at most 100) and `offset`, and enforces `filters`
+ * server-side (nemar-cli#683), so `count` is the true number of matches. It
+ * ranks by relevance and ignores `sort`.
  */
 export async function searchDatasets(
   q: string,
-  init: { limit?: number; signal?: AbortSignal; timeoutMs?: number } = {},
+  init: {
+    limit?: number;
+    offset?: number;
+    filters?: SearchFilters;
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  } = {},
 ): Promise<DatasetSearchResponse> {
   const sp = new URLSearchParams({ q });
-  if (init.limit != null) sp.set("limit", String(init.limit));
+  // buildQuery drops the filters that are unset and serializes booleans the
+  // way the backend accepts them.
+  const rest = buildQuery({ ...init.filters, limit: init.limit, offset: init.offset });
+  for (const [key, value] of new URLSearchParams(rest)) sp.set(key, value);
   const url = `${apiBase()}/datasets/search?${sp.toString()}`;
   return cachedJson<DatasetSearchResponse>(url, {
     signal: resolveSignal(init),

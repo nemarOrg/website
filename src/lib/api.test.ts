@@ -155,6 +155,32 @@ describe("searchDatasets", () => {
     expect(res.results[0].snippet).toContain("<mark>memory</mark>");
   });
 
+  it("sends offset and the server-enforced filters, and omits the unset ones", async () => {
+    const captured: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      captured.push(typeof input === "string" ? input : input.toString());
+      return new Response(
+        JSON.stringify({ results: [], count: 0, method: "semantic", min_score: 0.6 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+
+    await searchDatasets("eeg", {
+      limit: 10,
+      offset: 20,
+      filters: { license: "public,attribution", has_zarr: true, modality: undefined },
+    });
+    const sent = new URL(captured[0]).searchParams;
+    expect(sent.get("q")).toBe("eeg");
+    expect(sent.get("limit")).toBe("10");
+    expect(sent.get("offset")).toBe("20");
+    expect(sent.get("license")).toBe("public,attribution");
+    expect(sent.get("has_zarr")).toBe("true");
+    expect(sent.has("modality")).toBe(false);
+    expect(sent.has("has_hed")).toBe(false);
+    expect(sent.has("sort")).toBe(false);
+  });
+
   it("url-encodes the query", async () => {
     const captured: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {

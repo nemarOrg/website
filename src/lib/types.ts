@@ -144,10 +144,24 @@ export interface SearchResult {
  */
 export interface DatasetSearchResponse {
   results: SearchResult[];
+  /** Total matches for the query and filters; can exceed what is pageable
+   *  (see `candidate_ceiling`). */
   count: number;
   method: string;
   min_score: number;
+  /** Rows in this response, `offset`, and `limit` echo the paging that ran. */
+  returned?: number;
+  offset?: number;
+  limit?: number;
+  /** The most rows this query can ever page through. Past it, a page is empty
+   *  even though `count` is truthful (nemar-cli `dataset-search.ts`). */
+  candidate_ceiling?: number;
+  /** True when `count` exceeds `candidate_ceiling`. */
+  truncated?: boolean;
 }
+
+/** The catalog filters `GET /datasets/search` enforces server-side (nemar-cli#683). */
+export type SearchFilters = Pick<DatasetQuery, "modality" | "license" | "has_hed" | "has_zarr">;
 
 export type SortOption = "newest" | "oldest" | "name" | "participants" | "size" | "citations";
 

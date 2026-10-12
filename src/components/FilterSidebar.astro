@@ -17,8 +17,9 @@ interface Props {
   state: FilterState;
   /**
    * When a freetext query is active, results come from the hybrid search
-   * endpoint, which can't filter by license, channels, or Zarr, so those
-   * controls are disabled with a hint rather than letting them silently no-op.
+   * endpoint. It enforces modality, license, HED, and Zarr itself (nemar-cli#683)
+   * but its rows carry no channel or montage facts, so only those two controls
+   * are disabled, with a hint, rather than silently doing nothing.
    */
   searchActive?: boolean;
 }
@@ -26,10 +27,11 @@ interface Props {
 const { state, searchActive = false } = Astro.props;
 ---
 
-{/* `id` is the target of the results toolbar's `<select form=...>`: the
-    Sort by control lives above the list (website#346) but submits with this
-    form, so a re-sort carries any filter edit not yet applied, and Apply
-    keeps the chosen order. */}
+{/* `id` is the target of two controls that live elsewhere on the page and
+    submit with this form: the results toolbar's Sort by (website#346) and the
+    search box in the page header. Being one form is what makes a search carry
+    the selected filters and a filter carry the search, and a re-sort carry any
+    edit not yet applied. */}
 <form
   id="discover-filters"
   class="filters"
@@ -64,7 +66,7 @@ const { state, searchActive = false } = Astro.props;
       {MODALITY_CODES.map((mod) => {
         const selected = state.modalities.includes(mod);
         return (
-          <label class:list={["chip", `chip--mod-${modalityVariant(mod)}`, selected && "chip--on"]}>
+          <label class:list={["chip", `chip--mod-${modalityVariant(mod)}`]}>
             <input
               type="checkbox"
               name="modality"
@@ -80,21 +82,10 @@ const { state, searchActive = false } = Astro.props;
           It filters on its own and is never part of the OR/AND above. */}
       <TagSeparator>
         <label
-          class:list={[
-            "chip",
-            "chip--zarr",
-            state.hasZarr && "chip--on",
-            searchActive && "chip--disabled",
-          ]}
+          class="chip chip--zarr"
           title="Only datasets with a converted Zarr copy of their recordings."
         >
-          <input
-            type="checkbox"
-            name="has_zarr"
-            value="1"
-            checked={state.hasZarr}
-            disabled={searchActive}
-          />
+          <input type="checkbox" name="has_zarr" value="1" checked={state.hasZarr} />
           <span>Zarr</span>
         </label>
       </TagSeparator>
@@ -108,33 +99,17 @@ const { state, searchActive = false } = Astro.props;
         const selected = state.licenseTiers.includes(tier);
         return (
           <label
-            class:list={[
-              "chip",
-              "chip--lic",
-              `chip--lic-${tier}`,
-              selected && "chip--on",
-              searchActive && "chip--disabled",
-            ]}
+            class:list={["chip", "chip--lic", `chip--lic-${tier}`]}
             title={LICENSE_TIER_BLURB[tier]}
           >
-            <input
-              type="checkbox"
-              name="license"
-              value={tier}
-              checked={selected}
-              disabled={searchActive}
-            />
+            <input type="checkbox" name="license" value={tier} checked={selected} />
             <span class="chip__dot" aria-hidden="true"></span>
             <span>{LICENSE_TIER_LABELS[tier]}</span>
           </label>
         );
       })}
     </div>
-    <p class="filters__note">
-      {searchActive
-        ? "License filtering isn't available while searching — clear the search box to filter by license."
-        : "Green is most permissive, red most restrictive."}
-    </p>
+    <p class="filters__note">Green is most permissive, red most restrictive.</p>
   </div>
 
   <div class="filters__group">
@@ -173,17 +148,8 @@ const { state, searchActive = false } = Astro.props;
         </label>
       </li>
       <li>
-        <label
-          class:list={[searchActive && "flag--disabled"]}
-          title="Recordings open in the in-browser signal viewer."
-        >
-          <input
-            type="checkbox"
-            name="has_viewer"
-            value="1"
-            checked={state.hasViewer}
-            disabled={searchActive}
-          />
+        <label title="Recordings open in the in-browser signal viewer.">
+          <input type="checkbox" name="has_viewer" value="1" checked={state.hasViewer} />
           Has viewer
         </label>
       </li>
@@ -201,11 +167,6 @@ const { state, searchActive = false } = Astro.props;
         </label>
       </li>
     </ul>
-    {searchActive && (
-      <p class="filters__note">
-        The viewer and Zarr filters aren't available while searching — clear the search box to use them.
-      </p>
-    )}
   </div>
 
   <div class="filters__group">
@@ -236,10 +197,91 @@ const { state, searchActive = false } = Astro.props;
   </div>
 
   <div class="filters__actions">
+    {/* Without JavaScript this is how a selection is applied. With it, the
+        script below applies as you select and this gives way to the note. */}
     <button type="submit" class="filters__apply">Apply</button>
+    <p class="filters__auto" aria-live="polite">Filters apply as you select them.</p>
     <a href="/discover" class="filters__reset">Reset</a>
   </div>
 </form>
+
+<script>
+  // Apply filters as they are selected, instead of making people hit Apply.
+  // Without this script the form still works: Apply submits it.
+  const form = document.querySelector<HTMLFormElement>("[data-filter-form]");
+  const RESTORE_KEY = "nemar:discover:restore";
+  // Long enough that picking two chips in a row is one reload, not two.
+  const DEBOUNCE_MS = 600;
+
+  if (form) {
+    form.dataset.autoApply = "";
+
+    // Leave empty fields and untouched defaults out of the address, so a shared
+    // or cached URL is `?modality=EEG` and not
+    // `?q=&modality_op=OR&modality=EEG&p_min=&p_max=&sort=newest`.
+    const DEFAULTS: Record<string, string> = { modality_op: "OR", sort: "newest" };
+    form.addEventListener("formdata", (event) => {
+      for (const [name, value] of [...event.formData.entries()]) {
+        if (value === "" || DEFAULTS[name] === value) event.formData.delete(name);
+      }
+    });
+
+    // A submit is a new page load, which would scroll back to the top and drop
+    // focus. Keep both across it, only for a submit this script started.
+    const remember = () => {
+      const active = document.activeElement;
+      const control =
+        active instanceof HTMLInputElement || active instanceof HTMLSelectElement ? active : null;
+      try {
+        sessionStorage.setItem(
+          RESTORE_KEY,
+          JSON.stringify({
+            y: window.scrollY,
+            name: control?.name ?? null,
+            value: control instanceof HTMLInputElement ? control.value : null,
+          }),
+        );
+      } catch {
+        // Storage can be blocked; the page then loads at the top, as before.
+      }
+    };
+
+    let timer: number | undefined;
+    const apply = () => {
+      // Someone typing a range has not finished: their field's own `change`
+      // (on leaving it, or Enter) applies everything, this field included.
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement && active.type === "number" && form.contains(active)) {
+        return;
+      }
+      remember();
+      form.requestSubmit();
+    };
+    form.addEventListener("change", () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(apply, DEBOUNCE_MS);
+    });
+
+    try {
+      const raw = sessionStorage.getItem(RESTORE_KEY);
+      if (raw) {
+        sessionStorage.removeItem(RESTORE_KEY);
+        const saved = JSON.parse(raw) as { y?: number; name?: string | null; value?: string | null };
+        if (typeof saved.y === "number") window.scrollTo(0, saved.y);
+        if (saved.name) {
+          const byValue =
+            saved.value != null ? `[value="${CSS.escape(saved.value)}"]` : "";
+          const target =
+            form.querySelector<HTMLElement>(`[name="${CSS.escape(saved.name)}"]${byValue}`) ??
+            form.querySelector<HTMLElement>(`[name="${CSS.escape(saved.name)}"]`);
+          target?.focus({ preventScroll: true });
+        }
+      }
+    } catch {
+      // Nothing to restore, or storage is unavailable.
+    }
+  }
+</script>
 
 <style>
   .filters {
@@ -320,25 +362,12 @@ const { state, searchActive = false } = Astro.props;
     width: 1px;
     height: 1px;
   }
-  /* Disabled while a search query is active (the hybrid search endpoint can't
-     filter by license or Zarr). Mirrors the selects' disabled treatment. */
-  .chip--disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  /* A previously-selected chip must read as suspended, not active, while
-     disabled — strip the tier tint so it doesn't look like a live filter. */
-  .chip--disabled.chip--on,
-  .chip--disabled:has(input:checked) {
-    background: var(--color-bg);
-    border-color: var(--color-border-strong);
-    color: var(--color-fg-muted);
-  }
   /* Selected chips tint with their own tag color (modality / license tier),
      falling back to brand-teal for any chip without one. Keeps the sidebar
      color language in lockstep with the tags it filters — see the tag color
-     bible in .rules/design-language.md. */
-  .chip--on,
+     bible in .rules/design-language.md. Driven by the live checkbox alone: a
+     server-rendered "on" class used to outlive the click, so a chip looked
+     selected after being unchecked and could not be cleared. */
   .chip:has(input:checked) {
     background: color-mix(in srgb, var(--chip-color, var(--brand-teal)) 15%, transparent);
     border-color: var(--chip-color, var(--brand-teal));
@@ -419,15 +448,6 @@ const { state, searchActive = false } = Astro.props;
     color: var(--color-fg-subtle);
     cursor: not-allowed;
   }
-  /* Temporarily disabled while a search query is active (the viewer filter
-     isn't wired for the hybrid search endpoint yet, website#280). Distinct
-     from .flag--soon (a not-yet-shipped feature): same muted treatment,
-     different reason, so it doesn't read as "coming later" when it's
-     really "clear the search box". */
-  .filters__flags label.flag--disabled {
-    color: var(--color-fg-subtle);
-    cursor: not-allowed;
-  }
   .soon-pill {
     margin-inline-start: auto;
     font-size: var(--fs-xs);
@@ -483,6 +503,22 @@ const { state, searchActive = false } = Astro.props;
     border-radius: var(--radius-pill);
     font-weight: var(--fw-medium);
     font-size: var(--fs-sm);
+  }
+  /* JS-only: with the script running, filters apply on their own, so the
+     button is hidden and a one-line note says so (WCAG 3.2.2: tell people
+     before a control changes the page). */
+  .filters__auto {
+    display: none;
+    flex: 1;
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+  .filters[data-auto-apply] .filters__apply {
+    display: none;
+  }
+  .filters[data-auto-apply] .filters__auto {
+    display: block;
   }
   .filters__reset {
     color: var(--color-fg-muted);
