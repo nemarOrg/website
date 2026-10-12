@@ -2,16 +2,21 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   type BodyStore,
   FRESH_MS,
+  RETAIN_S,
+  RETRY_AFTER_FAILURE_MS,
+  REVALIDATE_MS,
   type StoredBody,
   UpstreamError,
   cachedJson,
   isRateLimited,
+  resetApiCacheStateForTests,
 } from "./api-cache";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  resetApiCacheStateForTests();
 });
 
 /** A real, in-memory implementation of the store interface (not a stub of logic). */
@@ -218,5 +223,170 @@ describe("isRateLimited", () => {
     expect(isRateLimited(new UpstreamError("x", 503))).toBe(false);
     expect(isRateLimited(new Error("429"))).toBe(false);
     expect(isRateLimited(undefined)).toBe(false);
+  });
+});
+
+/** Collects the background work a call schedules, so a test can await it. */
+function backgroundWork(): {
+  waitUntil: (work: Promise<unknown>) => void;
+  settled: () => Promise<void>;
+  count: () => number;
+} {
+  const pending: Promise<unknown>[] = [];
+  return {
+    waitUntil: (work) => {
+      pending.push(work);
+    },
+    settled: async () => {
+      await Promise.all(pending);
+    },
+    count: () => pending.length,
+  };
+}
+
+describe("cachedJson: stale-while-revalidate", () => {
+  const storedAt = 1_000_000;
+  const stale = { body: '{"n":1}', storedAt };
+  const inWindow = () => storedAt + FRESH_MS + 1;
+
+  it("serves a copy past fresh at once and refreshes it behind the response", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const api = respondWith(() => json({ n: 2 }));
+    const bg = backgroundWork();
+    const got = await cachedJson(URL_A, {
+      signal: signal(),
+      label: "list datasets",
+      store,
+      now: inWindow,
+      waitUntil: bg.waitUntil,
+    });
+    expect(got).toEqual({ n: 1 }); // the old copy, immediately
+    expect(bg.count()).toBe(1);
+    await bg.settled();
+    expect(api.calls()).toBe(1);
+    expect(store.entries.get(URL_A)).toEqual({ body: '{"n":2}', storedAt: inWindow() });
+  });
+
+  it("starts one refresh for a burst of visitors", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const api = respondWith(() => json({ n: 2 }));
+    const bg = backgroundWork();
+    const opts = {
+      signal: signal(),
+      label: "list datasets",
+      store,
+      now: inWindow,
+      waitUntil: bg.waitUntil,
+    };
+    await Promise.all([cachedJson(URL_A, opts), cachedJson(URL_A, opts), cachedJson(URL_A, opts)]);
+    await bg.settled();
+    expect(api.calls()).toBe(1);
+  });
+
+  it("keeps the old copy when the refresh fails, and does not ask again for a minute", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const api = respondWith(
+      () => new Response("slow down", { status: 429, statusText: "Too Many Requests" }),
+    );
+    let clock = inWindow();
+    const bg = backgroundWork();
+    const opts = {
+      signal: signal(),
+      label: "list datasets",
+      store,
+      now: () => clock,
+      waitUntil: bg.waitUntil,
+    };
+    expect(await cachedJson(URL_A, opts)).toEqual({ n: 1 });
+    await bg.settled();
+    expect(api.calls()).toBe(1);
+    expect(store.entries.get(URL_A)).toEqual(stale); // untouched
+
+    // Within the backoff: served, and the API is left alone.
+    clock += RETRY_AFTER_FAILURE_MS - 1;
+    expect(await cachedJson(URL_A, opts)).toEqual({ n: 1 });
+    expect(api.calls()).toBe(1);
+    expect(bg.count()).toBe(1);
+
+    // Past it: one more try.
+    clock += 2;
+    await cachedJson(URL_A, opts);
+    await bg.settled();
+    expect(api.calls()).toBe(2);
+  });
+
+  it("refreshes inline when there is nowhere to run background work", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const api = respondWith(() => json({ n: 2 }));
+    const got = await cachedJson(URL_A, {
+      signal: signal(),
+      label: "list datasets",
+      store,
+      now: inWindow,
+    });
+    expect(got).toEqual({ n: 2 });
+    expect(api.calls()).toBe(1);
+  });
+
+  it("asks the API first, not behind the response, once past the revalidate window", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    const api = respondWith(() => json({ n: 2 }));
+    const bg = backgroundWork();
+    const got = await cachedJson(URL_A, {
+      signal: signal(),
+      label: "list datasets",
+      store,
+      now: () => storedAt + REVALIDATE_MS + 1,
+      waitUntil: bg.waitUntil,
+    });
+    expect(got).toEqual({ n: 2 });
+    expect(bg.count()).toBe(0);
+    expect(api.calls()).toBe(1);
+  });
+});
+
+describe("cachedJson: the three-day ceiling", () => {
+  const storedAt = 1_000_000;
+  const stale = { body: '{"n":1}', storedAt };
+
+  it("still serves a copy just inside three days when the API is down", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    respondWith(() => new Response("slow down", { status: 429, statusText: "Too Many Requests" }));
+    const got = await cachedJson(URL_A, {
+      signal: signal(),
+      label: "list datasets",
+      store,
+      now: () => storedAt + RETAIN_S * 1000,
+    });
+    expect(got).toEqual({ n: 1 });
+  });
+
+  it("does not serve a copy older than three days, even with the API down", async () => {
+    const store = memoryStore({ [URL_A]: stale });
+    respondWith(() => new Response("slow down", { status: 429, statusText: "Too Many Requests" }));
+    await expect(
+      cachedJson(URL_A, {
+        signal: signal(),
+        label: "list datasets",
+        store,
+        now: () => storedAt + RETAIN_S * 1000 + 1,
+      }),
+    ).rejects.toMatchObject({ name: "UpstreamError", status: 429 });
+  });
+
+  it("is three days, no more", () => {
+    expect(RETAIN_S).toBe(3 * 24 * 60 * 60);
+  });
+});
+
+describe("cachedJson: a failing API with nothing stored", () => {
+  it("is asked every time: there is no copy to protect it with", async () => {
+    const api = respondWith(
+      () => new Response("slow down", { status: 429, statusText: "Too Many Requests" }),
+    );
+    const opts = { signal: signal(), label: "list datasets", store: memoryStore() };
+    await cachedJson(URL_A, opts).catch(() => {});
+    await cachedJson(URL_A, opts).catch(() => {});
+    expect(api.calls()).toBe(2);
   });
 });
