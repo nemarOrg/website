@@ -26,7 +26,9 @@ let collaborators: readonly Collaborator[] = [];
 let loadError: string | null = null;
 try {
   // getDataset reads the public catalog; the dataset has to exist to land here.
-  dataset = await getDataset(datasetId);
+  // Past the cache: this page decides who may manage collaborators from the row
+  // (`owner_username`), and must not act on a copy hours or days old.
+  dataset = await getDataset(datasetId, { fresh: true });
 } catch {
   return Astro.redirect("/404");
 }

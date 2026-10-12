@@ -49,6 +49,9 @@ let fetchError: string | null = null;
 // site serves, so "busy, try again in a minute" is more useful than a generic
 // failure, and it tells a crawler to back off (see the 503 below).
 let rateLimited = false;
+// Cards that fell back to the reduced search projection because their dataset
+// could not be fetched. A page with any is degraded and must not be cached long.
+let hydrationFailures = 0;
 
 // Cap every backend hop so a stalled upstream fails fast (and falls back)
 // instead of holding the SSR response until the Worker CPU limit kills it.
@@ -94,7 +97,7 @@ try {
     // attempted hydration failed, surface an outage instead of degrading
     // silently.
     let attempted = 0;
-    let hydrationFailures = 0;
+    let hydrationRateLimited = false;
     cards = await Promise.all(
       slice.map(async (r) => {
         if (!isManagedDatasetId(r.id)) {
@@ -112,6 +115,7 @@ try {
           };
         } catch (err) {
           hydrationFailures++;
+          if (isRateLimited(err)) hydrationRateLimited = true;
           console.warn(
             `[discover] hydration failed for ${r.id}: ${err instanceof Error ? err.message : String(err)}`,
           );
@@ -120,7 +124,15 @@ try {
       }),
     );
     if (attempted > 0 && hydrationFailures === attempted) {
-      fetchError = "Search is temporarily unavailable. Please try again in a moment.";
+      // Every card failed. A 429 from any of them is the cause worth naming.
+      rateLimited = hydrationRateLimited;
+      fetchError = rateLimited
+        ? "The dataset service is busy right now. Please try again in a minute."
+        : "Search is temporarily unavailable. Please try again in a moment.";
+    } else if (hydrationFailures > 0) {
+      console.error(
+        `[discover] ${hydrationFailures} of ${attempted} cards rendered from the search projection after hydration failures; not caching the page for long`,
+      );
     }
   } else {
     const baseQuery = filterStateToAPIQuery(state);
@@ -185,14 +197,20 @@ if (isSearch) {
 // people alike should find it, so a page lives an hour at the edge (half that
 // for a search, whose ranking moves with the index). The data behind it is
 // itself cached for ten minutes (lib/api-cache.ts), so a new dataset reaches a
-// page within about an hour and ten minutes at most.
+// page within about an hour and ten minutes. Two things shorten that, because
+// an hour-long page would otherwise pin them: a page with cards that failed to
+// hydrate is kept a minute, and so is any page the middleware finds was built
+// from stale data (lib/response-cache-policy.ts). The browser's own
+// stale-while-revalidate stays short for the same reason.
 Astro.response.headers.set(
   "Cache-Control",
   fetchError
     ? "no-store"
-    : isSearch
-      ? "public, max-age=60, s-maxage=1800, stale-while-revalidate=86400"
-      : "public, max-age=60, s-maxage=3600, stale-while-revalidate=86400",
+    : hydrationFailures > 0
+      ? "public, max-age=0, s-maxage=60"
+      : isSearch
+        ? "public, max-age=60, s-maxage=1800, stale-while-revalidate=600"
+        : "public, max-age=60, s-maxage=3600, stale-while-revalidate=600",
 );
 if (fetchError) {
   // A failed load is not a successful page: answering 200 let crawlers index
