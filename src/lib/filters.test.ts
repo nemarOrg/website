@@ -302,9 +302,10 @@ describe("applyClientFilters", () => {
     expect(out).toEqual(["b", "c"]);
   });
 
-  it("enforces a single modality client-side in search mode", () => {
-    // The hybrid search endpoint doesn't filter by modality, so the search
-    // path opts into client-side enforcement for even one selection.
+  it("enforces a single modality client-side when the caller holds the whole window", () => {
+    // The API's `modality` is a substring match, so a caller that holds the
+    // whole candidate window opts into an exact token check for even one
+    // selection.
     const s = defaultFilterState();
     s.modalities = ["EEG"];
     const out = applyClientFilters(datasets, s, { allModalitiesClientSide: true }).map(
@@ -517,5 +518,43 @@ describe("hasClientOnlyFilters", () => {
     ["two modalities", { modalities: ["EEG", "MEG"] as const }],
   ])("is true for %s", (_label, patch) => {
     expect(hasClientOnlyFilters({ ...base, ...patch } as never)).toBe(true);
+  });
+});
+
+describe("exact modality tokens in a window", () => {
+  it("does not let an iEEG-only dataset through for the EEG chip", () => {
+    const rows = [
+      { id: "eeg-only", modalities: "EEG", participants: 5 },
+      { id: "both", modalities: "EEG,iEEG", participants: 5 },
+      { id: "ieeg-only", modalities: "iEEG", participants: 5 },
+    ];
+    const s = defaultFilterState();
+    s.modalities = ["EEG"];
+    const out = applyClientFilters(rows, s, { allModalitiesClientSide: true }).map((r) => r.id);
+    expect(out).toEqual(["eeg-only", "both"]);
+  });
+});
+
+describe("hasClientOnlyFilters while searching", () => {
+  const base = defaultFilterState();
+
+  it.each([
+    ["a channel minimum", { channels: { min: 5, max: null } }],
+    ["a channel maximum", { channels: { min: null, max: 5 } }],
+    ["a density preset", { density: "high" as const }],
+    ["an electrode system", { electrodeSystem: "10-20" as const }],
+  ])("ignores %s: search rows carry no channel facts and the sidebar disables it", (_n, patch) => {
+    const state = { ...base, ...patch } as never;
+    expect(hasClientOnlyFilters(state)).toBe(true); // browsing
+    expect(hasClientOnlyFilters(state, { searching: true })).toBe(false);
+  });
+
+  it("still counts a participant range and two modalities, which a search can evaluate", () => {
+    expect(
+      hasClientOnlyFilters({ ...base, participants: { min: 5, max: null } }, { searching: true }),
+    ).toBe(true);
+    expect(hasClientOnlyFilters({ ...base, modalities: ["EEG", "MEG"] }, { searching: true })).toBe(
+      true,
+    );
   });
 });

@@ -62,12 +62,14 @@ try {
   if (isSearch) {
     const filters = filterStateToSearchFilters(state);
     let slice: SearchResult[];
-    if (hasClientOnlyFilters(state)) {
+    if (hasClientOnlyFilters(state, { searching: true })) {
       // A participant range or 2+ modalities prune after the server has
       // counted and paged, so take the best matches in one call, filter them as
-      // a unit, and page locally. Relevance order is preserved.
+      // a unit, and page locally. Relevance order is preserved. The window is
+      // held whole, so the modality check can be exact: the API's `modality` is
+      // a substring match that lets an iEEG-only dataset through for EEG.
       const res = await searchDatasets(state.q, { limit: SEARCH_WINDOW, filters, signal });
-      const ranked = applyClientFilters(res.results, state);
+      const ranked = applyClientFilters(res.results, state, { allModalitiesClientSide: true });
       totalReturned = ranked.length;
       pageableTotal = ranked.length;
       slice = ranked.slice((state.page - 1) * PAGE_SIZE, state.page * PAGE_SIZE);
@@ -186,11 +188,25 @@ const pageCount = Math.max(1, Math.ceil(pageableTotal / PAGE_SIZE));
 // Re-serialize the canonical filter state to drop unknown params.
 const canonicalParams = filterStateToURL(state);
 canonicalParams.delete("page");
+
 // While searching, sort doesn't apply (the hybrid endpoint ranks by relevance
 // and ignores it), so keep it out of pagination links rather than implying it
 // is active. License is enforced server-side since nemar-cli#683.
 if (isSearch) {
   canonicalParams.delete("sort");
+}
+
+// A page past the last one used to answer 200 with "6 results" over "No
+// datasets match", and the page cache kept it for an hour; a crawler or a stale
+// bookmark can mint any number. Send it to the last page that has results.
+if (!fetchError && totalReturned > 0 && state.page > pageCount) {
+  const last = new URLSearchParams(canonicalParams);
+  if (pageCount > 1) last.set("page", String(pageCount));
+  const query = last.toString();
+  return new Response(null, {
+    status: 302,
+    headers: { Location: query ? `/discover?${query}` : "/discover", "Cache-Control": "no-store" },
+  });
 }
 
 // Cache keyed on the full URL (query params) so each filter+page+query combo
@@ -292,6 +308,7 @@ if (fetchError) {
                 <p>Try a different term, fewer filters, or
                   <a href="/discover">browse all datasets</a>.
                 </p>
+                {countNote && <p>Only the best matches were checked: {countNote}.</p>}
               </>
             ) : (
               <>
