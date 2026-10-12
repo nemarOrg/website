@@ -18,13 +18,15 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **Catalog reads are cached for hours and kept for three days** (#439, #443).
   The site's server-side calls to the API share a few Cloudflare addresses, and the API limits each address, so visitors were drawing on one budget together and Discover showed "Could not load datasets" for minutes at a time.
   A catalog response is now served from the edge cache for ten minutes without asking the API, served at once and refreshed behind the response for up to six hours, and, when the API is failing, served stale for up to three days.
-  A 404, 400, 403, or 410 is never masked by a stored copy, and a refresh that gets one drops the copy; a response that is not the shape an endpoint returns (`null`, an error envelope) is never stored over a good one.
-  While the API is refusing requests it is left alone for a minute, and concurrent calls for one URL share one request.
+  A 404 or 410 for a dataset drops its stored copy (the API answers 404 for one that went private), while any other 4xx, such as a gateway 403, keeps the copy and logs an error; a response that is not the shape an endpoint returns (`null`, an error envelope) is never stored over a good one.
+  While the API is refusing requests it is left alone for a minute, concurrent calls for one URL share one request, and no caller waits past its own deadline for it.
   A page built from stale data answers with `x-nemar-data: stale` and stays at the edge for a minute instead of an hour.
   Discover pages are cached at the edge for an hour (thirty minutes for a search), so a new dataset reaches a page within about an hour and ten minutes.
   When there is nothing to show, Discover answers `503` with `Retry-After`, says the service is busy, and no longer repeats "Could not load datasets" twice in the banner (ADR 0025).
 - **Signed-in pages are sent `private`, and the collaborators page reads past the cache** (#443).
   A browser no longer keeps a page that names the visitor, and the page that decides who may manage collaborators no longer acts on a copy that is hours old.
+  That page now answers `503` with `Retry-After` when the API is limited or slow, instead of telling an owner their dataset does not exist.
+  Discover no longer writes the visitor's search text to the logs when a search fails.
 - **Discover search keeps its filters, and filters keep the search** (#440).
   The search box and the filter sidebar were two forms, so each submit dropped the other.
   They are one form now.
