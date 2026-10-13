@@ -1,5 +1,6 @@
 import { apiBase } from "./api-base";
 import { cachedJson, isApiPaused, isMissing } from "./api-cache";
+import { apiFetch } from "./api-fetch";
 import { markDataStale } from "./request-context";
 import type {
   Dataset,
@@ -344,7 +345,7 @@ export async function resolveCanonical(
   init: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<string | null> {
   const url = `${apiBase()}/datasets/resolve/${encodeURIComponent(sourceId)}`;
-  const res = await fetch(url, {
+  const res = await apiFetch(url, {
     signal: resolveSignal(init),
     headers: { Accept: "application/json" },
   });

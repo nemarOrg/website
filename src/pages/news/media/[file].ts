@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase } from "../../../lib/api-base";
+import { apiFetch } from "../../../lib/api-fetch";
 import { newsMediaContentType } from "../../../lib/news";
 
 /**
@@ -26,7 +27,7 @@ export const GET: APIRoute = async ({ params }) => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${apiBase()}/news/media/${file}`, {
+    upstream = await apiFetch(`${apiBase()}/news/media/${file}`, {
       signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
@@ -37,6 +38,7 @@ export const GET: APIRoute = async ({ params }) => {
   }
   if (upstream.status === 404) return notFound();
   if (!upstream.ok || !upstream.body) {
+    console.warn(`[news/media] ${file}: the API answered ${upstream.status}`);
     return new Response(null, { status: 502, headers: { "Cache-Control": "no-store" } });
   }
 

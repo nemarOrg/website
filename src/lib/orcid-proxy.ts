@@ -12,11 +12,12 @@
  */
 
 import { apiBase, copySetCookies } from "./api-base";
+import { apiFetch } from "./api-fetch";
 
 // Mirror the /api/v1 proxy's forward set. Deliberately omits x-forwarded-for /
-// cf-connecting-ip: the upstream's own CF edge sets cf-connecting-ip to this
-// Worker's IP, and forwarding a browser-supplied XFF would let a client spoof
-// the IP the backend records.
+// cf-connecting-ip: forwarding a browser-supplied XFF would let a client spoof
+// the IP the backend records. `apiFetch` names the visitor itself, from this
+// request's own CF-Connecting-IP, when it calls the API over the service binding.
 const FORWARD_HEADERS = ["cookie", "user-agent", "origin"];
 
 export async function proxyOrcidRedirect(
@@ -32,7 +33,7 @@ export async function proxyOrcidRedirect(
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${apiBase()}${upstreamPath}${url.search}`, {
+    upstream = await apiFetch(`${apiBase()}${upstreamPath}${url.search}`, {
       // Forward the verb: the relink confirm is a form POST, and the backend
       // only mints relink intent on POST (nemar-cli ADR 0022). The browser's
       // Origin header rides along via FORWARD_HEADERS for that check.

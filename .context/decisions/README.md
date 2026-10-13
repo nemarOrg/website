@@ -57,3 +57,4 @@ Add new entries here as you create ADRs:
 - ADR 0023 - [An embeddable viewer route, the only route other sites may frame](0023-embeddable-viewer-route-scoped-framing.md) (accepted)
 - ADR 0024 - [Embed calls are counted at the edge, from the request alone](0024-embed-calls-counted-at-the-edge.md) (accepted)
 - ADR 0025 - [Catalog reads are cached for minutes to hours and fall back to a stale copy](0025-catalog-reads-cached-with-stale-if-error.md) (accepted)
+- ADR 0026 - [Server-side calls to the API go over a service binding that names the visitor](0026-server-side-api-calls-go-over-a-service-binding.md) (accepted)

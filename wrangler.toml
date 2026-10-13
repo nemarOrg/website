@@ -45,6 +45,18 @@ dataset = "nemar_website_embeds"
 binding = "EMBED_ANALYTICS"
 dataset = "nemar_website_embeds_dev"
 
+# Server-side calls to the API go over this service binding and name the visitor, so the API
+# counts them against that visitor and not against one shared address (ADR 0026, website#449,
+# nemar-cli ADR 0098). src/lib/api-fetch.ts uses it; without it the site works but all of its
+# server calls share one allowance. Previews deliberately go without: `services` is
+# non-inheritable and `[env.preview.*]` above declares an environment, so a preview has none, and
+# a branch build runs unreviewed code that must not be able to name a visitor at the production API.
+# Wrangler warns that `services` is missing from `env.preview`; that warning is expected, so do not
+# silence it by restating the binding there (test/wrangler-bindings.test.ts fails if you do).
+[[services]]
+binding = "API"
+service = "nemar-api"
+
 # SESSION_SECRET is a server-only secret used to HMAC-sign the auth cookie.
 # Set it via `wrangler secret put SESSION_SECRET` or the Cloudflare Pages
 # dashboard. In local dev an insecure fallback is used; see src/lib/auth.ts.

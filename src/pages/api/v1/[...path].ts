@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
+import { apiFetch } from "../../../lib/api-fetch";
 import { isSafeProxyPath } from "../../../lib/proxy-path";
 
 /**
@@ -62,7 +63,7 @@ const proxy: APIRoute = async ({ params, request }) => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(targetUrl, {
+    upstream = await apiFetch(targetUrl, {
       method: request.method,
       headers: upstreamHeaders,
       body,
@@ -70,6 +71,17 @@ const proxy: APIRoute = async ({ params, request }) => {
   } catch (err) {
     console.warn(`[api/v1 proxy] upstream fetch failed for ${request.method} /${rawPath}`, err);
     return json({ error: "upstream_unreachable" }, 502);
+  }
+
+  // apiFetch follows a redirect for a GET but hands back the redirect of a request with a body,
+  // which it cannot replay. This proxy copies no Location, so the browser would see a bare 3xx
+  // with nowhere to go; say what happened instead, here and to the caller.
+  if (upstream.status >= 300 && upstream.status < 400) {
+    console.warn(
+      `[api/v1 proxy] ${request.method} /${rawPath} was answered with a ${upstream.status} redirect, which the proxy does not follow`,
+    );
+    void upstream.body?.cancel().catch(() => {});
+    return json({ error: "upstream_redirect" }, 502);
   }
 
   // Forward a tight set of response headers. Skip Cloudflare / CORS /

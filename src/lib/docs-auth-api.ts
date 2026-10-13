@@ -16,6 +16,7 @@
  */
 
 import { apiBase } from "./api-base";
+import { apiFetch } from "./api-fetch";
 import { type DeadlineInit, resolveSignal } from "./request-deadline";
 
 export interface DocsGrantInit extends DeadlineInit {
@@ -54,7 +55,7 @@ export type DocsGrantResult =
  * the existence of the admin surface is not disclosed.
  */
 export async function requestDocsGrant(init: DocsGrantInit): Promise<DocsGrantResult> {
-  const fetchImpl = init.fetch ?? fetch;
+  const fetchImpl: (url: string, init?: RequestInit) => Promise<Response> = init.fetch ?? apiFetch;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",

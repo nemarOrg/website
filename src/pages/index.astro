@@ -3,6 +3,7 @@ import Highlights from "../components/Highlights.astro";
 import StatTile from "../components/StatTile.astro";
 import Base from "../layouts/Base.astro";
 import { listDatasets } from "../lib/api";
+import { apiFetch } from "../lib/api-fetch";
 import { fetchCountsManifest, mostCitedRows } from "../lib/citation-counts";
 import { formatBytes, formatCount } from "../lib/format";
 import { latestDatasets } from "../lib/highlights";
@@ -49,7 +50,9 @@ let citedFromCatalog = false;
 const highlightsPending = Promise.all([
   highlight(
     "news",
-    listNews({ limit: 3 }, { timeoutMs: DECORATIVE_TIMEOUT_MS }).then((page) => page.posts),
+    listNews({ limit: 3 }, { timeoutMs: DECORATIVE_TIMEOUT_MS, fetch: apiFetch }).then(
+      (page) => page.posts,
+    ),
   ),
   // Ranked from the dashboard's own counts so the card is as fresh as the
   // dashboard, named by the catalog rows the hero stats download anyway. When

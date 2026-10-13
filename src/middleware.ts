@@ -1,5 +1,6 @@
 import type { MiddlewareHandler, MiddlewareNext } from "astro";
 import { apiBase } from "./lib/api-base";
+import { apiFetch } from "./lib/api-fetch";
 import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
@@ -16,6 +17,7 @@ import {
 } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
+  type ApiBinding,
   type RequestContext,
   dataWasStale,
   runWithRequestContext,
@@ -656,6 +658,46 @@ function edgeWaitUntil(
   return (work) => edge.waitUntil?.(work);
 }
 
+/** The service binding to the API Worker, when the project declares one (`wrangler.toml`), else `undefined`. */
+function apiBindingOf(context: Parameters<MiddlewareHandler>[0]): ApiBinding | undefined {
+  // `astro dev` loads the project's bindings through a platform proxy, and a service binding there
+  // is a stub that answers 503 unless the API Worker is running beside it. Dev calls the API
+  // over the network, as it always has.
+  if (import.meta.env.DEV) return undefined;
+  const binding: unknown = context.locals.runtime?.env?.API;
+  if (binding === undefined || binding === null) {
+    // Previews and local runs go without one, and staging has one but is not a production host,
+    // so none of those are warned about. A production host without one is a mistake that nothing
+    // else would say: the site works, it just stays in the API's shared pool.
+    if (!warnedUnboundApi && isProductionHost(new URL(context.request.url).hostname)) {
+      warnedUnboundApi = true;
+      console.warn(
+        "[api-fetch] env.API is not bound on a production host; server calls to the API stay on the shared addresses and can be rate limited together (logged once per isolate)",
+      );
+    }
+    return undefined;
+  }
+  if (typeof (binding as { fetch?: unknown }).fetch === "function") return binding as ApiBinding;
+  // Declared, but not a service binding (a variable or a namespace that took the name): the site
+  // would silently stay on the shared addresses, so say so.
+  if (!warnedBadApiBinding) {
+    warnedBadApiBinding = true;
+    console.error(
+      "[api-fetch] env.API is declared but is not a service binding; server calls to the API stay on the public network (logged once per isolate)",
+    );
+  }
+  return undefined;
+}
+
+let warnedBadApiBinding = false;
+let warnedUnboundApi = false;
+
+/** Forget what this isolate has warned about the API binding. For the middleware tests only. */
+export function resetApiBindingWarningForTests(): void {
+  warnedBadApiBinding = false;
+  warnedUnboundApi = false;
+}
+
 /**
  * The middleware: `serve` handles the request, then `countEmbedCall` counts it.
  * The render runs inside a request context carrying `waitUntil`, so code far
@@ -664,7 +706,11 @@ function edgeWaitUntil(
  * the page leaves the edge cache within a minute (response-cache-policy.ts).
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
-  const requestContext: RequestContext = { waitUntil: edgeWaitUntil(context) };
+  const requestContext: RequestContext = {
+    waitUntil: edgeWaitUntil(context),
+    apiBinding: apiBindingOf(context),
+    visitorIp: context.request.headers.get("cf-connecting-ip") ?? undefined,
+  };
   const guardedNext: typeof next = async (...args) => {
     const response = await next(...args);
     // The flag is read once, here. Every catalog read today happens in page
@@ -705,7 +751,7 @@ async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<
   const fullCookie = context.request.headers.get("cookie") ?? `${SESSION_COOKIE_NAME}=${cookie}`;
   let session: AuthSession | null = null;
   try {
-    const res = await fetch(`${apiBase()}/auth/me`, {
+    const res = await apiFetch(`${apiBase()}/auth/me`, {
       method: "GET",
       headers: { Cookie: fullCookie, Accept: "application/json" },
     });

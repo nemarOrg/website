@@ -39,6 +39,14 @@ PRIVATE_SITE_BASE = "https://private-test.nemar.org"
 binding = "EMBED_ANALYTICS"
 dataset = "nemar_website_embeds_dev"
 
+# Server-side calls to the API go over this service binding and name the visitor (ADR 0026,
+# website#449, nemar-cli ADR 0098), to the Worker behind api-test.nemar.org. deploy-test.yml
+# publishes with `--branch main`, so this top-level binding is the one that applies. The
+# development API bypasses its rate limiter, so this proves the path, not the keying.
+[[services]]
+binding = "API"
+service = "nemar-api-dev"
+
 # SESSION_SECRET is a server-only secret (HMAC-signs the auth cookie); it's
 # per-project, not shared with prod. Set it via the Cloudflare Pages
 # dashboard for nemar-website-test, or `wrangler pages secret put

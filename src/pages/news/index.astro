@@ -9,6 +9,7 @@
  */
 import Pagination from "../../components/Pagination.astro";
 import Base from "../../layouts/Base.astro";
+import { apiFetch } from "../../lib/api-fetch";
 import {
   type NewsPostSummary,
   categoryLabel,
@@ -27,7 +28,10 @@ let posts: readonly NewsPostSummary[] = [];
 let totalCount = 0;
 let loadError = false;
 try {
-  const result = await listNews({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
+  const result = await listNews(
+    { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE },
+    { fetch: apiFetch },
+  );
   posts = result.posts;
   totalCount = result.totalCount;
 } catch (err) {

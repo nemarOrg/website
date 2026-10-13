@@ -121,6 +121,8 @@ bun install                # never npm; lockfile is bun.lock
 bun run dev                # http://localhost:4321
 bun run build              # outputs dist/
 bun run preview            # serves dist/ locally
+# `wrangler pages dev dist` meets the API binding's local stub (503): add `--service API=<worker>`
+# or run it with a copy of wrangler.toml that has no `[[services]]`.
 bun run test               # vitest
 bun run typecheck          # astro check
 bun run lint               # biome check
@@ -138,6 +140,8 @@ CLOUDFLARE_ACCOUNT_ID=<sccn-account-id> \
 ```
 
 The `CLOUDFLARE_ACCOUNT_ID` is required because the SCCN API token lacks the `memberships` scope.
+
+To deploy `nemar-website-test` by hand, copy `wrangler.test.toml` over `wrangler.toml` first, as `deploy-test.yml` does. The production file binds `API` to `nemar-api`, and a service binding ignores the URL, so a staging build deployed with it would count its calls in production's buckets with no error.
 
 `wrangler.toml` `[vars]` is what production's `astro build` reads: the `nemar-website` project builds through Cloudflare's Git integration, which puts those values in the build's environment (measured 2026-09-24; ADR 0018), and the dashboard's variables follow the file. A local `bun run build` does not read `wrangler.toml`; export the values in the shell. `test.nemar.org` is a direct upload built in `deploy-test.yml`, whose own `env:` block is what reaches its build.
 

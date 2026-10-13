@@ -83,6 +83,8 @@ src/
     EegViewerNav.astro                subject/task/prev/next markup shared by the viewer dialog and the embed
   lib/                                 typed helpers + clients
     api.ts / api-base.ts              api.nemar.org client (unwraps {dataset:...}); env-aware base
+    api-fetch.ts request-context.ts   server calls to the API over a service binding naming the visitor (ADR 0026); the per-request context (waitUntil, binding, visitor, stale flag) the middleware opens
+    api-cache.ts                      catalog reads cached for minutes to hours, stale copies kept three days (ADR 0025)
     data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
     auth.ts auth-dev.ts auth-proxy.ts orcid-proxy.ts   session types/helpers, dev mock session, backend proxies
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
@@ -150,6 +152,8 @@ bun run lint       # biome
 ```bash
 bun run dev                   # http://localhost:4321
 bun run build && bun run preview
+# A built site under `wrangler pages dev dist` meets the API binding's local stub, which answers
+# 503: pass `--service API=<worker>`, or use a copy of wrangler.toml without `[[services]]`.
 bun run typecheck             # 0 errors required before commit
 bun run test                  # 1402/1402 unit tests at last count
 bun run lint                  # biome check
@@ -185,6 +189,10 @@ bun run bump <arg>            # version bump; workflows normally do this for you
    above). Production deploys automatically from `main` via the Cloudflare GitHub
    integration, and `release.yml` tags `vX.Y.Z`, cuts the release, and reopens the next
    `-dev0` cycle on staging.
+   **Gate for the API service binding (ADR 0026):** a release whose `wrangler.toml` carries
+   `[[services]]` must not be promoted until the production API (`nemar-api`) runs nemar-cli#1710.
+   Bound first, every server call lands in the API's shared unattributed bucket, which is worse than
+   before. Rolling back is removing the `[[services]]` block or a Pages rollback.
 9. **Verify production**, especially for anything staging structurally could not cover.
    `curl -s https://nemar.org/version.json` should report the clean version just tagged.
    After the release that ships embed counting, load `https://nemar.org/dataset/<id>/embed` once with

@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
+import { apiFetch } from "../../../lib/api-fetch";
 import { SESSION_COOKIE_NAME, SIGNED_OUT_PATH } from "../../../lib/auth";
 import { devClearSessionCookie } from "../../../lib/auth-dev";
 
@@ -56,7 +57,7 @@ export const POST: APIRoute = async ({ request }) => {
   const origin = browserOrigin ?? "https://app.nemar.org";
   let res: Response;
   try {
-    res = await fetch(`${apiBase()}/auth/logout`, {
+    res = await apiFetch(`${apiBase()}/auth/logout`, {
       method: "POST",
       headers: {
         Cookie: cookie,

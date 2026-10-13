@@ -1,10 +1,12 @@
 import type { APIContext } from "astro";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
+import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
+  type ApiBinding,
   currentWaitUntil,
   markDataStale,
   resetRequestContextWarningsForTests,
@@ -16,6 +18,7 @@ import {
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
+  resetApiBindingWarningForTests,
   resetEmbedCountWarnings,
   resetPageCacheWarningsForTests,
   routeAllowsFraming,
@@ -1701,5 +1704,267 @@ describe("the stale flag is read once, and a late mark is not silent", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(res.headers.get("x-nemar-data")).toBeNull(); // too late to act on
     expect(error).toHaveBeenCalledWith(expect.stringContaining("after the response was built"));
+  });
+});
+
+describe("the API service binding", () => {
+  const API_URL = "https://api.nemar.org";
+
+  interface Seen {
+    url: string;
+    forwardedFor: string | null;
+    cookie: string | null;
+  }
+
+  /** A binding that answers every call like the API answers an unknown session, and records it. */
+  function recordingBinding(): { binding: ApiBinding; seen: Seen[] } {
+    const seen: Seen[] = [];
+    return {
+      seen,
+      binding: {
+        async fetch(url, init) {
+          const headers = new Headers(init?.headers);
+          seen.push({
+            url,
+            forwardedFor: headers.get("x-forwarded-for"),
+            cookie: headers.get("cookie"),
+          });
+          return new Response('{"error":"Unauthorized"}', {
+            status: 401,
+            headers: { "Content-Type": "application/json", "X-RateLimit-Bucket": "site-ip" },
+          });
+        },
+      },
+    };
+  }
+
+  function ctxAt(
+    url: string,
+    opts: {
+      api?: unknown;
+      visitor?: string;
+      cookie?: boolean;
+      /** Headers a client set itself, which the edge does not vouch for. */
+      spoofed?: Record<string, string>;
+    } = {},
+  ): APIContext {
+    const headers = new Headers(opts.spoofed);
+    if (opts.visitor) headers.set("CF-Connecting-IP", opts.visitor);
+    if (opts.cookie) headers.set("Cookie", "nemar_session=a-session-cookie");
+    return {
+      request: new Request(url, { headers }),
+      locals: opts.api === undefined ? {} : { runtime: { env: { API: opts.api } } },
+      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+    } as unknown as APIContext;
+  }
+
+  // Vitest runs with DEV set, and the middleware leaves the binding alone under DEV, so a test
+  // that wants a binding says it is not in dev.
+  beforeEach(() => {
+    vi.stubEnv("DEV", false);
+    // Both keep state for the life of the module, so each test starts from none.
+    resetApiFetchWarningsForTests();
+    resetApiBindingWarningForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    resetApiFetchWarningsForTests();
+    resetApiBindingWarningForTests();
+  });
+
+  it("gives the render the binding and the visitor, so a page's API calls are counted as theirs", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { binding, seen } = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${MARKETING_HOST}/discover`, { api: binding, visitor: "198.51.100.7" }),
+      async () => {
+        // What a page's frontmatter does.
+        await apiFetch(`${API_URL}/datasets?limit=5`);
+        return new Response("ok");
+      },
+    );
+    expect(seen).toEqual([
+      { url: `${API_URL}/datasets?limit=5`, forwardedFor: "198.51.100.7", cookie: null },
+    ]);
+  });
+
+  it("takes the visitor from CF-Connecting-IP and from nothing a client can set", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const spoofed = {
+      "X-Forwarded-For": "203.0.113.9",
+      "X-Real-IP": "203.0.113.9",
+      "True-Client-IP": "203.0.113.9",
+    };
+    const named = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${APP_HOST}/dashboard`, {
+        api: named.binding,
+        visitor: "198.51.100.7",
+        cookie: true,
+        spoofed,
+      }),
+      async () => new Response("ok"),
+    );
+    expect(named.seen.map((s) => s.forwardedFor)).toEqual(["198.51.100.7"]);
+    // With no CF-Connecting-IP the visitor is unknown, and a spoofed header does not stand in for it.
+    const unnamed = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${APP_HOST}/dashboard`, { api: unnamed.binding, cookie: true, spoofed }),
+      async () => new Response("ok"),
+    );
+    expect(unnamed.seen.map((s) => s.forwardedFor)).toEqual([null]);
+  });
+
+  it("asks who a signed-in visitor is over the binding, for that visitor", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { binding, seen } = recordingBinding();
+    await onRequest(
+      ctxAt(`https://${APP_HOST}/dashboard`, {
+        api: binding,
+        visitor: "198.51.100.7",
+        cookie: true,
+      }),
+      async () => new Response("ok"),
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe(`${API_URL}/auth/me`);
+    expect(seen[0].forwardedFor).toBe("198.51.100.7");
+    expect(seen[0].cookie).toContain("nemar_session=a-session-cookie");
+  });
+
+  it("uses the public network when the project declares no binding", async () => {
+    const seen: string[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return new Response('{"error":"Unauthorized"}', { status: 401 });
+    }) as typeof fetch;
+    try {
+      await onRequest(
+        ctxAt(`https://${APP_HOST}/dashboard`, { visitor: "198.51.100.7", cookie: true }),
+        async () => new Response("ok"),
+      );
+    } finally {
+      globalThis.fetch = before;
+    }
+    expect(seen).toEqual([`${API_URL}/auth/me`]);
+  });
+
+  it("leaves a declared binding alone under astro dev, where the platform proxy's is a stub that answers 503", async () => {
+    vi.stubEnv("DEV", true);
+    const { binding, seen } = recordingBinding();
+    const publicSeen: string[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      publicSeen.push(String(input));
+      return new Response('{"error":"Unauthorized"}', { status: 401 });
+    }) as typeof fetch;
+    try {
+      await onRequest(
+        ctxAt(`https://${APP_HOST}/dashboard`, {
+          api: binding,
+          visitor: "198.51.100.7",
+          cookie: true,
+        }),
+        async () => new Response("ok"),
+      );
+    } finally {
+      globalThis.fetch = before;
+      vi.unstubAllEnvs();
+    }
+    expect(seen).toHaveLength(0);
+    expect(publicSeen).toEqual([`${API_URL}/auth/me`]);
+  });
+
+  it("ignores a binding that is not one, and says so once", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const seen: string[] = [];
+    const before = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      seen.push(String(input));
+      return new Response('{"error":"Unauthorized"}', { status: 401 });
+    }) as typeof fetch;
+    try {
+      for (const api of ["not-a-binding", {}, { fetch: "no" }]) {
+        await onRequest(
+          ctxAt(`https://${APP_HOST}/dashboard`, { api, visitor: "198.51.100.7", cookie: true }),
+          async () => new Response("ok"),
+        );
+      }
+      // Not declared at all is not a mistake of this kind, and says nothing at error level.
+      await onRequest(
+        ctxAt(`https://${APP_HOST}/dashboard`, {
+          api: null,
+          visitor: "198.51.100.7",
+          cookie: true,
+        }),
+        async () => new Response("ok"),
+      );
+    } finally {
+      globalThis.fetch = before;
+    }
+    expect(seen).toHaveLength(4);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0][0])).toContain(
+      "env.API is declared but is not a service binding",
+    );
+  });
+  describe("a project that declares no binding", () => {
+    const missing = "env.API is not bound on a production host";
+
+    it("says so once per isolate on a production host, however many requests follow", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      for (const api of [undefined, null, undefined]) {
+        for (const host of [APP_HOST, MARKETING_HOST]) {
+          await onRequest(
+            ctxAt(`https://${host}/about`, { api, visitor: "198.51.100.7" }),
+            async () => new Response("ok"),
+          );
+        }
+      }
+      const said = warn.mock.calls.filter((c) => String(c[0]).includes(missing));
+      expect(said).toHaveLength(1);
+      expect(String(said[0][0])).not.toContain("198.51.100.7");
+    });
+
+    it.each([APP_HOST, MARKETING_HOST, "www.nemar.org", "ww2.nemar.org"])(
+      "says so on %s, the first request an isolate serves",
+      async (host) => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await onRequest(
+          ctxAt(`https://${host}/about`, { visitor: "198.51.100.7" }),
+          async () => new Response("ok"),
+        );
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(1);
+      },
+    );
+
+    it.each(["test.nemar.org", "a1b2c3.nemar-website.pages.dev", "localhost"])(
+      "says nothing on %s, which is not a production host",
+      async (host) => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        await onRequest(
+          ctxAt(`https://${host}/about`, { visitor: "198.51.100.7" }),
+          async () => new Response("ok"),
+        );
+        expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(0);
+      },
+    );
+
+    it("says nothing on a production host that has one", async () => {
+      vi.spyOn(console, "info").mockImplementation(() => {});
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await onRequest(
+        ctxAt(`https://${MARKETING_HOST}/about`, {
+          api: recordingBinding().binding,
+          visitor: "198.51.100.7",
+        }),
+        async () => new Response("ok"),
+      );
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(0);
+    });
   });
 });

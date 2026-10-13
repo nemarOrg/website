@@ -24,9 +24,17 @@ import {
 } from "./news";
 import { resolveSignal } from "./request-deadline";
 
+/**
+ * What a news call needs of `fetch`: a URL string and a plain `RequestInit`, which is all this
+ * module ever passes. Declared this narrowly so a server caller can hand over `apiFetch`
+ * (`api-fetch.ts`) directly, as ADR 0026 says; `fetch` itself fits too. This file also runs in
+ * the browser (the news editor), so it cannot import `apiFetch` and defaults to `fetch`.
+ */
+type NewsFetch = (url: string, init?: RequestInit) => Promise<Response>;
+
 type Init = {
   readonly signal?: AbortSignal;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: NewsFetch;
   readonly cookieHeader?: string;
   readonly timeoutMs?: number;
   /** Explicit API origin; the public reads default to {@link apiBase}. */
