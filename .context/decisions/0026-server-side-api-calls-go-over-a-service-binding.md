@@ -90,3 +90,14 @@ The server-only call sites use it: the catalog reads (`api.ts`, `api-cache.ts`),
   Rejected: it changes every call, including third-party ones, and hides the decision from the call site.
 - **Falling back to the public network when the binding throws.**
   Rejected, as decision 5 says.
+
+## Update, 2026-10-12: the public news reads
+
+The call-site list above left the public news reads on `fetch`, saying a server caller of the news client "can pass `apiFetch` as their `fetch` option".
+Nothing did, so the home page (the most visited landing page) and every other server-rendered news request still left from the shared addresses and drew on the shared allowance, while the first-call report stayed satisfied by the sites that had been converted.
+They pass it now: the news column on the home page, `/news`, `/news/<slug>` (the post and its "more news" list), the RSS feed, the sitemap's news list and the social-card redirect (`/news/feed.xml`, `/sitemap.xml`, `/og/news/<slug>.png`).
+A request with no usable visitor address still reaches the API, in the unattributed bucket, with one warning a minute; for the feed, the sitemap and the card the visitor is the crawler, whose address is the one `apiFetch` forwards.
+`news-api.ts` still defaults to `fetch`, because the news editor runs it in the browser, and its `fetch` option is typed as a URL string and a plain `RequestInit`, so `apiFetch` fits without an adapter.
+`test/routes/api-binding-call-sites.test.ts` runs the three routes under the recording binding and reads every caller of `listNews`, `listAllNews` and `getNewsPost` as text, failing on one that does not pass `fetch: apiFetch`.
+The authenticated clients (dashboard, account, collaborators, admin including the admin news pages, users-admin) and the data and Zarr hosts' clients are unchanged and still leave from the shared addresses.
+The decision stands.

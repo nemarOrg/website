@@ -20,6 +20,11 @@ The release pull request from `staging` to `main` moves those entries under the 
   The project declares the binding in `wrangler.toml` (production, the `nemar-api` Worker) and `wrangler.test.toml` (staging, `nemar-api-dev`); previews go without, because a branch build must not be able to name a visitor at the production API.
   A production host with no binding logs one warning per isolate.
   This needs the API side (nemar-cli#1710), which reads the visitor from `X-Forwarded-For` for a call that arrives over a binding, to be deployed to the production API (`nemar-api`) before this release is promoted to `main`.
+- **The news pages count each visitor on their own too** (#449, ADR 0026).
+  The home page's news column, `/news`, each post, the RSS feed, the sitemap's news list and the social-card redirect still called the API from the shared addresses, so they drew on the shared allowance even once the binding was declared.
+  They now go over the service binding with the visitor's address, as the other server calls do; for the feed, the sitemap and the card the visitor is the crawler.
+  A test now fails if any caller of the public news reads passes plain `fetch`.
+  The same gate applies: the production API must run nemar-cli#1710 before this release is promoted to `main`.
 
 ## [0.2.30] - 2026-10-12
 
