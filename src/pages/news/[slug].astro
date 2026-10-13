@@ -10,6 +10,7 @@
  * (`newsHeadingOffset`). Everything else is escaped.
  */
 import Base from "../../layouts/Base.astro";
+import { apiFetch } from "../../lib/api-fetch";
 import { MARKETING_BASE_URL } from "../../lib/host";
 import { escapeJsonLdForScript } from "../../lib/jsonld";
 import { renderMarkdown } from "../../lib/markdown";
@@ -32,7 +33,7 @@ const slug = Astro.params.slug ?? "";
 let post: NewsPost | null = null;
 let loadError = false;
 try {
-  post = await getNewsPost(slug);
+  post = await getNewsPost(slug, { fetch: apiFetch });
 } catch (err) {
   // "Could not ask" is not "no such post": answer 503 with the page chrome
   // and a retry, never the 404 page, and never cache it.
@@ -52,7 +53,10 @@ if (loadError || !post) {
 let more: NewsPostSummary[] = [];
 if (post) {
   try {
-    const page = await listNews({ limit: 4 }, { timeoutMs: DECORATIVE_TIMEOUT_MS });
+    const page = await listNews(
+      { limit: 4 },
+      { timeoutMs: DECORATIVE_TIMEOUT_MS, fetch: apiFetch },
+    );
     more = page.posts.filter((p) => p.slug !== slug).slice(0, 3);
   } catch (err) {
     console.warn(

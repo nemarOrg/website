@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { apiFetch } from "../../../lib/api-fetch";
 import { isValidSlug } from "../../../lib/news";
 import { getNewsPost } from "../../../lib/news-api";
 
@@ -26,7 +27,7 @@ export const GET: APIRoute = async ({ params, request }) => {
   // `v` on the page's og:image makes crawlers ask again after it.)
   let bannerUrl: string | null = null;
   try {
-    const post = await getNewsPost(slug, { timeoutMs: 2500 });
+    const post = await getNewsPost(slug, { timeoutMs: 2500, fetch: apiFetch });
     if (!post) {
       return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
     }

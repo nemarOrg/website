@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { apiFetch } from "../../lib/api-fetch";
 import { MARKETING_BASE_URL } from "../../lib/host";
 import { listNews } from "../../lib/news-api";
 import { renderNewsRss } from "../../lib/news-feed";
@@ -9,7 +10,7 @@ import { renderNewsRss } from "../../lib/news-feed";
  */
 export const GET: APIRoute = async () => {
   try {
-    const page = await listNews({ limit: 20 });
+    const page = await listNews({ limit: 20 }, { fetch: apiFetch });
     return new Response(renderNewsRss(page.posts, MARKETING_BASE_URL), {
       headers: {
         "Content-Type": "application/rss+xml; charset=utf-8",

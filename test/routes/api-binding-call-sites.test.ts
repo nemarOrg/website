@@ -6,6 +6,12 @@
  * API's shared pool, and the first-call report is satisfied by any one site that is counted per
  * visitor. So each site gets its own test. Only the two network boundaries are fixtures: a
  * recording binding, and `globalThis.fetch` as a tripwire that fails the test if anything uses it.
+ *
+ * The news reads are the other kind of site: `news-api.ts` also runs in the browser (the news
+ * editor), so it cannot import `apiFetch` and defaults to `fetch`, and each server caller passes
+ * `fetch: apiFetch` itself (ADR 0026). The three routes among them are run like the sites above;
+ * the three pages are `.astro` files, which have no rendering harness here, so a source-level
+ * guard reads every caller of the public news readers and fails on one that does not pass it.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveCanonical } from "../../src/lib/api";
@@ -22,7 +28,12 @@ import { POST as codeVerify } from "../../src/pages/api/auth/code/verify";
 import { POST as logout } from "../../src/pages/api/auth/logout";
 import { GET as noticesGet } from "../../src/pages/api/notices";
 import { GET as v1Get } from "../../src/pages/api/v1/[...path]";
+import { GET as newsFeed } from "../../src/pages/news/feed.xml";
 import { GET as newsMedia } from "../../src/pages/news/media/[file]";
+import { GET as ogNewsCard } from "../../src/pages/og/news/[slug].png";
+import { GET as sitemapGet } from "../../src/pages/sitemap.xml";
+import catalogNm000103 from "../fixtures/jsonld-catalog-nm000103.json";
+import newsList from "../fixtures/news-list-production.json";
 import { callRoute } from "./harness";
 
 const VISITOR = "198.51.100.7";
@@ -37,7 +48,7 @@ let seen: Seen[];
 let publicCalls: string[];
 const realFetch = globalThis.fetch;
 
-function bindingReplying(reply: () => Response): ApiBinding {
+function bindingReplying(reply: (url: string) => Response): ApiBinding {
   return {
     async fetch(url, init) {
       const h = new Headers(init?.headers);
@@ -47,7 +58,7 @@ function bindingReplying(reply: () => Response): ApiBinding {
         xff: h.get("x-forwarded-for"),
         cookie: h.get("cookie"),
       });
-      return reply();
+      return reply(url);
     },
   };
 }
@@ -363,5 +374,129 @@ describe("converted call sites leave over the API service binding", () => {
       ["POST", "/auth/device/confirm", VISITOR],
       ["GET", "/auth/keys", VISITOR],
     ]);
+  });
+
+  it("news/feed.xml.ts", async () => {
+    const res = await inRequest(
+      bindingReplying(() => json(newsList)),
+      () => callRoute(newsFeed, "https://nemar.org/news/feed.xml"),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain(newsList.posts[0].title);
+    expectOneBindingCall("/news?limit=20");
+  });
+
+  it("sitemap.xml.ts: the news list and the catalog both name the visitor", async () => {
+    const reply = (url: string) =>
+      json(
+        new URL(url).pathname === "/news"
+          ? { ...newsList, total_count: newsList.posts.length }
+          : { datasets: [catalogNm000103], count: 1, total_count: 1 },
+      );
+    const res = await inRequest(bindingReplying(reply), () =>
+      callRoute(sitemapGet, "https://nemar.org/sitemap.xml"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain(`/news/${newsList.posts[0].slug}</loc>`);
+    expect(body).toContain("<loc>https://nemar.org/dataset/nm000103</loc>");
+    expect(publicCalls).toEqual([]);
+    expect(seen.map((c) => [new URL(c.url).pathname, c.xff]).sort()).toEqual([
+      ["/datasets", VISITOR],
+      ["/news", VISITOR],
+    ]);
+  });
+
+  it("og/news/[slug].png.ts: only the site's own card is looked up on the public network", async () => {
+    const post = { ...newsList.posts[0], body: "The body." };
+    const res = await inRequest(
+      bindingReplying(() => json({ post })),
+      () =>
+        callRoute(ogNewsCard, `https://nemar.org/og/news/${post.slug}.png`, { slug: post.slug }),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(post.banner_url);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe(`${API}/news/${post.slug}`);
+    expect(seen[0].xff).toBe(VISITOR);
+    // The HEAD for the rendered card is the site's own file, not the API; the tripwire turns it
+    // into "no card yet", so the redirect above is to the banner.
+    expect(publicCalls).toEqual([`https://nemar.org/og/news-card/${post.slug}.png`]);
+  });
+});
+
+/**
+ * The three pages that read the public news cannot be run here, so the guard reads them (and
+ * everything else in `src`) as text: every call to `listNews`, `listAllNews` or `getNewsPost`
+ * outside `news-api.ts` must hand over `fetch: apiFetch`, and each call site that exists today is
+ * named, so a scan that quietly found nothing would fail too. A new caller fails the first test
+ * until it passes `apiFetch`, and the second until it is added to the list. A caller in the
+ * browser cannot import `apiFetch` (`client-bundle-guard.test.ts`); one would be given an
+ * explicit exemption here, with the reason, rather than the guard being loosened.
+ */
+describe("every server caller of the public news reads passes apiFetch", () => {
+  const sources = import.meta.glob("/src/**/*.{astro,ts}", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
+  const READERS = ["listNews", "listAllNews", "getNewsPost"];
+  const KNOWN_CALLS: Record<string, number> = {
+    "/src/pages/index.astro": 1,
+    "/src/pages/news/index.astro": 1,
+    "/src/pages/news/[slug].astro": 2,
+    "/src/pages/news/feed.xml.ts": 1,
+    "/src/pages/sitemap.xml.ts": 1,
+    "/src/pages/og/news/[slug].png.ts": 1,
+  };
+
+  /** Drop comments, so the prose that names a function is not read as a call to it. */
+  const withoutComments = (source: string) =>
+    source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  /** The text between the parentheses of each call to `name`. */
+  function argumentsOfCalls(code: string, name: string): string[] {
+    const found: string[] = [];
+    const open = new RegExp(`\\b${name}\\(`, "g");
+    for (let m = open.exec(code); m; m = open.exec(code)) {
+      const start = open.lastIndex;
+      let depth = 1;
+      let end = start;
+      while (end < code.length && depth > 0) {
+        if (code[end] === "(") depth++;
+        else if (code[end] === ")") depth--;
+        end++;
+      }
+      found.push(code.slice(start, end - 1));
+    }
+    return found;
+  }
+
+  const calls = Object.entries(sources)
+    .filter(([file]) => file !== "/src/lib/news-api.ts" && !file.endsWith(".test.ts"))
+    .flatMap(([file, source]) => {
+      const code = withoutComments(source);
+      return READERS.flatMap((name) =>
+        argumentsOfCalls(code, name).map((args) => ({
+          file,
+          name,
+          args: args.replace(/\s+/g, " "),
+          importsApiFetch:
+            /import\s*\{[^}]*\bapiFetch\b[^}]*\}\s*from\s*["'][./]*\/lib\/api-fetch["']/.test(code),
+        })),
+      );
+    });
+
+  it("passes `fetch: apiFetch` and imports it", () => {
+    const offenders = calls
+      .filter((c) => !/\bfetch:\s*apiFetch\b/.test(c.args) || !c.importsApiFetch)
+      .map((c) => `${c.file}: ${c.name}(${c.args})`);
+    expect(offenders).toEqual([]);
+  });
+
+  it("finds the call sites that exist today, and no others", () => {
+    const perFile: Record<string, number> = {};
+    for (const c of calls) perFile[c.file] = (perFile[c.file] ?? 0) + 1;
+    expect(perFile).toEqual(KNOWN_CALLS);
   });
 });

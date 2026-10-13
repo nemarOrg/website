@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { listAllDatasets } from "../lib/api";
+import { apiFetch } from "../lib/api-fetch";
 import { isNoindexHost } from "../lib/host";
 import { listAllNews } from "../lib/news-api";
 import {
@@ -40,7 +41,7 @@ export const GET: APIRoute = async ({ request }) => {
   // news list drops the posts from this sitemap rather than failing the
   // document the datasets depend on, and shortens its cache so the posts
   // come back on the next crawl instead of a day later.
-  const newsPending = listAllNews().then(
+  const newsPending = listAllNews({ fetch: apiFetch }).then(
     (posts) => ({ posts, ok: true }),
     (err: unknown) => {
       console.warn(
