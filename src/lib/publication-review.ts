@@ -237,7 +237,7 @@ export const START_STARTED_COPY: Record<StartStartedReason, PublicationReviewCop
 // ---------------------------------------------------------------------------------------------
 
 export type ApproveControl =
-  | { readonly kind: "unavailable"; readonly line: string }
+  | { readonly kind: "unavailable"; readonly text: string }
   | { readonly kind: "none"; readonly lines: readonly string[] }
   | { readonly kind: "withheld"; readonly lines: readonly string[] }
   | {
@@ -260,6 +260,8 @@ export interface ControlContext {
   readonly rowStart: "approve" | "resume" | null;
 }
 
+const GATE_WORDS: readonly string[] = ["enforced", "off", "n/a"];
+
 const SCREEN_GATE_WORDS: readonly string[] = [
   "clear",
   "blocks",
@@ -278,11 +280,17 @@ export function isHardReason(clearedBy: string): boolean {
 }
 
 /**
- * A detail the page can read: it carries the Phase 4 fields, every reason has its statement, and
- * the screen gate is a word the page knows. Anything else is a Worker out of step with the page.
+ * A detail the page can read: it carries the Phase 4 fields, every reason has its statement, the
+ * screen gate and the review gate are words the page knows, and the request is named by an integer
+ * and says whether it is anonymous (the body of an Approve is built from them, and a missing
+ * `request_id` would send the old bodyless click). Anything else is a Worker out of step with the page.
  */
 function isCurrentWorker(detail: PublicationReviewDetail): boolean {
   return (
+    Number.isInteger(detail.request_id) &&
+    typeof detail.gate === "string" &&
+    GATE_WORDS.includes(detail.gate) &&
+    typeof detail.anonymous === "boolean" &&
     typeof detail.start_offered === "boolean" &&
     typeof detail.screen_gate === "string" &&
     SCREEN_GATE_WORDS.includes(detail.screen_gate) &&
@@ -307,8 +315,8 @@ export function approveControl(
   detail: PublicationReviewDetail | null,
   ctx: ControlContext,
 ): ApproveControl {
-  if (detail === null) return { kind: "unavailable", line: say("approve.unavailable") };
-  if (!isCurrentWorker(detail)) return { kind: "unavailable", line: OUT_OF_STEP };
+  if (detail === null) return { kind: "unavailable", text: say("approve.unavailable") };
+  if (!isCurrentWorker(detail)) return { kind: "unavailable", text: OUT_OF_STEP };
   // Blocked comes before started: approve-dispatch refuses every blocked request, even a walked-back run.
   if (detail.request_status === "blocked") return withheld([say("approve.blocked")]);
   if (ctx.rowStart === null) return { kind: "none", lines: [] };
@@ -578,10 +586,11 @@ export type FailureOp = "approve" | "deny" | "start" | "detail";
 /** What the page does with a failure: the words, and what to do about the panel. */
 export interface FailureView {
   readonly text: string;
-  /** Read the detail again: what the administrator saw may no longer be true. */
+  /**
+   * Read the detail again: what the administrator saw may no longer be true. The redraw also
+   * unticks the override box, so no flag of its own asks for that.
+   */
   readonly refetch: boolean;
-  /** Untick the override box; the confirmation was given for a review that has moved. */
-  readonly resetOverride: boolean;
   /** Put the focus in the reason field. */
   readonly focusAck: boolean;
   /** Offer the link that reloads the page. */
@@ -612,10 +621,12 @@ export const FRIENDLY_WORDS = {
   deny_rejected:
     "The denial was not accepted. Give a reason of 1 to 2,000 characters and try again.",
   network: "Could not reach the server. Check your connection and try again.",
+  approve_unconfirmed:
+    "No answer came back, and the approval may have started. Refresh and check the request before trying again.",
   generic: "The action did not complete. Try again in a moment.",
 } as const;
 
-const NO_FLAGS = { refetch: false, resetOverride: false, focusAck: false, refreshLink: false };
+const NO_FLAGS = { refetch: false, focusAck: false, refreshLink: false };
 
 const view = (text: string, flags: Partial<Omit<FailureView, "text">> = {}): FailureView => ({
   text,
@@ -657,13 +668,19 @@ const isGateRefusal = (word: string | undefined): word is ReviewGateRefusal =>
 const isScreenRefusal = (word: string | undefined): word is ScreenGateRefusal =>
   isOwn(SCREEN_GATE_COPY, word);
 
+/**
+ * A 401 or 403 that carries only a sentence. The Worker's sentence is never printed: an inactive
+ * account's refusal words a terminal command, so the page says its own word for "not signed in or
+ * not allowed".
+ */
+const isSentenceOnlyDenial = (f: ApiFailure): boolean =>
+  (f.status === 401 || f.status === 403) && f.code === undefined && Boolean(f.message);
+
 /** The page's words for a code, then a sentence-only 401 or 403, then the generic sentence. */
 function common(f: ApiFailure): FailureView {
   if (isOwn(FRIENDLY_WORDS, f.code))
     return view(FRIENDLY_WORDS[f.code as keyof typeof FRIENDLY_WORDS]);
-  if ((f.status === 401 || f.status === 403) && f.code === undefined && f.message) {
-    return view(f.message);
-  }
+  if (isSentenceOnlyDenial(f)) return view(FRIENDLY_WORDS.forbidden);
   return view(FRIENDLY_WORDS.generic);
 }
 
@@ -680,9 +697,8 @@ function describeApprove(f: ApiFailure): FailureView {
       return isGateRefusal(f.refusal)
         ? view(withHeadline(f.headline, say(GATE_REFUSAL_COPY[f.refusal])), {
             refetch: true,
-            resetOverride: true,
           })
-        : view(OUT_OF_STEP, { refetch: true, resetOverride: true });
+        : view(OUT_OF_STEP, { refetch: true });
     case "identifier_screen_not_clear":
       return isScreenRefusal(f.gate)
         ? view(withHeadline(f.headline, say(SCREEN_GATE_COPY[f.gate])), {
@@ -746,26 +762,31 @@ function describeStart(f: ApiFailure): FailureView {
 }
 
 function describeDetail(f: ApiFailure): FailureView {
-  const sentence =
-    f.message &&
-    (f.status === 404 || ((f.status === 401 || f.status === 403) && f.code === undefined))
-      ? f.message
-      : f.code === "forbidden"
-        ? FRIENDLY_WORDS.forbidden
-        : null;
+  // The request is closed: the Worker's sentence says so, and "Reload" would be wrong advice.
+  if (f.status === 404 && f.message) return view(f.message);
   const unavailable = say("approve.unavailable");
-  return view(sentence === null ? unavailable : `${sentence} ${unavailable}`);
+  if (f.code === "forbidden" || isSentenceOnlyDenial(f)) {
+    return view(withHeadline(FRIENDLY_WORDS.forbidden, unavailable));
+  }
+  return view(unavailable);
 }
 
 /**
  * The words and the follow-up for a failed call. A value that is not the Worker's answer (a dead
- * connection, a missed deadline) is the network sentence. The order is: the proxy's own failures,
+ * connection, a missed deadline) is the network sentence, except for an approve, which may have
+ * started and says so. The order is: the proxy's own failures,
  * the origin guard's sentence, then the operation's own table. A gate or screen refusal prints the
  * mirrored copy, never the Worker's message, which words a terminal.
  */
 export function describeFailure(op: FailureOp, err: unknown): FailureView {
   const f = failureOf(err);
-  if (f === null) return view(FRIENDLY_WORDS.network);
+  if (f === null) {
+    // A missed deadline can follow a dispatch that went out: the Worker's lease makes a retry a
+    // safe 409, but the administrator should look first.
+    return op === "approve"
+      ? view(FRIENDLY_WORDS.approve_unconfirmed, { refetch: true, refreshLink: true })
+      : view(FRIENDLY_WORDS.network);
+  }
   if (f.status === 502 && (f.code === "upstream_unreachable" || f.code === "upstream_redirect")) {
     return view(FRIENDLY_WORDS.network);
   }

@@ -16,6 +16,7 @@ import {
   denyPublicationRequest,
   dispatchPublicationApproval,
   getPublicationReview,
+  readFailure,
   startPublicationReview,
 } from "./admin-api";
 import { DashboardApiError } from "./dashboard-api";
@@ -96,7 +97,7 @@ describe("approveControl: one case per row of the table", () => {
   it("row 1: no detail gives unavailable, in the copy's words", () => {
     expect(approveControl(null, { rowStart: "approve" })).toEqual({
       kind: "unavailable",
-      line: COPY["approve.unavailable"],
+      text: COPY["approve.unavailable"],
     });
   });
 
@@ -109,7 +110,7 @@ describe("approveControl: one case per row of the table", () => {
       const control = approveControl(altered("detail-needs-override", { reasons }), {
         rowStart: "approve",
       });
-      expect(control).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
 
     it("a detail without start_offered is out of step", () => {
@@ -117,7 +118,7 @@ describe("approveControl: one case per row of the table", () => {
         approveControl(withoutKey("detail-pass", "start_offered"), { rowStart: "approve" }),
       ).toEqual({
         kind: "unavailable",
-        line: OUT_OF_STEP,
+        text: OUT_OF_STEP,
       });
     });
 
@@ -126,7 +127,7 @@ describe("approveControl: one case per row of the table", () => {
         approveControl(withoutKey("detail-pass", "screen_gate"), { rowStart: "approve" }),
       ).toEqual({
         kind: "unavailable",
-        line: OUT_OF_STEP,
+        text: OUT_OF_STEP,
       });
     });
 
@@ -134,14 +135,38 @@ describe("approveControl: one case per row of the table", () => {
       const control = approveControl(altered("detail-pass", { screen_gate: "a_newer_gate" }), {
         rowStart: "approve",
       });
-      expect(control).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
+    });
+
+    // Derived inputs: a captured detail with one field replaced or removed, the only way to say
+    // "a Worker whose answer this page cannot trust". A body with no request_id would be sent bodyless.
+    it.each([
+      ["request_id missing", withoutKey("detail-pass", "request_id")],
+      ["request_id a string", altered("detail-pass", { request_id: "7" })],
+      ["request_id not an integer", altered("detail-pass", { request_id: 1.5 })],
+      ["a gate word the page does not know", altered("detail-pass", { gate: "a_newer_gate" })],
+      ["gate missing", withoutKey("detail-pass", "gate")],
+      ["anonymous not a boolean", altered("detail-pass", { anonymous: "yes" })],
+      ["anonymous missing", withoutKey("detail-pass", "anonymous")],
+    ])("%s is out of step", (_what, bad) => {
+      expect(approveControl(bad, { rowStart: "approve" })).toEqual({
+        kind: "unavailable",
+        text: OUT_OF_STEP,
+      });
+      expect(panelModel(bad, { rowStart: "approve" }).reasonsWithheld).toBe(OUT_OF_STEP);
+      expect(startOffered(bad)).toBe(false);
+    });
+
+    it.each(["enforced", "off", "n/a"])("the gate word %s is a current Worker's", (gate) => {
+      const ok = altered("detail-pass", { gate });
+      expect(approveControl(ok, { rowStart: "approve" }).kind).not.toBe("unavailable");
     });
 
     it("beats every later row, even a blocked request", () => {
       const control = approveControl(withoutKey("detail-blocked", "screen_gate"), {
         rowStart: "approve",
       });
-      expect(control).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
   });
 
@@ -522,7 +547,7 @@ describe("panelModel", () => {
     if (m.ackPrompt) out.push(m.ackPrompt);
     if (m.overrideLabel) out.push(m.overrideLabel);
     const a = m.approve;
-    if (a.kind === "unavailable") out.push(a.line);
+    if (a.kind === "unavailable") out.push(a.text);
     else if (a.kind === "offered") {
       if (a.notice) out.push(a.notice);
     } else out.push(...a.lines);
@@ -768,7 +793,7 @@ describe("panelModel", () => {
         model: null,
         standing: null,
         start: { offered: false },
-        approve: { kind: "unavailable", line: COPY["approve.unavailable"] },
+        approve: { kind: "unavailable", text: COPY["approve.unavailable"] },
         overrideLabel: null,
         ackPrompt: null,
       });
@@ -784,7 +809,7 @@ describe("panelModel", () => {
       expect(m.screen).toBeNull();
       expect(m.model).toBeNull();
       expect(m.start).toEqual({ offered: false });
-      expect(m.approve).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(m.approve).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
   });
 });
@@ -821,7 +846,7 @@ function withFailure(
   return new PublicationApiError(err.message, err.status, err.code, failure);
 }
 
-const NONE = { refetch: false, resetOverride: false, focusAck: false, refreshLink: false };
+const NONE = { refetch: false, focusAck: false, refreshLink: false };
 
 describe("describeFailure: approve", () => {
   const joined = (headline: string, key: keyof typeof COPY) => `${headline}. ${COPY[key]}`;
@@ -841,7 +866,6 @@ describe("describeFailure: approve", () => {
         text: joined(headline, key),
         ...NONE,
         refetch: true,
-        resetOverride: true,
       });
       // The Worker's own message names a terminal and is never printed.
       const message = (fixture(name).body as { message: string }).message;
@@ -867,7 +891,6 @@ describe("describeFailure: approve", () => {
       text: OUT_OF_STEP,
       ...NONE,
       refetch: true,
-      resetOverride: true,
     });
   });
 
@@ -965,15 +988,40 @@ describe("describeFailure: every operation", () => {
     expect({ ...out, text: "" }).toEqual({ text: "", ...NONE });
   });
 
-  it.each(OPS)("%s: a dead connection or a missed deadline is the network word", (op) => {
-    expect(describeFailure(op, new TypeError("Failed to fetch"))).toEqual({
-      text: FRIENDLY_WORDS.network,
-      ...NONE,
-    });
-    expect(describeFailure(op, new DOMException("timed out", "TimeoutError")).text).toBe(
-      FRIENDLY_WORDS.network,
-    );
-    expect(describeFailure(op, "not even an error").text).toBe(FRIENDLY_WORDS.network);
+  // An approve that got no answer may still have been dispatched, so it says so (see the next test).
+  it.each(OPS.filter((op) => op !== "approve"))(
+    "%s: a dead connection or a missed deadline is the network word",
+    (op) => {
+      expect(describeFailure(op, new TypeError("Failed to fetch"))).toEqual({
+        text: FRIENDLY_WORDS.network,
+        ...NONE,
+      });
+      expect(describeFailure(op, new DOMException("timed out", "TimeoutError")).text).toBe(
+        FRIENDLY_WORDS.network,
+      );
+      expect(describeFailure(op, "not even an error").text).toBe(FRIENDLY_WORDS.network);
+    },
+  );
+
+  it("approve: no answer may still be a dispatched approval, so it says so and offers the re-read", () => {
+    // A derived input: the real client raises these when the 15 second deadline fires or the link drops.
+    const errors = [
+      new DOMException("timed out", "TimeoutError"),
+      new DOMException("aborted", "AbortError"),
+      new TypeError("Failed to fetch"),
+      "not even an error",
+    ];
+    for (const err of errors) {
+      expect(describeFailure("approve", err)).toEqual({
+        text: FRIENDLY_WORDS.approve_unconfirmed,
+        ...NONE,
+        refetch: true,
+        refreshLink: true,
+      });
+    }
+    expect(FRIENDLY_WORDS.approve_unconfirmed).toMatch(/may have started/);
+    expect(FRIENDLY_WORDS.approve_unconfirmed).toMatch(/check/i);
+    expect(FRIENDLY_WORDS.approve_unconfirmed).not.toBe(FRIENDLY_WORDS.network);
   });
 
   it.each(OPS)("%s: the proxy's own failures are the network word", (op) => {
@@ -983,16 +1031,34 @@ describe("describeFailure: every operation", () => {
     }
   });
 
-  it("a sentence-only 401 or 403 is printed as it is (a derived reading: no capture reaches it)", () => {
-    for (const status of [401, 403]) {
-      const err = new PublicationApiError("x", status, undefined, {
-        status,
-        message: "Admin access required",
-      });
-      expect(describeFailure("approve", err).text).toBe("Admin access required");
-      expect(describeFailure("deny", err).text).toBe("Admin access required");
-    }
-  });
+  // No capture holds a 401 or 403 that carries only a sentence (the fixtures' envelope has a code
+  // word), so these are DERIVED inputs: a literal body run through the real `readFailure`. The
+  // second is the shape of an inactive account's refusal, whose sentence names a terminal.
+  const sentenceOnly = async (status: number, body: Record<string, string>) => {
+    const failure = await readFailure(new Response(JSON.stringify(body), { status }));
+    return new PublicationApiError("x", status, failure.code, failure);
+  };
+  const INACTIVE_ACCOUNT = {
+    error: "Account not approved",
+    message: "Your account is not active. Run 'nemar auth resend-verification' to continue.",
+  };
+
+  it.each([401, 403])(
+    "a sentence-only %i prints the page's own word, never the Worker's sentence",
+    async (status) => {
+      for (const body of [{ error: "Admin access required" }, INACTIVE_ACCOUNT]) {
+        const err = await sentenceOnly(status, body);
+        for (const op of ["approve", "deny", "start"] as const) {
+          const out = describeFailure(op, err);
+          expect(out, `${op} ${status} ${JSON.stringify(body)}`).toEqual({
+            text: FRIENDLY_WORDS.forbidden,
+            ...NONE,
+          });
+          expect(terminalFlaws(out.text, 2)).toEqual([]);
+        }
+      }
+    },
+  );
 
   it("a word the page has a sentence for is printed in that sentence", () => {
     const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
@@ -1076,12 +1142,11 @@ describe("describeFailure: start", () => {
 });
 
 describe("describeFailure: detail", () => {
-  it("a request that is closed says so, then that the review cannot be read", async () => {
+  it("a request that is closed says so in the Worker's sentence alone", async () => {
+    // The request is closed: "Reload to try again" would send the administrator in a circle.
     const out = describeFailure("detail", await failure("detail", "detail-not-found"));
-    expect(out).toEqual({
-      text: `nm000726 has no active publication request. ${COPY["approve.unavailable"]}`,
-      ...NONE,
-    });
+    expect(out).toEqual({ text: "nm000726 has no active publication request.", ...NONE });
+    expect(out.text).not.toContain(COPY["approve.unavailable"]);
   });
 
   it("any other failure is the unavailable sentence alone", () => {
@@ -1092,13 +1157,30 @@ describe("describeFailure: detail", () => {
     expect(describeFailure("detail", err)).toEqual({ text: COPY["approve.unavailable"], ...NONE });
   });
 
-  it("a sentence-only 403 is printed before it", () => {
-    const err = new PublicationApiError("x", 403, undefined, {
-      status: 403,
-      message: "Admin access required",
-    });
+  it.each([401, 403])(
+    "a sentence-only %i prints the page's word, a full stop, then the unavailable sentence",
+    async (status) => {
+      // Derived inputs (see the header of the operations block): a literal body through the real parser.
+      for (const body of [
+        { error: "Authentication required" },
+        { error: "Account not approved", message: "Run 'nemar auth resend-verification'." },
+      ]) {
+        const failure = await readFailure(new Response(JSON.stringify(body), { status }));
+        const err = new PublicationApiError("x", status, failure.code, failure);
+        const out = describeFailure("detail", err);
+        expect(out).toEqual({
+          text: `You no longer have admin access. Sign in again. ${COPY["approve.unavailable"]}`,
+          ...NONE,
+        });
+        expect(out.text).not.toMatch(/[.!?]\s*[.!?]|\.\./);
+      }
+    },
+  );
+
+  it("the forbidden word joins the unavailable sentence with one full stop", () => {
+    const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
     expect(describeFailure("detail", err).text).toBe(
-      `Admin access required ${COPY["approve.unavailable"]}`,
+      `You no longer have admin access. Sign in again. ${COPY["approve.unavailable"]}`,
     );
   });
 });

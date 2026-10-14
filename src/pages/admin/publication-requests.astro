@@ -369,11 +369,14 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     );
   }
 
-  function queue(next: PendingAction): void {
-    if (inFlight) return;
+  // True when the action was queued. A click during a call is refused, and its caller must not open
+  // a dialog whose confirmation would find nothing pending.
+  function queue(next: PendingAction): boolean {
+    if (inFlight) return false;
     if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
     pending = next;
     clearError();
+    return true;
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -453,6 +456,16 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     else panel.prepend(node);
   }
 
+  const RECHECK = "pubreq:recheck";
+  // The panel's Approve is off for the length of a call; when the call ends without a redraw it
+  // works out its own state again from the inputs, so a field the administrator emptied stays off.
+  function setApproveBusy(panel: HTMLElement, busy: boolean): void {
+    for (const button of panel.querySelectorAll<HTMLButtonElement>("[data-pubreq-panel-approve]")) {
+      if (busy) button.disabled = true;
+      else button.dispatchEvent(new Event(RECHECK));
+    }
+  }
+
   function rowStartOf(panel: HTMLElement): "approve" | "resume" | null {
     const start = panel.dataset.rowStart;
     return start === "approve" || start === "resume" ? start : null;
@@ -480,10 +493,8 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     const control = stateOf(panel).control;
 
     if (model.approve.kind === "unavailable") {
-      // `ApproveControl.line` is the control's own sentence (the mirrored copy or the lib's
-      // out-of-step words), not a reason's terminal wording; it is destructured, not read off a reason.
-      const { line } = model.approve;
-      controls.append(el("p", "pubreq-review__text", line));
+      // `text` is the control's own sentence (the mirrored copy or the lib's out-of-step words).
+      controls.append(el("p", "pubreq-review__text", model.approve.text));
     } else if (model.approve.kind !== "offered") {
       for (const text of model.approve.lines) controls.append(el("p", "pubreq-review__text", text));
     }
@@ -517,6 +528,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
       const approve = el("button", buttonClass(true));
       approve.type = "button";
+      approve.setAttribute("data-pubreq-panel-approve", "");
       approve.textContent =
         control.mode === "resume"
           ? UI_WORDS.buttons.resume
@@ -528,9 +540,11 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         acknowledgment: area?.value ?? "",
       });
       const refresh = () => {
-        approve.disabled = !approveBody(control, readInput()).ok;
+        approve.disabled = !approveBody(control, readInput()).ok || inFlight;
         if (area) count.textContent = `${area.value.length} / ${ACK_MAX}`;
       };
+      // `setApproveBusy(panel, false)` asks for this when a call ends without a redraw.
+      approve.addEventListener(RECHECK, refresh);
       box?.addEventListener("change", refresh);
       area?.addEventListener("input", refresh);
       refresh();
@@ -538,13 +552,14 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         const built = approveBody(control, readInput());
         const datasetId = panel.dataset.datasetId;
         if (!built.ok || !datasetId) return;
-        queue({
+        const queued = queue({
           kind: control.mode,
           datasetId,
           dialogId: control.dialogId,
           body: built.body,
           panel,
         });
+        if (!queued) return;
         openDialog(control.dialogId);
       });
       actions.append(approve);
@@ -688,20 +703,33 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     setToggle(panel, false);
   }
 
+  // Where a failure is shown. A panel that was closed while the call ran has nowhere to draw it, so
+  // the page's own error region says it instead; an open panel re-reads when the failure asks for
+  // that and otherwise keeps what the administrator is looking at.
+  async function reportFailure(
+    panel: HTMLElement,
+    failure: FailureView,
+    extra: DrawOptions = {},
+  ): Promise<void> {
+    if (panel.hidden) {
+      showError(failure.text, { refresh: failure.refreshLink });
+      return;
+    }
+    if (failure.refetch) await loadPanel(panel, { ...extra, error: failure });
+    else setPanelError(panel, failure);
+  }
+
   async function startReview(panel: HTMLElement, button: HTMLButtonElement): Promise<void> {
     const datasetId = panel.dataset.datasetId;
     if (!datasetId) return;
     button.disabled = true;
     try {
       const started = await startPublicationReview(datasetId);
-      await loadPanel(panel, { notice: describeStartSuccess(started) });
+      // Closed meanwhile: the review has started, and opening the panel reads it fresh.
+      if (!panel.hidden) await loadPanel(panel, { notice: describeStartSuccess(started) });
     } catch (err) {
-      const failure = describeFailure("start", err);
-      if (failure.refetch) await loadPanel(panel, { error: failure });
-      else {
-        setPanelError(panel, failure);
-        button.disabled = false;
-      }
+      await reportFailure(panel, describeFailure("start", err));
+      button.disabled = false;
     }
   }
 
@@ -711,11 +739,8 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
   async function afterApproveFailure(panel: HTMLElement, err: unknown): Promise<void> {
     const failure = describeFailure("approve", err);
     const typed = panel.querySelector<HTMLTextAreaElement>("textarea")?.value;
-    if (failure.refetch) {
-      await loadPanel(panel, { error: failure, acknowledgment: typed, focusAck: failure.focusAck });
-    } else {
-      setPanelError(panel, failure);
-    }
+    setApproveBusy(panel, false);
+    await reportFailure(panel, failure, { acknowledgment: typed, focusAck: failure.focusAck });
   }
 
   document.querySelectorAll<HTMLButtonElement>("[data-pubreq-review-toggle]").forEach((btn) => {
@@ -762,7 +787,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         showError(reason.length === 0 ? FRIENDLY_WORDS.missing_field : FRIENDLY_WORDS.deny_rejected);
         return;
       }
-      queue({ kind: "deny", datasetId: id, reason, requestId });
+      if (!queue({ kind: "deny", datasetId: id, reason, requestId })) return;
       openDialog("admin-deny");
     });
   });
@@ -803,6 +828,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
       const target = pending;
       pending = null;
       inFlight = true;
+      setApproveBusy(target.panel, true);
       try {
         await dispatchPublicationApproval(target.datasetId, { body: target.body });
         location.reload();
