@@ -2,11 +2,12 @@
 /**
  * The badge on a dataset card and in the admin publication queue.
  *
- * Four of the eight states describe a blocked request (website#304), because
+ * Five of the nine states describe a blocked request (website#304), because
  * "Validation failed" was only ever right for the blocks that mean the
  * DATASET failed a gate. `owner_name_missing` is an account property,
  * `validation_pending` is validation that has not finished rather than
- * failed, and `blocked` is what an unrecognised reason gets — see
+ * failed, `identifiers_found` is the identifier screen finding a direct
+ * identifier in the dataset, and `blocked` is what an unrecognised reason gets — see
  * `src/lib/publication-block.ts` for the mapping.
  */
 import type { DatasetPublishState } from "../lib/dashboard-api";
@@ -24,6 +25,7 @@ const LABELS: Record<DatasetPublishState, string> = {
   validation_failed: "Validation failed",
   validation_pending: "Validation pending",
   name_required: "Name required",
+  identifiers_found: "Identifiers found",
   blocked: "Blocked",
   denied: "Denied",
 };
@@ -80,6 +82,13 @@ const label = LABELS[state];
     color: var(--color-warning);
     background: color-mix(in srgb, var(--color-warning) 12%, transparent);
     border-color: color-mix(in srgb, var(--color-warning) 35%, transparent);
+  }
+  /* Red, like validation_failed: the dataset itself holds the identifier and
+     CI is not pending, so this is neither a wait nor an account fix. */
+  .publish-state-badge--identifiers_found {
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
   }
   /* The reason is unknown to this build, so the tone says "stopped" without
      claiming a cause. */

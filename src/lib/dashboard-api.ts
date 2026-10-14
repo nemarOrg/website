@@ -61,7 +61,8 @@ export type PublicationRequestStatus =
  * from `visibility + concept_doi + publication_request.status` and, for a
  * blocked request, its `block_reason`.
  *
- * `"validation_pending"`, `"name_required"` and `"blocked"` split off
+ * `"validation_pending"`, `"name_required"`, `"identifiers_found"` and
+ * `"blocked"` split off
  * `"validation_failed"` in website#304. Every blocked request used to render
  * "Validation failed", which was right only for the reasons that mean the
  * dataset failed a gate: `owner_name_missing` is an account property and sent
@@ -77,6 +78,7 @@ export type DatasetPublishState =
   | "validation_failed"
   | "validation_pending"
   | "name_required"
+  | "identifiers_found"
   | "blocked"
   | "denied";
 

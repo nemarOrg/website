@@ -22,7 +22,19 @@ describe("PublishStateBadge labels every block state", () => {
     // badge says to wait, and the two must not disagree.
     expect(PUBLISH_STATE_BADGE).toContain('validation_pending: "Validation pending"');
     expect(PUBLISH_STATE_BADGE).toContain('name_required: "Name required"');
+    expect(PUBLISH_STATE_BADGE).toContain('identifiers_found: "Identifiers found"');
     expect(PUBLISH_STATE_BADGE).toContain('blocked: "Blocked"');
+  });
+
+  it("styles identifiers_found in the danger family, not the amber one", () => {
+    // The dataset itself holds the identifier and CI is not pending, so this
+    // is neither the amber "wait" nor the amber "fix your account" tone.
+    const rule = PUBLISH_STATE_BADGE.match(
+      /\.publish-state-badge--identifiers_found \{([^}]*)\}/,
+    )?.[1];
+    expect(rule).toBeDefined();
+    expect(rule).toContain("var(--color-danger)");
+    expect(rule).not.toContain("var(--color-warning)");
   });
 
   it("styles each of them, so a new state cannot land unstyled", () => {
