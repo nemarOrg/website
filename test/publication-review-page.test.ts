@@ -141,6 +141,7 @@ describe("the script words the panel through the lib, never by itself", () => {
     ["the acknowledgment prompt", /model\.ackPrompt/],
     ["the control's notice", /\.notice\b/],
     ["the withheld and read-only lines", /\.lines\b/],
+    ["the unavailable control's sentence", /model\.approve\.text\b/],
     ["the reason's class tag", /\.classLabel/],
     ["the reason's cleared tag", /\.clearedLabel/],
     ["a reason's statement and cure", /\.statement[\s\S]*\.cure|\.cure[\s\S]*\.statement/],

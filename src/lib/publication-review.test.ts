@@ -96,7 +96,7 @@ describe("approveControl: one case per row of the table", () => {
   it("row 1: no detail gives unavailable, in the copy's words", () => {
     expect(approveControl(null, { rowStart: "approve" })).toEqual({
       kind: "unavailable",
-      line: COPY["approve.unavailable"],
+      text: COPY["approve.unavailable"],
     });
   });
 
@@ -109,7 +109,7 @@ describe("approveControl: one case per row of the table", () => {
       const control = approveControl(altered("detail-needs-override", { reasons }), {
         rowStart: "approve",
       });
-      expect(control).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
 
     it("a detail without start_offered is out of step", () => {
@@ -117,7 +117,7 @@ describe("approveControl: one case per row of the table", () => {
         approveControl(withoutKey("detail-pass", "start_offered"), { rowStart: "approve" }),
       ).toEqual({
         kind: "unavailable",
-        line: OUT_OF_STEP,
+        text: OUT_OF_STEP,
       });
     });
 
@@ -126,7 +126,7 @@ describe("approveControl: one case per row of the table", () => {
         approveControl(withoutKey("detail-pass", "screen_gate"), { rowStart: "approve" }),
       ).toEqual({
         kind: "unavailable",
-        line: OUT_OF_STEP,
+        text: OUT_OF_STEP,
       });
     });
 
@@ -134,14 +134,14 @@ describe("approveControl: one case per row of the table", () => {
       const control = approveControl(altered("detail-pass", { screen_gate: "a_newer_gate" }), {
         rowStart: "approve",
       });
-      expect(control).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
 
     it("beats every later row, even a blocked request", () => {
       const control = approveControl(withoutKey("detail-blocked", "screen_gate"), {
         rowStart: "approve",
       });
-      expect(control).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
   });
 
@@ -522,7 +522,7 @@ describe("panelModel", () => {
     if (m.ackPrompt) out.push(m.ackPrompt);
     if (m.overrideLabel) out.push(m.overrideLabel);
     const a = m.approve;
-    if (a.kind === "unavailable") out.push(a.line);
+    if (a.kind === "unavailable") out.push(a.text);
     else if (a.kind === "offered") {
       if (a.notice) out.push(a.notice);
     } else out.push(...a.lines);
@@ -768,7 +768,7 @@ describe("panelModel", () => {
         model: null,
         standing: null,
         start: { offered: false },
-        approve: { kind: "unavailable", line: COPY["approve.unavailable"] },
+        approve: { kind: "unavailable", text: COPY["approve.unavailable"] },
         overrideLabel: null,
         ackPrompt: null,
       });
@@ -784,7 +784,7 @@ describe("panelModel", () => {
       expect(m.screen).toBeNull();
       expect(m.model).toBeNull();
       expect(m.start).toEqual({ offered: false });
-      expect(m.approve).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
+      expect(m.approve).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
   });
 });

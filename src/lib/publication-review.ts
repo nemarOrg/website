@@ -237,7 +237,7 @@ export const START_STARTED_COPY: Record<StartStartedReason, PublicationReviewCop
 // ---------------------------------------------------------------------------------------------
 
 export type ApproveControl =
-  | { readonly kind: "unavailable"; readonly line: string }
+  | { readonly kind: "unavailable"; readonly text: string }
   | { readonly kind: "none"; readonly lines: readonly string[] }
   | { readonly kind: "withheld"; readonly lines: readonly string[] }
   | {
@@ -307,8 +307,8 @@ export function approveControl(
   detail: PublicationReviewDetail | null,
   ctx: ControlContext,
 ): ApproveControl {
-  if (detail === null) return { kind: "unavailable", line: say("approve.unavailable") };
-  if (!isCurrentWorker(detail)) return { kind: "unavailable", line: OUT_OF_STEP };
+  if (detail === null) return { kind: "unavailable", text: say("approve.unavailable") };
+  if (!isCurrentWorker(detail)) return { kind: "unavailable", text: OUT_OF_STEP };
   // Blocked comes before started: approve-dispatch refuses every blocked request, even a walked-back run.
   if (detail.request_status === "blocked") return withheld([say("approve.blocked")]);
   if (ctx.rowStart === null) return { kind: "none", lines: [] };

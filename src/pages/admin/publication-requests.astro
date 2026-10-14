@@ -480,10 +480,8 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     const control = stateOf(panel).control;
 
     if (model.approve.kind === "unavailable") {
-      // `ApproveControl.line` is the control's own sentence (the mirrored copy or the lib's
-      // out-of-step words), not a reason's terminal wording; it is destructured, not read off a reason.
-      const { line } = model.approve;
-      controls.append(el("p", "pubreq-review__text", line));
+      // `text` is the control's own sentence (the mirrored copy or the lib's out-of-step words).
+      controls.append(el("p", "pubreq-review__text", model.approve.text));
     } else if (model.approve.kind !== "offered") {
       for (const text of model.approve.lines) controls.append(el("p", "pubreq-review__text", text));
     }
