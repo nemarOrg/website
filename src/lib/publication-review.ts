@@ -612,6 +612,8 @@ export const FRIENDLY_WORDS = {
   deny_rejected:
     "The denial was not accepted. Give a reason of 1 to 2,000 characters and try again.",
   network: "Could not reach the server. Check your connection and try again.",
+  approve_unconfirmed:
+    "No answer came back, and the approval may have started. Refresh and check the request before trying again.",
   generic: "The action did not complete. Try again in a moment.",
 } as const;
 
@@ -759,13 +761,20 @@ function describeDetail(f: ApiFailure): FailureView {
 
 /**
  * The words and the follow-up for a failed call. A value that is not the Worker's answer (a dead
- * connection, a missed deadline) is the network sentence. The order is: the proxy's own failures,
+ * connection, a missed deadline) is the network sentence, except for an approve, which may have
+ * started and says so. The order is: the proxy's own failures,
  * the origin guard's sentence, then the operation's own table. A gate or screen refusal prints the
  * mirrored copy, never the Worker's message, which words a terminal.
  */
 export function describeFailure(op: FailureOp, err: unknown): FailureView {
   const f = failureOf(err);
-  if (f === null) return view(FRIENDLY_WORDS.network);
+  if (f === null) {
+    // A missed deadline can follow a dispatch that went out: the Worker's lease makes a retry a
+    // safe 409, but the administrator should look first.
+    return op === "approve"
+      ? view(FRIENDLY_WORDS.approve_unconfirmed, { refetch: true, refreshLink: true })
+      : view(FRIENDLY_WORDS.network);
+  }
   if (f.status === 502 && (f.code === "upstream_unreachable" || f.code === "upstream_redirect")) {
     return view(FRIENDLY_WORDS.network);
   }

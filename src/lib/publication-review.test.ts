@@ -965,15 +965,40 @@ describe("describeFailure: every operation", () => {
     expect({ ...out, text: "" }).toEqual({ text: "", ...NONE });
   });
 
-  it.each(OPS)("%s: a dead connection or a missed deadline is the network word", (op) => {
-    expect(describeFailure(op, new TypeError("Failed to fetch"))).toEqual({
-      text: FRIENDLY_WORDS.network,
-      ...NONE,
-    });
-    expect(describeFailure(op, new DOMException("timed out", "TimeoutError")).text).toBe(
-      FRIENDLY_WORDS.network,
-    );
-    expect(describeFailure(op, "not even an error").text).toBe(FRIENDLY_WORDS.network);
+  // An approve that got no answer may still have been dispatched, so it says so (see the next test).
+  it.each(OPS.filter((op) => op !== "approve"))(
+    "%s: a dead connection or a missed deadline is the network word",
+    (op) => {
+      expect(describeFailure(op, new TypeError("Failed to fetch"))).toEqual({
+        text: FRIENDLY_WORDS.network,
+        ...NONE,
+      });
+      expect(describeFailure(op, new DOMException("timed out", "TimeoutError")).text).toBe(
+        FRIENDLY_WORDS.network,
+      );
+      expect(describeFailure(op, "not even an error").text).toBe(FRIENDLY_WORDS.network);
+    },
+  );
+
+  it("approve: no answer may still be a dispatched approval, so it says so and offers the re-read", () => {
+    // A derived input: the real client raises these when the 15 second deadline fires or the link drops.
+    const errors = [
+      new DOMException("timed out", "TimeoutError"),
+      new DOMException("aborted", "AbortError"),
+      new TypeError("Failed to fetch"),
+      "not even an error",
+    ];
+    for (const err of errors) {
+      expect(describeFailure("approve", err)).toEqual({
+        text: FRIENDLY_WORDS.approve_unconfirmed,
+        ...NONE,
+        refetch: true,
+        refreshLink: true,
+      });
+    }
+    expect(FRIENDLY_WORDS.approve_unconfirmed).toMatch(/may have started/);
+    expect(FRIENDLY_WORDS.approve_unconfirmed).toMatch(/check/i);
+    expect(FRIENDLY_WORDS.approve_unconfirmed).not.toBe(FRIENDLY_WORDS.network);
   });
 
   it.each(OPS)("%s: the proxy's own failures are the network word", (op) => {
