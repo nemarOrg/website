@@ -14,6 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import CONFIRM_DIALOG from "../src/components/ConfirmDialog.astro?raw";
 import ROW from "../src/components/PublicationRequestRow.astro?raw";
 import PAGE from "../src/pages/admin/publication-requests.astro?raw";
 import { fixture } from "./publication-review-fixtures";
@@ -502,5 +503,38 @@ describe("the panel's stylesheet", () => {
     const selectors = [...css.matchAll(/(^|\})\s*([^{}@]+)\{/g)].flatMap((m) => m[2].split(","));
     const stray = selectors.map((s) => s.trim()).filter((s) => s && !/\.pubreq-review/.test(s));
     expect(stray).toEqual([]);
+  });
+});
+
+describe("the shared confirm dialog never confirms from a stale returnValue", () => {
+  // An Escape close leaves `returnValue` alone, so a value left by an earlier confirm would make the
+  // next Escape fire the confirm event again: resume and deny need no typing, so Escape alone would
+  // send them. The value is cleared before the dialog opens and again when it closes.
+  const dialogScript = (/<script>([\s\S]*?)<\/script>/.exec(CONFIRM_DIALOG)?.[1] ?? "").replace(
+    /\/\/.*$/gm,
+    "",
+  );
+  const closeHandler = /dialog\.addEventListener\("close", \(\) => \{([\s\S]*?)\n {4}\}\);/.exec(
+    dialogScript,
+  )?.[1];
+
+  it("finds the open and close handlers (the pins below are not vacuous)", () => {
+    expect(dialogScript).toContain("dialog.showModal()");
+    expect(closeHandler, "no close handler").toBeDefined();
+  });
+
+  it("clears returnValue before showModal()", () => {
+    const clear = dialogScript.indexOf('dialog.returnValue = ""');
+    const show = dialogScript.indexOf("dialog.showModal()");
+    expect(clear).toBeGreaterThan(-1);
+    expect(clear).toBeLessThan(show);
+  });
+
+  it("clears returnValue again after the close handler has read it", () => {
+    const body = closeHandler ?? "";
+    const read = body.indexOf('dialog.returnValue === "confirm"');
+    const clear = body.lastIndexOf('dialog.returnValue = ""');
+    expect(read).toBeGreaterThan(-1);
+    expect(clear).toBeGreaterThan(read);
   });
 });
