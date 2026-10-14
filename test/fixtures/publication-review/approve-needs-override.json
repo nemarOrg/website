@@ -1,0 +1,33 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "screen clean, review reported with failingReport, request_id only",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "publication_review_not_clear",
+    "refusal": "needs_override",
+    "headline": "Publication review: FAIL",
+    "message": "The publication review is not a pass. Read it (nemar admin publish show nm000727), then approve over it with --force, which records the override with your account.",
+    "outcome": "fail",
+    "reasons": [
+      {
+        "code": "question_failed",
+        "class": "fail",
+        "cleared_by": "override",
+        "detail": "complete_and_honest",
+        "statement": "A question of the review failed (the README is complete and agrees with the dataset; findings: README does not match the dataset).",
+        "sentence": "A question of the review failed.",
+        "cure": "Read any findings and the dataset's text. An administrator may approve over it; the approval records the override.",
+        "command": null,
+        "line": "A question of the review failed (the README is complete and agrees with the dataset; findings: README does not match the dataset). Read any findings and the dataset's text. An administrator may approve over it; the approval records the override (--force)."
+      }
+    ],
+    "uncovered": ["question_failed"],
+    "review_id": 1
+  }
+}

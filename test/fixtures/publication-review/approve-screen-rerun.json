@@ -1,0 +1,17 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "screen status unreported, no review row (the screen's state gate answers before the review gate, no GitHub read), request_id only",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "identifier_screen_not_clear",
+    "gate": "rerun",
+    "headline": "Identifier screen: DID NOT REPORT",
+    "message": "Identifier screen: DID NOT REPORT. Approval waits for a screen that produced a verdict: run it again with nemar admin publish screen nm000734."
+  }
+}

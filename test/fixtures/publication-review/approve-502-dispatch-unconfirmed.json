@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "screen clean, review passing, stand-in answers the dispatch 500 (a 5xx: possibly sent), request_id only",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 502,
+  "body": {
+    "error": "dispatch_unconfirmed",
+    "message": "GitHub did not confirm the request. It may have started; check again in a few minutes before trying again."
+  }
+}

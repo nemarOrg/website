@@ -1,0 +1,52 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "review off (PUBLICATION_REVIEW_ENABLED unset), no review row, screen status review",
+    "request": "GET /admin/publish/nm000718/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "environment": "production",
+    "enabled": false,
+    "dataset_id": "nm000718",
+    "request_id": 1,
+    "request_status": "requested",
+    "anonymous": false,
+    "identifier_screen": {
+      "state": "review",
+      "headline": "Identifier screen: needs review",
+      "tone": "warn",
+      "lines": [
+        "Files: 10; EDF/BDF headers read: 4 of 4.",
+        "Not read: the contents of sidecars and tables in earlier commits.",
+        "Scanner identifier-scan@abcdef1; commit 0123456789ab."
+      ]
+    },
+    "screen_acknowledgment": null,
+    "block_reason": null,
+    "started_publishing": false,
+    "total_files": null,
+    "applies": true,
+    "gate": "off",
+    "outcome": null,
+    "start_offered": false,
+    "screen_gate": "acknowledge",
+    "reasons": [],
+    "description": {
+      "headline": "Publication review: not reviewed (the automated review is off)",
+      "tone": "note",
+      "lines": [
+        "The automated review is off, so this request was not reviewed and no review gates its approval.",
+        "Not assessed: whether the text names the depositors."
+      ],
+      "summary": null,
+      "next": null
+    },
+    "review": null,
+    "history": [],
+    "history_truncated": false
+  }
+}

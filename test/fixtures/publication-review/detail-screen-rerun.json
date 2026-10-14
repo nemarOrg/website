@@ -1,0 +1,62 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "screen status unreported (the screen produced no verdict), no review row, review on",
+    "request": "GET /admin/publish/nm000717/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "environment": "production",
+    "enabled": true,
+    "dataset_id": "nm000717",
+    "request_id": 1,
+    "request_status": "requested",
+    "anonymous": false,
+    "identifier_screen": {
+      "state": "unreported",
+      "headline": "Identifier screen: DID NOT REPORT",
+      "tone": "stop",
+      "lines": [
+        "Cause: no report arrived from the screen workflow in time (it may never have started)."
+      ]
+    },
+    "screen_acknowledgment": null,
+    "block_reason": null,
+    "started_publishing": false,
+    "total_files": null,
+    "applies": true,
+    "gate": "enforced",
+    "outcome": "action_required",
+    "start_offered": false,
+    "screen_gate": "rerun",
+    "reasons": [
+      {
+        "code": "identifier_screen_not_run",
+        "class": "unknown",
+        "cleared_by": "nothing",
+        "detail": null,
+        "statement": "The identifier screen has no verdict about the current commit.",
+        "sentence": "The identifier screen has no verdict about the current commit.",
+        "cure": "An administrator runs the screen again.",
+        "command": "nemar admin publish screen nm000717",
+        "line": "The identifier screen has no verdict about the current commit. An administrator runs the screen again: nemar admin publish screen nm000717."
+      }
+    ],
+    "description": {
+      "headline": "Publication review: action required",
+      "tone": "warn",
+      "lines": [
+        "The identifier screen has no verdict about the current commit. An administrator runs the screen again: nemar admin publish screen nm000717.",
+        "Not assessed: whether the text names the depositors."
+      ],
+      "summary": null,
+      "next": "nemar admin publish screen nm000717"
+    },
+    "review": null,
+    "history": [],
+    "history_truncated": false
+  }
+}
