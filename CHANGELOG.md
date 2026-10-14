@@ -21,7 +21,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   Every Approve and Deny now names the request it was for, and each refusal the API gives is shown in plain words.
   A review can be started from the panel when the API offers one.
   There is no fallback to the old click that sent nothing: if the review detail cannot be read, the page says so and withholds Approve, and if the API predates the page or sends an answer the page cannot trust, it says it is out of step.
-  An approve that gets no answer says the approval may have started and asks for a refresh, a refusal for a signed-out or not-allowed account never shows the API's own sentence, and a result for a review panel that was closed meanwhile appears in the page's error region instead of a hidden panel.
+  An approve that gets no answer, or only the proxy's own 502, says the approval may have started and asks for a refresh, a refusal for a signed-out or not-allowed account never shows the API's own sentence, and a result for a review panel that was closed meanwhile appears in the page's error region instead of a hidden panel.
   This needs the API side (nemar-cli#1731), which must be on the API before this release is promoted to `main`.
 - **A request blocked by the identifier screen has its own badge** (#459).
   The seventh block reason, `identifier_screen_findings`, reads "Identifiers found" instead of the neutral "Blocked".
