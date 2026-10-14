@@ -659,13 +659,19 @@ const isGateRefusal = (word: string | undefined): word is ReviewGateRefusal =>
 const isScreenRefusal = (word: string | undefined): word is ScreenGateRefusal =>
   isOwn(SCREEN_GATE_COPY, word);
 
+/**
+ * A 401 or 403 that carries only a sentence. The Worker's sentence is never printed: an inactive
+ * account's refusal words a terminal command, so the page says its own word for "not signed in or
+ * not allowed".
+ */
+const isSentenceOnlyDenial = (f: ApiFailure): boolean =>
+  (f.status === 401 || f.status === 403) && f.code === undefined && Boolean(f.message);
+
 /** The page's words for a code, then a sentence-only 401 or 403, then the generic sentence. */
 function common(f: ApiFailure): FailureView {
   if (isOwn(FRIENDLY_WORDS, f.code))
     return view(FRIENDLY_WORDS[f.code as keyof typeof FRIENDLY_WORDS]);
-  if ((f.status === 401 || f.status === 403) && f.code === undefined && f.message) {
-    return view(f.message);
-  }
+  if (isSentenceOnlyDenial(f)) return view(FRIENDLY_WORDS.forbidden);
   return view(FRIENDLY_WORDS.generic);
 }
 
@@ -748,15 +754,13 @@ function describeStart(f: ApiFailure): FailureView {
 }
 
 function describeDetail(f: ApiFailure): FailureView {
-  const sentence =
-    f.message &&
-    (f.status === 404 || ((f.status === 401 || f.status === 403) && f.code === undefined))
-      ? f.message
-      : f.code === "forbidden"
-        ? FRIENDLY_WORDS.forbidden
-        : null;
+  // The request is closed: the Worker's sentence says so, and "Reload" would be wrong advice.
+  if (f.status === 404 && f.message) return view(f.message);
   const unavailable = say("approve.unavailable");
-  return view(sentence === null ? unavailable : `${sentence} ${unavailable}`);
+  if (f.code === "forbidden" || isSentenceOnlyDenial(f)) {
+    return view(withHeadline(FRIENDLY_WORDS.forbidden, unavailable));
+  }
+  return view(unavailable);
 }
 
 /**

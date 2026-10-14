@@ -16,6 +16,7 @@ import {
   denyPublicationRequest,
   dispatchPublicationApproval,
   getPublicationReview,
+  readFailure,
   startPublicationReview,
 } from "./admin-api";
 import { DashboardApiError } from "./dashboard-api";
@@ -1008,16 +1009,34 @@ describe("describeFailure: every operation", () => {
     }
   });
 
-  it("a sentence-only 401 or 403 is printed as it is (a derived reading: no capture reaches it)", () => {
-    for (const status of [401, 403]) {
-      const err = new PublicationApiError("x", status, undefined, {
-        status,
-        message: "Admin access required",
-      });
-      expect(describeFailure("approve", err).text).toBe("Admin access required");
-      expect(describeFailure("deny", err).text).toBe("Admin access required");
-    }
-  });
+  // No capture holds a 401 or 403 that carries only a sentence (the fixtures' envelope has a code
+  // word), so these are DERIVED inputs: a literal body run through the real `readFailure`. The
+  // second is the shape of an inactive account's refusal, whose sentence names a terminal.
+  const sentenceOnly = async (status: number, body: Record<string, string>) => {
+    const failure = await readFailure(new Response(JSON.stringify(body), { status }));
+    return new PublicationApiError("x", status, failure.code, failure);
+  };
+  const INACTIVE_ACCOUNT = {
+    error: "Account not approved",
+    message: "Your account is not active. Run 'nemar auth resend-verification' to continue.",
+  };
+
+  it.each([401, 403])(
+    "a sentence-only %i prints the page's own word, never the Worker's sentence",
+    async (status) => {
+      for (const body of [{ error: "Admin access required" }, INACTIVE_ACCOUNT]) {
+        const err = await sentenceOnly(status, body);
+        for (const op of ["approve", "deny", "start"] as const) {
+          const out = describeFailure(op, err);
+          expect(out, `${op} ${status} ${JSON.stringify(body)}`).toEqual({
+            text: FRIENDLY_WORDS.forbidden,
+            ...NONE,
+          });
+          expect(terminalFlaws(out.text, 2)).toEqual([]);
+        }
+      }
+    },
+  );
 
   it("a word the page has a sentence for is printed in that sentence", () => {
     const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
@@ -1101,12 +1120,11 @@ describe("describeFailure: start", () => {
 });
 
 describe("describeFailure: detail", () => {
-  it("a request that is closed says so, then that the review cannot be read", async () => {
+  it("a request that is closed says so in the Worker's sentence alone", async () => {
+    // The request is closed: "Reload to try again" would send the administrator in a circle.
     const out = describeFailure("detail", await failure("detail", "detail-not-found"));
-    expect(out).toEqual({
-      text: `nm000726 has no active publication request. ${COPY["approve.unavailable"]}`,
-      ...NONE,
-    });
+    expect(out).toEqual({ text: "nm000726 has no active publication request.", ...NONE });
+    expect(out.text).not.toContain(COPY["approve.unavailable"]);
   });
 
   it("any other failure is the unavailable sentence alone", () => {
@@ -1117,13 +1135,30 @@ describe("describeFailure: detail", () => {
     expect(describeFailure("detail", err)).toEqual({ text: COPY["approve.unavailable"], ...NONE });
   });
 
-  it("a sentence-only 403 is printed before it", () => {
-    const err = new PublicationApiError("x", 403, undefined, {
-      status: 403,
-      message: "Admin access required",
-    });
+  it.each([401, 403])(
+    "a sentence-only %i prints the page's word, a full stop, then the unavailable sentence",
+    async (status) => {
+      // Derived inputs (see the header of the operations block): a literal body through the real parser.
+      for (const body of [
+        { error: "Authentication required" },
+        { error: "Account not approved", message: "Run 'nemar auth resend-verification'." },
+      ]) {
+        const failure = await readFailure(new Response(JSON.stringify(body), { status }));
+        const err = new PublicationApiError("x", status, failure.code, failure);
+        const out = describeFailure("detail", err);
+        expect(out).toEqual({
+          text: `You no longer have admin access. Sign in again. ${COPY["approve.unavailable"]}`,
+          ...NONE,
+        });
+        expect(out.text).not.toMatch(/[.!?]\s*[.!?]|\.\./);
+      }
+    },
+  );
+
+  it("the forbidden word joins the unavailable sentence with one full stop", () => {
+    const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
     expect(describeFailure("detail", err).text).toBe(
-      `Admin access required ${COPY["approve.unavailable"]}`,
+      `You no longer have admin access. Sign in again. ${COPY["approve.unavailable"]}`,
     );
   });
 });
