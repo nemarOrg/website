@@ -72,7 +72,7 @@ export const PUBLICATION_REVIEW_COPY = {
   "screen_gate.stale":
     "The identifier screen read a commit that is no longer the head of main, so its result is out of date. An administrator runs the screen again.",
   "screen_gate.unverified":
-    "The identifier screen's result could not be checked against the current commit just now, so the approval is refused. Try again.",
+    "The identifier screen's result could not be checked against the current commit just now, so the approval is refused. Try again. If it keeps happening, an administrator runs the screen again.",
 
   // The approve control.
   "approve.unavailable":
