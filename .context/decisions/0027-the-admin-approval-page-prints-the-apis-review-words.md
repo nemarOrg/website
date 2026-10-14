@@ -40,7 +40,7 @@ The rulings below settle the cases the design left open.
   Its button reads "Approve and publish" where the row's own button reads "Resume approval"; only a run that has started publishing is continued without the gates, and its panel button reads "Continue approval".
 - **A failure is worded by the page, never by the Worker's sentence, where that sentence could name a terminal.**
   A 401 or 403 that carries only a sentence prints the page's own "sign in again" word, because an inactive account's refusal names a terminal command.
-  An approve that gets no answer (a missed deadline, a dead connection) says the approval may have started and asks the administrator to refresh and check before trying again, because the dispatch may have gone out; the API's lease makes a retry a harmless refusal.
+  An approve that gets no answer (a missed deadline, a dead connection, or the proxy's own `upstream_unreachable` or `upstream_redirect` 502) says the approval may have started and asks the administrator to refresh and check before trying again, because the dispatch may have gone out; the API's lease makes a retry a harmless refusal.
 - **The API deploys first.**
   A page promoted ahead of the API shows "out of step" and offers no Approve, so the release that carries this page waits for the API that carries nemar-cli#1731.
 

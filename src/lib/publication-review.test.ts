@@ -1024,10 +1024,34 @@ describe("describeFailure: every operation", () => {
     expect(FRIENDLY_WORDS.approve_unconfirmed).not.toBe(FRIENDLY_WORDS.network);
   });
 
-  it.each(OPS)("%s: the proxy's own failures are the network word", (op) => {
+  // DERIVED inputs: the proxy's own 502 body (`{ error: <word> }`, as `/api/v1` answers when it
+  // cannot reach the API or meets a redirect) run through the real `readFailure`.
+  const proxy502 = async (word: string) => {
+    const failure = await readFailure(
+      new Response(JSON.stringify({ error: word }), { status: 502 }),
+    );
+    return new PublicationApiError("x", 502, failure.code, failure);
+  };
+
+  it.each(OPS.filter((op) => op !== "approve"))(
+    "%s: the proxy's own failures are the network word",
+    async (op) => {
+      for (const word of ["upstream_unreachable", "upstream_redirect"]) {
+        const out = describeFailure(op, await proxy502(word));
+        expect(out, word).toEqual({ text: FRIENDLY_WORDS.network, ...NONE });
+      }
+    },
+  );
+
+  it("approve: the proxy's own failures may follow a dispatch, so they say so like a timeout", async () => {
+    // The connection can die after the request went out, so the approval may have started.
     for (const word of ["upstream_unreachable", "upstream_redirect"]) {
-      const err = new PublicationApiError("x", 502, word, { status: 502, code: word });
-      expect(describeFailure(op, err).text, word).toBe(FRIENDLY_WORDS.network);
+      expect(describeFailure("approve", await proxy502(word)), word).toEqual({
+        text: FRIENDLY_WORDS.approve_unconfirmed,
+        ...NONE,
+        refetch: true,
+        refreshLink: true,
+      });
     }
   });
 

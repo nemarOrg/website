@@ -773,8 +773,8 @@ function describeDetail(f: ApiFailure): FailureView {
 
 /**
  * The words and the follow-up for a failed call. A value that is not the Worker's answer (a dead
- * connection, a missed deadline) is the network sentence, except for an approve, which may have
- * started and says so. The order is: the proxy's own failures,
+ * connection, a missed deadline) and the proxy's own 502 words are the network sentence, except for
+ * an approve, which may have started and says so. The order is: the proxy's own failures,
  * the origin guard's sentence, then the operation's own table. A gate or screen refusal prints the
  * mirrored copy, never the Worker's message, which words a terminal.
  */
@@ -788,7 +788,10 @@ export function describeFailure(op: FailureOp, err: unknown): FailureView {
       : view(FRIENDLY_WORDS.network);
   }
   if (f.status === 502 && (f.code === "upstream_unreachable" || f.code === "upstream_redirect")) {
-    return view(FRIENDLY_WORDS.network);
+    // The link can die after the dispatch went out, exactly like a missed deadline.
+    return op === "approve"
+      ? view(FRIENDLY_WORDS.approve_unconfirmed, { refetch: true, refreshLink: true })
+      : view(FRIENDLY_WORDS.network);
   }
   if (f.code === "origin_not_allowed") return view(sentenceOr(f));
   switch (op) {
