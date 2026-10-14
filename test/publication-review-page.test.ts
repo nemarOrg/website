@@ -296,6 +296,72 @@ describe("Approve and Resume open the panel, and the typed dialog stays the last
   });
 });
 
+/** The text of a top-level function of the script, from its keyword to its closing brace. */
+function functionOf(name: string): string {
+  const match = new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n {2}\\}`).exec(SCRIPT);
+  if (!match) throw new Error(`the script has no function ${name}`);
+  return match[0];
+}
+
+describe("a result never lands in a hidden panel, and a second click never opens a dialog", () => {
+  it("reads the functions it pins (the guards below are not vacuous)", () => {
+    for (const name of ["queue", "afterApproveFailure", "startReview", "reportFailure"]) {
+      expect(functionOf(name).length, name).toBeGreaterThan(20);
+    }
+  });
+
+  it("shows a failure for a closed panel in the page's own error region", () => {
+    const report = functionOf("reportFailure");
+    expect(report).toMatch(/panel\.hidden/);
+    expect(report).toContain("showError(");
+    expect(report).toMatch(/refresh:\s*failure\.refreshLink/);
+    expect(report).toContain("loadPanel(");
+    expect(report).toContain("setPanelError(");
+    // The closed-panel check comes before anything is drawn.
+    expect(report.indexOf("panel.hidden")).toBeLessThan(report.indexOf("loadPanel("));
+    expect(report.indexOf("panel.hidden")).toBeLessThan(report.indexOf("setPanelError("));
+  });
+
+  it("sends every approve and start failure through it", () => {
+    expect(functionOf("afterApproveFailure")).toContain("reportFailure(");
+    expect(functionOf("startReview")).toContain("reportFailure(");
+    for (const name of ["afterApproveFailure", "startReview"]) {
+      expect(functionOf(name), name).not.toContain("setPanelError(");
+      expect(functionOf(name), name).not.toContain("loadPanel(panel, { error");
+    }
+  });
+
+  it("does not re-read a panel that was closed while a start was running", () => {
+    expect(functionOf("startReview")).toMatch(/panel\.hidden/);
+  });
+
+  it("answers queue with a boolean and refuses while a call is in flight", () => {
+    const queue = functionOf("queue");
+    expect(queue).toMatch(/function queue\(next: PendingAction\): boolean/);
+    expect(queue).toMatch(/if \(inFlight\) return false/);
+    expect(queue).toMatch(/return true/);
+  });
+
+  it("opens a dialog only when queue accepted the action", () => {
+    const opens = [...SCRIPT.matchAll(/(?<!function )openDialog\(/g)];
+    expect(opens.length).toBe(2);
+    expect(SCRIPT).toMatch(
+      /const queued = queue\([\s\S]*?\);\s*if \(!queued\) return;\s*openDialog\(control\.dialogId\)/,
+    );
+    expect(SCRIPT).toMatch(
+      /if \(!queue\(\{ kind: "deny"[^\n]*\)\) return;\s*openDialog\("admin-deny"\)/,
+    );
+  });
+
+  it("disables the panel's Approve for the length of the call, and re-checks it when the call ends", () => {
+    expect(SCRIPT).toContain("data-pubreq-panel-approve");
+    expect(SCRIPT).toMatch(/setApproveBusy\(\s*target\.panel\s*,\s*true\s*\)/);
+    expect(functionOf("afterApproveFailure")).toMatch(/setApproveBusy\(\s*panel\s*,\s*false\s*\)/);
+    // The button's own state still comes from the builder, with the flight on top.
+    expect(SCRIPT).toMatch(/\.disabled\s*=\s*!approveBody\([^;]*inFlight/);
+  });
+});
+
 describe("a denial names its request", () => {
   it("passes requestId on every denyPublicationRequest call", () => {
     const calls = callArguments(SCRIPT, "denyPublicationRequest");
