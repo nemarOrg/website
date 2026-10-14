@@ -138,6 +138,30 @@ describe("approveControl: one case per row of the table", () => {
       expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
 
+    // Derived inputs: a captured detail with one field replaced or removed, the only way to say
+    // "a Worker whose answer this page cannot trust". A body with no request_id would be sent bodyless.
+    it.each([
+      ["request_id missing", withoutKey("detail-pass", "request_id")],
+      ["request_id a string", altered("detail-pass", { request_id: "7" })],
+      ["request_id not an integer", altered("detail-pass", { request_id: 1.5 })],
+      ["a gate word the page does not know", altered("detail-pass", { gate: "a_newer_gate" })],
+      ["gate missing", withoutKey("detail-pass", "gate")],
+      ["anonymous not a boolean", altered("detail-pass", { anonymous: "yes" })],
+      ["anonymous missing", withoutKey("detail-pass", "anonymous")],
+    ])("%s is out of step", (_what, bad) => {
+      expect(approveControl(bad, { rowStart: "approve" })).toEqual({
+        kind: "unavailable",
+        text: OUT_OF_STEP,
+      });
+      expect(panelModel(bad, { rowStart: "approve" }).reasonsWithheld).toBe(OUT_OF_STEP);
+      expect(startOffered(bad)).toBe(false);
+    });
+
+    it.each(["enforced", "off", "n/a"])("the gate word %s is a current Worker's", (gate) => {
+      const ok = altered("detail-pass", { gate });
+      expect(approveControl(ok, { rowStart: "approve" }).kind).not.toBe("unavailable");
+    });
+
     it("beats every later row, even a blocked request", () => {
       const control = approveControl(withoutKey("detail-blocked", "screen_gate"), {
         rowStart: "approve",

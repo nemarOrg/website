@@ -260,6 +260,8 @@ export interface ControlContext {
   readonly rowStart: "approve" | "resume" | null;
 }
 
+const GATE_WORDS: readonly string[] = ["enforced", "off", "n/a"];
+
 const SCREEN_GATE_WORDS: readonly string[] = [
   "clear",
   "blocks",
@@ -278,11 +280,17 @@ export function isHardReason(clearedBy: string): boolean {
 }
 
 /**
- * A detail the page can read: it carries the Phase 4 fields, every reason has its statement, and
- * the screen gate is a word the page knows. Anything else is a Worker out of step with the page.
+ * A detail the page can read: it carries the Phase 4 fields, every reason has its statement, the
+ * screen gate and the review gate are words the page knows, and the request is named by an integer
+ * and says whether it is anonymous (the body of an Approve is built from them, and a missing
+ * `request_id` would send the old bodyless click). Anything else is a Worker out of step with the page.
  */
 function isCurrentWorker(detail: PublicationReviewDetail): boolean {
   return (
+    Number.isInteger(detail.request_id) &&
+    typeof detail.gate === "string" &&
+    GATE_WORDS.includes(detail.gate) &&
+    typeof detail.anonymous === "boolean" &&
     typeof detail.start_offered === "boolean" &&
     typeof detail.screen_gate === "string" &&
     SCREEN_GATE_WORDS.includes(detail.screen_gate) &&
