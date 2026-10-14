@@ -1,0 +1,52 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "dataset source openneuro (a mirror), review on",
+    "request": "GET /admin/publish/nm000725/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "environment": "production",
+    "enabled": true,
+    "dataset_id": "nm000725",
+    "request_id": 1,
+    "request_status": "requested",
+    "anonymous": false,
+    "identifier_screen": {
+      "state": "clean",
+      "headline": "Identifier screen: clean",
+      "tone": "ok",
+      "lines": [
+        "Files: 10; EDF/BDF headers read: 4 of 4.",
+        "Not read: the contents of sidecars and tables in earlier commits.",
+        "Scanner identifier-scan@abcdef1; commit 0123456789ab."
+      ]
+    },
+    "screen_acknowledgment": null,
+    "block_reason": null,
+    "started_publishing": false,
+    "total_files": null,
+    "applies": false,
+    "gate": "n/a",
+    "outcome": null,
+    "start_offered": false,
+    "screen_gate": "clear",
+    "reasons": [],
+    "description": {
+      "headline": "Publication review: not applicable",
+      "tone": "note",
+      "lines": [
+        "OpenNeuro mirrors and exemplars passed an upstream review, so the automated review does not apply.",
+        "Not assessed: whether the text names the depositors."
+      ],
+      "summary": null,
+      "next": null
+    },
+    "review": null,
+    "history": [],
+    "history_truncated": false
+  }
+}

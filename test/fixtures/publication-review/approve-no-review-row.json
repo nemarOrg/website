@@ -1,0 +1,33 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "screen clean, review on, no review row, override with review_id null and reasons [review_not_started]",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1,\"override_publication_review\":{\"review_id\":null,\"reasons\":[\"review_not_started\"]}}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "publication_review_not_clear",
+    "refusal": "no_review_row",
+    "headline": "Publication review: action required",
+    "message": "No review of this commit is on record to attach the override to. Start it (nemar admin publish start nm000731), or approve from a terminal with --force.",
+    "outcome": "action_required",
+    "reasons": [
+      {
+        "code": "review_not_started",
+        "class": "unknown",
+        "cleared_by": "override",
+        "detail": null,
+        "statement": "No review of the screened commit has started.",
+        "sentence": "No review of the screened commit has started.",
+        "cure": "Start it. An administrator may approve over it; the approval records the override.",
+        "command": "nemar admin publish start nm000731",
+        "line": "No review of the screened commit has started. Start it: nemar admin publish start nm000731. An administrator may approve over it; the approval records the override (--force)."
+      }
+    ],
+    "uncovered": [],
+    "review_id": null
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "request blocked with block_reason min_requirements_failed, no steps done, no review row",
+    "request": "GET /admin/publish/nm000722/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "environment": "production",
+    "enabled": true,
+    "dataset_id": "nm000722",
+    "request_id": 1,
+    "request_status": "blocked",
+    "anonymous": false,
+    "identifier_screen": {
+      "state": "clean",
+      "headline": "Identifier screen: clean",
+      "tone": "ok",
+      "lines": [
+        "Files: 10; EDF/BDF headers read: 4 of 4.",
+        "Not read: the contents of sidecars and tables in earlier commits.",
+        "Scanner identifier-scan@abcdef1; commit 0123456789ab."
+      ]
+    },
+    "screen_acknowledgment": null,
+    "block_reason": "min_requirements_failed",
+    "started_publishing": false,
+    "total_files": null,
+    "applies": true,
+    "gate": "enforced",
+    "outcome": "fail",
+    "start_offered": false,
+    "screen_gate": "clear",
+    "reasons": [
+      {
+        "code": "request_blocked",
+        "class": "fail",
+        "cleared_by": "nothing",
+        "detail": "min_requirements_failed",
+        "statement": "The request is blocked (min_requirements_failed).",
+        "sentence": "The request is blocked.",
+        "cure": "The depositor fixes what blocked it and requests publication again.",
+        "command": null,
+        "line": "The request is blocked (min_requirements_failed). The depositor fixes what blocked it and requests publication again."
+      },
+      {
+        "code": "review_not_started",
+        "class": "unknown",
+        "cleared_by": "override",
+        "detail": null,
+        "statement": "No review of the screened commit has started.",
+        "sentence": "No review of the screened commit has started.",
+        "cure": "A review starts only for a request that is waiting for its decision. An administrator may approve over it; the approval records the override.",
+        "command": null,
+        "line": "No review of the screened commit has started. A review starts only for a request that is waiting for its decision. An administrator may approve over it; the approval records the override (--force)."
+      }
+    ],
+    "description": {
+      "headline": "Publication review: FAIL",
+      "tone": "stop",
+      "lines": [
+        "The request is blocked (min_requirements_failed). The depositor fixes what blocked it and requests publication again.",
+        "No review of the screened commit has started. A review starts only for a request that is waiting for its decision. An administrator may approve over it; the approval records the override (--force).",
+        "Not assessed: whether the text names the depositors."
+      ],
+      "summary": null,
+      "next": null
+    },
+    "review": null,
+    "history": [],
+    "history_truncated": false
+  }
+}

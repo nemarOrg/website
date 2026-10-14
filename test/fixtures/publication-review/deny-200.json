@@ -1,0 +1,16 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "f3a3aef8f31273e565543ab9a11c001fe34d4e7e",
+    "captured_on": "2026-10-14",
+    "scenario": "a requested request, a reason, request_id of the request",
+    "request": "POST /admin/publish/<dataset>/deny with {\"reason\":\"The README does not describe the recordings.\",\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "message": "Publication request denied",
+    "dataset_id": "nm000747",
+    "reason": "The README does not describe the recordings."
+  }
+}
