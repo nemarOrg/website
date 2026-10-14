@@ -8,12 +8,22 @@
  * literal string fed to a parser branch no capture reaches. Nothing else is invented.
  */
 import { describe, expect, it } from "vitest";
-import { type Captured, fixture, fixtureNames } from "../../test/publication-review-fixtures";
+import { asResponse, fixture, fixtureNames } from "../../test/publication-review-fixtures";
 import { terminalFlaws } from "../../test/publication-review-web-words";
-import type { PublicationRequest } from "./admin-api";
+import {
+  PublicationApiError,
+  type PublicationRequest,
+  denyPublicationRequest,
+  dispatchPublicationApproval,
+  getPublicationReview,
+  startPublicationReview,
+} from "./admin-api";
+import { DashboardApiError } from "./dashboard-api";
 import {
   ACK_MAX,
   ACK_MIN,
+  FRIENDLY_WORDS,
+  type FailureOp,
   GATE_REFUSAL_COPY,
   HARD_REASON_LINE,
   NO_START_LINE,
@@ -25,6 +35,8 @@ import {
   UI_WORDS,
   approveBody,
   approveControl,
+  describeFailure,
+  describeStartSuccess,
   isHardReason,
   panelModel,
   rowChips,
@@ -774,6 +786,414 @@ describe("panelModel", () => {
       expect(m.start).toEqual({ offered: false });
       expect(m.approve).toEqual({ kind: "unavailable", line: OUT_OF_STEP });
     });
+  });
+});
+
+/**
+ * Failures are produced by the real client over the captured answer, so the error each case
+ * reads is the one the page would catch.
+ */
+async function failure(op: FailureOp, name: string): Promise<PublicationApiError> {
+  const fetchImpl = (async () => asResponse(fixture(name))) as unknown as typeof fetch;
+  const call =
+    op === "approve"
+      ? dispatchPublicationApproval("nm000700", { fetch: fetchImpl, body: { request_id: 1 } })
+      : op === "deny"
+        ? denyPublicationRequest("nm000700", "a reason", { fetch: fetchImpl, requestId: 1 })
+        : op === "start"
+          ? startPublicationReview("nm000700", { fetch: fetchImpl })
+          : getPublicationReview("nm000700", { fetch: fetchImpl });
+  try {
+    await call;
+  } catch (err) {
+    if (err instanceof PublicationApiError) return err;
+    throw err;
+  }
+  throw new Error(`${name} did not fail`);
+}
+
+/** A captured failure with its reading altered: the openly derived input (see the header). */
+function withFailure(
+  err: PublicationApiError,
+  patch: Record<string, unknown>,
+): PublicationApiError {
+  const failure = { ...err.failure, ...patch };
+  return new PublicationApiError(err.message, err.status, err.code, failure);
+}
+
+const NONE = { refetch: false, resetOverride: false, focusAck: false, refreshLink: false };
+
+describe("describeFailure: approve", () => {
+  const joined = (headline: string, key: keyof typeof COPY) => `${headline}. ${COPY[key]}`;
+
+  it.each([
+    ["approve-needs-override", "Publication review: FAIL", "gate.needs_override"],
+    ["approve-hard-reason", "Publication review: FAIL", "gate.hard_reason"],
+    ["approve-override-not-covering", "Publication review: FAIL", "gate.override_not_covering"],
+    ["approve-review-changed", "Publication review: FAIL", "gate.review_changed"],
+    ["approve-no-review-row", "Publication review: action required", "gate.no_review_row"],
+  ] as const)(
+    "%s prints the headline and the copy, re-reads, and unticks the override",
+    async (name, headline, key) => {
+      const err = await failure("approve", name);
+      const out = describeFailure("approve", err);
+      expect(out).toEqual({
+        text: joined(headline, key),
+        ...NONE,
+        refetch: true,
+        resetOverride: true,
+      });
+      // The Worker's own message names a terminal and is never printed.
+      const message = (fixture(name).body as { message: string }).message;
+      expect(out.text).not.toContain(message);
+    },
+  );
+
+  it("prints the copy alone when the refusal carries no headline", async () => {
+    const err = await failure("approve", "approve-needs-override");
+    const bare = new PublicationApiError(err.message, err.status, err.code, {
+      status: 409,
+      code: "publication_review_not_clear",
+      refusal: "unverified",
+    });
+    expect(describeFailure("approve", bare).text).toBe(COPY["gate.unverified"]);
+  });
+
+  it("a refusal word the page does not know is out of step, and re-reads", async () => {
+    const err = withFailure(await failure("approve", "approve-needs-override"), {
+      refusal: "a_newer_refusal",
+    });
+    expect(describeFailure("approve", err)).toEqual({
+      text: OUT_OF_STEP,
+      ...NONE,
+      refetch: true,
+      resetOverride: true,
+    });
+  });
+
+  it.each([
+    ["approve-screen-blocks", "blocks", "Identifier screen: FOUND IDENTIFIERS"],
+    ["approve-screen-acknowledge", "acknowledge", "Identifier screen: needs review"],
+    ["approve-screen-rerun", "rerun", "Identifier screen: DID NOT REPORT"],
+    ["approve-screen-wait", "wait", "Identifier screen: running"],
+    ["approve-screen-stale", "stale", "Identifier screen: clean"],
+    ["approve-screen-unverified", "unverified", "Identifier screen: clean"],
+  ] as const)(
+    "%s prints the headline and the screen copy and re-reads",
+    async (name, gate, headline) => {
+      const err = await failure("approve", name);
+      const out = describeFailure("approve", err);
+      expect(out).toEqual({
+        text: `${headline}. ${COPY[`screen_gate.${gate}`]}`,
+        ...NONE,
+        refetch: true,
+        focusAck: gate === "acknowledge",
+      });
+      const message = (fixture(name).body as { message: string }).message;
+      expect(out.text).not.toContain(message);
+    },
+  );
+
+  it("a screen gate word the page does not know is out of step, and re-reads", async () => {
+    const err = withFailure(await failure("approve", "approve-screen-wait"), {
+      gate: "a_newer_gate",
+    });
+    expect(describeFailure("approve", err)).toEqual({ text: OUT_OF_STEP, ...NONE, refetch: true });
+  });
+
+  it("a blocked request prints approve.blocked, not the Worker's sentence", async () => {
+    const out = describeFailure("approve", await failure("approve", "approve-not-dispatchable"));
+    expect(out).toEqual({ text: COPY["approve.blocked"], ...NONE, refetch: true });
+  });
+
+  it("an approval already running prints the page's sentence and offers the refresh link", async () => {
+    const out = describeFailure("approve", await failure("approve", "approve-already-in-flight"));
+    expect(out).toEqual({ text: FRIENDLY_WORDS.already_in_flight, ...NONE, refreshLink: true });
+  });
+
+  it("a stale request prints the Worker's sentence and re-reads", async () => {
+    const out = describeFailure("approve", await failure("approve", "approve-request-mismatch"));
+    const message = (fixture("approve-request-mismatch").body as { message: string }).message;
+    expect(out).toEqual({ text: message, ...NONE, refetch: true });
+  });
+
+  it("a body the Worker rejects prints the page's word, not the Worker's field list", async () => {
+    const out = describeFailure("approve", await failure("approve", "approve-invalid-body"));
+    expect(out).toEqual({ text: FRIENDLY_WORDS.invalid_body, ...NONE });
+    expect(out.text).not.toContain("acknowledge_identifier_screen");
+  });
+
+  it("a request that is gone prints the page's word and offers the refresh link", async () => {
+    // The approve route's 404 has no capture of its own; this is the detail route's answer with the same word.
+    const out = describeFailure("approve", await failure("detail", "detail-not-found"));
+    expect(out).toEqual({
+      text: FRIENDLY_WORDS.not_found,
+      ...NONE,
+      refetch: true,
+      refreshLink: true,
+    });
+  });
+
+  it("a 404 that is only a sentence prints that sentence", async () => {
+    const out = describeFailure("approve", await failure("deny", "deny-not-found"));
+    expect(out.text).toBe("No active publication request found");
+    expect(out.refreshLink).toBe(true);
+  });
+
+  it.each([
+    ["approve-502-dispatch-failed", "dispatch_failed"],
+    ["approve-502-dispatch-unconfirmed", "dispatch_unconfirmed"],
+    ["approve-502-unconfigured", "dispatch_unconfigured"],
+  ] as const)(
+    "%s prints the page's own sentence and offers the refresh link",
+    async (name, word) => {
+      const out = describeFailure("approve", await failure("approve", name));
+      expect(out).toEqual({ text: FRIENDLY_WORDS[word], ...NONE, refreshLink: true });
+      // The Worker's sentence for a missing credential tells an administrator to use a terminal.
+      expect(out.text).not.toMatch(/terminal/i);
+    },
+  );
+});
+
+describe("describeFailure: every operation", () => {
+  const OPS: FailureOp[] = ["approve", "deny", "start", "detail"];
+
+  it.each(OPS)("%s: the origin guard prints its sentence, never its word", async (op) => {
+    const out = describeFailure(op, await failure(op, "origin-not-allowed"));
+    expect(out.text).toBe("This request did not come from a NEMAR page, so it was not accepted.");
+    expect(out.text).not.toContain("origin_not_allowed");
+    expect({ ...out, text: "" }).toEqual({ text: "", ...NONE });
+  });
+
+  it.each(OPS)("%s: a dead connection or a missed deadline is the network word", (op) => {
+    expect(describeFailure(op, new TypeError("Failed to fetch"))).toEqual({
+      text: FRIENDLY_WORDS.network,
+      ...NONE,
+    });
+    expect(describeFailure(op, new DOMException("timed out", "TimeoutError")).text).toBe(
+      FRIENDLY_WORDS.network,
+    );
+    expect(describeFailure(op, "not even an error").text).toBe(FRIENDLY_WORDS.network);
+  });
+
+  it.each(OPS)("%s: the proxy's own failures are the network word", (op) => {
+    for (const word of ["upstream_unreachable", "upstream_redirect"]) {
+      const err = new PublicationApiError("x", 502, word, { status: 502, code: word });
+      expect(describeFailure(op, err).text, word).toBe(FRIENDLY_WORDS.network);
+    }
+  });
+
+  it("a sentence-only 401 or 403 is printed as it is (a derived reading: no capture reaches it)", () => {
+    for (const status of [401, 403]) {
+      const err = new PublicationApiError("x", status, undefined, {
+        status,
+        message: "Admin access required",
+      });
+      expect(describeFailure("approve", err).text).toBe("Admin access required");
+      expect(describeFailure("deny", err).text).toBe("Admin access required");
+    }
+  });
+
+  it("a word the page has a sentence for is printed in that sentence", () => {
+    const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
+    expect(describeFailure("approve", err).text).toBe(FRIENDLY_WORDS.forbidden);
+  });
+
+  it("a word nothing maps is the generic sentence, never the word", () => {
+    const err = new PublicationApiError("x", 500, "a_newer_word", {
+      status: 500,
+      code: "a_newer_word",
+      message: "Something a newer Worker says",
+    });
+    expect(describeFailure("approve", err)).toEqual({ text: FRIENDLY_WORDS.generic, ...NONE });
+  });
+
+  it("the older client's own refusal of an empty denial reason is the page's sentence", () => {
+    const err = new DashboardApiError("Deny requires a non-empty reason", 0, "missing_field");
+    expect(describeFailure("deny", err).text).toBe(FRIENDLY_WORDS.missing_field);
+  });
+});
+
+describe("describeFailure: deny", () => {
+  it.each([
+    "deny-request-mismatch",
+    "deny-after-publishing",
+    "deny-approval-in-flight",
+    "deny-not-found",
+  ])("%s prints the Worker's sentence, re-reads and offers the refresh link", async (name) => {
+    const body = fixture(name).body as { message?: string; error: string };
+    const out = describeFailure("deny", await failure("deny", name));
+    expect(out).toEqual({
+      text: body.message ?? body.error,
+      ...NONE,
+      refetch: true,
+      refreshLink: true,
+    });
+  });
+
+  it("the validation failure, whose error is an object, prints the page's word and never the object", async () => {
+    const out = describeFailure("deny", await failure("deny", "deny-invalid-body"));
+    expect(out).toEqual({ text: FRIENDLY_WORDS.deny_rejected, ...NONE });
+    expect(out.text).not.toContain("ZodError");
+    expect(out.text).not.toContain("[object");
+  });
+});
+
+describe("describeFailure: start", () => {
+  it.each([
+    "start-review-disabled",
+    "start-not-applicable",
+    "start-not-owned-here",
+    "start-request-not-requested",
+    "start-screen-not-ready",
+    "start-running",
+    "start-has-result",
+    "start-platform-limit",
+    "start-502-dispatch-failed",
+    "start-502-unconfigured",
+    "start-not-found",
+  ])("%s prints the Worker's sentence and re-reads", async (name) => {
+    const body = fixture(name).body as { error: string };
+    const out = describeFailure("start", await failure("start", name));
+    expect(out).toEqual({ text: body.error, ...NONE, refetch: true });
+  });
+
+  it("a missing credential on a start is not the approve sentence (wrong subject)", async () => {
+    const out = describeFailure("start", await failure("start", "start-502-unconfigured"));
+    expect(out.text).not.toBe(FRIENDLY_WORDS.dispatch_unconfigured);
+    expect(out.text).toContain("review");
+  });
+
+  it("a malformed dataset id prints the Worker's sentence and does not re-read", async () => {
+    const out = describeFailure("start", await failure("start", "start-bad-dataset"));
+    expect(out).toEqual({ text: "That is not a dataset id.", ...NONE });
+  });
+
+  it("a refusal word the page does not know is the generic sentence", async () => {
+    const err = withFailure(await failure("start", "start-running"), { code: "a_newer_refusal" });
+    expect(describeFailure("start", err)).toEqual({ text: FRIENDLY_WORDS.generic, ...NONE });
+  });
+});
+
+describe("describeFailure: detail", () => {
+  it("a request that is closed says so, then that the review cannot be read", async () => {
+    const out = describeFailure("detail", await failure("detail", "detail-not-found"));
+    expect(out).toEqual({
+      text: `nm000726 has no active publication request. ${COPY["approve.unavailable"]}`,
+      ...NONE,
+    });
+  });
+
+  it("any other failure is the unavailable sentence alone", () => {
+    const err = new PublicationApiError("x", 500, "internal_error", {
+      status: 500,
+      code: "internal_error",
+    });
+    expect(describeFailure("detail", err)).toEqual({ text: COPY["approve.unavailable"], ...NONE });
+  });
+
+  it("a sentence-only 403 is printed before it", () => {
+    const err = new PublicationApiError("x", 403, undefined, {
+      status: 403,
+      message: "Admin access required",
+    });
+    expect(describeFailure("detail", err).text).toBe(
+      `Admin access required ${COPY["approve.unavailable"]}`,
+    );
+  });
+});
+
+describe("describeFailure: what is never printed", () => {
+  const ERROR_NAMES = fixtureNames().filter((n) => fixture<unknown>(n).status >= 400);
+  const opFor = (name: string): FailureOp =>
+    name.startsWith("deny-")
+      ? "deny"
+      : name.startsWith("start-")
+        ? "start"
+        : name.startsWith("detail-")
+          ? "detail"
+          : "approve";
+
+  it("has failures to read (the loops below are not vacuous)", () => {
+    expect(ERROR_NAMES.length).toBeGreaterThanOrEqual(30);
+  });
+
+  it.each(ERROR_NAMES)("%s: the words name no terminal", async (name) => {
+    const op = opFor(name);
+    const out = describeFailure(op, await failure(op, name));
+    expect(terminalFlaws(out.text, 2), out.text).toEqual([]);
+    expect(out.text.length).toBeGreaterThan(0);
+  });
+
+  it.each(["approve", "deny", "start", "detail"] as const)(
+    "%s: no failure is read through any other operation into a terminal word",
+    async (op) => {
+      for (const name of ERROR_NAMES) {
+        const out = describeFailure(op, await failure(op, name));
+        expect(terminalFlaws(out.text, 1), `${op} over ${name}: ${out.text}`).toEqual([]);
+      }
+    },
+  );
+
+  it("never prints a refusal's message, whose sentences name a terminal", async () => {
+    for (const name of [
+      "approve-needs-override",
+      "approve-hard-reason",
+      "approve-override-not-covering",
+      "approve-review-changed",
+      "approve-no-review-row",
+      "approve-screen-blocks",
+      "approve-screen-acknowledge",
+      "approve-screen-rerun",
+      "approve-screen-wait",
+      "approve-screen-stale",
+      "approve-screen-unverified",
+      "approve-not-dispatchable",
+    ]) {
+      const message = (fixture(name).body as { message: string }).message;
+      const out = describeFailure("approve", await failure("approve", name));
+      expect(out.text, name).not.toContain(message);
+    }
+  });
+});
+
+describe("describeStartSuccess (a pure vocabulary over the reason words)", () => {
+  it("prints the copy of the reason a 202 answered with", () => {
+    const body = fixture<{ reason: string }>("start-202-dispatched").body;
+    expect(describeStartSuccess(body)).toBe(COPY["start.dispatched"]);
+    expect(describeStartSuccess({ reason: "redispatched" })).toBe(COPY["start.redispatched"]);
+    expect(describeStartSuccess({ reason: "dispatch_claimed" })).toBe(
+      COPY["start.dispatch_claimed"],
+    );
+  });
+
+  it("prints nothing for a reason it does not know; the panel simply re-reads", () => {
+    expect(describeStartSuccess({ reason: "a_newer_reason" })).toBeNull();
+    expect(describeStartSuccess({ reason: "toString" })).toBeNull();
+  });
+});
+
+describe("the page's friendly words", () => {
+  it("name no terminal and no em-dash", () => {
+    for (const [key, text] of Object.entries(FRIENDLY_WORDS)) {
+      expect(terminalFlaws(text, 1), key).toEqual([]);
+      expect(text, key).not.toContain(String.fromCharCode(0x2014));
+    }
+  });
+
+  it("keep the sentences the approval page already printed", () => {
+    expect(FRIENDLY_WORDS.already_in_flight).toBe(
+      "An approval is already running for this dataset. Give it a minute, then refresh.",
+    );
+    expect(FRIENDLY_WORDS.dispatch_failed).toBe(
+      "GitHub did not accept the request, so nothing was started. Try again in a moment.",
+    );
+    expect(FRIENDLY_WORDS.not_found).toBe("Request not found.");
+  });
+
+  it("drop the two the Worker's own words now replace", () => {
+    expect(Object.keys(FRIENDLY_WORDS)).not.toContain("not_dispatchable");
+    expect(Object.keys(FRIENDLY_WORDS)).not.toContain("origin_not_allowed");
   });
 });
 

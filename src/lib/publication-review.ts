@@ -568,3 +568,223 @@ export function rowChips(request: PublicationRequest): {
     screen: chipOf(request.identifier_screen),
   };
 }
+
+// ---------------------------------------------------------------------------------------------
+// Failures and started reviews
+// ---------------------------------------------------------------------------------------------
+
+export type FailureOp = "approve" | "deny" | "start" | "detail";
+
+/** What the page does with a failure: the words, and what to do about the panel. */
+export interface FailureView {
+  readonly text: string;
+  /** Read the detail again: what the administrator saw may no longer be true. */
+  readonly refetch: boolean;
+  /** Untick the override box; the confirmation was given for a review that has moved. */
+  readonly resetOverride: boolean;
+  /** Put the focus in the reason field. */
+  readonly focusAck: boolean;
+  /** Offer the link that reloads the page. */
+  readonly refreshLink: boolean;
+}
+
+/**
+ * The page's own sentences for the codes of the approval and denial routes, moved here from the
+ * page script. `not_dispatchable` is gone (the mirrored `approve.blocked` says it) and so is
+ * `origin_not_allowed` (the Worker's own sentence is printed instead). They name no terminal.
+ */
+export const FRIENDLY_WORDS = {
+  forbidden: "You no longer have admin access. Sign in again.",
+  not_invitable: "This request is no longer pending.",
+  already_in_flight:
+    "An approval is already running for this dataset. Give it a minute, then refresh.",
+  dispatch_failed:
+    "GitHub did not accept the request, so nothing was started. Try again in a moment.",
+  dispatch_unconfirmed:
+    "GitHub did not confirm the request. It may have started, so check again in a few minutes before trying again.",
+  dispatch_unconfigured:
+    "The backend has no GitHub credential, so it cannot start an approval. Retrying will not help; tell an admin who manages the backend.",
+  not_found: "Request not found.",
+  missing_field: "Provide a reason for denial.",
+  internal_error: "Server error. Try again in a moment.",
+  invalid_body:
+    "The approval could not be sent as built. Reload this page and try again; if it keeps happening, tell an admin who manages the backend.",
+  deny_rejected:
+    "The denial was not accepted. Give a reason of 1 to 2,000 characters and try again.",
+  network: "Could not reach the server. Check your connection and try again.",
+  generic: "The action did not complete. Try again in a moment.",
+} as const;
+
+const NO_FLAGS = { refetch: false, resetOverride: false, focusAck: false, refreshLink: false };
+
+const view = (text: string, flags: Partial<Omit<FailureView, "text">> = {}): FailureView => ({
+  text,
+  ...NO_FLAGS,
+  ...flags,
+});
+
+const isOwn = (table: object, word: string | undefined): word is string =>
+  word !== undefined && Object.hasOwn(table, word);
+
+/**
+ * What a thrown value says about the Worker's answer, or null when it did not come from one (a
+ * dead connection, a missed deadline). `PublicationApiError` is recognized by its `failure`, so
+ * this module needs nothing from the client; the older client error carries a status and a code.
+ */
+function failureOf(err: unknown): ApiFailure | null {
+  if (typeof err !== "object" || err === null) return null;
+  const e = err as { failure?: unknown; status?: unknown; code?: unknown; name?: unknown };
+  if (typeof e.failure === "object" && e.failure !== null) {
+    const f = e.failure as { status?: unknown };
+    if (typeof f.status === "number") return e.failure as ApiFailure;
+  }
+  if (e.name === "DashboardApiError" && typeof e.status === "number") {
+    return { status: e.status, ...(typeof e.code === "string" ? { code: e.code } : {}) };
+  }
+  return null;
+}
+
+/** "Headline. Sentence": the Worker's headline, then the page's words, joined by one full stop. */
+function withHeadline(headline: string | undefined, sentence: string): string {
+  if (!headline) return sentence;
+  return `${headline.replace(/[.\s]+$/, "")}. ${sentence}`;
+}
+
+const sentenceOr = (f: ApiFailure): string => f.message ?? FRIENDLY_WORDS.generic;
+
+const isGateRefusal = (word: string | undefined): word is ReviewGateRefusal =>
+  isOwn(GATE_REFUSAL_COPY, word);
+const isScreenRefusal = (word: string | undefined): word is ScreenGateRefusal =>
+  isOwn(SCREEN_GATE_COPY, word);
+
+/** The page's words for a code, then a sentence-only 401 or 403, then the generic sentence. */
+function common(f: ApiFailure): FailureView {
+  if (isOwn(FRIENDLY_WORDS, f.code))
+    return view(FRIENDLY_WORDS[f.code as keyof typeof FRIENDLY_WORDS]);
+  if ((f.status === 401 || f.status === 403) && f.code === undefined && f.message) {
+    return view(f.message);
+  }
+  return view(FRIENDLY_WORDS.generic);
+}
+
+/** The request is gone: the page's word for the code, or the Worker's sentence when it sent only that. */
+function notFound(f: ApiFailure): FailureView {
+  const text = f.code === undefined && f.message ? f.message : FRIENDLY_WORDS.not_found;
+  return view(text, { refetch: true, refreshLink: true });
+}
+
+function describeApprove(f: ApiFailure): FailureView {
+  if (f.status === 404) return notFound(f);
+  switch (f.code) {
+    case "publication_review_not_clear":
+      return isGateRefusal(f.refusal)
+        ? view(withHeadline(f.headline, say(GATE_REFUSAL_COPY[f.refusal])), {
+            refetch: true,
+            resetOverride: true,
+          })
+        : view(OUT_OF_STEP, { refetch: true, resetOverride: true });
+    case "identifier_screen_not_clear":
+      return isScreenRefusal(f.gate)
+        ? view(withHeadline(f.headline, say(SCREEN_GATE_COPY[f.gate])), {
+            refetch: true,
+            focusAck: f.gate === "acknowledge",
+          })
+        : view(OUT_OF_STEP, { refetch: true });
+    case "not_dispatchable":
+      return view(say("approve.blocked"), { refetch: true });
+    case "already_in_flight":
+      return view(FRIENDLY_WORDS.already_in_flight, { refreshLink: true });
+    case "request_mismatch":
+      return view(sentenceOr(f), { refetch: true });
+    case "invalid_dataset_id":
+      return view(sentenceOr(f));
+    case "dispatch_failed":
+    case "dispatch_unconfirmed":
+    case "dispatch_unconfigured":
+      return view(FRIENDLY_WORDS[f.code], { refreshLink: true });
+    default:
+      return common(f);
+  }
+}
+
+function describeDeny(f: ApiFailure): FailureView {
+  if (f.status === 404) return notFound(f);
+  switch (f.code) {
+    case "request_mismatch":
+    case "deny_after_publishing":
+    case "approval_in_flight":
+      return view(sentenceOr(f), { refetch: true, refreshLink: true });
+    default:
+      // The route's validation failure names no code the page can read.
+      return f.status === 400 && f.code === undefined
+        ? view(FRIENDLY_WORDS.deny_rejected)
+        : common(f);
+  }
+}
+
+/** The review start's own words: its `error` sentence, web-safe and pinned, never the approval's map. */
+const START_MESSAGE_CODES: readonly string[] = [
+  "review_disabled",
+  "not_applicable",
+  "not_owned_here",
+  "request_not_requested",
+  "screen_not_ready",
+  "running",
+  "has_result",
+  "platform_limit",
+  "dispatch_failed",
+  "dispatch_unconfigured",
+  "not_found",
+];
+
+function describeStart(f: ApiFailure): FailureView {
+  if (f.code !== undefined && START_MESSAGE_CODES.includes(f.code)) {
+    return view(sentenceOr(f), { refetch: true });
+  }
+  if (f.code === "bad_dataset" || f.code === "internal") return view(sentenceOr(f));
+  return common(f);
+}
+
+function describeDetail(f: ApiFailure): FailureView {
+  const sentence =
+    f.message &&
+    (f.status === 404 || ((f.status === 401 || f.status === 403) && f.code === undefined))
+      ? f.message
+      : f.code === "forbidden"
+        ? FRIENDLY_WORDS.forbidden
+        : null;
+  const unavailable = say("approve.unavailable");
+  return view(sentence === null ? unavailable : `${sentence} ${unavailable}`);
+}
+
+/**
+ * The words and the follow-up for a failed call. A value that is not the Worker's answer (a dead
+ * connection, a missed deadline) is the network sentence. The order is: the proxy's own failures,
+ * the origin guard's sentence, then the operation's own table. A gate or screen refusal prints the
+ * mirrored copy, never the Worker's message, which words a terminal.
+ */
+export function describeFailure(op: FailureOp, err: unknown): FailureView {
+  const f = failureOf(err);
+  if (f === null) return view(FRIENDLY_WORDS.network);
+  if (f.status === 502 && (f.code === "upstream_unreachable" || f.code === "upstream_redirect")) {
+    return view(FRIENDLY_WORDS.network);
+  }
+  if (f.code === "origin_not_allowed") return view(sentenceOr(f));
+  switch (op) {
+    case "approve":
+      return describeApprove(f);
+    case "deny":
+      return describeDeny(f);
+    case "start":
+      return describeStart(f);
+    case "detail":
+      return describeDetail(f);
+  }
+}
+
+/** The words for a review start that went (HTTP 202); null for a reason this page does not know. */
+export function describeStartSuccess(body: { readonly reason: string }): string | null {
+  return isOwn(START_STARTED_COPY, body.reason)
+    ? say(START_STARTED_COPY[body.reason as StartStartedReason])
+    : null;
+}
