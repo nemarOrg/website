@@ -121,6 +121,9 @@ describe("derivePublishState", () => {
     // An account property, not a dataset one. "Validation failed" here sent
     // owners to read CI logs that were green.
     expect(derivePublishState(ds(), status("blocked", "owner_name_missing"))).toBe("name_required");
+    expect(derivePublishState(ds(), status("blocked", "identifier_screen_findings"))).toBe(
+      "identifiers_found",
+    );
     // Validation that has not finished is not validation that failed; the
     // backend's message for both of these says to wait.
     expect(derivePublishState(ds(), status("blocked", "bids_validation_pending"))).toBe(
