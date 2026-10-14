@@ -846,7 +846,7 @@ function withFailure(
   return new PublicationApiError(err.message, err.status, err.code, failure);
 }
 
-const NONE = { refetch: false, resetOverride: false, focusAck: false, refreshLink: false };
+const NONE = { refetch: false, focusAck: false, refreshLink: false };
 
 describe("describeFailure: approve", () => {
   const joined = (headline: string, key: keyof typeof COPY) => `${headline}. ${COPY[key]}`;
@@ -866,7 +866,6 @@ describe("describeFailure: approve", () => {
         text: joined(headline, key),
         ...NONE,
         refetch: true,
-        resetOverride: true,
       });
       // The Worker's own message names a terminal and is never printed.
       const message = (fixture(name).body as { message: string }).message;
@@ -892,7 +891,6 @@ describe("describeFailure: approve", () => {
       text: OUT_OF_STEP,
       ...NONE,
       refetch: true,
-      resetOverride: true,
     });
   });
 

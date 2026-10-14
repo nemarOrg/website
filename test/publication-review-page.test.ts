@@ -157,8 +157,8 @@ describe("the script words the panel through the lib, never by itself", () => {
   });
 
   it("acts on every follow-up a failure asks for", () => {
-    // `resetOverride` is deliberately not read: a re-read redraws the panel from the new answer, so
-    // the override box always comes back unticked, which is stricter than the flag.
+    // A failure carries no flag for the override box: a re-read redraws the panel from the new
+    // answer, so the box always comes back unticked.
     for (const flag of ["refetch", "focusAck", "refreshLink"]) {
       expect(SCRIPT, flag).toMatch(new RegExp(`\\.${flag}\\b`));
     }

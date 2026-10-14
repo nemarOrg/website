@@ -586,10 +586,11 @@ export type FailureOp = "approve" | "deny" | "start" | "detail";
 /** What the page does with a failure: the words, and what to do about the panel. */
 export interface FailureView {
   readonly text: string;
-  /** Read the detail again: what the administrator saw may no longer be true. */
+  /**
+   * Read the detail again: what the administrator saw may no longer be true. The redraw also
+   * unticks the override box, so no flag of its own asks for that.
+   */
   readonly refetch: boolean;
-  /** Untick the override box; the confirmation was given for a review that has moved. */
-  readonly resetOverride: boolean;
   /** Put the focus in the reason field. */
   readonly focusAck: boolean;
   /** Offer the link that reloads the page. */
@@ -625,7 +626,7 @@ export const FRIENDLY_WORDS = {
   generic: "The action did not complete. Try again in a moment.",
 } as const;
 
-const NO_FLAGS = { refetch: false, resetOverride: false, focusAck: false, refreshLink: false };
+const NO_FLAGS = { refetch: false, focusAck: false, refreshLink: false };
 
 const view = (text: string, flags: Partial<Omit<FailureView, "text">> = {}): FailureView => ({
   text,
@@ -696,9 +697,8 @@ function describeApprove(f: ApiFailure): FailureView {
       return isGateRefusal(f.refusal)
         ? view(withHeadline(f.headline, say(GATE_REFUSAL_COPY[f.refusal])), {
             refetch: true,
-            resetOverride: true,
           })
-        : view(OUT_OF_STEP, { refetch: true, resetOverride: true });
+        : view(OUT_OF_STEP, { refetch: true });
     case "identifier_screen_not_clear":
       return isScreenRefusal(f.gate)
         ? view(withHeadline(f.headline, say(SCREEN_GATE_COPY[f.gate])), {
