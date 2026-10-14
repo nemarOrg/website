@@ -90,6 +90,18 @@ const label = LABELS[state];
     background: color-mix(in srgb, var(--color-danger) 10%, transparent);
     border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
   }
+  /* --color-danger has no dark value (about 2.5:1 on the dark card), so this badge, the one added
+     for the identifier screen, lifts its text with the admin error text token. Both branches are
+     required: the media query for the system default, the attribute for an explicit choice. The
+     older danger badges keep the shared token. */
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme="light"])) .publish-state-badge--identifiers_found {
+      color: var(--admin-error-text);
+    }
+  }
+  :global(:root[data-theme="dark"]) .publish-state-badge--identifiers_found {
+    color: var(--admin-error-text);
+  }
   /* The reason is unknown to this build, so the tone says "stopped" without
      claiming a cause. */
   .publish-state-badge--blocked {
