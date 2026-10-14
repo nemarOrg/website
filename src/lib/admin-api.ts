@@ -7,6 +7,7 @@
  */
 import { dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError, deriveAdminBadgeState } from "./dashboard-api";
+import type { ApiFailure, ApproveBody, PublicationReviewDetail, Tone } from "./publication-review";
 import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 type Init = {
@@ -100,6 +101,28 @@ export interface PublicationRequest {
   readonly approval_requested_by?: number | null;
   readonly approval_dispatched_at?: string | null;
   readonly approval_in_flight?: boolean;
+  /**
+   * The identifier screen's verdict as the Worker words it, and the publication review's summary.
+   * List rows of a Worker that predates the review omit both, so the page reads them as optional.
+   */
+  readonly identifier_screen?: {
+    readonly state: string | null;
+    readonly headline: string;
+    readonly tone: Tone;
+    readonly lines: readonly string[];
+  };
+  readonly publication_review?: {
+    readonly kind: string;
+    readonly enabled: boolean;
+    readonly gate: string;
+    readonly outcome: string | null;
+    readonly headline: string;
+    readonly tone: Tone;
+    readonly reasons: readonly string[];
+    readonly start_offered: boolean;
+    readonly review_id: number | null;
+    readonly head_sha: string | null;
+  };
 }
 
 export interface PublicationRequestListResponse {
