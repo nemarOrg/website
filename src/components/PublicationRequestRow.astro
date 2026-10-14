@@ -3,6 +3,7 @@ import { type PublicationRequest, deriveAdminBadgeState } from "../lib/admin-api
 import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
 import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
 import { rowView } from "../lib/publication-queue";
+import { UI_WORDS, rowChips } from "../lib/publication-review";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -43,6 +44,13 @@ const decided =
 // The username is nullable on the backend; fall back to the email so the line
 // is never blank.
 const requester = request.requested_by_username || request.requested_by_email;
+// The review chips and the review panel exist only for a request the detail route answers for: an
+// active one. The chips print the API's own headlines and decide nothing; the panel is filled by
+// the page script when an administrator opens it, so its `data-` attributes are all it is given.
+const REVIEWABLE: readonly string[] = ["requested", "approving", "blocked"];
+const reviewable = REVIEWABLE.includes(request.status);
+const chips = rowChips(request);
+const panelId = `pubreq-review-${datasetId}`;
 ---
 
 <article class="pubreq-row" data-pubreq-row data-dataset-id={datasetId}>
@@ -51,6 +59,21 @@ const requester = request.requested_by_username || request.requested_by_email;
     {view.anonymous && <span class="pubreq-row__tag">Anonymous release</span>}
     <PublishStateBadge state={state} />
   </div>
+
+  {(chips.review || chips.screen) && (
+    <div class="pubreq-chips">
+      {chips.review && (
+        <span class={`pubreq-chip pubreq-chip--${chips.review.tone}`} data-pubreq-review-chip>
+          {chips.review.text}
+        </span>
+      )}
+      {chips.screen && (
+        <span class={`pubreq-chip pubreq-chip--${chips.screen.tone}`} data-pubreq-screen-chip>
+          {chips.screen.text}
+        </span>
+      )}
+    </div>
+  )}
 
   <dl class="pubreq-row__meta">
     <div>
@@ -120,6 +143,20 @@ const requester = request.requested_by_username || request.requested_by_email;
     </p>
   )}
 
+  {reviewable && (
+    <section
+      class="pubreq-review"
+      id={panelId}
+      tabindex="-1"
+      data-pubreq-review-panel
+      data-dataset-id={datasetId}
+      data-request-id={request.id}
+      data-row-start={view.start?.kind ?? "none"}
+      data-row-label={view.start?.label}
+      hidden
+    />
+  )}
+
   <footer class="pubreq-row__actions">
     <a class="pubreq-row__btn" href={`/dataset/${encodeURIComponent(datasetId)}`}>
       View dataset
@@ -130,8 +167,21 @@ const requester = request.requested_by_username || request.requested_by_email;
         class="pubreq-row__btn pubreq-row__btn--danger-ghost"
         data-pubreq-deny
         data-dataset-id={datasetId}
+        data-request-id={request.id}
       >
         Deny
+      </button>
+    )}
+    {reviewable && (
+      <button
+        type="button"
+        class="pubreq-row__btn"
+        data-pubreq-review-toggle
+        data-dataset-id={datasetId}
+        aria-expanded="false"
+        aria-controls={panelId}
+      >
+        {UI_WORDS.buttons.show}
       </button>
     )}
     {view.start?.kind === "approve" && (
@@ -141,6 +191,7 @@ const requester = request.requested_by_username || request.requested_by_email;
         data-pubreq-approve
         data-anonymous={view.anonymous ? "true" : undefined}
         data-dataset-id={datasetId}
+        data-request-id={request.id}
       >
         {view.start.label}
       </button>
@@ -151,6 +202,7 @@ const requester = request.requested_by_username || request.requested_by_email;
         class="pubreq-row__btn pubreq-row__btn--primary"
         data-pubreq-resume
         data-dataset-id={datasetId}
+        data-request-id={request.id}
       >
         {view.start.label}
       </button>
@@ -187,6 +239,35 @@ const requester = request.requested_by_username || request.requested_by_email;
     font-weight: var(--fw-semibold);
     letter-spacing: -0.005em;
     line-height: var(--lh-snug);
+  }
+  .pubreq-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  /* A chip prints the API's headline as it came. Its tone is a bar on the inline start edge, so the
+     words, not the color, carry the meaning. */
+  .pubreq-chip {
+    min-inline-size: 0;
+    padding: 2px var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--admin-surface-2);
+    color: var(--color-fg);
+    font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+  .pubreq-chip--ok {
+    box-shadow: inset 3px 0 0 var(--admin-ok);
+  }
+  .pubreq-chip--note {
+    box-shadow: inset 3px 0 0 var(--admin-text-3);
+  }
+  .pubreq-chip--warn {
+    box-shadow: inset 3px 0 0 var(--admin-warn);
+  }
+  .pubreq-chip--stop {
+    box-shadow: inset 3px 0 0 var(--admin-error);
   }
   .pubreq-row__meta {
     display: grid;
@@ -328,7 +409,8 @@ const requester = request.requested_by_username || request.requested_by_email;
     }
   }
   @media (forced-colors: active) {
-    .pubreq-row__reason {
+    .pubreq-row__reason,
+    .pubreq-chip {
       border-inline-start: 3px solid CanvasText;
     }
   }
