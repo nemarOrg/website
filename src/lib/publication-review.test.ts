@@ -2,10 +2,19 @@
  * The pure logic behind the administrator approval page's review panel.
  *
  * Every input is a captured answer of the real Worker (`test/fixtures/publication-review/`, read
- * through `test/publication-review-fixtures.ts`). Three kinds of derived input appear, each marked
- * where it is used: a captured object with one field removed or replaced (the only way to say "a
- * Worker that predates this field"), a literal word fed to a pure vocabulary predicate, and a
- * literal string fed to a parser branch no capture reaches. Nothing else is invented.
+ * through `test/publication-review-fixtures.ts`). Four kinds of derived input appear, each marked
+ * where it is used:
+ *
+ * - a captured object with one field removed, replaced or repeated (the only way to say "a Worker
+ *   that predates this field" or "a review with two failed questions");
+ * - a literal word fed to a pure vocabulary predicate;
+ * - a literal body fed to the real `readFailure` for a branch no capture reaches; where the Worker
+ *   sends that body, the text is the Worker's own, copied from its source (a 401, a 403 for a
+ *   non-administrator, an account that is not active, a start that failed);
+ * - a `PublicationApiError` built by hand, the only way to say "a word a newer Worker sends",
+ *   which is why those words (`a_newer_word`) are plainly invented.
+ *
+ * Nothing else is invented.
  */
 import { describe, expect, it } from "vitest";
 import { asResponse, fixture, fixtureNames } from "../../test/publication-review-fixtures";
@@ -23,6 +32,7 @@ import { DashboardApiError } from "./dashboard-api";
 import {
   ACK_MAX,
   ACK_MIN,
+  ACTIVE_STATUSES,
   FRIENDLY_WORDS,
   type FailureOp,
   GATE_REFUSAL_COPY,
@@ -59,6 +69,10 @@ function omit<T extends object>(value: T, ...keys: string[]): T {
 
 /** A captured detail with one key removed. */
 const withoutKey = (name: string, key: string): PublicationReviewDetail => omit(detail(name), key);
+
+/** A captured detail with one of its reasons replaced: the openly altered input. */
+const withReasons = (name: string, reasons: unknown[]): PublicationReviewDetail =>
+  altered(name, { reasons });
 
 const COPY = PUBLICATION_REVIEW_COPY;
 const DETAIL_NAMES = fixtureNames().filter(
@@ -157,6 +171,127 @@ describe("approveControl: one case per row of the table", () => {
       expect(startOffered(bad)).toBe(false);
     });
 
+    // Derived inputs: a captured detail with one part of the wrong shape. Each is a Worker out of
+    // step, and none may throw (the panel is drawn from the model, so a throw is a broken page).
+    const firstReason = detail("detail-needs-override").reasons[0];
+    const review = detail("detail-needs-override").review as unknown as Record<string, unknown>;
+    it.each([
+      ["a null reason", altered("detail-needs-override", { reasons: [null] })],
+      ["a reason that is a string", altered("detail-needs-override", { reasons: ["x"] })],
+      ["a reason with no code", withReasons("detail-needs-override", [omit(firstReason, "code")])],
+      ["a reason with no cure", withReasons("detail-needs-override", [omit(firstReason, "cure")])],
+      [
+        "a reason with no sentence",
+        withReasons("detail-needs-override", [omit(firstReason, "sentence")]),
+      ],
+      [
+        "a reason with no class",
+        withReasons("detail-needs-override", [omit(firstReason, "class")]),
+      ],
+      [
+        "a reason with no cleared_by",
+        withReasons("detail-needs-override", [omit(firstReason, "cleared_by")]),
+      ],
+      ["reasons not an array", altered("detail-needs-override", { reasons: {} })],
+      ["no description", withoutKey("detail-pass", "description")],
+      ["a description with no headline", altered("detail-pass", { description: { tone: "ok" } })],
+      ["no identifier_screen", withoutKey("detail-pass", "identifier_screen")],
+      [
+        "a screen whose lines are not an array",
+        altered("detail-pass", {
+          identifier_screen: { ...detail("detail-pass").identifier_screen, lines: "x" },
+        }),
+      ],
+      [
+        "a review whose findings are an object",
+        altered("detail-needs-override", { review: { ...review, findings: {} } }),
+      ],
+      [
+        "a review whose fact_notes are not an array",
+        altered("detail-needs-override", { review: { ...review, fact_notes: null } }),
+      ],
+      [
+        "a review whose id is a string",
+        altered("detail-needs-override", { review: { ...review, id: "7" } }),
+      ],
+      [
+        "a review whose summary is a number",
+        altered("detail-needs-override", { review: { ...review, summary: 7 } }),
+      ],
+      ["a review that is a string", altered("detail-needs-override", { review: "x" })],
+      ["no review key at all", withoutKey("detail-needs-override", "review")],
+      ["no request_status", withoutKey("detail-pass", "request_status")],
+      ["no started_publishing", withoutKey("detail-pass", "started_publishing")],
+      ["no applies", withoutKey("detail-pass", "applies")],
+    ])("%s is out of step and throws nothing", (_what, bad) => {
+      expect(approveControl(bad, { rowStart: "approve" })).toEqual({
+        kind: "unavailable",
+        text: OUT_OF_STEP,
+      });
+      const model = panelModel(bad, { rowStart: "approve" });
+      expect(model.reasonsWithheld).toBe(OUT_OF_STEP);
+      expect(model.requestId).toBeNull();
+      expect(model.reasons).toEqual([]);
+      expect(startOffered(bad)).toBe(false);
+    });
+
+    it.each([
+      ["a string", "x"],
+      ["a number", 7],
+      ["an array", []],
+      ["an object with nothing", {}],
+    ])("a detail that is %s is out of step and throws nothing", (_what, bad) => {
+      const d = bad as unknown as PublicationReviewDetail;
+      expect(approveControl(d, { rowStart: "approve" })).toEqual({
+        kind: "unavailable",
+        text: OUT_OF_STEP,
+      });
+      expect(panelModel(d, { rowStart: "approve" }).reasonsWithheld).toBe(OUT_OF_STEP);
+      expect(startOffered(d)).toBe(false);
+    });
+
+    it("never throws for any captured detail with any one field removed or garbled", () => {
+      // Derived inputs, many: every top-level and one-level-down field of every captured detail,
+      // removed and then replaced by each of five wrong values. The answer is not asserted (a
+      // field a page does not read may be garbled harmlessly); only that no input throws, and that
+      // an answer the page cannot read never offers Approve.
+      const garbage = [null, "x", 7, [], {}];
+      let tried = 0;
+      for (const name of DETAIL_NAMES) {
+        const base = detail(name) as unknown as Record<string, unknown>;
+        const variants: Record<string, unknown>[] = [];
+        for (const [key, value] of Object.entries(base)) {
+          variants.push(omit(base, key));
+          for (const g of garbage) variants.push({ ...base, [key]: g });
+          if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+            for (const inner of Object.keys(value)) {
+              variants.push({ ...base, [key]: omit(value as object, inner) });
+              for (const g of garbage) variants.push({ ...base, [key]: { ...value, [inner]: g } });
+            }
+          }
+          if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
+            for (const inner of Object.keys(value[0])) {
+              variants.push({ ...base, [key]: [omit(value[0], inner), ...value.slice(1)] });
+              for (const g of garbage) {
+                variants.push({ ...base, [key]: [{ ...value[0], [inner]: g }, ...value.slice(1)] });
+              }
+            }
+          }
+        }
+        for (const v of variants) {
+          const d = v as unknown as PublicationReviewDetail;
+          for (const rowStart of ["approve", "resume", null] as const) {
+            const model = panelModel(d, { rowStart });
+            const control = approveControl(d, { rowStart });
+            startOffered(d);
+            if (model.reasonsWithheld !== null) expect(control.kind).toBe("unavailable");
+            tried += 1;
+          }
+        }
+      }
+      expect(tried).toBeGreaterThan(5000);
+    });
+
     it.each(["enforced", "off", "n/a"])("the gate word %s is a current Worker's", (gate) => {
       const ok = altered("detail-pass", { gate });
       expect(approveControl(ok, { rowStart: "approve" }).kind).not.toBe("unavailable");
@@ -175,6 +310,21 @@ describe("approveControl: one case per row of the table", () => {
       kind: "withheld",
       lines: [COPY["approve.blocked"]],
     });
+  });
+
+  it("row 3 holds for the row the page really draws: a blocked row starts nothing", () => {
+    // `rowView` gives a blocked request no start, so `data-row-start` is "none" and the panel's
+    // `rowStart` is null: the one realistic call. Row 3 must come before row 4 for the line to show.
+    for (const name of ["detail-blocked", "detail-blocked-started"]) {
+      expect(approveControl(detail(name), { rowStart: null }), name).toEqual({
+        kind: "withheld",
+        lines: [COPY["approve.blocked"]],
+      });
+      expect(panelModel(detail(name), { rowStart: null }).approve, name).toEqual({
+        kind: "withheld",
+        lines: [COPY["approve.blocked"]],
+      });
+    }
   });
 
   it("row 3 comes before row 5: blocked and started is withheld, not resumed", () => {
@@ -228,6 +378,39 @@ describe("approveControl: one case per row of the table", () => {
         rowStart: "approve",
       });
       expect(control).toEqual({ kind: "withheld", lines: [HARD_REASON_LINE] });
+    });
+
+    it("a cleared_by word the page does not know is hard, so Approve is not offered", () => {
+      // Derived inputs: captured reasons whose `cleared_by` is a word from a newer Worker. The
+      // page never approves over a reason it cannot read, whatever `gate` says.
+      for (const name of ["detail-needs-override", "detail-hard-reason"]) {
+        const reasons = detail(name).reasons.map((r) => ({ ...r, cleared_by: "a_newer_word" }));
+        for (const gate of ["enforced", "off"]) {
+          const control = approveControl(altered(name, { reasons, gate }), { rowStart: "approve" });
+          expect(control.kind, `${name} ${gate}`).toBe("withheld");
+          expect(control.kind === "withheld" && control.lines[0], `${name} ${gate}`).toBe(
+            HARD_REASON_LINE,
+          );
+        }
+      }
+    });
+
+    it("a prototype key as cleared_by is hard too", () => {
+      for (const word of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+        const reasons = detail("detail-needs-override").reasons.map((r) => ({
+          ...r,
+          cleared_by: word,
+        }));
+        const control = approveControl(withReasons("detail-needs-override", reasons), {
+          rowStart: "approve",
+        });
+        expect(control, word).toEqual({ kind: "withheld", lines: [HARD_REASON_LINE] });
+      }
+    });
+
+    it("says the reasons are above it, because the line is drawn after them", () => {
+      expect(HARD_REASON_LINE).toMatch(/\babove\b/);
+      expect(HARD_REASON_LINE).not.toMatch(/\bbelow\b/);
     });
   });
 
@@ -321,6 +504,29 @@ describe("approveControl: one case per row of the table", () => {
       expect(control.reviewId).toBe(1);
     });
 
+    it("a code that repeats is named once (one failed-question reason per failed question)", () => {
+      // A derived input: the Worker emits one `question_failed` reason per failed question, each
+      // with its own `detail`, and no capture has two. This is a captured reason repeated, with
+      // another `detail`, between the two reasons of a captured detail.
+      const d = detail("detail-needs-override-two");
+      const failed = d.reasons.find((r) => r.code === "question_failed");
+      expect(failed).toBeDefined();
+      const repeated = withReasons("detail-needs-override-two", [
+        ...d.reasons.slice(0, 1),
+        { ...failed, detail: "a second failed question" },
+        ...d.reasons.slice(1),
+      ]);
+      const control = approveControl(repeated, { rowStart: "approve" });
+      expect(control.kind).toBe("offered");
+      if (control.kind !== "offered") return;
+      expect(control.overrideReasons).toEqual(["question_failed", "steering_attempt"]);
+      const out = approveBody(control, { overrideConfirmed: true, acknowledgment: "" });
+      expect(out.ok && out.body.override_publication_review?.reasons).toEqual([
+        "question_failed",
+        "steering_attempt",
+      ]);
+    });
+
     it("two override-class reasons are both named, in the order shown", () => {
       const control = offered("detail-needs-override-two");
       expect(control.overrideReasons).toEqual(["question_failed", "steering_attempt"]);
@@ -350,6 +556,13 @@ describe("approveControl: one case per row of the table", () => {
       const control = offered("detail-not-applicable");
       expect(control.needsOverride).toBe(false);
       expect(control.needsAck).toBe(false);
+    });
+
+    it("a resumed anonymous release keeps the resume dialog (a captured detail with the flag replaced)", () => {
+      const control = approveControl(altered("detail-started-publishing", { anonymous: true }), {
+        rowStart: "resume",
+      });
+      expect(control.kind === "offered" && control.dialogId).toBe("admin-resume");
     });
 
     it("an anonymous release uses the anonymous dialog (a captured pass with the flag replaced)", () => {
@@ -653,8 +866,72 @@ describe("panelModel", () => {
       expect(m.reasons[0].statement).toBe(d.reasons[0].sentence);
     });
 
+    it("keeps the Worker's order inside a class (the sort is stable)", () => {
+      const d = detail("detail-needs-override-two");
+      const statements = panelModel(d, { rowStart: "approve" }).reasons.map((r) => r.statement);
+      expect(statements).toEqual(d.reasons.map((r) => r.statement));
+      const swapped = withReasons("detail-needs-override-two", [...d.reasons].reverse());
+      expect(panelModel(swapped, { rowStart: "approve" }).reasons.map((r) => r.statement)).toEqual(
+        [...d.reasons].reverse().map((r) => r.statement),
+      );
+    });
+
+    it("sorts a prototype key as cleared_by with the hard reasons, not between two overrides", () => {
+      // A derived input: five captured-shape reasons with distinct statements and the words that
+      // used to read `Object.prototype` through the rank table.
+      const base = detail("detail-needs-override").reasons[0];
+      const words = ["nothing", "override", "__proto__", "nothing", "override", "constructor"];
+      const reasons = words.map((cleared_by, i) => ({
+        ...base,
+        statement: `reason ${i}`,
+        cleared_by,
+      }));
+      const m = panelModel(withReasons("detail-needs-override", reasons), { rowStart: "approve" });
+      expect(m.reasons.map((r) => r.statement)).toEqual([
+        "reason 0",
+        "reason 2",
+        "reason 3",
+        "reason 5",
+        "reason 1",
+        "reason 4",
+      ]);
+    });
+
     it("shows no reasons for a review that has none", () => {
       expect(panelModel(detail("detail-pass"), { rowStart: "approve" }).reasons).toEqual([]);
+    });
+  });
+
+  describe("tones", () => {
+    // Derived inputs: a captured detail whose tone is a word the page has no style for. The tone
+    // becomes a class name, so it is checked, as a list chip's tone is.
+    it.each(["a_newer_tone", "ok stop", "", "__proto__"])(
+      "falls back to the neutral tone for the word %j",
+      (word) => {
+        const d = detail("detail-hard-reason");
+        const strange = altered("detail-hard-reason", {
+          description: { ...d.description, tone: word },
+          identifier_screen: { ...d.identifier_screen, tone: word },
+        });
+        const m = panelModel(strange, { rowStart: "approve" });
+        expect(m.headline?.tone).toBe("note");
+        expect(m.screen?.tone).toBe("note");
+      },
+    );
+
+    it("keeps each of the four tones it knows", () => {
+      for (const tone of ["ok", "note", "warn", "stop"]) {
+        const d = detail("detail-pass");
+        const m = panelModel(
+          altered("detail-pass", {
+            description: { ...d.description, tone },
+            identifier_screen: { ...d.identifier_screen, tone },
+          }),
+          { rowStart: "approve" },
+        );
+        expect(m.headline?.tone).toBe(tone);
+        expect(m.screen?.tone).toBe(tone);
+      }
     });
   });
 
@@ -691,6 +968,18 @@ describe("panelModel", () => {
       for (const name of ["detail-hard-reason", "detail-not-started-startable", "detail-blocked"]) {
         expect(panelModel(detail(name), { rowStart: "approve" }).model, name).toBeNull();
       }
+    });
+
+    it("drops an empty-string summary but keeps a finding with no document", () => {
+      const d = detail("detail-needs-override");
+      const findings = (d.review?.findings ?? []).map((f) => ({ ...f, document_label: null }));
+      const edited = altered("detail-needs-override", {
+        review: { ...d.review, summary: "", findings },
+      });
+      const m = panelModel(edited, { rowStart: "approve" });
+      expect(m.model?.summary).toBeNull();
+      expect(m.model?.findings[0].documentLabel).toBeNull();
+      expect(m.model?.findings[0].label).toBe("README does not match the dataset");
     });
 
     it("is absent for a review with no summary and no findings", () => {
@@ -773,11 +1062,13 @@ describe("panelModel", () => {
       expect(label("detail-hard-reason")).toBeNull();
     });
 
-    it("carries the approve control it was computed with", () => {
-      const d = detail("detail-needs-override");
-      expect(panelModel(d, { rowStart: "approve" }).approve).toEqual(
-        approveControl(d, { rowStart: "approve" }),
-      );
+    it("names the request the detail is about, for the page to compare with its row", () => {
+      for (const name of DETAIL_NAMES) {
+        expect(panelModel(detail(name), { rowStart: "approve" }).requestId, name).toBe(
+          detail(name).request_id,
+        );
+      }
+      expect(panelModel(null, { rowStart: "approve" }).requestId).toBeNull();
     });
   });
 
@@ -785,6 +1076,7 @@ describe("panelModel", () => {
     it("a missing detail draws nothing but the unavailable line", () => {
       const m = panelModel(null, { rowStart: "approve" });
       expect(m).toEqual({
+        requestId: null,
         headline: null,
         screen: null,
         reasons: [],
@@ -846,7 +1138,27 @@ function withFailure(
   return new PublicationApiError(err.message, err.status, err.code, failure);
 }
 
+/**
+ * A derived input: a literal body and status run through the real `readFailure` and wrapped as the
+ * client wraps it. For a branch no capture reaches; the Worker's own text is used where it sends
+ * the body (see the header).
+ */
+async function answered(
+  status: number,
+  body: Record<string, unknown> | string,
+): Promise<PublicationApiError> {
+  const raw = typeof body === "string" ? body : JSON.stringify(body);
+  const failure = await readFailure(new Response(raw, { status }));
+  return new PublicationApiError("x", status, failure.code, failure);
+}
+
 const NONE = { refetch: false, focusAck: false, refreshLink: false };
+const UNCONFIRMED = {
+  text: FRIENDLY_WORDS.approve_unconfirmed,
+  ...NONE,
+  refetch: true,
+  refreshLink: true,
+};
 
 describe("describeFailure: approve", () => {
   const joined = (headline: string, key: keyof typeof COPY) => `${headline}. ${COPY[key]}`;
@@ -940,6 +1252,14 @@ describe("describeFailure: approve", () => {
     expect(out).toEqual({ text: message, ...NONE, refetch: true });
   });
 
+  it("a dataset id the web cannot approve prints the Worker's sentence and does not re-read", async () => {
+    // The Worker's own body (`INVALID_DATASET_ID_MESSAGE`, nemar-cli `shared/contract/publication.ts`).
+    const message =
+      "This is not a dataset id an approval can be started for from the web: it is nm or on followed by six digits (a development environment also accepts xx). Nothing was claimed and nothing was sent.";
+    const err = await answered(400, { error: "invalid_dataset_id", message });
+    expect(describeFailure("approve", err)).toEqual({ text: message, ...NONE });
+  });
+
   it("a body the Worker rejects prints the page's word, not the Worker's field list", async () => {
     const out = describeFailure("approve", await failure("approve", "approve-invalid-body"));
     expect(out).toEqual({ text: FRIENDLY_WORDS.invalid_body, ...NONE });
@@ -976,6 +1296,66 @@ describe("describeFailure: approve", () => {
       expect(out.text).not.toMatch(/terminal/i);
     },
   );
+
+  // Derived inputs: the answers of a gateway or edge in front of the Worker, which a capture of
+  // the Worker cannot hold. A server fault on an approve may follow a dispatch that went out.
+  it.each([
+    ["a 524 with no body", 524, ""],
+    ["a 502 with an HTML body", 502, "<html>Bad gateway</html>"],
+    ["a 503 with a plain sentence", 503, JSON.stringify({ error: "Service unavailable" })],
+    [
+      "a 500 whose word the page does not know",
+      500,
+      JSON.stringify({ error: "a_newer_word", message: "Something a newer Worker says" }),
+    ],
+    ["a 500 internal_error", 500, JSON.stringify({ error: "internal_error" })],
+  ])("%s says the approval may have started, and re-reads", async (_what, status, raw) => {
+    expect(describeFailure("approve", await answered(status, raw))).toEqual(UNCONFIRMED);
+  });
+
+  it("a server fault that is one of the dispatch refusals keeps its own sentence", async () => {
+    for (const word of [
+      "dispatch_failed",
+      "dispatch_unconfirmed",
+      "dispatch_unconfigured",
+    ] as const) {
+      expect(describeFailure("approve", await answered(500, { error: word })), word).toEqual({
+        text: FRIENDLY_WORDS[word],
+        ...NONE,
+        refreshLink: true,
+      });
+    }
+  });
+
+  it("a 4xx without a readable body is not 'may have started' (the Worker refused)", async () => {
+    expect(describeFailure("approve", await answered(400, "<html>Bad request</html>"))).toEqual({
+      text: FRIENDLY_WORDS.generic,
+      ...NONE,
+    });
+  });
+
+  it("a server fault on any other operation is not worded as an approval that may have started", async () => {
+    for (const op of ["deny", "start", "detail"] as const) {
+      expect(describeFailure(op, await answered(500, "<html>Oops</html>")).text, op).not.toBe(
+        FRIENDLY_WORDS.approve_unconfirmed,
+      );
+    }
+  });
+
+  it("a headline is joined by one full stop, and is dropped when it is only dots", async () => {
+    const base = await failure("approve", "approve-needs-override");
+    const copy = COPY["gate.needs_override"];
+    const text = (headline: string) =>
+      describeFailure("approve", withFailure(base, { headline })).text;
+    expect(text("Publication review: FAIL")).toBe(`Publication review: FAIL. ${copy}`);
+    expect(text("Publication review: FAIL.")).toBe(`Publication review: FAIL. ${copy}`);
+    expect(text("Publication review: FAIL...  ")).toBe(`Publication review: FAIL. ${copy}`);
+    expect(text("Is it clean?")).toBe(`Is it clean? ${copy}`);
+    expect(text("Stop!")).toBe(`Stop! ${copy}`);
+    expect(text("...")).toBe(copy);
+    expect(text("   ")).toBe(copy);
+    expect(text("")).toBe(copy);
+  });
 });
 
 describe("describeFailure: every operation", () => {
@@ -1062,15 +1442,21 @@ describe("describeFailure: every operation", () => {
     const failure = await readFailure(new Response(JSON.stringify(body), { status }));
     return new PublicationApiError("x", status, failure.code, failure);
   };
+  // The Worker's own bodies, copied from its source: `inactiveAccountBody("pending")` in
+  // `backend/src/services/account-tier.ts`, and the refusals of `backend/src/middleware/auth.ts`.
   const INACTIVE_ACCOUNT = {
     error: "Account not approved",
-    message: "Your account is not active. Run 'nemar auth resend-verification' to continue.",
+    status: "pending",
+    message:
+      "Verify your email address to activate your account. Check your inbox for the verification link, or run 'nemar auth resend-verification' to get a new one.",
   };
+  const NOT_AN_ADMIN = { error: "Admin access required" };
+  const NOT_SIGNED_IN = { error: "Authentication required" };
 
   it.each([401, 403])(
     "a sentence-only %i prints the page's own word, never the Worker's sentence",
     async (status) => {
-      for (const body of [{ error: "Admin access required" }, INACTIVE_ACCOUNT]) {
+      for (const body of [NOT_AN_ADMIN, NOT_SIGNED_IN, INACTIVE_ACCOUNT]) {
         const err = await sentenceOnly(status, body);
         for (const op of ["approve", "deny", "start"] as const) {
           const out = describeFailure(op, err);
@@ -1085,17 +1471,73 @@ describe("describeFailure: every operation", () => {
   );
 
   it("a word the page has a sentence for is printed in that sentence", () => {
+    // `forbidden` is the page's own word for a refused session: the Worker sends none (its 403 is
+    // a sentence), so this is a hand-built error.
     const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
     expect(describeFailure("approve", err).text).toBe(FRIENDLY_WORDS.forbidden);
   });
 
   it("a word nothing maps is the generic sentence, never the word", () => {
-    const err = new PublicationApiError("x", 500, "a_newer_word", {
-      status: 500,
+    const err = new PublicationApiError("x", 400, "a_newer_word", {
+      status: 400,
       code: "a_newer_word",
       message: "Something a newer Worker says",
     });
-    expect(describeFailure("approve", err)).toEqual({ text: FRIENDLY_WORDS.generic, ...NONE });
+    for (const op of ["approve", "deny", "start"] as const) {
+      expect(describeFailure(op, err), op).toEqual({ text: FRIENDLY_WORDS.generic, ...NONE });
+    }
+  });
+
+  it("a page-only sentence cannot be chosen by a word on the wire", async () => {
+    // The page's own sentences (`network`, `generic`, `approve_unconfirmed`, `deny_rejected`) are
+    // not codes the Worker sends, so a wire answer that carries one prints the generic sentence.
+    for (const word of ["network", "generic", "approve_unconfirmed", "deny_rejected"]) {
+      for (const op of ["approve", "deny", "start"] as const) {
+        const out = describeFailure(op, await answered(400, { error: word }));
+        expect(out, `${op} ${word}`).toEqual({ text: FRIENDLY_WORDS.generic, ...NONE });
+      }
+    }
+  });
+
+  it("a prototype key as a code, a refusal or a gate prints a fixed sentence", () => {
+    // Derived inputs: hand-built errors carrying the words that read `Object.prototype` through a
+    // plain table lookup (`readFailure` would file most of them as a sentence, not a code).
+    const fixed = [...Object.values(FRIENDLY_WORDS), COPY["approve.unavailable"]];
+    for (const word of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+      for (const op of ["approve", "deny", "start", "detail"] as const) {
+        const err = new PublicationApiError("x", 400, word, { status: 400, code: word });
+        expect(fixed, `${op} code ${word}`).toContain(describeFailure(op, err).text);
+      }
+      const refusal = new PublicationApiError("x", 409, "publication_review_not_clear", {
+        status: 409,
+        code: "publication_review_not_clear",
+        refusal: word,
+      });
+      expect(describeFailure("approve", refusal), `refusal ${word}`).toEqual({
+        text: OUT_OF_STEP,
+        ...NONE,
+        refetch: true,
+      });
+      const gate = new PublicationApiError("x", 409, "identifier_screen_not_clear", {
+        status: 409,
+        code: "identifier_screen_not_clear",
+        gate: word,
+      });
+      expect(describeFailure("approve", gate), `gate ${word}`).toEqual({
+        text: OUT_OF_STEP,
+        ...NONE,
+        refetch: true,
+      });
+    }
+  });
+
+  it("a 401 or 403 that carries a code the page does not know is the sign-in sentence", async () => {
+    for (const status of [401, 403]) {
+      for (const op of ["approve", "deny", "start"] as const) {
+        const out = describeFailure(op, await answered(status, { error: "unauthorized" }));
+        expect(out, `${op} ${status}`).toEqual({ text: FRIENDLY_WORDS.forbidden, ...NONE });
+      }
+    }
   });
 
   it("the older client's own refusal of an empty denial reason is the page's sentence", () => {
@@ -1154,6 +1596,13 @@ describe("describeFailure: start", () => {
     expect(out.text).toContain("review");
   });
 
+  it("a fault of the start prints the Worker's sentence and does not re-read", async () => {
+    // The Worker's own body (`START_FAULT` in nemar-cli `backend/src/routes/admin/publication-review.ts`).
+    const sentence = "The publication review could not be started. Try again.";
+    const err = await answered(500, { error: sentence, code: "internal" });
+    expect(describeFailure("start", err)).toEqual({ text: sentence, ...NONE });
+  });
+
   it("a malformed dataset id prints the Worker's sentence and does not re-read", async () => {
     const out = describeFailure("start", await failure("start", "start-bad-dataset"));
     expect(out).toEqual({ text: "That is not a dataset id.", ...NONE });
@@ -1187,7 +1636,12 @@ describe("describeFailure: detail", () => {
       // Derived inputs (see the header of the operations block): a literal body through the real parser.
       for (const body of [
         { error: "Authentication required" },
-        { error: "Account not approved", message: "Run 'nemar auth resend-verification'." },
+        {
+          error: "Account not approved",
+          status: "pending",
+          message:
+            "Verify your email address to activate your account. Check your inbox for the verification link, or run 'nemar auth resend-verification' to get a new one.",
+        },
       ]) {
         const failure = await readFailure(new Response(JSON.stringify(body), { status }));
         const err = new PublicationApiError("x", status, failure.code, failure);
@@ -1200,6 +1654,15 @@ describe("describeFailure: detail", () => {
       }
     },
   );
+
+  it("a 401 or 403 with a code the page does not know still prints the sign-in sentence", async () => {
+    for (const status of [401, 403]) {
+      const out = describeFailure("detail", await answered(status, { error: "unauthorized" }));
+      expect(out.text, String(status)).toBe(
+        `You no longer have admin access. Sign in again. ${COPY["approve.unavailable"]}`,
+      );
+    }
+  });
 
   it("the forbidden word joins the unavailable sentence with one full stop", () => {
     const err = new PublicationApiError("x", 403, "forbidden", { status: 403, code: "forbidden" });
@@ -1276,6 +1739,14 @@ describe("describeStartSuccess (a pure vocabulary over the reason words)", () =>
   it("prints nothing for a reason it does not know; the panel simply re-reads", () => {
     expect(describeStartSuccess({ reason: "a_newer_reason" })).toBeNull();
     expect(describeStartSuccess({ reason: "toString" })).toBeNull();
+    expect(describeStartSuccess({ reason: "__proto__" })).toBeNull();
+  });
+
+  it("is total: a 202 whose body is not an object with a reason says nothing and throws nothing", () => {
+    // Derived inputs: what `res.json()` can return for a 202 that is not the Worker's body.
+    for (const body of [null, undefined, "x", 7, [], {}, { reason: 7 }, { reason: null }]) {
+      expect(describeStartSuccess(body), JSON.stringify(body)).toBeNull();
+    }
   });
 });
 
@@ -1297,9 +1768,15 @@ describe("the page's friendly words", () => {
     expect(FRIENDLY_WORDS.not_found).toBe("Request not found.");
   });
 
-  it("drop the two the Worker's own words now replace", () => {
-    expect(Object.keys(FRIENDLY_WORDS)).not.toContain("not_dispatchable");
-    expect(Object.keys(FRIENDLY_WORDS)).not.toContain("origin_not_allowed");
+  it("drop the two the Worker's own words now replace, and the two no route sends", () => {
+    for (const word of [
+      "not_dispatchable",
+      "origin_not_allowed",
+      "not_invitable",
+      "internal_error",
+    ]) {
+      expect(Object.keys(FRIENDLY_WORDS), word).not.toContain(word);
+    }
   });
 });
 
@@ -1375,6 +1852,12 @@ describe("rowChips", () => {
       },
     } as unknown as PublicationRequest;
     expect(rowChips(row).screen?.tone).toBe("note");
+  });
+});
+
+describe("ACTIVE_STATUSES", () => {
+  it("is the three statuses the detail route answers for, shared by the chips and the panel", () => {
+    expect([...ACTIVE_STATUSES]).toEqual(["requested", "approving", "blocked"]);
   });
 });
 
