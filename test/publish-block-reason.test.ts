@@ -60,11 +60,14 @@ describe("PublishStateBadge labels every block state", () => {
     // (about 8.6:1 on the same card), so the dark rules use it. Both branches are required: the
     // media query for the operating system's default and the attribute for an explicit choice.
     expect(TOKENS).toMatch(/--admin-error-text:\s*#b91c1c/);
-    const dark = TOKENS.match(/--admin-error-text:\s*#[0-9a-f]{6}/g) ?? [];
-    expect(
-      dark.length,
-      "the token needs a lifted value for each dark branch",
-    ).toBeGreaterThanOrEqual(3);
+    const values = [...TOKENS.matchAll(/--admin-error-text:\s*(#[0-9a-f]{6})/g)].map((m) => m[1]);
+    expect(values, "one light value and one per dark branch").toHaveLength(3);
+    const [light, ...dark] = values;
+    expect(light).toBe("#b91c1c");
+    for (const value of dark) {
+      expect(value, "a dark branch that repeats the light value lifts nothing").not.toBe(light);
+    }
+    expect(dark[0], "the two dark branches say one colour").toBe(dark[1]);
     const media = PUBLISH_STATE_BADGE.match(
       /@media \(prefers-color-scheme: dark\) \{\s*:global\(:root:not\(\[data-theme="light"\]\)\) \.publish-state-badge--identifiers_found \{([^}]*)\}/,
     )?.[1];
