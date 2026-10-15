@@ -589,12 +589,12 @@ describe("focus follows a redraw, and a notice is announced", () => {
       /<p class="pubreq-review__live" role="status" data-pubreq-review-live>/,
     );
     expect(ROW_CODE).toContain("aria-label={toggle.ariaLabel}");
-    expect(ROW_CODE).not.toContain("aria-expanded");
+    expect(ROW_CODE).toContain("aria-expanded={toggle.expanded}");
     const toggle = functionOf("setToggle");
     expect(toggle).toContain('toggleLabels(open, panel.dataset.datasetId ?? "")');
     expect(toggle).toContain('toggle.setAttribute("aria-label", labels.ariaLabel)');
     expect(toggle).toContain("toggle.textContent = labels.text");
-    expect(SCRIPT).not.toContain("aria-expanded");
+    expect(toggle).toContain('toggle.setAttribute("aria-expanded", labels.expanded)');
   });
 });
 

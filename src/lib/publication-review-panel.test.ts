@@ -464,15 +464,26 @@ describe("rowIsStale", () => {
 });
 
 describe("toggleLabels", () => {
-  it("says show when closed and hide when open, naming the dataset in the accessible name", () => {
+  it("changes the visible word with the state and keeps one accessible name per row", () => {
     expect(toggleLabels(false, "nm000701")).toEqual({
       text: UI_WORDS.buttons.show,
-      ariaLabel: `${UI_WORDS.buttons.show} for nm000701`,
+      ariaLabel: "Review for nm000701",
+      expanded: "false",
     });
     expect(toggleLabels(true, "nm000701")).toEqual({
       text: UI_WORDS.buttons.hide,
-      ariaLabel: `${UI_WORDS.buttons.hide} for nm000701`,
+      ariaLabel: "Review for nm000701",
+      expanded: "true",
     });
+  });
+
+  it("never lets the accessible name flip with the state, and tells rows apart by id", () => {
+    expect(toggleLabels(true, "nm000701").ariaLabel).toBe(
+      toggleLabels(false, "nm000701").ariaLabel,
+    );
+    expect(toggleLabels(false, "nm000702").ariaLabel).not.toBe(
+      toggleLabels(false, "nm000701").ariaLabel,
+    );
   });
 });
 

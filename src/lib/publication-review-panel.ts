@@ -80,13 +80,20 @@ export function rowIsStale(detailRequestId: unknown, rowRequestId: unknown): boo
   return Number.isInteger(detailRequestId) && detailRequestId !== rowRequestId;
 }
 
-/** The toggle's visible word and its accessible name (the dataset id tells the rows apart). */
+/**
+ * The toggle's visible word, its `aria-expanded` and its accessible name. The word changes with the
+ * state and the name does not: the state is `aria-expanded`'s to say, so a name that also flipped
+ * would be announced twice ("Hide review for nm000701, expanded"). The dataset id tells the rows apart.
+ */
 export function toggleLabels(
   open: boolean,
   datasetId: string,
-): { readonly text: string; readonly ariaLabel: string } {
-  const text = open ? UI_WORDS.buttons.hide : UI_WORDS.buttons.show;
-  return { text, ariaLabel: `${text} for ${datasetId}` };
+): { readonly text: string; readonly ariaLabel: string; readonly expanded: "true" | "false" } {
+  return {
+    text: open ? UI_WORDS.buttons.hide : UI_WORDS.buttons.show,
+    ariaLabel: `Review for ${datasetId}`,
+    expanded: open ? "true" : "false",
+  };
 }
 
 /** The panel's heading: the same on every row, so the dataset id makes it a name. */
