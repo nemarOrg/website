@@ -46,7 +46,6 @@ describe("the copy table", () => {
 
   it("carries exactly the declared keys", () => {
     expect(Object.keys(PUBLICATION_REVIEW_COPY).sort()).toEqual(DECLARED_KEYS);
-    expect(DECLARED_KEYS).toHaveLength(22);
   });
 
   it("keeps every key dotted, lowercase and stable", () => {

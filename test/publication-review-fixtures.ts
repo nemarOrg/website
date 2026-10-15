@@ -7,6 +7,14 @@
  * GitHub boundary), and `_provenance` says which nemar-cli commit, which seed and which request
  * produced each. Nothing here is typed from memory of the contract.
  *
+ * What is real and what is the harness's: the routes, the status codes, the field names and the
+ * wording of every refusal are the Worker's own. The CONTENT of a review is not a model's answer:
+ * the model text (`SUMMARY-SENTINEL-...`, `NOTE-SENTINEL-...`), the model name, the head commit
+ * sha, the scanner id and the evidence block are fixed sentinel values of the harness, and the
+ * tests rely on the sentinels to prove the model's words appear only under their label. Dataset
+ * ids (`nm0007xx`) and the depositor addresses (`example.org`) are inert strings, not allocated
+ * datasets or real people; ids and timestamps are the harness's.
+ *
  * Refreshing: when the nemar-cli contract moves, re-run the capture at the new nemar-cli head and
  * replace the files. The diff shows exactly which words or fields moved; update the page's types
  * and the mirrored copy keys if it says so, and the typed tests go red first where a field
