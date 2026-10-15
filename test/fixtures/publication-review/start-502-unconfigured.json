@@ -1,0 +1,19 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "the Worker has no GITHUB_ADMIN_PAT",
+    "request": "POST /admin/publish/<dataset>/review/start with no body",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 502,
+  "body": {
+    "environment": "production",
+    "started": false,
+    "reason": "dispatch_unconfigured",
+    "review_id": 1,
+    "code": "dispatch_unconfigured",
+    "error": "This Worker cannot hand a review to GitHub: a credential is not configured."
+  }
+}

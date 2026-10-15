@@ -13,6 +13,24 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **The admin publication page shows the review and the identifier screen** (#459, ADR 0027; nemar-cli#1731).
+  Each pending, approving or blocked request shows a review chip and a screen chip from the list.
+  A review panel, fetched when an administrator opens it, shows the reasons in the API's own `statement` and neutral `cure` (never the terminal's sentences, whose `cure` carries commands), the identifier screen, and the model's summary and notes under a label that says the model wrote them.
+  Approve is absent for a reason no override clears, needs an explicit confirmation to approve over a non-pass, and needs a recorded reason of 10 to 500 characters when the identifier screen found something to read.
+  Every Approve and Deny now names the request it was for, and each refusal the API gives is shown in plain words.
+  A review can be started from the panel when the API offers one.
+  There is no fallback to the old click that sent nothing: if the review detail cannot be read, the page says so and withholds Approve, and if the API predates the page or sends an answer the page cannot trust, it says it is out of step.
+  An approve that gets no answer, or only the proxy's own 502, says the approval may have started and asks for a refresh.
+  A 401 or 403 for a signed-out or not-allowed account shows the page's own "sign in again" sentence, never the API's, because an inactive account's refusal can name a terminal command.
+  The one exception is the origin guard's 403 (code `origin_not_allowed`), whose sentence names no terminal and is printed as the API words it.
+  A result for a review panel that was closed meanwhile appears in the page's error region instead of a hidden panel.
+  This needs the API side (nemar-cli#1731), which must be deployed to the API before the website: an older API sends no `statement`, so the page withholds the panel and Approve and says it is out of step.
+- **A request blocked by the identifier screen has its own badge** (#459).
+  The seventh block reason, `identifier_screen_findings`, reads "Identifiers found" instead of the neutral "Blocked".
+  The badge also shows on the depositor's dashboard card.
+
 ### Changed
 
 - **Account copy matches nemar-cli `dev` again** (#464).

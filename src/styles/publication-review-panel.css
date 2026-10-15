@@ -1,0 +1,322 @@
+/* The review panel of the administrator publication page (website#459).
+
+   Global by necessity, not by choice: `pages/admin/publication-requests.astro` builds the panel's
+   DOM at runtime with `createElement`, so none of it carries an Astro scope attribute and a scoped
+   <style> could never match it. The same arrangement as `eeg-viewer.css`. The `.pubreq-review`
+   prefix is what keeps the global namespace safe; the server-rendered chips and the toggle belong
+   to `PublicationRequestRow.astro` and keep their scoped styles there.
+
+   Colors come from tokens alone. The tokens resolve per theme, so light and dark are the same
+   rules, and nothing here names a hue. */
+
+.pubreq-review {
+  display: grid;
+  gap: var(--space-4);
+  min-inline-size: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface-2);
+  color: var(--color-fg);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+}
+/* The grid display above would otherwise beat the UA [hidden] rule and show every closed panel. */
+.pubreq-review[hidden] {
+  display: none;
+}
+.pubreq-review:focus {
+  outline: none;
+}
+.pubreq-review:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.pubreq-review__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+}
+.pubreq-review__section {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+.pubreq-review__heading {
+  margin: 0;
+  color: var(--admin-text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pubreq-review__text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pubreq-review__text--muted {
+  color: var(--color-fg-muted);
+}
+.pubreq-review__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pubreq-review__list > li {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A headline carries its tone as a bar on the inline start edge, in the admin cards' own
+   vocabulary, so the tone is never color alone: the words say it too. */
+.pubreq-review-tone--ok,
+.pubreq-review-tone--note,
+.pubreq-review-tone--warn,
+.pubreq-review-tone--stop {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+.pubreq-review-tone--ok {
+  box-shadow: inset 3px 0 0 var(--admin-ok);
+}
+.pubreq-review-tone--note {
+  box-shadow: inset 3px 0 0 var(--admin-text-3);
+}
+.pubreq-review-tone--warn {
+  box-shadow: inset 3px 0 0 var(--admin-warn);
+}
+.pubreq-review-tone--stop {
+  box-shadow: inset 3px 0 0 var(--admin-error);
+}
+
+.pubreq-review__reason {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+}
+.pubreq-review__reason-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.pubreq-review__tag {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-muted);
+  font-size: var(--fs-xs);
+}
+.pubreq-review__cure {
+  margin: 0;
+  color: var(--color-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The model's text is set apart: a dashed rule says it was written by something that can be wrong. */
+.pubreq-review__model {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+}
+.pubreq-review__finding {
+  display: grid;
+  gap: 2px;
+}
+.pubreq-review__finding-label {
+  font-weight: var(--fw-semibold);
+}
+.pubreq-review__finding-document {
+  color: var(--admin-text-3);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.pubreq-review__controls {
+  display: grid;
+  gap: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+}
+.pubreq-review__check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+.pubreq-review__check input {
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  margin: 2px 0 0;
+  accent-color: var(--color-link);
+}
+.pubreq-review__field {
+  display: grid;
+  gap: var(--space-2);
+}
+.pubreq-review__field textarea {
+  inline-size: 100%;
+  min-block-size: 5rem;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--admin-control-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font: inherit;
+  resize: vertical;
+}
+.pubreq-review__count {
+  color: var(--admin-text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.pubreq-review__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.pubreq-review__btn {
+  min-block-size: 36px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+  color: var(--color-fg);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.pubreq-review__btn:hover:not(:disabled) {
+  background: var(--admin-surface-3);
+  border-color: var(--admin-control-border);
+}
+.pubreq-review__btn--primary {
+  border-color: var(--color-link);
+  background: var(--color-link);
+  color: var(--color-bg);
+}
+.pubreq-review__btn--primary:hover:not(:disabled) {
+  border-color: var(--color-link-hover);
+  background: var(--color-link-hover);
+}
+.pubreq-review__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pubreq-review__notice,
+.pubreq-review__error {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+  overflow-wrap: anywhere;
+}
+.pubreq-review__notice {
+  box-shadow: inset 3px 0 0 var(--admin-accent);
+}
+.pubreq-review__error {
+  box-shadow: inset 3px 0 0 var(--admin-error);
+}
+.pubreq-review__error[hidden] {
+  display: none;
+}
+.pubreq-review__error a {
+  color: var(--color-link);
+}
+
+.pubreq-review__btn:focus-visible,
+.pubreq-review__check input:focus-visible,
+.pubreq-review__field textarea:focus-visible,
+.pubreq-review__error a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .pubreq-review {
+    padding: var(--space-3);
+  }
+  .pubreq-review__actions {
+    display: grid;
+  }
+  .pubreq-review__btn {
+    inline-size: 100%;
+  }
+}
+
+/* The row's review toggle keeps one visible word ("Review"), so its accessible name can contain it;
+   `aria-expanded` carries the state and this chevron shows it. A shape drawn from borders: it is
+   decorative (empty content, so nothing is read aloud) and needs no glyph or image. */
+.pubreq-review-toggle::after {
+  content: "";
+  flex: none;
+  inline-size: 0.45em;
+  block-size: 0.45em;
+  margin-inline-start: var(--space-2);
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: translateY(-0.15em) rotate(45deg);
+}
+.pubreq-review-toggle[aria-expanded="true"]::after {
+  transform: translateY(0.1em) rotate(-135deg);
+}
+
+/* Forced colors drop box-shadow, so a tone and a notice keep their bar as a border. */
+@media (forced-colors: active) {
+  .pubreq-review-tone--ok,
+  .pubreq-review-tone--note,
+  .pubreq-review-tone--warn,
+  .pubreq-review-tone--stop,
+  .pubreq-review__notice,
+  .pubreq-review__error {
+    border-inline-start: 3px solid CanvasText;
+  }
+  .pubreq-review__btn--primary {
+    forced-color-adjust: none;
+    background: ButtonFace;
+    color: ButtonText;
+    border-color: ButtonText;
+  }
+  .pubreq-review__btn:disabled {
+    opacity: 1;
+    color: GrayText;
+    border-color: GrayText;
+  }
+  /* A border keeps its color in forced colors, but a named system color is the sure one. */
+  .pubreq-review-toggle::after {
+    border-color: ButtonText;
+  }
+}
+
+/* The status region the script announces a started review through. It exists, empty, before the
+   words do, so a screen reader announces them; sighted users read the notice in the panel. */
+.pubreq-review__live {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

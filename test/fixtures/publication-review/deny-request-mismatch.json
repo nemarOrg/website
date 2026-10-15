@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "a requested request, request_id one higher",
+    "request": "POST /admin/publish/<dataset>/deny with {\"reason\":\"No.\",\"request_id\":2}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "request_mismatch",
+    "message": "The request in force for this dataset is not the one you meant (it was denied or filed again since). Read it again before going on."
+  }
+}

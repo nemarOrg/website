@@ -1,12 +1,19 @@
 /**
- * Admin API client: list publication requests, deny them, and start their
- * approval. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
+ * Admin API client: list publication requests, read a request's publication
+ * review, start that review, deny a request, and start its approval. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
  * browser callers go through the same-origin `/api/v1` proxy (see
  * `dashboardApiBase` in `./api-base.ts`) so the session cookie attaches
  * automatically without broadening it to other `*.nemar.org` hosts.
  */
 import { dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError, deriveAdminBadgeState } from "./dashboard-api";
+import type {
+  ApiFailure,
+  ApproveBody,
+  PublicationReviewDetail,
+  StartStartedReason,
+  Tone,
+} from "./publication-review";
 import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 type Init = {
@@ -28,11 +35,16 @@ type Init = {
  *   itself no longer runs inside this request: the backend hands it to a
  *   GitHub Action and answers 202 (website#200), so this is a short deadline,
  *   not the two minutes the old blocking approve needed.
+ * - `review`: the review detail reads several tables, so it sits above a plain
+ *   list read. A judgment, not a measurement.
+ * - `start`: one DB claim plus one GitHub `repository_dispatch`, like `dispatch`.
  */
 export const ADMIN_TIMEOUTS_MS = {
   list: DEFAULT_REQUEST_TIMEOUT_MS,
   deny: 15_000,
   dispatch: 15_000,
+  review: 10_000,
+  start: 15_000,
 } as const;
 
 /**
@@ -100,6 +112,33 @@ export interface PublicationRequest {
   readonly approval_requested_by?: number | null;
   readonly approval_dispatched_at?: string | null;
   readonly approval_in_flight?: boolean;
+  /**
+   * The identifier screen's verdict as the Worker words it, and the publication review's summary.
+   * List rows of a Worker that predates the review omit both, so the page reads them as optional.
+   */
+  readonly identifier_screen?: {
+    readonly state: string | null;
+    readonly headline: string;
+    readonly tone: Tone;
+    readonly lines: readonly string[];
+  };
+  /**
+   * The list row's review summary. `kind`, `gate` and `outcome` are LOOSE on purpose (plain
+   * strings, not the contract's unions): the page only prints the headline and tone and never
+   * branches on these words, so a word a newer Worker adds cannot break it.
+   */
+  readonly publication_review?: {
+    readonly kind: string;
+    readonly enabled: boolean;
+    readonly gate: string;
+    readonly outcome: string | null;
+    readonly headline: string;
+    readonly tone: Tone;
+    readonly reasons: readonly string[];
+    readonly start_offered: boolean;
+    readonly review_id: number | null;
+    readonly head_sha: string | null;
+  };
 }
 
 export interface PublicationRequestListResponse {
@@ -148,6 +187,82 @@ function failureText(detail: { message?: string; code?: string }, res: Response)
   return res.statusText;
 }
 
+/**
+ * A failed call of the publication routes: a `DashboardApiError` that also carries what the Worker
+ * said, so `describeFailure` can pick the words (the mapper in `publication-review.ts` reads
+ * `failure`; `message` and the `name` stay what every older caller reads).
+ *
+ * `code` is the Worker's WORD on every route (`failure.code`), or undefined when the Worker sent
+ * only a sentence; it is never a sentence. `failure` carries the rest, and is what callers read.
+ */
+export class PublicationApiError extends DashboardApiError {
+  readonly failure: ApiFailure;
+  constructor(message: string, status: number, code: string | undefined, failure: ApiFailure) {
+    super(message, status, code);
+    this.failure = failure;
+  }
+}
+
+const CODE_WORD = /^[a-z][a-z0-9_]*$/;
+
+/**
+ * Read a failed answer into what the page needs, whichever convention carried it.
+ *
+ * Three conventions meet at these routes: the approval, deny and gate routes send the code in
+ * `error` and a sentence in `message`; the review routes send a sentence in `error` and the code in
+ * `code`; the origin guard sends the word in both and a sentence in `message`. The deny route's
+ * validation failure sends an OBJECT in `error`, which names no code and no sentence, so it is read
+ * as unknown rather than printed. `readError` (shared by every client) is left as it is.
+ */
+export async function readFailure(res: Response): Promise<ApiFailure> {
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch (err) {
+    if (err instanceof SyntaxError) return { status: res.status };
+    throw err;
+  }
+  if (!body || typeof body !== "object") return { status: res.status };
+  const b = body as Record<string, unknown>;
+  const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+  const error = str(b.error);
+  const errorIsWord = error !== undefined && CODE_WORD.test(error);
+  const message =
+    typeof b.message === "string" && b.message.length > 0
+      ? b.message
+      : error !== undefined && error.length > 0 && !errorIsWord
+        ? error
+        : undefined;
+  const code = str(b.code) ?? (errorIsWord ? error : undefined);
+  const refusal = str(b.refusal);
+  const gate = str(b.gate);
+  const headline = str(b.headline);
+  return {
+    status: res.status,
+    ...(code === undefined ? {} : { code }),
+    ...(message === undefined ? {} : { message }),
+    ...(refusal === undefined ? {} : { refusal }),
+    ...(gate === undefined ? {} : { gate }),
+    ...(headline === undefined ? {} : { headline }),
+  };
+}
+
+/**
+ * Throw the failure of a mutation. The older message text (from `readError`, whose sentence-valued
+ * `code` becomes the message when nothing else says it) is kept so every existing caller and test
+ * reads what it always read; `code` is the word, as on the review routes, and `failure` the reading.
+ */
+async function throwFailure(res: Response, lead: string): Promise<never> {
+  const legacy = await readError(res.clone());
+  const failure = await readFailure(res);
+  throw new PublicationApiError(
+    `${lead}: ${failureText(legacy, res)}`,
+    res.status,
+    failure.code,
+    failure,
+  );
+}
+
 export interface PublicationDispatchResponse {
   readonly status: "dispatched";
   readonly dataset_id: string;
@@ -161,10 +276,13 @@ export interface PublicationDispatchResponse {
  * answers 202 as soon as the Action has been asked to start; the run then
  * reports through the request's own `status`, `current_step` and `last_error`.
  * Closing the page afterwards changes nothing.
+ *
+ * The body is REQUIRED: it names the request the click was for and carries the
+ * administrator's answers to the gates. There is no bodyless click.
  */
 export async function dispatchPublicationApproval(
   datasetId: string,
-  init: Init = {},
+  init: Init & { readonly body: ApproveBody },
 ): Promise<PublicationDispatchResponse> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
@@ -178,18 +296,11 @@ export async function dispatchPublicationApproval(
       method: "POST",
       headers,
       credentials: "include",
-      body: "{}",
+      body: JSON.stringify(init.body),
       signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.dispatch),
     },
   );
-  if (!res.ok) {
-    const detail = await readError(res);
-    throw new DashboardApiError(
-      `Approval was not started: ${failureText(detail, res)}`,
-      res.status,
-      detail.code,
-    );
-  }
+  if (!res.ok) await throwFailure(res, "Approval was not started");
   return (await res.json()) as PublicationDispatchResponse;
 }
 
@@ -200,10 +311,11 @@ export interface PublicationDenyResponse {
   readonly reason: string;
 }
 
+/** The request id is REQUIRED: a denial names the request the click was for, so a stale row is refused. */
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
-  init: Init = {},
+  init: Init & { readonly requestId: number },
 ): Promise<PublicationDenyResponse> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
@@ -221,19 +333,83 @@ export async function denyPublicationRequest(
       method: "POST",
       headers,
       credentials: "include",
-      body: JSON.stringify({ reason: trimmed }),
+      body: JSON.stringify({ reason: trimmed, request_id: init.requestId }),
       signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.deny),
     },
   );
-  if (!res.ok) {
-    const detail = await readError(res);
-    throw new DashboardApiError(
-      `Deny failed: ${failureText(detail, res)}`,
-      res.status,
-      detail.code,
-    );
-  }
+  if (!res.ok) await throwFailure(res, "Deny failed");
   return (await res.json()) as PublicationDenyResponse;
+}
+
+/**
+ * What a started review answers (HTTP 202); a refusal is a failure, not this. Transcribed from
+ * `StartedPublicationReview` in nemar-cli `shared/contract/publication-review-admin.ts`. The page
+ * reads only `reason`, and a word it does not know says nothing (`describeStartSuccess`).
+ */
+export interface StartedPublicationReview {
+  readonly environment: "production" | "non-production";
+  readonly started: true;
+  readonly reason: StartStartedReason;
+  readonly review_id: number;
+}
+
+/** Throw the failure of a review route, whose `error` is a sentence and whose `code` is the word. */
+async function throwReviewFailure(res: Response, lead: string): Promise<never> {
+  const failure = await readFailure(res);
+  throw new PublicationApiError(
+    `${lead}: ${failure.message ?? res.statusText}`,
+    res.status,
+    failure.code,
+    failure,
+  );
+}
+
+/**
+ * The review of a dataset's active publication request: the reasons, the identifier screen and the
+ * model's text, in the API's own words. A GET with no body and no content type.
+ */
+export async function getPublicationReview(
+  datasetId: string,
+  init: Init = {},
+): Promise<PublicationReviewDetail> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/review`,
+    {
+      method: "GET",
+      headers,
+      credentials: "include",
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.review),
+    },
+  );
+  if (!res.ok) await throwReviewFailure(res, "Could not read the review");
+  return (await res.json()) as PublicationReviewDetail;
+}
+
+/**
+ * Ask the API to start the review of the request's screened commit. The route reads no body, so
+ * this sends none and no content type.
+ */
+export async function startPublicationReview(
+  datasetId: string,
+  init: Init = {},
+): Promise<StartedPublicationReview> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(
+    `${dashboardApiBase(init.cookieHeader)}/admin/publish/${encodeURIComponent(datasetId)}/review/start`,
+    {
+      method: "POST",
+      headers,
+      credentials: "include",
+      signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.start),
+    },
+  );
+  if (!res.ok) await throwReviewFailure(res, "The review was not started");
+  return (await res.json()) as StartedPublicationReview;
 }
 
 /** Re-export to keep admin surfaces importing from a single module. */

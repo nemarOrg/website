@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "review switched off (PUBLICATION_REVIEW_ENABLED unset)",
+    "request": "POST /admin/publish/<dataset>/review/start with no body",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "code": "review_disabled",
+    "error": "The publication review is switched off on this Worker."
+  }
+}

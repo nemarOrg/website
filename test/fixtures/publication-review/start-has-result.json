@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "a review row in state reported for the screened commit",
+    "request": "POST /admin/publish/<dataset>/review/start with no body",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "code": "has_result",
+    "error": "A review of this commit has already reported. A new screened commit starts a new review."
+  }
+}

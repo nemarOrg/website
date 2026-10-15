@@ -17,6 +17,9 @@ import {
   resolveQueueTab,
   rowView,
 } from "../../lib/publication-queue";
+// The review panel is built at runtime by the script below, so its rules are global (a scoped
+// <style> never reaches runtime-built nodes). See the header of the stylesheet.
+import "../../styles/publication-review-panel.css";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -105,7 +108,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 
   {refreshing && (
     <p class="admin-refresh-note" data-refresh-note>
-      This page refreshes every 20 seconds while an approval is active.
+      <span data-refresh-note-text>This page refreshes every 20 seconds while an approval is active.</span>
       <button type="button" class="admin-refresh-note__toggle" data-refresh-toggle>Pause</button>
     </p>
   )}
@@ -295,33 +298,57 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
 </style>
 
 <script>
-  import { denyPublicationRequest, dispatchPublicationApproval } from "../../lib/admin-api";
-  import { DashboardApiError } from "../../lib/dashboard-api";
+  import {
+    denyPublicationRequest,
+    dispatchPublicationApproval,
+    getPublicationReview,
+    startPublicationReview,
+  } from "../../lib/admin-api";
+  import {
+    ACK_MAX,
+    type ApproveBody,
+    DENIAL_MAX,
+    FRIENDLY_WORDS,
+    type FailureView,
+    type OfferedControl,
+    type PanelModel,
+    UI_WORDS,
+    approveBody,
+    describeFailure,
+    describeStartSuccess,
+    panelModel,
+  } from "../../lib/publication-review";
+  import {
+    BUSY_FAILURE,
+    DRAW_FAILURE,
+    PANEL_WORDS,
+    type PanelNode,
+    errorTree,
+    failureTree,
+    loadingTree,
+    panelTree,
+    rowIsStale,
+    staleRowTree,
+    toggleLabels,
+  } from "../../lib/publication-review-panel";
+
+  // This script wires events, calls the client, hands what comes back to the pure functions in
+  // `lib/publication-review.ts` and `lib/publication-review-panel.ts`, and mounts the tree they
+  // return. It decides nothing and words nothing: every sentence is the API's own, the mirrored
+  // copy table's, or one of the lib's page-owned words, and every node is built by `mount` from
+  // data (tag, attributes, children, one text field), so no string is ever read as markup.
 
   const errorEl = document.querySelector<HTMLElement>("[data-admin-action-error]");
 
-  const FRIENDLY: Record<string, string> = {
-    forbidden: "You no longer have admin access. Sign in again.",
-    not_invitable: "This request is no longer pending.",
-    already_in_flight: "An approval is already running for this dataset. Give it a minute, then refresh.",
-    not_dispatchable: "This request is blocked, so it cannot be approved until the block is cleared.",
-    dispatch_failed: "GitHub did not accept the request, so nothing was started. Try again in a moment.",
-    dispatch_unconfirmed:
-      "GitHub did not confirm the request. It may have started, so check again in a few minutes before trying again.",
-    dispatch_unconfigured:
-      "The backend has no GitHub credential, so it cannot start an approval. Retrying will not help; tell an admin who manages the backend.",
-    origin_not_allowed: "The request came from an unexpected origin. Reload this page and try again.",
-    not_found: "Request not found.",
-    missing_field: "Provide a reason for denial.",
-    internal_error: "Server error. Try again in a moment.",
-  };
-
-  function friendly(err: unknown): string {
-    if (err instanceof DashboardApiError && err.code && FRIENDLY[err.code]) {
-      return FRIENDLY[err.code];
-    }
-    return err instanceof Error ? err.message : "Action failed.";
+  // The one place a node reaches the DOM: createElement, setAttribute and textContent.
+  function mount(spec: PanelNode): HTMLElement {
+    const node = document.createElement(spec.tag);
+    for (const [name, value] of Object.entries(spec.attrs ?? {})) node.setAttribute(name, value);
+    if (spec.text !== undefined) node.textContent = spec.text;
+    for (const child of spec.children ?? []) node.append(mount(child));
+    return node;
   }
+
   // `refresh` adds a link back to this page. After a failed start the outcome
   // may not be what the buttons on screen say (a timed-out request can still
   // have dispatched, a 409 means someone else already did), so the admin gets a
@@ -332,9 +359,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     errorEl.hidden = false;
     errorEl.textContent = msg;
     if (opts.refresh) {
-      const link = document.createElement("a");
-      link.href = location.href;
-      link.textContent = "Refresh to see the current state.";
+      const link = mount({ tag: "a", text: PANEL_WORDS.reloadLink, attrs: { href: location.href } });
       errorEl.append(" ", link);
     }
   }
@@ -345,8 +370,15 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
   }
 
   type PendingAction =
-    | { kind: "approve" | "resume"; datasetId: string; dialogId: string }
-    | { kind: "deny"; datasetId: string; reason: string };
+    | {
+        kind: "approve" | "resume";
+        datasetId: string;
+        dialogId: string;
+        /** Built by `approveBody` from the control the panel was drawn with. */
+        body: ApproveBody;
+        panel: HTMLElement;
+      }
+    | { kind: "deny"; datasetId: string; reason: string; requestId: number };
   let pending: PendingAction | null = null;
   let inFlight = false;
 
@@ -358,57 +390,395 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     );
   }
 
-  function queue(next: PendingAction): void {
-    if (inFlight) return;
+  // True when the action was queued. A click during a call is refused, and its caller must not open
+  // a dialog whose confirmation would find nothing pending.
+  function queue(next: PendingAction): boolean {
+    if (inFlight) return false;
     if (pending) console.warn("[admin] overwriting un-confirmed pending action", pending);
     pending = next;
     clearError();
+    return true;
   }
 
-  document.querySelectorAll<HTMLButtonElement>("[data-pubreq-approve]").forEach((btn) => {
+  // ---------------------------------------------------------------------------------------------
+  // The review panel
+  // ---------------------------------------------------------------------------------------------
+
+  interface PanelState {
+    /** The offered control the panel was drawn with: the body names exactly what was shown. */
+    control: OfferedControl | null;
+    /** Bumped by every load and every close, so a slow answer never overwrites a newer panel. */
+    token: number;
+  }
+  const states = new WeakMap<HTMLElement, PanelState>();
+  function stateOf(panel: HTMLElement): PanelState {
+    let state = states.get(panel);
+    if (!state) {
+      state = { control: null, token: 0 };
+      states.set(panel, state);
+    }
+    return state;
+  }
+
+  interface DrawOptions {
+    error?: FailureView | null;
+    notice?: string | null;
+    /** What the administrator had typed in the reason field, kept across a re-read. */
+    acknowledgment?: string;
+    focusAck?: boolean;
+    focusPanel?: boolean;
+  }
+
+  // Show a failure without redrawing: the panel keeps what the administrator is looking at.
+  function setPanelError(panel: HTMLElement, failure: FailureView): void {
+    panel.querySelector("[data-pubreq-review-error]")?.remove();
+    const node = mount(errorTree(failure, location.href));
+    const title = panel.querySelector(".pubreq-review__title");
+    if (title) title.after(node);
+    else panel.prepend(node);
+  }
+
+  const RECHECK = "pubreq:recheck";
+  // Every panel's Approve is off for the length of a call, so a click on another row cannot be
+  // dropped without a word; when the call ends without a redraw each works out its own state again
+  // from the inputs, so a field the administrator emptied stays off.
+  function setApproveBusy(busy: boolean): void {
+    for (const button of document.querySelectorAll<HTMLButtonElement>(
+      "[data-pubreq-panel-approve]",
+    )) {
+      if (busy) button.disabled = true;
+      else button.dispatchEvent(new Event(RECHECK));
+    }
+  }
+
+  function rowStartOf(panel: HTMLElement): "approve" | "resume" | null {
+    const start = panel.dataset.rowStart;
+    return start === "approve" || start === "resume" ? start : null;
+  }
+  function panelOf(from: HTMLElement): HTMLElement | null {
+    return (
+      from
+        .closest("[data-pubreq-row]")
+        ?.querySelector<HTMLElement>("[data-pubreq-review-panel]") ?? null
+    );
+  }
+  function setToggle(panel: HTMLElement, open: boolean): void {
+    const toggle = panel
+      .closest("[data-pubreq-row]")
+      ?.querySelector<HTMLButtonElement>("[data-pubreq-review-toggle]");
+    if (!toggle) return;
+    const labels = toggleLabels(open, panel.dataset.datasetId ?? "");
+    toggle.setAttribute("aria-label", labels.ariaLabel);
+    toggle.setAttribute("aria-expanded", labels.expanded);
+  }
+
+  // The notice is announced through a status region that exists before its words do: a region
+  // inserted already filled is not announced by many screen readers. The words follow after a
+  // pause, and any later announce (a re-read, or `closePanel` with null) cancels a pause still
+  // running, so the notice of a panel that was closed or redrawn never appears after the fact.
+  const announcing = new WeakMap<HTMLElement, number>();
+  function announce(panel: HTMLElement, words: string | null | undefined): void {
+    const live = panel
+      .closest("[data-pubreq-row]")
+      ?.querySelector<HTMLElement>("[data-pubreq-review-live]");
+    if (!live) return;
+    window.clearTimeout(announcing.get(live));
+    announcing.delete(live);
+    live.textContent = "";
+    if (words) {
+      announcing.set(
+        live,
+        window.setTimeout(() => {
+          announcing.delete(live);
+          live.textContent = words;
+        }, 50),
+      );
+    }
+  }
+
+  // The automatic refresh does not run over an open panel, and the note says so.
+  const refreshNoteText = document.querySelector<HTMLElement>("[data-refresh-note-text]");
+  const runningNoteWords = refreshNoteText?.textContent ?? "";
+  function syncRefreshNote(): void {
+    if (!refreshNoteText) return;
+    const open = document.querySelector("[data-pubreq-review-panel]:not([hidden])") !== null;
+    refreshNoteText.textContent = open ? PANEL_WORDS.refreshPaused : runningNoteWords;
+  }
+
+  // The offered control of a freshly mounted panel: the inputs, the Approve button and what each
+  // does. The nodes were built by `panelTree`; this only finds them by their data attributes.
+  function wireControls(panel: HTMLElement, control: OfferedControl | null): void {
+    const box = panel.querySelector<HTMLInputElement>("[data-pubreq-override]");
+    const area = panel.querySelector<HTMLTextAreaElement>("[data-pubreq-reason]");
+    const count = panel.querySelector<HTMLElement>("[data-pubreq-count]");
+    const approve = panel.querySelector<HTMLButtonElement>("[data-pubreq-panel-approve]");
+    if (control && approve) {
+      const readInput = () => ({
+        overrideConfirmed: box?.checked ?? false,
+        acknowledgment: area?.value ?? "",
+      });
+      const refresh = () => {
+        approve.disabled = !approveBody(control, readInput()).ok || inFlight;
+        if (area && count) count.textContent = `${area.value.length} / ${ACK_MAX}`;
+      };
+      // `setApproveBusy(false)` asks for this when a call ends without a redraw.
+      approve.addEventListener(RECHECK, refresh);
+      box?.addEventListener("change", refresh);
+      area?.addEventListener("input", refresh);
+      refresh();
+      approve.addEventListener("click", () => {
+        const built = approveBody(control, readInput());
+        const datasetId = panel.dataset.datasetId;
+        if (!built.ok || !datasetId) return;
+        const queued = queue({
+          kind: control.mode,
+          datasetId,
+          dialogId: control.dialogId,
+          body: built.body,
+          panel,
+        });
+        if (!queued) return setPanelError(panel, BUSY_FAILURE);
+        openDialog(control.dialogId);
+      });
+    }
+    const start = panel.querySelector<HTMLButtonElement>("[data-pubreq-start]");
+    start?.addEventListener("click", () => void startReview(panel, start));
+    wireRefresh(panel);
+  }
+
+  // Refresh the review reads the detail again and keeps the reason the administrator typed.
+  function wireRefresh(panel: HTMLElement): void {
+    panel.querySelector("[data-pubreq-refresh]")?.addEventListener("click", () => {
+      const acknowledgment = panel.querySelector<HTMLTextAreaElement>(
+        "[data-pubreq-reason]",
+      )?.value;
+      void loadPanel(panel, { acknowledgment, focusPanel: true });
+    });
+  }
+
+  function showTree(panel: HTMLElement, nodes: readonly PanelNode[]): void {
+    panel.replaceChildren(...nodes.map(mount));
+    wireRefresh(panel);
+  }
+
+  function drawPanel(panel: HTMLElement, model: PanelModel, opts: DrawOptions): void {
+    const datasetId = panel.dataset.datasetId ?? "";
+    const state = stateOf(panel);
+    state.control = model.approve.kind === "offered" ? model.approve : null;
+    const nodes = panelTree(model, {
+      datasetId,
+      panelId: panel.id,
+      retryLabel: panel.dataset.rowLabel === UI_WORDS.buttons.retry,
+      reloadHref: location.href,
+      error: opts.error,
+      notice: opts.notice,
+      acknowledgment: opts.acknowledgment,
+    });
+    panel.replaceChildren(...nodes.map(mount));
+    wireControls(panel, state.control);
+    announce(panel, opts.notice);
+    const area = panel.querySelector<HTMLTextAreaElement>("[data-pubreq-reason]");
+    if (opts.focusAck && area) queueMicrotask(() => area.focus());
+    else if (opts.focusPanel) panel.focus();
+  }
+
+  // A confirmation dialog opened from this panel belongs to the render the panel is about to
+  // replace: it is closed and its action dropped, so a confirmation never sends a body the panel no
+  // longer shows. `close()` with no argument leaves the dialog's returnValue empty, so it confirms
+  // nothing.
+  function dropPendingApproval(panel: HTMLElement): void {
+    if (!pending || pending.kind === "deny" || pending.panel !== panel) return;
+    document
+      .querySelector<HTMLDialogElement>(`dialog[data-dialog-id="${pending.dialogId}"]`)
+      ?.close();
+    pending = null;
+  }
+
+  // Every open reads the detail again: there is no cache, so what is on screen is what the API
+  // said a moment ago, and the control is computed from exactly that answer.
+  async function loadPanel(panel: HTMLElement, opts: DrawOptions = {}): Promise<void> {
+    const datasetId = panel.dataset.datasetId;
+    if (!datasetId) return;
+    dropPendingApproval(panel);
+    const state = stateOf(panel);
+    state.control = null;
+    const token = ++state.token;
+    // The redraw removes the focused button, so a panel that held focus takes it back afterwards.
+    const focusPanel = opts.focusPanel === true || panel.contains(document.activeElement);
+    panel.setAttribute("aria-busy", "true");
+    announce(panel, null);
+    showTree(panel, loadingTree(datasetId, panel.id));
+    try {
+      const detail = await getPublicationReview(datasetId);
+      if (token !== state.token) return;
+      // A fault in the drawing is this page's, not the network's: it is logged and worded as
+      // out of step, and no control is left on screen.
+      try {
+        // The id compared is the model's: null for a detail the page cannot read, which is out
+        // of step (drawn as such below), not stale.
+        const model = panelModel(detail, { rowStart: rowStartOf(panel) });
+        if (rowIsStale(model.requestId, Number(panel.dataset.requestId))) {
+          showTree(panel, staleRowTree(datasetId, panel.id, location.href, opts.error));
+          if (focusPanel) panel.focus();
+        } else {
+          drawPanel(panel, model, {
+            ...opts,
+            focusPanel,
+          });
+        }
+      } catch (drawErr) {
+        console.error("[admin] the review panel could not be drawn", drawErr);
+        state.control = null;
+        showTree(
+          panel,
+          failureTree(DRAW_FAILURE, datasetId, panel.id, location.href, opts.error),
+        );
+        if (focusPanel) panel.focus();
+      }
+    } catch (err) {
+      if (token !== state.token) return;
+      showTree(
+        panel,
+        failureTree(
+          describeFailure("detail", err),
+          datasetId,
+          panel.id,
+          location.href,
+          opts.error,
+        ),
+      );
+      if (focusPanel) panel.focus();
+    } finally {
+      if (token === state.token) panel.removeAttribute("aria-busy");
+    }
+  }
+
+  async function openPanel(panel: HTMLElement, opts: DrawOptions = {}): Promise<void> {
+    panel.hidden = false;
+    setToggle(panel, true);
+    syncRefreshNote();
+    await loadPanel(panel, opts);
+  }
+
+  function closePanel(panel: HTMLElement): void {
+    stateOf(panel).token++;
+    stateOf(panel).control = null;
+    dropPendingApproval(panel);
+    panel.hidden = true;
+    panel.replaceChildren();
+    announce(panel, null);
+    setToggle(panel, false);
+    syncRefreshNote();
+  }
+
+  // Where a failure is shown. A panel that was closed while the call ran has nowhere to draw it, so
+  // the page's own error region says it instead; an open panel re-reads when the failure asks for
+  // that and otherwise keeps what the administrator is looking at. Either way the focus goes to the
+  // panel when the caller asks, because the button that held it may be gone or disabled.
+  async function reportFailure(
+    panel: HTMLElement,
+    failure: FailureView,
+    extra: DrawOptions = {},
+  ): Promise<void> {
+    if (panel.hidden) {
+      showError(failure.text, { refresh: failure.refreshLink });
+      return;
+    }
+    if (failure.refetch) {
+      await loadPanel(panel, { ...extra, error: failure });
+      return;
+    }
+    setPanelError(panel, failure);
+    if (extra.focusPanel) panel.focus();
+  }
+
+  async function startReview(panel: HTMLElement, button: HTMLButtonElement): Promise<void> {
+    const datasetId = panel.dataset.datasetId;
+    if (!datasetId) return;
+    button.disabled = true;
+    try {
+      const started = await startPublicationReview(datasetId);
+      // Closed meanwhile: the review has started, and opening the panel reads it fresh.
+      if (!panel.hidden) {
+        await loadPanel(panel, { notice: describeStartSuccess(started), focusPanel: true });
+      }
+    } catch (err) {
+      await reportFailure(panel, describeFailure("start", err), { focusPanel: true });
+      button.disabled = false;
+    }
+  }
+
+  // After a refused Approve the page reads the detail again, the one authoritative answer: the
+  // refusal's own body is not drawn. The override box comes back unticked (the panel is redrawn
+  // from the new answer) and the reason the administrator typed is kept.
+  async function afterApproveFailure(panel: HTMLElement, err: unknown): Promise<void> {
+    const failure = describeFailure("approve", err);
+    const typed = panel.querySelector<HTMLTextAreaElement>("[data-pubreq-reason]")?.value;
+    setApproveBusy(false);
+    await reportFailure(panel, failure, {
+      acknowledgment: typed,
+      focusAck: failure.focusAck,
+      focusPanel: true,
+    });
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("[data-pubreq-review-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const id = btn.dataset.datasetId;
-      if (!id) return;
-      // An anonymous release has different consequences, so it gets its own words.
-      const dialogId =
-        btn.dataset.anonymous === "true" ? "admin-approve-anonymous" : "admin-approve";
-      queue({ kind: "approve", datasetId: id, dialogId });
-      openDialog(dialogId);
+      const panel = panelOf(btn);
+      if (!panel) return;
+      if (panel.hidden) void openPanel(panel);
+      else closePanel(panel);
     });
   });
 
+  // The row's Approve and Resume open the panel (which then offers the dialog), never the dialog:
+  // the dialog cannot hold the confirmation box or the reason field the API may require first. On a
+  // panel that is already open they only move the focus to it, so what was typed there is not lost
+  // to a re-read; Refresh the review is the button that reads again.
+  function openFromRow(btn: HTMLElement): void {
+    const panel = panelOf(btn);
+    if (!panel) return showError(FRIENDLY_WORDS.generic);
+    if (!panel.hidden) return panel.focus();
+    void openPanel(panel, { focusPanel: true });
+  }
+  document.querySelectorAll<HTMLButtonElement>("[data-pubreq-approve]").forEach((btn) => {
+    btn.addEventListener("click", () => openFromRow(btn));
+  });
+
   document.querySelectorAll<HTMLButtonElement>("[data-pubreq-resume]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = btn.dataset.datasetId;
-      if (!id) return;
-      queue({ kind: "resume", datasetId: id, dialogId: "admin-resume" });
-      openDialog("admin-resume");
-    });
+    btn.addEventListener("click", () => openFromRow(btn));
   });
 
   document.querySelectorAll<HTMLButtonElement>("[data-pubreq-deny]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = btn.dataset.datasetId;
+      const requestId = Number(btn.dataset.requestId);
       if (!id) return;
+      if (!Number.isInteger(requestId)) return showError(FRIENDLY_WORDS.generic);
+      // Before the prompt: a reason typed there would be refused and lost without a word.
+      if (inFlight) return showError(PANEL_WORDS.busy);
       const rawReason = window.prompt("Reason for denial?");
       if (rawReason === null) {
         pending = null;
         return;
       }
       const reason = rawReason.trim();
-      if (reason.length === 0) {
+      if (reason.length === 0 || reason.length > DENIAL_MAX) {
         pending = null;
-        showError("A denial reason is required. Click Deny again to retry.");
+        showError(reason.length === 0 ? FRIENDLY_WORDS.missing_field : FRIENDLY_WORDS.deny_rejected);
         return;
       }
-      queue({ kind: "deny", datasetId: id, reason });
+      if (!queue({ kind: "deny", datasetId: id, reason, requestId })) {
+        return showError(PANEL_WORDS.busy);
+      }
       openDialog("admin-deny");
     });
   });
 
   // While an approval is active the page refreshes itself. It waits for a quiet
   // moment: a hidden tab, an open dialog, a click in flight, an error message
-  // on screen or the admin's own pause must not be reloaded out from under them.
+  // on screen, an open review panel (a typed reason must survive) or the admin's
+  // own pause must not be reloaded out from under them.
   // The dialog check reads the DOM rather than `pending`: cancelling a dialog
   // never reaches this script, so `pending` can stay set for good.
   let paused = false;
@@ -424,6 +794,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         !inFlight &&
         !paused &&
         !document.querySelector("dialog[open]") &&
+        !document.querySelector("[data-pubreq-review-panel]:not([hidden])") &&
         (errorEl?.hidden ?? true);
       if (quiet) location.reload();
     }, 20_000);
@@ -440,12 +811,13 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
       const target = pending;
       pending = null;
       inFlight = true;
+      setApproveBusy(true);
       try {
-        await dispatchPublicationApproval(target.datasetId);
+        await dispatchPublicationApproval(target.datasetId, { body: target.body });
         location.reload();
       } catch (err) {
-        showError(friendly(err), { refresh: true });
         inFlight = false;
+        await afterApproveFailure(target.panel, err);
       }
       return;
     }
@@ -453,12 +825,17 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
       const target = pending;
       pending = null;
       inFlight = true;
+      setApproveBusy(true);
       try {
-        await denyPublicationRequest(target.datasetId, target.reason);
+        await denyPublicationRequest(target.datasetId, target.reason, {
+          requestId: target.requestId,
+        });
         location.reload();
       } catch (err) {
-        showError(friendly(err));
+        const failure = describeFailure("deny", err);
+        showError(failure.text, { refresh: failure.refreshLink });
         inFlight = false;
+        setApproveBusy(false);
       }
       return;
     }

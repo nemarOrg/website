@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "approving request with three publishing steps done",
+    "request": "POST /admin/publish/<dataset>/deny with {\"reason\":\"No.\",\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "deny_after_publishing",
+    "message": "Steps of an approval of this request have already run, so the dataset may already be public and the request cannot be denied. Check the dataset first. A blocked request waits for its depositor to fix what blocked it; for any other, check whether approving it again can finish it, or repair it by hand."
+  }
+}

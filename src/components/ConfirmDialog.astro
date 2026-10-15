@@ -205,6 +205,9 @@ const bodyId = `${dialogId}-body`;
       if (e.detail?.dialogId !== id) return;
       if (verifyInput) verifyInput.value = "";
       syncSubmitEnabled();
+      // An Escape close leaves returnValue as the last confirm set it, so a stale "confirm" would
+      // fire the confirm event on the next Escape. Start every opening from nothing.
+      dialog.returnValue = "";
       dialog.showModal();
       (verifyInput ?? cancelBtn)?.focus();
     });
@@ -226,6 +229,7 @@ const bodyId = `${dialogId}-body`;
           );
         }
       }
+      dialog.returnValue = "";
       if (verifyInput) verifyInput.value = "";
       syncSubmitEnabled();
     });

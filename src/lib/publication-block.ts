@@ -37,12 +37,15 @@ export const PUBLICATION_BLOCK_REASONS = [
    *  them. An ACCOUNT property, not anything about the dataset — which is
    *  what makes "Validation failed" the wrong label for it. */
   "owner_name_missing",
+  /** nemar-cli epic #1610 phase 4: the identifier screen found a direct
+   *  identifier. The dataset, not the account, is what the owner fixes. */
+  "identifier_screen_findings",
 ] as const;
 
 export type PublicationBlockReason = (typeof PUBLICATION_BLOCK_REASONS)[number];
 
 /**
- * The four badge states a block can produce.
+ * The five badge states a block can produce.
  *
  * Each one exists because it answers a different question — "who fixes this,
  * and by doing what" — and the badge sits directly above the backend's own
@@ -59,6 +62,10 @@ export type PublicationBlockReason = (typeof PUBLICATION_BLOCK_REASONS)[number];
  * - `"name_required"` covers `owner_name_missing`, which is not about the
  *   dataset at all — the owner fixes it in their account, and telling them
  *   validation failed sends them to look at CI logs that are green.
+ * - `"identifiers_found"` covers `identifier_screen_findings`: the screen
+ *   found a direct identifier in the dataset itself. CI is not pending and
+ *   the account is not at fault, so neither "Validation pending" nor "Name
+ *   required" fits; the owner removes the identifier from the repository.
  * - `"blocked"` is the honest answer for a value this build has never heard
  *   of: the request IS blocked, and the backend's `message` is what explains
  *   it. Guessing a cause nothing established would be worse than saying only
@@ -68,6 +75,7 @@ export type BlockBadgeState =
   | "validation_failed"
   | "validation_pending"
   | "name_required"
+  | "identifiers_found"
   | "blocked";
 
 const BLOCK_BADGE_STATES: Record<PublicationBlockReason, BlockBadgeState> = {
@@ -77,6 +85,7 @@ const BLOCK_BADGE_STATES: Record<PublicationBlockReason, BlockBadgeState> = {
   prescreen_failed: "validation_failed",
   min_requirements_failed: "validation_failed",
   owner_name_missing: "name_required",
+  identifier_screen_findings: "identifiers_found",
 };
 
 /**

@@ -1,0 +1,17 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "screen clean, review passing, the GitHub stand-in answers 401 to the read of main so the head cannot be verified, request_id only",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "identifier_screen_not_clear",
+    "gate": "unverified",
+    "headline": "Identifier screen: clean",
+    "message": "Could not verify that the identifier screen read the current content: the repository's main branch could not be read. Approval is refused until it can be verified; try again, or re-run the screen with nemar admin publish screen nm000737."
+  }
+}
