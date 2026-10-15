@@ -90,6 +90,46 @@ function callArguments(src: string, name: string): string[] {
   return out;
 }
 
+/**
+ * Every string literal of a source, of any quote kind, as its raw text without the quotes. A
+ * template literal is one literal, its `${...}` parts included. A scan, not a regular expression, so
+ * that a quote inside another kind of literal is text, and the tests below can say how many it
+ * found. The page script has no regular-expression literal holding a quote; the count checks
+ * below would notice one that confused it.
+ */
+function stringLiterals(src: string): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < src.length) {
+    const quote = src[i];
+    if (quote !== '"' && quote !== "'" && quote !== "`") {
+      i++;
+      continue;
+    }
+    let j = i + 1;
+    let depth = 0;
+    while (j < src.length) {
+      const c = src[j];
+      if (c === "\\") {
+        j += 2;
+        continue;
+      }
+      if (quote === "`" && c === "$" && src[j + 1] === "{") {
+        depth++;
+        j += 2;
+        continue;
+      }
+      if (quote === "`" && depth > 0 && c === "}") depth--;
+      else if (c === quote && depth === 0) break;
+      else if (c === "\n" && quote !== "`") break;
+      j++;
+    }
+    out.push(src.slice(i + 1, j));
+    i = j + 1;
+  }
+  return out;
+}
+
 /** The body of the click handler registered on a selector, up to the next registration. */
 function handlerOf(selector: string): string {
   const start = SCRIPT.indexOf(`"${selector}"`);
@@ -269,19 +309,52 @@ describe("the script words the panel through the lib, never by itself", () => {
     }
   });
 
-  it("holds no string literal that words a terminal", () => {
-    const literals = SCRIPT.match(/"(?:[^"\\\n]|\\.)*"/g) ?? [];
-    expect(literals.length).toBeGreaterThan(10);
-    const flawed = literals.flatMap((l) =>
-      terminalFlaws(l.slice(1, -1), 1).map((f) => `${l}: ${f}`),
+  it("holds no sentence at all: a literal of three words or more is a log line or a listed word", () => {
+    // The fixture check above catches a Worker sentence only word for word; a paraphrase of one
+    // would pass it. So the script may hold no literal of any quote kind that reads as a sentence,
+    // except the page's own, named here: the log lines (which never reach the screen), the
+    // denial dialog's prompt, and the reason counter's template.
+    const pageOwned = new Set([
+      "[admin] overwriting un-confirmed pending action",
+      "[admin] the review panel could not be drawn",
+      "[admin] confirm-dialog event did not match queued pending action",
+      "Reason for denial?",
+      "${area.value.length} / ${ACK_MAX}",
+    ]);
+    const literals = stringLiterals(SCRIPT);
+    expect(literals.length).toBeGreaterThan(40);
+    const sentences = literals.filter((l) => l.trim().split(/\s+/).length >= 3);
+    for (const known of pageOwned) expect(sentences, known).toContain(known);
+    expect(sentences.filter((l) => !pageOwned.has(l))).toEqual([]);
+  });
+
+  it("finds a paraphrase of a Worker sentence (the scan is not vacuous)", () => {
+    const planted = `const a = 'Your account cannot do this yet';\nconst b = \`Try again in a ${"minute"}\`;`;
+    expect(stringLiterals(planted).filter((l) => l.trim().split(/\s+/).length >= 3)).toHaveLength(
+      2,
     );
+  });
+
+  it("holds no string literal that words a terminal", () => {
+    // Every quote kind: a sentence in a single-quoted or template literal is a sentence too.
+    const literals = stringLiterals(SCRIPT);
+    expect(literals.length).toBeGreaterThan(40);
+    const flawed = literals.flatMap((l) => terminalFlaws(l, 1).map((f) => `${l}: ${f}`));
     expect(flawed).toEqual([]);
     // The panel module's words (a literal with a space in it is a sentence, not a class or a key).
-    const sentences = (PANEL_CODE.match(/"(?:[^"\\\n]|\\.)*"/g) ?? []).filter((l) => /\s/.test(l));
+    // A class list built from two constants (`${BUTTON} ${BUTTON}--primary`) is not a sentence.
+    const classList = /^(\$\{[A-Z_]+\}(--[a-z]+)?\s?)+$/;
+    const sentences = stringLiterals(PANEL_CODE).filter((l) => /\s/.test(l) && !classList.test(l));
     expect(sentences.length).toBeGreaterThan(3);
-    expect(
-      sentences.flatMap((l) => terminalFlaws(l.slice(1, -1)).map((f) => `${l}: ${f}`)),
-    ).toEqual([]);
+    expect(sentences.flatMap((l) => terminalFlaws(l).map((f) => `${l}: ${f}`))).toEqual([]);
+  });
+
+  it("reads a terminal word in a single-quoted or a template literal", () => {
+    const planted = stringLiterals(
+      "const a = 'Run nemar dataset publish nm000701';\nconst b = `then run: nemar admin ${x}`;",
+    );
+    expect(planted).toHaveLength(2);
+    expect(planted.flatMap((l) => terminalFlaws(l, 1))).not.toEqual([]);
   });
 });
 
