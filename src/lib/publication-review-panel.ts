@@ -176,23 +176,45 @@ export function loadingTree(datasetId: string, panelId: string): PanelNode[] {
   return [titleTree(datasetId, panelId), node("p", TEXT, UI_WORDS.buttons.loading)];
 }
 
+/**
+ * The alerts of a panel that has no body to draw. `prior` is the failure of the call that asked for
+ * this re-read (an approve that may have started): its sentence is shown first and survives
+ * whatever the re-read produced. The same sentence twice is shown once, and two reload links are
+ * one, because the second alert's link serves both.
+ */
+function alertTrees(
+  failure: FailureView,
+  reloadHref: string,
+  prior: FailureView | null | undefined,
+): PanelNode[] {
+  if (!prior || prior.text === failure.text) return [errorTree(failure, reloadHref)];
+  const shown = failure.refreshLink ? { ...prior, refreshLink: false } : prior;
+  return [errorTree(shown, reloadHref), errorTree(failure, reloadHref)];
+}
+
 /** The panel after a failure that left nothing to draw: the alert and a way to read again. */
 export function failureTree(
   failure: FailureView,
   datasetId: string,
   panelId: string,
   reloadHref: string,
+  prior?: FailureView | null,
 ): PanelNode[] {
   return [
     titleTree(datasetId, panelId),
-    errorTree(failure, reloadHref),
+    ...alertTrees(failure, reloadHref, prior),
     button(false, UI_WORDS.buttons.refresh, "data-pubreq-refresh"),
   ];
 }
 
 /** The panel for a request that is not the row's: the alert and a link back, and no controls. */
-export function staleRowTree(datasetId: string, panelId: string, reloadHref: string): PanelNode[] {
-  return [titleTree(datasetId, panelId), errorTree(STALE_ROW_FAILURE, reloadHref)];
+export function staleRowTree(
+  datasetId: string,
+  panelId: string,
+  reloadHref: string,
+  prior?: FailureView | null,
+): PanelNode[] {
+  return [titleTree(datasetId, panelId), ...alertTrees(STALE_ROW_FAILURE, reloadHref, prior)];
 }
 
 /** What the panel needs besides the model. */

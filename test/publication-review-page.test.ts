@@ -530,7 +530,7 @@ describe("the panel is the one for the row's own request, and a fault in the dra
     expect(load).toContain("const model = panelModel(detail, { rowStart: rowStartOf(panel) })");
     expect(load).toContain("rowIsStale(model.requestId, Number(panel.dataset.requestId))");
     expect(load).not.toContain("rowIsStale(detail.request_id");
-    expect(load).toContain("staleRowTree(datasetId, panel.id, location.href)");
+    expect(load).toContain("staleRowTree(datasetId, panel.id, location.href, opts.error)");
     expect(load).toContain("drawPanel(panel, model,");
     expect(load.indexOf("panelModel(")).toBeLessThan(load.indexOf("rowIsStale("));
     expect(load.indexOf("rowIsStale(")).toBeLessThan(load.indexOf("staleRowTree("));
@@ -544,6 +544,19 @@ describe("the panel is the one for the row's own request, and a fault in the dra
     );
     // The outer catch is the call's own failure and keeps the network wording.
     expect(load).toContain('describeFailure("detail", err)');
+  });
+
+  it("hands the failure that asked for the re-read to every outcome of the re-read", () => {
+    const load = functionOf("loadPanel");
+    expect(load).toContain(
+      "failureTree(DRAW_FAILURE, datasetId, panel.id, location.href, opts.error)",
+    );
+    expect(load).toMatch(
+      /failureTree\(\s*describeFailure\("detail", err\),\s*datasetId,\s*panel\.id,\s*location\.href,\s*opts\.error,?\s*\)/,
+    );
+    // The drawn outcome carries it through `...opts` into the panel tree's `error`.
+    expect(load).toMatch(/drawPanel\(panel, model, \{\s*\.\.\.opts,/);
+    expect(functionOf("drawPanel")).toContain("error: opts.error");
   });
 
   it("leaves no control wired after a fault", () => {
@@ -694,7 +707,9 @@ describe("the row", () => {
   });
 
   it("takes the active statuses from the lib and keeps no list of its own", () => {
-    expect(ROW_CODE).toMatch(/import\s*\{[^}]*\bACTIVE_STATUSES\b[^}]*\}\s*from\s*"\.\.\/lib\/publication-review"/);
+    expect(ROW_CODE).toMatch(
+      /import\s*\{[^}]*\bACTIVE_STATUSES\b[^}]*\}\s*from\s*"\.\.\/lib\/publication-review"/,
+    );
     expect(ROW_CODE).toContain("ACTIVE_STATUSES.includes(request.status)");
     // A second list of the three words is how the row and the lib drift apart.
     expect(ROW_CODE).not.toMatch(/\[\s*"requested"\s*,\s*"approving"\s*,\s*"blocked"\s*\]/);

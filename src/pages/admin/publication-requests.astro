@@ -606,7 +606,7 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
         // of step (drawn as such below), not stale.
         const model = panelModel(detail, { rowStart: rowStartOf(panel) });
         if (rowIsStale(model.requestId, Number(panel.dataset.requestId))) {
-          showTree(panel, staleRowTree(datasetId, panel.id, location.href));
+          showTree(panel, staleRowTree(datasetId, panel.id, location.href, opts.error));
           if (focusPanel) panel.focus();
         } else {
           drawPanel(panel, model, {
@@ -617,14 +617,23 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
       } catch (drawErr) {
         console.error("[admin] the review panel could not be drawn", drawErr);
         state.control = null;
-        showTree(panel, failureTree(DRAW_FAILURE, datasetId, panel.id, location.href));
+        showTree(
+          panel,
+          failureTree(DRAW_FAILURE, datasetId, panel.id, location.href, opts.error),
+        );
         if (focusPanel) panel.focus();
       }
     } catch (err) {
       if (token !== state.token) return;
       showTree(
         panel,
-        failureTree(describeFailure("detail", err), datasetId, panel.id, location.href),
+        failureTree(
+          describeFailure("detail", err),
+          datasetId,
+          panel.id,
+          location.href,
+          opts.error,
+        ),
       );
       if (focusPanel) panel.focus();
     } finally {

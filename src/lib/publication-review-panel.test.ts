@@ -396,6 +396,42 @@ describe("the error, the notice and the other states", () => {
     expect(all(nodes).some((n) => n.tag === "button")).toBe(false);
   });
 
+  it("keeps the sentence a failed call left beside what the re-read produced, in every outcome", () => {
+    // The unconfirmed approve ("it may have started") asks for a re-read; the re-read's own
+    // outcome (a detail that failed, a row that moved on) must not replace that sentence.
+    const prior = {
+      text: "PRIOR-MAY-HAVE-STARTED",
+      refetch: true,
+      focusAck: false,
+      refreshLink: true,
+    };
+    const failed = failureTree(failure, "nm000701", OPTS.panelId, OPTS.reloadHref, prior);
+    expect(words(failed)).toEqual([
+      panelTitle("nm000701"),
+      "PRIOR-MAY-HAVE-STARTED ",
+      PANEL_WORDS.reloadLink,
+      "FAILURE-WORDS",
+      UI_WORDS.buttons.refresh,
+    ]);
+    const drawn = failureTree(DRAW_FAILURE, "nm000701", OPTS.panelId, OPTS.reloadHref, prior);
+    expect(words(drawn)).toContain("PRIOR-MAY-HAVE-STARTED ");
+    expect(words(drawn)).toContain(DRAW_FAILURE.text);
+    const stale = staleRowTree("nm000701", OPTS.panelId, OPTS.reloadHref, prior);
+    expect(words(stale)).toContain("PRIOR-MAY-HAVE-STARTED");
+    expect(words(stale)).not.toContain("PRIOR-MAY-HAVE-STARTED ");
+    expect(words(stale)).toContain(PANEL_WORDS.reloadLink);
+    expect(stale[0].tag).toBe("h4");
+    // Two alerts, but one way back to the page.
+    expect(all(stale).filter((n) => n.tag === "a")).toHaveLength(1);
+    expect(all(failed).filter((n) => n.tag === "a")).toHaveLength(1);
+  });
+
+  it("prints a failure once when the re-read produced the same sentence", () => {
+    const same = { ...failure };
+    const nodes = failureTree(same, "nm000701", OPTS.panelId, OPTS.reloadHref, same);
+    expect(withAttr(nodes, "data-pubreq-review-error")).toHaveLength(1);
+  });
+
   it("words a fault in the drawing as out of step, never as the network", () => {
     expect(DRAW_FAILURE.text).toBe(OUT_OF_STEP);
     expect(DRAW_FAILURE.text).not.toContain("Could not reach the server");
