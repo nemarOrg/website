@@ -51,7 +51,7 @@ A run's progress is only as fresh as the page's 20 second refresh.
 The decision stands: the page asks the backend to start an approval, the backend asks an executor, and the page reads the result.
 What changed is the request the page sends.
 Approve and Deny now send a body that names the request (`request_id`), and Approve sends the review in force and the reasons shown when it approves over a non-pass.
-The page also reads the API's review detail before it offers Approve, and withholds Approve when that detail cannot be read, so the old bodyless click no longer exists.
+The page also reads the API's review detail before it offers Approve, and prints the API's own `statement` and neutral `cure` for each reason, never the terminal's sentences.
+It withholds Approve when that detail cannot be read, so the old bodyless click no longer exists.
 The deploy order in Consequences gains a consequence: the page needs an API that serves the review detail (nemar-cli#1731), so the API deploys first.
 See ADR 0027.
-
