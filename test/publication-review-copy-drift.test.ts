@@ -17,8 +17,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { ACK_MAX, ACK_MIN, DENIAL_MAX, FRIENDLY_WORDS } from "../src/lib/publication-review";
 import { PUBLICATION_REVIEW_COPY } from "../src/lib/publication-review-copy";
-import { compareCopy, extractCopy, formatDifference } from "./copy-drift";
+import { compareCopy, extractCopy, formatDifference, stripComments } from "./copy-drift";
 
 /**
  * `node:fs`, reached without a static import: `astro check` type-checks every file and this
@@ -115,6 +116,35 @@ describe("the extractor", () => {
     expect(extractCopy(source).size).toBe(1);
   });
 
+  it("ignores a comment that follows code on the same line", () => {
+    // The hole a start-of-line strip leaves: the commented pair would be matched last and win.
+    const source =
+      'const X = { "gate.hard_reason": "The real one.", // "gate.hard_reason": "Not this one"\n};';
+    expect(extractCopy(source).get("gate.hard_reason")).toBe("The real one.");
+    expect(extractCopy(source).size).toBe(1);
+  });
+
+  it("keeps a // or a quote that sits inside a string value", () => {
+    const source = [
+      'const X = { "a.b": "See https://example.org/x and don\'t stop", // trailing',
+      '  "c.d": "plain" };',
+    ].join("\n");
+    const extracted = extractCopy(source);
+    expect(extracted.get("a.b")).toBe("See https://example.org/x and don't stop");
+    expect(extracted.get("c.d")).toBe("plain");
+  });
+
+  it("strips a block comment between entries and one that ends the file unterminated", () => {
+    const source = 'const X = { "a.b": "one", /* "a.b": "two" */ "c.d": "three" }; /* "e.f": "x"';
+    const extracted = extractCopy(source);
+    expect([...extracted.keys()]).toEqual(["a.b", "c.d"]);
+  });
+
+  it("refuses a key matched twice, instead of letting the last one win", () => {
+    const source = 'const X = { "a.b": "first", "c.d": "x", "a.b": "second" };';
+    expect(() => extractCopy(source)).toThrow(/more than once.*a\.b/);
+  });
+
   it("does not invent an entry for a computed value", () => {
     // The failure the literal-strings-only rule prevents: the key is simply absent, and the
     // comparison reports it as unmirrored rather than as matching.
@@ -122,6 +152,18 @@ describe("the extractor", () => {
     const extracted = extractCopy(source);
     expect(extracted.has("a.b")).toBe(false);
     expect(extracted.get("c.d")).toBe("plain");
+  });
+});
+
+describe("the numbers the page copies from nemar-cli's shared/publication-limits.ts", () => {
+  it("says 1 to 2,000 for a denial reason, from DENIAL_MAX", () => {
+    expect(FRIENDLY_WORDS.deny_rejected).toContain(`1 to ${DENIAL_MAX.toLocaleString("en-US")}`);
+  });
+
+  it("says 10 to 500 for an acknowledgment, from ACK_MIN and ACK_MAX", () => {
+    expect(PUBLICATION_REVIEW_COPY["screen_gate.acknowledge"]).toContain(
+      `${ACK_MIN} to ${ACK_MAX} characters`,
+    );
   });
 });
 
@@ -215,5 +257,48 @@ describe.skipIf(SHOULD_SKIP)("website copy vs the nemar-cli contract", () => {
       result.contractOnly,
       `Keys in ${found} that this repo lacks. Unlike account copy, the nemar-cli table has no CLI-only keys (every key is for the page), so a key missing here is a drift; add it to src/lib/publication-review-copy.ts and give it a consumer.`,
     ).toEqual([]);
+  });
+});
+
+/**
+ * The limits file sits beside the contract directory: `<checkout>/shared/publication-limits.ts`.
+ * Derived from the contract path, so the same variable (strict) or the same candidate (soft)
+ * decides which checkout is read. The CI sparse checkout carries only the contract files, so a
+ * missing limits file is a VISIBLE skip (a `console.info` line and a skipped test), never a pass;
+ * adding `shared/publication-limits.ts` to the sparse checkout of `.github/workflows/ci.yml` makes
+ * CI compare the numbers. A present file that does not hold the three exports is a failure.
+ */
+const LIMITS_PATH = CONTRACT_PATH?.replace(
+  /\/shared\/contract\/publication-review-copy\.ts$/,
+  "/shared/publication-limits.ts",
+);
+const LIMITS_EXIST = LIMITS_PATH !== undefined && fs.existsSync(LIMITS_PATH);
+if (CONTRACT_EXISTS && !LIMITS_EXIST) {
+  console.info(
+    `[publication-review limits drift] skipped: ${LIMITS_PATH ?? "(no path)"} is not checked out. Add shared/publication-limits.ts to the sparse checkout in .github/workflows/ci.yml to enforce it.`,
+  );
+}
+
+describe.skipIf(SHOULD_SKIP || !LIMITS_EXIST)("page limits vs nemar-cli publication-limits", () => {
+  const read = (): string => {
+    return fs.readFileSync(LIMITS_PATH as string, "utf8");
+  };
+  const constant = (source: string, name: string): number => {
+    const match = new RegExp(`export const ${name}\\s*=\\s*(\\d+)`).exec(stripComments(source));
+    if (!match) throw new Error(`${name} is not a plain numeric export of ${LIMITS_PATH}`);
+    return Number(match[1]);
+  };
+
+  it("keeps ACK_MIN, ACK_MAX and DENIAL_MAX equal to the Worker's bounds", () => {
+    const source = read();
+    expect(ACK_MIN, "ACKNOWLEDGMENT_MIN_LENGTH").toBe(
+      constant(source, "ACKNOWLEDGMENT_MIN_LENGTH"),
+    );
+    expect(ACK_MAX, "ACKNOWLEDGMENT_MAX_LENGTH").toBe(
+      constant(source, "ACKNOWLEDGMENT_MAX_LENGTH"),
+    );
+    expect(DENIAL_MAX, "DENIAL_REASON_MAX_LENGTH").toBe(
+      constant(source, "DENIAL_REASON_MAX_LENGTH"),
+    );
   });
 });
