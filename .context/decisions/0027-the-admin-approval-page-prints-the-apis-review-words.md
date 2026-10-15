@@ -72,7 +72,7 @@ A stale page is caught by the API's guards, which answer with a typed refusal; t
 The words with no counterpart in the API, the class tags and the "out of step" sentence among them, stay page-owned and unmirrored.
 The 22-key table is held by its own tests, a rule that every key has a consumer on the page, and a drift test against nemar-cli `dev`; the strict path in nemar-cli's continuous integration needs this file on `staging` first.
 An administrator cannot approve from the page a request whose only blocker is a hard reason or a missing review that cannot be started; the terminal remains for those.
-The page cannot run the identifier screen again (issue to be linked before merge) [issue: pending] or mail the depositor a comment (issue to be linked before merge) [issue: pending].
+The page cannot run the identifier screen again (nemarOrg/website#461) or mail the depositor a comment (nemarOrg/website#462).
 The `identifiers_found` badge, "Identifiers found", also shows on the depositor's dashboard card, because both surfaces draw it from the one `PublishStateBadge` component.
 
 ## Alternatives considered
