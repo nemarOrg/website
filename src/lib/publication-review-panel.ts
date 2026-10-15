@@ -16,6 +16,7 @@ import {
   ACK_MAX,
   type ApproveControl,
   type FailureView,
+  OUT_OF_STEP,
   type PanelModel,
   type Tone,
   UI_WORDS,
@@ -45,6 +46,18 @@ export const PANEL_WORDS = {
 /** What a click that is refused for a call already in flight says (no redraw, no re-read). */
 export const BUSY_FAILURE: FailureView = {
   text: PANEL_WORDS.busy,
+  refetch: false,
+  focusAck: false,
+  refreshLink: false,
+};
+
+/**
+ * The failure shown when the page could not draw what the API sent: a detail the lib did not
+ * expect, or a bug in the drawing. It is the out-of-step sentence, never the network one, so a
+ * fault in this page is not worded as a dead connection.
+ */
+export const DRAW_FAILURE: FailureView = {
+  text: OUT_OF_STEP,
   refetch: false,
   focusAck: false,
   refreshLink: false,

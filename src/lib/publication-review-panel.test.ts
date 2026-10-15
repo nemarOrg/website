@@ -23,6 +23,7 @@ import {
 import { PUBLICATION_REVIEW_COPY as COPY } from "./publication-review-copy";
 import {
   BUSY_FAILURE,
+  DRAW_FAILURE,
   PANEL_WORDS,
   type PanelNode,
   STALE_ROW_FAILURE,
@@ -393,6 +394,12 @@ describe("the error, the notice and the other states", () => {
     ]);
     expect(nodes[1].attrs?.role).toBe("alert");
     expect(all(nodes).some((n) => n.tag === "button")).toBe(false);
+  });
+
+  it("words a fault in the drawing as out of step, never as the network", () => {
+    expect(DRAW_FAILURE.text).toBe(OUT_OF_STEP);
+    expect(DRAW_FAILURE.text).not.toContain("Could not reach the server");
+    expect(DRAW_FAILURE.refetch).toBe(false);
   });
 
   it("gives the stale row and the busy click their own words, neither naming a terminal", () => {
