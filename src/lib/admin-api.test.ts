@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import fixture from "../../test/fixtures/admin-publish-requests.json";
-import {
-  type Captured,
-  asResponse,
-  fixture as captured,
-} from "../../test/publication-review-fixtures";
+import { asResponse, fixture as captured } from "../../test/publication-review-fixtures";
 import {
   ADMIN_TIMEOUTS_MS,
   PublicationApiError,
@@ -89,7 +85,10 @@ describe("dispatchPublicationApproval", () => {
         { status: 202, headers: { "Content-Type": "application/json" } },
       );
     }) as unknown as typeof fetch;
-    const out = await dispatchPublicationApproval("nm000288", { fetch: fakeFetch });
+    const out = await dispatchPublicationApproval("nm000288", {
+      fetch: fakeFetch,
+      body: { request_id: 833 },
+    });
     expect(out).toEqual({
       status: "dispatched",
       dataset_id: "nm000288",
@@ -107,7 +106,7 @@ describe("dispatchPublicationApproval", () => {
         }),
     ) as unknown as typeof fetch;
     await expect(
-      dispatchPublicationApproval("nm000288", { fetch: fakeFetch }),
+      dispatchPublicationApproval("nm000288", { fetch: fakeFetch, body: { request_id: 833 } }),
     ).rejects.toMatchObject({ name: "DashboardApiError", status: 409, code: "already_in_flight" });
   });
 
@@ -121,9 +120,9 @@ describe("dispatchPublicationApproval", () => {
           statusText: "Not Found",
         }),
     ) as unknown as typeof fetch;
-    await expect(dispatchPublicationApproval("nm000288", { fetch: fakeFetch })).rejects.toThrow(
-      "No active publication request found",
-    );
+    await expect(
+      dispatchPublicationApproval("nm000288", { fetch: fakeFetch, body: { request_id: 833 } }),
+    ).rejects.toThrow("No active publication request found");
   });
 });
 
@@ -131,7 +130,7 @@ describe("denyPublicationRequest", () => {
   it("POSTs to /admin/publish/:id/deny with the reason body", async () => {
     const fakeFetch = vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toBe("/api/v1/admin/publish/nm-xyz/deny");
-      expect(init.body).toBe(JSON.stringify({ reason: "BIDS validation failing" }));
+      expect(init.body).toBe(JSON.stringify({ reason: "BIDS validation failing", request_id: 5 }));
       // The shape nemar-cli's deny route answers with.
       return new Response(
         JSON.stringify({
@@ -144,6 +143,7 @@ describe("denyPublicationRequest", () => {
     }) as unknown as typeof fetch;
     const out = await denyPublicationRequest("nm-xyz", "BIDS validation failing", {
       fetch: fakeFetch,
+      requestId: 5,
     });
     expect(out.reason).toBe("BIDS validation failing");
   });
@@ -156,9 +156,9 @@ describe("denyPublicationRequest", () => {
           statusText: "Not Found",
         }),
     ) as unknown as typeof fetch;
-    await expect(denyPublicationRequest("nm-xyz", "spam", { fetch: fakeFetch })).rejects.toThrow(
-      "Deny failed: No active publication request found",
-    );
+    await expect(
+      denyPublicationRequest("nm-xyz", "spam", { fetch: fakeFetch, requestId: 5 }),
+    ).rejects.toThrow("Deny failed: No active publication request found");
   });
 
   it("rejects an empty reason before making the request", async () => {
@@ -166,7 +166,7 @@ describe("denyPublicationRequest", () => {
       async () => new Response(JSON.stringify({}), { status: 200 }),
     ) as unknown as typeof fetch;
     await expect(
-      denyPublicationRequest("nm-xyz", "   ", { fetch: fakeFetch }),
+      denyPublicationRequest("nm-xyz", "   ", { fetch: fakeFetch, requestId: 5 }),
     ).rejects.toMatchObject({
       name: "DashboardApiError",
       code: "missing_field",
@@ -176,7 +176,7 @@ describe("denyPublicationRequest", () => {
 
   it("trims the reason before sending", async () => {
     const fakeFetch = vi.fn(async (_url: string, init: RequestInit) => {
-      expect(init.body).toBe(JSON.stringify({ reason: "no" }));
+      expect(init.body).toBe(JSON.stringify({ reason: "no", request_id: 5 }));
       return new Response(
         JSON.stringify({
           message: "Publication request denied",
@@ -186,7 +186,7 @@ describe("denyPublicationRequest", () => {
         { status: 200 },
       );
     }) as unknown as typeof fetch;
-    await denyPublicationRequest("nm-xyz", "   no   ", { fetch: fakeFetch });
+    await denyPublicationRequest("nm-xyz", "   no   ", { fetch: fakeFetch, requestId: 5 });
     expect(fakeFetch).toHaveBeenCalledOnce();
   });
 });
@@ -210,13 +210,21 @@ describe("request deadlines", () => {
 
   it("aborts a hung dispatch rather than leaving the button stuck", async () => {
     await expect(
-      dispatchPublicationApproval("nm-xyz", { fetch: hangingFetch, timeoutMs: 10 }),
+      dispatchPublicationApproval("nm-xyz", {
+        fetch: hangingFetch,
+        timeoutMs: 10,
+        body: { request_id: 1 },
+      }),
     ).rejects.toMatchObject({ name: "TimeoutError" });
   });
 
   it("aborts a hung deny rather than leaving the button stuck", async () => {
     await expect(
-      denyPublicationRequest("nm-xyz", "spam", { fetch: hangingFetch, timeoutMs: 10 }),
+      denyPublicationRequest("nm-xyz", "spam", {
+        fetch: hangingFetch,
+        timeoutMs: 10,
+        requestId: 1,
+      }),
     ).rejects.toMatchObject({ name: "TimeoutError" });
   });
 
@@ -268,6 +276,7 @@ describe("deadline wiring", () => {
     const spy = vi.spyOn(AbortSignal, "timeout");
     await dispatchPublicationApproval("nm-xyz", {
       fetch: okFetch({ status: "dispatched", dataset_id: "nm-xyz", request_id: 1, resume: false }),
+      body: { request_id: 1 },
     });
     expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.dispatch);
   });
@@ -280,6 +289,7 @@ describe("deadline wiring", () => {
         dataset_id: "nm-xyz",
         reason: "spam",
       }),
+      requestId: 1,
     });
     expect(spy).toHaveBeenCalledWith(ADMIN_TIMEOUTS_MS.deny);
   });
@@ -371,6 +381,45 @@ describe("readFailure", () => {
     expect(await readFailure(asResponse(captured("deny-invalid-body")))).toEqual({ status: 400 });
   });
 
+  it.each([
+    ["an array", "[1, 2]"],
+    ["null", "null"],
+    ["a string", '"Bad gateway"'],
+    ["a number", "7"],
+  ])("keeps only the status of a JSON body that is %s", async (_what, raw) => {
+    // Derived inputs: JSON that parses but is not an object, which no capture is.
+    expect(await readFailure(new Response(raw, { status: 502 }))).toEqual({ status: 502 });
+  });
+
+  it("files an empty error string as neither a code nor a message", async () => {
+    const res = new Response(JSON.stringify({ error: "" }), { status: 500 });
+    expect(await readFailure(res)).toEqual({ status: 500 });
+  });
+
+  it("lets a message win over a sentence-valued error, and keeps the code from code", async () => {
+    const res = new Response(
+      JSON.stringify({ error: "A sentence in error", message: "The message", code: "a_word" }),
+      { status: 409 },
+    );
+    expect(await readFailure(res)).toEqual({
+      status: 409,
+      code: "a_word",
+      message: "The message",
+    });
+  });
+
+  it("rethrows a read error that is not a parse error", async () => {
+    // A derived input: a body that fails while it is read (a dropped connection), not while it parses.
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.error(new TypeError("connection dropped"));
+      },
+    });
+    await expect(readFailure(new Response(stream, { status: 502 }))).rejects.toThrow(
+      "connection dropped",
+    );
+  });
+
   it("keeps only the status of a body that is not JSON", async () => {
     // A branch no capture reaches: a gateway page in place of the Worker's JSON.
     const res = new Response("<html>Bad gateway</html>", { status: 502 });
@@ -460,10 +509,25 @@ describe("dispatchPublicationApproval with a body", () => {
     );
   });
 
-  it("still sends the empty object when it is given none, as every older call did", async () => {
+  it("has no bodyless click: the body is required by the type", async () => {
     const { calls, fetchImpl } = answering("approve-202");
+    // @ts-expect-error the body is required; the old bodyless Approve no longer exists
     await dispatchPublicationApproval("nm000745", { fetch: fetchImpl });
-    expect(calls[0].init.body).toBe("{}");
+    // What a caller that got past the type would send: nothing the Worker could bind to a request.
+    expect(calls[0].init.body).toBeUndefined();
+  });
+
+  it("sends an override's body whole and returns the 202 the Worker gave it", async () => {
+    // The capture is of exactly this request: an override naming `question_failed` for review 1.
+    const { calls, fetchImpl } = answering("approve-202-override");
+    const sent: ApproveBody = {
+      request_id: 1,
+      override_publication_review: { review_id: 1, reasons: ["question_failed"] },
+    };
+    const out = await dispatchPublicationApproval("nm000746", { fetch: fetchImpl, body: sent });
+    expect(JSON.parse(calls[0].init.body as string)).toEqual(sent);
+    expect(out).toEqual(captured("approve-202-override").body);
+    expect(out.status).toBe("dispatched");
   });
 
   it("returns the 202 body", async () => {
@@ -495,15 +559,15 @@ describe("dispatchPublicationApproval with a body", () => {
 
   it("reads the origin guard's word as the code, as before", async () => {
     const { fetchImpl } = answering("origin-not-allowed");
-    const err = await thrown(dispatchPublicationApproval("nm000745", { fetch: fetchImpl }));
+    const err = await thrown(
+      dispatchPublicationApproval("nm000745", { fetch: fetchImpl, body: { request_id: 1 } }),
+    );
     expect((err as PublicationApiError).code).toBe("origin_not_allowed");
     expect((err as PublicationApiError).failure.message).toContain("NEMAR page");
   });
 });
 
 describe("denyPublicationRequest with a request id", () => {
-  const deny = (name: string) => captured(name) as Captured<unknown>;
-
   it("names the request the click was for", async () => {
     const { calls, fetchImpl } = answering("deny-200");
     await denyPublicationRequest("nm000747", "The README does not describe the recordings.", {
@@ -515,10 +579,18 @@ describe("denyPublicationRequest with a request id", () => {
     );
   });
 
-  it("sends the reason alone when no request id is given (the older pin)", async () => {
+  it("has no unbound denial: the request id is required by the type", async () => {
     const { calls, fetchImpl } = answering("deny-200");
-    await denyPublicationRequest("nm000747", "  spam  ", { fetch: fetchImpl });
-    expect(calls[0].init.body).toBe(JSON.stringify({ reason: "spam" }));
+    // @ts-expect-error the request id is required; a denial always names the request clicked
+    await denyPublicationRequest("nm000747", "spam", { fetch: fetchImpl });
+    // What a caller that got past the type would send: no `request_id` for the Worker to compare.
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ reason: "spam" });
+  });
+
+  it("trims the reason and still names the request", async () => {
+    const { calls, fetchImpl } = answering("deny-200");
+    await denyPublicationRequest("nm000747", "  spam  ", { fetch: fetchImpl, requestId: 3 });
+    expect(calls[0].init.body).toBe(JSON.stringify({ reason: "spam", request_id: 3 }));
   });
 
   it("carries the Worker's code and sentence for a stale request", async () => {
@@ -528,14 +600,88 @@ describe("denyPublicationRequest with a request id", () => {
     );
     expect((err as PublicationApiError).failure.code).toBe("request_mismatch");
     expect((err as PublicationApiError).failure.message).toContain("not the one you meant");
-    expect(deny("deny-request-mismatch").status).toBe(409);
+    expect((err as PublicationApiError).status).toBe(409);
   });
 
   it("carries no code and no message for the validation failure", async () => {
     const { fetchImpl } = answering("deny-invalid-body");
-    const err = await thrown(denyPublicationRequest("nm000747", "x", { fetch: fetchImpl }));
+    const err = await thrown(
+      denyPublicationRequest("nm000747", "x", { fetch: fetchImpl, requestId: 1 }),
+    );
     expect((err as PublicationApiError).failure).toEqual({ status: 400 });
     expect((err as PublicationApiError).code).toBeUndefined();
+  });
+});
+
+describe("PublicationApiError.code", () => {
+  // One meaning on every route: the Worker's WORD, or undefined when it sent only a sentence.
+  it("is the word on the approve and deny routes, as on the review routes", async () => {
+    const approve = await thrown(
+      dispatchPublicationApproval("nm000745", {
+        fetch: answering("approve-already-in-flight").fetchImpl,
+        body: { request_id: 1 },
+      }),
+    );
+    expect((approve as PublicationApiError).code).toBe("already_in_flight");
+    const review = await thrown(
+      startPublicationReview("nm000712", { fetch: answering("start-running").fetchImpl }),
+    );
+    expect((review as PublicationApiError).code).toBe("running");
+  });
+
+  it("is undefined, never a sentence, when the Worker sent only a sentence", async () => {
+    // Derived inputs: the Worker's own 401 body (`backend/src/middleware/auth.ts`) and the deny
+    // route's sentence-only 404 (`deny-not-found`).
+    const unauthenticated = (async () =>
+      new Response(JSON.stringify({ error: "Authentication required" }), {
+        status: 401,
+      })) as unknown as typeof fetch;
+    const approve = await thrown(
+      dispatchPublicationApproval("nm000745", {
+        fetch: unauthenticated,
+        body: { request_id: 1 },
+      }),
+    );
+    expect((approve as PublicationApiError).code).toBeUndefined();
+    expect((approve as PublicationApiError).failure.code).toBeUndefined();
+    // The message still carries the sentence, as it always did.
+    expect((approve as Error).message).toBe("Approval was not started: Authentication required");
+    const deny = await thrown(
+      denyPublicationRequest("nm000747", "spam", {
+        fetch: answering("deny-not-found").fetchImpl,
+        requestId: 1,
+      }),
+    );
+    expect((deny as PublicationApiError).code).toBeUndefined();
+    expect((deny as Error).message).toBe("Deny failed: No active publication request found");
+  });
+});
+
+describe("the review calls' URLs and credentials", () => {
+  it("encode the dataset id on every call", async () => {
+    const id = "nm 0/1";
+    const encoded = encodeURIComponent(id);
+    const get = answering("detail-pass");
+    await getPublicationReview(id, { fetch: get.fetchImpl });
+    expect(get.calls[0].url).toBe(`/api/v1/admin/publish/${encoded}/review`);
+    const start = answering("start-202-dispatched");
+    await startPublicationReview(id, { fetch: start.fetchImpl });
+    expect(start.calls[0].url).toBe(`/api/v1/admin/publish/${encoded}/review/start`);
+    const approve = answering("approve-202");
+    await dispatchPublicationApproval(id, { fetch: approve.fetchImpl, body: { request_id: 1 } });
+    expect(approve.calls[0].url).toBe(`/api/v1/admin/publish/${encoded}/approve-dispatch`);
+    const deny = answering("deny-200");
+    await denyPublicationRequest(id, "spam", { fetch: deny.fetchImpl, requestId: 1 });
+    expect(deny.calls[0].url).toBe(`/api/v1/admin/publish/${encoded}/deny`);
+  });
+
+  it("send the cookie of a server-rendered caller on a start, to the API directly", async () => {
+    const { calls, fetchImpl } = answering("start-202-dispatched");
+    await startPublicationReview("nm000712", { fetch: fetchImpl, cookieHeader: "session=abc" });
+    expect(calls[0].url).toMatch(/\/admin\/publish\/nm000712\/review\/start$/);
+    expect(calls[0].url.startsWith("/api/v1")).toBe(false);
+    expect((calls[0].init.headers as Record<string, string>).Cookie).toBe("session=abc");
+    expect(headerNames(calls[0].init)).toEqual(["accept", "cookie"]);
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { stripComments } from "../../test/copy-drift";
 import { terminalFlaws } from "../../test/publication-review-web-words";
 import { PUBLICATION_REVIEW_COPY, type PublicationReviewCopyKey } from "./publication-review-copy";
 
@@ -45,7 +46,6 @@ describe("the copy table", () => {
 
   it("carries exactly the declared keys", () => {
     expect(Object.keys(PUBLICATION_REVIEW_COPY).sort()).toEqual(DECLARED_KEYS);
-    expect(DECLARED_KEYS).toHaveLength(22);
   });
 
   it("keeps every key dotted, lowercase and stable", () => {
@@ -88,10 +88,9 @@ describe("the sentences that embed a number", () => {
     expect(PUBLICATION_REVIEW_COPY["screen_gate.acknowledge"]).toContain("10 to 500 characters");
   });
 
-  // `publication-review.ts` (the page's pure logic) arrives in a later work package of the same
-  // phase. Until it exists this reads nothing and says so in the run summary; once it exists the
-  // sentence is tied to the page's own constants, the tie `account-copy.test.ts` makes for the
-  // why-hint.
+  // The sentence is tied to the page's own constants in `publication-review.ts`, the tie
+  // `account-copy.test.ts` makes for the why-hint. The file is read as text; the test fails, and
+  // never skips, if the file is renamed or moved.
   const LOGIC = import.meta.glob("./publication-review.ts", {
     query: "?raw",
     import: "default",
@@ -99,7 +98,8 @@ describe("the sentences that embed a number", () => {
   }) as Record<string, string>;
   const logicSource = Object.values(LOGIC)[0];
 
-  it.skipIf(logicSource === undefined)("keeps the bounds in step with ACK_MIN and ACK_MAX", () => {
+  it("keeps the bounds in step with ACK_MIN and ACK_MAX", () => {
+    expect(logicSource, "src/lib/publication-review.ts was found by the glob").toBeDefined();
     const min = /export const ACK_MIN\s*=\s*(\d+)/.exec(logicSource ?? "")?.[1];
     const max = /export const ACK_MAX\s*=\s*(\d+)/.exec(logicSource ?? "")?.[1];
     expect(min, "ACK_MIN is exported by publication-review.ts").toBeDefined();
@@ -147,21 +147,50 @@ const SRC_FILES: Record<string, string> = {
   }) as Record<string, string>),
 };
 
-const CONSUMER_SOURCES = Object.entries(SRC_FILES)
-  .filter(([path]) => !path.endsWith("/publication-review-copy.ts") && !path.endsWith(".test.ts"))
-  .map(([, source]) => source)
-  .join("\n");
+/** The sources joined with comments removed, so a key quoted in prose is not a consumer. */
+const consumerText = (sources: readonly string[]): string =>
+  sources.map((source) => stripComments(source)).join("\n");
+
+/** The keys no source names as a quoted literal outside a comment. */
+const orphanKeys = (keys: readonly string[], sources: readonly string[]): string[] => {
+  const text = consumerText(sources);
+  return keys.filter((key) => !text.includes(`"${key}"`));
+};
+
+const CONSUMER_SOURCES = consumerText(
+  Object.entries(SRC_FILES)
+    .filter(([path]) => !path.endsWith("/publication-review-copy.ts") && !path.endsWith(".test.ts"))
+    .map(([, source]) => source),
+);
 
 describe("every copy key has a consumer", () => {
-  // RED BY DESIGN until the pure logic (`publication-review.ts`, which names each key as a quoted
-  // literal in its mapper and state-machine tables) and the page land in later work packages of
-  // this phase. It is not skipped and not weakened: an unconsumed key is copy nobody can see, kept
-  // in step with another repository for nothing.
+  // The pure logic (`publication-review.ts`) names each key as a quoted literal in its mapper and
+  // state-machine tables. This proves a key is NAMED outside a comment, not that the line which
+  // reads it is reached: `publication-review.test.ts` drives every refusal and control through the
+  // real functions for that. An unconsumed key is copy nobody can see, kept in step with another
+  // repository for nothing.
   it("finds each key named as a quoted literal by a page, component or lib", () => {
     const orphans = Object.keys(PUBLICATION_REVIEW_COPY).filter(
       (key) => !CONSUMER_SOURCES.includes(`"${key}"`),
     );
     expect(orphans, "unused copy keys: consume them or delete them").toEqual([]);
+  });
+
+  it("does not count a key that is only quoted in a comment", () => {
+    // Synthetic sources: a key in a line comment, a trailing comment and a block comment is an
+    // orphan; a key in code is not.
+    const source = [
+      '// "gate.hard_reason"',
+      'const a = 1; // "gate.needs_override"',
+      '/* "gate.unverified" */',
+      'const b = say("gate.review_changed");',
+    ].join("\n");
+    expect(
+      orphanKeys(
+        ["gate.hard_reason", "gate.needs_override", "gate.unverified", "gate.review_changed"],
+        [source],
+      ),
+    ).toEqual(["gate.hard_reason", "gate.needs_override", "gate.unverified"]);
   });
 
   it("is actually reading sources, not an empty haystack", () => {

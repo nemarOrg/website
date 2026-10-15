@@ -1,13 +1,19 @@
 /**
- * Admin API client: list publication requests, deny them, and start their
- * approval. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
+ * Admin API client: list publication requests, read a request's publication
+ * review, start that review, deny a request, and start its approval. SSR callers pass `cookieHeader` and hit `api.nemar.org` directly;
  * browser callers go through the same-origin `/api/v1` proxy (see
  * `dashboardApiBase` in `./api-base.ts`) so the session cookie attaches
  * automatically without broadening it to other `*.nemar.org` hosts.
  */
 import { dashboardApiBase, readError } from "./api-base";
 import { DashboardApiError, deriveAdminBadgeState } from "./dashboard-api";
-import type { ApiFailure, ApproveBody, PublicationReviewDetail, Tone } from "./publication-review";
+import type {
+  ApiFailure,
+  ApproveBody,
+  PublicationReviewDetail,
+  StartStartedReason,
+  Tone,
+} from "./publication-review";
 import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 type Init = {
@@ -116,6 +122,11 @@ export interface PublicationRequest {
     readonly tone: Tone;
     readonly lines: readonly string[];
   };
+  /**
+   * The list row's review summary. `kind`, `gate` and `outcome` are LOOSE on purpose (plain
+   * strings, not the contract's unions): the page only prints the headline and tone and never
+   * branches on these words, so a word a newer Worker adds cannot break it.
+   */
   readonly publication_review?: {
     readonly kind: string;
     readonly enabled: boolean;
@@ -179,7 +190,10 @@ function failureText(detail: { message?: string; code?: string }, res: Response)
 /**
  * A failed call of the publication routes: a `DashboardApiError` that also carries what the Worker
  * said, so `describeFailure` can pick the words (the mapper in `publication-review.ts` reads
- * `failure`; `message`, `code` and the `name` stay what every older caller reads).
+ * `failure`; `message` and the `name` stay what every older caller reads).
+ *
+ * `code` is the Worker's WORD on every route (`failure.code`), or undefined when the Worker sent
+ * only a sentence; it is never a sentence. `failure` carries the rest, and is what callers read.
  */
 export class PublicationApiError extends DashboardApiError {
   readonly failure: ApiFailure;
@@ -234,8 +248,9 @@ export async function readFailure(res: Response): Promise<ApiFailure> {
 }
 
 /**
- * Throw the failure of a mutation. The older text and `code` (from `readError`) are kept so every
- * existing caller and test reads what it always read; `failure` is the new reading.
+ * Throw the failure of a mutation. The older message text (from `readError`, whose sentence-valued
+ * `code` becomes the message when nothing else says it) is kept so every existing caller and test
+ * reads what it always read; `code` is the word, as on the review routes, and `failure` the reading.
  */
 async function throwFailure(res: Response, lead: string): Promise<never> {
   const legacy = await readError(res.clone());
@@ -243,7 +258,7 @@ async function throwFailure(res: Response, lead: string): Promise<never> {
   throw new PublicationApiError(
     `${lead}: ${failureText(legacy, res)}`,
     res.status,
-    legacy.code,
+    failure.code,
     failure,
   );
 }
@@ -261,10 +276,13 @@ export interface PublicationDispatchResponse {
  * answers 202 as soon as the Action has been asked to start; the run then
  * reports through the request's own `status`, `current_step` and `last_error`.
  * Closing the page afterwards changes nothing.
+ *
+ * The body is REQUIRED: it names the request the click was for and carries the
+ * administrator's answers to the gates. There is no bodyless click.
  */
 export async function dispatchPublicationApproval(
   datasetId: string,
-  init: Init & { readonly body?: ApproveBody } = {},
+  init: Init & { readonly body: ApproveBody },
 ): Promise<PublicationDispatchResponse> {
   const fetchImpl = init.fetch ?? fetch;
   const headers: Record<string, string> = {
@@ -278,8 +296,7 @@ export async function dispatchPublicationApproval(
       method: "POST",
       headers,
       credentials: "include",
-      // The empty object is the old bodyless click; it keeps every earlier call unchanged.
-      body: JSON.stringify(init.body ?? {}),
+      body: JSON.stringify(init.body),
       signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.dispatch),
     },
   );
@@ -294,10 +311,11 @@ export interface PublicationDenyResponse {
   readonly reason: string;
 }
 
+/** The request id is REQUIRED: a denial names the request the click was for, so a stale row is refused. */
 export async function denyPublicationRequest(
   datasetId: string,
   reason: string,
-  init: Init & { readonly requestId?: number } = {},
+  init: Init & { readonly requestId: number },
 ): Promise<PublicationDenyResponse> {
   const trimmed = reason.trim();
   if (trimmed.length === 0) {
@@ -315,10 +333,7 @@ export async function denyPublicationRequest(
       method: "POST",
       headers,
       credentials: "include",
-      body: JSON.stringify({
-        reason: trimmed,
-        ...(init.requestId === undefined ? {} : { request_id: init.requestId }),
-      }),
+      body: JSON.stringify({ reason: trimmed, request_id: init.requestId }),
       signal: resolveSignal(init, ADMIN_TIMEOUTS_MS.deny),
     },
   );
@@ -326,12 +341,16 @@ export async function denyPublicationRequest(
   return (await res.json()) as PublicationDenyResponse;
 }
 
-/** What a started review answers (HTTP 202); a refusal is a failure, not this. */
+/**
+ * What a started review answers (HTTP 202); a refusal is a failure, not this. Transcribed from
+ * `StartedPublicationReview` in nemar-cli `shared/contract/publication-review-admin.ts`. The page
+ * reads only `reason`, and a word it does not know says nothing (`describeStartSuccess`).
+ */
 export interface StartedPublicationReview {
-  readonly environment: string;
-  readonly started: boolean;
-  readonly reason: string;
-  readonly review_id: number | null;
+  readonly environment: "production" | "non-production";
+  readonly started: true;
+  readonly reason: StartStartedReason;
+  readonly review_id: number;
 }
 
 /** Throw the failure of a review route, whose `error` is a sentence and whose `code` is the word. */

@@ -71,6 +71,10 @@ export type ScreenGateRefusal =
 export type StartStartedReason = "dispatched" | "redispatched" | "dispatch_claimed";
 /** The tone words a headline carries. */
 export type Tone = "ok" | "note" | "warn" | "stop";
+const TONES: readonly string[] = ["ok", "note", "warn", "stop"];
+/** A tone word the page knows, or the neutral one: a tone becomes a class name, so it is checked. */
+const toneOf = (word: unknown): Tone =>
+  typeof word === "string" && TONES.includes(word) ? (word as Tone) : "note";
 
 /** transcribed from `ReasonView` in the contract; no per-reason terminal wording is typed. */
 export interface ReasonView {
@@ -166,9 +170,12 @@ export const OUT_OF_STEP =
 export const NO_START_LINE =
   "No review of this commit is on record and none can be started from this page, so Approve is not offered.";
 
-/** Shown above the other withheld lines when a reason stands that no override clears. */
+/**
+ * Shown above the other withheld lines when a reason stands that no override clears. The line is
+ * drawn after the reasons section, so the reasons it speaks of are above it.
+ */
 export const HARD_REASON_LINE =
-  "A reason below cannot be approved over, so Approve is not offered.";
+  "A reason above cannot be approved over, so Approve is not offered.";
 
 /** Headings, buttons and tags of the panel. */
 export const UI_WORDS = {
@@ -279,23 +286,72 @@ export function isHardReason(clearedBy: string): boolean {
   return clearedBy !== "override" && clearedBy !== "screen_acknowledgment";
 }
 
-/**
- * A detail the page can read: it carries the Phase 4 fields, every reason has its statement, the
- * screen gate and the review gate are words the page knows, and the request is named by an integer
- * and says whether it is anonymous (the body of an Approve is built from them, and a missing
- * `request_id` would send the old bodyless click). Anything else is a Worker out of step with the page.
- */
-function isCurrentWorker(detail: PublicationReviewDetail): boolean {
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const isString = (v: unknown): v is string => typeof v === "string";
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isString);
+
+/** A headline and a tone word, which `panelModel` checks against the tones it knows. */
+const isHeadlined = (v: unknown): boolean =>
+  isObject(v) && isString(v.headline) && isString(v.tone);
+
+function isReasonView(r: unknown): boolean {
   return (
+    isObject(r) &&
+    isString(r.code) &&
+    isString(r.class) &&
+    isString(r.cleared_by) &&
+    isString(r.statement) &&
+    isString(r.sentence) &&
+    isString(r.cure)
+  );
+}
+
+function isReviewRecord(r: unknown): boolean {
+  return (
+    isObject(r) &&
+    Number.isInteger(r.id) &&
+    (r.summary === null || r.summary === undefined || isString(r.summary)) &&
+    Array.isArray(r.fact_notes) &&
+    r.fact_notes.every((n) => isObject(n) && isString(n.text)) &&
+    Array.isArray(r.findings) &&
+    r.findings.every(
+      (f) =>
+        isObject(f) &&
+        isString(f.note) &&
+        (f.label === undefined || isString(f.label)) &&
+        (f.document_label === undefined || f.document_label === null || isString(f.document_label)),
+    )
+  );
+}
+
+/**
+ * A detail the page can read: it carries the Phase 4 fields, the screen gate and the review gate
+ * are words the page knows, the request is named by an integer and says whether it is anonymous
+ * (the body of an Approve is built from them, and a missing `request_id` would send the old
+ * bodyless click), and every part `panelModel` reads has the shape it assumes. Anything else is a
+ * Worker out of step with the page. Total: it answers false for any value, whatever its shape, so
+ * a malformed answer is "out of step" and never an exception.
+ */
+function isCurrentWorker(detail: unknown): detail is PublicationReviewDetail {
+  return (
+    isObject(detail) &&
     Number.isInteger(detail.request_id) &&
+    isString(detail.request_status) &&
     typeof detail.gate === "string" &&
     GATE_WORDS.includes(detail.gate) &&
     typeof detail.anonymous === "boolean" &&
+    typeof detail.applies === "boolean" &&
+    typeof detail.started_publishing === "boolean" &&
     typeof detail.start_offered === "boolean" &&
     typeof detail.screen_gate === "string" &&
     SCREEN_GATE_WORDS.includes(detail.screen_gate) &&
     Array.isArray(detail.reasons) &&
-    detail.reasons.every((r) => typeof r.statement === "string")
+    detail.reasons.every(isReasonView) &&
+    isHeadlined(detail.description) &&
+    isHeadlined(detail.identifier_screen) &&
+    isStringArray((detail.identifier_screen as Record<string, unknown>).lines) &&
+    (detail.review === null || isReviewRecord(detail.review))
   );
 }
 
@@ -422,6 +478,12 @@ export function approveBody(control: OfferedControl, input: ApproveInput): Appro
 // ---------------------------------------------------------------------------------------------
 
 export interface PanelModel {
+  /**
+   * The request the detail is about (`detail.request_id`); null when the detail cannot be read.
+   * The page compares it with the row's own `data-request-id` before it offers a control, because
+   * the controls bind to this id and a row can be older than the detail.
+   */
+  readonly requestId: number | null;
   readonly headline: { readonly text: string; readonly tone: Tone } | null;
   readonly screen: {
     readonly headline: string;
@@ -457,7 +519,9 @@ export interface PanelModel {
 }
 
 const RANK: Record<string, number> = { nothing: 0, screen_acknowledgment: 1, override: 2 };
-const rankOf = (clearedBy: string): number => RANK[clearedBy] ?? 0;
+/** An own-property read: `__proto__` and `constructor` are not ranks, and a word unknown is hard. */
+const rankOf = (clearedBy: string): number =>
+  Object.hasOwn(RANK, clearedBy) ? RANK[clearedBy] : 0;
 
 function clearedLabel(clearedBy: string): string {
   return clearedBy === "override"
@@ -478,6 +542,7 @@ export function panelModel(
 ): PanelModel {
   const approve = approveControl(detail, ctx);
   const empty: PanelModel = {
+    requestId: null,
     headline: null,
     screen: null,
     reasons: [],
@@ -491,6 +556,7 @@ export function panelModel(
     ackPrompt: null,
   };
   if (detail === null) return empty;
+  // `isCurrentWorker` is total and checks every part read below, so nothing here can throw.
   if (!isCurrentWorker(detail)) return { ...empty, reasonsWithheld: OUT_OF_STEP };
 
   // Hard first, then a recorded acknowledgment, then an override; stable within a class.
@@ -523,10 +589,11 @@ export function panelModel(
         };
 
   return {
-    headline: { text: detail.description.headline, tone: detail.description.tone },
+    requestId: detail.request_id,
+    headline: { text: detail.description.headline, tone: toneOf(detail.description.tone) },
     screen: {
       headline: detail.identifier_screen.headline,
-      tone: detail.identifier_screen.tone,
+      tone: toneOf(detail.identifier_screen.tone),
       lines: detail.identifier_screen.lines,
     },
     reasons,
@@ -552,17 +619,18 @@ export interface Chip {
   readonly tone: Tone;
 }
 
-const TONES: readonly string[] = ["ok", "note", "warn", "stop"];
-/** The detail route answers only for an active request, so a chip on a closed row is noise. */
-const ACTIVE_STATUSES: readonly string[] = ["requested", "approving", "blocked"];
+/**
+ * The statuses of a request the detail route answers for (the active ones), so a chip or a panel
+ * on a closed row is noise. One list for the chip rule here and the panel rule of the row
+ * component, which must agree.
+ */
+export const ACTIVE_STATUSES: readonly string[] = ["requested", "approving", "blocked"];
 
 function chipOf(
   piece: { readonly headline?: string; readonly tone?: string } | undefined,
 ): Chip | null {
   if (!piece || typeof piece.headline !== "string" || piece.headline.length === 0) return null;
-  const tone =
-    piece.tone !== undefined && TONES.includes(piece.tone) ? (piece.tone as Tone) : "note";
-  return { text: piece.headline, tone };
+  return { text: piece.headline, tone: toneOf(piece.tone) };
 }
 
 /** The review chip and the screen chip of a row: the Worker's headlines verbatim, decided by nothing. */
@@ -598,13 +666,15 @@ export interface FailureView {
 }
 
 /**
- * The page's own sentences for the codes of the approval and denial routes, moved here from the
- * page script. `not_dispatchable` is gone (the mirrored `approve.blocked` says it) and so is
- * `origin_not_allowed` (the Worker's own sentence is printed instead). They name no terminal.
+ * The page's own sentences, of two kinds that must not be mixed up (`WIRE_CODES` lists the first):
+ * the sentence for a CODE the approval, denial or start routes can send, and the sentences only
+ * the page says (`deny_rejected`, `network`, `approve_unconfirmed`, `generic`), which no answer of
+ * the Worker can select. `not_dispatchable` is gone (the mirrored `approve.blocked` says it), and
+ * so is `origin_not_allowed` (the Worker's own sentence is printed instead), and so are
+ * `not_invitable` and `internal_error`, which no route of the API sends. They name no terminal.
  */
 export const FRIENDLY_WORDS = {
   forbidden: "You no longer have admin access. Sign in again.",
-  not_invitable: "This request is no longer pending.",
   already_in_flight:
     "An approval is already running for this dataset. Give it a minute, then refresh.",
   dispatch_failed:
@@ -615,7 +685,6 @@ export const FRIENDLY_WORDS = {
     "The backend has no GitHub credential, so it cannot start an approval. Retrying will not help; tell an admin who manages the backend.",
   not_found: "Request not found.",
   missing_field: "Provide a reason for denial.",
-  internal_error: "Server error. Try again in a moment.",
   invalid_body:
     "The approval could not be sent as built. Reload this page and try again; if it keeps happening, tell an admin who manages the backend.",
   deny_rejected:
@@ -626,6 +695,23 @@ export const FRIENDLY_WORDS = {
   generic: "The action did not complete. Try again in a moment.",
 } as const;
 
+/**
+ * The codes `common` may turn into a sentence of `FRIENDLY_WORDS`: what the routes send, plus
+ * `forbidden`, the word the page has always kept for a refused session, and `missing_field`, which
+ * the client itself raises for an empty denial reason. A page-only sentence is NOT listed, so a
+ * wire answer carrying `network` or `generic` cannot select one.
+ */
+const WIRE_CODES = [
+  "forbidden",
+  "already_in_flight",
+  "dispatch_failed",
+  "dispatch_unconfirmed",
+  "dispatch_unconfigured",
+  "not_found",
+  "missing_field",
+  "invalid_body",
+] as const satisfies readonly (keyof typeof FRIENDLY_WORDS)[];
+
 const NO_FLAGS = { refetch: false, focusAck: false, refreshLink: false };
 
 const view = (text: string, flags: Partial<Omit<FailureView, "text">> = {}): FailureView => ({
@@ -634,8 +720,9 @@ const view = (text: string, flags: Partial<Omit<FailureView, "text">> = {}): Fai
   ...flags,
 });
 
-const isOwn = (table: object, word: string | undefined): word is string =>
-  word !== undefined && Object.hasOwn(table, word);
+/** An own-property test, so `toString` and `__proto__` are never words; narrows to the table's keys. */
+const isOwn = <T extends object>(table: T, word: unknown): word is keyof T & string =>
+  typeof word === "string" && Object.hasOwn(table, word);
 
 /**
  * What a thrown value says about the Worker's answer, or null when it did not come from one (a
@@ -655,10 +742,15 @@ function failureOf(err: unknown): ApiFailure | null {
   return null;
 }
 
-/** "Headline. Sentence": the Worker's headline, then the page's words, joined by one full stop. */
+/**
+ * "Headline. Sentence": the Worker's headline, then the page's words, joined by one full stop. A
+ * headline with nothing but dots and spaces is no headline, and one that already ends a sentence
+ * with `?` or `!` is not given a second mark.
+ */
 function withHeadline(headline: string | undefined, sentence: string): string {
-  if (!headline) return sentence;
-  return `${headline.replace(/[.\s]+$/, "")}. ${sentence}`;
+  const stripped = (headline ?? "").replace(/[.\s]+$/, "").trim();
+  if (stripped.length === 0) return sentence;
+  return /[?!]$/.test(stripped) ? `${stripped} ${sentence}` : `${stripped}. ${sentence}`;
 }
 
 const sentenceOr = (f: ApiFailure): string => f.message ?? FRIENDLY_WORDS.generic;
@@ -669,20 +761,24 @@ const isScreenRefusal = (word: string | undefined): word is ScreenGateRefusal =>
   isOwn(SCREEN_GATE_COPY, word);
 
 /**
- * A 401 or 403 that carries only a sentence. The Worker's sentence is never printed: an inactive
- * account's refusal words a terminal command, so the page says its own word for "not signed in or
- * not allowed".
+ * A 401 or 403, whatever it carries. The Worker's sentence is never printed: an inactive account's
+ * refusal words a terminal command, so the page says its own word for "not signed in or not
+ * allowed", and a code it does not know (a newer Worker's `unauthorized`) takes the same word. The
+ * origin guard's 403 is answered before this is asked.
  */
-const isSentenceOnlyDenial = (f: ApiFailure): boolean =>
-  (f.status === 401 || f.status === 403) && f.code === undefined && Boolean(f.message);
+const isDenial = (f: ApiFailure): boolean => f.status === 401 || f.status === 403;
 
-/** The page's words for a code, then a sentence-only 401 or 403, then the generic sentence. */
+/** The page's words for a code the routes send, then a 401 or 403, then the generic sentence. */
 function common(f: ApiFailure): FailureView {
-  if (isOwn(FRIENDLY_WORDS, f.code))
-    return view(FRIENDLY_WORDS[f.code as keyof typeof FRIENDLY_WORDS]);
-  if (isSentenceOnlyDenial(f)) return view(FRIENDLY_WORDS.forbidden);
+  const code = WIRE_CODES.find((c) => c === f.code);
+  if (code !== undefined) return view(FRIENDLY_WORDS[code]);
+  if (isDenial(f)) return view(FRIENDLY_WORDS.forbidden);
   return view(FRIENDLY_WORDS.generic);
 }
+
+/** The three words of an approve whose dispatch the Worker itself says did not go out, or may not have. */
+const isDispatchCode = (code: string | undefined): boolean =>
+  code === "dispatch_failed" || code === "dispatch_unconfirmed" || code === "dispatch_unconfigured";
 
 /** The request is gone: the page's word for the code, or the Worker's sentence when it sent only that. */
 function notFound(f: ApiFailure): FailureView {
@@ -765,7 +861,7 @@ function describeDetail(f: ApiFailure): FailureView {
   // The request is closed: the Worker's sentence says so, and "Reload" would be wrong advice.
   if (f.status === 404 && f.message) return view(f.message);
   const unavailable = say("approve.unavailable");
-  if (f.code === "forbidden" || isSentenceOnlyDenial(f)) {
+  if (f.code === "forbidden" || isDenial(f)) {
     return view(withHeadline(FRIENDLY_WORDS.forbidden, unavailable));
   }
   return view(unavailable);
@@ -794,6 +890,11 @@ export function describeFailure(op: FailureOp, err: unknown): FailureView {
       : view(FRIENDLY_WORDS.network);
   }
   if (f.code === "origin_not_allowed") return view(sentenceOr(f));
+  // A server fault on an approve that is not one of the dispatch refusals may follow a dispatch
+  // that went out (an edge timeout, an unreadable body): the page cannot know, so it says so.
+  if (op === "approve" && f.status >= 500 && !isDispatchCode(f.code)) {
+    return view(FRIENDLY_WORDS.approve_unconfirmed, { refetch: true, refreshLink: true });
+  }
   switch (op) {
     case "approve":
       return describeApprove(f);
@@ -806,9 +907,11 @@ export function describeFailure(op: FailureOp, err: unknown): FailureView {
   }
 }
 
-/** The words for a review start that went (HTTP 202); null for a reason this page does not know. */
-export function describeStartSuccess(body: { readonly reason: string }): string | null {
-  return isOwn(START_STARTED_COPY, body.reason)
-    ? say(START_STARTED_COPY[body.reason as StartStartedReason])
-    : null;
+/**
+ * The words for a review start that went (HTTP 202); null for a reason this page does not know.
+ * Total: any value is accepted, and one that is not an object with a known `reason` is null.
+ */
+export function describeStartSuccess(body: unknown): string | null {
+  const reason = isObject(body) ? body.reason : undefined;
+  return isOwn(START_STARTED_COPY, reason) ? say(START_STARTED_COPY[reason]) : null;
 }
