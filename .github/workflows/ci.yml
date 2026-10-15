@@ -107,6 +107,8 @@ jobs:
       # shared/contract/private-site.ts.
       # test/publication-review-copy-drift.test.ts is a FOURTH, against
       # shared/contract/publication-review-copy.ts; same `dev` pairing.
+      # The same test also compares the page's numbers with shared/publication-limits.ts, which
+      # sits beside the contract directory; without it that test skips, visibly.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -116,6 +118,7 @@ jobs:
             /shared/contract/docs-auth.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
+            /shared/publication-limits.ts
           sparse-checkout-cone-mode: false
           ref: dev
       - name: Vitest
