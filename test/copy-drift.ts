@@ -3,6 +3,12 @@
  * `account-copy-drift.test.ts` so they can be tested on fixtures rather than
  * only on whatever happens to be on disk (website#309 review).
  *
+ * The readers here and nemar-cli's own (in its parity test) implement the same RULE, written
+ * independently in each repository, so neither imports the other: a quote-aware comment strip, the
+ * same `"key": "value"` pattern, and a throw on a key matched twice. They are not shared code. If
+ * one side's rule changes, the other is changed by hand, and each repository proves its reader
+ * against its own copy file.
+ *
  * Not a `.test.ts` file on purpose: vitest collects only `*.test.ts`, and
  * Biome's `noExportsInTest` forbids exporting from one — the same arrangement
  * `test/routes/harness.ts` already uses.
