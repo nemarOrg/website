@@ -15,6 +15,23 @@ import MY_DATASET_CARD from "../src/components/MyDatasetCard.astro?raw";
 import PUBLISH_STATE_BADGE from "../src/components/PublishStateBadge.astro?raw";
 import { PUBLICATION_BLOCK_REASONS, blockBadgeState } from "../src/lib/publication-block";
 
+/**
+ * The tokens, read from disk: Vitest blanks every stylesheet it imports, `?raw` included, and
+ * `astro check` has no node types, so `node:fs` is reached without a static import (the same escape
+ * hatch as `test/publication-review-page.test.ts`).
+ */
+async function readTokens(): Promise<string> {
+  const specifier = "node:fs";
+  const fs: { readFileSync(path: string, encoding: string): string } = await import(
+    /* @vite-ignore */ specifier
+  );
+  return fs.readFileSync(
+    decodeURIComponent(new URL("../src/styles/tokens.css", import.meta.url).pathname),
+    "utf8",
+  );
+}
+const TOKENS = await readTokens();
+
 describe("PublishStateBadge labels every block state", () => {
   it("carries a label for each state the block reasons map to", () => {
     expect(PUBLISH_STATE_BADGE).toContain('validation_failed: "Validation failed"');
@@ -35,6 +52,29 @@ describe("PublishStateBadge labels every block state", () => {
     expect(rule).toBeDefined();
     expect(rule).toContain("var(--color-danger)");
     expect(rule).not.toContain("var(--color-warning)");
+  });
+
+  it("lifts its text in both dark theme branches, because --color-danger has no dark value", () => {
+    // `--color-danger` (#b91c1c) is the same in every theme: about 2.5:1 on the dark card, well
+    // under the 4.5:1 that 12 px text needs. The admin error text token has a lifted dark value
+    // (about 8.6:1 on the same card), so the dark rules use it. Both branches are required: the
+    // media query for the operating system's default and the attribute for an explicit choice.
+    expect(TOKENS).toMatch(/--admin-error-text:\s*#b91c1c/);
+    const dark = TOKENS.match(/--admin-error-text:\s*#[0-9a-f]{6}/g) ?? [];
+    expect(
+      dark.length,
+      "the token needs a lifted value for each dark branch",
+    ).toBeGreaterThanOrEqual(3);
+    const media = PUBLISH_STATE_BADGE.match(
+      /@media \(prefers-color-scheme: dark\) \{\s*:global\(:root:not\(\[data-theme="light"\]\)\) \.publish-state-badge--identifiers_found \{([^}]*)\}/,
+    )?.[1];
+    const attribute = PUBLISH_STATE_BADGE.match(
+      /:global\(:root\[data-theme="dark"\]\) \.publish-state-badge--identifiers_found \{([^}]*)\}/,
+    )?.[1];
+    for (const rule of [media, attribute]) {
+      expect(rule).toBeDefined();
+      expect(rule).toMatch(/color:\s*var\(--admin-error-text\)/);
+    }
   });
 
   it("styles each of them, so a new state cannot land unstyled", () => {

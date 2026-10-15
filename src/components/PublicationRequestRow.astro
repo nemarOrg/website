@@ -3,7 +3,8 @@ import { type PublicationRequest, deriveAdminBadgeState } from "../lib/admin-api
 import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
 import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
 import { rowView } from "../lib/publication-queue";
-import { UI_WORDS, rowChips } from "../lib/publication-review";
+import { rowChips } from "../lib/publication-review";
+import { titleIdOf, toggleLabels } from "../lib/publication-review-panel";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
 interface Props {
@@ -51,6 +52,8 @@ const REVIEWABLE: readonly string[] = ["requested", "approving", "blocked"];
 const reviewable = REVIEWABLE.includes(request.status);
 const chips = rowChips(request);
 const panelId = `pubreq-review-${datasetId}`;
+// The toggle's word and accessible name: every row's says the same, so the id tells them apart.
+const toggle = toggleLabels(false, datasetId);
 ---
 
 <article class="pubreq-row" data-pubreq-row data-dataset-id={datasetId}>
@@ -144,10 +147,15 @@ const panelId = `pubreq-review-${datasetId}`;
   )}
 
   {reviewable && (
+    <p class="pubreq-review__live" role="status" data-pubreq-review-live></p>
+  )}
+
+  {reviewable && (
     <section
       class="pubreq-review"
       id={panelId}
       tabindex="-1"
+      aria-labelledby={titleIdOf(panelId)}
       data-pubreq-review-panel
       data-dataset-id={datasetId}
       data-request-id={request.id}
@@ -178,10 +186,10 @@ const panelId = `pubreq-review-${datasetId}`;
         class="pubreq-row__btn"
         data-pubreq-review-toggle
         data-dataset-id={datasetId}
-        aria-expanded="false"
+        aria-label={toggle.ariaLabel}
         aria-controls={panelId}
       >
-        {UI_WORDS.buttons.show}
+        {toggle.text}
       </button>
     )}
     {view.start?.kind === "approve" && (
