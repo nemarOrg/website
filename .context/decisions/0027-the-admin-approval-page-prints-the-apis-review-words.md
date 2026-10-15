@@ -44,10 +44,10 @@ The rulings below settle the cases the design left open.
   `gate` is not one of `enforced`, `off` or `n/a`;
   `screen_gate` is not one of `clear`, `blocks`, `acknowledge`, `rerun`, `wait` or `exempt`;
   `anonymous`, `applies`, `started_publishing` or `start_offered` is not a boolean;
-  `reasons` is not a list in which every reason has string `code`, `class`, `cleared_by`, `statement`, `sentence` and `cure`;
+  `reasons` is not a list in which every reason has string `code`, `class`, `cleared_by`, `sentence` and `cure` and a non-empty string `statement`;
   `description` or `identifier_screen` lacks a string `headline` or `tone`, or the screen's `lines` is not a list of strings;
   or `review` is neither null nor a record with an integer `id`, a list of fact notes and a list of findings.
-  An old API that sends no `statement` therefore gets the out-of-step sentence and never has a terminal `line` printed in its place.
+  An old API that sends no `statement`, or an empty one (the page prints `statement`, never `sentence`), therefore gets the out-of-step sentence and never has a terminal `line` printed in its place.
   A fallback would be a way around the page's own rules.
 - **A detail that is not found prints the Worker's sentence.**
   A 404 from the detail route means the request is closed, and the Worker's sentence says so; "reload" would be wrong advice, so the page prints that sentence and offers no refresh link.

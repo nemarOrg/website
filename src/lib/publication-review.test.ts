@@ -127,6 +127,16 @@ describe("approveControl: one case per row of the table", () => {
       expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
 
+    it("a reason whose statement is an empty string is out of step", () => {
+      // The page prints `statement`, never `sentence`, so an empty one has nothing to print.
+      const d = detail("detail-needs-override");
+      const reasons = d.reasons.map((r) => ({ ...r, statement: "" }));
+      const control = approveControl(altered("detail-needs-override", { reasons }), {
+        rowStart: "approve",
+      });
+      expect(control).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
+    });
+
     it("a detail without start_offered is out of step", () => {
       expect(
         approveControl(withoutKey("detail-pass", "start_offered"), { rowStart: "approve" }),
@@ -857,13 +867,15 @@ describe("panelModel", () => {
       expect(m.reasons[0].clearedLabel).toBe(UI_WORDS.clearedTags.nothing);
     });
 
-    it("falls back to the sentence only when the statement is empty", () => {
+    it("withholds the whole panel when one statement is empty, and prints no sentence", () => {
       const d = detail("detail-needs-override");
       const empty = altered("detail-needs-override", {
         reasons: d.reasons.map((r) => ({ ...r, statement: "" })),
       });
       const m = panelModel(empty, { rowStart: "approve" });
-      expect(m.reasons[0].statement).toBe(d.reasons[0].sentence);
+      expect(m.reasons).toEqual([]);
+      expect(m.reasonsWithheld).toBe(OUT_OF_STEP);
+      expect(m.approve).toEqual({ kind: "unavailable", text: OUT_OF_STEP });
     });
 
     it("keeps the Worker's order inside a class (the sort is stable)", () => {

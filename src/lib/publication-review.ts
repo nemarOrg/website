@@ -301,7 +301,9 @@ function isReasonView(r: unknown): boolean {
     isString(r.code) &&
     isString(r.class) &&
     isString(r.cleared_by) &&
+    // The page prints `statement`, never `sentence`, so an empty one has nothing to print: out of step.
     isString(r.statement) &&
+    r.statement.length > 0 &&
     isString(r.sentence) &&
     isString(r.cure)
   );
@@ -564,7 +566,7 @@ export function panelModel(
     .map((r, index) => ({ r, index }))
     .sort((a, b) => rankOf(a.r.cleared_by) - rankOf(b.r.cleared_by) || a.index - b.index)
     .map(({ r }) => ({
-      statement: r.statement && r.statement.length > 0 ? r.statement : r.sentence,
+      statement: r.statement ?? "",
       cure: r.cure,
       classLabel: r.class === "fail" ? UI_WORDS.classTags.fail : UI_WORDS.classTags.unknown,
       clearedLabel: clearedLabel(r.cleared_by),
