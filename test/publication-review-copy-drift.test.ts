@@ -273,32 +273,44 @@ const LIMITS_PATH = CONTRACT_PATH?.replace(
   "/shared/publication-limits.ts",
 );
 const LIMITS_EXIST = LIMITS_PATH !== undefined && fs.existsSync(LIMITS_PATH);
-if (CONTRACT_EXISTS && !LIMITS_EXIST) {
+if (CONTRACT_EXISTS && !LIMITS_EXIST && !STRICT_CONTRACT_PATH) {
   console.info(
     `[publication-review limits drift] skipped: ${LIMITS_PATH ?? "(no path)"} is not checked out. Add shared/publication-limits.ts to the sparse checkout in .github/workflows/ci.yml to enforce it.`,
   );
 }
 
-describe.skipIf(SHOULD_SKIP || !LIMITS_EXIST)("page limits vs nemar-cli publication-limits", () => {
-  const read = (): string => {
-    return fs.readFileSync(LIMITS_PATH as string, "utf8");
-  };
-  const constant = (source: string, name: string): number => {
-    const match = new RegExp(`export const ${name}\\s*=\\s*(\\d+)`).exec(stripComments(source));
-    if (!match) throw new Error(`${name} is not a plain numeric export of ${LIMITS_PATH}`);
-    return Number(match[1]);
-  };
+// Strict mode (the variable is set) never skips: a missing limits file fails the first test below,
+// as a missing contract file fails the copy test. Only the soft search may skip, and visibly.
+describe.skipIf(SHOULD_SKIP || (!STRICT_CONTRACT_PATH && !LIMITS_EXIST))(
+  "page limits vs nemar-cli publication-limits",
+  () => {
+    const read = (): string => {
+      return fs.readFileSync(LIMITS_PATH as string, "utf8");
+    };
+    it("finds the limits file beside the contract when the variable is set", () => {
+      if (!STRICT_CONTRACT_PATH) return;
+      expect(
+        LIMITS_EXIST,
+        `NEMAR_CLI_REVIEW_COPY=${NEMAR_CLI_REVIEW_COPY} is set, so ${LIMITS_PATH} must exist; it does not skip. Check the sparse-checkout step in .github/workflows/ci.yml for shared/publication-limits.ts.`,
+      ).toBe(true);
+    });
+    const constant = (source: string, name: string): number => {
+      const match = new RegExp(`export const ${name}\\s*=\\s*(\\d+)`).exec(stripComments(source));
+      if (!match) throw new Error(`${name} is not a plain numeric export of ${LIMITS_PATH}`);
+      return Number(match[1]);
+    };
 
-  it("keeps ACK_MIN, ACK_MAX and DENIAL_MAX equal to the Worker's bounds", () => {
-    const source = read();
-    expect(ACK_MIN, "ACKNOWLEDGMENT_MIN_LENGTH").toBe(
-      constant(source, "ACKNOWLEDGMENT_MIN_LENGTH"),
-    );
-    expect(ACK_MAX, "ACKNOWLEDGMENT_MAX_LENGTH").toBe(
-      constant(source, "ACKNOWLEDGMENT_MAX_LENGTH"),
-    );
-    expect(DENIAL_MAX, "DENIAL_REASON_MAX_LENGTH").toBe(
-      constant(source, "DENIAL_REASON_MAX_LENGTH"),
-    );
-  });
-});
+    it("keeps ACK_MIN, ACK_MAX and DENIAL_MAX equal to the Worker's bounds", () => {
+      const source = read();
+      expect(ACK_MIN, "ACKNOWLEDGMENT_MIN_LENGTH").toBe(
+        constant(source, "ACKNOWLEDGMENT_MIN_LENGTH"),
+      );
+      expect(ACK_MAX, "ACKNOWLEDGMENT_MAX_LENGTH").toBe(
+        constant(source, "ACKNOWLEDGMENT_MAX_LENGTH"),
+      );
+      expect(DENIAL_MAX, "DENIAL_REASON_MAX_LENGTH").toBe(
+        constant(source, "DENIAL_REASON_MAX_LENGTH"),
+      );
+    });
+  },
+);
