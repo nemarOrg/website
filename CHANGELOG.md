@@ -23,7 +23,8 @@ The release pull request from `staging` to `main` moves those entries under the 
   A review can be started from the panel when the API offers one.
   There is no fallback to the old click that sent nothing: if the review detail cannot be read, the page says so and withholds Approve, and if the API predates the page or sends an answer the page cannot trust, it says it is out of step.
   An approve that gets no answer, or only the proxy's own 502, says the approval may have started and asks for a refresh.
-  A refusal for a signed-out or not-allowed account never shows the API's own sentence.
+  A 401 or 403 for a signed-out or not-allowed account shows the page's own "sign in again" sentence, never the API's, because an inactive account's refusal can name a terminal command.
+  The one exception is the origin guard's 403 (code `origin_not_allowed`), whose sentence names no terminal and is printed as the API words it.
   A result for a review panel that was closed meanwhile appears in the page's error region instead of a hidden panel.
   This needs the API side (nemar-cli#1731), which must be deployed to the API before the website: an older API sends no `statement`, so the page withholds the panel and Approve and says it is out of step.
 - **A request blocked by the identifier screen has its own badge** (#459).

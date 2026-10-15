@@ -60,6 +60,7 @@ The rulings below settle the cases the design left open.
   When the row's own button reads "Retry approval", an approve offered again, the panel's button says "Retry approval" too, so the two never name one action two ways.
 - **A failure is worded by the page, never by the Worker's sentence, where that sentence could name a terminal.**
   A 401 or 403 that carries only a sentence prints the page's own "sign in again" word, because an inactive account's refusal names a terminal command.
+  The one exception is the origin guard's 403 (code `origin_not_allowed`): its sentence names no terminal, so the page prints the Worker's sentence for it.
   An approve that gets no answer (a missed deadline, a dead connection, or the proxy's own `upstream_unreachable` or `upstream_redirect` 502) says the approval may have started and asks the administrator to refresh and check before trying again, because the dispatch may have gone out; the API's lease makes a retry a harmless refusal.
 - **The API deploys before the website.**
   A page promoted ahead of the API gets a detail without `statement`, so it withholds the panel, prints "out of step" and offers no Approve, and it never falls back to the terminal's `line`.
