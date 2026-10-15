@@ -669,6 +669,24 @@ describe("focus follows a redraw, and a notice is announced", () => {
     expect(functionOf("loadPanel")).toContain("announce(panel, null);");
   });
 
+  it("cancels a pending announcement when a later announce or a close supersedes it", () => {
+    // The words are set after a pause so the region is announced as a change. A later
+    // `announce(panel, null)` (a re-read, or `closePanel`) must cancel that pause, or the notice
+    // of a panel that has been closed or redrawn appears after the fact.
+    const announce = functionOf("announce");
+    expect(SCRIPT).toMatch(/const announcing = new WeakMap<HTMLElement, number>\(\);/);
+    const clear = announce.indexOf("window.clearTimeout(announcing.get(live))");
+    expect(clear, "announce cancels the pending timer").toBeGreaterThan(-1);
+    // Before the empty-words early path and before the new timer is set, so null cancels too.
+    expect(clear).toBeLessThan(announce.indexOf('live.textContent = ""'));
+    expect(clear).toBeLessThan(announce.indexOf("window.setTimeout("));
+    expect(announce).toMatch(/announcing\.set\(\s*live,\s*window\.setTimeout\(/);
+    expect(announce).toContain("announcing.delete(live)");
+    // `announce(panel, null)` is how closePanel and loadPanel reach it.
+    expect(functionOf("closePanel")).toContain("announce(panel, null);");
+    expect(functionOf("loadPanel")).toContain("announce(panel, null);");
+  });
+
   it("names the panel after its heading, and the toggle after its row", () => {
     expect(ROW_CODE).toMatch(/aria-labelledby=\{titleIdOf\(panelId\)\}/);
     expect(ROW_CODE).toMatch(

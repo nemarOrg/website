@@ -474,14 +474,27 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
   }
 
   // The notice is announced through a status region that exists before its words do: a region
-  // inserted already filled is not announced by many screen readers.
+  // inserted already filled is not announced by many screen readers. The words follow after a
+  // pause, and any later announce (a re-read, or `closePanel` with null) cancels a pause still
+  // running, so the notice of a panel that was closed or redrawn never appears after the fact.
+  const announcing = new WeakMap<HTMLElement, number>();
   function announce(panel: HTMLElement, words: string | null | undefined): void {
     const live = panel
       .closest("[data-pubreq-row]")
       ?.querySelector<HTMLElement>("[data-pubreq-review-live]");
     if (!live) return;
+    window.clearTimeout(announcing.get(live));
+    announcing.delete(live);
     live.textContent = "";
-    if (words) window.setTimeout(() => (live.textContent = words), 50);
+    if (words) {
+      announcing.set(
+        live,
+        window.setTimeout(() => {
+          announcing.delete(live);
+          live.textContent = words;
+        }, 50),
+      );
+    }
   }
 
   // The automatic refresh does not run over an open panel, and the note says so.
