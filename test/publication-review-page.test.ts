@@ -772,9 +772,20 @@ describe("the panel's stylesheet", () => {
   });
 
   it("scopes every rule under the panel's own prefix", () => {
-    const selectors = [...css.matchAll(/(^|\})\s*([^{}@]+)\{/g)].flatMap((m) => m[2].split(","));
+    // Every prelude before a `{`, at any depth: the first selector inside an @media block follows
+    // a `{`, not a `}`, so a scan that starts a selector after `}` never sees it. A prelude that
+    // starts with `@` is an at-rule's own condition (`@media (...)`), not a selector.
+    const preludes = [...css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{};]+)\{/g)].map((m) =>
+      m[1].trim(),
+    );
+    const selectors = preludes.filter((p) => !p.startsWith("@")).flatMap((p) => p.split(","));
+    expect(selectors.length).toBeGreaterThan(20);
     const stray = selectors.map((s) => s.trim()).filter((s) => s && !/\.pubreq-review/.test(s));
     expect(stray).toEqual([]);
+    // Each @media block is read, and its first selector is among those checked.
+    const mediaBlocks = [...css.matchAll(/@media[^{]*\{\s*([^{}]+)\{/g)].map((m) => m[1].trim());
+    expect(mediaBlocks.length).toBeGreaterThanOrEqual(2);
+    for (const first of mediaBlocks) expect(first, first).toMatch(/\.pubreq-review/);
   });
 });
 
