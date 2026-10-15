@@ -263,6 +263,23 @@
   }
 }
 
+/* The row's review toggle keeps one visible word ("Review"), so its accessible name can contain it;
+   `aria-expanded` carries the state and this chevron shows it. A shape drawn from borders: it is
+   decorative (empty content, so nothing is read aloud) and needs no glyph or image. */
+.pubreq-review-toggle::after {
+  content: "";
+  flex: none;
+  inline-size: 0.45em;
+  block-size: 0.45em;
+  margin-inline-start: var(--space-2);
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: translateY(-0.15em) rotate(45deg);
+}
+.pubreq-review-toggle[aria-expanded="true"]::after {
+  transform: translateY(0.1em) rotate(-135deg);
+}
+
 /* Forced colors drop box-shadow, so a tone and a notice keep their bar as a border. */
 @media (forced-colors: active) {
   .pubreq-review-tone--ok,
@@ -283,6 +300,10 @@
     opacity: 1;
     color: GrayText;
     border-color: GrayText;
+  }
+  /* A border keeps its color in forced colors, but a named system color is the sure one. */
+  .pubreq-review-toggle::after {
+    border-color: ButtonText;
   }
 }
 

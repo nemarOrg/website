@@ -280,8 +280,7 @@ describe("the script words the panel through the lib, never by itself", () => {
     expect(SCRIPT).toContain("UI_WORDS.buttons.retry");
     for (const word of [
       "headings",
-      "buttons.show",
-      "buttons.hide",
+      "buttons.review",
       "buttons.start",
       "buttons.approve",
     ]) {
@@ -697,7 +696,9 @@ describe("focus follows a redraw, and a notice is announced", () => {
     const toggle = functionOf("setToggle");
     expect(toggle).toContain('toggleLabels(open, panel.dataset.datasetId ?? "")');
     expect(toggle).toContain('toggle.setAttribute("aria-label", labels.ariaLabel)');
-    expect(toggle).toContain("toggle.textContent = labels.text");
+    // The visible word is constant, so the script never rewrites it: only aria-expanded moves.
+    expect(toggle).not.toContain("textContent");
+    expect(toggle).not.toContain("labels.text");
     expect(toggle).toContain('toggle.setAttribute("aria-expanded", labels.expanded)');
   });
 });
@@ -853,6 +854,16 @@ describe("the panel's stylesheet", () => {
     expect(classes.size).toBeGreaterThan(8);
     for (const name of classes) expect(css, name).toContain(`.${name}`);
     expect(css).toContain(".pubreq-review__live");
+  });
+
+  it("draws the toggle's open or closed state from aria-expanded, in forced colors too", () => {
+    expect(ROW_CODE).toMatch(/class="pubreq-row__btn pubreq-review-toggle"/);
+    expect(css).toMatch(/\.pubreq-review-toggle::after\s*\{/);
+    expect(css).toMatch(/\.pubreq-review-toggle\[aria-expanded="true"\]::after\s*\{/);
+    // A shape drawn from borders, never a glyph or an emoji, and never read aloud.
+    const forced = /@media \(forced-colors: active\)\s*\{[\s\S]*$/.exec(css)?.[0] ?? "";
+    expect(forced).toContain(".pubreq-review-toggle::after");
+    expect(forced).toContain("ButtonText");
   });
 
   it("has a forced-colors fallback, a visible focus ring and a narrow wrap", () => {

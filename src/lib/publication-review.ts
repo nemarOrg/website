@@ -188,8 +188,7 @@ export const UI_WORDS = {
     notes: "Notes",
   },
   buttons: {
-    show: "Show review",
-    hide: "Hide review",
+    review: "Review",
     loading: "Loading the review...",
     start: "Start review",
     refresh: "Refresh the review",

@@ -81,17 +81,20 @@ export function rowIsStale(detailRequestId: unknown, rowRequestId: unknown): boo
 }
 
 /**
- * The toggle's visible word, its `aria-expanded` and its accessible name. The word changes with the
- * state and the name does not: the state is `aria-expanded`'s to say, so a name that also flipped
- * would be announced twice ("Hide review for nm000701, expanded"). The dataset id tells the rows apart.
+ * The toggle's visible word, its `aria-expanded` and its accessible name. The word and the name
+ * never change with the state: the state is `aria-expanded`'s to say (a stylesheet draws it for
+ * sighted users), so a name that also changed would be announced twice, once in the name and once
+ * as "expanded". The name begins with the visible word, so a voice user who says what they read
+ * ("click Review") reaches the control (WCAG 2.5.3, label in name); the dataset id tells the rows
+ * apart.
  */
 export function toggleLabels(
   open: boolean,
   datasetId: string,
 ): { readonly text: string; readonly ariaLabel: string; readonly expanded: "true" | "false" } {
   return {
-    text: open ? UI_WORDS.buttons.hide : UI_WORDS.buttons.show,
-    ariaLabel: `Review for ${datasetId}`,
+    text: UI_WORDS.buttons.review,
+    ariaLabel: `${UI_WORDS.buttons.review} for ${datasetId}`,
     expanded: open ? "true" : "false",
   };
 }

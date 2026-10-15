@@ -51,7 +51,8 @@ const requester = request.requested_by_username || request.requested_by_email;
 const reviewable = ACTIVE_STATUSES.includes(request.status);
 const chips = rowChips(request);
 const panelId = `pubreq-review-${datasetId}`;
-// The toggle's word and accessible name: every row's says the same, so the id tells them apart.
+// The toggle's word and accessible name: the word is constant and the name starts with it; every
+// row's says the same, so the id tells them apart. A stylesheet draws the open state.
 const toggle = toggleLabels(false, datasetId);
 ---
 
@@ -182,7 +183,7 @@ const toggle = toggleLabels(false, datasetId);
     {reviewable && (
       <button
         type="button"
-        class="pubreq-row__btn"
+        class="pubreq-row__btn pubreq-review-toggle"
         data-pubreq-review-toggle
         data-dataset-id={datasetId}
         aria-label={toggle.ariaLabel}

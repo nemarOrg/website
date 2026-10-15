@@ -500,17 +500,25 @@ describe("rowIsStale", () => {
 });
 
 describe("toggleLabels", () => {
-  it("changes the visible word with the state and keeps one accessible name per row", () => {
+  it("keeps the visible word constant and lets aria-expanded carry the state", () => {
     expect(toggleLabels(false, "nm000701")).toEqual({
-      text: UI_WORDS.buttons.show,
+      text: UI_WORDS.buttons.review,
       ariaLabel: "Review for nm000701",
       expanded: "false",
     });
     expect(toggleLabels(true, "nm000701")).toEqual({
-      text: UI_WORDS.buttons.hide,
+      text: UI_WORDS.buttons.review,
       ariaLabel: "Review for nm000701",
       expanded: "true",
     });
+    expect(UI_WORDS.buttons.review).toBe("Review");
+  });
+
+  it("puts the visible word at the start of the accessible name (WCAG 2.5.3), open or closed", () => {
+    for (const open of [false, true]) {
+      const { text, ariaLabel } = toggleLabels(open, "nm000701");
+      expect(ariaLabel.toLowerCase().startsWith(text.toLowerCase()), String(open)).toBe(true);
+    }
   });
 
   it("never lets the accessible name flip with the state, and tells rows apart by id", () => {

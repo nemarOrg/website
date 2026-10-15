@@ -470,7 +470,6 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
     const labels = toggleLabels(open, panel.dataset.datasetId ?? "");
     toggle.setAttribute("aria-label", labels.ariaLabel);
     toggle.setAttribute("aria-expanded", labels.expanded);
-    toggle.textContent = labels.text;
   }
 
   // The notice is announced through a status region that exists before its words do: a region
