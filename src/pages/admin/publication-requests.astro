@@ -601,11 +601,14 @@ const activeMeta = QUEUE_TABS.find((t) => t.id === activeTab) ?? QUEUE_TABS[0];
       // A fault in the drawing is this page's, not the network's: it is logged and worded as
       // out of step, and no control is left on screen.
       try {
-        if (rowIsStale(detail.request_id, Number(panel.dataset.requestId))) {
+        // The id compared is the model's: null for a detail the page cannot read, which is out
+        // of step (drawn as such below), not stale.
+        const model = panelModel(detail, { rowStart: rowStartOf(panel) });
+        if (rowIsStale(model.requestId, Number(panel.dataset.requestId))) {
           showTree(panel, staleRowTree(datasetId, panel.id, location.href));
           if (focusPanel) panel.focus();
         } else {
-          drawPanel(panel, panelModel(detail, { rowStart: rowStartOf(panel) }), {
+          drawPanel(panel, model, {
             ...opts,
             focusPanel,
           });

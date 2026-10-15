@@ -201,10 +201,10 @@ describe("the script words the panel through the lib, never by itself", () => {
     expect(draw).toMatch(/replaceChildren\(\.\.\.nodes\.map\(mount\)\)/);
   });
 
-  it("reads no word of the model itself: only the control, which decides what is wired", () => {
+  it("reads no word of the model itself: only the control, which decides what is wired, and the request it names", () => {
     const read = [...SCRIPT.matchAll(/\bmodel\.(\w+)/g)].map((m) => m[1]);
     expect(read.length).toBeGreaterThan(0);
-    expect([...new Set(read)]).toEqual(["approve"]);
+    expect([...new Set(read)].sort()).toEqual(["approve", "requestId"]);
   });
 
   it("mounts a node in one place, with createElement, setAttribute and textContent", () => {
@@ -517,20 +517,24 @@ describe("the reason the administrator typed survives a re-read", () => {
   });
 
   it("passes it from the load to the tree", () => {
-    expect(functionOf("loadPanel")).toMatch(
-      /drawPanel\(panel, panelModel\([^)]*\)[^,]*,\s*\{\s*\.\.\.opts,/,
-    );
+    expect(functionOf("loadPanel")).toMatch(/drawPanel\(panel, model,\s*\{\s*\.\.\.opts,/);
     expect(functionOf("drawPanel")).toContain("acknowledgment: opts.acknowledgment");
   });
 });
 
 describe("the panel is the one for the row's own request, and a fault in the drawing is not the network's", () => {
-  it("compares the detail's request with the row's before drawing anything", () => {
+  it("compares the model's request with the row's before drawing anything", () => {
     const load = functionOf("loadPanel");
-    expect(load).toContain("rowIsStale(detail.request_id, Number(panel.dataset.requestId))");
+    // The id compared is the lib's `PanelModel.requestId`, which is null for a detail the page
+    // cannot read (and so out of step, not stale); never the raw `detail.request_id`.
+    expect(load).toContain("const model = panelModel(detail, { rowStart: rowStartOf(panel) })");
+    expect(load).toContain("rowIsStale(model.requestId, Number(panel.dataset.requestId))");
+    expect(load).not.toContain("rowIsStale(detail.request_id");
     expect(load).toContain("staleRowTree(datasetId, panel.id, location.href)");
-    expect(load.indexOf("rowIsStale(")).toBeLessThan(load.indexOf("panelModel("));
-    expect(load.indexOf("staleRowTree(")).toBeLessThan(load.indexOf("panelModel("));
+    expect(load).toContain("drawPanel(panel, model,");
+    expect(load.indexOf("panelModel(")).toBeLessThan(load.indexOf("rowIsStale("));
+    expect(load.indexOf("rowIsStale(")).toBeLessThan(load.indexOf("staleRowTree("));
+    expect(load.indexOf("staleRowTree(")).toBeLessThan(load.indexOf("drawPanel("));
   });
 
   it("wraps the model and the drawing in their own try, logs, and words it as out of step", () => {
@@ -675,9 +679,6 @@ describe("the row", () => {
     expect(ROW_CODE).toContain("data-pubreq-review-panel");
     expect(ROW_CODE).toContain("aria-controls");
     expect(ROW_CODE).toMatch(/<section[^>]*data-pubreq-review-panel[^>]*\shidden[\s>]/);
-    for (const status of ["requested", "approving", "blocked"]) {
-      expect(ROW_CODE, status).toContain(`"${status}"`);
-    }
   });
 
   it("hands the script the request, the row's own start and its label", () => {
@@ -690,6 +691,14 @@ describe("the row", () => {
       expect(tag, attr).toBeDefined();
       expect(tag, attr).toContain("data-request-id");
     }
+  });
+
+  it("takes the active statuses from the lib and keeps no list of its own", () => {
+    expect(ROW_CODE).toMatch(/import\s*\{[^}]*\bACTIVE_STATUSES\b[^}]*\}\s*from\s*"\.\.\/lib\/publication-review"/);
+    expect(ROW_CODE).toContain("ACTIVE_STATUSES.includes(request.status)");
+    // A second list of the three words is how the row and the lib drift apart.
+    expect(ROW_CODE).not.toMatch(/\[\s*"requested"\s*,\s*"approving"\s*,\s*"blocked"\s*\]/);
+    expect(ROW_CODE).not.toContain("REVIEWABLE");
   });
 
   it("labels the toggle from the panel module's own words", () => {
