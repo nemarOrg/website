@@ -3,7 +3,7 @@ import { type PublicationRequest, deriveAdminBadgeState } from "../lib/admin-api
 import { WEB_PUBLISH_APPROVE_ENABLED } from "../lib/flags";
 import { formatRelativeTime, parseBackendTimestamp } from "../lib/format";
 import { rowView } from "../lib/publication-queue";
-import { rowChips } from "../lib/publication-review";
+import { ACTIVE_STATUSES, rowChips } from "../lib/publication-review";
 import { titleIdOf, toggleLabels } from "../lib/publication-review-panel";
 import PublishStateBadge from "./PublishStateBadge.astro";
 
@@ -48,8 +48,7 @@ const requester = request.requested_by_username || request.requested_by_email;
 // The review chips and the review panel exist only for a request the detail route answers for: an
 // active one. The chips print the API's own headlines and decide nothing; the panel is filled by
 // the page script when an administrator opens it, so its `data-` attributes are all it is given.
-const REVIEWABLE: readonly string[] = ["requested", "approving", "blocked"];
-const reviewable = REVIEWABLE.includes(request.status);
+const reviewable = ACTIVE_STATUSES.includes(request.status);
 const chips = rowChips(request);
 const panelId = `pubreq-review-${datasetId}`;
 // The toggle's word and accessible name: every row's says the same, so the id tells them apart.
