@@ -1,0 +1,44 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "screen clean, review reported with every question passed but evidence minimums failed (name_too_short), which stands as the hard reason submission_minimum_failed; request_id only",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "error": "publication_review_not_clear",
+    "refusal": "hard_reason",
+    "headline": "Publication review: FAIL",
+    "message": "The publication review gives a reason that no override clears, so the approval is refused. A submission minimum failed at the reviewed commit. The depositor fixes the dataset and requests publication again; a request still waiting for its decision is moved to blocked.",
+    "outcome": "fail",
+    "reasons": [
+      {
+        "code": "submission_minimum_failed",
+        "class": "fail",
+        "cleared_by": "nothing",
+        "detail": "name_too_short",
+        "statement": "A submission minimum failed at the reviewed commit (name_too_short).",
+        "sentence": "A submission minimum failed at the reviewed commit.",
+        "cure": "The depositor fixes the dataset and requests publication again; a request still waiting for its decision is moved to blocked.",
+        "command": null,
+        "line": "A submission minimum failed at the reviewed commit (name_too_short). The depositor fixes the dataset and requests publication again; a request still waiting for its decision is moved to blocked."
+      },
+      {
+        "code": "question_failed",
+        "class": "fail",
+        "cleared_by": "override",
+        "detail": "name_adequate",
+        "statement": "A question of the review failed (the name describes the dataset; the Name in dataset_description.json is shorter than 25 characters).",
+        "sentence": "A question of the review failed.",
+        "cure": "Read any findings and the dataset's text. An administrator may approve over it; the approval records the override.",
+        "command": null,
+        "line": "A question of the review failed (the name describes the dataset; the Name in dataset_description.json is shorter than 25 characters). Read any findings and the dataset's text. An administrator may approve over it; the approval records the override (--force)."
+      }
+    ],
+    "uncovered": [],
+    "review_id": 1
+  }
+}

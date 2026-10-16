@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "the dataset's only request is published, so no active request",
+    "request": "GET /admin/publish/nm000726/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 404,
+  "body": {
+    "error": "nm000726 has no active publication request.",
+    "code": "not_found"
+  }
+}

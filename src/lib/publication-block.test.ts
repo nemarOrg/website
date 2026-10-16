@@ -68,7 +68,7 @@ describe("blockBadgeState", () => {
     for (const reason of PUBLICATION_BLOCK_REASONS) {
       expect(blockBadgeState(reason), reason).not.toBe("blocked");
     }
-    expect(PUBLICATION_BLOCK_REASONS).toHaveLength(6);
+    expect(PUBLICATION_BLOCK_REASONS).toHaveLength(7);
   });
 
   // Exhaustive the other way round: the whole point of splitting the states
@@ -82,6 +82,7 @@ describe("blockBadgeState", () => {
       prescreen_failed: "validation_failed",
       min_requirements_failed: "validation_failed",
       owner_name_missing: "name_required",
+      identifier_screen_findings: "identifiers_found",
     };
     for (const reason of PUBLICATION_BLOCK_REASONS) {
       expect(blockBadgeState(reason), reason).toBe(expected[reason]);
@@ -89,7 +90,7 @@ describe("blockBadgeState", () => {
     // Every state except the unknown-reason fallback is reachable from a
     // real reason; an unreachable one would be a label nothing can render.
     expect(new Set(PUBLICATION_BLOCK_REASONS.map(blockBadgeState))).toEqual(
-      new Set(["validation_failed", "validation_pending", "name_required"]),
+      new Set(["validation_failed", "validation_pending", "name_required", "identifiers_found"]),
     );
   });
 });

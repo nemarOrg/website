@@ -80,13 +80,13 @@ export const ACCOUNT_COPY = {
   "upload_access.state.not_requested": "Not requested",
   "upload_access.invite.title": "Want to contribute a dataset?",
   "upload_access.invite.body":
-    "Browsing, searching and downloading are open to your account already. Uploading needs one extra grant: an admin checks your GitHub handle and location against export-control and local-jurisdiction rules, once.",
+    "Browsing, searching and downloading are open to your account already. Uploading, or being added as a collaborator on someone else’s dataset, needs one extra grant: an admin checks your GitHub handle and location against export-control and local-jurisdiction rules, once. Your email address must be verified first.",
   "upload_access.gate.title": "Ask for upload access first",
   "upload_access.gate.body":
-    "Your account can browse, search and download everything public already. Uploading needs one extra grant: an admin checks your GitHub handle and where you’re based against export-control and local-jurisdiction rules. You ask once, and it is answered by email.",
+    "Your account can browse, search and download everything public already. Uploading, or being added as a collaborator on someone else’s dataset, needs one extra grant, and your email address must be verified first: an admin checks your GitHub handle and where you’re based against export-control and local-jurisdiction rules. You ask once, and it is answered by email.",
   "upload_access.request.cta": "Request upload access",
   "upload_access.request.form_body":
-    "Tell us what you plan to deposit. An admin reviews this alongside your name, username, GitHub handle and location, then grants access once.",
+    "Tell us what you plan to deposit, or which dataset you want to collaborate on. An admin reviews this alongside your name, username, GitHub handle and location, then grants access once.",
   "upload_access.request.why_label": "What do you intend to upload?",
   // The bounds are `WHY_MIN_CHARS` / `WHY_MAX_CHARS` in `./account-tier.ts`
   // (and `UPLOAD_ACCESS_WHY_*_CHARS` in nemar-cli shared/contract). Written

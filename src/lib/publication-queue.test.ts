@@ -187,6 +187,11 @@ describe("the row badge on a real queue row", () => {
     const blocked = variant(833, { status: "blocked", block_reason: "owner_name_missing" });
     expect(deriveAdminBadgeState(blocked)).toBe("name_required");
   });
+
+  it("shows a request blocked on a participant identifier as Identifiers found", () => {
+    const blocked = variant(833, { status: "blocked", block_reason: "identifier_screen_findings" });
+    expect(deriveAdminBadgeState(blocked)).toBe("identifiers_found");
+  });
 });
 
 describe("cliApproveCommand", () => {

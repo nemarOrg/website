@@ -1,0 +1,77 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "request blocked with block_reason owner_name_missing and three publishing steps done",
+    "request": "GET /admin/publish/nm000723/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "environment": "production",
+    "enabled": true,
+    "dataset_id": "nm000723",
+    "request_id": 1,
+    "request_status": "blocked",
+    "anonymous": false,
+    "identifier_screen": {
+      "state": "clean",
+      "headline": "Identifier screen: clean",
+      "tone": "ok",
+      "lines": [
+        "Files: 10; EDF/BDF headers read: 4 of 4.",
+        "Not read: the contents of sidecars and tables in earlier commits.",
+        "Scanner identifier-scan@abcdef1; commit 0123456789ab."
+      ]
+    },
+    "screen_acknowledgment": null,
+    "block_reason": "owner_name_missing",
+    "started_publishing": true,
+    "total_files": null,
+    "applies": true,
+    "gate": "enforced",
+    "outcome": "fail",
+    "start_offered": false,
+    "screen_gate": "clear",
+    "reasons": [
+      {
+        "code": "request_blocked",
+        "class": "fail",
+        "cleared_by": "nothing",
+        "detail": "owner_name_missing",
+        "statement": "The request is blocked (owner_name_missing).",
+        "sentence": "The request is blocked.",
+        "cure": "The depositor fixes what blocked it and requests publication again.",
+        "command": null,
+        "line": "The request is blocked (owner_name_missing). The depositor fixes what blocked it and requests publication again."
+      },
+      {
+        "code": "review_not_started",
+        "class": "unknown",
+        "cleared_by": "override",
+        "detail": null,
+        "statement": "No review of the screened commit has started.",
+        "sentence": "No review of the screened commit has started.",
+        "cure": "A review starts only for a request that is waiting for its decision. An administrator may approve over it; the approval records the override.",
+        "command": null,
+        "line": "No review of the screened commit has started. A review starts only for a request that is waiting for its decision. An administrator may approve over it; the approval records the override (--force)."
+      }
+    ],
+    "description": {
+      "headline": "Publication review: FAIL",
+      "tone": "stop",
+      "lines": [
+        "The request is blocked (owner_name_missing). The depositor fixes what blocked it and requests publication again.",
+        "No review of the screened commit has started. A review starts only for a request that is waiting for its decision. An administrator may approve over it; the approval records the override (--force).",
+        "This approval has started publishing; it passed the gates when it started and is continued without them.",
+        "Not assessed: whether the text names the depositors."
+      ],
+      "summary": null,
+      "next": "nemar admin publish approve nm000723 --resume"
+    },
+    "review": null,
+    "history": [],
+    "history_truncated": false
+  }
+}

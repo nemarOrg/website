@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "fifty reviews of other depositors' datasets reached a model in the last day (the platform's daily allowance)",
+    "request": "POST /admin/publish/<dataset>/review/start with no body",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 409,
+  "body": {
+    "code": "platform_limit",
+    "error": "The platform's allowance of reviews for the last 24 hours is spent. A start works again as earlier reviews pass 24 hours."
+  }
+}

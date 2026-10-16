@@ -105,6 +105,10 @@ jobs:
       # sparse-checkout list is the whole cost of covering another contract.
       # test/private-site-contract-drift.test.ts is the third, against
       # shared/contract/private-site.ts.
+      # test/publication-review-copy-drift.test.ts is a FOURTH, against
+      # shared/contract/publication-review-copy.ts; same `dev` pairing.
+      # The same test also compares the page's numbers with shared/publication-limits.ts, which
+      # sits beside the contract directory; without it that test skips, visibly.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -113,6 +117,8 @@ jobs:
             /shared/contract/account-copy.ts
             /shared/contract/docs-auth.ts
             /shared/contract/private-site.ts
+            /shared/contract/publication-review-copy.ts
+            /shared/publication-limits.ts
           sparse-checkout-cone-mode: false
           ref: dev
       - name: Vitest
@@ -121,6 +127,7 @@ jobs:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
+          NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
 
   build:
     name: build

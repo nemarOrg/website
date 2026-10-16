@@ -1,0 +1,64 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "review on, screen clean, request requested, no review row",
+    "request": "GET /admin/publish/nm000720/review",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 200,
+  "body": {
+    "environment": "production",
+    "enabled": true,
+    "dataset_id": "nm000720",
+    "request_id": 1,
+    "request_status": "requested",
+    "anonymous": false,
+    "identifier_screen": {
+      "state": "clean",
+      "headline": "Identifier screen: clean",
+      "tone": "ok",
+      "lines": [
+        "Files: 10; EDF/BDF headers read: 4 of 4.",
+        "Not read: the contents of sidecars and tables in earlier commits.",
+        "Scanner identifier-scan@abcdef1; commit 0123456789ab."
+      ]
+    },
+    "screen_acknowledgment": null,
+    "block_reason": null,
+    "started_publishing": false,
+    "total_files": null,
+    "applies": true,
+    "gate": "enforced",
+    "outcome": "action_required",
+    "start_offered": true,
+    "screen_gate": "clear",
+    "reasons": [
+      {
+        "code": "review_not_started",
+        "class": "unknown",
+        "cleared_by": "override",
+        "detail": null,
+        "statement": "No review of the screened commit has started.",
+        "sentence": "No review of the screened commit has started.",
+        "cure": "Start it. An administrator may approve over it; the approval records the override.",
+        "command": "nemar admin publish start nm000720",
+        "line": "No review of the screened commit has started. Start it: nemar admin publish start nm000720. An administrator may approve over it; the approval records the override (--force)."
+      }
+    ],
+    "description": {
+      "headline": "Publication review: action required",
+      "tone": "warn",
+      "lines": [
+        "No review of the screened commit has started. Start it: nemar admin publish start nm000720. An administrator may approve over it; the approval records the override (--force).",
+        "Not assessed: whether the text names the depositors."
+      ],
+      "summary": null,
+      "next": "nemar admin publish start nm000720"
+    },
+    "review": null,
+    "history": [],
+    "history_truncated": false
+  }
+}

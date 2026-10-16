@@ -1,0 +1,16 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "an administrator's session cookie and no Origin header",
+    "request": "POST /admin/publish/<dataset>/review/start with no body",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 403,
+  "body": {
+    "error": "origin_not_allowed",
+    "code": "origin_not_allowed",
+    "message": "This request did not come from a NEMAR page, so it was not accepted."
+  }
+}

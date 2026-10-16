@@ -1,0 +1,15 @@
+{
+  "_provenance": {
+    "captured_from": "nemar-cli backend test harness, real routes and real SQLite D1, GitHub stand-in at the boundary",
+    "nemar_cli_commit": "7f3aedd95dd2d2123a93ea5200d822fa95003860",
+    "captured_on": "2026-10-15",
+    "scenario": "screen clean, review passing, the Worker has no GitHub credential, request_id only",
+    "request": "POST /admin/publish/<dataset>/approve-dispatch with {\"request_id\":1}",
+    "note": "ids and timestamps are the harness's; no real person or credential"
+  },
+  "status": 502,
+  "body": {
+    "error": "dispatch_unconfigured",
+    "message": "This server has no GitHub credential configured, so an approval cannot be dispatched from the web. Retrying will not help. Approve from a terminal, and ask an administrator to fix the configuration."
+  }
+}
