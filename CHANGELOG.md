@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.32] - 2026-10-16
+
 ### Added
 
 - **The admin publication page shows the review and the identifier screen** (#459, ADR 0027; nemar-cli#1731).
@@ -36,6 +38,11 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **Account copy matches nemar-cli `dev` again** (#464).
   Three upload-access strings were reworded in nemar-cli (PR #1769): `upload_access.invite.body` and `upload_access.gate.body` now say that being added as a collaborator on someone else's dataset needs upload access too, and that the email address must be verified first, and `upload_access.request.form_body` now asks which dataset you want to collaborate on.
   The website's copy table was transcribed from the old wording, so the `account-copy-drift` test failed on every pull request; it is back in step and the test passes.
+
+## [0.2.31] - 2026-10-13
+
+### Changed
+
 - **Server-side calls to the API can name the visitor** (#449, ADR 0026).
   A new `apiFetch` sends the catalog reads, the session lookup, the notices feed, and the sign-in, ORCID, news-media, device-authorization and `/api/v1` proxy calls over a Cloudflare service binding when the project declares one, with the visitor's address in `X-Forwarded-For`, so the API's rate limiter counts each visitor on their own instead of the site's few shared addresses as one.
   The project declares the binding in `wrangler.toml` (production, the `nemar-api` Worker) and `wrangler.test.toml` (staging, `nemar-api-dev`); previews go without, because a branch build must not be able to name a visitor at the production API.
