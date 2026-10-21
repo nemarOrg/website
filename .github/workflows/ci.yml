@@ -109,6 +109,10 @@ jobs:
       # shared/contract/publication-review-copy.ts; same `dev` pairing.
       # The same test also compares the page's numbers with shared/publication-limits.ts, which
       # sits beside the contract directory; without it that test skips, visibly.
+      # test/validator-pin-drift.test.ts is a FIFTH, against validator-version.json at the root of
+      # nemar-cli: the release of the BIDS validator that the CLI, the repository check and the
+      # upload page all run. Same `dev` pairing. When nemar-cli moves the pin, this job fails until
+      # this repo's copy and the vendored validator follow (ADR 0028).
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -119,6 +123,7 @@ jobs:
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
             /shared/publication-limits.ts
+            /validator-version.json
           sparse-checkout-cone-mode: false
           ref: dev
       - name: Vitest
@@ -128,6 +133,7 @@ jobs:
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
+          NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json
 
   build:
     name: build

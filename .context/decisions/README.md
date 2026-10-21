@@ -59,3 +59,4 @@ Add new entries here as you create ADRs:
 - ADR 0025 - [Catalog reads are cached for minutes to hours and fall back to a stale copy](0025-catalog-reads-cached-with-stale-if-error.md) (accepted)
 - ADR 0026 - [Server-side calls to the API go over a service binding that names the visitor](0026-server-side-api-calls-go-over-a-service-binding.md) (accepted)
 - ADR 0027 - [The admin approval page prints the API's review words and computes no verdict](0027-the-admin-approval-page-prints-the-apis-review-words.md) (accepted)
+- ADR 0028 - [The BIDS validator runs in the browser from a vendored bundle, in a worker](0028-bids-validator-vendored-bundle-in-a-worker.md) (accepted)

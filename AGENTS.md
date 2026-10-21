@@ -74,7 +74,7 @@ src/
     api/auth/**                       session-backed proxies: code, email change, profile, unlink, logout, keys
     api/v1/[...path].ts               generic authenticated API proxy
     dashboard.astro                   my-datasets list + publish status (app host)
-    upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + direct-to-storage PUTs)
+    upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + full BIDS validation in a worker + direct-to-storage PUTs)
     settings.astro                    account: name/email/ORCID/GitHub/profile self-service; CLI keys card
     admin/publication-requests.astro  admin-only (role=admin; 404s for others)
     about.astro support.astro community.astro
@@ -91,7 +91,8 @@ src/
     device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
     device-authorize.ts               pure view model for /cli/authorize (no mirrored refusal vocabulary)
     device-authorize-dev.ts           astro-dev stand-in for the device-auth + keys backend (epic #1272 phase 2)
-    bids-precheck.ts                  hand-rolled client-side BIDS structural pre-check (upload)
+    bids-precheck.ts                  hand-rolled client-side BIDS structural pre-check (upload); the instant check that runs before the validator
+    bids-validation/                  full BIDS validation on /upload (#161, ADR 0028): worker client, gate (the repository check's rule), report, panel, wording; protocol.ts is shared with the worker bundle and imports nothing
     flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
     host.ts                           two-host route classification + noindex/production host logic
     embed.ts                          embed route matcher, ?theme= parser, embed/dataset URLs, iframe snippet
@@ -113,6 +114,10 @@ src/
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
+public/vendor/bids-validator/<ver>/   GENERATED worker bundle of the BIDS validator + SHA256SUMS + provenance + licenses (ADR 0028); never hand-edited
+validator-version.json                copy of nemar-cli's validator pin; CI fails when the two differ
+scripts/vendor-bids-validator.ts      Deno script that rebuilds public/vendor/ from the pin (not part of `bun run build`)
+scripts/bids-validator-worker.ts      the module it bundles (a Deno program, excluded from tsconfig)
 ```
 
 ---
@@ -145,6 +150,9 @@ bun run build      # outputs dist/
 bun run test       # vitest unit tests
 bun run typecheck  # astro check (must stay green)
 bun run lint       # biome
+# Deno, only when the validator pin or its worker sources change (ADR 0028):
+deno run -A scripts/vendor-bids-validator.ts            # rebuild public/vendor/ from the committed lock
+deno run -A scripts/vendor-bids-validator.ts --relock   # the pin moved: resolve its dependencies afresh
 ```
 
 ## Quick Commands
@@ -261,6 +269,11 @@ Remember: this is a frontend over established backends. The interesting decision
 ## Project-Specific Guidelines
 
 - **Astro scoped `<style>` doesn't cross component boundaries.** If two components share styling (e.g., `SiteNotices.astro` and `src/pages/admin/notices.astro`'s matched notice-tone rules), duplicate the CSS in both files with a sync comment. Don't try to "DRY" with a global stylesheet — the components are intentionally self-contained.
+- **The BIDS validator is vendored and pinned with nemar-cli (ADR 0028).**
+  `validator-version.json` is a copy of nemar-cli's pin, and `test/validator-pin-drift.test.ts` fails CI when nemar-cli `dev` moves it (its bump workflow runs monthly) until you copy the file and run `deno run -A scripts/vendor-bids-validator.ts --relock`, then commit the new `public/vendor/bids-validator/<version>/` and `scripts/bids-validator-worker.lock`.
+  `test/bids-validator-vendor.test.ts` fails if `public/vendor/` was edited by hand, or if `scripts/bids-validator-worker.ts` or `src/lib/bids-validation/protocol.ts` changed without a rebuild.
+  `protocol.ts` must import nothing at runtime (Deno bundles it), and any relative import it gains needs its `.ts` extension.
+  The validator runs in a Web Worker whose Content-Security-Policy is its own header rule in `public/_headers`, which is where its `'unsafe-eval'` lives. Do not put `'unsafe-eval'` in the page policy (`src/middleware.ts`) for it; the page never needs it (`/dataset/*` has its own, ADR 0009).
 - **Multi-modality filtering is a known tradeoff.** Server-side offset pagination + client-side AND/OR multi-modality means the `total_count` in the count display reflects server total, not client-filtered count when 2+ modalities are selected. Move AND/OR to the API only when the backend supports it.
 - **Logo SVG (`public/nemar-logo.svg`) uses `currentColor`** — themes via parent color inheritance. Don't hardcode fill.
 - **The brain hero has a separate image per theme** (`--hero-brain-image` in `src/pages/index.astro`). Dark mode: `public/hero-brain.png` with a `screen` blend. Light mode: `public/hero-brain-light.png` (blue ink on transparent, made from the dark image by `scripts/make-hero-brain-light.py`) with normal blending. The dark image keeps its line work in brightness under a constant 18% alpha, so inverting and multiplying it leaves almost no ink; do not go back to that. Don't refactor without verifying both themes.

@@ -5,9 +5,38 @@
 #
 # The full security header set — including Content-Security-Policy — therefore
 # lives in `src/middleware.ts`, which runs on every SSR response. Do NOT add a
-# CSP here: it would silently never apply to the pages it's meant to protect.
+# page CSP here: it would silently never apply to the pages it's meant to protect.
+# The one policy below is not a page's: it is for a Web Worker script, which does
+# take its policy from its own response.
 #
 # `nosniff` is the one header that genuinely matters for static assets: it
 # stops content-type sniffing of scripts, images, and fonts.
 /*
   X-Content-Type-Options: nosniff
+
+# The BIDS validator worker (website#161, ADR 0028) is a static asset that runs
+# as a Web Worker, and a worker takes its Content-Security-Policy from its own
+# response, never from the page that starts it. So this header is the policy the
+# validator runs under; the page's policy (src/middleware.ts) is not touched and
+# gains no 'unsafe-eval'.
+#
+#   script-src 'self' 'unsafe-eval'
+#     The validator evaluates the BIDS schema's expressions, and compiles its
+#     JSON checks, with the Function constructor. That is `unsafe-eval`. Besides
+#     here it is allowed only on /dataset/* for the signal viewer (ADR 0009).
+#   connect-src https://raw.githubusercontent.com
+#     The one request the validator can make: a HED schema version it does not
+#     ship is downloaded from there. Nothing else can leave the worker, which
+#     makes "your files are not sent anywhere" a rule the browser enforces and
+#     not only a fact about the code.
+#   default-src 'none'
+#     Everything else is refused.
+#   Referrer-Policy: no-referrer
+#     A worker sets its own referrer policy from its response too. The one request
+#     the validator can make then carries no Referer, so GitHub is not told which
+#     page of this site asked.
+#
+# test/bids-validator-vendor.test.ts pins this rule.
+/vendor/bids-validator/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval'; connect-src https://raw.githubusercontent.com
+  Referrer-Policy: no-referrer

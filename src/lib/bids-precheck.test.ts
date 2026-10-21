@@ -31,6 +31,19 @@ describe("scanBidsDrop", () => {
     expect(result.fileCount).toBe(4);
   });
 
+  it("does not call a root .bidsignore a file that is not BIDS-shaped", () => {
+    const result = scanBidsDrop([
+      f("dataset_description.json", 200),
+      f(".bidsignore", 20),
+      f("notes.txt", 20),
+      f("sub-01/eeg/sub-01_task-rest_eeg.set"),
+    ]);
+    // `.bidsignore` is a BIDS file; a stray notes.txt is what the warning is for.
+    expect(
+      result.warnings.filter((w) => w.code === "non_bids_top_level").map((w) => w.path),
+    ).toEqual(["notes.txt"]);
+  });
+
   it("rejects an empty drop", () => {
     const result = scanBidsDrop([]);
     expect(result.errors.map((e) => e.code)).toContain("empty_drop");

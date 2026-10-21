@@ -1,0 +1,3 @@
+onset	duration	trial_type	HED
+0.0	1.0	go	Sensory-event, Visual-presentation
+5.0	1.0	stop	Sensory-event, Auditory-presentation
