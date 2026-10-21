@@ -1027,7 +1027,10 @@ const requestedLede = requestedDate
 
     // Every step from here on can throw (the DOM, the worker's answer, a file that cannot be
     // read), and a throw must not leave the page "running" with the button disabled and Cancel
-    // doing nothing. It is "could not run", like every other way the check can fail.
+    // doing nothing. It is "could not run", like every other way the check can fail, with one
+    // exception: set as soon as the gate has answered, so that a verdict with errors in it
+    // survives a throw while it is drawn.
+    let blockingErrors = 0;
     try {
       panel.showRunning(files.length);
       // The button that started this is about to be hidden, and focus would fall to the page.
@@ -1053,18 +1056,30 @@ const requestedLede = requestedDate
       );
       if (generation !== validationGeneration) return;
       if (run.signal.aborted) return stopped();
+      blockingErrors = verdict.blocking.length;
       validationRun = null;
-      validation = { kind: "finished", blockingErrors: verdict.blocking.length };
+      validation = { kind: "finished", blockingErrors };
       panel.showFinished({
         report: outcome.report,
         verdict,
         validatorVersion: VALIDATOR_VERSION,
       });
-      setStatus(verdict.blocking.length > 0 ? BLOCKED_STATUS : null);
+      setStatus(blockingErrors > 0 ? BLOCKED_STATUS : null);
       syncSubmit();
     } catch (error) {
       if (generation !== validationGeneration) return;
       console.error("[bids-validation] the check failed on this page:", error);
+      if (blockingErrors > 0) {
+        // The check ran and found errors that stop the upload; only showing them failed. Falling
+        // through to "could not run" would turn that verdict into a state that lets the upload
+        // through, so the verdict stays: the button stays disabled and the line beside it says
+        // why, and the console has the error.
+        validationRun = null;
+        validation = { kind: "finished", blockingErrors };
+        setStatus(BLOCKED_STATUS);
+        syncSubmit();
+        return;
+      }
       validationCannotRun(`the page could not finish the check (${describeError(error)})`);
     }
   }

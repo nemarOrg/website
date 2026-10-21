@@ -154,4 +154,28 @@ describe("the upload page script, read as source", () => {
     }
     expect(body.slice(catchAt)).toContain("validationCannotRun(");
   });
+
+  it("has startFullValidation keep a verdict with errors when only drawing it throws", () => {
+    // The state is "finished" before the panel draws, so a throw while drawing would otherwise
+    // reach validationCannotRun, which sets "unavailable" and lets the upload through although the
+    // validator found errors. The count is remembered when the gate answers, and the catch keeps
+    // the verdict, and the upload blocked, before it falls back to "could not run".
+    const body = pageFunction("startFullValidation");
+    const catchAt = body.indexOf("} catch (error) {");
+    const remembered = body.indexOf("blockingErrors = verdict.blocking.length");
+    const drawn = body.indexOf("panel.showFinished(");
+    expect(remembered).toBeGreaterThan(-1);
+    expect(remembered).toBeLessThan(drawn);
+    expect(drawn).toBeLessThan(catchAt);
+
+    const kept = body.indexOf("if (blockingErrors > 0) {", catchAt);
+    const fallback = body.indexOf("validationCannotRun(", catchAt);
+    expect(kept).toBeGreaterThan(catchAt);
+    expect(fallback).toBeGreaterThan(kept);
+    const keptBlock = body.slice(kept, fallback);
+    expect(keptBlock).toContain('validation = { kind: "finished", blockingErrors }');
+    expect(keptBlock).toContain("setStatus(BLOCKED_STATUS)");
+    expect(keptBlock).toContain("syncSubmit()");
+    expect(keptBlock).toContain("return;");
+  });
 });
