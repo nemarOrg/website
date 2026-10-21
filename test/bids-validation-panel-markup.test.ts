@@ -50,6 +50,29 @@ describe("the panel module and its markup", () => {
   });
 });
 
+/** `source` without its comments, so a sentence that names a forbidden API is not a use of it. */
+const withoutComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+
+describe("the panel's text goes in as text", () => {
+  // File names come from the person's disk and messages from the validator, and neither is trusted
+  // as markup: `panel.ts` sets text with `textContent` and nothing that parses HTML. A rule only a
+  // reviewer remembers stops holding, so this is it written down.
+  it.each([
+    "innerHTML",
+    "outerHTML",
+    "insertAdjacentHTML",
+    "document.write",
+    "createContextualFragment",
+  ])("never uses %s", (api) => {
+    expect(withoutComments(PANEL_TS)).not.toContain(api);
+  });
+
+  it("does set text with textContent, so the check above is looking at the right file", () => {
+    expect(withoutComments(PANEL_TS)).toContain(".textContent =");
+  });
+});
+
 /**
  * The text of a function declared in the page script, from its `function` line to its closing
  * brace (the first line that is just `  }`, since everything nested is indented further).
