@@ -13,6 +13,28 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **The upload page validates the dropped folder with the BIDS validator before any file is sent** (#161, ADR 0028).
+  Once the instant structure check passes, the page runs `@bids/validator` 3.0.2, the release nemar-cli pins and the repository check runs, over the folder in a Web Worker, so the page stays responsive and the validator is not fetched until a folder is validated.
+  Findings are grouped by code, errors first, each with its file paths, and warnings are listed collapsed.
+  An error stops the upload button and a warning never does, which is the repository check's rule, and like that check the page ignores errors on git-annex pointer files.
+  One rule is more lenient than the check: an error that only says a HED schema could not be downloaded is listed with the warnings, because a download that fails in the browser is not a fault in the dataset.
+  If the validator cannot run (no Web Worker, a failed download, a crash, no answer in 15 minutes) the page says so in a state of its own, never as a pass, and the upload stays possible, because the repository check is still the authority.
+  The check runs on the person's computer and no file content is sent: a dataset whose HED schema ships with the validator makes no request at all, and one that names a version that does not downloads that public schema file from `raw.githubusercontent.com`, with no Referer, which is the only host the worker's own Content-Security-Policy (`public/_headers`) allows.
+  The page's policy is unchanged and gains no `'unsafe-eval'`.
+  The validator is a 10 MB file built with Deno and committed under `public/vendor/bids-validator/`; `/upload`'s own script grows by 8.9 KB (3.3 KB gzipped).
+  The page's introduction now says the validation runs in the browser and again on the dataset repository.
+
+### Changed
+
+- **A `.bidsignore` file is uploaded with the dataset from the browser** (#161).
+  The dropzone skipped every name that starts with a dot, so a dataset that lists its non-BIDS files in `.bidsignore` could not pass the BIDS check, on this page or in the repository, and had no way to fix it from the browser.
+  Every other dotfile is still skipped, and the structure check no longer calls a root `.bidsignore` a file that does not look BIDS-shaped.
+- **CI fails when `validator-version.json` differs from nemar-cli's** (#161, ADR 0028).
+  The file is a copy of nemar-cli's pin, and `test/validator-pin-drift.test.ts` compares the two against nemar-cli `dev`, as the account-copy tests do for their contracts.
+  When nemar-cli moves the pin, which its bump workflow does monthly, the website's CI fails until the copy is updated and `deno run -A scripts/vendor-bids-validator.ts --relock` has rebuilt the validator.
+
 ## [0.2.32] - 2026-10-16
 
 ### Added
