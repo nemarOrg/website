@@ -1,5 +1,13 @@
 {
   "extends": "astro/tsconfigs/strict",
   "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist"]
+  // The two scripts are Deno programs (`jsr:` and `Deno.*`, run by scripts/vendor-bids-validator.ts,
+  // which type-checks them itself), and public/vendor is generated JavaScript the site never reads
+  // as source. None of it belongs to this program.
+  "exclude": [
+    "dist",
+    "public/vendor",
+    "scripts/vendor-bids-validator.ts",
+    "scripts/bids-validator-worker.ts"
+  ]
 }
