@@ -36,6 +36,24 @@ export async function nodeProcess(): Promise<NodeProcess> {
   return await import(/* @vite-ignore */ specifier);
 }
 
+/** A thread from `node:worker_threads`: separate, running on its own, ended by `terminate()`. */
+export interface NodeThread {
+  on(event: "message", listener: (data: unknown) => void): void;
+  on(event: "error", listener: (error: unknown) => void): void;
+  on(event: "exit", listener: (code: number) => void): void;
+  postMessage(value: unknown): void;
+  terminate(): Promise<number>;
+}
+
+export interface NodeWorkerThreads {
+  Worker: new (code: string, options: { eval: true }) => NodeThread;
+}
+
+export async function nodeWorkerThreads(): Promise<NodeWorkerThreads> {
+  const specifier = "node:worker_threads";
+  return await import(/* @vite-ignore */ specifier);
+}
+
 interface NodeServer {
   listen(port: number, host: string, onListening: () => void): void;
   close(onClosed: () => void): void;

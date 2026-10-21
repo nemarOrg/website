@@ -1,12 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type NodeThread, nodeWorkerThreads } from "../../../test/node";
 import pin from "../../../validator-version.json";
 import {
   VALIDATOR_VERSION,
+  describeDuration,
   describeError,
   isValidationReport,
   runValidation,
   workerUrl,
 } from "./client";
+import { canUpload } from "./gate";
 
 describe("workerUrl", () => {
   it("serves the pinned release by default", () => {
@@ -121,5 +124,88 @@ describe("runValidation, where there is no browser to run it in", () => {
     const controller = new AbortController();
     controller.abort();
     expect(await runValidation([], { signal: controller.signal })).toEqual({ kind: "cancelled" });
+  });
+});
+
+describe("describeDuration", () => {
+  it("says a length of time as a reason would", () => {
+    expect(describeDuration(15 * 60 * 1000)).toBe("15 minutes");
+    expect(describeDuration(60_000)).toBe("1 minute");
+    expect(describeDuration(2000)).toBe("2 seconds");
+    expect(describeDuration(1000)).toBe("1 second");
+    expect(describeDuration(150)).toBe("150 milliseconds");
+    expect(describeDuration(1500)).toBe("1500 milliseconds");
+  });
+});
+
+// Node has no `Worker`, so `runValidation` is given the browser's `Worker` surface (`onmessage`,
+// `onerror`, `postMessage`, `terminate`) over a real thread from `node:worker_threads`: a separate
+// thread that really runs, never answers, and is really ended by `terminate()`. The timers are the
+// real ones, with a deadline short enough to wait for. What these cover is `runValidation`'s own
+// logic, the deadline and the cancel, against something that behaves as a hung worker does.
+const { Worker: NodeWorker } = await nodeWorkerThreads();
+
+describe("runValidation, against a worker that never answers", () => {
+  const NEVER_ANSWERS = "setInterval(() => {}, 1000);";
+  let exits: Promise<number>[] = [];
+
+  class ThreadWorker {
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onerror: ((event: { message: string }) => void) | null = null;
+    onmessageerror: (() => void) | null = null;
+    private readonly thread: NodeThread = new NodeWorker(NEVER_ANSWERS, { eval: true });
+
+    constructor() {
+      exits.push(new Promise<number>((resolve) => this.thread.on("exit", resolve)));
+      this.thread.on("message", (data) => this.onmessage?.({ data }));
+      this.thread.on("error", (error) => this.onerror?.({ message: String(error) }));
+    }
+
+    postMessage(message: unknown): void {
+      this.thread.postMessage(message);
+    }
+
+    terminate(): void {
+      void this.thread.terminate();
+    }
+  }
+
+  beforeEach(() => {
+    exits = [];
+    (globalThis as { Worker?: unknown }).Worker = ThreadWorker;
+  });
+  afterEach(() => {
+    // Back to a browser that has none, which the tests above rely on.
+    (globalThis as { Worker?: unknown }).Worker = undefined;
+  });
+
+  it("ends it at the deadline, and says the check could not run", async () => {
+    const started = performance.now();
+    const outcome = await runValidation([], { deadlineMs: 150 });
+
+    expect(performance.now() - started).toBeGreaterThanOrEqual(100);
+    expect(outcome).toEqual({
+      kind: "unavailable",
+      reason: "the check had not finished after 150 milliseconds",
+    });
+    // The thread was ended: `terminate()` was called, and the thread's own `exit` followed.
+    expect(exits).toHaveLength(1);
+    expect(await exits[0]).toBeTypeOf("number");
+    // What the page does with that state: the upload is possible, and it is not a pass.
+    expect(
+      canUpload({
+        structurePassed: true,
+        validation: { kind: "unavailable", reason: "the check had not finished" },
+      }),
+    ).toBe(true);
+  });
+
+  it("ends it when the person cancels, and the deadline does not fire afterwards", async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    const outcome = await runValidation([], { signal: controller.signal, deadlineMs: 200 });
+
+    expect(outcome).toEqual({ kind: "cancelled" });
+    expect(await exits[0]).toBeTypeOf("number");
   });
 });

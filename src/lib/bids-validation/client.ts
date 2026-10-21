@@ -42,6 +42,25 @@ export interface RunOptions {
   /** Aborting terminates the worker and settles the run as `cancelled`. */
   readonly signal?: AbortSignal;
   readonly onPhase?: (phase: "tree" | "validate", fileCount: number) => void;
+  /**
+   * How long to wait for an answer before giving up as "could not run". The page uses the default,
+   * `VALIDATION_DEADLINE_MS`; a parameter so a test can run a worker that never answers and see it
+   * ended, without waiting a quarter of an hour or faking the clock.
+   */
+  readonly deadlineMs?: number;
+}
+
+/** A length of time as a reason would say it: "15 minutes", "2 seconds", "150 milliseconds". */
+export function describeDuration(ms: number): string {
+  if (ms >= 60_000 && ms % 60_000 === 0) {
+    const minutes = ms / 60_000;
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  }
+  if (ms >= 1000 && ms % 1000 === 0) {
+    const seconds = ms / 1000;
+    return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  }
+  return `${ms} milliseconds`;
 }
 
 /**
@@ -51,7 +70,7 @@ export interface RunOptions {
  */
 export function runValidation(
   entries: readonly WorkerFileEntry[],
-  { signal, onPhase }: RunOptions = {},
+  { signal, onPhase, deadlineMs = VALIDATION_DEADLINE_MS }: RunOptions = {},
 ): Promise<RunOutcome> {
   return new Promise<RunOutcome>((resolve) => {
     if (signal?.aborted) return resolve({ kind: "cancelled" });
@@ -78,9 +97,9 @@ export function runValidation(
       () =>
         settle({
           kind: "unavailable",
-          reason: `the check had not finished after ${VALIDATION_DEADLINE_MS / 60_000} minutes`,
+          reason: `the check had not finished after ${describeDuration(deadlineMs)}`,
         }),
-      VALIDATION_DEADLINE_MS,
+      deadlineMs,
     );
 
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
