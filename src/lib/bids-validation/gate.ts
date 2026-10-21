@@ -163,6 +163,30 @@ export function applyGate(issues: readonly ReportIssue[], pointers: ReadonlySet<
   return { blocking, annexSkipped, schemaDownloadFailed, warnings };
 }
 
+/** A dropped file and where it sits in the dataset (no leading slash), as the page holds it. */
+export interface DroppedCandidate {
+  readonly path: string;
+  readonly file: PointerCandidate;
+}
+
+/**
+ * What the page does with a finished run: find which of the errors sit on pointer files, then
+ * apply the gate. It is one function so that the tests that run the real validator on real files
+ * go through the same lines the page does.
+ */
+export async function judge(
+  issues: readonly ReportIssue[],
+  files: readonly DroppedCandidate[],
+): Promise<Verdict> {
+  const byLocation = new Map<string, PointerCandidate>(
+    files.map(({ path, file }) => [`/${path}`, file]),
+  );
+  const pointers = await findAnnexPointers(errorLocations(issues), (location) =>
+    byLocation.get(location),
+  );
+  return applyGate(issues, pointers);
+}
+
 /** Where the full validation stands, for the upload button. */
 export type ValidationState =
   | { readonly kind: "idle" }

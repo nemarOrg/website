@@ -50,19 +50,72 @@ describe("the panel module and its markup", () => {
   });
 });
 
-describe("the upload page and the panel", () => {
+/**
+ * The text of a function declared in the page script, from its `function` line to its closing
+ * brace (the first line that is just `  }`, since everything nested is indented further).
+ */
+function pageFunction(name: string): string {
+  const start = UPLOAD.indexOf(`function ${name}(`);
+  expect(start, `${name} is declared in the page script`).toBeGreaterThan(-1);
+  const end = UPLOAD.indexOf("\n  }\n", start);
+  return UPLOAD.slice(start, end + "\n  }\n".length);
+}
+
+// Nothing here renders the page: there is no DOM in these tests and no browser harness in this
+// repository (website#435). These read the page script as text, for the wiring that keeps a
+// failure of the check from becoming a broken upload page, and say so. What the page does when the
+// worker misbehaves was run in Chrome (the PR description lists the cases).
+describe("the upload page script, read as source", () => {
   it("includes the component and binds the host it renders", () => {
     expect(UPLOAD).toContain("<BidsValidationPanel />");
     expect(UPLOAD).toContain('document.querySelector<HTMLElement>("[data-bidsval]")');
   });
 
-  it("survives a panel that cannot be bound, and says the check could not run", () => {
+  it("binds the panel inside a try, so markup and script that drifted apart cannot stop it", () => {
     // `bindValidationPanel` throws on a missing part. Unguarded that stops the page script, and
     // with it the whole upload page.
     expect(UPLOAD).toMatch(
       /try \{\s*validationPanel = bidsvalEl \? bindValidationPanel\(bidsvalEl\)/,
     );
-    expect(UPLOAD).toContain("validationCannotRun(");
-    expect(UPLOAD).toContain("the validation panel is missing from this page");
+  });
+
+  it("sends a page with no usable panel to validationCannotRun when Validate is pressed", () => {
+    expect(UPLOAD).toContain(
+      'validationCannotRun("the validation panel is missing from this page")',
+    );
+  });
+
+  it("has validationCannotRun use the panel first and the line beside the button after it", () => {
+    const body = pageFunction("validationCannotRun");
+    // The state that lets the upload through...
+    expect(body).toContain('validation = { kind: "unavailable", reason }');
+    expect(body).toContain("syncSubmit()");
+    // ... and where a person is told: the panel when it can, otherwise the status line.
+    const panel = body.indexOf("validationPanel.showUnavailable(reason)");
+    const fallback = body.indexOf("setStatus(");
+    expect(panel).toBeGreaterThan(-1);
+    expect(fallback).toBeGreaterThan(panel);
+    expect(body).toContain("unavailableWords(reason)");
+    expect(body).toMatch(/catch \(error\) \{[^}]*console\.error/);
+  });
+
+  it("has startFullValidation turn a throw after the run into 'could not run'", () => {
+    const body = pageFunction("startFullValidation");
+    const tryAt = body.indexOf("try {");
+    const catchAt = body.indexOf("} catch (error) {");
+    expect(tryAt).toBeGreaterThan(-1);
+    expect(catchAt).toBeGreaterThan(tryAt);
+    // Everything that can throw is inside the try: the panel, the run, the gate, the drawing.
+    for (const call of [
+      "panel.showRunning(",
+      "await runValidation(",
+      "await judge(",
+      "panel.showFinished(",
+    ]) {
+      const at = body.indexOf(call);
+      expect(at, `${call} is in startFullValidation`).toBeGreaterThan(tryAt);
+      expect(at, `${call} is inside the try`).toBeLessThan(catchAt);
+    }
+    expect(body.slice(catchAt)).toContain("validationCannotRun(");
   });
 });

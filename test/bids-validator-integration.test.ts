@@ -16,11 +16,12 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { isValidationReport } from "../src/lib/bids-validation/client";
 import {
   applyGate,
   errorLocations,
-  findAnnexPointers,
   isSchemaDownloadFailure,
+  judge,
 } from "../src/lib/bids-validation/gate";
 import {
   type RawValidationResult,
@@ -77,7 +78,11 @@ function drop(files: ReadonlyMap<string, Bytes>): WorkerFileEntry[] {
 /** What the worker does between receiving a drop and answering. */
 async function validate(entries: readonly WorkerFileEntry[]): Promise<ValidationReport> {
   const tree = await bundle.fileListToTree(withRelativePaths(entries));
-  return toReport(await bundle.validate(tree, validatorOptions()));
+  const report = toReport(await bundle.validate(tree, validatorOptions()));
+  // Every report these tests get is held to the check the page makes of a worker's answer, after
+  // the structured clone a message goes through, so the check cannot drift from what is sent.
+  expect(isValidationReport(structuredClone(report)), "a report the worker could send").toBe(true);
+  return report;
 }
 
 /**
@@ -267,17 +272,22 @@ describe("a dataset with a git-annex pointer where a table should be", () => {
   });
 
   it("is let through, as the repository check lets it through", async () => {
+    // `judge` is what the page calls with a finished run: the pointer lookup, then the gate.
     const entries = drop(withPointer);
     const report = await validate(entries);
-    const byLocation = new Map(entries.map(({ path, file }) => [`/${path}`, file]));
-    const pointers = await findAnnexPointers(errorLocations(report.issues), (location) =>
-      byLocation.get(location),
-    );
-    expect([...pointers]).toEqual(["/participants.tsv"]);
-
-    const verdict = applyGate(report.issues, pointers);
+    const verdict = await judge(report.issues, entries);
     expect(verdict.blocking).toEqual([]);
     expect(verdict.annexSkipped).toHaveLength(2);
+    expect(verdict.annexSkipped.map((issue) => issue.location)).toEqual([
+      "/participants.tsv",
+      "/participants.tsv",
+    ]);
+  });
+
+  it("is told apart from a real table of the same name, which `judge` does not let through", async () => {
+    const entries = drop(variant());
+    const report = await validate(entries);
+    expect((await judge(report.issues, entries)).annexSkipped).toEqual([]);
   });
 
   it("stops the upload when nothing says the file is a pointer", async () => {

@@ -63,7 +63,7 @@ export function runValidation(
     try {
       worker = new Worker(workerUrl(), { type: "module" });
     } catch (error) {
-      return resolve({ kind: "unavailable", reason: describe(error) });
+      return resolve({ kind: "unavailable", reason: describeError(error) });
     }
 
     const settle = (outcome: RunOutcome): void => {
@@ -85,9 +85,23 @@ export function runValidation(
 
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
       const message = event.data;
-      if (message.type === "phase") onPhase?.(message.phase, message.fileCount);
-      else if (message.type === "result") settle({ kind: "report", report: message.report });
-      else if (message.type === "failure") {
+      if (message.type === "phase") {
+        // Progress is only shown, so a page that cannot show it does not end the check.
+        try {
+          onPhase?.(message.phase, message.fileCount);
+        } catch (error) {
+          console.error("[bids-validation] the progress could not be shown:", error);
+        }
+      } else if (message.type === "result") {
+        // The worker is declared to send a report, and everything after this reads one. A script
+        // that sends anything else is a validator this page cannot use, said in words here and not
+        // as a TypeError somewhere in the panel.
+        settle(
+          isValidationReport(message.report)
+            ? { kind: "report", report: message.report }
+            : { kind: "unavailable", reason: "the validator sent an answer this page cannot read" },
+        );
+      } else if (message.type === "failure") {
         settle({ kind: "unavailable", reason: `${message.name}: ${message.message}` });
       }
     };
@@ -101,11 +115,58 @@ export function runValidation(
     try {
       worker.postMessage({ type: "validate", entries } satisfies WorkerRequest);
     } catch (error) {
-      settle({ kind: "unavailable", reason: describe(error) });
+      settle({ kind: "unavailable", reason: describeError(error) });
     }
   });
 }
 
-function describe(error: unknown): string {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isStringArray = (value: unknown): boolean =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
+
+const isOptionalString = (value: unknown): boolean =>
+  value === undefined || typeof value === "string";
+
+function isReportIssue(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.severity === "error" || value.severity === "warning" || value.severity === "ignore") &&
+    typeof value.code === "string" &&
+    isOptionalString(value.subCode) &&
+    isOptionalString(value.location) &&
+    isOptionalString(value.issueMessage) &&
+    isOptionalString(value.suggestion) &&
+    isOptionalString(value.rule) &&
+    (value.affects === undefined || isStringArray(value.affects))
+  );
+}
+
+/**
+ * Whether `value` is a report in the shape `ValidationReport` declares and the page reads: a
+ * finding is a severity and a code with optional text, the code descriptions are text, and the
+ * summary has its counts, lists and schema version. A message crosses from another script, so the
+ * type says what it should be and this says what it is.
+ */
+export function isValidationReport(value: unknown): value is ValidationReport {
+  if (!isRecord(value)) return false;
+  const { issues, codeMessages, summary } = value;
+  return (
+    Array.isArray(issues) &&
+    issues.every(isReportIssue) &&
+    isRecord(codeMessages) &&
+    Object.values(codeMessages).every((text) => typeof text === "string") &&
+    isRecord(summary) &&
+    typeof summary.schemaVersion === "string" &&
+    ["totalFiles", "size", "subjectCount", "sessionCount"].every(
+      (key) => typeof summary[key] === "number",
+    ) &&
+    ["tasks", "modalities", "dataTypes"].every((key) => isStringArray(summary[key]))
+  );
+}
+
+/** An error as one line, for a reason shown to a person or written to the console. */
+export function describeError(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }

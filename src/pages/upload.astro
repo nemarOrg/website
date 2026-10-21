@@ -667,16 +667,10 @@ const requestedLede = requestedDate
 </style>
 
 <script>
-  import { runValidation, VALIDATOR_VERSION } from "../lib/bids-validation/client";
-  import {
-    applyGate,
-    canUpload,
-    errorLocations,
-    findAnnexPointers,
-    type ValidationState,
-  } from "../lib/bids-validation/gate";
+  import { describeError, runValidation, VALIDATOR_VERSION } from "../lib/bids-validation/client";
+  import { canUpload, judge, type ValidationState } from "../lib/bids-validation/gate";
   import { type ValidationPanel, bindValidationPanel } from "../lib/bids-validation/panel";
-  import { BLOCKED_STATUS } from "../lib/bids-validation/wording";
+  import { BLOCKED_STATUS, unavailableWords } from "../lib/bids-validation/wording";
   import {
     type BidsScanError,
     type BidsScanResult,
@@ -980,11 +974,29 @@ const requestedLede = requestedDate
     validationPanel?.hide();
   }
 
-  /** The check cannot run here: the upload is let through (gate.ts), and the console says why. */
+  /**
+   * The check cannot run here: the upload is let through (gate.ts), the console says why, and so
+   * does the page. The panel says it; when there is no panel, or it cannot draw, the line beside
+   * the button does, so the page is never silent about a check it did not make. Not a verdict on
+   * the dataset: the repository check still runs.
+   */
   function validationCannotRun(reason: string) {
     console.warn("[bids-validation] could not run:", reason);
     validationRun = null;
     validation = { kind: "unavailable", reason };
+    let shown = false;
+    if (validationPanel) {
+      try {
+        validationPanel.showUnavailable(reason);
+        shown = true;
+      } catch (error) {
+        console.error("[bids-validation] the panel could not show that:", error);
+      }
+    }
+    if (!shown) {
+      const words = unavailableWords(reason);
+      setStatus(`${words.headline} ${words.detail}`);
+    }
     syncSubmit();
   }
 
@@ -998,9 +1010,6 @@ const requestedLede = requestedDate
     syncSubmit();
     setStatus(null);
     const files = state.files;
-    panel.showRunning(files.length);
-    // The button that started this is about to be hidden, and focus would fall to the page.
-    panel.focus();
 
     // The person pressed Cancel: back to the folder as dropped, ready to validate again.
     const stopped = () => {
@@ -1016,41 +1025,48 @@ const requestedLede = requestedDate
       syncSubmit();
     };
 
-    const outcome = await runValidation(
-      files.map((f) => ({ path: f.path, file: f.file })),
-      {
-        signal: run.signal,
-        onPhase: (phase, fileCount) => {
-          if (generation === validationGeneration) panel.setPhase(phase, fileCount);
-        },
-      },
-    );
-    if (generation !== validationGeneration) return;
-    if (outcome.kind === "cancelled") return stopped();
-    if (outcome.kind === "unavailable") {
-      // Not a verdict on the dataset: the check could not run. The repository check still will.
-      validationCannotRun(outcome.reason);
-      panel.showUnavailable(outcome.reason);
-      return;
-    }
+    // Every step from here on can throw (the DOM, the worker's answer, a file that cannot be
+    // read), and a throw must not leave the page "running" with the button disabled and Cancel
+    // doing nothing. It is "could not run", like every other way the check can fail.
+    try {
+      panel.showRunning(files.length);
+      // The button that started this is about to be hidden, and focus would fall to the page.
+      panel.focus();
 
-    // The repository check ignores errors on git-annex pointer files; so does this (gate.ts).
-    const byLocation = new Map<string, File>(files.map((f) => [`/${f.path}`, f.file]));
-    const pointers = await findAnnexPointers(errorLocations(outcome.report.issues), (location) =>
-      byLocation.get(location),
-    );
-    if (generation !== validationGeneration) return;
-    if (run.signal.aborted) return stopped();
-    validationRun = null;
-    const verdict = applyGate(outcome.report.issues, pointers);
-    validation = { kind: "finished", blockingErrors: verdict.blocking.length };
-    panel.showFinished({
-      report: outcome.report,
-      verdict,
-      validatorVersion: VALIDATOR_VERSION,
-    });
-    setStatus(verdict.blocking.length > 0 ? BLOCKED_STATUS : null);
-    syncSubmit();
+      const outcome = await runValidation(
+        files.map((f) => ({ path: f.path, file: f.file })),
+        {
+          signal: run.signal,
+          onPhase: (phase, fileCount) => {
+            if (generation === validationGeneration) panel.setPhase(phase, fileCount);
+          },
+        },
+      );
+      if (generation !== validationGeneration) return;
+      if (outcome.kind === "cancelled") return stopped();
+      if (outcome.kind === "unavailable") return validationCannotRun(outcome.reason);
+
+      // The repository check ignores errors on git-annex pointer files; so does this (gate.ts).
+      const verdict = await judge(
+        outcome.report.issues,
+        files.map((f) => ({ path: f.path, file: f.file })),
+      );
+      if (generation !== validationGeneration) return;
+      if (run.signal.aborted) return stopped();
+      validationRun = null;
+      validation = { kind: "finished", blockingErrors: verdict.blocking.length };
+      panel.showFinished({
+        report: outcome.report,
+        verdict,
+        validatorVersion: VALIDATOR_VERSION,
+      });
+      setStatus(verdict.blocking.length > 0 ? BLOCKED_STATUS : null);
+      syncSubmit();
+    } catch (error) {
+      if (generation !== validationGeneration) return;
+      console.error("[bids-validation] the check failed on this page:", error);
+      validationCannotRun(`the page could not finish the check (${describeError(error)})`);
+    }
   }
 
   validationPanel?.onCancel(() => validationRun?.abort());
