@@ -24,7 +24,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   If the validator cannot run (no Web Worker, a failed download, a crash, no answer in 15 minutes) the page says so in a state of its own, never as a pass, and the upload stays possible, because the repository check is still the authority.
   The check runs on the person's computer and no file content is sent: a dataset whose HED schema ships with the validator makes no request at all, and one that names a version that does not downloads that public schema file from `raw.githubusercontent.com`, with no Referer, which is the only host the worker's own Content-Security-Policy (`public/_headers`) allows.
   The page's policy is unchanged and gains no `'unsafe-eval'`.
-  The validator is a 10 MB file built with Deno and committed under `public/vendor/bids-validator/`; `/upload`'s own script grows by 8.9 KB (3.3 KB gzipped).
+  The validator is a 10 MB file built with Deno and committed under `public/vendor/bids-validator/`; `/upload`'s own script grows by 11.2 KB (4.1 KB gzipped).
   The page's introduction now says the validation runs in the browser and again on the dataset repository.
 
 ### Changed

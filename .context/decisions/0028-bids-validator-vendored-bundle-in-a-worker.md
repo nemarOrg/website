@@ -78,7 +78,8 @@ Four facts decided how, and they are why this is a decision and not a dependency
   A patch release of one can change a finding on one side until `--relock` brings the other along, which every pin bump does.
 - The bundle is 10,267,556 bytes (1,456,230 with `gzip -9`, 872,874 with `brotli -q 9`), fetched when the first folder is validated and revalidated by ETag after.
   Most of it is the HED validator, in the same file because splitting it would make the bytes depend on whose cache built them.
-  The page's own script grows from 13,783 to 22,672 bytes (4,841 to 8,153 gzipped) and the site's one stylesheet by 3,952 bytes (875 gzipped); nothing else on `/upload` changes.
+  The page's own script, which holds the code that drives the worker, grows from 13,783 to 25,031 bytes (4,841 to 8,927 gzipped), and the site's one stylesheet by 4,077 bytes (891 gzipped); nothing else on `/upload` changes.
+  The issue asked for an unchanged initial payload, and this is the part that is not: the validator is fetched when a folder is validated, and the page's script is fetched with the page.
 - A re-vendor at the same version reuses the URL, `/vendor/bids-validator/<version>/bids-validator-worker.js`, because the version in the name is the validator's and not the file's.
   A browser that holds the earlier bytes is corrected by revalidation and not by the name: Pages answers a static file with an ETag and `cache-control: public, max-age=0, must-revalidate` (as this change's preview deployment did), so each load asks, a changed file is fetched again, and an unchanged one costs a 304.
   A longer lifetime on this path would break that, so the header rule for it carries none and must not gain one.
