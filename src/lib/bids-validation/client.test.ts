@@ -148,6 +148,7 @@ const { Worker: NodeWorker } = await nodeWorkerThreads();
 describe("runValidation, against a worker that never answers", () => {
   const NEVER_ANSWERS = "setInterval(() => {}, 1000);";
   let exits: Promise<number>[] = [];
+  let terminations = 0;
 
   class ThreadWorker {
     onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -166,12 +167,37 @@ describe("runValidation, against a worker that never answers", () => {
     }
 
     terminate(): void {
+      terminations += 1;
       void this.thread.terminate();
     }
   }
 
+  /** Run `run` and return what it wrote to the console. The writes still go through. */
+  async function recordingConsole(run: () => Promise<void>): Promise<string[]> {
+    const written: string[] = [];
+    const originals = {
+      error: console.error,
+      warn: console.warn,
+      info: console.info,
+      log: console.log,
+    };
+    for (const name of ["error", "warn", "info", "log"] as const) {
+      console[name] = (...args: unknown[]) => {
+        written.push(`${name}: ${args.map(String).join(" ")}`);
+        originals[name](...args);
+      };
+    }
+    try {
+      await run();
+    } finally {
+      Object.assign(console, originals);
+    }
+    return written;
+  }
+
   beforeEach(() => {
     exits = [];
+    terminations = 0;
     (globalThis as { Worker?: unknown }).Worker = ThreadWorker;
   });
   afterEach(() => {
@@ -200,12 +226,21 @@ describe("runValidation, against a worker that never answers", () => {
     ).toBe(true);
   });
 
-  it("ends it when the person cancels, and the deadline does not fire afterwards", async () => {
+  it("ends it when the person cancels, and the deadline stays silent afterwards", async () => {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 50);
     const outcome = await runValidation([], { signal: controller.signal, deadlineMs: 200 });
 
     expect(outcome).toEqual({ kind: "cancelled" });
     expect(await exits[0]).toBeTypeOf("number");
+    expect(terminations).toBe(1);
+
+    // Wait past the deadline, which was 200 ms from the start and is, by now, well behind. One that
+    // had not been cleared would fire here and end the worker a second time, and say something.
+    const written = await recordingConsole(
+      () => new Promise<void>((resolve) => setTimeout(resolve, 250)),
+    );
+    expect(terminations).toBe(1);
+    expect(written).toEqual([]);
   });
 });
