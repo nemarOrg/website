@@ -11,6 +11,7 @@ import {
   runUploadQueue,
   stripLeadingDirectory,
   summarizeUploadFailures,
+  toDroppedFile,
 } from "./upload-client";
 
 function df(path: string, size = 100): DroppedFile {
@@ -93,6 +94,33 @@ describe("filesFromInput", () => {
       "root/dataset_description.json",
     ]);
   });
+});
+
+describe("toDroppedFile", () => {
+  // The rule both the drag-and-drop walk (`walkEntry`) and the file input (`filesFromInput`) ask
+  // of each file, so a test with real `File`s is a test of both.
+  const dropped = (name: string, path = name) => toDroppedFile(new File(["12345"], name), path);
+
+  it("keeps a file as a path, its size and the file itself", () => {
+    const file = new File(["12345"], "dataset_description.json");
+    expect(toDroppedFile(file, "root/dataset_description.json")).toEqual({
+      path: "root/dataset_description.json",
+      size: 5,
+      file,
+    });
+  });
+
+  it("keeps .bidsignore, at the top of a dataset and below it", () => {
+    expect(dropped(".bidsignore")?.path).toBe(".bidsignore");
+    expect(dropped(".bidsignore", "sub-01/.bidsignore")?.path).toBe("sub-01/.bidsignore");
+  });
+
+  it.each([".DS_Store", ".gitattributes", ".gitignore", "._sub-01", "Thumbs.db", "desktop.ini"])(
+    "leaves out %s",
+    (name) => {
+      expect(dropped(name)).toBeNull();
+    },
+  );
 });
 
 describe("runUploadQueue", () => {

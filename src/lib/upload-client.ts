@@ -230,17 +230,24 @@ async function readAllEntries(reader: FileSystemDirectoryReader): Promise<FileSy
   return all;
 }
 
+/**
+ * The dropped file at `path`, or `null` when the dropzone leaves it out: hidden files and the
+ * operating system's litter, but not `.bidsignore` (see `shouldSkipName`). Both ways a folder
+ * reaches the page, the drag-and-drop walk and the file input, decide through this one function,
+ * so a test with real `File`s covers the decision for both.
+ */
+export function toDroppedFile(file: File, path: string): DroppedFile | null {
+  if (shouldSkipName(file.name)) return null;
+  return { path, size: file.size, file };
+}
+
 export async function walkEntry(entry: FileSystemEntry, basePath = ""): Promise<DroppedFile[]> {
   if (entry.isFile) {
     return new Promise<DroppedFile[]>((resolve, reject) => {
       (entry as FileSystemFileEntry).file(
         (file) => {
-          if (shouldSkipName(file.name)) {
-            resolve([]);
-            return;
-          }
-          const path = basePath ? `${basePath}/${file.name}` : file.name;
-          resolve([{ path, size: file.size, file }]);
+          const dropped = toDroppedFile(file, basePath ? `${basePath}/${file.name}` : file.name);
+          resolve(dropped ? [dropped] : []);
         },
         (err) => reject(err),
       );
@@ -285,10 +292,9 @@ export async function walkDataTransferItems(items: DataTransferItem[]): Promise<
 export function filesFromInput(fileList: FileList): DroppedFile[] {
   const out: DroppedFile[] = [];
   for (const file of Array.from(fileList)) {
-    if (shouldSkipName(file.name)) continue;
     const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath ?? "";
-    const path = relative || file.name;
-    out.push({ path, size: file.size, file });
+    const dropped = toDroppedFile(file, relative || file.name);
+    if (dropped) out.push(dropped);
   }
   return out;
 }

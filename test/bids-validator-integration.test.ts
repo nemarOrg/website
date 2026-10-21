@@ -33,6 +33,7 @@ import {
 } from "../src/lib/bids-validation/protocol";
 import { groupIssues } from "../src/lib/bids-validation/report";
 import { verdictWords } from "../src/lib/bids-validation/wording";
+import { toDroppedFile } from "../src/lib/upload-client";
 import pin from "../validator-version.json";
 import { type Bytes, closedLocalOrigin, nodeFs, repoPath, serveStatus } from "./node";
 
@@ -294,6 +295,56 @@ describe("a dataset with a git-annex pointer where a table should be", () => {
     // The same two errors, with the pointer rule not applied: what an ordinary broken table gets.
     const report = await validate(drop(withPointer));
     expect(applyGate(report.issues, new Set()).blocking).toHaveLength(2);
+  });
+});
+
+describe("a file BIDS does not name, and the .bidsignore that lists it", () => {
+  const bytes = (text: string): Bytes => new TextEncoder().encode(text);
+  const stray = bytes("notes about the recording\n");
+  const errorsOf = (report: ValidationReport) =>
+    report.issues.filter((issue) => issue.severity === "error");
+  /** A drop of `files` after the dropzone has left out what it leaves out. */
+  const throughTheDropzone = (files: ReadonlyMap<string, Bytes>): WorkerFileEntry[] =>
+    [...files].flatMap(([path, content]) => {
+      const dropped = toDroppedFile(new File([content], path.split("/").pop() as string), path);
+      return dropped ? [{ path: dropped.path, file: dropped.file }] : [];
+    });
+
+  it("stops the upload: a file that is not in BIDS is an error on that file", async () => {
+    const report = await validate(drop(variant({ "foo.xyz": stray })));
+    expect(errorsOf(report).map((issue) => `${issue.code}@${issue.location}`)).toEqual([
+      "NOT_INCLUDED@/foo.xyz",
+    ]);
+    expect(applyGate(report.issues, new Set()).blocking).toHaveLength(1);
+  });
+
+  it("is let through when .bidsignore lists the file, because the validator reads that file", async () => {
+    const files = variant({ "foo.xyz": stray, ".bidsignore": bytes("foo.xyz\n") });
+    const report = await validate(drop(files));
+    expect(errorsOf(report)).toEqual([]);
+    expect(applyGate(report.issues, new Set()).blocking).toEqual([]);
+  });
+
+  it("is let through when the drop is what the dropzone keeps, which includes .bidsignore", async () => {
+    // Real files through the rule the dropzone applies to every file of a drop, by drag and drop
+    // and from the file input alike (`toDroppedFile`). The dotfiles that are not .bidsignore are
+    // left out, and the validator never needed them.
+    const files = variant({
+      "foo.xyz": stray,
+      ".bidsignore": bytes("foo.xyz\n"),
+      ".DS_Store": bytes("junk"),
+      ".gitattributes": bytes("* text=auto\n"),
+    });
+    const kept = throughTheDropzone(files);
+    expect(kept.map((entry) => entry.path)).toContain(".bidsignore");
+    expect(kept.map((entry) => entry.path)).not.toContain(".DS_Store");
+    expect(kept.map((entry) => entry.path)).not.toContain(".gitattributes");
+    expect(errorsOf(await validate(kept))).toEqual([]);
+  });
+
+  it("is stopped again when .bidsignore is missing from the drop, as it was when dotfiles were skipped", async () => {
+    const kept = throughTheDropzone(variant({ "foo.xyz": stray }));
+    expect(errorsOf(await validate(kept)).map((issue) => issue.code)).toEqual(["NOT_INCLUDED"]);
   });
 });
 
