@@ -73,6 +73,19 @@ describe("the panel's text goes in as text", () => {
   });
 });
 
+describe("the findings list, which scrolls", () => {
+  // The list of a group is capped in height and scrolls, and a keyboard moves a scrolling region
+  // only if it can focus it. Read as source: the behavior was checked in Chrome (Tab to the list,
+  // ArrowDown scrolls it, and its accessible name is read out).
+  it("is a tab stop with a name, and shows where the focus is", () => {
+    const panel = withoutComments(PANEL_TS);
+    expect(panel).toContain("list.tabIndex = 0");
+    expect(panel).toContain('list.setAttribute("aria-label", `Findings for ${group.code}`)');
+    expect(PANEL_ASTRO).toMatch(/\.bidsval__items\s*\{[^}]*overflow-y:\s*auto/);
+    expect(PANEL_ASTRO).toMatch(/\.bidsval__items:focus-visible\s*\{[^}]*outline:\s*2px solid/);
+  });
+});
+
 /**
  * The text of a function declared in the page script, from its `function` line to its closing
  * brace (the first line that is just `  }`, since everything nested is indented further).

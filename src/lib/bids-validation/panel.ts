@@ -73,6 +73,11 @@ function renderGroup(group: IssueGroup): HTMLDetailsElement {
   if (group.description) details.append(element("p", "bidsval__desc", group.description));
 
   const list = element("ul", "bidsval__items");
+  // The list is capped in height and scrolls, and a region that scrolls must be reachable from the
+  // keyboard, which has no other way to move it: a tab stop that arrow keys then scroll. It carries
+  // a name, so a screen reader says what the focus has landed on (WCAG 2.1.1, 4.1.2).
+  list.tabIndex = 0;
+  list.setAttribute("aria-label", `Findings for ${group.code}`);
   for (const item of group.items) {
     const row = element("li", "bidsval__item");
     if (item.path) row.append(element("span", "bidsval__path", item.path));
