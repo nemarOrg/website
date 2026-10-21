@@ -141,6 +141,7 @@ export function scanBidsDrop(files: readonly DroppedFileMeta[]): BidsScanResult 
       } else if (
         parts[0] !== "CHANGES" &&
         parts[0] !== "LICENSE" &&
+        parts[0] !== ".bidsignore" &&
         !parts[0].endsWith(".tsv") &&
         !parts[0].endsWith(".json")
       ) {

@@ -11,6 +11,7 @@ import {
   runUploadQueue,
   stripLeadingDirectory,
   summarizeUploadFailures,
+  toDroppedFile,
 } from "./upload-client";
 
 function df(path: string, size = 100): DroppedFile {
@@ -74,6 +75,52 @@ describe("filesFromInput", () => {
     const out = filesFromInput(list);
     expect(out.map((f) => f.file.name)).toEqual(["a.txt", "b.txt"]);
   });
+
+  it("keeps .bidsignore, the one dotfile a BIDS dataset may need", () => {
+    // Without it a dataset that lists its non-BIDS files there cannot pass the BIDS check, and the
+    // upload would not carry the file the repository check needs.
+    const files = [".bidsignore", ".gitattributes", "dataset_description.json"].map((n) => {
+      const f = new File(["x"], n);
+      Object.defineProperty(f, "webkitRelativePath", { value: `root/${n}` });
+      return f;
+    });
+    const list = {
+      length: files.length,
+      ...Object.fromEntries(files.map((f, i) => [i, f])),
+      item: (i: number) => files[i],
+    } as unknown as FileList;
+    expect(filesFromInput(list).map((f) => f.path)).toEqual([
+      "root/.bidsignore",
+      "root/dataset_description.json",
+    ]);
+  });
+});
+
+describe("toDroppedFile", () => {
+  // The rule both the drag-and-drop walk (`walkEntry`) and the file input (`filesFromInput`) ask
+  // of each file, so a test with real `File`s is a test of both.
+  const dropped = (name: string, path = name) => toDroppedFile(new File(["12345"], name), path);
+
+  it("keeps a file as a path, its size and the file itself", () => {
+    const file = new File(["12345"], "dataset_description.json");
+    expect(toDroppedFile(file, "root/dataset_description.json")).toEqual({
+      path: "root/dataset_description.json",
+      size: 5,
+      file,
+    });
+  });
+
+  it("keeps .bidsignore, at the top of a dataset and below it", () => {
+    expect(dropped(".bidsignore")?.path).toBe(".bidsignore");
+    expect(dropped(".bidsignore", "sub-01/.bidsignore")?.path).toBe("sub-01/.bidsignore");
+  });
+
+  it.each([".DS_Store", ".gitattributes", ".gitignore", "._sub-01", "Thumbs.db", "desktop.ini"])(
+    "leaves out %s",
+    (name) => {
+      expect(dropped(name)).toBeNull();
+    },
+  );
 });
 
 describe("runUploadQueue", () => {

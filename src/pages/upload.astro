@@ -1,4 +1,5 @@
 ---
+import BidsValidationPanel from "../components/BidsValidationPanel.astro";
 import UploadDropzone from "../components/UploadDropzone.astro";
 import UploadProgress from "../components/UploadProgress.astro";
 import VerifyEmailStep from "../components/VerifyEmailStep.astro";
@@ -81,7 +82,7 @@ const requestedLede = requestedDate
       <h1 class="upload-header__title">Contribute your dataset</h1>
       <p class="upload-header__lede">
         {showsUploadForm(uploadState)
-          ? "Drop a BIDS folder, we'll check the structure in your browser, then upload the files straight to NEMAR's storage. BIDS validation runs on the dataset repository once the upload completes."
+          ? "Drop a BIDS folder, we'll validate it in your browser, then upload the files straight to NEMAR's storage. The BIDS validator runs again on the dataset repository once the upload completes."
           : "Uploading is the one thing a NEMAR account needs a grant for. Here is where yours stands."}
       </p>
     </header>
@@ -203,6 +204,8 @@ const requestedLede = requestedDate
         <ul class="precheck__messages" data-precheck-errors></ul>
         <ul class="precheck__messages precheck__messages--warn" data-precheck-warnings></ul>
       </section>
+
+      <BidsValidationPanel />
 
       <fieldset class="attest" data-attest>
         <legend class="attest__legend">Deposit attestation</legend>
@@ -664,6 +667,10 @@ const requestedLede = requestedDate
 </style>
 
 <script>
+  import { describeError, runValidation, VALIDATOR_VERSION } from "../lib/bids-validation/client";
+  import { canUpload, judge, type ValidationState } from "../lib/bids-validation/gate";
+  import { type ValidationPanel, bindValidationPanel } from "../lib/bids-validation/panel";
+  import { BLOCKED_STATUS, unavailableWords } from "../lib/bids-validation/wording";
   import {
     type BidsScanError,
     type BidsScanResult,
@@ -693,6 +700,15 @@ const requestedLede = requestedDate
   const precheckErrors = document.querySelector<HTMLElement>("[data-precheck-errors]");
   const precheckWarnings = document.querySelector<HTMLElement>("[data-precheck-warnings]");
   const precheckReset = document.querySelector<HTMLButtonElement>("[data-precheck-reset]");
+  const bidsvalEl = document.querySelector<HTMLElement>("[data-bidsval]");
+  // The check is a convenience. A panel that cannot be bound (its markup and panel.ts out of step)
+  // must not take the whole upload page down with it, so the page falls back to "could not run".
+  let validationPanel: ValidationPanel | null = null;
+  try {
+    validationPanel = bidsvalEl ? bindValidationPanel(bidsvalEl) : null;
+  } catch (error) {
+    console.error("[bids-validation] panel unavailable:", error);
+  }
   const attestEl = document.querySelector<HTMLFieldSetElement>("[data-attest]");
   const attestInputs = attestEl ? Array.from(attestEl.querySelectorAll("input")) : [];
   const attestRedistEl = document.querySelector<HTMLElement>("[data-attest-redist]");
@@ -838,6 +854,15 @@ const requestedLede = requestedDate
     scan: BidsScanResult | null;
   } = { rawFiles: [], files: [], scan: null };
 
+  // The full BIDS check (#161), which runs in a worker once the structure check passes. The upload
+  // button follows both: `canUpload` is the one rule. `validationGeneration` is bumped whenever a
+  // run stops mattering (a new drop, a reset), so a late answer from the old run is dropped
+  // instead of unlocking the button for a folder that is no longer there.
+  let structurePassed = false;
+  let validation: ValidationState = { kind: "idle" };
+  let validationRun: AbortController | null = null;
+  let validationGeneration = 0;
+
   // Mutex while the precheck (which has an async file-read step) is running,
   // so a second drop can't race with the first and leave us showing stale
   // pre-check results for a different file set.
@@ -931,14 +956,141 @@ const requestedLede = requestedDate
       precheckWarnings.append(li);
     }
 
-    const okToUpload = scan.errors.length === 0 && scan.fileCount > 0;
-    if (submitBtn) submitBtn.disabled = !okToUpload;
+    structurePassed = scan.errors.length === 0 && scan.fileCount > 0;
+    syncSubmit();
   }
+
+  function syncSubmit() {
+    if (submitBtn) submitBtn.disabled = !canUpload({ structurePassed, validation });
+  }
+
+  /** Stop caring about the current full check: a new drop or a reset replaced its folder. */
+  function cancelFullValidation() {
+    validationGeneration += 1;
+    validationRun?.abort();
+    validationRun = null;
+    validation = { kind: "idle" };
+    structurePassed = false;
+    validationPanel?.hide();
+  }
+
+  /**
+   * The check cannot run here: the upload is let through (gate.ts), the console says why, and so
+   * does the page. The panel says it; when there is no panel, or it cannot draw, the line beside
+   * the button does, so the page is never silent about a check it did not make. Not a verdict on
+   * the dataset: the repository check still runs.
+   */
+  function validationCannotRun(reason: string) {
+    console.warn("[bids-validation] could not run:", reason);
+    validationRun = null;
+    validation = { kind: "unavailable", reason };
+    let shown = false;
+    if (validationPanel) {
+      try {
+        validationPanel.showUnavailable(reason);
+        shown = true;
+      } catch (error) {
+        console.error("[bids-validation] the panel could not show that:", error);
+      }
+    }
+    if (!shown) {
+      const words = unavailableWords(reason);
+      setStatus(`${words.headline} ${words.detail}`);
+    }
+    syncSubmit();
+  }
+
+  async function startFullValidation(panel: ValidationPanel): Promise<void> {
+    validationGeneration += 1;
+    const generation = validationGeneration;
+    validationRun?.abort();
+    const run = new AbortController();
+    validationRun = run;
+    validation = { kind: "running" };
+    syncSubmit();
+    setStatus(null);
+    const files = state.files;
+
+    // The person pressed Cancel: back to the folder as dropped, ready to validate again.
+    const stopped = () => {
+      validationRun = null;
+      validation = { kind: "idle" };
+      panel.showCancelled();
+      if (validateBtn) {
+        validateBtn.hidden = false;
+        validateBtn.disabled = false;
+        validateBtn.focus();
+      }
+      if (submitBtn) submitBtn.hidden = true;
+      syncSubmit();
+    };
+
+    // Every step from here on can throw (the DOM, the worker's answer, a file that cannot be
+    // read), and a throw must not leave the page "running" with the button disabled and Cancel
+    // doing nothing. It is "could not run", like every other way the check can fail, with one
+    // exception: set as soon as the gate has answered, so that a verdict with errors in it
+    // survives a throw while it is drawn.
+    let blockingErrors = 0;
+    try {
+      panel.showRunning(files.length);
+      // The button that started this is about to be hidden, and focus would fall to the page.
+      panel.focus();
+
+      const outcome = await runValidation(
+        files.map((f) => ({ path: f.path, file: f.file })),
+        {
+          signal: run.signal,
+          onPhase: (phase, fileCount) => {
+            if (generation === validationGeneration) panel.setPhase(phase, fileCount);
+          },
+        },
+      );
+      if (generation !== validationGeneration) return;
+      if (outcome.kind === "cancelled") return stopped();
+      if (outcome.kind === "unavailable") return validationCannotRun(outcome.reason);
+
+      // The repository check ignores errors on git-annex pointer files; so does this (gate.ts).
+      const verdict = await judge(
+        outcome.report.issues,
+        files.map((f) => ({ path: f.path, file: f.file })),
+      );
+      if (generation !== validationGeneration) return;
+      if (run.signal.aborted) return stopped();
+      blockingErrors = verdict.blocking.length;
+      validationRun = null;
+      validation = { kind: "finished", blockingErrors };
+      panel.showFinished({
+        report: outcome.report,
+        verdict,
+        validatorVersion: VALIDATOR_VERSION,
+      });
+      setStatus(blockingErrors > 0 ? BLOCKED_STATUS : null);
+      syncSubmit();
+    } catch (error) {
+      if (generation !== validationGeneration) return;
+      console.error("[bids-validation] the check failed on this page:", error);
+      if (blockingErrors > 0) {
+        // The check ran and found errors that stop the upload; only showing them failed. Falling
+        // through to "could not run" would turn that verdict into a state that lets the upload
+        // through, so the verdict stays: the button stays disabled and the line beside it says
+        // why, and the console has the error.
+        validationRun = null;
+        validation = { kind: "finished", blockingErrors };
+        setStatus(BLOCKED_STATUS);
+        syncSubmit();
+        return;
+      }
+      validationCannotRun(`the page could not finish the check (${describeError(error)})`);
+    }
+  }
+
+  validationPanel?.onCancel(() => validationRun?.abort());
 
   function resetPrecheck() {
     // Invalidate any in-flight submit/retry closure before anything else, so
     // whatever the abort below wakes up sees a stale generation and bails.
     submitGeneration += 1;
+    cancelFullValidation();
     if (uploadAbort) {
       uploadAbort.abort();
       uploadAbort = null;
@@ -1024,6 +1176,9 @@ const requestedLede = requestedDate
         }
       }
 
+      // A drop that finished walking while the file above was read replaced this folder; what was
+      // just checked is not what the page now holds, so it is not shown.
+      if (pendingRaw !== raw) return;
       state = { rawFiles: raw, files, scan: mergedScan };
       renderPrecheck(mergedScan);
       clearError();
@@ -1037,6 +1192,7 @@ const requestedLede = requestedDate
     const e = evt as CustomEvent<{ files: DroppedFile[] }>;
     // A fresh drop resets the step machine: validation is an explicit click,
     // and the upload button stays hidden until validation has run clean.
+    cancelFullValidation();
     pendingRaw = e.detail?.files ?? [];
     setDropzoneSelection(pendingRaw);
     if (precheckEl) precheckEl.hidden = true;
@@ -1055,15 +1211,31 @@ const requestedLede = requestedDate
 
   validateBtn?.addEventListener("click", async () => {
     if (!pendingRaw || scanInProgress) return;
+    const raw = pendingRaw;
     validateBtn.disabled = true;
     validateBtn.textContent = "Validating...";
     try {
-      await runPrecheck(pendingRaw);
+      await runPrecheck(raw);
+      // A newer drop, or a reset, replaced this folder while it was checked: the page is already
+      // showing the state for the new one, and nothing more is done for this one.
+      if (pendingRaw !== raw) return;
+      // The structure check is instant; the full check follows it, and only when it passed. A
+      // folder with no dataset_description.json would only be told the same thing, slower.
+      if (!structurePassed) {
+        validationPanel?.showWaiting();
+        validationPanel?.focus();
+      } else if (validationPanel) {
+        void startFullValidation(validationPanel);
+      } else {
+        validationCannotRun("the validation panel is missing from this page");
+      }
     } finally {
       validateBtn.textContent = "Validate dataset";
-      validateBtn.hidden = true;
-      // renderPrecheck decided disabled; only reveal the button here.
-      if (submitBtn) submitBtn.hidden = false;
+      if (pendingRaw === raw) {
+        validateBtn.hidden = true;
+        // renderPrecheck decided disabled; only reveal the button here.
+        if (submitBtn) submitBtn.hidden = false;
+      }
     }
   });
 
@@ -1202,6 +1374,9 @@ const requestedLede = requestedDate
       return;
     }
     if (!state.scan || state.scan.errors.length > 0 || state.files.length === 0) return;
+    // The button is disabled while the full check runs or has found errors; this is for a submit
+    // that reaches the handler some other way (Enter in a field).
+    if (!canUpload({ structurePassed, validation })) return;
     const name = nameEl?.value.trim() ?? "";
     if (!name) {
       showError("Give your dataset a name.");
