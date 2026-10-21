@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.33] - 2026-10-21
+
 ### Added
 
 - **The upload page validates the dropped folder with the BIDS validator before any file is sent** (#161, ADR 0028).
