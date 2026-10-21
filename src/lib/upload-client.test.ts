@@ -74,6 +74,25 @@ describe("filesFromInput", () => {
     const out = filesFromInput(list);
     expect(out.map((f) => f.file.name)).toEqual(["a.txt", "b.txt"]);
   });
+
+  it("keeps .bidsignore, the one dotfile a BIDS dataset may need", () => {
+    // Without it a dataset that lists its non-BIDS files there cannot pass the BIDS check, and the
+    // upload would not carry the file the repository check needs.
+    const files = [".bidsignore", ".gitattributes", "dataset_description.json"].map((n) => {
+      const f = new File(["x"], n);
+      Object.defineProperty(f, "webkitRelativePath", { value: `root/${n}` });
+      return f;
+    });
+    const list = {
+      length: files.length,
+      ...Object.fromEntries(files.map((f, i) => [i, f])),
+      item: (i: number) => files[i],
+    } as unknown as FileList;
+    expect(filesFromInput(list).map((f) => f.path)).toEqual([
+      "root/.bidsignore",
+      "root/dataset_description.json",
+    ]);
+  });
 });
 
 describe("runUploadQueue", () => {

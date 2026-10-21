@@ -294,6 +294,11 @@ export function filesFromInput(fileList: FileList): DroppedFile[] {
 }
 
 function shouldSkipName(name: string): boolean {
+  // `.bidsignore` is a BIDS file and the one dotfile the validator reads: it lists what a dataset
+  // keeps that BIDS does not name. Dropped here, a dataset that needs it fails the repository
+  // check (and the BIDS check on this page) with no way to fix it from the browser. NEMAR keeps it
+  // in git like the other metadata files, and the CLI uploads it.
+  if (name === ".bidsignore") return false;
   if (name.startsWith(".")) return true;
   if (name === "Thumbs.db") return true;
   if (name === "desktop.ini") return true;
