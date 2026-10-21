@@ -47,8 +47,15 @@ Four facts decided how, and they are why this is a decision and not a dependency
    The options are the check's (`maxRows` 1000), except that warnings are kept, because the page lists them.
    An error stops the upload button, a warning never does, and an error whose location is a git-annex pointer file is not counted: a file of fewer than 1024 bytes with a line that starts `/annex/objects/`.
    A browser is not told about symlinks, so the check's other half, symlinks, has no counterpart here.
-   An error that only says a HED schema could not be loaded (`HED_ERROR`, `SCHEMA_LOAD_FAILED`) is listed with the warnings and not counted: the schema is downloaded by the browser, and a failed download is not a fault in the dataset.
-   The same error is raised for a version that does not exist, which the repository check then catches after the upload; that is a miss the check covers, in place of a lockout nothing would.
+   The one lenient rule is for a HED schema the browser could not download.
+   That error is listed with the warnings and not counted, and the verdict says the HED annotations were not checked, never that no errors were found.
+   It is exempt only when the request got no answer at all (offline, a failed lookup, a blocker), which is the browser's failure and not the dataset's.
+   `SCHEMA_LOAD_FAILED` is one sub-code for seven conditions of the HED validator, and the others are facts about the dataset that the repository check fails too: no schema specification (HED columns and no `HEDVersion`), an invalid one, library schemas that cannot be merged, and a version GitHub answers 404 for.
+   Two more conditions, a bundled copy that does not parse and a local path, cannot come from a browser drop, and stop the upload if they ever do.
+   An answer from GitHub, of any status, is the answer the check would get, so it stops the upload like any other error.
+   The gate tells the cases apart by the validator's own wording, anchored at the start of the message because the validator quotes a dataset's `HEDVersion` into some of the others.
+   The browser's words for a request without an answer differ (`Failed to fetch` in Chrome, `fetch failed` in Node and Deno) and are not matched.
+   A wording the gate does not recognise stops the upload, and the tests that run the real bundle fail when a release rewords one.
 5. **A validator that cannot run does not stop the upload.**
    No worker, a failed download, a crash, or a run that has not answered in 15 minutes is its own state, worded as "could not run" and never as a pass, and the upload stays possible: the repository check is the authority and this is a convenience.
    The same holds if the panel's markup cannot be bound to its script, so a drift between the two cannot take the upload page down.
@@ -80,7 +87,9 @@ Four facts decided how, and they are why this is a decision and not a dependency
   `wrangler pages dev` applies `_headers` as Pages does, and nothing here checks production.
   After a deploy, `curl -sI https://test.nemar.org/vendor/bids-validator/<version>/bids-validator-worker.js` must show the `content-security-policy` and `referrer-policy` of decision 2; without them the worker still runs, and "enforces" in decision 6 no longer holds.
 - A HED schema that the validator does not ship needs `raw.githubusercontent.com`.
-  If the host cannot be reached the finding is listed, not counted (decision 4), and the repository check, running on GitHub, loads the schema after the upload.
+  If the host cannot be reached the finding is listed, not counted, and the verdict says the annotations were not checked (decision 4); the repository check, running on GitHub, loads the schema after the upload.
+  If the host answers with an error, a 503 included, the upload stops until it answers.
+  A page that cannot reach GitHub therefore lets through a HED dataset naming a version that does not exist, which only the repository check catches.
 - The public upload guide (`docs.nemar.org/web/uploading`) describes BIDS validation as server-side only, with failures that block publication and not the upload. That is no longer the whole of it, so the guide changes with this behavior, in the documentation repository.
 - A browser without module workers (before Chrome 80, Safari 15 and Firefox 114) gets the "could not run" state.
 - Cancel returns to the folder as dropped.
@@ -103,8 +112,11 @@ Four facts decided how, and they are why this is a decision and not a dependency
 - **Split the HED validator into its own chunk.**
   About 1.2 MB less gzipped for a dataset with no HED, but the chunk names are not reproducible (decision 1).
   Worth revisiting if the bundle ever comes from a bundler with stable names.
-- **Count a HED schema that could not be loaded as an error.**
+- **Count a HED schema download that got no answer as an error.**
   It is what the repository check does when its own download fails, but the browser's download can fail where GitHub's does not, and a person with no way past the error is locked out of the web upload by a failure of the convenience.
+- **Exempt every `SCHEMA_LOAD_FAILED`.**
+  The first version of the rule.
+  Review found that it passes a dataset with HED columns and no `HEDVersion`, which makes no request and which the repository check fails, and that the verdict then said no errors were found.
 
 ## Receipts
 
@@ -112,5 +124,7 @@ Four facts decided how, and they are why this is a decision and not a dependency
 - nemar-cli `validator-version.json` and `.github/workflows/bump-validator.yml`; `nemarDatasets/.github` `run-bids-validation.yml`, whose options and annex-pointer rule decision 4 follows.
 - Chrome 155 runs (2026-10-21): `EvalError` on the page; the worker with and without the header; no request for a dataset whose HED schema ships, one request (without a Referer) for one whose does not; a HED schema that cannot be downloaded; the same results from the committed bytes under `wrangler pages dev`, which applies `_headers` as Pages does.
   Firefox 158 gave the same results for the policy probe and the validator under `wrangler pages dev`.
+- The HED conditions of decision 4, run on the committed bytes (2026-10-21): no `HEDVersion`, an invalid one, two library schemas that cannot be merged, and a version GitHub answers 404 for, in Chrome 155 (the worker served by a Cloudflare Pages preview) and in Node 26; a request with no answer in Chrome (aborted) and in Node 26 and Deno 2.9.7 (`HTTPS_PROXY` at a closed port).
+  The validator's words for each are copied into `src/lib/bids-validation/gate.test.ts`, and `test/bids-validator-integration.test.ts` produces the ones that need no network again, so a release that rewords one fails there.
 - `src/lib/bids-validation/` (the protocol shared with the worker, the gate, the report, the panel), `scripts/vendor-bids-validator.ts`, `scripts/bids-validator-worker.ts`, `test/bids-validator-integration.test.ts`.
 - Builds on ADR 0005 (reuse, never reimplement), ADR 0009 (route-scoped `unsafe-eval`, the pattern not followed here), ADR 0017 (the page's policy).

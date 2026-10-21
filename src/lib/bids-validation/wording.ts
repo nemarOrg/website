@@ -38,7 +38,11 @@ export function runningLine(phase: "tree" | "validate", fileCount: number): stri
 }
 
 export interface VerdictWords {
-  readonly tone: "blocked" | "passed";
+  /**
+   * `unchecked` is a pass that is not a clean one: nothing stops the upload, and something was not
+   * looked at. It is amber, like `unavailable`, and is never worded as "no errors found".
+   */
+  readonly tone: "blocked" | "unchecked" | "passed";
   readonly headline: string;
   readonly detail: string;
   /** Errors left out of the count, with why. Empty when there are none. */
@@ -46,27 +50,38 @@ export interface VerdictWords {
 }
 
 /**
- * `warnings` is the number of findings listed as warnings, the schema-not-loaded ones included, so
- * the sentence counts what the list below it shows. `annexSkipped` and `schemaNotLoaded` are the
- * errors that are not counted, and the note says which and why.
+ * `warnings` is the number of findings listed as warnings, the schema-download-failed ones
+ * included, so the sentence counts what the list below it shows. `annexSkipped` and
+ * `schemaDownloadFailed` are the errors that are not counted, and the note says which and why.
+ *
+ * Nothing that was left out of the count is called a clean pass: a dataset with a HED schema that
+ * could not be downloaded is told its HED annotations were not checked, and one with errors on
+ * pointer files is told nothing needs fixing, with the note saying what was set aside.
  */
 export function verdictWords(counts: {
   readonly blocking: number;
   readonly warnings: number;
   readonly annexSkipped: number;
-  readonly schemaNotLoaded: number;
+  readonly schemaDownloadFailed: number;
 }): VerdictWords {
-  const { blocking, warnings, annexSkipped, schemaNotLoaded } = counts;
-  const warningWords = `${warnings} ${plural(warnings, "warning", "warnings")}`;
+  const { blocking, warnings, annexSkipped, schemaDownloadFailed } = counts;
+  const advisory = (count: number, qualifier = ""): string =>
+    `${count} ${qualifier}${plural(count, "warning", "warnings")}`;
   const notes: string[] = [];
   if (annexSkipped > 0) {
     notes.push(
       `${annexSkipped} ${plural(annexSkipped, "error", "errors")} on git-annex pointer files ${plural(annexSkipped, "was", "were")} not counted, as in NEMAR's repository check.`,
     );
   }
-  if (schemaNotLoaded > 0) {
+  if (schemaDownloadFailed > 0) {
+    // With nothing else to fix the headline already says the annotations were not checked; beside
+    // errors that must be fixed, the headline is about them and the note has to say it.
+    const unchecked =
+      blocking > 0
+        ? ": the HED annotations were not checked here, and NEMAR's repository check downloads the schema again after the upload."
+        : "; NEMAR's repository check downloads the schema again after the upload and checks the annotations then.";
     notes.push(
-      `${schemaNotLoaded} ${plural(schemaNotLoaded, "error", "errors")} about a HED schema that could not be downloaded ${plural(schemaNotLoaded, "is", "are")} listed with the warnings and not counted: your browser downloads the schema, and NEMAR's repository check downloads it again.`,
+      `${schemaDownloadFailed} ${plural(schemaDownloadFailed, "error", "errors")} about a HED schema that could not be downloaded ${plural(schemaDownloadFailed, "is", "are")} listed with the warnings and not counted${unchecked}`,
     );
   }
   const note = notes.join(" ");
@@ -76,7 +91,20 @@ export function verdictWords(counts: {
       headline: `${blocking} ${plural(blocking, "error", "errors")} must be fixed before you can upload.`,
       detail: `Fix ${plural(blocking, "it", "them")} in your dataset, then drop the folder again.${
         warnings > 0
-          ? ` ${warningWords} ${plural(warnings, "is", "are")} advisory and ${plural(warnings, "does", "do")} not stop the upload.`
+          ? ` ${advisory(warnings)} ${plural(warnings, "is", "are")} advisory and ${plural(warnings, "does", "do")} not stop the upload.`
+          : ""
+      }`,
+      note,
+    };
+  }
+  if (schemaDownloadFailed > 0) {
+    const others = warnings - schemaDownloadFailed;
+    return {
+      tone: "unchecked",
+      headline: "The HED annotations were not checked.",
+      detail: `No other BIDS errors need fixing.${
+        others > 0
+          ? ` ${advisory(others, "other ")} below ${plural(others, "is", "are")} advisory and ${plural(others, "does", "do")} not stop the upload.`
           : ""
       }`,
       note,
@@ -84,10 +112,10 @@ export function verdictWords(counts: {
   }
   return {
     tone: "passed",
-    headline: "No BIDS errors found.",
+    headline: annexSkipped > 0 ? "No BIDS errors need fixing." : "No BIDS errors found.",
     detail:
       warnings > 0
-        ? `${warningWords} below ${plural(warnings, "is", "are")} advisory and ${plural(warnings, "does", "do")} not stop the upload.`
+        ? `${advisory(warnings)} below ${plural(warnings, "is", "are")} advisory and ${plural(warnings, "does", "do")} not stop the upload.`
         : "No warnings either.",
     note,
   };

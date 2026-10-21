@@ -156,9 +156,9 @@ export function bindValidationPanel(host: HTMLElement): ValidationPanel {
       root.hidden = false;
       const words = verdictWords({
         blocking: found.blocking.length,
-        warnings: found.warnings.length + found.schemaNotLoaded.length,
+        warnings: found.warnings.length + found.schemaDownloadFailed.length,
         annexSkipped: found.annexSkipped.length,
-        schemaNotLoaded: found.schemaNotLoaded.length,
+        schemaDownloadFailed: found.schemaDownloadFailed.length,
       });
       setText(verdict, `${words.headline} ${words.detail}`);
       verdict.dataset.tone = words.tone;
@@ -168,7 +168,11 @@ export function bindValidationPanel(host: HTMLElement): ValidationPanel {
       // is listed as a warning, which is what it is here; the pointer-file errors are only in the
       // note, because they are about files the person does not need to read.
       const asWarning = (issue: ReportIssue): ReportIssue => ({ ...issue, severity: "warning" });
-      const shown = [...found.blocking, ...found.warnings, ...found.schemaNotLoaded.map(asWarning)];
+      const shown = [
+        ...found.blocking,
+        ...found.warnings,
+        ...found.schemaDownloadFailed.map(asWarning),
+      ];
       for (const group of groupIssues(shown, report.codeMessages)) {
         groups.append(renderGroup(group));
       }

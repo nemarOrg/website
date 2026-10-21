@@ -10,20 +10,26 @@ import {
   verdictWords,
 } from "./wording";
 
+const counts = (partial: Partial<Parameters<typeof verdictWords>[0]>) => ({
+  blocking: 0,
+  warnings: 0,
+  annexSkipped: 0,
+  schemaDownloadFailed: 0,
+  ...partial,
+});
+
 describe("verdictWords", () => {
   it("says what stops the upload, and what to do", () => {
-    expect(verdictWords({ blocking: 2, warnings: 0, annexSkipped: 0, schemaNotLoaded: 0 })).toEqual(
-      {
-        tone: "blocked",
-        headline: "2 errors must be fixed before you can upload.",
-        detail: "Fix them in your dataset, then drop the folder again.",
-        note: "",
-      },
-    );
+    expect(verdictWords(counts({ blocking: 2 }))).toEqual({
+      tone: "blocked",
+      headline: "2 errors must be fixed before you can upload.",
+      detail: "Fix them in your dataset, then drop the folder again.",
+      note: "",
+    });
   });
 
   it("uses the singular for one error, and says warnings do not stop the upload", () => {
-    const words = verdictWords({ blocking: 1, warnings: 1, annexSkipped: 0, schemaNotLoaded: 0 });
+    const words = verdictWords(counts({ blocking: 1, warnings: 1 }));
     expect(words.headline).toBe("1 error must be fixed before you can upload.");
     expect(words.detail).toBe(
       "Fix it in your dataset, then drop the folder again. 1 warning is advisory and does not stop the upload.",
@@ -31,53 +37,73 @@ describe("verdictWords", () => {
   });
 
   it("passes a dataset with warnings, and says they are advisory", () => {
-    const words = verdictWords({ blocking: 0, warnings: 30, annexSkipped: 0, schemaNotLoaded: 0 });
+    const words = verdictWords(counts({ warnings: 30 }));
     expect(words.tone).toBe("passed");
     expect(words.headline).toBe("No BIDS errors found.");
     expect(words.detail).toBe("30 warnings below are advisory and do not stop the upload.");
   });
 
   it("passes a dataset with nothing to report", () => {
-    expect(
-      verdictWords({ blocking: 0, warnings: 0, annexSkipped: 0, schemaNotLoaded: 0 }).detail,
-    ).toBe("No warnings either.");
+    expect(verdictWords(counts({})).detail).toBe("No warnings either.");
   });
 
   it("says when errors were left out because they are on git-annex pointer files", () => {
-    expect(
-      verdictWords({ blocking: 0, warnings: 0, annexSkipped: 2, schemaNotLoaded: 0 }).note,
-    ).toBe("2 errors on git-annex pointer files were not counted, as in NEMAR's repository check.");
-    expect(
-      verdictWords({ blocking: 0, warnings: 0, annexSkipped: 1, schemaNotLoaded: 0 }).note,
-    ).toBe("1 error on git-annex pointer files was not counted, as in NEMAR's repository check.");
+    expect(verdictWords(counts({ annexSkipped: 2 })).note).toBe(
+      "2 errors on git-annex pointer files were not counted, as in NEMAR's repository check.",
+    );
+    expect(verdictWords(counts({ annexSkipped: 1 })).note).toBe(
+      "1 error on git-annex pointer files was not counted, as in NEMAR's repository check.",
+    );
+  });
+
+  it("does not call a dataset clean when errors were set aside", () => {
+    const words = verdictWords(counts({ annexSkipped: 2 }));
+    expect(words.tone).toBe("passed");
+    expect(words.headline).toBe("No BIDS errors need fixing.");
   });
 });
 
-describe("verdictWords, for a schema that could not be downloaded", () => {
-  it("counts it with the warnings and says why it is not an error", () => {
-    const words = verdictWords({ blocking: 0, warnings: 31, annexSkipped: 0, schemaNotLoaded: 1 });
-    expect(words.tone).toBe("passed");
-    expect(words.detail).toBe("31 warnings below are advisory and do not stop the upload.");
-    expect(words.note).toBe(
-      "1 error about a HED schema that could not be downloaded is listed with the warnings and not counted: your browser downloads the schema, and NEMAR's repository check downloads it again.",
+describe("verdictWords, for a schema the browser could not download", () => {
+  const UNCHECKED_NOTE =
+    "1 error about a HED schema that could not be downloaded is listed with the warnings and not counted; NEMAR's repository check downloads the schema again after the upload and checks the annotations then.";
+  const BLOCKED_NOTE =
+    "1 error about a HED schema that could not be downloaded is listed with the warnings and not counted: the HED annotations were not checked here, and NEMAR's repository check downloads the schema again after the upload.";
+
+  it("says the HED annotations were not checked, and never that no errors were found", () => {
+    const words = verdictWords(counts({ warnings: 31, schemaDownloadFailed: 1 }));
+    expect(words.tone).toBe("unchecked");
+    expect(words.headline).toBe("The HED annotations were not checked.");
+    expect(words.detail).toBe(
+      "No other BIDS errors need fixing. 30 other warnings below are advisory and do not stop the upload.",
+    );
+    expect(words.note).toBe(UNCHECKED_NOTE);
+    expect(`${words.headline} ${words.detail} ${words.note}`).not.toMatch(/no bids errors found/i);
+  });
+
+  it("has nothing to add about warnings when the HED error was the only finding", () => {
+    const words = verdictWords(counts({ warnings: 1, schemaDownloadFailed: 1 }));
+    expect(words.detail).toBe("No other BIDS errors need fixing.");
+  });
+
+  it("uses the singular for one other warning", () => {
+    expect(verdictWords(counts({ warnings: 2, schemaDownloadFailed: 1 })).detail).toBe(
+      "No other BIDS errors need fixing. 1 other warning below is advisory and does not stop the upload.",
     );
   });
 
   it("keeps the two notes apart when pointer files had errors too", () => {
-    const { note } = verdictWords({
-      blocking: 0,
-      warnings: 3,
-      annexSkipped: 2,
-      schemaNotLoaded: 1,
-    });
+    const { note } = verdictWords(
+      counts({ warnings: 3, annexSkipped: 2, schemaDownloadFailed: 1 }),
+    );
     expect(note).toContain("2 errors on git-annex pointer files were not counted");
     expect(note).toContain("1 error about a HED schema");
   });
 
-  it("does not hide a real error behind it", () => {
-    const words = verdictWords({ blocking: 1, warnings: 1, annexSkipped: 0, schemaNotLoaded: 1 });
+  it("does not hide a real error behind it, and still says the annotations were not checked", () => {
+    const words = verdictWords(counts({ blocking: 1, warnings: 1, schemaDownloadFailed: 1 }));
     expect(words.tone).toBe("blocked");
     expect(words.headline).toBe("1 error must be fixed before you can upload.");
+    expect(words.note).toBe(BLOCKED_NOTE);
   });
 });
 

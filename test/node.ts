@@ -36,6 +36,68 @@ export async function nodeProcess(): Promise<NodeProcess> {
   return await import(/* @vite-ignore */ specifier);
 }
 
+interface NodeServer {
+  listen(port: number, host: string, onListening: () => void): void;
+  close(onClosed: () => void): void;
+  address(): { port: number };
+}
+
+interface NodeHttpResponse {
+  statusCode: number;
+  setHeader(name: string, value: string): void;
+  end(body: string): void;
+}
+
+interface NodeHttp {
+  createServer(onRequest: (request: unknown, response: NodeHttpResponse) => void): NodeServer;
+}
+
+interface NodeNet {
+  createServer(): NodeServer;
+}
+
+async function listening(server: NodeServer): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return server.address().port;
+}
+
+const closed = (server: NodeServer): Promise<void> =>
+  new Promise<void>((resolve) => server.close(resolve));
+
+/**
+ * A real HTTP server on this machine that answers every request with `status` and `body`. Stops
+ * with `close()`. For the tests of a client's answer to a server that has said no, where the
+ * answer is a real response from a real server.
+ */
+export async function serveStatus(
+  status: number,
+  body: string,
+): Promise<{ origin: string; close(): Promise<void> }> {
+  const specifier = "node:http";
+  const http = (await import(/* @vite-ignore */ specifier)) as NodeHttp;
+  const server = http.createServer((_request, response) => {
+    response.statusCode = status;
+    // The connection ends with the answer, so closing the server waits for nothing.
+    response.setHeader("connection", "close");
+    response.end(body);
+  });
+  const port = await listening(server);
+  return { origin: `http://127.0.0.1:${port}`, close: () => closed(server) };
+}
+
+/**
+ * The origin of a port nothing is listening on: one that was free a moment ago. A request to it is
+ * refused by the operating system, which is what a request that gets no answer looks like.
+ */
+export async function closedLocalOrigin(): Promise<string> {
+  const specifier = "node:net";
+  const net = (await import(/* @vite-ignore */ specifier)) as NodeNet;
+  const server = net.createServer();
+  const port = await listening(server);
+  await closed(server);
+  return `http://127.0.0.1:${port}`;
+}
+
 /** A path in this repository, from a path relative to the repository root. */
 export function repoPath(relative: string): string {
   return decodeURIComponent(new URL(`../${relative}`, import.meta.url).pathname);

@@ -19,13 +19,17 @@
  * no `location` (the checks about a missing file carry `affects` instead) is never a pointer.
  *
  * One rule goes the other way, and is the one place the page is more lenient than the check: an
- * error that says a HED schema could not be loaded (`isSchemaLoadFailure`) is listed with the
- * warnings and does not gate. The validator downloads a schema it does not ship, from the
- * person's browser, and a download can fail where the check's, on GitHub, would not; that is the
- * browser's failure and not the dataset's, and the page must never refuse what the check passes.
- * The same error is what a version that does not exist raises, so that case is caught by the
- * check, after the upload, and not here: a miss, which the repository check covers, in place of a
- * lockout, which nothing would.
+ * error that says the browser could not download a HED schema (`isSchemaDownloadFailure`) is
+ * listed with the warnings and does not gate, and the verdict then says the HED annotations were
+ * not checked, never that no errors were found. The validator downloads a schema it does not
+ * ship, from the person's browser, and that request can fail where the check's, on GitHub, would
+ * not: offline, a failed lookup, a blocker. That is the browser's failure and not the dataset's.
+ *
+ * It is exempt only when the request got no answer at all. The validator gives one sub-code,
+ * `SCHEMA_LOAD_FAILED`, to seven conditions, and every other one is a fact about the dataset that
+ * the check fails too: no schema specification (HED columns and no `HEDVersion`), an invalid one,
+ * library schemas that cannot be merged, a version GitHub answers 404 for. An answer, of any
+ * status, is the answer the check would get, so it gates like any other error.
  */
 
 import type { ReportIssue } from "./protocol";
@@ -94,11 +98,38 @@ export async function findAnnexPointers(
 }
 
 /**
- * The validator saying it could not load a HED schema: `HED_ERROR`, sub-code `SCHEMA_LOAD_FAILED`,
- * with no location. Raised for a schema that failed to download and for one that does not exist.
+ * The HED validator's wording for a schema it could not download (its `remoteSchemaLoadFailed`),
+ * and for the server having answered (its `networkReadError`, which is the quoted cause when
+ * GitHub gave any HTTP status). Both come from real runs of the committed bundle, in Chrome, Node
+ * and Deno (`gate.test.ts` holds them), and both are anchored at the start of the message: the
+ * validator quotes a dataset's own `HEDVersion` into its other messages, and text the dataset
+ * controls must not be able to say it is a download failure.
+ *
+ * The cause of a request that got no answer is the browser's own words (`Failed to fetch` in
+ * Chrome, `fetch failed` in Node and Deno), which differ between browsers, so it is not matched;
+ * what is matched is that the cause is not the validator's wording for an answer.
  */
-export function isSchemaLoadFailure(issue: ReportIssue): boolean {
-  return issue.code === "HED_ERROR" && issue.subCode === "SCHEMA_LOAD_FAILED";
+const REMOTE_SCHEMA_REQUEST =
+  /^ERROR: \[SCHEMA_LOAD_FAILED\] Could not load HED schema ".*?" from remote repository - "/s;
+const SERVER_ANSWERED =
+  /^ERROR: \[INTERNAL_ERROR\] I\/O error when reading from network - server responded to URL /;
+
+/**
+ * The validator saying the browser could not download a HED schema, where the request got no
+ * answer: `HED_ERROR`, sub-code `SCHEMA_LOAD_FAILED`, in the wording above. Anything else with
+ * that sub-code is about the dataset, and so is a download the server answered, whatever the
+ * status, 404 for a version that does not exist included.
+ *
+ * A wording this does not recognise is not a download failure: the answer to an unknown message is
+ * to stop the upload, so a release that rewords one makes the tests that run the real bundle fail
+ * and does not quietly let errors through.
+ */
+export function isSchemaDownloadFailure(issue: ReportIssue): boolean {
+  if (issue.code !== "HED_ERROR" || issue.subCode !== "SCHEMA_LOAD_FAILED") return false;
+  const message = issue.issueMessage ?? "";
+  const request = REMOTE_SCHEMA_REQUEST.exec(message);
+  if (request === null) return false;
+  return !SERVER_ANSWERED.test(message.slice(request[0].length));
 }
 
 export interface Verdict {
@@ -106,8 +137,11 @@ export interface Verdict {
   readonly blocking: readonly ReportIssue[];
   /** Errors on pointer files, which the repository check ignores and so does the page. */
   readonly annexSkipped: readonly ReportIssue[];
-  /** Errors that only say a HED schema could not be loaded: shown with the warnings, not counted. */
-  readonly schemaNotLoaded: readonly ReportIssue[];
+  /**
+   * Errors that say the browser could not download a HED schema: listed with the warnings and not
+   * counted, and the HED annotations were not checked.
+   */
+  readonly schemaDownloadFailed: readonly ReportIssue[];
   /** Advisory. */
   readonly warnings: readonly ReportIssue[];
 }
@@ -115,18 +149,18 @@ export interface Verdict {
 export function applyGate(issues: readonly ReportIssue[], pointers: ReadonlySet<string>): Verdict {
   const blocking: ReportIssue[] = [];
   const annexSkipped: ReportIssue[] = [];
-  const schemaNotLoaded: ReportIssue[] = [];
+  const schemaDownloadFailed: ReportIssue[] = [];
   const warnings: ReportIssue[] = [];
   for (const issue of issues) {
     if (issue.severity === "warning") {
       warnings.push(issue);
     } else if (issue.severity === "error") {
       if (issue.location !== undefined && pointers.has(issue.location)) annexSkipped.push(issue);
-      else if (isSchemaLoadFailure(issue)) schemaNotLoaded.push(issue);
+      else if (isSchemaDownloadFailure(issue)) schemaDownloadFailed.push(issue);
       else blocking.push(issue);
     }
   }
-  return { blocking, annexSkipped, schemaNotLoaded, warnings };
+  return { blocking, annexSkipped, schemaDownloadFailed, warnings };
 }
 
 /** Where the full validation stands, for the upload button. */

@@ -16,7 +16,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { applyGate, errorLocations, findAnnexPointers } from "../src/lib/bids-validation/gate";
+import {
+  applyGate,
+  errorLocations,
+  findAnnexPointers,
+  isSchemaDownloadFailure,
+} from "../src/lib/bids-validation/gate";
 import {
   type RawValidationResult,
   type ValidationReport,
@@ -26,8 +31,9 @@ import {
   withRelativePaths,
 } from "../src/lib/bids-validation/protocol";
 import { groupIssues } from "../src/lib/bids-validation/report";
+import { verdictWords } from "../src/lib/bids-validation/wording";
 import pin from "../validator-version.json";
-import { type Bytes, nodeFs, repoPath } from "./node";
+import { type Bytes, closedLocalOrigin, nodeFs, repoPath, serveStatus } from "./node";
 
 interface Bundle {
   fileListToTree(files: File[]): Promise<unknown>;
@@ -88,6 +94,29 @@ async function recordingFetches<T>(run: () => Promise<T>): Promise<{ result: T; 
   }) as typeof fetch;
   try {
     return { result: await run(), urls };
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+/**
+ * Run `run` with every request the validator makes through `fetch` sent to `origin` instead, by
+ * the real `fetch`. The validator asks for a schema at a fixed GitHub URL, which a test must not
+ * depend on; this keeps the real client, the real request and a real answer (or a real refusal to
+ * connect), and changes only who is on the other end. Returns the URLs the validator asked for.
+ */
+async function withSchemaHostAt<T>(
+  origin: string,
+  run: () => Promise<T>,
+): Promise<{ result: T; asked: string[] }> {
+  const asked: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    asked.push(String(input instanceof Request ? input.url : input));
+    return real(`${origin}/schema.xml`, init);
+  }) as typeof fetch;
+  try {
+    return { result: await run(), asked };
   } finally {
     globalThis.fetch = real;
   }
@@ -283,6 +312,148 @@ describe("a HED dataset", () => {
     expect(errors[0].location).toBe(`/${events}`);
     expect(applyGate(report.issues, new Set()).blocking).toHaveLength(1);
     expect(urls).toEqual([]);
+  });
+});
+
+/**
+ * `HED_ERROR` with sub-code `SCHEMA_LOAD_FAILED` is seven conditions of the validator under one
+ * name, and the page lets exactly one of them through: the browser's request for a schema got no
+ * answer. Each of these runs the real bundle on a real dataset (the HED overlay, with
+ * `dataset_description.json` changed as the name says) and asks the page's gate what it does.
+ *
+ * The cases that need a schema from GitHub send the request to a real server on this machine, or
+ * to a port nothing listens on, so no test depends on GitHub being reachable or on a version
+ * number staying free. The validator's own words for each are asserted, because the gate reads
+ * them: a release that rewords one fails here, and not quietly in front of a person.
+ */
+describe("a HED dataset whose schema cannot be had", () => {
+  const events = "sub-01/eeg/sub-01_task-rest_events.tsv";
+  const description = JSON.parse(
+    new TextDecoder().decode(MINIMAL.get("dataset_description.json")),
+  ) as Record<string, unknown>;
+  /** The HED dataset, with `HEDVersion` as given, or with none when it is `undefined`. */
+  const named = (hedVersion?: unknown): Map<string, Bytes> =>
+    variant({
+      "dataset_description.json": new TextEncoder().encode(
+        JSON.stringify(
+          hedVersion === undefined ? description : { ...description, HEDVersion: hedVersion },
+        ),
+      ),
+      [events]: HED.get("sub-01_task-rest_events.tsv") as Bytes,
+    });
+  const errorsOf = (report: ValidationReport) =>
+    report.issues.filter((issue) => issue.severity === "error");
+  const SCHEMA_URL_9_9_9 =
+    "https://raw.githubusercontent.com/hed-standard/hed-schemas/refs/heads/main/standard_schema/hedxml/HED9.9.9.xml";
+
+  it("is stopped when it has HED columns and no HEDVersion, without any request", async () => {
+    const { result: report, urls } = await recordingFetches(() => validate(drop(named())));
+    const errors = errorsOf(report);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ code: "HED_ERROR", subCode: "SCHEMA_LOAD_FAILED" });
+    expect(errors[0].location).toBe(`/${events}`);
+    expect(errors[0].issueMessage).toContain("No valid HED schema specification was supplied.");
+
+    const verdict = applyGate(report.issues, new Set());
+    expect(verdict.blocking).toEqual(errors);
+    expect(verdict.schemaDownloadFailed).toEqual([]);
+    expect(urls).toEqual([]);
+  });
+
+  it("is stopped when the specification is not valid, without any request", async () => {
+    const { result: report, urls } = await recordingFetches(() =>
+      validate(drop(named("a:b:8.3.0"))),
+    );
+    const errors = errorsOf(report);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].issueMessage).toContain(
+      "The supplied HED schema specification is invalid. Specification: a:b:8.3.0.",
+    );
+    expect(applyGate(report.issues, new Set()).blocking).toEqual(errors);
+    expect(urls).toEqual([]);
+  });
+
+  it("is stopped when two library schemas cannot be merged, without any request", async () => {
+    const { result: report, urls } = await recordingFetches(() =>
+      validate(drop(named(["score_1.2.0", "score_2.0.0"]))),
+    );
+    const errors = errorsOf(report);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].issueMessage).toContain("Could not merge lazy partnered schemas");
+    expect(applyGate(report.issues, new Set()).blocking).toEqual(errors);
+    expect(urls).toEqual([]);
+  });
+
+  it("is not let through by a HEDVersion that quotes the validator's download wording", async () => {
+    const quoted = 'Could not load HED schema "x" from remote repository - "y';
+    const report = await validate(drop(named(quoted)));
+    const hed = errorsOf(report).filter((issue) => issue.code === "HED_ERROR");
+    expect(hed).toHaveLength(1);
+    expect(hed[0].issueMessage).toContain(`Specification: ${quoted}`);
+    expect(isSchemaDownloadFailure(hed[0])).toBe(false);
+    expect(applyGate(report.issues, new Set()).blocking).toContainEqual(hed[0]);
+  });
+
+  it("is stopped when GitHub answers 404 for the version, which is a version that is not there", async () => {
+    const server = await serveStatus(404, "404: Not Found");
+    try {
+      const { result: report, asked } = await withSchemaHostAt(server.origin, () =>
+        validate(drop(named("9.9.9"))),
+      );
+      expect(asked).toEqual([SCHEMA_URL_9_9_9]);
+      const errors = errorsOf(report);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].issueMessage).toContain("from remote repository");
+      expect(errors[0].issueMessage).toContain("HTTP status code 404 Not Found");
+      expect(isSchemaDownloadFailure(errors[0])).toBe(false);
+
+      const verdict = applyGate(report.issues, new Set());
+      expect(verdict.blocking).toEqual(errors);
+      expect(verdict.schemaDownloadFailed).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("is stopped when the server answers with an error, whatever the status", async () => {
+    const server = await serveStatus(503, "unavailable");
+    try {
+      const { result: report } = await withSchemaHostAt(server.origin, () =>
+        validate(drop(named("9.9.9"))),
+      );
+      const errors = errorsOf(report);
+      expect(errors).toHaveLength(1);
+      expect(errors[0].issueMessage).toContain("HTTP status code 503 Service Unavailable");
+      expect(applyGate(report.issues, new Set()).blocking).toEqual(errors);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("is let through, and told its HED annotations were not checked, when the request gets no answer", async () => {
+    const { result: report, asked } = await withSchemaHostAt(await closedLocalOrigin(), () =>
+      validate(drop(named("9.9.9"))),
+    );
+    expect(asked).toEqual([SCHEMA_URL_9_9_9]);
+    const errors = errorsOf(report);
+    expect(errors).toHaveLength(1);
+    // Node's own words for a refused connection; Chrome's are "Failed to fetch" (`gate.test.ts`).
+    expect(errors[0].issueMessage).toContain('from remote repository - "fetch failed".');
+    expect(isSchemaDownloadFailure(errors[0])).toBe(true);
+
+    const verdict = applyGate(report.issues, new Set());
+    expect(verdict.blocking).toEqual([]);
+    expect(verdict.schemaDownloadFailed).toEqual(errors);
+
+    const words = verdictWords({
+      blocking: verdict.blocking.length,
+      warnings: verdict.warnings.length + verdict.schemaDownloadFailed.length,
+      annexSkipped: verdict.annexSkipped.length,
+      schemaDownloadFailed: verdict.schemaDownloadFailed.length,
+    });
+    expect(words.tone).toBe("unchecked");
+    expect(words.headline).toBe("The HED annotations were not checked.");
+    expect(`${words.headline} ${words.detail} ${words.note}`).not.toMatch(/no bids errors found/i);
   });
 });
 
