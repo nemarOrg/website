@@ -17,6 +17,13 @@ export const VALIDATOR_VERSION: string = pin.version;
  * Where the worker script for `version` is served. Same-origin and versioned: the page's
  * `worker-src 'self'` allows it, and a new release is a new URL, so a cached script is never
  * mistaken for the new one.
+ *
+ * The version in the name is the validator's, not the file's. A re-vendor at the same version (the
+ * worker's sources or the lock changed, or a newer Deno built it) writes new bytes to the same
+ * URL, and a browser that holds the old ones is corrected by revalidation, not by the name:
+ * Cloudflare Pages answers a static file with an ETag and `cache-control: public, max-age=0,
+ * must-revalidate`, so every load asks and a changed file is fetched again. Nothing here may give
+ * this path a longer lifetime, in `public/_headers` or anywhere else.
  */
 export function workerUrl(version: string = VALIDATOR_VERSION): string {
   return `/vendor/bids-validator/${version}/bids-validator-worker.js`;

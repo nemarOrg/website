@@ -79,6 +79,9 @@ Four facts decided how, and they are why this is a decision and not a dependency
 - The bundle is 10,267,556 bytes (1,456,230 with `gzip -9`, 872,874 with `brotli -q 9`), fetched when the first folder is validated and revalidated by ETag after.
   Most of it is the HED validator, in the same file because splitting it would make the bytes depend on whose cache built them.
   The page's own script grows from 13,783 to 22,672 bytes (4,841 to 8,153 gzipped) and the site's one stylesheet by 3,952 bytes (875 gzipped); nothing else on `/upload` changes.
+- A re-vendor at the same version reuses the URL, `/vendor/bids-validator/<version>/bids-validator-worker.js`, because the version in the name is the validator's and not the file's.
+  A browser that holds the earlier bytes is corrected by revalidation and not by the name: Pages answers a static file with an ETag and `cache-control: public, max-age=0, must-revalidate` (as this change's preview deployment did), so each load asks, a changed file is fetched again, and an unchanged one costs a 304.
+  A longer lifetime on this path would break that, so the header rule for it carries none and must not gain one.
 - A committed build cannot be read as source.
   What stands in for review is `provenance.json`, the lock with its integrity hashes, the reproducible build, and the tests above.
 - Node has no `Worker`, so the tests run the committed bytes on real datasets through everything but the message loop (about thirty lines in `scripts/bids-validator-worker.ts`).
@@ -101,7 +104,7 @@ Four facts decided how, and they are why this is a decision and not a dependency
   A script from another origin needs a policy change, and the bytes are whatever the CDN serves that day.
 - **Install it from `npm.jsr.io` and bundle it with the site.**
   Viable as far as `bun build`, not built through Astro, and it would add 108 packages to every install and the bundling to every deploy, with Cloudflare's build depending on `npm.jsr.io`; a hashed worker file name also leaves the header rule in decision 2 without a stable path.
-  A later ADR can supersede this one with it: the protocol, the gate, the panel and the tests carry over.
+  A later ADR can supersede this one with it (tracked in #474): the protocol, the gate, the panel and the tests carry over.
 - **Run it on the page with `'unsafe-eval'` on `/upload` (ADR 0009's pattern).**
   One line, but it relaxes the page that holds the session and the attestation, and it freezes the page while the validator runs.
 - **Validate on the server (a pre-flight endpoint in nemar-cli).**

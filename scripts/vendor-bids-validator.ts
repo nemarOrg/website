@@ -26,6 +26,12 @@
  * its two sources, so nothing about this checkout is visible to it). Code splitting is off on
  * purpose: its chunk names are derived from the Deno cache path, which would make the bytes depend
  * on whose machine built them.
+ *
+ * Identical bytes need two things beyond those inputs. The first is network access: a cold cache
+ * fetches the packages from jsr.io and npm, and the license text of the bundler's shims comes from
+ * unpkg.com. The second is the exact Deno that built the committed bundle, 2.9.7 (`deno` in
+ * `provenance.json`): a different bundler can give different bytes for the same inputs, and the
+ * script prints a note when the Deno it runs is not the one that built what is committed.
  */
 
 const BUNDLE = "bids-validator-worker.js";
