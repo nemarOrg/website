@@ -13,6 +13,10 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Confirmation dialogs open in the middle of the screen again.** The global reset's `margin: 0` removed the browser's centring of modal dialogs, so every confirm dialog in the admin portal opened in the top-left corner.
+
 ## [0.2.33] - 2026-10-21
 
 ### Added

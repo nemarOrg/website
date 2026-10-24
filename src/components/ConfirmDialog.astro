@@ -74,6 +74,9 @@ const bodyId = `${dialogId}-body`;
 
 <style>
   .confirm-dialog {
+    /* The global reset sets every margin to 0, which removes the browser's auto margin that
+       centres a modal <dialog>; put it back so the dialog opens in the middle of the screen. */
+    margin: auto;
     max-inline-size: 32rem;
     padding: 0;
     border: 1px solid var(--color-border);
