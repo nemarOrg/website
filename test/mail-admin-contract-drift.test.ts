@@ -96,7 +96,8 @@ const LISTS: ReadonlyArray<{
   {
     name: "MAIL_ERROR_CODES",
     ours: MAIL_ERROR_CODES,
-    read: (s) => extractStringUnion(s, "MailErrorCode") ?? extractStringArray(s, "MAIL_ERROR_CODES"),
+    read: (s) =>
+      extractStringUnion(s, "MailErrorCode") ?? extractStringArray(s, "MAIL_ERROR_CODES"),
   },
 ];
 

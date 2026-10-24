@@ -49,9 +49,9 @@ describe("compareLists", () => {
   it("is null for equal lists and names both sides of a difference", () => {
     expect(compareLists("L", ["a", "b"], ["a", "b"])).toBeNull();
     const added = compareLists("L", ["a"], ["a", "b"]);
-    expect(added).toContain("only in the contract: [\"b\"]");
+    expect(added).toContain('only in the contract: ["b"]');
     const removed = compareLists("L", ["a", "b"], ["a"]);
-    expect(removed).toContain("only here: [\"b\"]");
+    expect(removed).toContain('only here: ["b"]');
   });
 
   it("treats a reorder as drift and a missing list as drift", () => {
