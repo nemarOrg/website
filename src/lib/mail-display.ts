@@ -5,9 +5,8 @@
  * A ticket's subject, addresses and body are email, which an attacker writes. The pages render
  * them only as escaped plain text; this module is the second layer, which makes the characters
  * that hide or reorder text visible instead. The escape set is the CLI's (nemar-cli
- * `src/lib/display-name.ts`): C0 and C1 controls, the line and paragraph separators, the
- * bidirectional embeddings, overrides and isolates, the implicit direction marks, and the
- * zero-width characters that make two different strings look alike.
+ * `src/lib/display-name.ts`): controls, every format character, the line and paragraph
+ * separators, and the invisible look-alikes that make two different strings look alike.
  *
  * A body keeps its newlines and tabs and, unlike a one-line field, keeps the direction marks
  * LRM, RLM and ALM: they are ordinary in right-to-left mail, they cannot reorder a run the way an
@@ -18,25 +17,31 @@
 import { parseBackendTimestamp } from "./format";
 import { IDEMPOTENCY_KEY_PATTERN, TEXT_MAX, type TicketStatus } from "./mail-admin-contract";
 
-const UNSAFE_LINE =
-  /[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\u200b-\u200f\u061c\u2060\ufeff]/gu;
-/** The same set, less the three direction marks (U+200E, U+200F, U+061C). */
-// biome-ignore lint/suspicious/noMisleadingCharacterClass: the zero width joiner is listed to be ESCAPED, not to match a sequence.
-const UNSAFE_BODY = /[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069\u200b-\u200d\u2060\ufeff]/gu;
+// Mirrors nemar-cli `src/lib/display-name.ts`, character for character: the C0 and C1 controls,
+// every format character (category Cf: the direction marks, zero-width characters, the soft
+// hyphen, invisible operators, the byte order mark, the bidirectional controls and the tag
+// characters), the line and paragraph separators, and the invisible look-alikes outside Cf
+// (the combining grapheme joiner, the Hangul fillers, the variation selectors).
+const UNSAFE_CHARACTERS =
+  // biome-ignore lint/suspicious/noMisleadingCharacterClass: each listed code point is matched on its own (the u flag), which is the intent: a combining joiner or selector is escaped, never joined.
+  /[\p{Cc}\p{Cf}\u2028\u2029\u034f\u115f\u1160\u3164\uffa0\ufe00-\ufe0f\u{e0100}-\u{e01ef}]/gu;
+
+/** What a body keeps besides ordinary text: newline, tab and the three implicit direction marks. */
+const BODY_KEPT: ReadonlySet<string> = new Set(["\n", "\t", "\u200e", "\u200f", "\u061c"]);
 
 function escapeCharacter(c: string): string {
   if (c === "\n") return "\\n";
   if (c === "\r") return "\\r";
   if (c === "\t") return "\\t";
   const code = c.codePointAt(0) ?? 0;
-  return code <= 0xff
-    ? `\\x${code.toString(16).padStart(2, "0")}`
-    : `\\u${code.toString(16).padStart(4, "0")}`;
+  if (code <= 0xff) return `\\x${code.toString(16).padStart(2, "0")}`;
+  if (code <= 0xffff) return `\\u${code.toString(16).padStart(4, "0")}`;
+  return `\\u{${code.toString(16)}}`;
 }
 
 /** A subject, an address or any one-line field: every character in the set written out. */
 export function displaySafeLine(text: string): string {
-  return text.replace(UNSAFE_LINE, escapeCharacter);
+  return text.replace(UNSAFE_CHARACTERS, escapeCharacter);
 }
 
 /**
@@ -46,7 +51,7 @@ export function displaySafeLine(text: string): string {
 export function displaySafeBody(text: string): string {
   return text
     .replace(/\r\n?/g, "\n")
-    .replace(UNSAFE_BODY, (c) => (c === "\n" || c === "\t" ? c : escapeCharacter(c)));
+    .replace(UNSAFE_CHARACTERS, (c) => (BODY_KEPT.has(c) ? c : escapeCharacter(c)));
 }
 
 // ---------------------------------------------------------------------------

@@ -61,6 +61,37 @@ describe("displaySafeLine", () => {
   });
 });
 
+describe("the wider escape set (mirrors nemar-cli display-name)", () => {
+  const text =
+    "a\u00adb\u034fc\u2061d\u180ee\u115ff\u3164g\ufe0fh\u{e0041}i\u{e0100}j\uffa0k\u1160l";
+  const expected =
+    "a\\xadb\\u034fc\\u2061d\\u180ee\\u115ff\\u3164g\\ufe0fh\\u{e0041}i\\u{e0100}j\\uffa0k\\u1160l";
+
+  it("escapes the other format and look-alike invisible characters in a line", () => {
+    expect(displaySafeLine(text)).toBe(expected);
+  });
+
+  it("escapes them in a body too", () => {
+    expect(displaySafeBody(text)).toBe(expected);
+  });
+
+  it("keeps ordinary letters from other scripts, in both", () => {
+    const letters = "Shir\u0101z\u012b \u0634\u06cc\u0631\u0627\u0632 \u5317\u4eac";
+    expect(displaySafeLine(letters)).toBe(letters);
+    expect(displaySafeBody(letters)).toBe(letters);
+  });
+
+  it("keeps exactly newline, tab, LRM, RLM and ALM in a body", () => {
+    expect(displaySafeBody("a\n\tb\u200ec\u200fd\u061ce")).toBe("a\n\tb\u200ec\u200fd\u061ce");
+    expect(displaySafeBody("a\u200bb\u200cc\u2066d")).toBe("a\\u200bb\\u200cc\\u2066d");
+  });
+
+  it("writes a line's escapes the way a body does, apart from newline and tab", () => {
+    const hostile = "\u001b\u0000\u007f\u009b\u202e\u2066\u2028";
+    expect(displaySafeBody(hostile)).toBe(displaySafeLine(hostile));
+  });
+});
+
 describe("displaySafeBody", () => {
   it("normalizes CRLF and a lone CR to a newline, and keeps newlines and tabs", () => {
     expect(displaySafeBody("a\r\nb\rc\n\td")).toBe("a\nb\nc\n\td");
