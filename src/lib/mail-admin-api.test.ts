@@ -326,33 +326,55 @@ describe("classifyReplyFailure", () => {
   const err = (status: number, code?: (typeof MAIL_ERROR_CODES)[number], sentence?: string) =>
     new MailApiError(status, code, sentence);
 
-  it("retries under the same key while the outcome is open", () => {
+  it("lets the three reply words decide, whatever the status", () => {
     expect(classifyReplyFailure(err(409, "reply_in_progress"))).toBe("retry_same_key");
-    expect(classifyReplyFailure(new TypeError("Failed to fetch"))).toBe("retry_same_key");
-    expect(classifyReplyFailure(new DOMException("t", "TimeoutError"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(502, "reply_not_sent"))).toBe("key_released");
+    expect(classifyReplyFailure(err(502, "reply_delivery_unknown"))).toBe("outcome_unknown");
+    expect(classifyReplyFailure(err(200, "reply_delivery_unknown"))).toBe("outcome_unknown");
+  });
+
+  it("refuses on every other mail code that is a 4xx", () => {
+    for (const code of MAIL_ERROR_CODES) {
+      if (code in { reply_in_progress: 1, reply_not_sent: 1, reply_delivery_unknown: 1 }) continue;
+      expect(classifyReplyFailure(err(409, code))).toBe("refused");
+      expect(classifyReplyFailure(err(404, code))).toBe("refused");
+    }
+  });
+
+  it("treats a mail code on a 5xx as in doubt", () => {
+    expect(classifyReplyFailure(err(500, "internal"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(503, "inbound_not_configured"))).toBe("retry_same_key");
+  });
+
+  it("refuses when the API turned the request away before any send", () => {
+    expect(classifyReplyFailure(err(403, undefined, "origin_not_allowed"))).toBe("refused");
+    expect(classifyReplyFailure(err(401))).toBe("refused");
+    expect(classifyReplyFailure(err(403, undefined, "Admin access required"))).toBe("refused");
+  });
+
+  it("keeps the same key for a limiter and for a 4xx that is not the mail route's", () => {
+    expect(classifyReplyFailure(err(429))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(408))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(400, undefined, "Bad Request"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(404))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(413))).toBe("retry_same_key");
+  });
+
+  it("keeps the same key for every 5xx, the proxy's words and an unreadable success", () => {
     expect(classifyReplyFailure(err(502, undefined, "upstream_unreachable"))).toBe(
       "retry_same_key",
     );
-    expect(classifyReplyFailure(err(500, "internal"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(502, undefined, "upstream_redirect"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(err(500))).toBe("retry_same_key");
     expect(classifyReplyFailure(err(503))).toBe("retry_same_key");
     expect(classifyReplyFailure(err(200, undefined, "unreadable"))).toBe("retry_same_key");
   });
 
-  it("releases the key only for reply_not_sent", () => {
-    expect(classifyReplyFailure(err(502, "reply_not_sent"))).toBe("key_released");
-  });
-
-  it("treats reply_delivery_unknown as final, though it is a 502", () => {
-    expect(classifyReplyFailure(err(502, "reply_delivery_unknown"))).toBe("outcome_unknown");
-  });
-
-  it("refuses on any other 4xx", () => {
-    expect(classifyReplyFailure(err(409, "ticket_is_spam"))).toBe("refused");
-    expect(classifyReplyFailure(err(404, "not_found"))).toBe("refused");
-    expect(classifyReplyFailure(err(400, "bad_request"))).toBe("refused");
-    expect(classifyReplyFailure(err(401))).toBe("refused");
-    expect(classifyReplyFailure(err(403, undefined, "origin_not_allowed"))).toBe("refused");
-    expect(classifyReplyFailure(err(429))).toBe("refused");
+  it("keeps the same key when the call did not get an answer", () => {
+    expect(classifyReplyFailure(new TypeError("Failed to fetch"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(new DOMException("t", "TimeoutError"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(new DOMException("a", "AbortError"))).toBe("retry_same_key");
+    expect(classifyReplyFailure(new Error("anything"))).toBe("retry_same_key");
   });
 });
 

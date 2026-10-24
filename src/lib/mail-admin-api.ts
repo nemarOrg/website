@@ -389,18 +389,33 @@ export async function putAvailability(
  */
 export type ReplyFailure = "retry_same_key" | "key_released" | "outcome_unknown" | "refused";
 
+/** What the three reply words mean for the key, whatever the status they arrive with. */
+const REPLY_CODE_OUTCOME: Partial<Record<MailErrorCode, ReplyFailure>> = {
+  reply_delivery_unknown: "outcome_unknown",
+  reply_not_sent: "key_released",
+  reply_in_progress: "retry_same_key",
+};
+
+/**
+ * One table, in order, so every branch is a decision and not an accident:
+ *
+ * 1. A reply word decides by itself (`REPLY_CODE_OUTCOME`).
+ * 2. Any other mail code is the route speaking, so the request was understood: a 5xx
+ *    (`internal`) may have been sent, a 4xx certainly was not (`refused`).
+ * 3. No mail code, so the answer may not have come from the mail route at all:
+ *    - `origin_not_allowed`, 401 and 403 are the API refusing before it reached the send: `refused`.
+ *    - 429 is a limiter and says nothing about the send: `retry_same_key`.
+ *    - any other 4xx (a 408, a gateway's 400) and every 5xx or 2xx with an unreadable body are
+ *      `retry_same_key`: the request may have arrived, and the same key makes a retry harmless.
+ * 4. Not an API answer at all (a lost connection, a timeout, an abort): `retry_same_key`.
+ */
 export function classifyReplyFailure(err: unknown): ReplyFailure {
-  if (err instanceof MailApiError) {
-    if (err.code === "reply_delivery_unknown") return "outcome_unknown";
-    if (err.code === "reply_not_sent") return "key_released";
-    if (err.code === "reply_in_progress") return "retry_same_key";
-    if (err.sentence === "upstream_unreachable") return "retry_same_key";
-    // A 2xx whose body could not be read, or any 5xx: the send may have happened.
-    if (err.status < 400 || err.status >= 500) return "retry_same_key";
-    return "refused";
+  if (!(err instanceof MailApiError)) return "retry_same_key";
+  if (err.code) {
+    return REPLY_CODE_OUTCOME[err.code] ?? (err.status >= 500 ? "retry_same_key" : "refused");
   }
-  // A network failure (TypeError), a timeout, an abort, anything unexpected: nothing says the
-  // request did not arrive, and the same key makes a retry harmless.
+  if (err.sentence === "origin_not_allowed") return "refused";
+  if (err.status === 401 || err.status === 403) return "refused";
   return "retry_same_key";
 }
 
