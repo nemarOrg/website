@@ -164,7 +164,7 @@ describe("the reply flow", () => {
     expect(script).toContain("flow.startOver()");
     expect(FLOW).not.toContain("newReplyKey");
     expect(FLOW.match(/newDraft\(\)/g)).toHaveLength(1);
-    expect(FLOW).toContain("loadDraft(storage, ticketId) ?? newDraft()");
+    expect(FLOW).toContain("loadDraft(storage, ticketId, kind) ?? newDraft()");
   });
 
   it("starts a send only from an idle or in-doubt draft, and saves after every change", () => {
@@ -182,9 +182,14 @@ describe("the reply flow", () => {
     expect(script).toMatch(/retryBtn\?\.addEventListener\("click", \(\) => void attempt\(\)\)/);
   });
 
-  it("never retries a note for the admin, and says to check the thread", () => {
-    expect(script).toContain("noteFailureText");
-    expect(script).toMatch(/addNote\(ticketId, text\), noteFailureText/);
+  it("sends a note under its own draft key, and Try again reuses it", () => {
+    expect(script).toContain('kind: "note"');
+    expect(script).toContain("sendReply: (text, key) => addNote(ticketId, text, key)");
+    expect(script).toMatch(
+      /noteRetry\?\.addEventListener\("click", \(\) => void attemptNote\(\)\)/,
+    );
+    expect(script).toContain("NOTE_RETRY_TEXT");
+    expect(script).not.toContain("newReplyKey");
   });
 
   it("has one live status and one alert, and focuses the alert", () => {
@@ -197,6 +202,69 @@ describe("the reply flow", () => {
   it("shows no composer for a spam ticket", () => {
     expect(DETAIL).toContain("isSpam ?");
     expect(DETAIL).toContain("a spam ticket cannot be replied to");
+  });
+});
+
+describe("retention: summaries and purged tickets", () => {
+  const script = clientScript(DETAIL);
+
+  it("shows the summary as escaped text with its author and time", () => {
+    expect(DETAIL).toContain(
+      '<div class="mail-summary__text" dir="auto">{displaySafeBody(summaryText)}</div>',
+    );
+    expect(DETAIL).toContain("`Written by ${summaryAuthor}`");
+    expect(DETAIL).toContain("detail.summarized_at");
+  });
+
+  it("writes a summary through putSummary, capped at the API's limit", () => {
+    expect(script).toContain("putSummary(ticketId, text)");
+    expect(script).toContain("SUMMARY_MAX");
+    expect(DETAIL).toContain("maxlength={SUMMARY_MAX}");
+  });
+
+  it("gives the guidance on what a summary must not contain", () => {
+    expect(DETAIL).toMatch(
+      /Do not include names, email addresses, account\s+ids or quoted message text/,
+    );
+    expect(DETAIL).toMatch(/a summary with an email address is refused/);
+  });
+
+  it("says a purged ticket was purged under the retention policy and keeps only the summary", () => {
+    expect(DETAIL).toContain("data-mail-purged");
+    expect(DETAIL).toMatch(/Purged on \{detail\.purged_at/);
+    expect(DETAIL).toMatch(/under the\s+retention policy; only the summary is kept/);
+  });
+
+  it("renders no thread, action, reply, note or summary form for a purged ticket", () => {
+    const start = DETAIL.indexOf("{!purged && (");
+    const end = DETAIL.indexOf('aria-labelledby="mail-events-title"');
+    expect(start).toBeGreaterThan(-1);
+    const guarded = DETAIL.slice(start, end);
+    for (const id of [
+      "mail-actions-title",
+      "mail-thread-title",
+      "mail-reply-title",
+      "mail-note-title",
+      "mail-summary-form-title",
+    ]) {
+      expect(guarded).toContain(id);
+      expect(DETAIL.slice(0, start)).not.toContain(`id="${id}"`);
+      expect(DETAIL.slice(end)).not.toContain(`id="${id}"`);
+    }
+  });
+
+  it("reads (purged) for an empty subject, on the page and in the list", () => {
+    expect(DETAIL).toContain('(purged ? "(purged)" : "(no subject)")');
+    expect(TICKET_ROW).toContain('(ticket.purged ? "(purged)" : "(no subject)")');
+    expect(TICKET_ROW).toContain('text="Purged"');
+  });
+
+  it("offers a Needs summary filter that sends summary=missing", () => {
+    expect(LIST).toContain('name="summary"');
+    expect(LIST).toContain('<option value="missing"');
+    expect(LIST).toContain("Needs summary");
+    expect(LIST).toContain('summary: url.searchParams.get("summary")');
+    expect(LIST).toContain('summary: filters.get("summary")');
   });
 });
 

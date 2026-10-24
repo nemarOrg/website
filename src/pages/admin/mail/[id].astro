@@ -18,12 +18,14 @@ import {
 import {
   ESCALATE_REASON_MAX,
   SETTABLE_STATUSES,
+  SUMMARY_MAX,
   TEXT_MAX,
   type TicketDetail,
 } from "../../../lib/mail-admin-contract";
 import {
   STATUS_LABEL,
   STATUS_TONE,
+  displaySafeBody,
   displaySafeLine,
   eventDetailText,
   sortEvents,
@@ -77,7 +79,7 @@ if (notFound) {
 // The requester's account, when the ticket has one. Fail-soft: the address is already on the
 // ticket, the account only adds a link.
 let requesterAccount: AdminUserDetail | null = null;
-if (detail?.ticket.requester_user_id != null) {
+if (detail && !detail.ticket.purged && detail.ticket.requester_user_id != null) {
   try {
     requesterAccount = await getAdminUserById(detail.ticket.requester_user_id, { cookieHeader });
   } catch (error) {
@@ -90,7 +92,16 @@ if (detail?.ticket.requester_user_id != null) {
 }
 
 const ticket = detail?.ticket ?? null;
-const subject = ticket ? displaySafeLine(ticket.subject).trim() || "(no subject)" : "";
+// A purged ticket has no subject or address left: the retention policy removed them.
+const purged = Boolean(ticket && (ticket.purged || detail?.purged_at));
+const subject = ticket
+  ? displaySafeLine(ticket.subject).trim() || (purged ? "(purged)" : "(no subject)")
+  : "";
+const summaryText = detail?.summary ?? null;
+const summaryAuthor =
+  detail?.summary_author_user_id != null
+    ? personLabel(directory, detail.summary_author_user_id)
+    : null;
 const thread = detail ? sortThread(detail.messages) : [];
 const events = detail ? sortEvents(detail.events) : [];
 const me = /^\d{1,12}$/.test(session.user.id) ? Number(session.user.id) : null;
@@ -114,7 +125,9 @@ const replySubject = ticket
       ? "Re: (no subject)"
       : `Re: ${subject}`
   : "";
-const requesterLabel = ticket ? displaySafeLine(ticket.requester_email) : "";
+const requesterLabel = ticket
+  ? displaySafeLine(ticket.requester_email) || (purged ? "(removed)" : "")
+  : "";
 const isSpam = ticket?.status === "spam";
 const statusText = ticket
   ? (STATUS_LABEL[ticket.status] ?? displaySafeLine(String(ticket.status)))
@@ -212,6 +225,34 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         <p class="mail-live" role="status" aria-live="polite" data-mail-status></p>
         <p class="admin-action-error" role="alert" tabindex="-1" data-mail-error hidden></p>
 
+        {purged && (
+          <p class="mail-notice" role="note" data-mail-purged>
+            Purged on {detail.purged_at ? stamp(detail.purged_at).text : "an earlier date"} under the
+            retention policy; only the summary is kept. The messages, the requester's address and the
+            subject are gone, and the ticket can no longer be changed.
+          </p>
+        )}
+
+        {summaryText !== null && (
+          <section class="mail-section" aria-labelledby="mail-summary-title" data-mail-summary>
+            <h3 class="mail-section__title" id="mail-summary-title">Summary</h3>
+            <div class="mail-summary__text" dir="auto">{displaySafeBody(summaryText)}</div>
+            <p class="mail-muted">
+              {summaryAuthor ? `Written by ${summaryAuthor}` : "Written"}
+              {detail.summarized_at && (
+                <>
+                  {", "}
+                  <time datetime={stamp(detail.summarized_at).iso ?? undefined}>
+                    {stamp(detail.summarized_at).text}
+                  </time>
+                </>
+              )}
+            </p>
+          </section>
+        )}
+
+        {!purged && (
+        <Fragment>
         <section class="mail-section" aria-labelledby="mail-actions-title">
           <h3 class="mail-section__title" id="mail-actions-title">Actions</h3>
           <div class="mail-actions">
@@ -346,12 +387,50 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
           <form class="mail-compose" data-note-form>
             <p class="mail-muted">Notes are visible to admins only and are never sent to the requester.</p>
             <label for="mail-note-text">Note</label>
-            <textarea id="mail-note-text" rows="3" maxlength={TEXT_MAX} data-mail-control data-note-text />
+            <textarea
+              id="mail-note-text"
+              rows="3"
+              maxlength={TEXT_MAX}
+              data-note-text
+              aria-describedby="mail-note-guidance"
+            />
+            <p class="mail-guidance" id="mail-note-guidance" data-note-guidance hidden></p>
             <div class="mail-compose__actions">
-              <button type="submit" class="mail-btn" data-mail-control>Add note</button>
+              <button type="submit" class="mail-btn" data-note-send>Add note</button>
+              <button type="button" class="mail-btn mail-btn--primary" data-note-retry hidden>
+                Try again
+              </button>
             </div>
           </form>
         </section>
+
+        <section class="mail-section" aria-labelledby="mail-summary-form-title">
+          <h3 class="mail-section__title" id="mail-summary-form-title">
+            {summaryText === null ? "Write a summary" : "Replace the summary"}
+          </h3>
+          <form class="mail-compose" data-summary-form>
+            <p class="mail-muted">
+              The summary is all that is kept when the ticket is purged under the retention policy.
+              Describe the request and the outcome. Do not include names, email addresses, account
+              ids or quoted message text: a summary with an email address is refused.
+            </p>
+            <label for="mail-summary-text">Summary</label>
+            <textarea
+              id="mail-summary-text"
+              rows="5"
+              maxlength={SUMMARY_MAX}
+              data-mail-control
+              data-summary-text
+            >{summaryText ?? ""}</textarea>
+            <div class="mail-compose__actions">
+              <button type="submit" class="mail-btn" data-mail-control>
+                {summaryText === null ? "Save summary" : "Replace summary"}
+              </button>
+            </div>
+          </form>
+        </section>
+        </Fragment>
+        )}
 
         <section class="mail-section" aria-labelledby="mail-events-title">
           <h3 class="mail-section__title" id="mail-events-title">History</h3>
@@ -531,6 +610,25 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     border-radius: var(--radius-pill);
     background: var(--admin-neutral-soft);
     font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+  .mail-notice {
+    margin: 0;
+    background: var(--admin-warn-soft);
+    border: 1px solid color-mix(in srgb, var(--admin-warn) 45%, transparent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .mail-summary__text {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
   .mail-live {
@@ -743,15 +841,16 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
 <script>
   import {
     MAIL_ERROR_TEXT,
+    NOTE_RETRY_TEXT,
     addNote,
     assignTicket,
     escalateTicket,
     mailErrorText,
-    noteFailureText,
+    putSummary,
     replyToTicket,
     setTicketStatus,
   } from "../../../lib/mail-admin-api";
-  import { ESCALATE_REASON_MAX, type SettableStatus, TEXT_MAX } from "../../../lib/mail-admin-contract";
+  import { ESCALATE_REASON_MAX, type SettableStatus, SUMMARY_MAX, TEXT_MAX } from "../../../lib/mail-admin-contract";
   import { type ReplyDraft, isEditable } from "../../../lib/mail-display";
   import { createReplyFlow } from "../../../lib/mail-reply-flow";
 
@@ -790,6 +889,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         (el as HTMLButtonElement).disabled = value;
       }
       renderReply();
+      renderNote();
     }
 
     // Run one call. Success reloads the page, so the thread and history show what happened and
@@ -841,22 +941,91 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       openDialog("mail-escalate");
     });
 
+    // ---- Note ----
+    //
+    // A note is stored once per Idempotency-Key, so it follows the reply's rules: one key per
+    // draft, kept across retries and reloads, and Try again resends under the same key.
+
     const noteForm = root.querySelector<HTMLFormElement>("[data-note-form]");
     const noteText = root.querySelector<HTMLTextAreaElement>("[data-note-text]");
+    const noteGuidance = root.querySelector<HTMLElement>("[data-note-guidance]");
+    const noteSend = root.querySelector<HTMLButtonElement>("[data-note-send]");
+    const noteRetry = root.querySelector<HTMLButtonElement>("[data-note-retry]");
+    let noteStorage: Storage | undefined;
+    try {
+      noteStorage = window.sessionStorage;
+    } catch {
+      noteStorage = undefined;
+    }
+    const noteFlow = createReplyFlow({
+      ticketId,
+      kind: "note",
+      sendReply: (text, key) => addNote(ticketId, text, key),
+      storage: noteStorage,
+      onChange: () => renderNote(),
+    });
+
+    function renderNote(): void {
+      if (!noteText) return;
+      const draft = noteFlow.draft;
+      if (noteText.value !== draft.text) noteText.value = draft.text;
+      noteText.disabled = !isEditable(draft) || busy;
+      const inDoubt = draft.phase === "in_doubt";
+      if (noteGuidance) {
+        noteGuidance.textContent = inDoubt ? NOTE_RETRY_TEXT : "";
+        noteGuidance.hidden = !inDoubt;
+      }
+      if (noteSend) {
+        noteSend.hidden = inDoubt;
+        noteSend.disabled = busy || draft.phase === "sending" || draft.text.trim() === "";
+      }
+      if (noteRetry) {
+        noteRetry.hidden = !inDoubt;
+        noteRetry.disabled = busy;
+      }
+    }
+
+    async function attemptNote(): Promise<void> {
+      if (busy) return;
+      clearError();
+      setBusy(true);
+      const result = await noteFlow.attempt();
+      if (result.outcome === "sent") {
+        location.reload();
+        return;
+      }
+      if (result.outcome === "empty") showError("Write the note first.");
+      else if (result.outcome === "too_long") showError(`The note is longer than ${TEXT_MAX} characters.`);
+      else if (result.outcome === "failed" && result.kind !== "retry_same_key") {
+        showError(mailErrorText(result.error));
+      }
+      setBusy(false);
+    }
+
+    noteText?.addEventListener("input", () => noteFlow.edit(noteText.value));
     noteForm?.addEventListener("submit", (event) => {
       event.preventDefault();
-      const text = (noteText?.value ?? "").trim();
+      void attemptNote();
+    });
+    noteRetry?.addEventListener("click", () => void attemptNote());
+
+    // ---- Summary ----
+    // Replacing is naturally repeatable, so it needs no key.
+
+    const summaryForm = root.querySelector<HTMLFormElement>("[data-summary-form]");
+    const summaryText = root.querySelector<HTMLTextAreaElement>("[data-summary-text]");
+    summaryForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = (summaryText?.value ?? "").trim();
       if (!text) {
-        showError("Write the note first.");
+        showError("Write the summary first.");
         return;
       }
-      if (text.length > TEXT_MAX) {
-        showError(`The note is longer than ${TEXT_MAX} characters.`);
+      if (text.length > SUMMARY_MAX) {
+        showError(`The summary is longer than ${SUMMARY_MAX} characters.`);
         return;
       }
-      // A note has no key, so a second request is a second note: a failure that may have saved it
-      // is never retried here, and the message says to check the thread first.
-      void run("Adding the note", () => addNote(ticketId, text), noteFailureText);
+      void run("Saving the summary", () => putSummary(ticketId, text));
     });
 
     // ---- Reply ----
@@ -973,5 +1142,6 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     });
 
     renderReply();
+    renderNote();
   }
 </script>

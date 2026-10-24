@@ -36,6 +36,7 @@ The phases are `idle`, `sending`, `in_doubt` and `unknown`, and a failure is cla
 - A draft saved while `sending` is restored as `in_doubt`, since the call may have arrived.
 
 A successful reply starts the next draft with a new key, because the old one now replays the sent reply.
+A note follows the same rules with a draft and key of its own, because the API now stores a note once per key; an unknown outcome there is `in_doubt` and Try again reuses the key, and there is no `unknown` phase since a note sends no mail.
 
 **The page shows what the API returns and nothing more.**
 Queue and ticket visibility is the API's: a ticket it will not show is a 404 with one sentence ("There is no such ticket, or it is not visible to you.") whether it does not exist or is hidden, on the page and for a malformed id alike.

@@ -36,6 +36,7 @@ const raw = {
   queue: url.searchParams.get("queue"),
   assignee: url.searchParams.get("assignee"),
   q: url.searchParams.get("q"),
+  summary: url.searchParams.get("summary"),
   cursor: url.searchParams.get("cursor"),
 };
 const filters = new URLSearchParams(mailTicketsQuery({ ...raw, cursor: null }));
@@ -43,6 +44,7 @@ const status = filters.get("status") ?? "";
 const queueFilter = filters.get("queue") ?? "";
 const assigneeFilter = filters.get("assignee") ?? "";
 const search = filters.get("q") ?? "";
+const needsSummary = filters.get("summary") === "missing";
 const cursor = new URLSearchParams(mailTicketsQuery({ cursor: raw.cursor })).get("cursor");
 
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
@@ -86,11 +88,12 @@ function pageHref(next: string | null): string {
     queue: filters.get("queue"),
     assignee: filters.get("assignee"),
     q: filters.get("q"),
+    summary: filters.get("summary"),
     cursor: next,
   });
   return qs ? `/admin/mail?${qs}` : "/admin/mail";
 }
-const filtered = Boolean(status || queueFilter || assigneeFilter || search);
+const filtered = Boolean(status || queueFilter || assigneeFilter || search || needsSummary);
 ---
 
 <AdminLayout title="Mail" active="mail" session={session}>
@@ -154,6 +157,16 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search);
           )
         }
       </select>
+    </div>
+    <div class="mail-field">
+      <label for="mail-summary">Summary</label>
+      <select id="mail-summary" name="summary" aria-describedby="mail-summary-hint">
+        <option value="" selected={!needsSummary}>Any</option>
+        <option value="missing" selected={needsSummary}>Needs summary</option>
+      </select>
+      <span class="mail-field__note mail-field__note--quiet" id="mail-summary-hint">
+        Closed tickets with no summary yet, whatever the status filter.
+      </span>
     </div>
     <div class="mail-field mail-field--search">
       <label for="mail-q">Search</label>
@@ -307,6 +320,9 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search);
   .mail-field__note {
     font-size: var(--fs-xs);
     color: var(--admin-warn-text);
+  }
+  .mail-field__note--quiet {
+    color: var(--admin-text-3);
   }
   .mail-field input::placeholder {
     color: var(--admin-text-3);

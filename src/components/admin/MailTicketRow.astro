@@ -20,7 +20,10 @@ interface Props {
 }
 
 const { ticket, assigneeLabel } = Astro.props;
-const subject = displaySafeLine(ticket.subject).trim() || "(no subject)";
+const subject =
+  displaySafeLine(ticket.subject).trim() || (ticket.purged ? "(purged)" : "(no subject)");
+// A closed ticket with no summary is waiting for one; a purged ticket keeps only its summary.
+const needsSummary = ticket.status === "closed" && !ticket.purged && !ticket.has_summary;
 const lastMessage = parseBackendTimestamp(ticket.last_message_at);
 const statusText = STATUS_LABEL[ticket.status] ?? displaySafeLine(String(ticket.status));
 const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
@@ -29,7 +32,11 @@ const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
 <article class="mail-row" data-mail-row>
   <div class="mail-row__primary">
     <a class="mail-row__subject" href={`/admin/mail/${ticket.id}`}>{subject}</a>
-    <StatusBadge tone={statusTone} text={statusText} />
+    <span class="mail-row__badges">
+      {ticket.purged && <StatusBadge tone="neutral" text="Purged" />}
+      {needsSummary && <StatusBadge tone="warn" text="Needs summary" />}
+      <StatusBadge tone={statusTone} text={statusText} />
+    </span>
   </div>
 
   <dl class="mail-row__meta">
@@ -50,7 +57,7 @@ const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
     </div>
     <div>
       <dt>Requester</dt>
-      <dd>{displaySafeLine(ticket.requester_email)}</dd>
+      <dd>{displaySafeLine(ticket.requester_email) || (ticket.purged ? "(removed)" : "")}</dd>
     </div>
     <div>
       <dt>Last message</dt>
@@ -96,6 +103,11 @@ const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
     color: var(--color-link);
     min-inline-size: 0;
     overflow-wrap: anywhere;
+  }
+  .mail-row__badges {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
   }
   .mail-row__meta {
     display: grid;
