@@ -1,0 +1,148 @@
+---
+/**
+ * One ticket in the `/admin/mail` list. Layout and CSS mirror `UserAdminRow.astro`
+ * (`.user-row*` -> `.mail-row*`) per the scoped-style duplication convention (AGENTS.md); keep
+ * them in sync.
+ *
+ * Everything from the email (subject, requester address) goes through `displaySafeLine` and is
+ * rendered as escaped text. The queue and the Restricted word are what the API returned for this
+ * caller; the page never decides who may see a ticket.
+ */
+import { formatDate, formatRelativeTime, parseBackendTimestamp } from "../../lib/format";
+import type { TicketSummary } from "../../lib/mail-admin-contract";
+import { STATUS_LABEL, STATUS_TONE, displaySafeLine } from "../../lib/mail-display";
+import StatusBadge from "./StatusBadge.astro";
+
+interface Props {
+  ticket: TicketSummary;
+  /** The assignee as the staff directory names them: a username, a name, `#id` or "Unassigned". */
+  assigneeLabel: string;
+}
+
+const { ticket, assigneeLabel } = Astro.props;
+const subject = displaySafeLine(ticket.subject).trim() || "(no subject)";
+const lastMessage = parseBackendTimestamp(ticket.last_message_at);
+const statusText = STATUS_LABEL[ticket.status] ?? displaySafeLine(String(ticket.status));
+const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
+---
+
+<article class="mail-row" data-mail-row>
+  <div class="mail-row__primary">
+    <a class="mail-row__subject" href={`/admin/mail/${ticket.id}`}>{subject}</a>
+    <StatusBadge tone={statusTone} text={statusText} />
+  </div>
+
+  <dl class="mail-row__meta">
+    <div>
+      <dt>Reference</dt>
+      <dd>{displaySafeLine(ticket.ref)}</dd>
+    </div>
+    <div>
+      <dt>Queue</dt>
+      <dd>
+        {displaySafeLine(ticket.queue_tag)}
+        {ticket.restricted && <span class="mail-row__restricted">Restricted</span>}
+      </dd>
+    </div>
+    <div>
+      <dt>Assigned to</dt>
+      <dd>{displaySafeLine(assigneeLabel)}</dd>
+    </div>
+    <div>
+      <dt>Requester</dt>
+      <dd>{displaySafeLine(ticket.requester_email)}</dd>
+    </div>
+    <div>
+      <dt>Last message</dt>
+      <dd>
+        {
+          lastMessage ? (
+            <time datetime={lastMessage.toISOString()}>
+              {formatDate(lastMessage)} ({formatRelativeTime(lastMessage)})
+            </time>
+          ) : (
+            displaySafeLine(ticket.last_message_at)
+          )
+        }
+      </dd>
+    </div>
+  </dl>
+</article>
+
+<style>
+  /* The admin portal's card family (see UserAdminRow.astro); keep in sync. */
+  .mail-row {
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+  .mail-row__primary {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .mail-row__subject {
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.005em;
+    color: var(--color-link);
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .mail-row__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+  }
+  .mail-row__meta > div {
+    min-inline-size: 0;
+  }
+  .mail-row__meta dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    margin-block-end: 2px;
+  }
+  .mail-row__meta dd {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .mail-row__restricted {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 1.25rem;
+    margin-inline-start: var(--space-2);
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  @media (max-width: 640px) {
+    .mail-row {
+      padding: var(--space-4);
+    }
+    .mail-row__meta {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (forced-colors: active) {
+    .mail-row__restricted {
+      border: 1px solid CanvasText;
+    }
+  }
+</style>

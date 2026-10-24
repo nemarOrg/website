@@ -6,7 +6,14 @@
  * {@link adminMetricHref} from ever producing a link to an unshipped tab.
  */
 
-export type AdminTab = "overview" | "publications" | "users" | "imports" | "notices" | "news" | "mail";
+export type AdminTab =
+  | "overview"
+  | "publications"
+  | "users"
+  | "imports"
+  | "notices"
+  | "news"
+  | "mail";
 
 export interface AdminTabDef {
   readonly id: AdminTab;
