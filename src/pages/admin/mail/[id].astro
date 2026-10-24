@@ -893,7 +893,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       idle: "",
       sending: "Sending the reply…",
       in_doubt:
-        "The reply may or may not have been sent. Try again is safe: it uses the same reply key, so the requester gets the reply once.",
+        "The reply may or may not have been sent. Try again is safe: it uses the same reply key, so the requester gets the reply once. The text is locked until the outcome is known, because a changed text could not be sent under the same key.",
       unknown: MAIL_ERROR_TEXT.reply_delivery_unknown,
     };
 
@@ -918,8 +918,14 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         retryBtn.hidden = phase !== "in_doubt";
         retryBtn.disabled = busy;
       }
-      if (reloadBtn) reloadBtn.hidden = phase !== "unknown";
-      if (startOverBtn) startOverBtn.hidden = phase !== "unknown";
+      if (reloadBtn) {
+        reloadBtn.hidden = phase !== "unknown";
+        reloadBtn.disabled = busy;
+      }
+      if (startOverBtn) {
+        startOverBtn.hidden = phase !== "unknown";
+        startOverBtn.disabled = busy;
+      }
     }
 
     textEl?.addEventListener("input", () => flow.edit(textEl.value));
