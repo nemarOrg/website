@@ -19,6 +19,7 @@
 import { ADMIN_TABS, type AdminTab } from "../lib/admin-tabs";
 import type { AuthSession } from "../lib/auth";
 import { fetchImportsAttentionCount } from "../lib/imports-admin-api";
+import { fetchMyOpenTicketCount } from "../lib/mail-admin-api";
 import { fetchAwaitingApprovalCount } from "../lib/users-admin-api";
 import Base from "./Base.astro";
 
@@ -39,15 +40,16 @@ const { title, active } = Astro.props;
 const hasLede = Astro.slots.has("lede");
 
 // Tab badges, rendered from every admin page (not just their own tab) since
-// the shell is shared. Both are fail-soft — neither throws — so a
+// the shell is shared. All three are fail-soft — neither throws — so a
 // `nemar-cli` hiccup degrades to "no badge" instead of breaking every admin
 // page's render; see each fetch's docstring for the mirrored contract in
-// observability.ts. Issued together so the two deadlines overlap rather
+// observability.ts. Issued together so the deadlines overlap rather
 // than stacking on the critical path of every render.
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
-const [usersAwaitingApproval, importsNeedingAttention] = await Promise.all([
+const [usersAwaitingApproval, importsNeedingAttention, myOpenTickets] = await Promise.all([
   fetchAwaitingApprovalCount({ cookieHeader }),
   fetchImportsAttentionCount({ cookieHeader }),
+  fetchMyOpenTicketCount({ cookieHeader }),
 ]);
 
 // What each badge counts, for a screen reader that would otherwise hear a
@@ -55,11 +57,17 @@ const [usersAwaitingApproval, importsNeedingAttention] = await Promise.all([
 const BADGE_WORDS: Partial<Record<AdminTab, string>> = {
   users: "awaiting approval",
   imports: "needing attention",
+  mail: "open and assigned to you",
 };
 function badgeCount(tab: AdminTab): number {
   if (tab === "users") return usersAwaitingApproval ?? 0;
   if (tab === "imports") return importsNeedingAttention ?? 0;
+  if (tab === "mail") return myOpenTickets?.count ?? 0;
   return 0;
+}
+// The mail badge is capped: past the API's page it reads "100+", never a number it cannot back.
+function badgeText(tab: AdminTab): string {
+  return tab === "mail" && myOpenTickets?.more ? `${badgeCount(tab)}+` : String(badgeCount(tab));
 }
 ---
 
@@ -87,7 +95,7 @@ function badgeCount(tab: AdminTab): number {
               {tab.label}
               {Boolean(badgeCount(tab.id)) && (
                 <span class="admin-tabs__badge">
-                  {badgeCount(tab.id)}
+                  {badgeText(tab.id)}
                   <span class="visually-hidden"> {BADGE_WORDS[tab.id]}</span>
                 </span>
               )}
