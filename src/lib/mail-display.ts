@@ -278,3 +278,34 @@ export function clearDraft(storage: DraftStorage | undefined, ticketId: number):
     // As above.
   }
 }
+
+// ---------------------------------------------------------------------------
+// Away window times (UTC)
+// ---------------------------------------------------------------------------
+
+/**
+ * An away time as the `datetime-local` input wants it: `YYYY-MM-DDTHH:mm` in UTC. The Mail pages
+ * label those inputs "(UTC)" and never use the browser's zone, so a window means the same thing
+ * to every admin who reads it. Null for a missing or unreadable time.
+ */
+export function awayInputValue(instant: string | null): string {
+  const date = parseBackendTimestamp(instant);
+  return date ? date.toISOString().slice(0, 16) : "";
+}
+
+/**
+ * The instant to send for a `datetime-local` value read as UTC, or null for an empty or
+ * malformed one. A value with seconds keeps them.
+ */
+export function awayInstant(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) return `${trimmed}:00Z`;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(trimmed)) return `${trimmed}Z`;
+  return null;
+}
+
+/** `2026-10-20 09:00 UTC`, for showing the stored window. Empty for a missing time. */
+export function formatUtc(instant: string | null): string {
+  const date = parseBackendTimestamp(instant);
+  return date ? `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)} UTC` : "";
+}

@@ -4,6 +4,8 @@ import {
   STATUS_LABEL,
   STATUS_TONE,
   authTone,
+  awayInputValue,
+  awayInstant,
   clearDraft,
   displaySafeBody,
   displaySafeLine,
@@ -11,6 +13,7 @@ import {
   edit,
   eventDetailText,
   failure,
+  formatUtc,
   isEditable,
   loadDraft,
   newDraft,
@@ -339,5 +342,32 @@ describe("draft storage", () => {
     expect(loadDraft(broken, 1)).toBeNull();
     expect(() => saveDraft(undefined, 1, d)).not.toThrow();
     expect(loadDraft(undefined, 1)).toBeNull();
+  });
+});
+
+describe("away window times", () => {
+  it("shows a stored instant in UTC for the input, whatever the viewer's zone", () => {
+    expect(awayInputValue("2026-10-20T09:30:00Z")).toBe("2026-10-20T09:30");
+    expect(awayInputValue("2026-10-20T11:30:00+02:00")).toBe("2026-10-20T09:30");
+    expect(awayInputValue("2026-10-20 09:30:00")).toBe("2026-10-20T09:30");
+    expect(awayInputValue(null)).toBe("");
+    expect(awayInputValue("soon")).toBe("");
+  });
+
+  it("turns an input value into a UTC instant", () => {
+    expect(awayInstant("2026-10-20T09:30")).toBe("2026-10-20T09:30:00Z");
+    expect(awayInstant("2026-10-20T09:30:15")).toBe("2026-10-20T09:30:15Z");
+    expect(awayInstant("")).toBeNull();
+    expect(awayInstant("2026-10-20")).toBeNull();
+    expect(awayInstant("2026-10-20T09:30:00Z")).toBeNull();
+  });
+
+  it("round-trips through the input", () => {
+    expect(awayInputValue(awayInstant("2026-01-02T03:04"))).toBe("2026-01-02T03:04");
+  });
+
+  it("formats for reading", () => {
+    expect(formatUtc("2026-10-20T09:30:00Z")).toBe("2026-10-20 09:30 UTC");
+    expect(formatUtc(null)).toBe("");
   });
 });
