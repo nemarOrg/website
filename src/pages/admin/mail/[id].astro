@@ -1,0 +1,989 @@
+---
+import ConfirmDialog from "../../../components/ConfirmDialog.astro";
+import MailThreadMessage from "../../../components/admin/MailThreadMessage.astro";
+import StatusBadge from "../../../components/admin/StatusBadge.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import { formatDate, formatRelativeTime, parseBackendTimestamp } from "../../../lib/format";
+import {
+  MAIL_ERROR_TEXT,
+  MailApiError,
+  getTicket,
+  loadStaffDirectory,
+  mailErrorText,
+  personLabel,
+} from "../../../lib/mail-admin-api";
+import {
+  ESCALATE_REASON_MAX,
+  SETTABLE_STATUSES,
+  TEXT_MAX,
+  type TicketDetail,
+} from "../../../lib/mail-admin-contract";
+import {
+  STATUS_LABEL,
+  STATUS_TONE,
+  displaySafeLine,
+  eventDetailText,
+  sortEvents,
+  sortThread,
+} from "../../../lib/mail-display";
+import { type AdminUserDetail, getAdminUserById } from "../../../lib/users-admin-api";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is unreachable; it is
+  // here so TypeScript narrows `session` for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+
+// Only digits, 1 to 12 of them: the API's own rule. Anything else is the same "not available"
+// page as a ticket the API refuses, so nothing is learned from the URL.
+const rawId = Astro.params.id ?? "";
+const validId = /^\d{1,12}$/.test(rawId) && Number(rawId) > 0;
+const ticketId = validId ? Number(rawId) : 0;
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let detail: TicketDetail | null = null;
+let notFound = !validId;
+let loadError: string | null = null;
+const [ticketResult, directory] = await Promise.all([
+  validId
+    ? getTicket(ticketId, { cookieHeader }).then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      )
+    : Promise.resolve(null),
+  loadStaffDirectory({ cookieHeader }),
+]);
+if (ticketResult?.ok) {
+  detail = ticketResult.value;
+} else if (ticketResult) {
+  if (ticketResult.error instanceof MailApiError && ticketResult.error.code === "not_found") {
+    notFound = true;
+  } else {
+    loadError = mailErrorText(ticketResult.error);
+  }
+}
+if (notFound) {
+  Astro.response.status = 404;
+}
+
+// The requester's account, when the ticket has one. Fail-soft: the address is already on the
+// ticket, the account only adds a link.
+let requesterAccount: AdminUserDetail | null = null;
+if (detail?.ticket.requester_user_id != null) {
+  try {
+    requesterAccount = await getAdminUserById(detail.ticket.requester_user_id, { cookieHeader });
+  } catch {
+    requesterAccount = null;
+  }
+}
+
+const ticket = detail?.ticket ?? null;
+const subject = ticket ? displaySafeLine(ticket.subject).trim() || "(no subject)" : "";
+const thread = detail ? sortThread(detail.messages) : [];
+const events = detail ? sortEvents(detail.events) : [];
+const me = /^\d{1,12}$/.test(session.user.id) ? Number(session.user.id) : null;
+const people = directory.people.filter((p) => p.id !== me);
+const assignee = ticket?.assignee_user_id ?? null;
+const knownIds = new Set([...people.map((p) => p.id), ...(me === null ? [] : [me])]);
+const unlistedAssignee = assignee !== null && !knownIds.has(assignee) ? assignee : null;
+
+function stamp(value: string): { iso: string | null; text: string } {
+  const date = parseBackendTimestamp(value);
+  return date
+    ? { iso: date.toISOString(), text: `${formatDate(date)} (${formatRelativeTime(date)})` }
+    : { iso: null, text: displaySafeLine(value) };
+}
+
+// The reply subject the API will send: `Re: <subject>`, no second `Re:`.
+const replySubject = ticket
+  ? /^re:/i.test(subject.trim())
+    ? subject
+    : subject === "(no subject)"
+      ? "Re: (no subject)"
+      : `Re: ${subject}`
+  : "";
+const requesterLabel = ticket ? displaySafeLine(ticket.requester_email) : "";
+const isSpam = ticket?.status === "spam";
+const statusText = ticket
+  ? (STATUS_LABEL[ticket.status] ?? displaySafeLine(String(ticket.status)))
+  : "";
+const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral";
+---
+
+<AdminLayout title={ticket ? `Ticket ${displaySafeLine(ticket.ref)}` : "Ticket"} active="mail" session={session}>
+  <Fragment slot="lede">
+    <a href="/admin/mail">&larr; Back to Mail</a>
+  </Fragment>
+
+  {
+    notFound && (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">Ticket not available</h2>
+        <p class="admin-empty__body">{MAIL_ERROR_TEXT.not_found}</p>
+      </div>
+    )
+  }
+
+  {loadError && <p class="admin-action-error" role="alert">{loadError}</p>}
+
+  {
+    ticket && detail && (
+      <div class="mail-detail" data-mail-detail data-ticket-id={ticket.id}>
+        <header class="mail-detail__header">
+          <div class="mail-detail__titlebar">
+            <h2 class="mail-detail__subject">{subject}</h2>
+            <StatusBadge tone={statusTone} text={statusText} />
+          </div>
+
+          <dl class="mail-detail__meta">
+            <div>
+              <dt>Reference</dt>
+              <dd>{displaySafeLine(ticket.ref)}</dd>
+            </div>
+            <div>
+              <dt>Queue</dt>
+              <dd>
+                {displaySafeLine(ticket.queue_tag)}
+                {ticket.restricted && <span class="mail-detail__restricted">Restricted</span>}
+              </dd>
+            </div>
+            <div>
+              <dt>Assigned to</dt>
+              <dd>{personLabel(directory, assignee)}</dd>
+            </div>
+            <div>
+              <dt>Requester</dt>
+              <dd>
+                {requesterLabel}
+                {requesterAccount?.username && (
+                  <>
+                    {" "}
+                    <a href={`/admin/users/${encodeURIComponent(requesterAccount.username)}`}>
+                      Account
+                    </a>
+                  </>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>Created</dt>
+              <dd>
+                {(() => {
+                  const t = stamp(ticket.created_at);
+                  return t.iso ? <time datetime={t.iso}>{t.text}</time> : t.text;
+                })()}
+              </dd>
+            </div>
+            <div>
+              <dt>Last message</dt>
+              <dd>
+                {(() => {
+                  const t = stamp(ticket.last_message_at);
+                  return t.iso ? <time datetime={t.iso}>{t.text}</time> : t.text;
+                })()}
+              </dd>
+            </div>
+          </dl>
+
+          {detail.tags.length > 0 && (
+            <div class="mail-detail__tags">
+              <h3 class="mail-section__title">Tags</h3>
+              <ul class="mail-tags" role="list">
+                {detail.tags.map((tag) => (
+                  <li>{displaySafeLine(tag)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </header>
+
+        <p class="mail-live" role="status" aria-live="polite" data-mail-status></p>
+        <p class="admin-action-error" role="alert" tabindex="-1" data-mail-error hidden></p>
+
+        <section class="mail-section" aria-labelledby="mail-actions-title">
+          <h3 class="mail-section__title" id="mail-actions-title">Actions</h3>
+          <div class="mail-actions">
+            <div class="mail-action">
+              <label for="mail-assign">Assign to</label>
+              <select id="mail-assign" data-mail-control data-assign-select>
+                <option value="" selected={assignee === null}>Unassigned</option>
+                {me !== null && (
+                  <option value={String(me)} selected={assignee === me}>
+                    Me ({personLabel(directory, me)})
+                  </option>
+                )}
+                {people.map((p) => (
+                  <option value={String(p.id)} selected={assignee === p.id}>
+                    {displaySafeLine(p.label)} ({p.role})
+                  </option>
+                ))}
+                {unlistedAssignee !== null && (
+                  <option value={String(unlistedAssignee)} selected>
+                    #{unlistedAssignee}
+                  </option>
+                )}
+              </select>
+              <button type="button" class="mail-btn" data-mail-control data-assign-button>
+                Assign
+              </button>
+            </div>
+
+            <div class="mail-action">
+              <label for="mail-set-status">Status</label>
+              <select id="mail-set-status" data-mail-control data-status-select>
+                {!(SETTABLE_STATUSES as readonly string[]).includes(ticket.status) && (
+                  <option value="" selected disabled>
+                    {statusText} (current)
+                  </option>
+                )}
+                {SETTABLE_STATUSES.map((s) => (
+                  <option value={s} selected={ticket.status === s}>
+                    {STATUS_LABEL[s]}
+                  </option>
+                ))}
+              </select>
+              <button type="button" class="mail-btn" data-mail-control data-status-button>
+                Set status
+              </button>
+            </div>
+
+            <details class="mail-escalate">
+              <summary>Escalate to the queue's escalation owner</summary>
+              <div class="mail-action mail-action--stack">
+                <label for="mail-escalate-reason">Reason (optional)</label>
+                <textarea
+                  id="mail-escalate-reason"
+                  rows="3"
+                  maxlength={ESCALATE_REASON_MAX}
+                  data-mail-control
+                  data-escalate-reason
+                />
+                <div>
+                  <button type="button" class="mail-btn mail-btn--danger" data-mail-control data-escalate-button>
+                    Escalate
+                  </button>
+                </div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <section class="mail-section" aria-labelledby="mail-thread-title">
+          <h3 class="mail-section__title" id="mail-thread-title">Thread</h3>
+          <ol class="mail-thread" role="list">
+            {thread.map((message) => (
+              <li>
+                <MailThreadMessage
+                  message={message}
+                  threadSubject={ticket.subject}
+                  authorLabel={
+                    message.author_user_id !== null
+                      ? personLabel(directory, message.author_user_id)
+                      : undefined
+                  }
+                />
+              </li>
+            ))}
+          </ol>
+          {thread.length === 0 && <p class="mail-muted">This ticket has no messages.</p>}
+        </section>
+
+        <section class="mail-section" aria-labelledby="mail-reply-title">
+          <h3 class="mail-section__title" id="mail-reply-title">Reply</h3>
+          {isSpam ? (
+            <p class="mail-muted">
+              This ticket is marked spam, and a spam ticket cannot be replied to. Set its status to
+              Open first.
+            </p>
+          ) : (
+            <div class="mail-compose" data-reply-box>
+              <p class="mail-muted">
+                Replies go to <strong>{requesterLabel}</strong> from the support address, with the
+                subject <strong>{replySubject}</strong>. A sent reply cannot be recalled.
+              </p>
+              <label for="mail-reply-text">Your reply</label>
+              <textarea
+                id="mail-reply-text"
+                rows="8"
+                maxlength={TEXT_MAX}
+                data-reply-text
+                aria-describedby="mail-reply-count mail-reply-guidance"
+              />
+              <p class="mail-count" id="mail-reply-count" data-reply-count>0 / {TEXT_MAX}</p>
+              <p class="mail-guidance" id="mail-reply-guidance" data-reply-guidance hidden></p>
+              <div class="mail-compose__actions">
+                <button type="button" class="mail-btn mail-btn--primary" data-reply-send>
+                  Send reply
+                </button>
+                <button type="button" class="mail-btn mail-btn--primary" data-reply-retry hidden>
+                  Try again
+                </button>
+                <button type="button" class="mail-btn" data-reply-reload hidden>
+                  Reload the thread
+                </button>
+                <button type="button" class="mail-btn mail-btn--danger" data-reply-startover hidden>
+                  Write a new reply instead
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section class="mail-section" aria-labelledby="mail-note-title">
+          <h3 class="mail-section__title" id="mail-note-title">Internal note</h3>
+          <form class="mail-compose" data-note-form>
+            <p class="mail-muted">Notes are visible to admins only and are never sent to the requester.</p>
+            <label for="mail-note-text">Note</label>
+            <textarea id="mail-note-text" rows="3" maxlength={TEXT_MAX} data-mail-control data-note-text />
+            <div class="mail-compose__actions">
+              <button type="submit" class="mail-btn" data-mail-control>Add note</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="mail-section" aria-labelledby="mail-events-title">
+          <h3 class="mail-section__title" id="mail-events-title">History</h3>
+          {events.length === 0 ? (
+            <p class="mail-muted">Nothing has happened to this ticket yet.</p>
+          ) : (
+            <ol class="mail-events">
+              {events.map((event) => {
+                const t = stamp(event.created_at);
+                const text = eventDetailText(event.detail);
+                return (
+                  <li>
+                    <span class="mail-events__when">
+                      {t.iso ? <time datetime={t.iso}>{t.text}</time> : t.text}
+                    </span>
+                    <span class="mail-events__kind">{displaySafeLine(event.kind)}</span>
+                    <span class="mail-events__actor">
+                      {event.actor_user_id === null
+                        ? "System"
+                        : personLabel(directory, event.actor_user_id)}
+                    </span>
+                    {text && <span class="mail-events__detail">{text}</span>}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+      </div>
+    )
+  }
+
+  <ConfirmDialog
+    dialogId="mail-escalate"
+    title="Escalate this ticket?"
+    body="The ticket moves to the queue's escalation owner and its status becomes Escalated. They are told by email."
+    confirmLabel="Escalate"
+    confirmTone="danger"
+  />
+  <ConfirmDialog
+    dialogId="mail-reply-send"
+    title="Send this reply?"
+    body="The reply is emailed to the requester from the support address and cannot be recalled."
+    confirmLabel="Send reply"
+    confirmTone="primary"
+  />
+  <ConfirmDialog
+    dialogId="mail-reply-new"
+    title="Write a new reply instead?"
+    body="The first reply may already have reached the requester. A new reply is sent even if it did, so they could get two copies. Reload the thread first to see whether the first one was recorded."
+    confirmLabel="Write a new reply"
+    confirmTone="danger"
+  />
+</AdminLayout>
+
+<style>
+  /* Shared admin page vocabulary, in the observability dashboard's family. Duplicated across the
+     admin pages per the scoped-style convention (AGENTS.md); keep them in sync. */
+  .admin-empty {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .admin-empty__body {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .admin-action-error[hidden] {
+    display: none;
+  }
+  @media (forced-colors: active) {
+    .admin-action-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+
+  .mail-detail {
+    display: grid;
+    gap: var(--space-5);
+    min-inline-size: 0;
+  }
+  .mail-detail__header {
+    display: grid;
+    gap: var(--space-3);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    padding: var(--space-5);
+  }
+  .mail-detail__titlebar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .mail-detail__subject {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+    min-inline-size: 0;
+  }
+  .mail-detail__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+  }
+  .mail-detail__meta > div {
+    min-inline-size: 0;
+  }
+  .mail-detail__meta dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    margin-block-end: 2px;
+  }
+  .mail-detail__meta dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .mail-detail__meta a {
+    color: var(--color-link);
+  }
+  .mail-detail__restricted {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 1.25rem;
+    margin-inline-start: var(--space-2);
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .mail-tags {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .mail-tags li {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-neutral-soft);
+    font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+  .mail-live {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .mail-live:empty {
+    display: none;
+  }
+  .mail-section {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .mail-section__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    letter-spacing: 0;
+  }
+  .mail-muted {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    overflow-wrap: anywhere;
+  }
+  .mail-actions {
+    display: grid;
+    gap: var(--space-4);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5);
+  }
+  .mail-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+  }
+  .mail-action--stack {
+    display: grid;
+    margin-block-start: var(--space-3);
+  }
+  .mail-action label,
+  .mail-compose label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .mail-action select,
+  .mail-action textarea,
+  .mail-compose textarea {
+    min-block-size: 40px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--admin-control-border);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-family: inherit;
+    max-inline-size: 100%;
+  }
+  .mail-compose textarea,
+  .mail-action--stack textarea {
+    inline-size: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+  }
+  .mail-compose textarea:disabled {
+    background: var(--admin-surface-2);
+    color: var(--color-fg-muted);
+  }
+  .mail-escalate summary {
+    cursor: pointer;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    min-block-size: 2.25rem;
+    display: flex;
+    align-items: center;
+  }
+  .mail-thread {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .mail-compose {
+    display: grid;
+    gap: var(--space-2);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5);
+  }
+  .mail-compose__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .mail-count {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .mail-guidance {
+    margin: 0;
+    background: var(--admin-warn-soft);
+    border: 1px solid color-mix(in srgb, var(--admin-warn) 45%, transparent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .mail-guidance[hidden] {
+    display: none;
+  }
+  .mail-events {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4);
+  }
+  .mail-events li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .mail-events__when {
+    color: var(--admin-text-3);
+    font-size: var(--fs-xs);
+  }
+  .mail-events__kind {
+    font-weight: var(--fw-semibold);
+  }
+  .mail-events__detail {
+    flex-basis: 100%;
+    color: var(--color-fg-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .mail-btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .mail-btn[hidden] {
+    display: none;
+  }
+  .mail-btn:hover:not(:disabled) {
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
+  }
+  .mail-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .mail-btn--primary {
+    background: var(--color-link);
+    color: var(--color-bg);
+    border-color: var(--color-link);
+  }
+  .mail-btn--primary:hover:not(:disabled) {
+    background: var(--color-link-hover);
+    border-color: var(--color-link-hover);
+  }
+  .mail-btn--danger {
+    color: var(--admin-error-text);
+    border-color: color-mix(in srgb, var(--admin-error) 45%, transparent);
+  }
+  .mail-btn--danger:hover:not(:disabled) {
+    background: var(--admin-error-soft);
+    border-color: var(--admin-error-text);
+  }
+  @media (max-width: 640px) {
+    .mail-detail__header,
+    .mail-actions,
+    .mail-compose {
+      padding: var(--space-4);
+    }
+    .mail-detail__subject {
+      font-size: var(--fs-lg);
+    }
+    .mail-action select {
+      inline-size: 100%;
+    }
+  }
+</style>
+
+<script>
+  import {
+    MAIL_ERROR_TEXT,
+    addNote,
+    assignTicket,
+    classifyReplyFailure,
+    escalateTicket,
+    mailErrorText,
+    replyToTicket,
+    setTicketStatus,
+  } from "../../../lib/mail-admin-api";
+  import { ESCALATE_REASON_MAX, type SettableStatus, TEXT_MAX } from "../../../lib/mail-admin-contract";
+  import {
+    type ReplyDraft,
+    clearDraft,
+    edit,
+    failure,
+    isEditable,
+    loadDraft,
+    newDraft,
+    saveDraft,
+    send,
+    startOver,
+    success,
+  } from "../../../lib/mail-display";
+
+  const root = document.querySelector<HTMLElement>("[data-mail-detail]");
+  if (root) {
+    const ticketId = Number(root.dataset.ticketId);
+    const statusEl = root.querySelector<HTMLElement>("[data-mail-status]");
+    const errorEl = root.querySelector<HTMLElement>("[data-mail-error]");
+    let busy = false;
+
+    function say(message: string): void {
+      if (statusEl) statusEl.textContent = message;
+    }
+    function clearError(): void {
+      if (!errorEl) return;
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+    function showError(message: string): void {
+      if (!errorEl) return;
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+      errorEl.focus();
+    }
+    function openDialog(dialogId: string): void {
+      document.dispatchEvent(
+        new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", { detail: { dialogId } }),
+      );
+    }
+
+    // Everything the action forms hold is disabled, and the page marked busy, while a call runs.
+    function setBusy(value: boolean): void {
+      busy = value;
+      root?.toggleAttribute("aria-busy", value);
+      for (const el of root?.querySelectorAll<HTMLElement>("[data-mail-control]") ?? []) {
+        (el as HTMLButtonElement).disabled = value;
+      }
+      renderReply();
+    }
+
+    // Run one call. Success reloads the page, so the thread and history show what happened and
+    // the controls stay locked until then; a failure unlocks them and says why.
+    async function run(doing: string, call: () => Promise<unknown>): Promise<void> {
+      if (busy) return;
+      clearError();
+      say(`${doing}…`);
+      setBusy(true);
+      try {
+        await call();
+        location.reload();
+      } catch (err) {
+        say("");
+        showError(mailErrorText(err));
+        setBusy(false);
+      }
+    }
+
+    // ---- Assign, status, escalate, note ----
+
+    const assignSelect = root.querySelector<HTMLSelectElement>("[data-assign-select]");
+    root.querySelector("[data-assign-button]")?.addEventListener("click", () => {
+      if (!assignSelect) return;
+      const userId = assignSelect.value === "" ? null : Number(assignSelect.value);
+      void run("Assigning", () => assignTicket(ticketId, userId));
+    });
+
+    const statusSelect = root.querySelector<HTMLSelectElement>("[data-status-select]");
+    root.querySelector("[data-status-button]")?.addEventListener("click", () => {
+      if (!statusSelect || statusSelect.value === "") {
+        showError("Choose a status to set.");
+        return;
+      }
+      const status = statusSelect.value as SettableStatus;
+      void run("Setting the status", () => setTicketStatus(ticketId, status));
+    });
+
+    const reasonEl = root.querySelector<HTMLTextAreaElement>("[data-escalate-reason]");
+    root.querySelector("[data-escalate-button]")?.addEventListener("click", () => {
+      if ((reasonEl?.value.trim().length ?? 0) > ESCALATE_REASON_MAX) {
+        showError(`The reason is longer than ${ESCALATE_REASON_MAX} characters.`);
+        return;
+      }
+      openDialog("mail-escalate");
+    });
+
+    const noteForm = root.querySelector<HTMLFormElement>("[data-note-form]");
+    const noteText = root.querySelector<HTMLTextAreaElement>("[data-note-text]");
+    noteForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = (noteText?.value ?? "").trim();
+      if (!text) {
+        showError("Write the note first.");
+        return;
+      }
+      if (text.length > TEXT_MAX) {
+        showError(`The note is longer than ${TEXT_MAX} characters.`);
+        return;
+      }
+      void run("Adding the note", () => addNote(ticketId, text));
+    });
+
+    // ---- Reply ----
+    //
+    // The draft is the text AND its Idempotency-Key, kept together in sessionStorage. The key is
+    // minted once per draft and is the same on every attempt, so a double click, a retry after a
+    // lost response and a reload cannot send the mail twice: the API stores the key before it
+    // sends and answers a repeat from what it stored. A new key is minted in one place only,
+    // `startOver`, after the person has been warned that a second copy may go out.
+
+    let storage: Storage | undefined;
+    try {
+      storage = window.sessionStorage;
+    } catch {
+      storage = undefined;
+    }
+    let draft: ReplyDraft = loadDraft(storage, ticketId) ?? newDraft();
+
+    const textEl = root.querySelector<HTMLTextAreaElement>("[data-reply-text]");
+    const countEl = root.querySelector<HTMLElement>("[data-reply-count]");
+    const guidanceEl = root.querySelector<HTMLElement>("[data-reply-guidance]");
+    const sendBtn = root.querySelector<HTMLButtonElement>("[data-reply-send]");
+    const retryBtn = root.querySelector<HTMLButtonElement>("[data-reply-retry]");
+    const reloadBtn = root.querySelector<HTMLButtonElement>("[data-reply-reload]");
+    const startOverBtn = root.querySelector<HTMLButtonElement>("[data-reply-startover]");
+
+    const GUIDANCE: Record<ReplyDraft["phase"], string> = {
+      idle: "",
+      sending: "Sending the reply…",
+      in_doubt:
+        "The reply may or may not have been sent. Try again is safe: it uses the same reply key, so the requester gets the reply once.",
+      unknown: MAIL_ERROR_TEXT.reply_delivery_unknown,
+    };
+
+    function persist(): void {
+      if (draft.phase === "idle" && draft.text.trim() === "") clearDraft(storage, ticketId);
+      else saveDraft(storage, ticketId, draft);
+    }
+
+    function renderReply(): void {
+      if (!textEl) return;
+      const phase = draft.phase;
+      if (textEl.value !== draft.text) textEl.value = draft.text;
+      textEl.disabled = !isEditable(draft) || busy;
+      if (countEl) countEl.textContent = `${draft.text.length} / ${TEXT_MAX}`;
+      if (guidanceEl) {
+        guidanceEl.textContent = GUIDANCE[phase];
+        guidanceEl.hidden = GUIDANCE[phase] === "";
+      }
+      if (sendBtn) {
+        sendBtn.hidden = phase === "in_doubt" || phase === "unknown";
+        sendBtn.disabled = busy || phase === "sending" || draft.text.trim() === "";
+        sendBtn.textContent = phase === "sending" ? "Sending…" : "Send reply";
+        sendBtn.toggleAttribute("aria-busy", phase === "sending");
+      }
+      if (retryBtn) {
+        retryBtn.hidden = phase !== "in_doubt";
+        retryBtn.disabled = busy;
+      }
+      if (reloadBtn) reloadBtn.hidden = phase !== "unknown";
+      if (startOverBtn) startOverBtn.hidden = phase !== "unknown";
+    }
+
+    textEl?.addEventListener("input", () => {
+      draft = edit(draft, textEl.value);
+      persist();
+      renderReply();
+    });
+
+    async function attempt(): Promise<void> {
+      // `send` moves only an idle or in-doubt draft to `sending`: a second click, a second
+      // confirm and a retry while a call is out all land on a draft that is already sending.
+      if (busy || (draft.phase !== "idle" && draft.phase !== "in_doubt")) return;
+      const text = draft.text;
+      if (text.trim() === "") {
+        showError("Write the reply first.");
+        return;
+      }
+      if (text.length > TEXT_MAX) {
+        showError(`The reply is longer than ${TEXT_MAX} characters.`);
+        return;
+      }
+      clearError();
+      draft = send(draft);
+      persist();
+      setBusy(true);
+      try {
+        await replyToTicket(ticketId, draft.text, draft.key);
+        draft = success();
+        clearDraft(storage, ticketId);
+        location.reload();
+      } catch (err) {
+        const kind = classifyReplyFailure(err);
+        draft = failure(draft, kind);
+        persist();
+        // The delivery-unknown wording is the guidance beside the form; saying it twice helps nobody.
+        if (kind !== "outcome_unknown") showError(mailErrorText(err));
+        setBusy(false);
+      }
+    }
+
+    sendBtn?.addEventListener("click", () => {
+      if (draft.text.trim() === "") {
+        showError("Write the reply first.");
+        return;
+      }
+      clearError();
+      openDialog("mail-reply-send");
+    });
+    retryBtn?.addEventListener("click", () => void attempt());
+    reloadBtn?.addEventListener("click", () => location.reload());
+    startOverBtn?.addEventListener("click", () => openDialog("mail-reply-new"));
+
+    document.addEventListener("nemar:confirm-dialog-confirm", (evt) => {
+      const dialogId = (evt as CustomEvent<{ dialogId: string }>).detail.dialogId;
+      if (dialogId === "mail-escalate") {
+        void run("Escalating", () => escalateTicket(ticketId, reasonEl?.value));
+      } else if (dialogId === "mail-reply-send") {
+        void attempt();
+      } else if (dialogId === "mail-reply-new") {
+        draft = startOver(draft);
+        persist();
+        renderReply();
+        textEl?.focus();
+      }
+    });
+
+    renderReply();
+  }
+</script>
