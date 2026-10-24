@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAIL_ERROR_TEXT,
   MailApiError,
+  NOTE_UNKNOWN_TEXT,
   TRANSPORT_TEXT,
   addNote,
   assignTicket,
@@ -17,11 +18,13 @@ import {
   mailErrorText,
   mailTicketsQuery,
   notAssignableLabel,
+  noteFailureText,
   personLabel,
   putAvailability,
   putQueue,
   readMailError,
   replyToTicket,
+  resetBadgeWarning,
   setTicketStatus,
 } from "./mail-admin-api";
 import {
@@ -379,6 +382,7 @@ describe("classifyReplyFailure", () => {
 });
 
 describe("fetchMyOpenTicketCount", () => {
+  beforeEach(() => resetBadgeWarning());
   afterEach(() => vi.restoreAllMocks());
 
   it("asks for open tickets assigned to me, 100 at most", async () => {
@@ -406,6 +410,26 @@ describe("fetchMyOpenTicketCount", () => {
       throw new TypeError("Failed to fetch");
     }) as unknown as typeof fetch;
     expect(await fetchMyOpenTicketCount({ fetch: dropped })).toBeNull();
+    // Two failures in a row, one line: the fallback is logged at most once a minute.
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs again once the minute has passed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const dropped = (async () => {
+      throw new TypeError("Failed to fetch");
+    }) as unknown as typeof fetch;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-10-24T12:00:00Z"));
+      await fetchMyOpenTicketCount({ fetch: dropped });
+      vi.setSystemTime(new Date("2026-10-24T12:00:30Z"));
+      await fetchMyOpenTicketCount({ fetch: dropped });
+      vi.setSystemTime(new Date("2026-10-24T12:01:01Z"));
+      await fetchMyOpenTicketCount({ fetch: dropped });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(warn).toHaveBeenCalledTimes(2);
   });
 });
@@ -512,5 +536,30 @@ describe("loadStaffDirectory", () => {
     const { fetchImpl } = usersStub({ owner: "fail", admin: "fail" });
     const dir = await loadStaffDirectory({ fetch: fetchImpl });
     expect(dir).toMatchObject({ failed: true, assignable: [] });
+  });
+});
+
+describe("noteFailureText", () => {
+  it("tells the admin to check the thread when a note may have been saved", () => {
+    expect(noteFailureText(new TypeError("Failed to fetch"))).toBe(NOTE_UNKNOWN_TEXT);
+    expect(noteFailureText(new DOMException("t", "TimeoutError"))).toBe(NOTE_UNKNOWN_TEXT);
+    expect(noteFailureText(new MailApiError(500, "internal"))).toBe(NOTE_UNKNOWN_TEXT);
+    expect(noteFailureText(new MailApiError(502, undefined, "upstream_unreachable"))).toBe(
+      NOTE_UNKNOWN_TEXT,
+    );
+    expect(noteFailureText(new MailApiError(503))).toBe(NOTE_UNKNOWN_TEXT);
+    expect(noteFailureText(new MailApiError(408))).toBe(NOTE_UNKNOWN_TEXT);
+    expect(NOTE_UNKNOWN_TEXT).toMatch(
+      /Reload the page and check the thread before adding it again/,
+    );
+  });
+
+  it("uses the ordinary wording for a definite refusal and for a limiter", () => {
+    expect(noteFailureText(new MailApiError(404, "not_found"))).toBe(MAIL_ERROR_TEXT.not_found);
+    expect(noteFailureText(new MailApiError(400, "bad_request"))).toBe(MAIL_ERROR_TEXT.bad_request);
+    expect(noteFailureText(new MailApiError(403, undefined, "Admin access required"))).toBe(
+      TRANSPORT_TEXT.forbidden,
+    );
+    expect(noteFailureText(new MailApiError(429))).toBe(TRANSPORT_TEXT.rate_limited);
   });
 });

@@ -419,9 +419,33 @@ export function classifyReplyFailure(err: unknown): ReplyFailure {
   return "retry_same_key";
 }
 
+/** What to say when a note may or may not have been saved. */
+export const NOTE_UNKNOWN_TEXT =
+  "The note may or may not have been saved. Reload the page and check the thread before adding it again: a note has no protection against being added twice.";
+
+/**
+ * Words for a failed note. A note has no idempotency key, so one whose outcome is unknown (a lost
+ * connection, a timeout, a 5xx, an answer that did not come from the mail route) is never retried
+ * for the person: they are told to reload and look first. A definite refusal, and a 429 (a limiter
+ * that stopped it before anything ran), read as an ordinary error.
+ */
+export function noteFailureText(err: unknown): string {
+  if (err instanceof MailApiError && err.status === 429) return mailErrorText(err);
+  return classifyReplyFailure(err) === "retry_same_key" ? NOTE_UNKNOWN_TEXT : mailErrorText(err);
+}
+
 // ---------------------------------------------------------------------------
 // Badge and directory
 // ---------------------------------------------------------------------------
+
+/** The badge's fallback is logged at most this often per isolate, as `api-fetch.ts` does. */
+const BADGE_WARN_EVERY_MS = 60_000;
+let badgeWarnedAt = Number.NEGATIVE_INFINITY;
+
+/** For tests: forget when the badge last warned. */
+export function resetBadgeWarning(): void {
+  badgeWarnedAt = Number.NEGATIVE_INFINITY;
+}
 
 /** The most the badge asks for, and so the most it can count. */
 const BADGE_LIMIT = 100;
@@ -442,10 +466,14 @@ export async function fetchMyOpenTicketCount(
     );
     return { count: Math.min(page.tickets.length, BADGE_LIMIT), more: page.next_cursor !== null };
   } catch (err) {
-    console.warn(
-      "[mail-admin-api] mail badge degraded to null:",
-      err instanceof Error ? err.message : err,
-    );
+    const now = Date.now();
+    if (now - badgeWarnedAt >= BADGE_WARN_EVERY_MS) {
+      badgeWarnedAt = now;
+      console.warn(
+        "[mail-admin-api] mail badge degraded to null:",
+        err instanceof Error ? err.message : err,
+      );
+    }
     return null;
   }
 }

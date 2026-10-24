@@ -13,6 +13,7 @@ import QUEUE_FORM from "../src/components/admin/MailQueueForm.astro?raw";
 import THREAD_MESSAGE from "../src/components/admin/MailThreadMessage.astro?raw";
 import TICKET_ROW from "../src/components/admin/MailTicketRow.astro?raw";
 import MAIL_LAYOUT from "../src/layouts/AdminLayout.astro?raw";
+import FLOW from "../src/lib/mail-reply-flow.ts?raw";
 import LIST from "../src/pages/admin/mail.astro?raw";
 import DETAIL from "../src/pages/admin/mail/[id].astro?raw";
 import AWAY from "../src/pages/admin/mail/away.astro?raw";
@@ -151,28 +152,25 @@ describe("access", () => {
 describe("the reply flow", () => {
   const script = clientScript(DETAIL);
 
-  it("sends the draft's text with the draft's key", () => {
-    expect(script).toContain("replyToTicket(ticketId, draft.text, draft.key)");
+  it("sends the flow's draft text with its key and nothing else", () => {
+    expect(script).toContain("sendReply: (text, key) => replyToTicket(ticketId, text, key)");
+    expect(script).toContain("createReplyFlow(");
   });
 
-  it("mints a key in startOver and nowhere else in the page", () => {
+  it("mints no key in the page: only the flow's start-over does", () => {
     expect(script).not.toContain("newReplyKey");
+    expect(script).not.toContain("newDraft");
     expect(script).not.toContain("randomUUID");
-    expect(script).toContain("draft = startOver(draft)");
-    // `newDraft()` runs once, when there is no stored draft to restore.
-    expect(script.match(/newDraft\(\)/g)).toHaveLength(1);
-    expect(script).toContain("loadDraft(storage, ticketId) ?? newDraft()");
+    expect(script).toContain("flow.startOver()");
+    expect(FLOW).not.toContain("newReplyKey");
+    expect(FLOW.match(/newDraft\(\)/g)).toHaveLength(1);
+    expect(FLOW).toContain("loadDraft(storage, ticketId) ?? newDraft()");
   });
 
-  it("starts a send only from the draft state machine", () => {
-    expect(script).toContain("draft = send(draft)");
-    expect(script).toMatch(/draft\.phase !== "idle" && draft\.phase !== "in_doubt"/);
-  });
-
-  it("saves the draft after every transition", () => {
-    const persistCalls = script.match(/persist\(\)/g) ?? [];
-    // input, send, failure, startOver, plus the definition itself.
-    expect(persistCalls.length).toBeGreaterThanOrEqual(5);
+  it("starts a send only from an idle or in-doubt draft, and saves after every change", () => {
+    expect(FLOW).toMatch(/draft\.phase !== "idle" && draft\.phase !== "in_doubt"/);
+    expect(FLOW).toContain("draft = send(draft)");
+    expect(FLOW).toContain("persist();");
   });
 
   it("asks before sending and before writing a second copy", () => {
@@ -182,6 +180,11 @@ describe("the reply flow", () => {
     expect(script).toContain('openDialog("mail-reply-new")');
     // Try again reuses the key and asks nothing.
     expect(script).toMatch(/retryBtn\?\.addEventListener\("click", \(\) => void attempt\(\)\)/);
+  });
+
+  it("never retries a note for the admin, and says to check the thread", () => {
+    expect(script).toContain("noteFailureText");
+    expect(script).toMatch(/addNote\(ticketId, text\), noteFailureText/);
   });
 
   it("has one live status and one alert, and focuses the alert", () => {

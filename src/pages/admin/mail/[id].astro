@@ -745,26 +745,15 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     MAIL_ERROR_TEXT,
     addNote,
     assignTicket,
-    classifyReplyFailure,
     escalateTicket,
     mailErrorText,
+    noteFailureText,
     replyToTicket,
     setTicketStatus,
   } from "../../../lib/mail-admin-api";
   import { ESCALATE_REASON_MAX, type SettableStatus, TEXT_MAX } from "../../../lib/mail-admin-contract";
-  import {
-    type ReplyDraft,
-    clearDraft,
-    edit,
-    failure,
-    isEditable,
-    loadDraft,
-    newDraft,
-    saveDraft,
-    send,
-    startOver,
-    success,
-  } from "../../../lib/mail-display";
+  import { type ReplyDraft, isEditable } from "../../../lib/mail-display";
+  import { createReplyFlow } from "../../../lib/mail-reply-flow";
 
   const root = document.querySelector<HTMLElement>("[data-mail-detail]");
   if (root) {
@@ -805,7 +794,11 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
 
     // Run one call. Success reloads the page, so the thread and history show what happened and
     // the controls stay locked until then; a failure unlocks them and says why.
-    async function run(doing: string, call: () => Promise<unknown>): Promise<void> {
+    async function run(
+      doing: string,
+      call: () => Promise<unknown>,
+      errorText: (err: unknown) => string = mailErrorText,
+    ): Promise<void> {
       if (busy) return;
       clearError();
       say(`${doing}…`);
@@ -815,7 +808,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         location.reload();
       } catch (err) {
         say("");
-        showError(mailErrorText(err));
+        showError(errorText(err));
         setBusy(false);
       }
     }
@@ -861,16 +854,19 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         showError(`The note is longer than ${TEXT_MAX} characters.`);
         return;
       }
-      void run("Adding the note", () => addNote(ticketId, text));
+      // A note has no key, so a second request is a second note: a failure that may have saved it
+      // is never retried here, and the message says to check the thread first.
+      void run("Adding the note", () => addNote(ticketId, text), noteFailureText);
     });
 
     // ---- Reply ----
     //
-    // The draft is the text AND its Idempotency-Key, kept together in sessionStorage. The key is
-    // minted once per draft and is the same on every attempt, so a double click, a retry after a
-    // lost response and a reload cannot send the mail twice: the API stores the key before it
-    // sends and answers a repeat from what it stored. A new key is minted in one place only,
-    // `startOver`, after the person has been warned that a second copy may go out.
+    // The draft is the text AND its Idempotency-Key, kept together in sessionStorage by the reply
+    // flow (`mail-reply-flow.ts`, which holds and tests the rules). The key is the same on every
+    // attempt, so a double click, a retry after a lost response and a reload cannot send the mail
+    // twice: the API stores the key before it sends and answers a repeat from what it stored. A
+    // new key is minted in one place for an existing draft, `startOver`, after the person has
+    // been warned that a second copy may go out.
 
     let storage: Storage | undefined;
     try {
@@ -878,7 +874,12 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     } catch {
       storage = undefined;
     }
-    let draft: ReplyDraft = loadDraft(storage, ticketId) ?? newDraft();
+    const flow = createReplyFlow({
+      ticketId,
+      sendReply: (text, key) => replyToTicket(ticketId, text, key),
+      storage,
+      onChange: () => renderReply(),
+    });
 
     const textEl = root.querySelector<HTMLTextAreaElement>("[data-reply-text]");
     const countEl = root.querySelector<HTMLElement>("[data-reply-count]");
@@ -896,13 +897,9 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       unknown: MAIL_ERROR_TEXT.reply_delivery_unknown,
     };
 
-    function persist(): void {
-      if (draft.phase === "idle" && draft.text.trim() === "") clearDraft(storage, ticketId);
-      else saveDraft(storage, ticketId, draft);
-    }
-
     function renderReply(): void {
       if (!textEl) return;
+      const draft = flow.draft;
       const phase = draft.phase;
       if (textEl.value !== draft.text) textEl.value = draft.text;
       textEl.disabled = !isEditable(draft) || busy;
@@ -925,46 +922,28 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       if (startOverBtn) startOverBtn.hidden = phase !== "unknown";
     }
 
-    textEl?.addEventListener("input", () => {
-      draft = edit(draft, textEl.value);
-      persist();
-      renderReply();
-    });
+    textEl?.addEventListener("input", () => flow.edit(textEl.value));
 
     async function attempt(): Promise<void> {
-      // `send` moves only an idle or in-doubt draft to `sending`: a second click, a second
-      // confirm and a retry while a call is out all land on a draft that is already sending.
-      if (busy || (draft.phase !== "idle" && draft.phase !== "in_doubt")) return;
-      const text = draft.text;
-      if (text.trim() === "") {
-        showError("Write the reply first.");
-        return;
-      }
-      if (text.length > TEXT_MAX) {
-        showError(`The reply is longer than ${TEXT_MAX} characters.`);
-        return;
-      }
+      if (busy) return;
       clearError();
-      draft = send(draft);
-      persist();
       setBusy(true);
-      try {
-        await replyToTicket(ticketId, draft.text, draft.key);
-        draft = success();
-        clearDraft(storage, ticketId);
+      const result = await flow.attempt();
+      if (result.outcome === "sent") {
         location.reload();
-      } catch (err) {
-        const kind = classifyReplyFailure(err);
-        draft = failure(draft, kind);
-        persist();
-        // The delivery-unknown wording is the guidance beside the form; saying it twice helps nobody.
-        if (kind !== "outcome_unknown") showError(mailErrorText(err));
-        setBusy(false);
+        return;
       }
+      if (result.outcome === "empty") showError("Write the reply first.");
+      else if (result.outcome === "too_long") showError(`The reply is longer than ${TEXT_MAX} characters.`);
+      // The delivery-unknown wording is the guidance beside the form; saying it twice helps nobody.
+      else if (result.outcome === "failed" && result.kind !== "outcome_unknown") {
+        showError(mailErrorText(result.error));
+      }
+      setBusy(false);
     }
 
     sendBtn?.addEventListener("click", () => {
-      if (draft.text.trim() === "") {
+      if (flow.draft.text.trim() === "") {
         showError("Write the reply first.");
         return;
       }
@@ -982,9 +961,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       } else if (dialogId === "mail-reply-send") {
         void attempt();
       } else if (dialogId === "mail-reply-new") {
-        draft = startOver(draft);
-        persist();
-        renderReply();
+        flow.startOver();
         textEl?.focus();
       }
     });
