@@ -1,6 +1,16 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-10-12.
+**Last session:** 2026-10-24.
+
+## 2026-10-24 — Admin Mail tab (website#479, nemar-cli epic #1893 phase 5)
+
+Branch `feature/issue-479-admin-mail-tab`, draft PR to `staging`. Pages `/admin/mail`, `/admin/mail/<id>`, `/admin/mail/queues`, `/admin/mail/away`; ADR 0029.
+
+- **Merge gate:** `test/mail-admin-contract-drift.test.ts` is strict in CI (`NEMAR_CLI_MAIL_ADMIN_CONTRACT`) and red until nemar-cli's `shared/contract/mail-admin.ts` reaches `dev`. Locally it passes against any nemar-cli checkout that has the file.
+- **Release gate:** no `staging` to `main` promotion until nemar-cli has released the mail routes to production.
+- **Fixtures** in `src/lib/mail-admin-api.test.ts` are built from the contract types. Replace them with captured, address-scrubbed dev API responses (`test/fixtures/mail-tickets-list.json`, `mail-ticket-detail.json`) once the epic is on `dev`.
+- **The badge** makes one more API call on every admin page render (open tickets assigned to me, 2 s deadline, fail-soft).
+- **Not in the site:** reprocess, by decision. Away times are UTC. A sent reply's key is final after `reply_delivery_unknown`; a new reply needs the warning dialog and a new key.
 
 ## 2026-10-12 — Server-side API calls over a service binding (website#449, #450, #452)
 
