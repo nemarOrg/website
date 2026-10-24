@@ -10,11 +10,13 @@ import {
   fetchMyOpenTicketCount,
   getAvailability,
   getTicket,
+  isAssignable,
   listQueues,
   listTickets,
   loadStaffDirectory,
   mailErrorText,
   mailTicketsQuery,
+  notAssignableLabel,
   personLabel,
   putAvailability,
   putQueue,
@@ -423,7 +425,7 @@ describe("loadStaffDirectory", () => {
     });
     const dir = await loadStaffDirectory({ fetch: fetchImpl });
     expect(dir.failed).toBe(false);
-    expect(dir.people.map((p) => [p.id, p.label, p.role])).toEqual([
+    expect(dir.assignable.map((p) => [p.id, p.label, p.role])).toEqual([
       [3, "#3", "admin"],
       [1, "ada", "owner"],
       [2, "Grace Hopper", "admin"],
@@ -437,6 +439,41 @@ describe("loadStaffDirectory", () => {
     expect(personLabel(dir, null)).toBe("Unassigned");
   });
 
+  it("offers only approved accounts to a picker but still names everyone", async () => {
+    const { fetchImpl } = usersStub({
+      owner: [],
+      admin: [
+        user({ id: 2, username: "grace" }),
+        user({ id: 3, username: "revoked-admin", status: "revoked" }),
+        user({ id: 4, username: "pending-admin", status: "pending" }),
+        user({ id: 5, username: "iam-admin", status: "revoked_iam_pending" }),
+      ],
+    });
+    const dir = await loadStaffDirectory({ fetch: fetchImpl });
+    expect(dir.assignable.map((p) => p.label)).toEqual(["grace"]);
+    expect(isAssignable(dir, 2)).toBe(true);
+    expect(isAssignable(dir, 3)).toBe(false);
+    expect(isAssignable(dir, 99)).toBe(false);
+    // History still resolves them, and a select that must keep one marks it.
+    expect(personLabel(dir, 3)).toBe("revoked-admin");
+    expect(notAssignableLabel(dir, 3)).toBe("revoked-admin (not assignable)");
+    expect(notAssignableLabel(dir, 99)).toBe("#99 (not assignable)");
+  });
+
+  it("escapes a name once, in the label, so no caller can print it raw", async () => {
+    const { fetchImpl } = usersStub({
+      owner: [],
+      admin: [
+        user({ id: 2, given_name: "Eve\u202e", family_name: "Mallory\u200b" }),
+        user({ id: 3, username: "x\u2066y" }),
+      ],
+    });
+    const dir = await loadStaffDirectory({ fetch: fetchImpl });
+    expect(dir.assignable.map((p) => p.label)).toEqual(["Eve\\u202e Mallory\\u200b", "x\\u2066y"]);
+    expect(personLabel(dir, 2)).toBe("Eve\\u202e Mallory\\u200b");
+    expect(notAssignableLabel(dir, 3)).toBe("x\\u2066y (not assignable)");
+  });
+
   it("keeps what loaded and sets failed when one list fails", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { fetchImpl } = usersStub({
@@ -445,13 +482,13 @@ describe("loadStaffDirectory", () => {
     });
     const dir = await loadStaffDirectory({ fetch: fetchImpl });
     expect(dir.failed).toBe(true);
-    expect(dir.people.map((p) => p.label)).toEqual(["grace"]);
+    expect(dir.assignable.map((p) => p.label)).toEqual(["grace"]);
   });
 
   it("is empty and failed when both fail", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { fetchImpl } = usersStub({ owner: "fail", admin: "fail" });
     const dir = await loadStaffDirectory({ fetch: fetchImpl });
-    expect(dir).toMatchObject({ failed: true, people: [] });
+    expect(dir).toMatchObject({ failed: true, assignable: [] });
   });
 });

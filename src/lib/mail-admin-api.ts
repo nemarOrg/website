@@ -37,6 +37,7 @@ import {
   type TicketActionResponse,
   type TicketDetail,
 } from "./mail-admin-contract";
+import { displaySafeLine } from "./mail-display";
 import { resolveSignal } from "./request-deadline";
 import { type AdminUserListRow, listAdminUsers } from "./users-admin-api";
 
@@ -295,11 +296,7 @@ export function replyToTicket(
   });
 }
 
-export function addNote(
-  id: number,
-  text: string,
-  init: Init = {},
-): Promise<NoteResponse> {
+export function addNote(id: number, text: string, init: Init = {}): Promise<NoteResponse> {
   return mailFetch("POST", `/tickets/${id}/note`, init, { body: { text } });
 }
 
@@ -440,31 +437,41 @@ export async function fetchMyOpenTicketCount(
 
 export interface StaffPerson {
   readonly id: number;
+  /** Already escaped by {@link displaySafeLine}: a name is data from outside. */
   readonly label: string;
   readonly role: "owner" | "admin";
+  readonly status: string;
 }
 
 export interface StaffDirectory {
-  /** Every admin and owner the account list returned, for the assignee and backup selects. */
-  readonly people: readonly StaffPerson[];
-  /** The same people by id, for naming an assignee or an actor. */
+  /**
+   * Who a select may offer: admins and owners whose account is approved, which is what the API
+   * requires of an assignee. `GET /admin/users?role=` returns every non-deleted account with the
+   * role whatever its status, so the list is filtered here, and only this list feeds a picker.
+   */
+  readonly assignable: readonly StaffPerson[];
+  /** Everyone the lists returned, revoked included, for naming an assignee or an actor in history. */
   readonly byId: ReadonlyMap<number, string>;
   /** True when either list failed: names may be missing and the selects may be short. */
   readonly failed: boolean;
 }
 
+/** The only status the API accepts for an assignee. */
+const ASSIGNABLE_STATUS = "approved";
+
+/** A username, then a name, then `#id`, escaped once here so no caller has to remember to. */
 function staffLabel(user: AdminUserListRow): string {
   const username = (user.username ?? "").trim();
-  if (username) return username;
+  if (username) return displaySafeLine(username);
   const name = `${user.given_name ?? ""} ${user.family_name ?? ""}`.trim();
-  return name || `#${user.id}`;
+  return name ? displaySafeLine(name) : `#${user.id}`;
 }
 
 /**
  * Everyone who can hold a ticket, as one list. Fail-soft: a failure of either list leaves the
  * other, and `failed` says so, because a mail page with no names is still usable and a mail page
- * that throws on a users hiccup is not. Reads the role only, never the kind of account: a person
- * and an agent are listed alike.
+ * that throws on a users hiccup is not. Reads the role and the status only, never the kind of
+ * account: a person and an agent are listed alike.
  */
 export async function loadStaffDirectory(init: Init = {}): Promise<StaffDirectory> {
   const [owners, admins] = await Promise.allSettled([
@@ -486,15 +493,35 @@ export async function loadStaffDirectory(init: Init = {}): Promise<StaffDirector
       continue;
     }
     for (const user of result.value.users) {
-      if (!people.has(user.id)) people.set(user.id, { id: user.id, label: staffLabel(user), role });
+      if (!people.has(user.id)) {
+        people.set(user.id, { id: user.id, label: staffLabel(user), role, status: user.status });
+      }
     }
   }
   const sorted = [...people.values()].sort((a, b) => a.label.localeCompare(b.label) || a.id - b.id);
-  return { people: sorted, byId: new Map(sorted.map((p) => [p.id, p.label])), failed };
+  return {
+    assignable: sorted.filter((p) => p.status === ASSIGNABLE_STATUS),
+    byId: new Map(sorted.map((p) => [p.id, p.label])),
+    failed,
+  };
 }
 
 /** A person by id as the directory knows them, or `#id` when it does not. */
 export function personLabel(directory: StaffDirectory, id: number | null): string {
   if (id === null) return "Unassigned";
   return directory.byId.get(id) ?? `#${id}`;
+}
+
+/** Whether a select may offer this person (see {@link StaffDirectory.assignable}). */
+export function isAssignable(directory: StaffDirectory, id: number): boolean {
+  return directory.assignable.some((p) => p.id === id);
+}
+
+/**
+ * The label of a person a select must still show because they are already named (a queue's
+ * assignee, a ticket's assignee) but cannot be offered: shown selected, so a save does not
+ * silently change them, and marked, so nobody picks them on purpose.
+ */
+export function notAssignableLabel(directory: StaffDirectory, id: number): string {
+  return `${personLabel(directory, id)} (not assignable)`;
 }

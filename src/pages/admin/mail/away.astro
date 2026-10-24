@@ -6,6 +6,7 @@ import {
   getAvailability,
   loadStaffDirectory,
   mailErrorText,
+  notAssignableLabel,
   personLabel,
 } from "../../../lib/mail-admin-api";
 import { AWAY_NOTE_MAX, type Availability } from "../../../lib/mail-admin-contract";
@@ -46,7 +47,7 @@ const [availabilityResult, directory] = await Promise.all([
 if (availabilityResult.ok) availability = availabilityResult.value;
 else loadError = mailErrorText(availabilityResult.error);
 
-const backupChoices = directory.people.filter((p) => p.id !== subjectId);
+const backupChoices = directory.assignable.filter((p) => p.id !== subjectId);
 const backup = availability?.backup_user_id ?? null;
 const unlistedBackup =
   backup !== null && !backupChoices.some((p) => p.id === backup) ? backup : null;
@@ -75,11 +76,11 @@ const backupLabel = backup === null ? "None" : personLabel(directory, backup);
               Me ({personLabel(directory, me)})
             </option>
           )}
-          {directory.people
+          {directory.assignable
             .filter((p) => p.id !== me)
             .map((p) => (
               <option value={String(p.id)} selected={otherId === p.id}>
-                {displaySafeLine(p.label)} ({p.role})
+                {p.label} ({p.role})
               </option>
             ))}
         </select>
@@ -156,12 +157,12 @@ const backupLabel = backup === null ? "None" : personLabel(directory, backup);
               <option value="" selected={backup === null}>None</option>
               {backupChoices.map((p) => (
                 <option value={String(p.id)} selected={backup === p.id}>
-                  {displaySafeLine(p.label)} ({p.role})
+                  {p.label} ({p.role})
                 </option>
               ))}
               {unlistedBackup !== null && (
                 <option value={String(unlistedBackup)} selected>
-                  #{unlistedBackup}
+                  {notAssignableLabel(directory, unlistedBackup)}
                 </option>
               )}
             </select>

@@ -12,6 +12,7 @@ import {
   getTicket,
   loadStaffDirectory,
   mailErrorText,
+  notAssignableLabel,
   personLabel,
 } from "../../../lib/mail-admin-api";
 import {
@@ -79,7 +80,11 @@ let requesterAccount: AdminUserDetail | null = null;
 if (detail?.ticket.requester_user_id != null) {
   try {
     requesterAccount = await getAdminUserById(detail.ticket.requester_user_id, { cookieHeader });
-  } catch {
+  } catch (error) {
+    console.warn(
+      "[admin/mail] the requester's account could not be loaded:",
+      error instanceof Error ? error.message : error,
+    );
     requesterAccount = null;
   }
 }
@@ -89,7 +94,7 @@ const subject = ticket ? displaySafeLine(ticket.subject).trim() || "(no subject)
 const thread = detail ? sortThread(detail.messages) : [];
 const events = detail ? sortEvents(detail.events) : [];
 const me = /^\d{1,12}$/.test(session.user.id) ? Number(session.user.id) : null;
-const people = directory.people.filter((p) => p.id !== me);
+const people = directory.assignable.filter((p) => p.id !== me);
 const assignee = ticket?.assignee_user_id ?? null;
 const knownIds = new Set([...people.map((p) => p.id), ...(me === null ? [] : [me])]);
 const unlistedAssignee = assignee !== null && !knownIds.has(assignee) ? assignee : null;
@@ -221,12 +226,12 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
                 )}
                 {people.map((p) => (
                   <option value={String(p.id)} selected={assignee === p.id}>
-                    {displaySafeLine(p.label)} ({p.role})
+                    {p.label} ({p.role})
                   </option>
                 ))}
                 {unlistedAssignee !== null && (
                   <option value={String(unlistedAssignee)} selected>
-                    #{unlistedAssignee}
+                    {notAssignableLabel(directory, unlistedAssignee)}
                   </option>
                 )}
               </select>

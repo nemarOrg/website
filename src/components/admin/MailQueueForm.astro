@@ -7,18 +7,24 @@
  * The script on `queues.astro` reads `data-original` (what the API returned) and sends only the
  * fields that changed, with the full rotation list when it did.
  */
-import type { StaffPerson } from "../../lib/mail-admin-api";
+import {
+  type StaffDirectory,
+  type StaffPerson,
+  notAssignableLabel,
+} from "../../lib/mail-admin-api";
 import {
   type MailQueue,
   QUEUE_STRATEGIES,
   type QueueStrategy,
 } from "../../lib/mail-admin-contract";
-import { displaySafeLine } from "../../lib/mail-display";
 
 interface Props {
   /** The queue being edited, or null for a new one. */
   queue: MailQueue | null;
+  /** Who the selects may offer: the assignable people only. */
   people: readonly StaffPerson[];
+  /** Names the people a queue already holds who are no longer assignable. */
+  directory: StaffDirectory;
   /** Unique on the page: ids of the form's fields are built from it. */
   formId: string;
 }
@@ -29,7 +35,7 @@ const STRATEGY_LABEL: Record<QueueStrategy, string> = {
   pool: "Pool (left unassigned for anyone to take)",
 };
 
-const { queue, people, formId } = Astro.props;
+const { queue, people, directory, formId } = Astro.props;
 const strategies: readonly string[] = QUEUE_STRATEGIES;
 const original = {
   restricted: queue?.restricted ?? false,
@@ -84,6 +90,9 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
     <input id={`${formId}-restricted`} name="restricted" type="checkbox" checked={original.restricted} />
     <label for={`${formId}-restricted`}>Restricted: only owners see its tickets</label>
   </div>
+  <p class="queue-form__hint">
+    The security and conduct queues are always restricted, and the * fallback queue never is.
+  </p>
 
   <div class="queue-form__field">
     <label for={`${formId}-strategy`}>Assignment</label>
@@ -106,12 +115,12 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
           <option value="" selected={original[picker.name] === null}>None</option>
           {people.map((p) => (
             <option value={String(p.id)} selected={original[picker.name] === p.id}>
-              {displaySafeLine(p.label)} ({p.role})
+              {p.label} ({p.role})
             </option>
           ))}
           {stray(original[picker.name]) !== null && (
             <option value={String(original[picker.name])} selected>
-              #{original[picker.name]}
+              {notAssignableLabel(directory, original[picker.name] as number)}
             </option>
           )}
         </select>
@@ -121,6 +130,9 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
 
   <fieldset class="queue-form__rotation">
     <legend>Rotation members</legend>
+    <p class="queue-form__hint">
+      Changing the rotation members restarts the rotation. Their order is not adjustable.
+    </p>
     {
       people.map((p) => (
         <label class="queue-form__member">
@@ -130,14 +142,14 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
             value={String(p.id)}
             checked={original.rr_members.includes(p.id)}
           />
-          {displaySafeLine(p.label)} ({p.role})
+          {p.label} ({p.role})
         </label>
       ))
     }
     {
       strayMembers.map((id) => (
         <label class="queue-form__member">
-          <input type="checkbox" name="rr" value={String(id)} checked />#{id}
+          <input type="checkbox" name="rr" value={String(id)} checked />{notAssignableLabel(directory, id)}
         </label>
       ))
     }

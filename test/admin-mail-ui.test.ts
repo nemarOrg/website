@@ -69,6 +69,42 @@ describe("untrusted text is never rendered as markup", () => {
   });
 });
 
+describe("staff names reach the page only through the escaped label", () => {
+  it.each(Object.entries(ALL))(
+    "%s never reads a raw name or the unescaped directory",
+    (_name, source) => {
+      expect(source).not.toMatch(/given_name|family_name/);
+      expect(source).not.toContain("byId.get(");
+      expect(source).not.toMatch(/displaySafeLine\(\w+\.label\)/);
+    },
+  );
+
+  it("only the requester account's username is read, and only to build a link", () => {
+    const reads = DETAIL.match(/\.username/g) ?? [];
+    expect(reads).toHaveLength(2);
+    expect(DETAIL).toContain("/admin/users/${encodeURIComponent(requesterAccount.username)}");
+    for (const source of [LIST, QUEUES, AWAY, QUEUE_FORM]) {
+      expect(source).not.toMatch(/\.username/);
+    }
+  });
+
+  it("names a person through personLabel or a picker's label, never from a user record", () => {
+    expect(DETAIL).toContain("personLabel(directory, assignee)");
+    expect(DETAIL).toContain("personLabel(directory, event.actor_user_id)");
+    expect(AWAY).toContain("personLabel(directory, otherId)");
+    expect(LIST).toContain("personLabel(directoryRef, Number(assigneeFilter))");
+  });
+
+  it("offers only assignable people, and marks anyone it must keep who is not", () => {
+    for (const source of [DETAIL, AWAY, QUEUES, LIST]) {
+      expect(source).not.toContain("directory.people");
+    }
+    expect(DETAIL).toContain("notAssignableLabel(directory, unlistedAssignee)");
+    expect(AWAY).toContain("notAssignableLabel(directory, unlistedBackup)");
+    expect(QUEUE_FORM).toContain("notAssignableLabel(directory,");
+  });
+});
+
 describe("access", () => {
   it.each(Object.entries(PAGES))("%s calls adminGate", (_name, source) => {
     expect(source).toContain("adminGate(");

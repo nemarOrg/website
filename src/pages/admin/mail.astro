@@ -57,7 +57,13 @@ const [listResult, queuesResult, directory] = await Promise.all([
   ),
   listQueues({ cookieHeader }).then(
     (value) => value,
-    () => null,
+    (error: unknown) => {
+      console.warn(
+        "[admin/mail] the queue list could not be loaded:",
+        error instanceof Error ? error.message : error,
+      );
+      return null;
+    },
   ),
   loadStaffDirectory({ cookieHeader }),
 ]);
@@ -68,6 +74,7 @@ if (listResult.ok) {
   listError = mailErrorText(listResult.error);
 }
 if (queuesResult) queues = queuesResult;
+const queuesFailed = queuesResult === null;
 const directoryRef: StaffDirectory = directory;
 
 const queueTags = queues.map((q) => q.tag);
@@ -131,6 +138,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search);
           )
         }
       </select>
+      {queuesFailed && <span class="mail-field__note">The queue list could not be loaded.</span>}
     </div>
     <div class="mail-field">
       <label for="mail-assignee">Assigned to</label>
@@ -295,6 +303,10 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search);
     color: var(--color-fg);
     font-size: var(--fs-sm);
     max-inline-size: 100%;
+  }
+  .mail-field__note {
+    font-size: var(--fs-xs);
+    color: var(--admin-warn-text);
   }
   .mail-field input::placeholder {
     color: var(--admin-text-3);

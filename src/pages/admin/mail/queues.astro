@@ -134,7 +134,7 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
         {queues.map((q, i) => (
           <details class="queues-edit__item">
             <summary>Edit {displaySafeLine(q.tag)}</summary>
-            <MailQueueForm queue={q} people={directory.people} formId={`queue-edit-${i}`} />
+            <MailQueueForm queue={q} people={directory.assignable} directory={directory} formId={`queue-edit-${i}`} />
           </details>
         ))}
       </section>
@@ -147,7 +147,7 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
         <h2 class="queues-edit__title" id="queues-new-title">New queue</h2>
         <details class="queues-edit__item">
           <summary>Create a queue</summary>
-          <MailQueueForm queue={null} people={directory.people} formId="queue-new" />
+          <MailQueueForm queue={null} people={directory.assignable} directory={directory} formId="queue-new" />
         </details>
       </section>
     )
