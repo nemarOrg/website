@@ -27,6 +27,7 @@ import {
   MAIL_ERROR_CODES,
   type MailErrorCode,
   type MailQueue,
+  type NoteResponse,
   type PutAvailabilityRequest,
   type PutQueueRequest,
   type ReplyResponse,
@@ -298,7 +299,7 @@ export function addNote(
   id: number,
   text: string,
   init: Init = {},
-): Promise<{ message_id: string }> {
+): Promise<NoteResponse> {
   return mailFetch("POST", `/tickets/${id}/note`, init, { body: { text } });
 }
 
