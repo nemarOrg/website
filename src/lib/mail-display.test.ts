@@ -344,6 +344,20 @@ describe("draft storage", () => {
     expect(draftStorageKey(12)).toBe("nemar:mail-reply:12");
   });
 
+  it("keeps a note's draft apart from a reply's", () => {
+    const storage = memory();
+    const reply = edit(newDraft(), "reply");
+    const note = edit(newDraft(), "note");
+    saveDraft(storage, 12, reply);
+    saveDraft(storage, 12, note, "note");
+    expect(draftStorageKey(12, "note")).toBe("nemar:mail-note:12");
+    expect(loadDraft(storage, 12)).toEqual(reply);
+    expect(loadDraft(storage, 12, "note")).toEqual(note);
+    clearDraft(storage, 12, "note");
+    expect(loadDraft(storage, 12, "note")).toBeNull();
+    expect(loadDraft(storage, 12)).toEqual(reply);
+  });
+
   it("saves, loads and clears", () => {
     const storage = memory();
     const d = edit(newDraft(), "hello");

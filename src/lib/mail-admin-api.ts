@@ -33,6 +33,7 @@ import {
   type ReplyResponse,
   SEARCH_MAX,
   type SettableStatus,
+  type SummaryResponse,
   TICKET_STATUSES,
   type TicketActionResponse,
   type TicketDetail,
@@ -126,6 +127,10 @@ export const MAIL_ERROR_TEXT: Record<MailErrorCode, string> = {
   fallback_not_restrictable: "The fallback queue is never restricted.",
   reply_not_sent:
     "Nothing was sent, and the reply can be sent again. Try again if you still want to reply.",
+  summary_has_address:
+    "The summary contains an email address. Describe the request and the outcome without names, addresses, account ids or quoted text.",
+  ticket_purged:
+    "This ticket was purged under the retention policy and can no longer be changed. Only its summary is kept.",
   reply_delivery_unknown:
     "The mail provider did not confirm the send, so the reply may or may not have reached the requester. This reply will never be sent again automatically. Reload the thread to see whether it was recorded, and ask the requester if needed. Writing a new reply sends again and may deliver a second copy.",
   inbound_not_configured: "This deployment has no inbound mail storage.",
@@ -225,6 +230,8 @@ export interface MailTicketsQueryInput {
   queue?: string | null;
   assignee?: string | null;
   q?: string | null;
+  /** Only `missing` is a value: closed tickets with no summary yet. */
+  summary?: string | null;
   cursor?: string | null;
   limit?: number | string | null;
 }
@@ -248,6 +255,7 @@ export function mailTicketsQuery(input: MailTicketsQueryInput): string {
   if (ASSIGNEE_PATTERN.test(assignee)) params.set("assignee", assignee);
   const q = (input.q ?? "").trim();
   if (q.length > 0 && q.length <= SEARCH_MAX) params.set("q", q);
+  if (input.summary === "missing") params.set("summary", "missing");
   const cursor = input.cursor ?? "";
   if (CURSOR_PATTERN.test(cursor)) params.set("cursor", cursor);
   const limit = typeof input.limit === "string" ? Number(input.limit) : input.limit;
@@ -296,8 +304,31 @@ export function replyToTicket(
   });
 }
 
-export function addNote(id: number, text: string, init: Init = {}): Promise<NoteResponse> {
-  return mailFetch("POST", `/tickets/${id}/note`, init, { body: { text } });
+/**
+ * Add an internal note. The `Idempotency-Key` is required and always sent, one per note draft and
+ * the same on every retry: the API stores the note under it once and answers a repeat with the
+ * stored id. Note keys are a separate namespace from reply keys.
+ */
+export function addNote(
+  id: number,
+  text: string,
+  key: string,
+  init: Init = {},
+): Promise<NoteResponse> {
+  if (!IDEMPOTENCY_KEY_PATTERN.test(key)) {
+    return Promise.reject(
+      new MailApiError(400, "bad_request", "The note key is not valid. Reload the page."),
+    );
+  }
+  return mailFetch("POST", `/tickets/${id}/note`, init, {
+    body: { text },
+    headers: { "Idempotency-Key": key },
+  });
+}
+
+/** Write or replace the summary kept after the retention purge (1 to 4,000 characters). */
+export function putSummary(id: number, summary: string, init: Init = {}): Promise<SummaryResponse> {
+  return mailFetch("PUT", `/tickets/${id}/summary`, init, { body: { summary } });
 }
 
 export function assignTicket(
@@ -419,19 +450,17 @@ export function classifyReplyFailure(err: unknown): ReplyFailure {
   return "retry_same_key";
 }
 
-/** What to say when a note may or may not have been saved. */
-export const NOTE_UNKNOWN_TEXT =
-  "The note may or may not have been saved. Reload the page and check the thread before adding it again: a note has no protection against being added twice.";
+/** What to say when a note may or may not have been saved: Try again is safe. */
+export const NOTE_RETRY_TEXT =
+  "The note may or may not have been saved. Try again is safe: it uses the same note key, so the note is stored once.";
 
 /**
- * Words for a failed note. A note has no idempotency key, so one whose outcome is unknown (a lost
- * connection, a timeout, a 5xx, an answer that did not come from the mail route) is never retried
- * for the person: they are told to reload and look first. A definite refusal, and a 429 (a limiter
- * that stopped it before anything ran), read as an ordinary error.
+ * What a caller may do after a note call failed. A note stores once per key, so an unknown
+ * outcome (a lost connection, a timeout, a 408 or 429, any 5xx, an answer that did not come from
+ * the mail route) is retried under the SAME key; a definite refusal is not.
  */
-export function noteFailureText(err: unknown): string {
-  if (err instanceof MailApiError && err.status === 429) return mailErrorText(err);
-  return classifyReplyFailure(err) === "retry_same_key" ? NOTE_UNKNOWN_TEXT : mailErrorText(err);
+export function classifyNoteFailure(err: unknown): "retry_same_key" | "refused" {
+  return classifyReplyFailure(err) === "retry_same_key" ? "retry_same_key" : "refused";
 }
 
 // ---------------------------------------------------------------------------

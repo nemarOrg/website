@@ -217,10 +217,14 @@ export function startOver(draft: ReplyDraft): ReplyDraft {
     : draft;
 }
 
-export const DRAFT_STORAGE_PREFIX = "nemar:mail-reply:";
+/** A reply and a note each keep their own draft, and so their own key, per ticket. */
+export type DraftKind = "reply" | "note";
 
-export function draftStorageKey(ticketId: number): string {
-  return `${DRAFT_STORAGE_PREFIX}${ticketId}`;
+export const DRAFT_STORAGE_PREFIX = "nemar:mail-reply:";
+const NOTE_STORAGE_PREFIX = "nemar:mail-note:";
+
+export function draftStorageKey(ticketId: number, kind: DraftKind = "reply"): string {
+  return `${kind === "note" ? NOTE_STORAGE_PREFIX : DRAFT_STORAGE_PREFIX}${ticketId}`;
 }
 
 /** Stored as JSON with a version, so a later shape can be told from this one. */
@@ -256,9 +260,13 @@ export function parseDraft(raw: string | null): ReplyDraft | null {
 type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** Storage can be missing or throw (a private window, blocked site data): every call is guarded. */
-export function loadDraft(storage: DraftStorage | undefined, ticketId: number): ReplyDraft | null {
+export function loadDraft(
+  storage: DraftStorage | undefined,
+  ticketId: number,
+  kind: DraftKind = "reply",
+): ReplyDraft | null {
   try {
-    return parseDraft(storage?.getItem(draftStorageKey(ticketId)) ?? null);
+    return parseDraft(storage?.getItem(draftStorageKey(ticketId, kind)) ?? null);
   } catch {
     return null;
   }
@@ -268,17 +276,22 @@ export function saveDraft(
   storage: DraftStorage | undefined,
   ticketId: number,
   draft: ReplyDraft,
+  kind: DraftKind = "reply",
 ): void {
   try {
-    storage?.setItem(draftStorageKey(ticketId), serializeDraft(draft));
+    storage?.setItem(draftStorageKey(ticketId, kind), serializeDraft(draft));
   } catch {
     // Nothing to do: the draft still lives in the page, and only a reload would lose it.
   }
 }
 
-export function clearDraft(storage: DraftStorage | undefined, ticketId: number): void {
+export function clearDraft(
+  storage: DraftStorage | undefined,
+  ticketId: number,
+  kind: DraftKind = "reply",
+): void {
   try {
-    storage?.removeItem(draftStorageKey(ticketId));
+    storage?.removeItem(draftStorageKey(ticketId, kind));
   } catch {
     // As above.
   }

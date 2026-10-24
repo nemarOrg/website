@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAIL_ERROR_TEXT,
   MailApiError,
-  NOTE_UNKNOWN_TEXT,
   TRANSPORT_TEXT,
   addNote,
   assignTicket,
+  classifyNoteFailure,
   classifyReplyFailure,
   escalateTicket,
   fetchMyOpenTicketCount,
@@ -18,10 +18,10 @@ import {
   mailErrorText,
   mailTicketsQuery,
   notAssignableLabel,
-  noteFailureText,
   personLabel,
   putAvailability,
   putQueue,
+  putSummary,
   readMailError,
   replyToTicket,
   resetBadgeWarning,
@@ -50,6 +50,8 @@ const SUMMARY: TicketSummary = {
   created_at: "2026-10-20 09:00:00",
   updated_at: "2026-10-20 09:30:00",
   last_message_at: "2026-10-20 09:30:00",
+  has_summary: false,
+  purged: false,
 };
 
 interface Seen {
@@ -133,12 +135,12 @@ describe("requests", () => {
     expect(header(seen[0], "Cookie")).toBe("nemar_session=abc");
   });
 
-  it("sets Idempotency-Key on a reply and on nothing else", async () => {
+  it("sets Idempotency-Key on a reply and on a note, and on nothing else", async () => {
     const { fetchImpl, seen } = stub(() => json({ ok: true }));
     const init = { fetch: fetchImpl };
     await replyToTicket(7, "Hello", "web-key-1", init);
     await getTicket(7, init);
-    await addNote(7, "note", init);
+    await addNote(7, "note", "web-note-key", init);
     await assignTicket(7, null, init);
     await setTicketStatus(7, "closed", init);
     await escalateTicket(7, undefined, init);
@@ -147,7 +149,11 @@ describe("requests", () => {
     expect(header(seen[0], "Idempotency-Key")).toBe("web-key-1");
     expect(seen[0].url).toBe("/api/v1/admin/mail/tickets/7/reply");
     expect(seen[0].init.body).toBe(JSON.stringify({ text: "Hello" }));
-    for (const call of seen.slice(1)) expect(header(call, "Idempotency-Key")).toBeUndefined();
+    expect(header(seen[2], "Idempotency-Key")).toBe("web-note-key");
+    expect(seen[2].url).toBe("/api/v1/admin/mail/tickets/7/note");
+    for (const i of [1, 3, 4, 5, 6, 7]) {
+      expect(header(seen[i], "Idempotency-Key")).toBeUndefined();
+    }
   });
 
   it("refuses a malformed reply key before sending", async () => {
@@ -539,27 +545,69 @@ describe("loadStaffDirectory", () => {
   });
 });
 
-describe("noteFailureText", () => {
-  it("tells the admin to check the thread when a note may have been saved", () => {
-    expect(noteFailureText(new TypeError("Failed to fetch"))).toBe(NOTE_UNKNOWN_TEXT);
-    expect(noteFailureText(new DOMException("t", "TimeoutError"))).toBe(NOTE_UNKNOWN_TEXT);
-    expect(noteFailureText(new MailApiError(500, "internal"))).toBe(NOTE_UNKNOWN_TEXT);
-    expect(noteFailureText(new MailApiError(502, undefined, "upstream_unreachable"))).toBe(
-      NOTE_UNKNOWN_TEXT,
-    );
-    expect(noteFailureText(new MailApiError(503))).toBe(NOTE_UNKNOWN_TEXT);
-    expect(noteFailureText(new MailApiError(408))).toBe(NOTE_UNKNOWN_TEXT);
-    expect(NOTE_UNKNOWN_TEXT).toMatch(
-      /Reload the page and check the thread before adding it again/,
+describe("addNote", () => {
+  it("refuses a malformed key before sending", async () => {
+    const { fetchImpl, seen } = stub(() => json({}));
+    await expect(addNote(7, "note", "bad key", { fetch: fetchImpl })).rejects.toMatchObject({
+      code: "bad_request",
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("returns the stored id", async () => {
+    const { fetchImpl } = stub(() => json({ message_id: 31 }));
+    expect(await addNote(7, "note", "web-k", { fetch: fetchImpl })).toEqual({ message_id: 31 });
+  });
+});
+
+describe("classifyNoteFailure", () => {
+  it("retries under the same key when the outcome is unknown", () => {
+    expect(classifyNoteFailure(new TypeError("Failed to fetch"))).toBe("retry_same_key");
+    expect(classifyNoteFailure(new DOMException("t", "TimeoutError"))).toBe("retry_same_key");
+    expect(classifyNoteFailure(new MailApiError(500, "internal"))).toBe("retry_same_key");
+    expect(classifyNoteFailure(new MailApiError(503))).toBe("retry_same_key");
+    expect(classifyNoteFailure(new MailApiError(408))).toBe("retry_same_key");
+    expect(classifyNoteFailure(new MailApiError(429))).toBe("retry_same_key");
+    expect(classifyNoteFailure(new MailApiError(502, undefined, "upstream_unreachable"))).toBe(
+      "retry_same_key",
     );
   });
 
-  it("uses the ordinary wording for a definite refusal and for a limiter", () => {
-    expect(noteFailureText(new MailApiError(404, "not_found"))).toBe(MAIL_ERROR_TEXT.not_found);
-    expect(noteFailureText(new MailApiError(400, "bad_request"))).toBe(MAIL_ERROR_TEXT.bad_request);
-    expect(noteFailureText(new MailApiError(403, undefined, "Admin access required"))).toBe(
-      TRANSPORT_TEXT.forbidden,
+  it("does not retry a definite refusal", () => {
+    expect(classifyNoteFailure(new MailApiError(404, "not_found"))).toBe("refused");
+    expect(classifyNoteFailure(new MailApiError(409, "ticket_purged"))).toBe("refused");
+    expect(classifyNoteFailure(new MailApiError(400, "bad_request"))).toBe("refused");
+    expect(classifyNoteFailure(new MailApiError(403, undefined, "origin_not_allowed"))).toBe(
+      "refused",
     );
-    expect(noteFailureText(new MailApiError(429))).toBe(TRANSPORT_TEXT.rate_limited);
+  });
+});
+
+describe("putSummary and the summary filter", () => {
+  it("PUTs the summary and returns the ticket", async () => {
+    const { fetchImpl, seen } = stub(() => json({ ticket: { ...SUMMARY, has_summary: true } }));
+    const out = await putSummary(7, "Sign-in problem; resolved.", { fetch: fetchImpl });
+    expect(out.ticket.has_summary).toBe(true);
+    expect(seen[0].url).toBe("/api/v1/admin/mail/tickets/7/summary");
+    expect(seen[0].init.method).toBe("PUT");
+    expect(seen[0].init.body).toBe(JSON.stringify({ summary: "Sign-in problem; resolved." }));
+    expect(header(seen[0], "Idempotency-Key")).toBeUndefined();
+  });
+
+  it("explains the two retention refusals", () => {
+    expect(
+      mailErrorText(
+        new MailApiError(400, "summary_has_address", "The summary contains an email address."),
+      ),
+    ).toMatch(/without names, addresses, account ids or quoted text/);
+    expect(mailErrorText(new MailApiError(409, "ticket_purged"))).toMatch(
+      /Only its summary is kept/,
+    );
+  });
+
+  it("sends only summary=missing", () => {
+    expect(mailTicketsQuery({ summary: "missing" })).toBe("summary=missing");
+    expect(mailTicketsQuery({ summary: "present" })).toBe("");
+    expect(mailTicketsQuery({ summary: "" })).toBe("");
   });
 });

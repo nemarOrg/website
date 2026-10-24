@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replyToTicket } from "./mail-admin-api";
+import { addNote, replyToTicket } from "./mail-admin-api";
 import { draftStorageKey, parseDraft, serializeDraft } from "./mail-display";
 import { createReplyFlow } from "./mail-reply-flow";
 
@@ -234,5 +234,66 @@ describe("onChange", () => {
     await flow.attempt();
     // edit, sending, success
     expect(calls).toBe(3);
+  });
+});
+
+describe("a note", () => {
+  const noteOk = () => new Response(JSON.stringify({ message_id: 40 }), { status: 200 });
+
+  function noteFlow(fetchImpl: typeof fetch, storage = memory()) {
+    const flow = createReplyFlow({
+      ticketId: TICKET,
+      kind: "note",
+      storage,
+      sendReply: (text, key) => addNote(TICKET, text, key, { fetch: fetchImpl }),
+    });
+    return { flow, storage };
+  }
+
+  it("keeps its own draft, apart from the reply's", async () => {
+    const { fetchImpl } = network(() => {
+      throw new TypeError("Failed to fetch");
+    });
+    const { flow, storage } = noteFlow(fetchImpl);
+    flow.edit("An internal remark");
+    await flow.attempt();
+    expect([...storage.data.keys()]).toEqual([`nemar:mail-note:${TICKET}`]);
+  });
+
+  it("retries a lost response under the same key and stores one note", async () => {
+    const { requests, fetchImpl } = network(() => new Response("", { status: 503 }), noteOk);
+    const { flow, storage } = noteFlow(fetchImpl);
+    flow.edit("An internal remark");
+    const key = flow.draft.key;
+    expect(await flow.attempt()).toMatchObject({ outcome: "failed", kind: "retry_same_key" });
+    expect(flow.draft).toMatchObject({ phase: "in_doubt", key });
+    expect(await flow.attempt()).toEqual({ outcome: "sent" });
+    expect(requests.map((r) => r.key)).toEqual([key, key]);
+    expect(requests[0].url).toBe(`/api/v1/admin/mail/tickets/${TICKET}/note`);
+    expect(storage.data.size).toBe(0);
+    expect(flow.draft.key).not.toBe(key);
+  });
+
+  it("sends once on a double click", async () => {
+    let release: (r: Response) => void = () => {};
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const { requests, fetchImpl } = network(() => held);
+    const { flow } = noteFlow(fetchImpl);
+    flow.edit("An internal remark");
+    const first = flow.attempt();
+    expect(await flow.attempt()).toEqual({ outcome: "ignored" });
+    release(noteOk());
+    await first;
+    expect(requests).toHaveLength(1);
+  });
+
+  it("returns to idle on a definite refusal, text kept", async () => {
+    const { fetchImpl } = network(refusal(409, "ticket_purged"));
+    const { flow } = noteFlow(fetchImpl);
+    flow.edit("An internal remark");
+    expect(await flow.attempt()).toMatchObject({ kind: "refused" });
+    expect(flow.draft).toMatchObject({ phase: "idle", text: "An internal remark" });
   });
 });

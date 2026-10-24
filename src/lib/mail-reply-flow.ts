@@ -1,5 +1,6 @@
 /**
- * The reply flow of the ticket page, apart from the DOM so it can be tested end to end: one draft
+ * The reply flow of the ticket page (and, with `kind: "note"`, the note flow, which follows the
+ * same rules because a note is stored once per key too), apart from the DOM so it can be tested end to end: one draft
  * (text and `Idempotency-Key` together), its phase, its `sessionStorage` copy, and the single
  * place a send is attempted.
  *
@@ -17,9 +18,10 @@
  *   `sending` comes back `in_doubt`.
  */
 
-import { type ReplyFailure, classifyReplyFailure } from "./mail-admin-api";
+import { type ReplyFailure, classifyNoteFailure, classifyReplyFailure } from "./mail-admin-api";
 import { TEXT_MAX } from "./mail-admin-contract";
 import {
+  type DraftKind,
   type ReplyDraft,
   clearDraft,
   edit,
@@ -57,15 +59,17 @@ export function createReplyFlow(options: {
   /** Sends the reply under the given key; rejects with what `replyToTicket` rejects with. */
   sendReply: (text: string, key: string) => Promise<unknown>;
   storage: DraftStorage | undefined;
+  /** A note keeps its own draft and key; the rules are the same. Default `reply`. */
+  kind?: DraftKind;
   /** Called after every change of the draft, for the page to render. */
   onChange?: () => void;
 }): ReplyFlow {
-  const { ticketId, sendReply, storage, onChange } = options;
-  let draft: ReplyDraft = loadDraft(storage, ticketId) ?? newDraft();
+  const { ticketId, sendReply, storage, onChange, kind = "reply" } = options;
+  let draft: ReplyDraft = loadDraft(storage, ticketId, kind) ?? newDraft();
 
   function persist(): void {
-    if (draft.phase === "idle" && draft.text.trim() === "") clearDraft(storage, ticketId);
-    else saveDraft(storage, ticketId, draft);
+    if (draft.phase === "idle" && draft.text.trim() === "") clearDraft(storage, ticketId, kind);
+    else saveDraft(storage, ticketId, draft, kind);
   }
   function changed(): void {
     persist();
@@ -98,13 +102,15 @@ export function createReplyFlow(options: {
       try {
         await sendReply(draft.text, draft.key);
       } catch (error) {
-        const kind = classifyReplyFailure(error);
-        draft = failure(draft, kind);
+        // A note has no delivery to be unsure of: it either stored once under its key or it did not.
+        const failedKind =
+          kind === "note" ? classifyNoteFailure(error) : classifyReplyFailure(error);
+        draft = failure(draft, failedKind);
         changed();
-        return { outcome: "failed", kind, error };
+        return { outcome: "failed", kind: failedKind, error };
       }
       draft = success();
-      clearDraft(storage, ticketId);
+      clearDraft(storage, ticketId, kind);
       onChange?.();
       return { outcome: "sent" };
     },
