@@ -38,6 +38,12 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Changed
 
+- **The Mail tab badge counts tickets you have not opened, and the ticket list marks them.**
+  It used to count open tickets assigned to you, so new unassigned mail showed no badge.
+  Opening a ticket marks it read for you only, and an unread ticket shows a dot and a bolder title in the list.
+- **The Mail filters sit on one aligned row.**
+  Labels and controls share a line whatever a field's note says, selects are the same 40px height as the search box in every browser with a theme-aware chevron, and Apply and Clear filters sit at the end of the row.
+  The other Mail pages' selects match.
 - **The Mail tab follows the API's new reply errors and ticket references** (nemar-cli #1952).
   A reply the provider refused is now a 422 and a reply whose outcome is unknown a 409, because a 502's body was lost before it reached the page, which then showed a generic error instead of the API's reason.
   A sent reply's `header_message_id` may now be null, since the mail provider sets the Message-ID.
