@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { MailApiError, classifyReplyFailure, replyToTicket } from "../../../lib/mail-admin-api";
-import { type ApiBinding, runWithRequestContext } from "../../../lib/request-context";
-import { POST } from "./[...path]";
+import { MailApiError, classifyReplyFailure, replyToTicket } from "../src/lib/mail-admin-api";
+import { type ApiBinding, runWithRequestContext } from "../src/lib/request-context";
+import { POST } from "../src/pages/api/v1/[...path]";
 
 /**
  * A browser reply, through the real proxy and the real API client, against a binding that answers
