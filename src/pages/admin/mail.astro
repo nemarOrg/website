@@ -1,4 +1,5 @@
 ---
+import "../../styles/mail-select.css";
 import MailTicketRow from "../../components/admin/MailTicketRow.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
 import { adminGate } from "../../lib/admin-guard";
@@ -111,7 +112,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
   <form class="mail-filters" method="get" action="/admin/mail">
     <div class="mail-field">
       <label for="mail-status">Status</label>
-      <select id="mail-status" name="status">
+      <select class="mail-select" id="mail-status" name="status">
         <option value="" selected={status === ""}>Active (not closed or spam)</option>
         {
           STATUS_CHOICES.map((s) => (
@@ -124,7 +125,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     </div>
     <div class="mail-field">
       <label for="mail-queue">Queue</label>
-      <select id="mail-queue" name="queue">
+      <select class="mail-select" id="mail-queue" name="queue">
         <option value="" selected={queueFilter === ""}>All queues</option>
         {
           queues.map((q) => (
@@ -145,7 +146,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     </div>
     <div class="mail-field">
       <label for="mail-assignee">Assigned to</label>
-      <select id="mail-assignee" name="assignee">
+      <select class="mail-select" id="mail-assignee" name="assignee">
         <option value="" selected={assigneeFilter === ""}>Anyone</option>
         <option value="me" selected={assigneeFilter === "me"}>Me</option>
         <option value="none" selected={assigneeFilter === "none"}>Unassigned</option>
@@ -160,12 +161,12 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     </div>
     <div class="mail-field">
       <label for="mail-summary">Summary</label>
-      <select id="mail-summary" name="summary" aria-describedby="mail-summary-hint">
+      <select class="mail-select" id="mail-summary" name="summary" aria-describedby="mail-summary-hint">
         <option value="" selected={!needsSummary}>Any</option>
         <option value="missing" selected={needsSummary}>Needs summary</option>
       </select>
       <span class="mail-field__note mail-field__note--quiet" id="mail-summary-hint">
-        Closed tickets with no summary yet, whatever the status filter.
+        Closed, with no summary yet.
       </span>
     </div>
     <div class="mail-field mail-field--search">
@@ -180,9 +181,12 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
         autocomplete="off"
       />
     </div>
-    <div class="mail-filters__actions">
+    <div class="mail-field mail-filters__actions">
+      <span class="mail-field__spacer" aria-hidden="true">&nbsp;</span>
+      <div class="mail-filters__buttons">
       <button type="submit" class="mail-btn mail-btn--primary">Apply</button>
       {filtered && <a class="mail-btn" href="/admin/mail">Clear filters</a>}
+      </div>
     </div>
   </form>
 
@@ -284,30 +288,42 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     font-size: var(--fs-sm);
   }
   .mail-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--space-3);
+    display: grid;
+    /* Four selects, the search, then the buttons at their natural width, all on one row. */
+    grid-template-columns: repeat(4, minmax(8.5rem, 1fr)) minmax(12rem, 1.6fr) auto;
+    align-items: start;
+    gap: var(--space-3) var(--space-4);
     padding: var(--space-4);
     background: var(--admin-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
   }
+  /* A field is label, control, then an optional note: the note hangs below without moving the
+     neighbouring fields, because every cell starts at the top of the row. */
   .mail-field {
     display: grid;
+    align-content: start;
     gap: var(--space-1);
     min-inline-size: 0;
   }
-  .mail-field--search {
-    flex: 1 1 14rem;
-  }
-  .mail-field label {
+  .mail-field label,
+  .mail-field__spacer {
     font-size: var(--fs-xs);
     font-weight: var(--fw-semibold);
+    line-height: 1.25;
     color: var(--color-fg-muted);
   }
-  .mail-field select,
+  /* Stands in for a label so Apply sits on the control line with the inputs. */
+  .mail-field__spacer {
+    visibility: hidden;
+  }
+  /* Selects take their look from mail-select.css; only the width is set here. */
+  .mail-field select {
+    inline-size: 100%;
+  }
   .mail-field input {
+    box-sizing: border-box;
+    inline-size: 100%;
     min-block-size: 40px;
     padding: 0 var(--space-3);
     border-radius: var(--radius-md);
@@ -319,6 +335,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
   }
   .mail-field__note {
     font-size: var(--fs-xs);
+    line-height: 1.3;
     color: var(--admin-warn-text);
   }
   .mail-field__note--quiet {
@@ -327,7 +344,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
   .mail-field input::placeholder {
     color: var(--admin-text-3);
   }
-  .mail-filters__actions,
+  .mail-filters__buttons,
   .mail-paging {
     display: flex;
     flex-wrap: wrap;
@@ -335,6 +352,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     gap: var(--space-2);
   }
   .mail-btn {
+    box-sizing: border-box;
     min-block-size: 40px;
     padding: 0 var(--space-4);
     border-radius: var(--radius-md);
@@ -361,14 +379,28 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     background: var(--color-link-hover);
     border-color: var(--color-link-hover);
   }
+  /* Narrower than a wide desktop: the selects take one row, search and buttons the next. */
+  @media (max-width: 1100px) {
+    .mail-filters {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .mail-field--search {
+      grid-column: span 2;
+    }
+    .mail-filters__actions {
+      grid-column: span 2;
+    }
+  }
   @media (max-width: 640px) {
     .mail-filters {
-      flex-direction: column;
-      align-items: stretch;
+      grid-template-columns: minmax(0, 1fr);
     }
-    .mail-field select,
-    .mail-field input {
-      inline-size: 100%;
+    .mail-field--search,
+    .mail-filters__actions {
+      grid-column: auto;
+    }
+    .mail-field__spacer {
+      display: none;
     }
   }
 </style>

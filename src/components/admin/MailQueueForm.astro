@@ -1,4 +1,5 @@
 ---
+import "../../styles/mail-select.css";
 /**
  * The owner's form for one mail queue, or for a new one (`queue` null). The page renders it only
  * for an owner; the API enforces that regardless, and refuses a person the queue may not name
@@ -96,7 +97,7 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
 
   <div class="queue-form__field">
     <label for={`${formId}-strategy`}>Assignment</label>
-    <select id={`${formId}-strategy`} name="strategy">
+    <select class="mail-select" id={`${formId}-strategy`} name="strategy">
       {
         strategies.map((s) => (
           <option value={s} selected={original.strategy === s}>
@@ -111,7 +112,7 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
     PICKERS.map((picker) => (
       <div class="queue-form__field">
         <label for={`${formId}-${picker.name}`}>{picker.label}</label>
-        <select id={`${formId}-${picker.name}`} name={picker.name}>
+        <select class="mail-select" id={`${formId}-${picker.name}`} name={picker.name}>
           <option value="" selected={original[picker.name] === null}>None</option>
           {people.map((p) => (
             <option value={String(p.id)} selected={original[picker.name] === p.id}>
@@ -191,7 +192,6 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
     color: var(--color-fg);
     font-weight: var(--fw-medium);
   }
-  .queue-form select,
   .queue-form input[type="text"] {
     min-block-size: 40px;
     padding: 0 var(--space-3);

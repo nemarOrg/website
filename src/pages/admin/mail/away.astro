@@ -1,4 +1,5 @@
 ---
+import "../../../styles/mail-select.css";
 import AdminLayout from "../../../layouts/AdminLayout.astro";
 import { adminGate } from "../../../lib/admin-guard";
 import { getSession } from "../../../lib/auth";
@@ -70,7 +71,7 @@ const backupLabel = backup === null ? "None" : personLabel(directory, backup);
     isOwner && (
       <form class="away-for" method="get" action="/admin/mail/away">
         <label for="away-for">For</label>
-        <select id="away-for" name="user">
+        <select class="mail-select" id="away-for" name="user">
           {me !== null && (
             <option value="" selected={otherId === null}>
               Me ({personLabel(directory, me)})
@@ -153,7 +154,7 @@ const backupLabel = backup === null ? "None" : personLabel(directory, backup);
           </div>
           <div class="away-field">
             <label for="away-backup">Backup</label>
-            <select id="away-backup" name="backup_user_id" data-away-backup>
+            <select class="mail-select" id="away-backup" name="backup_user_id" data-away-backup>
               <option value="" selected={backup === null}>None</option>
               {backupChoices.map((p) => (
                 <option value={String(p.id)} selected={backup === p.id}>
@@ -269,9 +270,7 @@ const backupLabel = backup === null ? "None" : personLabel(directory, backup);
     color: var(--color-fg-muted);
   }
   .away-form input,
-  .away-form select,
-  .away-form textarea,
-  .away-for select {
+  .away-form textarea {
     min-block-size: 40px;
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
