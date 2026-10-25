@@ -36,6 +36,13 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **Release gate:** the production API must carry the mail routes (nemar-cli epic #1893) before this goes from `staging` to `main`.
   A drift test compares the tab's closed lists (statuses, queue strategies, error codes) with nemar-cli's `shared/contract/mail-admin.ts`, so a change to either side fails CI until both agree.
 
+### Changed
+
+- **The Mail tab follows the API's new reply errors and ticket references** (nemar-cli #1952).
+  A reply the provider refused is now a 422 and a reply whose outcome is unknown a 409, because a 502's body was lost before it reached the page, which then showed a generic error instead of the API's reason.
+  A sent reply's `header_message_id` may now be null, since the mail provider sets the Message-ID.
+  New tickets carry a three-word reference such as `amber-falcon-river`; older tickets keep their ten-character one.
+
 ### Fixed
 
 - **Confirmation dialogs open in the middle of the screen again.** The global reset's `margin: 0` removed the browser's centring of modal dialogs, so every confirm dialog in the admin portal opened in the top-left corner.
