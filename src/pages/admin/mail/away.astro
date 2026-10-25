@@ -1,0 +1,403 @@
+---
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import {
+  getAvailability,
+  loadStaffDirectory,
+  mailErrorText,
+  notAssignableLabel,
+  personLabel,
+} from "../../../lib/mail-admin-api";
+import { AWAY_NOTE_MAX, type Availability } from "../../../lib/mail-admin-contract";
+import { awayInputValue, displaySafeLine, formatUtc } from "../../../lib/mail-display";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is unreachable; it is
+  // here so TypeScript narrows `session` for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+const isOwner = session.user.backend_role === "owner";
+const me = /^\d{1,12}$/.test(session.user.id) ? Number(session.user.id) : null;
+
+// An owner may read and set anyone's window with `?user=<id>`. For anyone else the parameter is
+// ignored, so the page always shows their own, which is all the API would let them read.
+const asked = new URL(Astro.request.url).searchParams.get("user") ?? "";
+const otherId =
+  isOwner && /^\d{1,12}$/.test(asked) && Number(asked) > 0 && Number(asked) !== me
+    ? Number(asked)
+    : null;
+const subjectId = otherId ?? me;
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let availability: Availability | null = null;
+let loadError: string | null = null;
+const [availabilityResult, directory] = await Promise.all([
+  getAvailability(otherId ?? undefined, { cookieHeader }).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  ),
+  loadStaffDirectory({ cookieHeader }),
+]);
+if (availabilityResult.ok) availability = availabilityResult.value;
+else loadError = mailErrorText(availabilityResult.error);
+
+const backupChoices = directory.assignable.filter((p) => p.id !== subjectId);
+const backup = availability?.backup_user_id ?? null;
+const unlistedBackup =
+  backup !== null && !backupChoices.some((p) => p.id === backup) ? backup : null;
+const hasWindow = Boolean(
+  availability &&
+    (availability.away_from || availability.away_until || availability.backup_user_id),
+);
+const who = otherId === null ? "you" : personLabel(directory, otherId);
+const whose = otherId === null ? "your" : `${who}\u2019s`;
+const backupLabel = backup === null ? "None" : personLabel(directory, backup);
+---
+
+<AdminLayout title="Mail away window" active="mail" session={session}>
+  <Fragment slot="lede">
+    <a href="/admin/mail">&larr; Back to Mail</a>
+    {" "}While {otherId === null ? "you are" : "they are"} away, new tickets for {otherId === null ? "you" : "them"} go to the backup. All times are UTC.
+  </Fragment>
+
+  {
+    isOwner && (
+      <form class="away-for" method="get" action="/admin/mail/away">
+        <label for="away-for">For</label>
+        <select id="away-for" name="user">
+          {me !== null && (
+            <option value="" selected={otherId === null}>
+              Me ({personLabel(directory, me)})
+            </option>
+          )}
+          {directory.assignable
+            .filter((p) => p.id !== me)
+            .map((p) => (
+              <option value={String(p.id)} selected={otherId === p.id}>
+                {p.label} ({p.role})
+              </option>
+            ))}
+        </select>
+        <button type="submit" class="away-btn">Show</button>
+      </form>
+    )
+  }
+
+  <p class="away-live" role="status" aria-live="polite" data-away-status></p>
+  <p class="admin-action-error" role="alert" tabindex="-1" data-away-error hidden></p>
+  {loadError && <p class="admin-action-error" role="alert">{loadError}</p>}
+
+  {
+    availability && (
+      <>
+        <section class="away-current" aria-labelledby="away-current-title">
+          <h2 class="away-current__title" id="away-current-title">Current window</h2>
+          {hasWindow ? (
+            <dl>
+              <div>
+                <dt>From</dt>
+                <dd>{formatUtc(availability.away_from) || "Not set"}</dd>
+              </div>
+              <div>
+                <dt>Until</dt>
+                <dd>{formatUtc(availability.away_until) || "Not set"}</dd>
+              </div>
+              <div>
+                <dt>Backup</dt>
+                <dd>{backupLabel}</dd>
+              </div>
+              {availability.note && (
+                <div>
+                  <dt>Note</dt>
+                  <dd>{displaySafeLine(availability.note)}</dd>
+                </div>
+              )}
+            </dl>
+          ) : (
+            <p class="away-muted">No away window is set for {who}.</p>
+          )}
+        </section>
+
+        <form
+          class="away-form"
+          data-away-form
+          data-user-id={otherId === null ? "" : String(otherId)}
+          aria-labelledby="away-form-title"
+        >
+          <h2 class="away-current__title" id="away-form-title">Set {whose} window</h2>
+          <div class="away-field">
+            <label for="away-from">From (UTC)</label>
+            <input
+              id="away-from"
+              type="datetime-local"
+              name="away_from"
+              value={awayInputValue(availability.away_from)}
+              data-away-from
+            />
+          </div>
+          <div class="away-field">
+            <label for="away-until">Until (UTC)</label>
+            <input
+              id="away-until"
+              type="datetime-local"
+              name="away_until"
+              value={awayInputValue(availability.away_until)}
+              data-away-until
+            />
+          </div>
+          <div class="away-field">
+            <label for="away-backup">Backup</label>
+            <select id="away-backup" name="backup_user_id" data-away-backup>
+              <option value="" selected={backup === null}>None</option>
+              {backupChoices.map((p) => (
+                <option value={String(p.id)} selected={backup === p.id}>
+                  {p.label} ({p.role})
+                </option>
+              ))}
+              {unlistedBackup !== null && (
+                <option value={String(unlistedBackup)} selected>
+                  {notAssignableLabel(directory, unlistedBackup)}
+                </option>
+              )}
+            </select>
+          </div>
+          <div class="away-field">
+            <label for="away-note">Note (optional)</label>
+            <textarea
+              id="away-note"
+              name="note"
+              rows="3"
+              maxlength={AWAY_NOTE_MAX}
+              data-away-note
+            >{availability.note ?? ""}</textarea>
+          </div>
+          <div class="away-actions">
+            <button type="submit" class="away-btn away-btn--primary" data-away-save>Save</button>
+            <button type="button" class="away-btn" data-away-clear>Clear window</button>
+          </div>
+        </form>
+      </>
+    )
+  }
+</AdminLayout>
+
+<style>
+  /* Shared admin page vocabulary; duplicated per the scoped-style convention (AGENTS.md). */
+  .admin-action-error {
+    margin: 0;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .admin-action-error[hidden] {
+    display: none;
+  }
+  @media (forced-colors: active) {
+    .admin-action-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+  .away-live {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .away-live:empty {
+    display: none;
+  }
+  .away-for,
+  .away-current,
+  .away-form {
+    display: grid;
+    gap: var(--space-3);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5);
+    min-inline-size: 0;
+  }
+  .away-for {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .away-current__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .away-current dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--space-3);
+    margin: 0;
+  }
+  .away-current dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .away-current dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .away-muted {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .away-field {
+    display: grid;
+    gap: var(--space-1);
+    max-inline-size: 28rem;
+  }
+  .away-for label,
+  .away-field label {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .away-form input,
+  .away-form select,
+  .away-form textarea,
+  .away-for select {
+    min-block-size: 40px;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--admin-control-border);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    font-family: inherit;
+    max-inline-size: 100%;
+    box-sizing: border-box;
+  }
+  .away-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .away-btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .away-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .away-btn--primary {
+    background: var(--color-link);
+    color: var(--color-bg);
+    border-color: var(--color-link);
+  }
+  @media (max-width: 640px) {
+    .away-for,
+    .away-current,
+    .away-form {
+      padding: var(--space-4);
+    }
+  }
+</style>
+
+<script>
+  import { mailErrorText, putAvailability } from "../../../lib/mail-admin-api";
+  import { AWAY_NOTE_MAX } from "../../../lib/mail-admin-contract";
+  import { awayInstant } from "../../../lib/mail-display";
+
+  const form = document.querySelector<HTMLFormElement>("[data-away-form]");
+  const statusEl = document.querySelector<HTMLElement>("[data-away-status]");
+  const errorEl = document.querySelector<HTMLElement>("[data-away-error]");
+
+  function say(message: string): void {
+    if (statusEl) statusEl.textContent = message;
+  }
+  function showError(message: string): void {
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+    errorEl.focus();
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  if (form) {
+    const userId = form.dataset.userId ? Number(form.dataset.userId) : undefined;
+    const fromEl = form.querySelector<HTMLInputElement>("[data-away-from]");
+    const untilEl = form.querySelector<HTMLInputElement>("[data-away-until]");
+    const backupEl = form.querySelector<HTMLSelectElement>("[data-away-backup]");
+    const noteEl = form.querySelector<HTMLTextAreaElement>("[data-away-note]");
+    const controls = form.querySelectorAll<HTMLElement>("input, select, textarea, button");
+    let busy = false;
+
+    async function save(body: Parameters<typeof putAvailability>[0], doing: string): Promise<void> {
+      if (busy) return;
+      busy = true;
+      clearError();
+      say(`${doing}…`);
+      form?.setAttribute("aria-busy", "true");
+      controls.forEach((el) => ((el as HTMLButtonElement).disabled = true));
+      try {
+        await putAvailability(body, userId);
+        location.reload();
+      } catch (err) {
+        say("");
+        showError(mailErrorText(err));
+        busy = false;
+        form?.removeAttribute("aria-busy");
+        controls.forEach((el) => ((el as HTMLButtonElement).disabled = false));
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const fromRaw = fromEl?.value ?? "";
+      const untilRaw = untilEl?.value ?? "";
+      // The value is read as UTC, which is what the labels say, never as the browser's zone.
+      const from = fromRaw === "" ? null : awayInstant(fromRaw);
+      const until = untilRaw === "" ? null : awayInstant(untilRaw);
+      if ((fromRaw !== "" && from === null) || (untilRaw !== "" && until === null)) {
+        showError("Enter the times as a date and a time.");
+        return;
+      }
+      if (from && until && Date.parse(until) <= Date.parse(from)) {
+        showError("The window must end after it starts.");
+        return;
+      }
+      const note = (noteEl?.value ?? "").trim();
+      if (note.length > AWAY_NOTE_MAX) {
+        showError(`The note is longer than ${AWAY_NOTE_MAX} characters.`);
+        return;
+      }
+      const backup = backupEl?.value ? Number(backupEl.value) : null;
+      void save(
+        { away_from: from, away_until: until, backup_user_id: backup, note: note || null },
+        "Saving",
+      );
+    });
+
+    form.querySelector("[data-away-clear]")?.addEventListener("click", () => {
+      void save({ away_from: null, away_until: null, backup_user_id: null, note: null }, "Clearing");
+    });
+  }
+</script>

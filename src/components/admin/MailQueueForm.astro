@@ -1,0 +1,252 @@
+---
+/**
+ * The owner's form for one mail queue, or for a new one (`queue` null). The page renders it only
+ * for an owner; the API enforces that regardless, and refuses a person the queue may not name
+ * (`ineligible_assignee`), so the selects offer every admin and owner and leave that rule to it.
+ *
+ * The script on `queues.astro` reads `data-original` (what the API returned) and sends only the
+ * fields that changed, with the full rotation list when it did.
+ */
+import {
+  type StaffDirectory,
+  type StaffPerson,
+  notAssignableLabel,
+} from "../../lib/mail-admin-api";
+import {
+  type MailQueue,
+  QUEUE_STRATEGIES,
+  type QueueStrategy,
+} from "../../lib/mail-admin-contract";
+
+interface Props {
+  /** The queue being edited, or null for a new one. */
+  queue: MailQueue | null;
+  /** Who the selects may offer: the assignable people only. */
+  people: readonly StaffPerson[];
+  /** Names the people a queue already holds who are no longer assignable. */
+  directory: StaffDirectory;
+  /** Unique on the page: ids of the form's fields are built from it. */
+  formId: string;
+}
+
+const STRATEGY_LABEL: Record<QueueStrategy, string> = {
+  fixed: "Fixed (everything goes to the assignee)",
+  round_robin: "Round robin (rotate through the rotation members)",
+  pool: "Pool (left unassigned for anyone to take)",
+};
+
+const { queue, people, directory, formId } = Astro.props;
+const strategies: readonly string[] = QUEUE_STRATEGIES;
+const original = {
+  restricted: queue?.restricted ?? false,
+  strategy: queue?.strategy ?? "pool",
+  assignee_user_id: queue?.assignee_user_id ?? null,
+  backup_user_id: queue?.backup_user_id ?? null,
+  rr_members: queue?.rr_members ?? [],
+  escalation_user_id: queue?.escalation_user_id ?? null,
+};
+const known = new Set(people.map((p) => p.id));
+const stray = (id: number | null): number | null => (id !== null && !known.has(id) ? id : null);
+const strayMembers = original.rr_members.filter((id) => !known.has(id));
+
+type PickerField = "assignee_user_id" | "backup_user_id" | "escalation_user_id";
+const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
+  { name: "assignee_user_id", label: "Assignee" },
+  { name: "backup_user_id", label: "Backup" },
+  { name: "escalation_user_id", label: "Escalation owner" },
+];
+---
+
+<form
+  class="queue-form"
+  data-queue-form
+  data-tag={queue?.tag ?? ""}
+  data-original={JSON.stringify(original)}
+>
+  {
+    queue === null && (
+      <div class="queue-form__field">
+        <label for={`${formId}-tag`}>Queue tag</label>
+        <input
+          id={`${formId}-tag`}
+          name="tag"
+          type="text"
+          required
+          maxlength="64"
+          pattern="[a-z0-9][a-z0-9._\-]*"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby={`${formId}-tag-hint`}
+          data-queue-tag
+        />
+        <span class="queue-form__hint" id={`${formId}-tag-hint`}>
+          Lowercase letters, digits, dot, underscore and hyphen.
+        </span>
+      </div>
+    )
+  }
+
+  <div class="queue-form__field queue-form__field--check">
+    <input id={`${formId}-restricted`} name="restricted" type="checkbox" checked={original.restricted} />
+    <label for={`${formId}-restricted`}>Restricted: only owners see its tickets</label>
+  </div>
+  <p class="queue-form__hint">
+    The security and conduct queues are always restricted, and the * fallback queue never is.
+  </p>
+
+  <div class="queue-form__field">
+    <label for={`${formId}-strategy`}>Assignment</label>
+    <select id={`${formId}-strategy`} name="strategy">
+      {
+        strategies.map((s) => (
+          <option value={s} selected={original.strategy === s}>
+            {STRATEGY_LABEL[s as keyof typeof STRATEGY_LABEL]}
+          </option>
+        ))
+      }
+    </select>
+  </div>
+
+  {
+    PICKERS.map((picker) => (
+      <div class="queue-form__field">
+        <label for={`${formId}-${picker.name}`}>{picker.label}</label>
+        <select id={`${formId}-${picker.name}`} name={picker.name}>
+          <option value="" selected={original[picker.name] === null}>None</option>
+          {people.map((p) => (
+            <option value={String(p.id)} selected={original[picker.name] === p.id}>
+              {p.label} ({p.role})
+            </option>
+          ))}
+          {stray(original[picker.name]) !== null && (
+            <option value={String(original[picker.name])} selected>
+              {notAssignableLabel(directory, original[picker.name] as number)}
+            </option>
+          )}
+        </select>
+      </div>
+    ))
+  }
+
+  <fieldset class="queue-form__rotation">
+    <legend>Rotation members</legend>
+    <p class="queue-form__hint">
+      Changing the rotation members restarts the rotation. Their order is not adjustable.
+    </p>
+    {
+      people.map((p) => (
+        <label class="queue-form__member">
+          <input
+            type="checkbox"
+            name="rr"
+            value={String(p.id)}
+            checked={original.rr_members.includes(p.id)}
+          />
+          {p.label} ({p.role})
+        </label>
+      ))
+    }
+    {
+      strayMembers.map((id) => (
+        <label class="queue-form__member">
+          <input type="checkbox" name="rr" value={String(id)} checked />{notAssignableLabel(directory, id)}
+        </label>
+      ))
+    }
+    {people.length === 0 && strayMembers.length === 0 && <p class="queue-form__hint">No admins or owners could be listed.</p>}
+  </fieldset>
+
+  <div class="queue-form__actions">
+    <button type="submit" class="queue-form__btn queue-form__btn--primary" data-queue-submit>
+      {queue === null ? "Create queue" : "Save changes"}
+    </button>
+  </div>
+</form>
+
+<style>
+  .queue-form {
+    display: grid;
+    gap: var(--space-3);
+    padding-block-start: var(--space-3);
+    min-inline-size: 0;
+  }
+  .queue-form__field {
+    display: grid;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .queue-form__field--check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .queue-form label,
+  .queue-form legend {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .queue-form__field--check label {
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+  }
+  .queue-form select,
+  .queue-form input[type="text"] {
+    min-block-size: 40px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--admin-control-border);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    max-inline-size: 100%;
+  }
+  .queue-form__hint {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    margin: 0;
+  }
+  .queue-form__rotation {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    min-inline-size: 0;
+  }
+  .queue-form__member {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-normal, 400);
+    color: var(--color-fg);
+    min-block-size: 1.75rem;
+    overflow-wrap: anywhere;
+  }
+  .queue-form__actions {
+    display: flex;
+  }
+  .queue-form__btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .queue-form__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .queue-form__btn--primary {
+    background: var(--color-link);
+    color: var(--color-bg);
+    border-color: var(--color-link);
+  }
+</style>

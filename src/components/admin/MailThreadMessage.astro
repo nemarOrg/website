@@ -1,0 +1,233 @@
+---
+/**
+ * One message of a ticket's thread. The body is attacker-controlled email, so it is rendered
+ * only as escaped plain text, in a `<div dir="auto">` with `white-space: pre-wrap`: no raw-HTML directive,
+ * no auto-linking, no images and no remote content, whatever the message says. `displaySafeBody`
+ * has already written out the characters that hide or reorder text.
+ *
+ * An internal note is the team's own text and is labelled "Internal", styled apart from the
+ * mail, and never mistaken for something the requester can see.
+ */
+import { formatDate, formatRelativeTime, parseBackendTimestamp } from "../../lib/format";
+import type { TicketMessage } from "../../lib/mail-admin-contract";
+import { authTone, displaySafeBody, displaySafeLine } from "../../lib/mail-display";
+import StatusBadge from "./StatusBadge.astro";
+
+interface Props {
+  message: TicketMessage;
+  /** The thread's subject, so a message repeats it only when it differs. */
+  threadSubject: string;
+  /** The author of a reply or note as the staff directory names them, when there is one. */
+  authorLabel?: string;
+}
+
+const { message, threadSubject, authorLabel } = Astro.props;
+const kind =
+  message.direction === "in"
+    ? "Message from the requester"
+    : message.direction === "out"
+      ? "Reply sent"
+      : "Internal note";
+const when = parseBackendTimestamp(message.created_at);
+const headingId = `mail-message-${message.id}`;
+const showSubject = message.subject.trim() !== "" && message.subject !== threadSubject;
+const auth = [
+  ["SPF", message.spf],
+  ["DKIM", message.dkim],
+  ["DMARC", message.dmarc],
+] as const;
+---
+
+<article
+  class:list={["mail-msg", `mail-msg--${message.direction}`]}
+  aria-labelledby={headingId}
+  data-mail-message
+>
+  <header class="mail-msg__head">
+    <h3 class="mail-msg__title" id={headingId}>
+      {kind}
+      {message.direction === "note" && <span class="mail-msg__internal">Internal</span>}
+    </h3>
+    <span class="mail-msg__when">
+      {
+        when ? (
+          <time datetime={when.toISOString()}>
+            {formatDate(when)} {when.toISOString().slice(11, 16)} UTC ({formatRelativeTime(when)})
+          </time>
+        ) : (
+          displaySafeLine(message.created_at)
+        )
+      }
+    </span>
+  </header>
+
+  <dl class="mail-msg__meta">
+    {
+      message.direction !== "note" && (
+        <div>
+          <dt>From</dt>
+          <dd>{displaySafeLine(message.from_addr)}</dd>
+        </div>
+      )
+    }
+    {
+      message.direction !== "note" && (
+        <div>
+          <dt>To</dt>
+          <dd>{displaySafeLine(message.to_addr)}</dd>
+        </div>
+      )
+    }
+    {
+      authorLabel && (
+        <div>
+          <dt>{message.direction === "note" ? "Written by" : "Sent by"}</dt>
+          <dd>{displaySafeLine(authorLabel)}</dd>
+        </div>
+      )
+    }
+    {
+      showSubject && (
+        <div>
+          <dt>Subject</dt>
+          <dd>{displaySafeLine(message.subject)}</dd>
+        </div>
+      )
+    }
+    {
+      message.direction === "in" && (
+        <div class="mail-msg__auth">
+          <dt>Authentication</dt>
+          <dd>
+            <ul class="mail-msg__auth-list" role="list">
+              {auth.map(([name, value]) => (
+                <li>
+                  <span class="mail-msg__auth-name">{name}</span>
+                  <StatusBadge tone={authTone(value)} text={displaySafeLine(value) || "none"} />
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </div>
+      )
+    }
+  </dl>
+
+  <div class="mail-body" dir="auto">{displaySafeBody(message.text_body)}</div>
+</article>
+
+<style>
+  .mail-msg {
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .mail-msg--out {
+    border-inline-start: 3px solid var(--admin-accent);
+  }
+  /* A note is the team's own and is set apart: dashed ground, tinted, labelled. */
+  .mail-msg--note {
+    border-style: dashed;
+    border-color: var(--color-border-strong);
+    background: var(--admin-surface-2);
+  }
+  .mail-msg__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .mail-msg__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    letter-spacing: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .mail-msg__internal {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 1.25rem;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .mail-msg__when {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .mail-msg__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--space-2) var(--space-5);
+    margin: 0;
+  }
+  .mail-msg__meta > div {
+    min-inline-size: 0;
+  }
+  .mail-msg__meta dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    margin-block-end: 2px;
+  }
+  .mail-msg__meta dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+  }
+  .mail-msg__auth-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+  }
+  .mail-msg__auth-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .mail-msg__auth-name {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .mail-body {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    tab-size: 4;
+    min-inline-size: 0;
+  }
+  @media (max-width: 640px) {
+    .mail-msg {
+      padding: var(--space-4);
+    }
+  }
+  @media (forced-colors: active) {
+    .mail-msg__internal {
+      border: 1px solid CanvasText;
+    }
+  }
+</style>

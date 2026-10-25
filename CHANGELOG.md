@@ -13,6 +13,29 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **Admins can work support tickets from the admin portal's new Mail tab** (#479, ADR 0029).
+  The tab lists tickets with filters for status, queue, assignee and a search of the subject or sender, shows a ticket's thread oldest first with the sender's SPF, DKIM and DMARC results, and lets an admin reply, add an internal note, assign, set the status or escalate.
+  Queues and each person's away window have their own pages, and an owner can edit queues and anyone's away window.
+  The tab badge counts the open tickets assigned to you, up to `100+`.
+  Which tickets and queues a person sees is decided by the API, and a ticket it will not show is a 404 whether or not it exists.
+- **Email in a ticket is shown as plain text and nothing in it is active.**
+  Subjects, addresses and bodies are escaped, never parsed as markup, never turned into links, and never load images or other remote content.
+  Characters that hide or reorder text, such as control characters, bidirectional overrides and zero-width characters, are shown as visible escapes like `\u202e`.
+- **A reply or a note is sent under one key per draft, so it cannot go out or be stored twice.**
+  The draft and its `Idempotency-Key` are kept together in the browser session and survive a reload; a note has its own draft and key.
+  If the connection drops or the server times out, the draft locks and Try again resends under the same key, which the API answers from what it already did.
+  If the mail provider does not confirm a send, the page says the reply may or may not have been delivered and the old key will never send it again; writing a new reply is possible behind a warning that the requester may get two copies.
+- **Closed tickets get a summary, and the retention purge keeps only that** (nemar-cli ADR 0112).
+  A ticket shows its summary with who wrote it and when, and an admin can write or replace one (1 to 4,000 characters; names, addresses, account ids and quoted text do not belong in it, and an email address is refused).
+  A ticket purged under the retention policy says so, shows only its summary and history, and offers no thread or action.
+  The ticket list has a Needs summary filter for closed tickets with none yet, and marks purged tickets, whose subject reads "(purged)".
+  If a note's outcome is unknown (connection lost, timeout, a 5xx), Try again resends it under the same key and it is stored once.
+- **The API proxy forwards `Idempotency-Key`.**
+- **Release gate:** the production API must carry the mail routes (nemar-cli epic #1893) before this goes from `staging` to `main`.
+  A drift test compares the tab's closed lists (statuses, queue strategies, error codes) with nemar-cli's `shared/contract/mail-admin.ts`, so a change to either side fails CI until both agree.
+
 ### Fixed
 
 - **Confirmation dialogs open in the middle of the screen again.** The global reset's `margin: 0` removed the browser's centring of modal dialogs, so every confirm dialog in the admin portal opened in the top-left corner.

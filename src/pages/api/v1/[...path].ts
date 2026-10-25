@@ -33,6 +33,9 @@ const FORWARD_REQUEST_HEADERS = [
   "accept",
   "user-agent",
   "x-requested-with",
+  // The admin Mail tab's reply key (nemar-cli mail routes): without it the API cannot recognise
+  // a retry of a reply, and a double click or a lost response would send the mail twice.
+  "idempotency-key",
 ];
 
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH"]);

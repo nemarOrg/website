@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_TABS, adminMetricHref } from "./admin-tabs";
 
 describe("ADMIN_TABS", () => {
-  it("defines the five phase-1..5 sections, then News (website#371), in order", () => {
+  it("defines the five phase-1..5 sections, then News (website#371) and Mail, in order", () => {
     expect(ADMIN_TABS.map((t) => t.id)).toEqual([
       "overview",
       "publications",
@@ -10,12 +10,21 @@ describe("ADMIN_TABS", () => {
       "imports",
       "notices",
       "news",
+      "mail",
     ]);
   });
 
   it("enables every tab", () => {
     const enabled = ADMIN_TABS.filter((t) => t.enabled).map((t) => t.id);
-    expect(enabled).toEqual(["overview", "publications", "users", "imports", "notices", "news"]);
+    expect(enabled).toEqual([
+      "overview",
+      "publications",
+      "users",
+      "imports",
+      "notices",
+      "news",
+      "mail",
+    ]);
   });
 
   it("points the shipped tabs at their existing routes", () => {
@@ -26,6 +35,7 @@ describe("ADMIN_TABS", () => {
     expect(ADMIN_TABS.find((t) => t.id === "users")?.href).toBe("/admin/users");
     expect(ADMIN_TABS.find((t) => t.id === "imports")?.href).toBe("/admin/imports");
     expect(ADMIN_TABS.find((t) => t.id === "news")?.href).toBe("/admin/news");
+    expect(ADMIN_TABS.find((t) => t.id === "mail")?.href).toBe("/admin/mail");
   });
 
   it("has a unique id and href per tab", () => {

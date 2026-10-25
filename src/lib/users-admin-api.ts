@@ -402,6 +402,33 @@ export async function getAdminUser(username: string, init: Init = {}): Promise<A
   return body.user;
 }
 
+/**
+ * `GET /admin/users/by-id/:id`: one account by its numeric id, for a page that holds an id and
+ * no username (the Mail tab names people by id). Any admin may read it. Same error handling as
+ * {@link getAdminUser}.
+ */
+export async function getAdminUserById(id: number, init: Init = {}): Promise<AdminUserDetail> {
+  const fetchImpl = init.fetch ?? fetch;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (init.cookieHeader) headers.Cookie = init.cookieHeader;
+  const res = await fetchImpl(`${dashboardApiBase(init.cookieHeader)}/admin/users/by-id/${id}`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+    signal: resolveSignal(init),
+  });
+  if (!res.ok) {
+    const detail = await readError(res);
+    throw new DashboardApiError(
+      `Could not load user: ${detail.message ?? detail.code ?? res.statusText}`,
+      res.status,
+      detail.code,
+    );
+  }
+  const body = (await res.json()) as AdminUserDetailResponse;
+  return body.user;
+}
+
 export interface ApproveUserResult {
   readonly message: string;
   /** `username` is nullable because {@link approveUserById} can address a

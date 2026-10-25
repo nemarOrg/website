@@ -113,6 +113,9 @@ jobs:
       # nemar-cli: the release of the BIDS validator that the CLI, the repository check and the
       # upload page all run. Same `dev` pairing. When nemar-cli moves the pin, this job fails until
       # this repo's copy and the vendored validator follow (ADR 0028).
+      # test/mail-admin-contract-drift.test.ts is a SIXTH, against shared/contract/mail-admin.ts: the
+      # closed lists the admin Mail tab branches on. Same `dev` pairing, and strict like the rest, so
+      # it is red until the file reaches nemar-cli `dev`.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
@@ -120,6 +123,7 @@ jobs:
           sparse-checkout: |
             /shared/contract/account-copy.ts
             /shared/contract/docs-auth.ts
+            /shared/contract/mail-admin.ts
             /shared/contract/private-site.ts
             /shared/contract/publication-review-copy.ts
             /shared/publication-limits.ts
@@ -131,6 +135,7 @@ jobs:
         env:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
+          NEMAR_CLI_MAIL_ADMIN_CONTRACT: nemar-cli-contract/shared/contract/mail-admin.ts
           NEMAR_CLI_PRIVATE_SITE_CONTRACT: nemar-cli-contract/shared/contract/private-site.ts
           NEMAR_CLI_REVIEW_COPY: nemar-cli-contract/shared/contract/publication-review-copy.ts
           NEMAR_CLI_VALIDATOR_PIN: nemar-cli-contract/validator-version.json

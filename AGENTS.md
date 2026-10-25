@@ -77,6 +77,7 @@ src/
     upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + full BIDS validation in a worker + direct-to-storage PUTs)
     settings.astro                    account: name/email/ORCID/GitHub/profile self-service; CLI keys card
     admin/publication-requests.astro  admin-only (role=admin; 404s for others)
+    admin/mail.astro admin/mail/{[id],queues,away}.astro   admin Mail tab: tickets, queues, away windows (ADR 0029); email is escaped text only
     about.astro support.astro community.astro
     og/** robots.txt.ts 404.astro
   components/                         all .astro components; scoped <style> per file
@@ -88,6 +89,9 @@ src/
     data-api.ts / data-base.ts        data.nemar.org client (landing/metadata/manifest/README fetch)
     auth.ts auth-dev.ts auth-proxy.ts orcid-proxy.ts   session types/helpers, dev mock session, backend proxies
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
+    mail-admin-api.ts                 admin Mail client (browser-safe): tickets, queues, away window, reply failure classes, badge count, staff directory
+    mail-admin-contract.ts            hand copy of nemar-cli shared/contract/mail-admin.ts (drift-tested, test/mail-admin-contract-drift.test.ts)
+    mail-display.ts                   escape set for ticket text, thread order, reply draft state machine and its sessionStorage form
     device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
     device-authorize.ts               pure view model for /cli/authorize (no mirrored refusal vocabulary)
     device-authorize-dev.ts           astro-dev stand-in for the device-auth + keys backend (epic #1272 phase 2)
