@@ -37,6 +37,7 @@ import {
   TICKET_STATUSES,
   type TicketActionResponse,
   type TicketDetail,
+  type UnreadCountResponse,
 } from "./mail-admin-contract";
 import { displaySafeLine } from "./mail-display";
 import { resolveSignal } from "./request-deadline";
@@ -476,24 +477,18 @@ export function resetBadgeWarning(): void {
   badgeWarnedAt = Number.NEGATIVE_INFINITY;
 }
 
-/** The most the badge asks for, and so the most it can count. */
-const BADGE_LIMIT = 100;
-
 /**
- * Open tickets assigned to the caller, for the Mail tab badge. `more` is true when the API had
- * another page, so the badge reads `100+`. Never throws, like the other badge fetches: the
- * shared admin shell renders on every page and must not break on a mail hiccup, and a null is
- * logged so a broken mail route is not indistinguishable from an empty queue.
+ * Tickets the caller has not opened since a message arrived, for the Mail tab badge. The API
+ * returns an exact count, so the badge needs no cap. Never throws, like the other badge fetches:
+ * the shared admin shell renders on every page and must not break on a mail hiccup, and a null is
+ * logged so a broken mail route is not indistinguishable from an empty inbox.
  */
-export async function fetchMyOpenTicketCount(
-  init: Init = {},
-): Promise<{ count: number; more: boolean } | null> {
+export async function fetchUnreadTicketCount(init: Init = {}): Promise<number | null> {
   try {
-    const page = await listTickets(
-      { status: "open", assignee: "me", limit: BADGE_LIMIT },
-      { ...init, timeoutMs: init.timeoutMs ?? BADGE_TIMEOUT_MS },
-    );
-    return { count: Math.min(page.tickets.length, BADGE_LIMIT), more: page.next_cursor !== null };
+    const out = await mailFetch<UnreadCountResponse>("GET", "/unread-count", init, {
+      timeoutMs: BADGE_TIMEOUT_MS,
+    });
+    return typeof out.count === "number" && out.count >= 0 ? out.count : null;
   } catch (err) {
     const now = Date.now();
     if (now - badgeWarnedAt >= BADGE_WARN_EVERY_MS) {

@@ -81,6 +81,18 @@ export interface TicketSummary {
   has_summary: boolean;
   /** The retention purge has run on this ticket: its messages are gone and its address and subject are empty. */
   purged: boolean;
+  /**
+   * True when the ticket has an incoming message the viewing admin has not opened since it arrived. Per admin: opening the ticket marks it read for that admin only.
+   */
+  unread: boolean;
+}
+
+/** Response of `GET /admin/mail/unread-count`. */
+export interface UnreadCountResponse {
+  /**
+   * Tickets the viewer can see, not closed or spam, with an incoming message the viewer has not opened.
+   */
+  count: number;
 }
 
 /** Query of the list route. `status` absent hides spam and closed tickets. */

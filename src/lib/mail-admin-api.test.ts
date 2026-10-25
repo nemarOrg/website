@@ -8,7 +8,7 @@ import {
   classifyNoteFailure,
   classifyReplyFailure,
   escalateTicket,
-  fetchMyOpenTicketCount,
+  fetchUnreadTicketCount,
   getAvailability,
   getTicket,
   isAssignable,
@@ -32,6 +32,7 @@ import {
   MAIL_ERROR_CODES,
   type MailQueue,
   type TicketSummary,
+  type UnreadCountResponse,
 } from "./mail-admin-contract";
 import type { AdminUserListRow } from "./users-admin-api";
 
@@ -52,6 +53,7 @@ const SUMMARY: TicketSummary = {
   last_message_at: "2026-10-20 09:30:00",
   has_summary: false,
   purged: false,
+  unread: false,
 };
 
 interface Seen {
@@ -387,35 +389,29 @@ describe("classifyReplyFailure", () => {
   });
 });
 
-describe("fetchMyOpenTicketCount", () => {
+describe("fetchUnreadTicketCount", () => {
   beforeEach(() => resetBadgeWarning());
   afterEach(() => vi.restoreAllMocks());
 
-  it("asks for open tickets assigned to me, 100 at most", async () => {
-    const { fetchImpl, seen } = stub(() =>
-      json({ tickets: [SUMMARY, SUMMARY], next_cursor: null } satisfies ListTicketsResponse),
-    );
-    const out = await fetchMyOpenTicketCount({ fetch: fetchImpl });
-    expect(out).toEqual({ count: 2, more: false });
-    expect(seen[0].url).toBe("/api/v1/admin/mail/tickets?status=open&assignee=me&limit=100");
+  it("asks the unread-count route and returns the exact count", async () => {
+    const { fetchImpl, seen } = stub(() => json({ count: 137 } satisfies UnreadCountResponse));
+    expect(await fetchUnreadTicketCount({ fetch: fetchImpl })).toBe(137);
+    expect(seen[0].url).toBe("/api/v1/admin/mail/unread-count");
   });
 
-  it("reports a full page with a next cursor as 100 and more", async () => {
-    const tickets = Array.from({ length: 100 }, (_, i) => ({ ...SUMMARY, id: i + 1 }));
-    const { fetchImpl } = stub(() =>
-      json({ tickets, next_cursor: "2026-10-20 09:30:00|1" } satisfies ListTicketsResponse),
-    );
-    expect(await fetchMyOpenTicketCount({ fetch: fetchImpl })).toEqual({ count: 100, more: true });
+  it("returns null for an answer that is not a count", async () => {
+    const { fetchImpl } = stub(() => json({ count: "many" }));
+    expect(await fetchUnreadTicketCount({ fetch: fetchImpl })).toBeNull();
   });
 
   it("returns null and logs on failure, and never throws", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const refused = stub(() => json({ error: "Not found" }, 404));
-    expect(await fetchMyOpenTicketCount({ fetch: refused.fetchImpl })).toBeNull();
+    expect(await fetchUnreadTicketCount({ fetch: refused.fetchImpl })).toBeNull();
     const dropped = (async () => {
       throw new TypeError("Failed to fetch");
     }) as unknown as typeof fetch;
-    expect(await fetchMyOpenTicketCount({ fetch: dropped })).toBeNull();
+    expect(await fetchUnreadTicketCount({ fetch: dropped })).toBeNull();
     // Two failures in a row, one line: the fallback is logged at most once a minute.
     expect(warn).toHaveBeenCalledTimes(1);
   });
@@ -428,11 +424,11 @@ describe("fetchMyOpenTicketCount", () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-10-24T12:00:00Z"));
-      await fetchMyOpenTicketCount({ fetch: dropped });
+      await fetchUnreadTicketCount({ fetch: dropped });
       vi.setSystemTime(new Date("2026-10-24T12:00:30Z"));
-      await fetchMyOpenTicketCount({ fetch: dropped });
+      await fetchUnreadTicketCount({ fetch: dropped });
       vi.setSystemTime(new Date("2026-10-24T12:01:01Z"));
-      await fetchMyOpenTicketCount({ fetch: dropped });
+      await fetchUnreadTicketCount({ fetch: dropped });
     } finally {
       vi.useRealTimers();
     }
