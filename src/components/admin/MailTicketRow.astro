@@ -29,9 +29,18 @@ const statusText = STATUS_LABEL[ticket.status] ?? displaySafeLine(String(ticket.
 const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
 ---
 
-<article class="mail-row" data-mail-row>
+<article class={`mail-row${ticket.unread ? " mail-row--unread" : ""}`} data-mail-row>
   <div class="mail-row__primary">
-    <a class="mail-row__subject" href={`/admin/mail/${ticket.id}`}>{subject}</a>
+    <a class="mail-row__subject" href={`/admin/mail/${ticket.id}`}>
+      {
+        ticket.unread && (
+          <>
+            <span class="mail-row__dot" aria-hidden="true" />
+            <span class="visually-hidden">Unread: </span>
+          </>
+        )
+      }{subject}
+    </a>
     <span class="mail-row__badges">
       {ticket.purged && <StatusBadge tone="neutral" text="Purged" />}
       {needsSummary && <StatusBadge tone="warn" text="Needs summary" />}
@@ -104,6 +113,20 @@ const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
     min-inline-size: 0;
     overflow-wrap: anywhere;
   }
+  .mail-row--unread .mail-row__subject {
+    font-weight: var(--fw-bold);
+  }
+  /* The mail-client dot: shape and weight carry the state, not colour alone, and the visually
+     hidden word carries it for a screen reader. */
+  .mail-row__dot {
+    display: inline-block;
+    inline-size: 0.5rem;
+    block-size: 0.5rem;
+    margin-inline-end: var(--space-2);
+    border-radius: 50%;
+    background: var(--color-link);
+    vertical-align: 0.1em;
+  }
   .mail-row__badges {
     display: inline-flex;
     flex-wrap: wrap;
@@ -153,6 +176,10 @@ const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
     }
   }
   @media (forced-colors: active) {
+    .mail-row__dot {
+      background: Highlight;
+      forced-color-adjust: none;
+    }
     .mail-row__restricted {
       border: 1px solid CanvasText;
     }
