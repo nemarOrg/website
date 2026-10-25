@@ -82,16 +82,22 @@ export interface TicketSummary {
   /** The retention purge has run on this ticket: its messages are gone and its address and subject are empty. */
   purged: boolean;
   /**
-   * True when the ticket has an incoming message the viewing admin has not opened since it arrived. Per admin: opening the ticket marks it read for that admin only.
+   * The caller has not read this ticket: it has an incoming message newer than the last one the
+   * caller saw when opening it, or the caller never opened it and it has any incoming message.
+   * Per admin: another admin opening the ticket changes nothing here. Outgoing replies and notes
+   * never make a ticket unread. Opening it (`GET /admin/mail/tickets/:id`) marks it read. Computed
+   * by the list route; every other response carries false (the detail has just marked it read).
    */
   unread: boolean;
 }
 
-/** Response of `GET /admin/mail/unread-count`. */
+/**
+ * `GET /admin/mail/unread-count`: the number behind the Mail badge. Counts the tickets the caller
+ * may see (the visibility of the list, so a restricted queue never counts for a non-owner and a
+ * ticket that excludes the caller never counts) that are not closed or spam and are unread for the
+ * caller.
+ */
 export interface UnreadCountResponse {
-  /**
-   * Tickets the viewer can see, not closed or spam, with an incoming message the viewer has not opened.
-   */
   count: number;
 }
 
