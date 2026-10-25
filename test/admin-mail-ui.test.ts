@@ -259,6 +259,23 @@ describe("retention: summaries and purged tickets", () => {
     expect(TICKET_ROW).toContain('text="Purged"');
   });
 
+  it("marks an unread ticket with a dot, a heavier title and a word for screen readers", () => {
+    expect(TICKET_ROW).toContain("ticket.unread");
+    expect(TICKET_ROW).toContain('class="mail-row__dot" aria-hidden="true"');
+    expect(TICKET_ROW).toContain('<span class="visually-hidden">Unread: </span>');
+    expect(TICKET_ROW).toContain(".mail-row--unread .mail-row__subject");
+  });
+
+  it("styles every mail select from the one shared stylesheet", () => {
+    for (const source of [LIST, DETAIL, AWAY, QUEUE_FORM]) {
+      expect(source).toContain('import "');
+      expect(source).toContain("mail-select.css");
+    }
+    for (const source of [LIST, DETAIL, AWAY, QUEUE_FORM]) {
+      expect(source).not.toMatch(/<select (?!class="mail-select")/);
+    }
+  });
+
   it("offers a Needs summary filter that sends summary=missing", () => {
     expect(LIST).toContain('name="summary"');
     expect(LIST).toContain('<option value="missing"');
@@ -269,8 +286,8 @@ describe("retention: summaries and purged tickets", () => {
 });
 
 describe("the shell", () => {
-  it("counts the caller's open tickets for the Mail badge, fail-soft", () => {
-    expect(MAIL_LAYOUT).toContain("fetchMyOpenTicketCount({ cookieHeader })");
-    expect(MAIL_LAYOUT).toContain('mail: "open and assigned to you"');
+  it("counts the caller's unread tickets for the Mail badge, fail-soft", () => {
+    expect(MAIL_LAYOUT).toContain("fetchUnreadTicketCount({ cookieHeader })");
+    expect(MAIL_LAYOUT).toContain('mail: "unread"');
   });
 });

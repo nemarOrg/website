@@ -1,0 +1,48 @@
+/*
+ * The mail admin pages' native select: one 40px control in every browser, with our own chevron.
+ * Safari draws a native select about 30px tall, which sat next to 40px inputs and looked
+ * unfinished. The chevron is an inline SVG; a stroke colour cannot read a CSS token inside a data URI, so dark mode swaps the image (the
+ * media query and the explicit [data-theme] both, as tokens.css does). Focus keeps the global
+ * `select:focus-visible` ring from reset.css.
+ */
+select.mail-select {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  min-block-size: 40px;
+  max-inline-size: 100%;
+  border: 1px solid var(--admin-control-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg);
+  font-size: var(--fs-sm);
+  line-height: 1.25;
+  padding-block: 0;
+  padding-inline: var(--space-3) calc(var(--space-3) * 2 + 0.75rem);
+  background-color: var(--admin-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23475569' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right var(--space-3) center;
+  background-size: 0.75rem 0.5rem;
+  background-repeat: no-repeat;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) select.mail-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23cbd5e1' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+:root[data-theme="dark"] select.mail-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%23cbd5e1' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+select.mail-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+@media (forced-colors: active) {
+  :root:root select.mail-select {
+    appearance: auto;
+    -webkit-appearance: menulist;
+    background-image: none;
+    padding-inline-end: var(--space-3);
+  }
+}

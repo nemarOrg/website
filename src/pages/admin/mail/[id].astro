@@ -1,4 +1,5 @@
 ---
+import "../../../styles/mail-select.css";
 import ConfirmDialog from "../../../components/ConfirmDialog.astro";
 import MailThreadMessage from "../../../components/admin/MailThreadMessage.astro";
 import StatusBadge from "../../../components/admin/StatusBadge.astro";
@@ -258,7 +259,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
           <div class="mail-actions">
             <div class="mail-action">
               <label for="mail-assign">Assign to</label>
-              <select id="mail-assign" data-mail-control data-assign-select>
+              <select class="mail-select" id="mail-assign" data-mail-control data-assign-select>
                 <option value="" selected={assignee === null}>Unassigned</option>
                 {me !== null && (
                   <option value={String(me)} selected={assignee === me}>
@@ -283,7 +284,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
 
             <div class="mail-action">
               <label for="mail-set-status">Status</label>
-              <select id="mail-set-status" data-mail-control data-status-select>
+              <select class="mail-select" id="mail-set-status" data-mail-control data-status-select>
                 {!(SETTABLE_STATUSES as readonly string[]).includes(ticket.status) && (
                   <option value="" selected disabled>
                     {statusText} (current)
@@ -681,7 +682,6 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     font-weight: var(--fw-semibold);
     color: var(--color-fg-muted);
   }
-  .mail-action select,
   .mail-action textarea,
   .mail-compose textarea {
     min-block-size: 40px;
