@@ -36,6 +36,10 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **Release gate:** the production API must carry the mail routes (nemar-cli epic #1893) before this goes from `staging` to `main`.
   A drift test compares the tab's closed lists (statuses, queue strategies, error codes) with nemar-cli's `shared/contract/mail-admin.ts`, and is red in CI until that file reaches nemar-cli `dev`.
 
+### Fixed
+
+- **Confirmation dialogs open in the middle of the screen again.** The global reset's `margin: 0` removed the browser's centring of modal dialogs, so every confirm dialog in the admin portal opened in the top-left corner.
+
 ## [0.2.33] - 2026-10-21
 
 ### Added
