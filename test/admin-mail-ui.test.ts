@@ -316,7 +316,7 @@ describe("screening (nemar-cli ADR 0113)", () => {
   it("retries with force only after a second confirm, and only through needsForceConfirm", () => {
     expect(DETAIL).toContain('dialogId="mail-spam-force"');
     expect(DETAIL).toContain("needsForceConfirm(err, block, force)");
-    expect(DETAIL).toContain("void spam(true)");
+    expect(DETAIL).toContain("void spam(true, refusedBlock)");
     expect(DETAIL.match(/spam\(true,/g)).toHaveLength(1);
   });
 
