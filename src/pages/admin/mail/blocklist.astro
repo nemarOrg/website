@@ -1,0 +1,505 @@
+---
+import "../../../styles/mail-select.css";
+import ConfirmDialog from "../../../components/ConfirmDialog.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import { formatDate, formatRelativeTime, parseBackendTimestamp } from "../../../lib/format";
+import {
+  blocklistQuery,
+  listBlocklist,
+  loadStaffDirectory,
+  mailErrorText,
+  personLabel,
+} from "../../../lib/mail-admin-api";
+import {
+  BLOCK_KINDS,
+  BLOCK_REASON_MAX,
+  type BlocklistEntry,
+} from "../../../lib/mail-admin-contract";
+import { displaySafeLine } from "../../../lib/mail-display";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is unreachable; it is
+  // here so TypeScript narrows `session` for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+
+// The cursor is the last entry id of the previous page. A malformed one is dropped, so a
+// hand-edited URL shows the first page instead of an error.
+const cursor =
+  new URLSearchParams(
+    blocklistQuery({ cursor: new URL(Astro.request.url).searchParams.get("cursor") }),
+  ).get("cursor") ?? null;
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let entries: readonly BlocklistEntry[] = [];
+let nextCursor: string | null = null;
+let loadError: string | null = null;
+const [listResult, directory] = await Promise.all([
+  listBlocklist({ cursor }, { cookieHeader }).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  ),
+  loadStaffDirectory({ cookieHeader }),
+]);
+if (listResult.ok) {
+  entries = listResult.value.entries;
+  nextCursor = listResult.value.next_cursor;
+} else {
+  loadError = mailErrorText(listResult.error);
+}
+
+const KIND_LABEL: Record<string, string> = { address: "Address", domain: "Domain" };
+const kindWord = (kind: string): string => KIND_LABEL[kind] ?? displaySafeLine(kind);
+function stamp(value: string): { iso: string | null; text: string } {
+  const date = parseBackendTimestamp(value);
+  return date
+    ? { iso: date.toISOString(), text: `${formatDate(date)} (${formatRelativeTime(date)})` }
+    : { iso: null, text: displaySafeLine(value) };
+}
+const pageHref = (next: string | null): string => {
+  const qs = blocklistQuery({ cursor: next });
+  return qs ? `/admin/mail/blocklist?${qs}` : "/admin/mail/blocklist";
+};
+---
+
+<AdminLayout title="Mail blocklist" active="mail" session={session}>
+  <Fragment slot="lede">
+    <a href="/admin/mail">&larr; Back to Mail</a>
+    {" "}Senders whose mail is refused at delivery: they get a rejection and nothing is stored. A
+    domain entry also covers its subdomains. Our own domain and shared mailbox providers cannot be
+    blocked as domains.
+  </Fragment>
+
+  <p class="mail-live" role="status" aria-live="polite" data-block-status></p>
+  <p class="admin-action-error" role="alert" tabindex="-1" data-block-error hidden></p>
+  {loadError && <p class="admin-action-error" role="alert">{loadError}</p>}
+
+  <section class="block-add" aria-labelledby="block-add-title">
+    <h2 class="block-add__title" id="block-add-title">Block a sender</h2>
+    <form class="block-form" data-block-form>
+      <div class="block-form__field">
+        <label for="block-kind">Block</label>
+        <select class="mail-select" id="block-kind" name="kind">
+          {
+            BLOCK_KINDS.map((k) => (
+              <option value={k}>{k === "address" ? "One address" : "A domain and its subdomains"}</option>
+            ))
+          }
+        </select>
+      </div>
+      <div class="block-form__field block-form__field--wide">
+        <label for="block-value">Address or domain</label>
+        <input
+          id="block-value"
+          name="value"
+          type="text"
+          required
+          maxlength="320"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="sender@example.org or example.org"
+        />
+      </div>
+      <div class="block-form__field block-form__field--wide">
+        <label for="block-reason">Reason (optional)</label>
+        <input
+          id="block-reason"
+          name="reason"
+          type="text"
+          maxlength={BLOCK_REASON_MAX}
+          autocomplete="off"
+        />
+      </div>
+      <div class="block-form__field">
+        <span class="block-form__spacer" aria-hidden="true">&nbsp;</span>
+        <button type="submit" class="mail-btn mail-btn--primary" data-block-submit>Block</button>
+      </div>
+    </form>
+  </section>
+
+  {
+    !loadError && entries.length === 0 && (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">
+          {cursor ? "No more entries" : "Nothing is blocked"}
+        </h2>
+        <p class="admin-empty__body">
+          {cursor ? "This page is empty." : "Blocked senders appear here, newest first."}
+        </p>
+      </div>
+    )
+  }
+
+  {
+    entries.length > 0 && (
+      <ul class="block-list" role="list">
+        {entries.map((entry) => {
+          const t = stamp(entry.created_at);
+          return (
+            <li class="block-card" data-block-row>
+              <div class="block-card__primary">
+                <span class="block-card__value">{displaySafeLine(entry.value)}</span>
+                <span class="block-card__kind">{kindWord(entry.kind)}</span>
+              </div>
+              <dl class="block-card__meta">
+                <div>
+                  <dt>Reason</dt>
+                  <dd>{entry.reason ? displaySafeLine(entry.reason) : "None given"}</dd>
+                </div>
+                <div>
+                  <dt>Added by</dt>
+                  <dd>{personLabel(directory, entry.created_by)}</dd>
+                </div>
+                <div>
+                  <dt>Added</dt>
+                  <dd>{t.iso ? <time datetime={t.iso}>{t.text}</time> : t.text}</dd>
+                </div>
+              </dl>
+              <div>
+                <button
+                  type="button"
+                  class="mail-btn mail-btn--danger"
+                  data-block-remove
+                  data-block-id={String(entry.id)}
+                  aria-label={`Remove ${kindWord(entry.kind).toLowerCase()} ${displaySafeLine(entry.value)} from the blocklist`}
+                >
+                  Remove
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    )
+  }
+
+  {
+    (nextCursor || cursor) && (
+      <nav class="mail-paging" aria-label="Blocklist pages">
+        {cursor && <a class="mail-btn" href={pageHref(null)}>First page</a>}
+        {nextCursor && (
+          <a class="mail-btn" href={pageHref(nextCursor)} rel="next">
+            Next page
+          </a>
+        )}
+      </nav>
+    )
+  }
+
+  <ConfirmDialog
+    dialogId="mail-unblock"
+    title="Remove this block?"
+    body="Mail from this sender is accepted again from now on. Mail already refused is not recovered."
+    confirmLabel="Remove block"
+    confirmTone="danger"
+  />
+</AdminLayout>
+
+<style>
+  /* Shared admin page vocabulary; duplicated per the scoped-style convention (AGENTS.md). */
+  .admin-empty {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .admin-empty__body {
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .admin-action-error[hidden] {
+    display: none;
+  }
+  @media (forced-colors: active) {
+    .admin-action-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+  .mail-live {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .mail-live:empty {
+    display: none;
+  }
+  .mail-btn {
+    box-sizing: border-box;
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .mail-btn:hover:not(:disabled) {
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
+  }
+  .mail-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .mail-btn--primary {
+    background: var(--color-link);
+    color: var(--color-bg);
+    border-color: var(--color-link);
+  }
+  .mail-btn--primary:hover:not(:disabled) {
+    background: var(--color-link-hover);
+    border-color: var(--color-link-hover);
+  }
+  .mail-btn--danger {
+    color: var(--admin-error-text);
+    border-color: color-mix(in srgb, var(--admin-error) 45%, transparent);
+  }
+  .mail-btn--danger:hover:not(:disabled) {
+    background: var(--admin-error-soft);
+    border-color: var(--admin-error-text);
+  }
+  .mail-paging {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .block-add {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .block-add__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .block-form {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) minmax(12rem, 2fr) minmax(10rem, 2fr) auto;
+    align-items: start;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-4);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  .block-form__field {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .block-form__field label,
+  .block-form__spacer {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    line-height: 1.25;
+    color: var(--color-fg-muted);
+  }
+  .block-form__spacer {
+    visibility: hidden;
+  }
+  .block-form select {
+    inline-size: 100%;
+  }
+  .block-form input {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 40px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--admin-control-border);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    max-inline-size: 100%;
+  }
+  .block-form input::placeholder {
+    color: var(--admin-text-3);
+  }
+  .block-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .block-card {
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .block-card__primary {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+  }
+  .block-card__value {
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    overflow-wrap: anywhere;
+    min-inline-size: 0;
+  }
+  .block-card__kind {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .block-card__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+  }
+  .block-card__meta dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .block-card__meta dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 900px) {
+    .block-form {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .block-form__spacer {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import { addBlock, blocklistErrorText, removeBlock } from "../../../lib/mail-admin-api";
+  import type { BlockKind } from "../../../lib/mail-admin-contract";
+
+  const statusEl = document.querySelector<HTMLElement>("[data-block-status]");
+  const errorEl = document.querySelector<HTMLElement>("[data-block-error]");
+  const say = (message: string): void => {
+    if (statusEl) statusEl.textContent = message;
+  };
+  function showError(message: string): void {
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+    errorEl.focus();
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  let busy = false;
+  function setBusy(value: boolean): void {
+    busy = value;
+    for (const el of document.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
+      "[data-block-form] input, [data-block-form] select, [data-block-form] button, [data-block-remove]",
+    )) {
+      el.disabled = value;
+    }
+  }
+
+  // ---- Add ----
+
+  const form = document.querySelector<HTMLFormElement>("[data-block-form]");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    const kind = (form.elements.namedItem("kind") as HTMLSelectElement).value as BlockKind;
+    const value = (form.elements.namedItem("value") as HTMLInputElement).value.trim();
+    const reason = (form.elements.namedItem("reason") as HTMLInputElement).value;
+    if (!value) {
+      showError("Enter the address or domain to block.");
+      return;
+    }
+    clearError();
+    say("Blocking…");
+    setBusy(true);
+    try {
+      const out = await addBlock({ kind, value, reason });
+      // `created: false` is a success: the value was already blocked and the stored entry stays.
+      say(out.created ? "Blocked." : "Already blocked.");
+      location.reload();
+    } catch (err) {
+      say("");
+      showError(blocklistErrorText(err));
+      setBusy(false);
+    }
+  });
+
+  // ---- Remove, behind the shared confirm dialog ----
+
+  let pendingId: number | null = null;
+  document.querySelectorAll<HTMLButtonElement>("[data-block-remove]").forEach((button) => {
+    button.addEventListener("click", () => {
+      pendingId = Number(button.dataset.blockId);
+      clearError();
+      document.dispatchEvent(
+        new CustomEvent<{ dialogId: string }>("nemar:open-confirm-dialog", {
+          detail: { dialogId: "mail-unblock" },
+        }),
+      );
+    });
+  });
+
+  document.addEventListener("nemar:confirm-dialog-confirm", async (evt) => {
+    const dialogId = (evt as CustomEvent<{ dialogId: string }>).detail.dialogId;
+    if (dialogId !== "mail-unblock" || pendingId === null || busy) return;
+    const id = pendingId;
+    pendingId = null;
+    say("Removing…");
+    setBusy(true);
+    try {
+      await removeBlock(id);
+      location.reload();
+    } catch (err) {
+      say("");
+      showError(blocklistErrorText(err));
+      setBusy(false);
+    }
+  });
+</script>
