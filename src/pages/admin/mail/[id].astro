@@ -17,6 +17,7 @@ import {
   personLabel,
 } from "../../../lib/mail-admin-api";
 import {
+  BLOCK_REASON_MAX,
   ESCALATE_REASON_MAX,
   SETTABLE_STATUSES,
   SUMMARY_MAX,
@@ -28,7 +29,9 @@ import {
   STATUS_TONE,
   displaySafeBody,
   displaySafeLine,
-  eventDetailText,
+  eventDetailLine,
+  eventKindLabel,
+  filterReasonLabel,
   sortEvents,
   sortThread,
 } from "../../../lib/mail-display";
@@ -191,6 +194,12 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
                 )}
               </dd>
             </div>
+            {ticket.filtered && (
+              <div>
+                <dt>Filtered</dt>
+                <dd data-mail-filtered>{filterReasonLabel(ticket.filtered)}</dd>
+              </div>
+            )}
             <div>
               <dt>Created</dt>
               <dd>
@@ -225,6 +234,14 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
 
         <p class="mail-live" role="status" aria-live="polite" data-mail-status></p>
         <p class="admin-action-error" role="alert" tabindex="-1" data-mail-error hidden></p>
+
+        {ticket.filtered && !purged && (
+          <p class="mail-notice" role="note" data-mail-filtered-note>
+            Filed quietly as {filterReasonLabel(ticket.filtered)}: it was not assigned and nobody
+            was told of it. Replying, adding a note, assigning, setting a status or escalating
+            takes it out of the filter.
+          </p>
+        )}
 
         {purged && (
           <p class="mail-notice" role="note" data-mail-purged>
@@ -300,6 +317,45 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
                 Set status
               </button>
             </div>
+
+            <details class="mail-escalate" data-spam-section>
+              <summary>Mark as spam</summary>
+              <div class="mail-action mail-action--stack">
+                <p class="mail-muted">
+                  The ticket is set to Spam and unassigned. Blocking the sender also refuses their
+                  future mail at delivery: they get a rejection and nothing is stored.
+                </p>
+                <fieldset class="mail-spam__choices">
+                  <legend>Block the sender</legend>
+                  <label>
+                    <input type="radio" name="spam-block" value="none" checked data-mail-control />
+                    Do not block
+                  </label>
+                  <label>
+                    <input type="radio" name="spam-block" value="address" data-mail-control />
+                    Block this address
+                  </label>
+                  <label>
+                    <input type="radio" name="spam-block" value="domain" data-mail-control />
+                    Block this domain and its subdomains
+                  </label>
+                </fieldset>
+                <label for="mail-spam-reason">Reason (optional)</label>
+                <input
+                  id="mail-spam-reason"
+                  type="text"
+                  maxlength={BLOCK_REASON_MAX}
+                  autocomplete="off"
+                  data-mail-control
+                  data-spam-reason
+                />
+                <div>
+                  <button type="button" class="mail-btn mail-btn--danger" data-mail-control data-spam-button>
+                    Mark as spam
+                  </button>
+                </div>
+              </div>
+            </details>
 
             <details class="mail-escalate">
               <summary>Escalate to the queue's escalation owner</summary>
@@ -441,13 +497,13 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
             <ol class="mail-events">
               {events.map((event) => {
                 const t = stamp(event.created_at);
-                const text = eventDetailText(event.detail);
+                const text = eventDetailLine(event.kind, event.detail);
                 return (
                   <li>
                     <span class="mail-events__when">
                       {t.iso ? <time datetime={t.iso}>{t.text}</time> : t.text}
                     </span>
-                    <span class="mail-events__kind">{displaySafeLine(event.kind)}</span>
+                    <span class="mail-events__kind">{eventKindLabel(event.kind)}</span>
                     <span class="mail-events__actor">
                       {event.actor_user_id === null
                         ? "System"
@@ -469,6 +525,20 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     title="Escalate this ticket?"
     body="The ticket moves to the queue's escalation owner and its status becomes Escalated. They are told by email."
     confirmLabel="Escalate"
+    confirmTone="danger"
+  />
+  <ConfirmDialog
+    dialogId="mail-spam"
+    title="Mark this ticket as spam?"
+    body="The ticket is set to Spam and unassigned. If you chose to block the sender, their future mail is refused at delivery."
+    confirmLabel="Mark as spam"
+    confirmTone="danger"
+  />
+  <ConfirmDialog
+    dialogId="mail-spam-force"
+    title="Block an unverified sender?"
+    body="The sender's first message did not pass DMARC, so its From address may be forged and blocking it could refuse a different person's mail. Block this address anyway?"
+    confirmLabel="Block anyway"
     confirmTone="danger"
   />
   <ConfirmDialog
@@ -683,6 +753,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     color: var(--color-fg-muted);
   }
   .mail-action textarea,
+  .mail-action input[type="text"],
   .mail-compose textarea {
     min-block-size: 40px;
     padding: var(--space-2) var(--space-3);
@@ -695,10 +766,34 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     max-inline-size: 100%;
   }
   .mail-compose textarea,
-  .mail-action--stack textarea {
+  .mail-action--stack textarea,
+  .mail-action--stack input[type="text"] {
     inline-size: 100%;
     box-sizing: border-box;
     resize: vertical;
+  }
+  .mail-spam__choices {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-inline-size: 0;
+  }
+  .mail-spam__choices legend {
+    padding: 0;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
+  .mail-spam__choices label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 2rem;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular, 400);
+    color: var(--color-fg);
   }
   .mail-compose textarea:disabled {
     background: var(--admin-surface-2);
@@ -846,11 +941,20 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
     assignTicket,
     escalateTicket,
     mailErrorText,
+    markSpam,
+    needsForceConfirm,
     putSummary,
     replyToTicket,
     setTicketStatus,
   } from "../../../lib/mail-admin-api";
-  import { ESCALATE_REASON_MAX, type SettableStatus, SUMMARY_MAX, TEXT_MAX } from "../../../lib/mail-admin-contract";
+  import {
+    BLOCK_REASON_MAX,
+    ESCALATE_REASON_MAX,
+    type SettableStatus,
+    type SpamBlockChoice,
+    SUMMARY_MAX,
+    TEXT_MAX,
+  } from "../../../lib/mail-admin-contract";
   import { type ReplyDraft, isEditable } from "../../../lib/mail-display";
   import { createReplyFlow } from "../../../lib/mail-reply-flow";
 
@@ -939,6 +1043,43 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         return;
       }
       openDialog("mail-escalate");
+    });
+
+    // ---- Mark as spam ----
+    //
+    // One POST sets the status, unassigns and (optionally) blocks. When the API says the sender
+    // was not verified, an address block can be retried with `force` after the person confirms;
+    // a domain block cannot, so its refusal is shown as the API gave it.
+
+    const spamReason = root.querySelector<HTMLInputElement>("[data-spam-reason]");
+    function spamChoice(): SpamBlockChoice {
+      const checked = root?.querySelector<HTMLInputElement>('input[name="spam-block"]:checked');
+      const value = checked?.value;
+      return value === "address" || value === "domain" ? value : "none";
+    }
+    async function spam(force: boolean): Promise<void> {
+      if (busy) return;
+      const block = spamChoice();
+      clearError();
+      say("Marking the ticket as spam…");
+      setBusy(true);
+      try {
+        await markSpam(ticketId, { block, reason: spamReason?.value, force });
+        location.reload();
+      } catch (err) {
+        say("");
+        showError(mailErrorText(err));
+        setBusy(false);
+        if (needsForceConfirm(err, block, force)) openDialog("mail-spam-force");
+      }
+    }
+    root.querySelector("[data-spam-button]")?.addEventListener("click", () => {
+      if ((spamReason?.value.trim().length ?? 0) > BLOCK_REASON_MAX) {
+        showError(`The reason is longer than ${BLOCK_REASON_MAX} characters.`);
+        return;
+      }
+      clearError();
+      openDialog("mail-spam");
     });
 
     // ---- Note ----
@@ -1131,7 +1272,11 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
 
     document.addEventListener("nemar:confirm-dialog-confirm", (evt) => {
       const dialogId = (evt as CustomEvent<{ dialogId: string }>).detail.dialogId;
-      if (dialogId === "mail-escalate") {
+      if (dialogId === "mail-spam") {
+        void spam(false);
+      } else if (dialogId === "mail-spam-force") {
+        void spam(true);
+      } else if (dialogId === "mail-escalate") {
         void run("Escalating", () => escalateTicket(ticketId, reasonEl?.value));
       } else if (dialogId === "mail-reply-send") {
         void attempt();

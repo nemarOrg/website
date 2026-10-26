@@ -38,6 +38,7 @@ const raw = {
   assignee: url.searchParams.get("assignee"),
   q: url.searchParams.get("q"),
   summary: url.searchParams.get("summary"),
+  filtered: url.searchParams.get("filtered"),
   cursor: url.searchParams.get("cursor"),
 };
 const filters = new URLSearchParams(mailTicketsQuery({ ...raw, cursor: null }));
@@ -46,6 +47,7 @@ const queueFilter = filters.get("queue") ?? "";
 const assigneeFilter = filters.get("assignee") ?? "";
 const search = filters.get("q") ?? "";
 const needsSummary = filters.get("summary") === "missing";
+const filteredMode = filters.get("filtered") ?? "";
 const cursor = new URLSearchParams(mailTicketsQuery({ cursor: raw.cursor })).get("cursor");
 
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
@@ -90,11 +92,14 @@ function pageHref(next: string | null): string {
     assignee: filters.get("assignee"),
     q: filters.get("q"),
     summary: filters.get("summary"),
+    filtered: filters.get("filtered"),
     cursor: next,
   });
   return qs ? `/admin/mail?${qs}` : "/admin/mail";
 }
-const filtered = Boolean(status || queueFilter || assigneeFilter || search || needsSummary);
+const filtered = Boolean(
+  status || queueFilter || assigneeFilter || search || needsSummary || filteredMode,
+);
 ---
 
 <AdminLayout title="Mail" active="mail" session={session}>
@@ -106,6 +111,7 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
 
   <nav class="mail-links" aria-label="Mail pages">
     <a class="mail-links__link" href="/admin/mail/queues">Queues</a>
+    <a class="mail-links__link" href="/admin/mail/blocklist">Blocklist</a>
     <a class="mail-links__link" href="/admin/mail/away">My away window</a>
   </nav>
 
@@ -167,6 +173,23 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
       </select>
       <span class="mail-field__note mail-field__note--quiet" id="mail-summary-hint">
         Closed, with no summary yet.
+      </span>
+    </div>
+    <div class="mail-field">
+      <label for="mail-filtered">Filtered mail</label>
+      <select
+        class="mail-select"
+        id="mail-filtered"
+        name="filtered"
+        aria-describedby="mail-filtered-hint"
+      >
+        <option value="" selected={filteredMode === ""}>Hidden</option>
+        <option value="include" selected={filteredMode === "include"}>Include</option>
+        <option value="only" selected={filteredMode === "only"}>Only filtered</option>
+      </select>
+      <span class="mail-field__note mail-field__note--quiet" id="mail-filtered-hint">
+        Bulk mail, auto-replies, bounces and over-limit senders. Hidden unless you filter by
+        status, assignee or search.
       </span>
     </div>
     <div class="mail-field mail-field--search">
@@ -289,8 +312,8 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
   }
   .mail-filters {
     display: grid;
-    /* Four selects, the search, then the buttons at their natural width, all on one row. */
-    grid-template-columns: repeat(4, minmax(8.5rem, 1fr)) minmax(12rem, 1.6fr) auto;
+    /* Five selects, the search, then the buttons at their natural width, all on one row. */
+    grid-template-columns: repeat(5, minmax(8rem, 1fr)) minmax(11rem, 1.4fr) auto;
     align-items: start;
     gap: var(--space-3) var(--space-4);
     padding: var(--space-4);
@@ -379,16 +402,16 @@ const filtered = Boolean(status || queueFilter || assigneeFilter || search || ne
     background: var(--color-link-hover);
     border-color: var(--color-link-hover);
   }
-  /* Narrower than a wide desktop: the selects take one row, search and buttons the next. */
+  /* Narrower than a wide desktop: the selects wrap onto two rows, search and buttons the next. */
   @media (max-width: 1100px) {
     .mail-filters {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .mail-field--search {
       grid-column: span 2;
     }
     .mail-filters__actions {
-      grid-column: span 2;
+      grid-column: span 1;
     }
   }
   @media (max-width: 640px) {
