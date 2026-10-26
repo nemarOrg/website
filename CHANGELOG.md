@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.35] - 2026-10-26
+
 This release needs nemar-cli API 0.10.25 or later, which adds the screening routes and fields.
 
 ### Added
