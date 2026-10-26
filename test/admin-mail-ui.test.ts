@@ -17,9 +17,10 @@ import FLOW from "../src/lib/mail-reply-flow.ts?raw";
 import LIST from "../src/pages/admin/mail.astro?raw";
 import DETAIL from "../src/pages/admin/mail/[id].astro?raw";
 import AWAY from "../src/pages/admin/mail/away.astro?raw";
+import BLOCKLIST from "../src/pages/admin/mail/blocklist.astro?raw";
 import QUEUES from "../src/pages/admin/mail/queues.astro?raw";
 
-const PAGES = { LIST, DETAIL, QUEUES, AWAY } as const;
+const PAGES = { LIST, DETAIL, QUEUES, AWAY, BLOCKLIST } as const;
 const ALL = {
   ...PAGES,
   QUEUE_FORM,
@@ -282,6 +283,86 @@ describe("retention: summaries and purged tickets", () => {
     expect(LIST).toContain("Needs summary");
     expect(LIST).toContain('summary: url.searchParams.get("summary")');
     expect(LIST).toContain('summary: filters.get("summary")');
+  });
+});
+
+describe("screening (nemar-cli ADR 0113)", () => {
+  it("offers a Filtered filter that sends filtered and keeps it across pages", () => {
+    expect(LIST).toContain('name="filtered"');
+    expect(LIST).toContain('<option value="only"');
+    expect(LIST).toContain('<option value="include"');
+    expect(LIST).toContain('filtered: url.searchParams.get("filtered")');
+    expect(LIST).toContain('filtered: filters.get("filtered")');
+  });
+
+  it("names the filter reason on a filtered row, as escaped text", () => {
+    expect(TICKET_ROW).toContain("ticket.filtered");
+    expect(TICKET_ROW).toContain("filterReasonLabel(ticket.filtered)");
+  });
+
+  it("shows the reason on the ticket and reads events through the word helpers", () => {
+    expect(DETAIL).toContain("filterReasonLabel(ticket.filtered)");
+    expect(DETAIL).toContain("eventKindLabel(event.kind)");
+    expect(DETAIL).toContain("eventDetailLine(event.kind, event.detail)");
+  });
+
+  it("marks spam behind a confirm, with none as the default block", () => {
+    expect(DETAIL).toMatch(/name="spam-block" value="none" checked/);
+    expect(DETAIL).toContain('dialogId="mail-spam"');
+    expect(DETAIL).toContain('openDialog("mail-spam")');
+    expect(DETAIL).toContain("markSpam(ticketId, { block, reason: spamReason?.value, force })");
+  });
+
+  it("retries with force only after a second confirm, and only through needsForceConfirm", () => {
+    expect(DETAIL).toContain('dialogId="mail-spam-force"');
+    expect(DETAIL).toContain("needsForceConfirm(err, block, force)");
+    expect(DETAIL).toContain("void spam(true, refusedBlock)");
+    expect(DETAIL.match(/spam\(true,/g)).toHaveLength(1);
+  });
+
+  it("lists the blocklist with paging, an add form and a confirmed remove", () => {
+    expect(BLOCKLIST).toContain("listBlocklist(");
+    expect(BLOCKLIST).toContain("addBlock(");
+    expect(BLOCKLIST).toContain("removeBlock(id)");
+    expect(BLOCKLIST).toContain('dialogId="mail-unblock"');
+    expect(BLOCKLIST).toContain('rel="next"');
+    expect(BLOCKLIST).toContain("displaySafeLine(entry.value)");
+    expect(BLOCKLIST).toContain("displaySafeLine(entry.reason)");
+  });
+
+  it("renders no link from a blocklist value", () => {
+    expect(BLOCKLIST).not.toMatch(/href=\{[^}]*entry\./);
+    expect(BLOCKLIST).not.toMatch(/mailto:/);
+  });
+
+  it("shows a queue without notify as emailing, matching the form's default", () => {
+    expect(QUEUES).toContain('notify === false ? "Quiet (no email)" : "Emailed"');
+  });
+
+  it("labels the empty filter option and names every view that shows filtered tickets", () => {
+    expect(LIST).toContain("Default (hidden in the plain view)");
+    expect(LIST).toContain("search or Needs summary");
+  });
+
+  it("retries a forced block with the choice the API refused, not the radio", () => {
+    expect(DETAIL).toContain("spam(true, refusedBlock)");
+    expect(DETAIL).toContain("chosen ?? spamChoice()");
+  });
+
+  it("makes the blocklist add outcome visible", () => {
+    expect(BLOCKLIST).toContain("Already blocked.");
+    expect(BLOCKLIST).toContain("added=1");
+  });
+
+  it("links the Blocklist page from the Mail tab", () => {
+    expect(LIST).toContain('href="/admin/mail/blocklist"');
+  });
+
+  it("has a Notify toggle on the queue form that sends only a change, and shows it in the list", () => {
+    expect(QUEUE_FORM).toContain("Email a notice for new tickets");
+    expect(QUEUE_FORM).toContain('name="notify"');
+    expect(QUEUES).toContain("changes.notify = notify");
+    expect(QUEUES).toContain("noticeWord(q.notify)");
   });
 });
 

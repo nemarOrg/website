@@ -3,8 +3,9 @@
  * `shared/contract/mail-admin.ts` (epic nemarOrg/nemar-cli#1893).
  *
  * Shaped like `private-site-contract-drift.test.ts`, including the strict/soft split and the CI
- * sparse checkout of nemar-cli `dev` (nemar-cli ADR 0046). It compares the four closed lists the
- * UI branches on: ticket statuses, settable statuses, queue strategies and error codes. A
+ * sparse checkout of nemar-cli `dev` (nemar-cli ADR 0046). It compares the eight closed lists the
+ * UI branches on: ticket statuses, settable statuses, queue strategies, filter reasons, the
+ * filtered list modes, block kinds, the spam block choices and error codes. A
  * status the site does not know would render as nothing, and an error code it has no wording for
  * would fall back to the server's sentence, so both are caught here rather than by an admin.
  *
@@ -14,9 +15,13 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  BLOCK_KINDS,
+  FILTERED_LIST_MODES,
+  FILTER_REASONS,
   MAIL_ERROR_CODES,
   QUEUE_STRATEGIES,
   SETTABLE_STATUSES,
+  SPAM_BLOCK_CHOICES,
   TICKET_STATUSES,
 } from "../src/lib/mail-admin-contract";
 import { compareLists, extractStringArray, extractStringUnion } from "./mail-contract-drift";
@@ -72,7 +77,7 @@ if (SHOULD_SKIP) {
   );
 }
 
-/** The four lists, as this repo spells them, with how the contract declares each. */
+/** The eight lists, as this repo spells them, with how the contract declares each. */
 const LISTS: ReadonlyArray<{
   name: string;
   ours: readonly string[];
@@ -94,6 +99,22 @@ const LISTS: ReadonlyArray<{
     read: (s) => extractStringArray(s, "QUEUE_STRATEGIES"),
   },
   {
+    name: "FILTER_REASONS",
+    ours: FILTER_REASONS,
+    read: (s) => extractStringArray(s, "FILTER_REASONS"),
+  },
+  {
+    name: "FILTERED_LIST_MODES",
+    ours: FILTERED_LIST_MODES,
+    read: (s) => extractStringArray(s, "FILTERED_LIST_MODES"),
+  },
+  { name: "BLOCK_KINDS", ours: BLOCK_KINDS, read: (s) => extractStringArray(s, "BLOCK_KINDS") },
+  {
+    name: "SPAM_BLOCK_CHOICES",
+    ours: SPAM_BLOCK_CHOICES,
+    read: (s) => extractStringArray(s, "SPAM_BLOCK_CHOICES"),
+  },
+  {
     name: "MAIL_ERROR_CODES",
     ours: MAIL_ERROR_CODES,
     read: (s) =>
@@ -107,7 +128,7 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's mail-admin contract", () => {
     expect(CONTRACT_EXISTS).toBe(true);
   });
 
-  it("declares the same four closed lists, in the same order", () => {
+  it("declares the same eight closed lists, in the same order", () => {
     const source = fs.readFileSync(CONTRACT_PATH as string, "utf8");
     const differences = LISTS.map((l) => compareLists(l.name, l.ours, l.read(source))).filter(
       (d): d is string => d !== null,
