@@ -1,0 +1,406 @@
+---
+import "../../styles/mail-select.css";
+import MailTicketRow from "../../components/admin/MailTicketRow.astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+import {
+  type StaffDirectory,
+  listQueues,
+  listTickets,
+  loadStaffDirectory,
+  mailErrorText,
+  mailTicketsQuery,
+  personLabel,
+} from "../../lib/mail-admin-api";
+import type { MailQueue, TicketSummary } from "../../lib/mail-admin-contract";
+import { STATUS_LABEL, displaySafeLine } from "../../lib/mail-display";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is unreachable; it is
+  // here so TypeScript narrows `session` for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+
+// The filters are read from the URL and cleaned by `mailTicketsQuery`, which drops anything the
+// API would refuse; the form below shows what survived, so a hand-edited URL shows the default
+// list instead of an error. Visibility is the API's: this page shows what comes back and never
+// filters a ticket out or in.
+const url = new URL(Astro.request.url);
+const raw = {
+  status: url.searchParams.get("status"),
+  queue: url.searchParams.get("queue"),
+  assignee: url.searchParams.get("assignee"),
+  q: url.searchParams.get("q"),
+  summary: url.searchParams.get("summary"),
+  cursor: url.searchParams.get("cursor"),
+};
+const filters = new URLSearchParams(mailTicketsQuery({ ...raw, cursor: null }));
+const status = filters.get("status") ?? "";
+const queueFilter = filters.get("queue") ?? "";
+const assigneeFilter = filters.get("assignee") ?? "";
+const search = filters.get("q") ?? "";
+const needsSummary = filters.get("summary") === "missing";
+const cursor = new URLSearchParams(mailTicketsQuery({ cursor: raw.cursor })).get("cursor");
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let tickets: readonly TicketSummary[] = [];
+let nextCursor: string | null = null;
+let listError: string | null = null;
+let queues: readonly MailQueue[] = [];
+const [listResult, queuesResult, directory] = await Promise.all([
+  listTickets({ ...raw }, { cookieHeader }).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  ),
+  listQueues({ cookieHeader }).then(
+    (value) => value,
+    (error: unknown) => {
+      console.warn(
+        "[admin/mail] the queue list could not be loaded:",
+        error instanceof Error ? error.message : error,
+      );
+      return null;
+    },
+  ),
+  loadStaffDirectory({ cookieHeader }),
+]);
+if (listResult.ok) {
+  tickets = listResult.value.tickets;
+  nextCursor = listResult.value.next_cursor;
+} else {
+  listError = mailErrorText(listResult.error);
+}
+if (queuesResult) queues = queuesResult;
+const queuesFailed = queuesResult === null;
+const directoryRef: StaffDirectory = directory;
+
+const queueTags = queues.map((q) => q.tag);
+const STATUS_CHOICES = ["open", "pending", "escalated", "closed", "spam"] as const;
+
+function pageHref(next: string | null): string {
+  const qs = mailTicketsQuery({
+    status: filters.get("status"),
+    queue: filters.get("queue"),
+    assignee: filters.get("assignee"),
+    q: filters.get("q"),
+    summary: filters.get("summary"),
+    cursor: next,
+  });
+  return qs ? `/admin/mail?${qs}` : "/admin/mail";
+}
+const filtered = Boolean(status || queueFilter || assigneeFilter || search || needsSummary);
+---
+
+<AdminLayout title="Mail" active="mail" session={session}>
+  <Fragment slot="lede">
+    Support tickets from email to the support address. The default view is every ticket that is
+    not closed or spam. You see the tickets the API shows you: some queues are restricted to
+    owners.
+  </Fragment>
+
+  <nav class="mail-links" aria-label="Mail pages">
+    <a class="mail-links__link" href="/admin/mail/queues">Queues</a>
+    <a class="mail-links__link" href="/admin/mail/away">My away window</a>
+  </nav>
+
+  <form class="mail-filters" method="get" action="/admin/mail">
+    <div class="mail-field">
+      <label for="mail-status">Status</label>
+      <select class="mail-select" id="mail-status" name="status">
+        <option value="" selected={status === ""}>Active (not closed or spam)</option>
+        {
+          STATUS_CHOICES.map((s) => (
+            <option value={s} selected={status === s}>
+              {STATUS_LABEL[s]}
+            </option>
+          ))
+        }
+      </select>
+    </div>
+    <div class="mail-field">
+      <label for="mail-queue">Queue</label>
+      <select class="mail-select" id="mail-queue" name="queue">
+        <option value="" selected={queueFilter === ""}>All queues</option>
+        {
+          queues.map((q) => (
+            <option value={q.tag} selected={queueFilter === q.tag}>
+              {displaySafeLine(q.tag)}{q.restricted ? " (restricted)" : ""}
+            </option>
+          ))
+        }
+        {
+          queueFilter && !queueTags.includes(queueFilter) && (
+            <option value={queueFilter} selected>
+              {displaySafeLine(queueFilter)}
+            </option>
+          )
+        }
+      </select>
+      {queuesFailed && <span class="mail-field__note">The queue list could not be loaded.</span>}
+    </div>
+    <div class="mail-field">
+      <label for="mail-assignee">Assigned to</label>
+      <select class="mail-select" id="mail-assignee" name="assignee">
+        <option value="" selected={assigneeFilter === ""}>Anyone</option>
+        <option value="me" selected={assigneeFilter === "me"}>Me</option>
+        <option value="none" selected={assigneeFilter === "none"}>Unassigned</option>
+        {
+          /^\d+$/.test(assigneeFilter) && (
+            <option value={assigneeFilter} selected>
+              {personLabel(directoryRef, Number(assigneeFilter))}
+            </option>
+          )
+        }
+      </select>
+    </div>
+    <div class="mail-field">
+      <label for="mail-summary">Summary</label>
+      <select class="mail-select" id="mail-summary" name="summary" aria-describedby="mail-summary-hint">
+        <option value="" selected={!needsSummary}>Any</option>
+        <option value="missing" selected={needsSummary}>Needs summary</option>
+      </select>
+      <span class="mail-field__note mail-field__note--quiet" id="mail-summary-hint">
+        Closed, with no summary yet.
+      </span>
+    </div>
+    <div class="mail-field mail-field--search">
+      <label for="mail-q">Search</label>
+      <input
+        id="mail-q"
+        type="search"
+        name="q"
+        value={search}
+        maxlength="100"
+        placeholder="Subject or sender address"
+        autocomplete="off"
+      />
+    </div>
+    <div class="mail-field mail-filters__actions">
+      <span class="mail-field__spacer" aria-hidden="true">&nbsp;</span>
+      <div class="mail-filters__buttons">
+      <button type="submit" class="mail-btn mail-btn--primary">Apply</button>
+      {filtered && <a class="mail-btn" href="/admin/mail">Clear filters</a>}
+      </div>
+    </div>
+  </form>
+
+  {listError && <p class="admin-action-error" role="alert">{listError}</p>}
+
+  {
+    !listError && tickets.length === 0 ? (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">No tickets in this view</h2>
+        <p class="admin-empty__body">
+          {filtered || cursor
+            ? "No ticket matches these filters. Clear them to see the active tickets."
+            : "Nothing is waiting. New email to the support address appears here."}
+        </p>
+      </div>
+    ) : (
+      <ul class="admin-list" role="list">
+        {tickets.map((ticket) => (
+          <li>
+            <MailTicketRow
+              ticket={ticket}
+              assigneeLabel={personLabel(directoryRef, ticket.assignee_user_id)}
+            />
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  {
+    (nextCursor || cursor) && (
+      <nav class="mail-paging" aria-label="Ticket pages">
+        {cursor && <a class="mail-btn" href={pageHref(null)}>First page</a>}
+        {nextCursor && (
+          <a class="mail-btn" href={pageHref(nextCursor)} rel="next">
+            Next page
+          </a>
+        )}
+      </nav>
+    )
+  }
+</AdminLayout>
+
+<style>
+  /* Shared admin page vocabulary, in the observability dashboard's family. Duplicated across the
+     admin pages per the scoped-style convention (AGENTS.md); keep them in sync. */
+  .admin-empty {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .admin-empty__body {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  @media (forced-colors: active) {
+    .admin-action-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+
+  .mail-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+  .mail-links__link {
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+  }
+  .mail-filters {
+    display: grid;
+    /* Four selects, the search, then the buttons at their natural width, all on one row. */
+    grid-template-columns: repeat(4, minmax(8.5rem, 1fr)) minmax(12rem, 1.6fr) auto;
+    align-items: start;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-4);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+  /* A field is label, control, then an optional note: the note hangs below without moving the
+     neighbouring fields, because every cell starts at the top of the row. */
+  .mail-field {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1);
+    min-inline-size: 0;
+  }
+  .mail-field label,
+  .mail-field__spacer {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    line-height: 1.25;
+    color: var(--color-fg-muted);
+  }
+  /* Stands in for a label so Apply sits on the control line with the inputs. */
+  .mail-field__spacer {
+    visibility: hidden;
+  }
+  /* Selects take their look from mail-select.css; only the width is set here. */
+  .mail-field select {
+    inline-size: 100%;
+  }
+  .mail-field input {
+    box-sizing: border-box;
+    inline-size: 100%;
+    min-block-size: 40px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--admin-control-border);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    max-inline-size: 100%;
+  }
+  .mail-field__note {
+    font-size: var(--fs-xs);
+    line-height: 1.3;
+    color: var(--admin-warn-text);
+  }
+  .mail-field__note--quiet {
+    color: var(--admin-text-3);
+  }
+  .mail-field input::placeholder {
+    color: var(--admin-text-3);
+  }
+  .mail-filters__buttons,
+  .mail-paging {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .mail-btn {
+    box-sizing: border-box;
+    min-block-size: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .mail-btn:hover {
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
+  }
+  .mail-btn--primary {
+    background: var(--color-link);
+    color: var(--color-bg);
+    border-color: var(--color-link);
+  }
+  .mail-btn--primary:hover {
+    background: var(--color-link-hover);
+    border-color: var(--color-link-hover);
+  }
+  /* Narrower than a wide desktop: the selects take one row, search and buttons the next. */
+  @media (max-width: 1100px) {
+    .mail-filters {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .mail-field--search {
+      grid-column: span 2;
+    }
+    .mail-filters__actions {
+      grid-column: span 2;
+    }
+  }
+  @media (max-width: 640px) {
+    .mail-filters {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .mail-field--search,
+    .mail-filters__actions {
+      grid-column: auto;
+    }
+    .mail-field__spacer {
+      display: none;
+    }
+  }
+</style>

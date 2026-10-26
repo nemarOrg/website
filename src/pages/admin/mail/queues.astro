@@ -1,0 +1,412 @@
+---
+import MailQueueForm from "../../../components/admin/MailQueueForm.astro";
+import AdminLayout from "../../../layouts/AdminLayout.astro";
+import { adminGate } from "../../../lib/admin-guard";
+import { getSession } from "../../../lib/auth";
+import {
+  listQueues,
+  loadStaffDirectory,
+  mailErrorText,
+  personLabel,
+} from "../../../lib/mail-admin-api";
+import type { MailQueue } from "../../../lib/mail-admin-contract";
+import { displaySafeLine } from "../../../lib/mail-display";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, …) always returns a redirect above, so this branch is unreachable; it is
+  // here so TypeScript narrows `session` for AdminLayout's required `session` prop below.
+  return Astro.redirect("/login");
+}
+const isOwner = session.user.backend_role === "owner";
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+let queues: readonly MailQueue[] = [];
+let loadError: string | null = null;
+const [queuesResult, directory] = await Promise.all([
+  listQueues({ cookieHeader }).then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  ),
+  loadStaffDirectory({ cookieHeader }),
+]);
+if (queuesResult.ok) queues = queuesResult.value;
+else loadError = mailErrorText(queuesResult.error);
+
+const STRATEGY_WORD = { fixed: "Fixed", round_robin: "Round robin", pool: "Pool" } as const;
+const strategyWord = (s: string): string =>
+  (STRATEGY_WORD as Record<string, string>)[s] ?? displaySafeLine(s);
+const names = (ids: readonly number[]): string =>
+  ids.length === 0 ? "None" : ids.map((id) => personLabel(directory, id)).join(", ");
+const person = (id: number | null): string => (id === null ? "None" : personLabel(directory, id));
+---
+
+<AdminLayout title="Mail queues" active="mail" session={session}>
+  <Fragment slot="lede">
+    <a href="/admin/mail">&larr; Back to Mail</a>
+    {" "}Where new tickets go and who takes them. You see the queues the API shows you{isOwner ? ", and as an owner you can change them" : ""}.
+  </Fragment>
+
+  <p class="mail-live" role="status" aria-live="polite" data-queues-status></p>
+  <p class="admin-action-error" role="alert" tabindex="-1" data-queues-error hidden></p>
+  {loadError && <p class="admin-action-error" role="alert">{loadError}</p>}
+  {directory.failed && (
+    <p class="admin-action-error" role="status">
+      Some people could not be listed, so a name may show as a number and the pickers may be short.
+    </p>
+  )}
+
+  {
+    !loadError && queues.length === 0 && (
+      <div class="admin-empty">
+        <h2 class="admin-empty__title">No queues</h2>
+        <p class="admin-empty__body">The API returned no queues you can see.</p>
+      </div>
+    )
+  }
+
+  {
+    queues.length > 0 && (
+      <table class="queues-table">
+        <caption class="visually-hidden">Mail queues</caption>
+        <thead>
+          <tr>
+            <th scope="col">Queue</th>
+            <th scope="col">Assignment</th>
+            <th scope="col">Assignee</th>
+            <th scope="col">Backup</th>
+            <th scope="col">Rotation</th>
+            <th scope="col">Escalation owner</th>
+            <th scope="col">Open tickets</th>
+          </tr>
+        </thead>
+        <tbody>
+          {queues.map((q) => (
+            <tr>
+              <th scope="row">
+                {displaySafeLine(q.tag)}
+                {q.restricted && <span class="queues__restricted">Restricted</span>}
+              </th>
+              <td>{strategyWord(q.strategy)}</td>
+              <td>{person(q.assignee_user_id)}</td>
+              <td>{person(q.backup_user_id)}</td>
+              <td>{names(q.rr_members)}</td>
+              <td>{person(q.escalation_user_id)}</td>
+              <td>{q.open_tickets}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+
+  {
+    queues.length > 0 && (
+      <ul class="queues-cards" role="list">
+        {queues.map((q) => (
+          <li class="queues-card">
+            <h2 class="queues-card__title">
+              {displaySafeLine(q.tag)}
+              {q.restricted && <span class="queues__restricted">Restricted</span>}
+            </h2>
+            <dl>
+              <div><dt>Assignment</dt><dd>{strategyWord(q.strategy)}</dd></div>
+              <div><dt>Assignee</dt><dd>{person(q.assignee_user_id)}</dd></div>
+              <div><dt>Backup</dt><dd>{person(q.backup_user_id)}</dd></div>
+              <div><dt>Rotation</dt><dd>{names(q.rr_members)}</dd></div>
+              <div><dt>Escalation owner</dt><dd>{person(q.escalation_user_id)}</dd></div>
+              <div><dt>Open tickets</dt><dd>{q.open_tickets}</dd></div>
+            </dl>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
+  {
+    isOwner && queues.length > 0 && (
+      <section class="queues-edit" aria-labelledby="queues-edit-title">
+        <h2 class="queues-edit__title" id="queues-edit-title">Edit a queue</h2>
+        {queues.map((q, i) => (
+          <details class="queues-edit__item">
+            <summary>Edit {displaySafeLine(q.tag)}</summary>
+            <MailQueueForm queue={q} people={directory.assignable} directory={directory} formId={`queue-edit-${i}`} />
+          </details>
+        ))}
+      </section>
+    )
+  }
+
+  {
+    isOwner && (
+      <section class="queues-edit" aria-labelledby="queues-new-title">
+        <h2 class="queues-edit__title" id="queues-new-title">New queue</h2>
+        <details class="queues-edit__item">
+          <summary>Create a queue</summary>
+          <MailQueueForm queue={null} people={directory.assignable} directory={directory} formId="queue-new" />
+        </details>
+      </section>
+    )
+  }
+</AdminLayout>
+
+<style>
+  /* Shared admin page vocabulary; duplicated per the scoped-style convention (AGENTS.md). */
+  .admin-empty {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .admin-empty__body {
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .admin-action-error {
+    margin: 0;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .admin-action-error[hidden] {
+    display: none;
+  }
+  @media (forced-colors: active) {
+    .admin-action-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+  .mail-live {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .mail-live:empty {
+    display: none;
+  }
+
+  .queues-table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    font-size: var(--fs-sm);
+  }
+  .queues-table th,
+  .queues-table td {
+    padding: var(--space-3) var(--space-4);
+    text-align: start;
+    border-block-end: 1px solid var(--color-border);
+    overflow-wrap: anywhere;
+    vertical-align: top;
+  }
+  .queues-table thead th {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .queues-table tbody th {
+    font-weight: var(--fw-semibold);
+  }
+  .queues__restricted {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 1.25rem;
+    margin-inline-start: var(--space-2);
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .queues-cards {
+    display: none;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    gap: var(--space-3);
+  }
+  .queues-card {
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .queues-card__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    overflow-wrap: anywhere;
+  }
+  .queues-card dl {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+  }
+  .queues-card dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+  }
+  .queues-card dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .queues-edit {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .queues-edit__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .queues-edit__item {
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-2) var(--space-4) var(--space-4);
+  }
+  .queues-edit__item summary {
+    cursor: pointer;
+    min-block-size: 2.25rem;
+    display: flex;
+    align-items: center;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 640px) {
+    .queues-table {
+      display: none;
+    }
+    .queues-cards {
+      display: grid;
+    }
+  }
+</style>
+
+<script>
+  import type { PutQueueRequest, QueueStrategy } from "../../../lib/mail-admin-contract";
+  import { mailErrorText, putQueue } from "../../../lib/mail-admin-api";
+
+  interface Original {
+    restricted: boolean;
+    strategy: QueueStrategy;
+    assignee_user_id: number | null;
+    backup_user_id: number | null;
+    rr_members: number[];
+    escalation_user_id: number | null;
+  }
+
+  const statusEl = document.querySelector<HTMLElement>("[data-queues-status]");
+  const errorEl = document.querySelector<HTMLElement>("[data-queues-error]");
+  function say(message: string): void {
+    if (statusEl) statusEl.textContent = message;
+  }
+  function showError(message: string): void {
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.hidden = false;
+    errorEl.focus();
+  }
+  function clearError(): void {
+    if (!errorEl) return;
+    errorEl.hidden = true;
+    errorEl.textContent = "";
+  }
+
+  const asId = (value: string): number | null => (value === "" ? null : Number(value));
+
+  document.querySelectorAll<HTMLFormElement>("[data-queue-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (form.getAttribute("aria-busy") === "true") return;
+      let original: Original;
+      try {
+        original = JSON.parse(form.dataset.original ?? "") as Original;
+      } catch {
+        showError("This form could not be read. Reload the page.");
+        return;
+      }
+      const isNew = (form.dataset.tag ?? "") === "";
+      const tag = isNew
+        ? (form.querySelector<HTMLInputElement>("[data-queue-tag]")?.value ?? "").trim()
+        : (form.dataset.tag ?? "");
+      if (!tag) {
+        showError("Give the queue a tag.");
+        return;
+      }
+      const field = (name: string) =>
+        form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
+
+      // Only what changed is sent, so an edit cannot overwrite a field another owner changed
+      // since this page loaded. The rotation is the exception the API defines: a change sends
+      // the whole list, in the order it should rotate (kept members first, then new ones).
+      const changes: PutQueueRequest = {};
+      const restricted = (field("restricted") as HTMLInputElement).checked;
+      if (restricted !== original.restricted) changes.restricted = restricted;
+      const strategy = (field("strategy") as HTMLSelectElement).value as QueueStrategy;
+      if (strategy !== original.strategy) changes.strategy = strategy;
+      for (const name of ["assignee_user_id", "backup_user_id", "escalation_user_id"] as const) {
+        const value = asId((field(name) as HTMLSelectElement).value);
+        if (value !== original[name]) changes[name] = value;
+      }
+      const checked = Array.from(
+        form.querySelectorAll<HTMLInputElement>('input[name="rr"]:checked'),
+      ).map((input) => Number(input.value));
+      const kept = original.rr_members.filter((id) => checked.includes(id));
+      const added = checked.filter((id) => !original.rr_members.includes(id));
+      const members = [...kept, ...added];
+      if (JSON.stringify(members) !== JSON.stringify(original.rr_members)) {
+        changes.rr_members = members;
+      }
+
+      if (!isNew && Object.keys(changes).length === 0) {
+        say("No changes to save.");
+        return;
+      }
+      clearError();
+      say(isNew ? "Creating the queue…" : "Saving…");
+      form.setAttribute("aria-busy", "true");
+      const controls = form.querySelectorAll<HTMLElement>("input, select, button");
+      controls.forEach((el) => ((el as HTMLButtonElement).disabled = true));
+      try {
+        await putQueue(tag, changes);
+        location.reload();
+      } catch (err) {
+        say("");
+        showError(mailErrorText(err));
+        form.removeAttribute("aria-busy");
+        controls.forEach((el) => ((el as HTMLButtonElement).disabled = false));
+      }
+    });
+  });
+</script>

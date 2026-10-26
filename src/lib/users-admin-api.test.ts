@@ -18,6 +18,7 @@ import {
   fetchAwaitingApprovalCount,
   gapAccountFromDetail,
   getAdminUser,
+  getAdminUserById,
   isActionable,
   isAwaitingUploadApproval,
   isSelf,
@@ -180,6 +181,28 @@ describe("getAdminUser", () => {
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
     await expect(getAdminUser("ghost", { fetch: fakeFetch })).rejects.toMatchObject({
+      status: 404,
+      code: "User not found",
+    });
+  });
+});
+
+describe("getAdminUserById", () => {
+  it("GETs /admin/users/by-id/:id and unwraps { user }", async () => {
+    const fakeFetch = (async (url: string) => {
+      expect(url).toBe("/api/v1/admin/users/by-id/17");
+      return new Response(JSON.stringify({ user: row() }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const out = await getAdminUserById(17, { fetch: fakeFetch });
+    expect(out.username).toBe(row().username);
+  });
+
+  it("propagates a 404 as DashboardApiError", async () => {
+    const fakeFetch = (async () =>
+      new Response(JSON.stringify({ error: "User not found" }), {
+        status: 404,
+      })) as unknown as typeof fetch;
+    await expect(getAdminUserById(9, { fetch: fakeFetch })).rejects.toMatchObject({
       status: 404,
       code: "User not found",
     });
