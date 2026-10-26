@@ -20,8 +20,13 @@
 
 import { dashboardApiBase } from "./api-base";
 import {
+  type AddBlockRequest,
+  type AddBlockResponse,
   type Availability,
+  type BlockKind,
+  FILTERED_LIST_MODES,
   IDEMPOTENCY_KEY_PATTERN,
+  type ListBlocklistResponse,
   type ListQueuesResponse,
   type ListTicketsResponse,
   MAIL_ERROR_CODES,
@@ -30,9 +35,12 @@ import {
   type NoteResponse,
   type PutAvailabilityRequest,
   type PutQueueRequest,
+  type RemoveBlockResponse,
   type ReplyResponse,
   SEARCH_MAX,
   type SettableStatus,
+  type SpamBlockChoice,
+  type SpamResponse,
   type SummaryResponse,
   TICKET_STATUSES,
   type TicketActionResponse,
@@ -135,6 +143,9 @@ export const MAIL_ERROR_TEXT: Record<MailErrorCode, string> = {
   reply_delivery_unknown:
     "The mail provider did not confirm the send, so the reply may or may not have reached the requester. This reply will never be sent again automatically. Reload the thread to see whether it was recorded, and ask the requester if needed. Writing a new reply sends again and may deliver a second copy.",
   inbound_not_configured: "This deployment has no inbound mail storage.",
+  block_not_allowed: "That address or domain cannot be blocked.",
+  block_sender_unverified:
+    "The sender's first message did not pass DMARC, so its address may be forged.",
   internal: "The mail service failed unexpectedly. Try again, and report it if it keeps happening.",
 };
 
@@ -186,7 +197,7 @@ export function mailErrorText(err: unknown): string {
 // ---------------------------------------------------------------------------
 
 async function mailFetch<T>(
-  method: "GET" | "POST" | "PUT",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   init: Init,
   options: { body?: unknown; headers?: Record<string, string>; timeoutMs?: number } = {},
@@ -233,6 +244,8 @@ export interface MailTicketsQueryInput {
   q?: string | null;
   /** Only `missing` is a value: closed tickets with no summary yet. */
   summary?: string | null;
+  /** `only` or `include`; absent hides filtered tickets in the default view. */
+  filtered?: string | null;
   cursor?: string | null;
   limit?: number | string | null;
 }
@@ -257,6 +270,10 @@ export function mailTicketsQuery(input: MailTicketsQueryInput): string {
   const q = (input.q ?? "").trim();
   if (q.length > 0 && q.length <= SEARCH_MAX) params.set("q", q);
   if (input.summary === "missing") params.set("summary", "missing");
+  const filtered = input.filtered ?? "";
+  if ((FILTERED_LIST_MODES as readonly string[]).includes(filtered)) {
+    params.set("filtered", filtered);
+  }
   const cursor = input.cursor ?? "";
   if (CURSOR_PATTERN.test(cursor)) params.set("cursor", cursor);
   const limit = typeof input.limit === "string" ? Number(input.limit) : input.limit;
@@ -358,6 +375,96 @@ export function escalateTicket(
   return mailFetch("POST", `/tickets/${id}/escalate`, init, {
     body: trimmed ? { reason: trimmed } : {},
   });
+}
+
+/**
+ * Mark a ticket spam, optionally blocking its sender. `force` is sent only when true, and only
+ * after the API has answered `block_sender_unverified` and a person has confirmed (an address
+ * block only: a domain block of an unverified sender is refused even with it).
+ */
+export function markSpam(
+  id: number,
+  request: { block: SpamBlockChoice; reason?: string; force?: boolean },
+  init: Init = {},
+): Promise<SpamResponse> {
+  const reason = (request.reason ?? "").trim();
+  const body: { block: SpamBlockChoice; reason?: string; force?: boolean } = {
+    block: request.block,
+  };
+  if (reason) body.reason = reason;
+  if (request.force === true) body.force = true;
+  return mailFetch("POST", `/tickets/${id}/spam`, init, { body });
+}
+
+/**
+ * Whether a refused spam call should offer the force confirmation: the API said the sender was
+ * not verified, the person asked for an ADDRESS block, and force was not already sent. A domain
+ * block of an unverified sender is refused even with `force`, so it never offers one.
+ */
+export function needsForceConfirm(
+  err: unknown,
+  block: SpamBlockChoice,
+  alreadyForced: boolean,
+): boolean {
+  return (
+    err instanceof MailApiError &&
+    err.code === "block_sender_unverified" &&
+    block === "address" &&
+    !alreadyForced
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Blocklist
+// ---------------------------------------------------------------------------
+
+/** The blocklist cursor is the last entry id: digits only. */
+const BLOCK_CURSOR_PATTERN = /^\d{1,20}$/;
+
+/** The blocklist's query string; a malformed cursor or limit is dropped, as for the ticket list. */
+export function blocklistQuery(input: {
+  cursor?: string | null;
+  limit?: number | string | null;
+}): string {
+  const params = new URLSearchParams();
+  const cursor = input.cursor ?? "";
+  if (BLOCK_CURSOR_PATTERN.test(cursor)) params.set("cursor", cursor);
+  const limit = typeof input.limit === "string" ? Number(input.limit) : input.limit;
+  if (typeof limit === "number" && Number.isInteger(limit) && limit >= 1 && limit <= 100) {
+    params.set("limit", String(limit));
+  }
+  return params.toString();
+}
+
+export function listBlocklist(
+  input: { cursor?: string | null; limit?: number | string | null } = {},
+  init: Init = {},
+): Promise<ListBlocklistResponse> {
+  const qs = blocklistQuery(input);
+  return mailFetch("GET", `/blocklist${qs ? `?${qs}` : ""}`, init);
+}
+
+/** Idempotent: blocking a value that is already blocked answers `created: false`. */
+export function addBlock(request: AddBlockRequest, init: Init = {}): Promise<AddBlockResponse> {
+  const reason = (request.reason ?? "").trim();
+  const body: { kind: BlockKind; value: string; reason?: string } = {
+    kind: request.kind,
+    value: request.value.trim(),
+  };
+  if (reason) body.reason = reason;
+  return mailFetch("POST", "/blocklist", init, { body });
+}
+
+/** `mailErrorText`, except that a `not_found` here is about an entry, not a ticket. */
+export function blocklistErrorText(err: unknown): string {
+  if (err instanceof MailApiError && err.code === "not_found") {
+    return "There is no such blocklist entry. It may already have been removed; reload the page.";
+  }
+  return mailErrorText(err);
+}
+
+export function removeBlock(id: number, init: Init = {}): Promise<RemoveBlockResponse> {
+  return mailFetch("DELETE", `/blocklist/${id}`, init);
 }
 
 // ---------------------------------------------------------------------------

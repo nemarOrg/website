@@ -15,7 +15,13 @@
  */
 
 import { parseBackendTimestamp } from "./format";
-import { IDEMPOTENCY_KEY_PATTERN, TEXT_MAX, type TicketStatus } from "./mail-admin-contract";
+import {
+  FILTER_REASONS,
+  type FilterReason,
+  IDEMPOTENCY_KEY_PATTERN,
+  TEXT_MAX,
+  type TicketStatus,
+} from "./mail-admin-contract";
 
 // Mirrors nemar-cli `src/lib/display-name.ts`, character for character: the C0 and C1 controls,
 // every format character (category Cf: the direction marks, zero-width characters, the soft
@@ -118,6 +124,52 @@ export function eventDetailText(detail: unknown): string {
   return chars.length > EVENT_DETAIL_MAX
     ? `${chars.slice(0, EVENT_DETAIL_MAX - 1).join("")}…`
     : safe;
+}
+
+/** What each filter reason means to a person, in plain words (nemar-cli ADR 0113). */
+export const FILTER_REASON_LABEL: Record<FilterReason, string> = {
+  bulk: "Bulk mail",
+  auto_reply: "Auto-reply",
+  bounce: "Bounce",
+  rate_limited: "Rate limited",
+};
+
+/** The words for a reason, or the escaped reason itself when this site does not know it yet. */
+export function filterReasonLabel(reason: string): string {
+  return Object.hasOwn(FILTER_REASON_LABEL, reason)
+    ? FILTER_REASON_LABEL[reason as FilterReason]
+    : displaySafeLine(reason);
+}
+
+/** Whether a value from the API is one of the reasons this site has words for. */
+export function isFilterReason(value: unknown): value is FilterReason {
+  return typeof value === "string" && (FILTER_REASONS as readonly string[]).includes(value);
+}
+
+/** Event kinds that read better as words than as the stored token. Others show as stored. */
+const EVENT_KIND_LABEL: Readonly<Record<string, string>> = {
+  unfiltered: "Filter cleared",
+};
+
+export function eventKindLabel(kind: string): string {
+  return Object.hasOwn(EVENT_KIND_LABEL, kind) ? EVENT_KIND_LABEL[kind] : displaySafeLine(kind);
+}
+
+/**
+ * The detail line of an event. An `unfiltered` event records `{ from: <reason>, reason: <why> }`:
+ * it reads "Was filed as Bulk mail (reply)". Any other kind, or a detail of another shape, is
+ * the generic safe line, so nothing is hidden when the API grows.
+ */
+export function eventDetailLine(kind: string, detail: unknown): string {
+  if (kind === "unfiltered" && detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const { from, reason } = detail as Record<string, unknown>;
+    if (typeof from === "string") {
+      const why =
+        typeof reason === "string" && reason !== "" ? ` (${displaySafeLine(reason)})` : "";
+      return `Was filed as ${filterReasonLabel(from)}${why}`;
+    }
+  }
+  return eventDetailText(detail);
 }
 
 export const STATUS_LABEL: Record<TicketStatus, string> = {

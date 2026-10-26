@@ -3,8 +3,11 @@ import {
   MAIL_ERROR_TEXT,
   MailApiError,
   TRANSPORT_TEXT,
+  addBlock,
   addNote,
   assignTicket,
+  blocklistErrorText,
+  blocklistQuery,
   classifyNoteFailure,
   classifyReplyFailure,
   escalateTicket,
@@ -12,22 +15,27 @@ import {
   getAvailability,
   getTicket,
   isAssignable,
+  listBlocklist,
   listQueues,
   listTickets,
   loadStaffDirectory,
   mailErrorText,
   mailTicketsQuery,
+  markSpam,
+  needsForceConfirm,
   notAssignableLabel,
   personLabel,
   putAvailability,
   putQueue,
   putSummary,
   readMailError,
+  removeBlock,
   replyToTicket,
   resetBadgeWarning,
   setTicketStatus,
 } from "./mail-admin-api";
 import {
+  type BlocklistEntry,
   type ListTicketsResponse,
   MAIL_ERROR_CODES,
   type MailQueue,
@@ -54,6 +62,7 @@ const SUMMARY: TicketSummary = {
   has_summary: false,
   purged: false,
   unread: false,
+  filtered: null,
 };
 
 interface Seen {
@@ -117,6 +126,108 @@ describe("mailTicketsQuery", () => {
     expect(mailTicketsQuery({ limit: 1.5 })).toBe("");
     expect(mailTicketsQuery({ assignee: "1234567890123" })).toBe("");
     expect(mailTicketsQuery({ q: "   ", queue: "" })).toBe("");
+  });
+});
+
+describe("the filtered query", () => {
+  it("keeps only and include, in the stable position", () => {
+    expect(mailTicketsQuery({ filtered: "only" })).toBe("filtered=only");
+    expect(mailTicketsQuery({ status: "open", filtered: "include", limit: 10 })).toBe(
+      "status=open&filtered=include&limit=10",
+    );
+  });
+
+  it("drops a mode the route would refuse", () => {
+    expect(mailTicketsQuery({ filtered: "all" })).toBe("");
+    expect(mailTicketsQuery({ filtered: "" })).toBe("");
+    expect(mailTicketsQuery({ filtered: null })).toBe("");
+  });
+});
+
+const ENTRY: BlocklistEntry = {
+  id: 9,
+  kind: "domain",
+  value: "spam.example",
+  reason: "newsletter flood",
+  created_by: 3,
+  created_at: "2026-10-25 10:00:00",
+};
+
+describe("spam and the blocklist", () => {
+  it("posts the block choice, trimming the reason and sending force only when true", async () => {
+    const { fetchImpl, seen } = stub(() => json({ ticket: SUMMARY, block: null }));
+    const init = { fetch: fetchImpl };
+    await markSpam(7, { block: "none" }, init);
+    await markSpam(7, { block: "address", reason: "  junk  " }, init);
+    await markSpam(7, { block: "address", force: false }, init);
+    await markSpam(7, { block: "address", force: true }, init);
+    expect(seen.map((s) => s.init.body)).toEqual([
+      '{"block":"none"}',
+      '{"block":"address","reason":"junk"}',
+      '{"block":"address"}',
+      '{"block":"address","force":true}',
+    ]);
+    expect(seen[0].url).toBe("/api/v1/admin/mail/tickets/7/spam");
+    expect(seen[0].init.method).toBe("POST");
+  });
+
+  it("lists, adds and removes blocklist entries", async () => {
+    const { fetchImpl, seen } = stub((url, init) => {
+      if (init.method === "DELETE") return json({ removed: ENTRY });
+      if (init.method === "POST") return json({ entry: ENTRY, created: false });
+      return json({ entries: [ENTRY], next_cursor: "9" });
+    });
+    const init = { fetch: fetchImpl };
+    const page = await listBlocklist({ cursor: "12", limit: 50 }, init);
+    expect(page.next_cursor).toBe("9");
+    expect(seen[0].url).toBe("/api/v1/admin/mail/blocklist?cursor=12&limit=50");
+    const added = await addBlock({ kind: "domain", value: "  Spam.Example ", reason: " " }, init);
+    expect(added.created).toBe(false);
+    expect(seen[1].url).toBe("/api/v1/admin/mail/blocklist");
+    expect(seen[1].init.body).toBe('{"kind":"domain","value":"Spam.Example"}');
+    const removed = await removeBlock(9, init);
+    expect(removed.removed.id).toBe(9);
+    expect(seen[2].url).toBe("/api/v1/admin/mail/blocklist/9");
+    expect(seen[2].init.method).toBe("DELETE");
+  });
+
+  it("drops a malformed blocklist cursor or limit", () => {
+    expect(blocklistQuery({ cursor: "abc", limit: 0 })).toBe("");
+    expect(blocklistQuery({ cursor: "1 or 1", limit: 101 })).toBe("");
+    expect(blocklistQuery({ cursor: "42", limit: "25" })).toBe("cursor=42&limit=25");
+    expect(blocklistQuery({})).toBe("");
+  });
+
+  it("offers the force confirm only for an unverified address block that was not forced", () => {
+    const unverified = new MailApiError(422, "block_sender_unverified", "Not verified.");
+    expect(needsForceConfirm(unverified, "address", false)).toBe(true);
+    expect(needsForceConfirm(unverified, "address", true)).toBe(false);
+    expect(needsForceConfirm(unverified, "domain", false)).toBe(false);
+    expect(
+      needsForceConfirm(new MailApiError(422, "block_not_allowed", "x"), "address", false),
+    ).toBe(false);
+    expect(needsForceConfirm(new Error("boom"), "address", false)).toBe(false);
+  });
+
+  it("reads the 422 words from a real response", async () => {
+    const res = json(
+      { error: "That domain is a shared mailbox provider.", code: "block_not_allowed" },
+      422,
+    );
+    const read = await readMailError(res);
+    expect(read.code).toBe("block_not_allowed");
+    const text = mailErrorText(new MailApiError(422, read.code, read.sentence));
+    expect(text).toContain(MAIL_ERROR_TEXT.block_not_allowed);
+    expect(text).toContain("shared mailbox provider");
+  });
+
+  it("says a missing blocklist entry is an entry, not a ticket", () => {
+    const err = new MailApiError(404, "not_found", "No such blocklist entry.");
+    expect(blocklistErrorText(err)).toContain("blocklist entry");
+    expect(blocklistErrorText(err)).not.toContain("ticket");
+    expect(blocklistErrorText(new MailApiError(500, "internal"))).toBe(
+      mailErrorText(new MailApiError(500, "internal")),
+    );
   });
 });
 
@@ -202,6 +313,7 @@ describe("requests", () => {
       rr_members: [],
       escalation_user_id: null,
       open_tickets: 2,
+      notify: false,
     };
     const away = {
       user_id: 9,
@@ -228,6 +340,12 @@ describe("requests", () => {
       "GET /api/v1/admin/mail/availability/9",
       "PUT /api/v1/admin/mail/availability/9",
     ]);
+  });
+
+  it("sends notify in a queue update", async () => {
+    const { fetchImpl, seen } = stub(() => json({ queue: {} }));
+    await putQueue("support", { notify: false }, { fetch: fetchImpl });
+    expect(seen[0].init.body).toBe('{"notify":false}');
   });
 
   it("encodes a queue tag", async () => {
