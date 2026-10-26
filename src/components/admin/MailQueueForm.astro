@@ -45,6 +45,7 @@ const original = {
   backup_user_id: queue?.backup_user_id ?? null,
   rr_members: queue?.rr_members ?? [],
   escalation_user_id: queue?.escalation_user_id ?? null,
+  notify: queue?.notify ?? true,
 };
 const known = new Set(people.map((p) => p.id));
 const stray = (id: number | null): number | null => (id !== null && !known.has(id) ? id : null);
@@ -93,6 +94,15 @@ const PICKERS: ReadonlyArray<{ name: PickerField; label: string }> = [
   </div>
   <p class="queue-form__hint">
     The security and conduct queues are always restricted, and the * fallback queue never is.
+  </p>
+
+  <div class="queue-form__field queue-form__field--check">
+    <input id={`${formId}-notify`} name="notify" type="checkbox" checked={original.notify} />
+    <label for={`${formId}-notify`}>Email a notice for new tickets</label>
+  </div>
+  <p class="queue-form__hint">
+    Turn it off to run the queue quietly: tickets are still created, assigned and listed, and an
+    escalation still sends its notice.
   </p>
 
   <div class="queue-form__field">

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { IDEMPOTENCY_KEY_PATTERN, TEXT_MAX, TICKET_STATUSES } from "./mail-admin-contract";
 import {
+  FILTER_REASONS,
+  IDEMPOTENCY_KEY_PATTERN,
+  TEXT_MAX,
+  TICKET_STATUSES,
+} from "./mail-admin-contract";
+import {
+  FILTER_REASON_LABEL,
   STATUS_LABEL,
   STATUS_TONE,
   authTone,
@@ -11,10 +17,14 @@ import {
   displaySafeLine,
   draftStorageKey,
   edit,
+  eventDetailLine,
   eventDetailText,
+  eventKindLabel,
   failure,
+  filterReasonLabel,
   formatUtc,
   isEditable,
+  isFilterReason,
   loadDraft,
   newDraft,
   newReplyKey,
@@ -199,6 +209,56 @@ describe("status words", () => {
       expect(STATUS_LABEL[status]).toBeTruthy();
       expect(STATUS_TONE[status]).toBeTruthy();
     }
+  });
+});
+
+describe("filter reasons", () => {
+  it("has plain words for every reason the contract lists", () => {
+    for (const reason of FILTER_REASONS) {
+      expect(FILTER_REASON_LABEL[reason]).toMatch(/^[A-Z][A-Za-z -]+$/);
+      expect(filterReasonLabel(reason)).toBe(FILTER_REASON_LABEL[reason]);
+    }
+    expect(filterReasonLabel("bulk")).toBe("Bulk mail");
+    expect(filterReasonLabel("auto_reply")).toBe("Auto-reply");
+    expect(filterReasonLabel("bounce")).toBe("Bounce");
+    expect(filterReasonLabel("rate_limited")).toBe("Rate limited");
+  });
+
+  it("shows a reason this site does not know as escaped text, never as a lookup", () => {
+    expect(filterReasonLabel("new\u202ereason")).toBe("new\\u202ereason");
+    expect(filterReasonLabel("constructor")).toBe("constructor");
+    expect(filterReasonLabel("__proto__")).toBe("__proto__");
+  });
+
+  it("tells a known reason from anything else", () => {
+    expect(isFilterReason("bounce")).toBe(true);
+    expect(isFilterReason("spam")).toBe(false);
+    expect(isFilterReason(null)).toBe(false);
+  });
+});
+
+describe("event words", () => {
+  it("reads an unfiltered event as words", () => {
+    expect(eventKindLabel("unfiltered")).toBe("Filter cleared");
+    expect(eventKindLabel("status")).toBe("status");
+    expect(eventKindLabel("toString")).toBe("toString");
+    expect(eventDetailLine("unfiltered", { from: "bulk", reason: "reply" })).toBe(
+      "Was filed as Bulk mail (reply)",
+    );
+    expect(eventDetailLine("unfiltered", { from: "bounce" })).toBe("Was filed as Bounce");
+  });
+
+  it("escapes what an unfiltered event carries", () => {
+    expect(eventDetailLine("unfiltered", { from: "bulk", reason: "a\u202eb" })).toBe(
+      "Was filed as Bulk mail (a\\u202eb)",
+    );
+  });
+
+  it("falls back to the generic line for another kind or another shape", () => {
+    expect(eventDetailLine("status", { to: "spam" })).toBe(eventDetailText({ to: "spam" }));
+    expect(eventDetailLine("unfiltered", null)).toBe("");
+    expect(eventDetailLine("unfiltered", [1])).toBe("[1]");
+    expect(eventDetailLine("unfiltered", { from: 3 })).toBe('{"from":3}');
   });
 });
 

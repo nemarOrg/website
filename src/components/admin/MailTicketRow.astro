@@ -10,7 +10,12 @@
  */
 import { formatDate, formatRelativeTime, parseBackendTimestamp } from "../../lib/format";
 import type { TicketSummary } from "../../lib/mail-admin-contract";
-import { STATUS_LABEL, STATUS_TONE, displaySafeLine } from "../../lib/mail-display";
+import {
+  STATUS_LABEL,
+  STATUS_TONE,
+  displaySafeLine,
+  filterReasonLabel,
+} from "../../lib/mail-display";
 import StatusBadge from "./StatusBadge.astro";
 
 interface Props {
@@ -42,6 +47,9 @@ const statusTone = STATUS_TONE[ticket.status] ?? "neutral";
       }{subject}
     </a>
     <span class="mail-row__badges">
+      {ticket.filtered && (
+        <StatusBadge tone="neutral" text={`Filtered: ${filterReasonLabel(ticket.filtered)}`} />
+      )}
       {ticket.purged && <StatusBadge tone="neutral" text="Purged" />}
       {needsSummary && <StatusBadge tone="warn" text="Needs summary" />}
       <StatusBadge tone={statusTone} text={statusText} />

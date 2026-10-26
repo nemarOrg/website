@@ -42,6 +42,9 @@ const strategyWord = (s: string): string =>
   (STRATEGY_WORD as Record<string, string>)[s] ?? displaySafeLine(s);
 const names = (ids: readonly number[]): string =>
   ids.length === 0 ? "None" : ids.map((id) => personLabel(directory, id)).join(", ");
+// An API that predates `notify` omits it; a queue then emails, as the form defaults.
+const noticeWord = (notify: boolean | undefined): string =>
+  notify === false ? "Quiet (no email)" : "Emailed";
 const person = (id: number | null): string => (id === null ? "None" : personLabel(directory, id));
 ---
 
@@ -81,6 +84,7 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
             <th scope="col">Backup</th>
             <th scope="col">Rotation</th>
             <th scope="col">Escalation owner</th>
+            <th scope="col">New-ticket notice</th>
             <th scope="col">Open tickets</th>
           </tr>
         </thead>
@@ -96,6 +100,7 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
               <td>{person(q.backup_user_id)}</td>
               <td>{names(q.rr_members)}</td>
               <td>{person(q.escalation_user_id)}</td>
+              <td>{noticeWord(q.notify)}</td>
               <td>{q.open_tickets}</td>
             </tr>
           ))}
@@ -119,6 +124,7 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
               <div><dt>Backup</dt><dd>{person(q.backup_user_id)}</dd></div>
               <div><dt>Rotation</dt><dd>{names(q.rr_members)}</dd></div>
               <div><dt>Escalation owner</dt><dd>{person(q.escalation_user_id)}</dd></div>
+              <div><dt>New-ticket notice</dt><dd>{noticeWord(q.notify)}</dd></div>
               <div><dt>Open tickets</dt><dd>{q.open_tickets}</dd></div>
             </dl>
           </li>
@@ -324,6 +330,7 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
     backup_user_id: number | null;
     rr_members: number[];
     escalation_user_id: number | null;
+    notify: boolean;
   }
 
   const statusEl = document.querySelector<HTMLElement>("[data-queues-status]");
@@ -373,6 +380,8 @@ const person = (id: number | null): string => (id === null ? "None" : personLabe
       const changes: PutQueueRequest = {};
       const restricted = (field("restricted") as HTMLInputElement).checked;
       if (restricted !== original.restricted) changes.restricted = restricted;
+      const notify = (field("notify") as HTMLInputElement).checked;
+      if (notify !== original.notify) changes.notify = notify;
       const strategy = (field("strategy") as HTMLSelectElement).value as QueueStrategy;
       if (strategy !== original.strategy) changes.strategy = strategy;
       for (const name of ["assignee_user_id", "backup_user_id", "escalation_user_id"] as const) {
