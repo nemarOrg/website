@@ -13,6 +13,23 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **The Mail tab can hide filtered mail and shows why a ticket was filed quietly.**
+  Bulk and list mail, auto-replies, bounces and senders over the hourly cap are filed without an assignee or a notice, and the ticket list hides them unless you ask.
+  A new Filtered mail filter chooses between hidden, included and only filtered, and a filtered ticket shows a quiet marker naming the reason in plain words.
+  The ticket page shows the reason too, and the history reads "Filter cleared" when a person takes the ticket.
+- **An admin can mark a ticket as spam and block its sender in one step.**
+  The ticket page asks whether to block nothing, the sender's address or the sender's domain, with an optional reason, and confirms before it acts.
+  If the API says the sender's first message did not pass DMARC, an address block can be repeated after a second confirmation, because that address may be forged.
+  A domain block of such a sender is refused as the API says, and the API's own message is shown when an address or domain cannot be blocked.
+- **A Blocklist page under the Mail tab lists blocked senders and lets an admin add or remove one.**
+  An entry is an address or a domain with its subdomains, with the reason, who added it and when.
+  Removing an entry asks first, and every value is shown as plain text, never as a link.
+- **A queue can be run quietly.**
+  The queue form has an "Email a notice for new tickets" toggle, and the queue list shows whether each queue emails a notice.
+  A quiet queue still creates, assigns and lists tickets, and an escalation still sends its notice.
+
 ## [0.2.34] - 2026-10-26
 
 ### Added
