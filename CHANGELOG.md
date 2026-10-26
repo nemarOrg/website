@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.34] - 2026-10-26
+
 ### Added
 
 - **Admins can work support tickets from the admin portal's new Mail tab** (#479, ADR 0029).
@@ -33,7 +35,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   The ticket list has a Needs summary filter for closed tickets with none yet, and marks purged tickets, whose subject reads "(purged)".
   If a note's outcome is unknown (connection lost, timeout, a 5xx), Try again resends it under the same key and it is stored once.
 - **The API proxy forwards `Idempotency-Key`.**
-- **Release gate:** the production API must carry the mail routes (nemar-cli epic #1893) before this goes from `staging` to `main`.
+- **Requires the nemar-cli API 0.10.24 or later,** which carries the mail routes (nemar-cli epic #1893).
   A drift test compares the tab's closed lists (statuses, queue strategies, error codes) with nemar-cli's `shared/contract/mail-admin.ts`, so a change to either side fails CI until both agree.
 
 ### Changed
