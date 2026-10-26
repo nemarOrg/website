@@ -195,6 +195,8 @@ describe("spam and the blocklist", () => {
     expect(blocklistQuery({ cursor: "abc", limit: 0 })).toBe("");
     expect(blocklistQuery({ cursor: "1 or 1", limit: 101 })).toBe("");
     expect(blocklistQuery({ cursor: "42", limit: "25" })).toBe("cursor=42&limit=25");
+    expect(blocklistQuery({ cursor: "1".repeat(12) })).toBe(`cursor=${"1".repeat(12)}`);
+    expect(blocklistQuery({ cursor: "1".repeat(13) })).toBe("");
     expect(blocklistQuery({})).toBe("");
   });
 

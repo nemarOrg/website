@@ -406,7 +406,10 @@ export const TEXT_MAX = 20_000;
 export const SUMMARY_MAX = 4_000;
 export const ESCALATE_REASON_MAX = 500;
 export const AWAY_NOTE_MAX = 500;
-/** Longest reason on a spam block or a blocklist entry (backend `routes/admin/mail.ts`). */
+/**
+ * Longest reason a blocklist entry keeps: `REASON_MAX` in nemar-cli `services/mail-blocklist.ts`.
+ * The route schema accepts 500 and the service truncates to 200, so the form caps it here.
+ */
 export const BLOCK_REASON_MAX = 200;
 /** Longest `q` the list route accepts. */
 export const SEARCH_MAX = 100;

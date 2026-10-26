@@ -42,7 +42,9 @@ const strategyWord = (s: string): string =>
   (STRATEGY_WORD as Record<string, string>)[s] ?? displaySafeLine(s);
 const names = (ids: readonly number[]): string =>
   ids.length === 0 ? "None" : ids.map((id) => personLabel(directory, id)).join(", ");
-const noticeWord = (notify: boolean): string => (notify ? "Emailed" : "Quiet (no email)");
+// An API that predates `notify` omits it; a queue then emails, as the form defaults.
+const noticeWord = (notify: boolean | undefined): string =>
+  notify === false ? "Quiet (no email)" : "Emailed";
 const person = (id: number | null): string => (id === null ? "None" : personLabel(directory, id));
 ---
 

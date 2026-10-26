@@ -317,7 +317,7 @@ describe("screening (nemar-cli ADR 0113)", () => {
     expect(DETAIL).toContain('dialogId="mail-spam-force"');
     expect(DETAIL).toContain("needsForceConfirm(err, block, force)");
     expect(DETAIL).toContain("void spam(true)");
-    expect(DETAIL.match(/spam\(true\)/g)).toHaveLength(1);
+    expect(DETAIL.match(/spam\(true,/g)).toHaveLength(1);
   });
 
   it("lists the blocklist with paging, an add form and a confirmed remove", () => {
@@ -333,6 +333,25 @@ describe("screening (nemar-cli ADR 0113)", () => {
   it("renders no link from a blocklist value", () => {
     expect(BLOCKLIST).not.toMatch(/href=\{[^}]*entry\./);
     expect(BLOCKLIST).not.toMatch(/mailto:/);
+  });
+
+  it("shows a queue without notify as emailing, matching the form's default", () => {
+    expect(QUEUES).toContain('notify === false ? "Quiet (no email)" : "Emailed"');
+  });
+
+  it("labels the empty filter option and names every view that shows filtered tickets", () => {
+    expect(LIST).toContain("Default (hidden in the plain view)");
+    expect(LIST).toContain("search or Needs summary");
+  });
+
+  it("retries a forced block with the choice the API refused, not the radio", () => {
+    expect(DETAIL).toContain("spam(true, refusedBlock)");
+    expect(DETAIL).toContain("chosen ?? spamChoice()");
+  });
+
+  it("makes the blocklist add outcome visible", () => {
+    expect(BLOCKLIST).toContain("Already blocked.");
+    expect(BLOCKLIST).toContain("added=1");
   });
 
   it("links the Blocklist page from the Mail tab", () => {

@@ -1057,9 +1057,11 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       const value = checked?.value;
       return value === "address" || value === "domain" ? value : "none";
     }
-    async function spam(force: boolean): Promise<void> {
+    // The block choice the API refused as unverified, kept so the retry cannot drift from it.
+    let refusedBlock: SpamBlockChoice = "none";
+    async function spam(force: boolean, chosen?: SpamBlockChoice): Promise<void> {
       if (busy) return;
-      const block = spamChoice();
+      const block = chosen ?? spamChoice();
       clearError();
       say("Marking the ticket as spam…");
       setBusy(true);
@@ -1070,7 +1072,10 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
         say("");
         showError(mailErrorText(err));
         setBusy(false);
-        if (needsForceConfirm(err, block, force)) openDialog("mail-spam-force");
+        if (needsForceConfirm(err, block, force)) {
+          refusedBlock = block;
+          openDialog("mail-spam-force");
+        }
       }
     }
     root.querySelector("[data-spam-button]")?.addEventListener("click", () => {
@@ -1275,7 +1280,7 @@ const statusTone = ticket ? (STATUS_TONE[ticket.status] ?? "neutral") : "neutral
       if (dialogId === "mail-spam") {
         void spam(false);
       } else if (dialogId === "mail-spam-force") {
-        void spam(true);
+        void spam(true, refusedBlock);
       } else if (dialogId === "mail-escalate") {
         void run("Escalating", () => escalateTicket(ticketId, reasonEl?.value));
       } else if (dialogId === "mail-reply-send") {

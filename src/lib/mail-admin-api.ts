@@ -419,7 +419,7 @@ export function needsForceConfirm(
 // ---------------------------------------------------------------------------
 
 /** The blocklist cursor is the last entry id: digits only. */
-const BLOCK_CURSOR_PATTERN = /^\d{1,20}$/;
+const BLOCK_CURSOR_PATTERN = /^\d{1,12}$/;
 
 /** The blocklist's query string; a malformed cursor or limit is dropped, as for the ticket list. */
 export function blocklistQuery(input: {

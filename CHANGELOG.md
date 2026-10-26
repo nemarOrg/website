@@ -13,6 +13,8 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+This release needs nemar-cli API 0.10.25 or later, which adds the screening routes and fields.
+
 ### Added
 
 - **The Mail tab can hide filtered mail and shows why a ticket was filed quietly.**

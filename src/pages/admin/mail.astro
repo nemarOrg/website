@@ -183,13 +183,13 @@ const filtered = Boolean(
         name="filtered"
         aria-describedby="mail-filtered-hint"
       >
-        <option value="" selected={filteredMode === ""}>Hidden</option>
+        <option value="" selected={filteredMode === ""}>Default (hidden in the plain view)</option>
         <option value="include" selected={filteredMode === "include"}>Include</option>
         <option value="only" selected={filteredMode === "only"}>Only filtered</option>
       </select>
       <span class="mail-field__note mail-field__note--quiet" id="mail-filtered-hint">
-        Bulk mail, auto-replies, bounces and over-limit senders. Hidden unless you filter by
-        status, assignee or search.
+        Bulk mail, auto-replies, bounces and over-limit senders. Hidden in the plain
+        view, and shown when you filter by status, assignee, search or Needs summary.
       </span>
     </div>
     <div class="mail-field mail-field--search">

@@ -37,6 +37,8 @@ const cursor =
     blocklistQuery({ cursor: new URL(Astro.request.url).searchParams.get("cursor") }),
   ).get("cursor") ?? null;
 
+const justAdded = new URL(Astro.request.url).searchParams.get("added") === "1";
+
 const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
 let entries: readonly BlocklistEntry[] = [];
 let nextCursor: string | null = null;
@@ -79,6 +81,7 @@ const pageHref = (next: string | null): string => {
 
   <p class="mail-live" role="status" aria-live="polite" data-block-status></p>
   <p class="admin-action-error" role="alert" tabindex="-1" data-block-error hidden></p>
+  {justAdded && <p class="mail-live" role="status">Blocked.</p>}
   {loadError && <p class="admin-action-error" role="alert">{loadError}</p>}
 
   <section class="block-add" aria-labelledby="block-add-title">
@@ -462,8 +465,13 @@ const pageHref = (next: string | null): string => {
     try {
       const out = await addBlock({ kind, value, reason });
       // `created: false` is a success: the value was already blocked and the stored entry stays.
-      say(out.created ? "Blocked." : "Already blocked.");
-      location.reload();
+      if (out.created) {
+        location.assign("/admin/mail/blocklist?added=1");
+        return;
+      }
+      say("Already blocked. The existing entry is unchanged.");
+      form.reset();
+      setBusy(false);
     } catch (err) {
       say("");
       showError(blocklistErrorText(err));
