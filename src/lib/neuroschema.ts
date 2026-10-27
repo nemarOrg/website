@@ -119,6 +119,25 @@ export interface LandingVersion {
   version: string;
   doi: string | null;
   created_at: string;
+  /**
+   * Is this version a mirror of an OpenNeuro snapshot? Three values, and they are not a boolean
+   * (nemar-cli ADR 0111, decision 5; `LandingVersion` in nemar-cli
+   * `backend/src/services/data-router.ts` defines it):
+   *
+   * - `true`: an N.0.0 of an `on` dataset whose upstream snapshot NEMAR knows. Show the chip.
+   * - `false`: not a mirror: any dataset that is not an OpenNeuro mirror (every `nm` dataset, for
+   *   one), and any version that is not N.0.0 (NEMAR's own corrections are N.x.y).
+   * - `null`: an N.0.0 of an `on` dataset whose snapshot NEMAR could not establish, or has not
+   *   examined yet. Show no chip, and never present it as a mirror. It is not `false` either:
+   *   unknown is not "no" (nemar-cli ADR 0054).
+   *
+   * Optional because a backend older than the release that added the flag omits the key from
+   * every version. Absent means "this backend does not say", which is a different thing from
+   * `null` ("this backend looked and does not know"); `listMirrorVersions` in `provenance.ts` is
+   * the one place that tells them apart. The public wire carries this flag only, never the
+   * upstream tag it was derived from.
+   */
+  mirror?: boolean | null;
   manifest_url: string;
   browse_url: string;
 }

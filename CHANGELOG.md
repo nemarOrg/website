@@ -13,6 +13,16 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Changed
+
+- **The mirror chip follows the API's `mirror` flag, not the version number** (#478).
+  The dataset page used to call every `vN.0.0` of an OpenNeuro dataset a mirror.
+  It now reads the flag the landing carries on each version, `true`, `false` or `null` (nemar-cli ADR 0111, decision 5).
+  The "mirror" chip in the version switcher and the "View as-imported mirror" action in the source toggle appear only for `true`, and the action opens the newest of those.
+  A `null` version is an N.0.0 whose OpenNeuro snapshot NEMAR does not know or has not examined; it gets no chip and is never offered as the mirror.
+  While a mirror's snapshot is unrecorded, its N.0.0 has no chip.
+  A backend that omits the flag gets the old rule, every `vN.0.0`, until a later change removes it.
+
 ## [0.2.35] - 2026-10-26
 
 This release needs nemar-cli API 0.10.25 or later, which adds the screening routes and fields.
