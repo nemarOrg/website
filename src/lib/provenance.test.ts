@@ -72,8 +72,8 @@ function flaggedLanding(flags: Array<[version: string, mirror: boolean | null]>)
   };
 }
 
-// The mirror flag (website#478; nemar-cli ADR 0111, decision 5). Four landing payloads drive the
-// cases below, and none is typed by hand:
+// The mirror flag (website#478; nemar-cli ADR 0111, decision 5). Four landing payloads, none typed
+// by hand, drive the main flag cases below:
 //  - landing-mirror-flag-on000001.json: an OpenNeuro mirror with every value of the flag. Newest
 //    first it reads v4.0.0 true, v3.0.0 null, v2.0.0 null, v1.0.1 false, v1.0.0 true.
 //  - landing-mirror-flag-on000001-unexamined.json: the same dataset with no snapshot recorded on
@@ -89,6 +89,9 @@ function flaggedLanding(flags: Array<[version: string, mirror: boolean | null]>)
 // branch for nemarOrg/nemar-cli#1046, and they are not captures of production. The one seed that
 // differs is a DOI, which reads `...v4.0.0` for the stored-`v4.0.0` row where that test builds
 // `...vv4.0.0`.
+// A few cases need a shape no recording holds (a mixed list, a null version that is the newest, a
+// scrambled order, an entry without the key, a single version). They build their payloads by hand
+// with `flaggedLanding` and `versionEntry`.
 const mirrorLanding = landingOn000001 as LandingPayload;
 const unexaminedLanding = landingOn000001Unexamined as LandingPayload;
 const nemarLanding = landingNm000200 as LandingPayload;
