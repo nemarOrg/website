@@ -1,0 +1,28 @@
+{
+  "dataset_id": "on000001",
+  "latest": "v2.0.0",
+  "metadata_url": "/on000001/metadata.json",
+  "versions": [
+    {
+      "version": "v2.0.0",
+      "doi": "10.82901/nemar.on000001.v2.0.0",
+      "created_at": "2026-02-01 00:00:00",
+      "mirror": null,
+      "manifest_url": "/on000001/v2.0.0/manifest.json",
+      "browse_url": "/on000001/v2.0.0/"
+    },
+    {
+      "version": "v1.0.0",
+      "doi": "10.82901/nemar.on000001.v1.0.0",
+      "created_at": "2026-01-01 00:00:00",
+      "mirror": null,
+      "manifest_url": "/on000001/v1.0.0/manifest.json",
+      "browse_url": "/on000001/v1.0.0/"
+    }
+  ],
+  "archive": {
+    "status": null,
+    "size": null,
+    "skip_reason": null
+  }
+}
