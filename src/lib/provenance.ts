@@ -10,14 +10,18 @@ export interface DerivedProvenance {
   originalDoi: string | null;
   originalUrl: string | null;
   /**
-   * Highest `vN.0.0` — the most recent OpenNeuro pull. Per NEMAR policy:
+   * The newest mirror version: the most recent OpenNeuro pull. Per NEMAR policy:
    * every pull from OpenNeuro is a major version bump on the NEMAR side,
    * regardless of whether the upstream OpenNeuro change was minor or major.
    * `vN.x.y` for x>0 or y>0 are NEMAR-side modifications between pulls.
    * Tracked in nemarOrg/nemar-cli#448.
+   *
+   * Which versions are mirrors is the API's flag (see `listMirrorVersions`), so
+   * this is null when none is flagged `true`, including when every `vN.0.0` is
+   * `null` because its OpenNeuro snapshot is not known.
    */
   mirrorVersion: string | null;
-  /** Every `vN.0.0` in the landing payload, newest-first. */
+  /** Every mirror version in the landing payload, newest-first. */
   allMirrorVersions: string[];
 }
 
@@ -38,8 +42,9 @@ const OPENNEURO_HOST_PATTERN = /openneuro\.org\/datasets\/(ds\d{4,7})/i;
  *     2. `external_links.github_url` for a sibling-pattern hint.
  *     3. The dataset id itself stripped of the `on` prefix as a last-ditch
  *        guess (`on005262` -> `ds005262`).
- *   Whatever we find, we look for the lowest-numbered version in the
- *   landing payload and use that as the mirror version.
+ *   Whatever we find, the mirror versions come from the landing payload
+ *   (`listMirrorVersions`: the versions the API flags as mirrors) and the
+ *   newest of them is the mirror version.
  */
 export function detectProvenance(
   metadata: Pick<NeuroschemaDataset, "dataset_id" | "related_identifiers" | "external_links">,
@@ -108,26 +113,49 @@ export function detectProvenance(
 }
 
 /**
- * List every `vN.0.0` version in the landing payload, newest-first.
+ * A version number that looks like an OpenNeuro pull. This is the guess the
+ * page made before the API said which versions are mirrors; it survives only
+ * as the fallback in `listMirrorVersions`.
+ */
+const GUESSED_MIRROR_VERSION = /^v?\d+\.0\.0$/;
+
+/**
+ * List the mirror versions in the landing payload, newest-first.
  *
- * Per NEMAR versioning policy (nemarOrg/nemar-cli#448):
- * every OpenNeuro pull bumps the major version on the NEMAR side
- * (regardless of whether the upstream OpenNeuro change was minor or major).
- * Intermediate `vN.x.y` (x>0 or y>0) versions represent NEMAR-side
- * modifications between pulls. So the set of "as-imported" mirror snapshots
- * is exactly the `vN.0.0` versions.
+ * Which versions are mirrors is the API's call, not the version number's
+ * (nemar-cli ADR 0111, decision 5). Every `versions[]` entry carries
+ * `mirror: true | false | null`, and only `true` is listed. `false` is not a
+ * mirror. `null` is an N.0.0 whose OpenNeuro snapshot NEMAR does not know or
+ * has not examined, so it is left out as well and never listed on the strength
+ * of its number.
+ *
+ * TEMPORARY FALLBACK; website#478 states when to delete it. A backend
+ * older than the release that added the flag omits the key from every
+ * version. While NO version carries it, this keeps the old guess, every
+ * `vN.0.0` (each OpenNeuro pull is a NEMAR major bump and the `vN.x.y` between
+ * are NEMAR's own corrections, nemarOrg/nemar-cli#448), so a site built with
+ * this code does not lose every chip when it meets such a backend.
+ *
+ * The test is "does any version carry the key" on the whole payload, never per
+ * version. Once the key is there, `null` or a missing key on one entry means
+ * "not a mirror"; falling back to the number for that entry would bring back
+ * the guess that `null` exists to stop. Delete the fallback only once the
+ * production API sends the key on every version.
  */
 export function listMirrorVersions(landing: LandingPayload | null): string[] {
   if (!landing) return [];
+  // Parsed JSON has no `undefined`: an entry either has the key (true, false, null) or lacks it.
+  const hasFlag = landing.versions.some((v) => v.mirror !== undefined);
   return [...landing.versions]
-    .filter((v) => /^v?\d+\.0\.0$/.test(v.version))
+    .filter((v) => (hasFlag ? v.mirror === true : GUESSED_MIRROR_VERSION.test(v.version)))
     .sort((a, b) => compareVersionTag(b.version, a.version))
     .map((v) => v.version);
 }
 
 /**
- * Latest mirror version (highest `vN.0.0`) — the most recent OpenNeuro pull.
- * Returns null when no `vN.0.0` exists in the landing payload, OR when there's
+ * Latest mirror version, the most recent OpenNeuro pull (see
+ * `listMirrorVersions` for what counts as a mirror).
+ * Returns null when the landing payload has no mirror version, OR when there's
  * only one version overall (mirror CTA is redundant when latest == mirror).
  */
 export function pickMirrorVersion(landing: LandingPayload | null): string | null {

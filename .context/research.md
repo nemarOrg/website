@@ -71,7 +71,11 @@ Per [nemar-cli#448 comment](https://github.com/nemarOrg/nemar-cli/issues/448#iss
 
 > Each pull from OpenNeuro bumps the NEMAR major version. Intermediate `vN.x.y` versions are NEMAR-side fixes between pulls.
 
-So `v1.0.0` = first OpenNeuro import, `v1.0.1` / `v1.1.0` = NEMAR fixes, `v2.0.0` = next pull. `listMirrorVersions()` filters to the `vN.0.0` set. ProvenanceToggle's "View as-imported mirror" CTA points at the highest `vN.0.0`.
+So `v1.0.0` = first OpenNeuro import, `v1.0.1` / `v1.1.0` = NEMAR fixes, `v2.0.0` = next pull.
+`listMirrorVersions()` used to filter to the `vN.0.0` set on that guess alone.
+It now lists the versions the API flags `mirror: true` (website#478, nemar-cli ADR 0111 decision 5), and a `null` N.0.0 (snapshot unknown) is not one.
+Only a payload with no `mirror` key at all, from a backend older than the flag, still gets the `vN.0.0` guess.
+ProvenanceToggle's "View as-imported mirror" CTA points at the newest of those.
 
 ## Cloudflare adapter gotchas
 
