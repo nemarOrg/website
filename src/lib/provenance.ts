@@ -129,7 +129,7 @@ const GUESSED_MIRROR_VERSION = /^v?\d+\.0\.0$/;
  * has not examined, so it is left out as well and never listed on the strength
  * of its number.
  *
- * TEMPORARY FALLBACK, removed by PR 8c2 of nemarOrg/nemar-cli#1914. A backend
+ * TEMPORARY FALLBACK; website#478 states when to delete it. A backend
  * older than the release that added the flag omits the key from every
  * version. While NO version carries it, this keeps the old guess, every
  * `vN.0.0` (each OpenNeuro pull is a NEMAR major bump and the `vN.x.y` between
