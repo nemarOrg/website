@@ -10,11 +10,20 @@ Do not edit these files by hand; change the source and regenerate.
 | `black` | one color, black, for print and photocopy |
 | `white` | one color, white, for photos and dark backgrounds |
 
-Each variant comes as the full logo (`nemar-logo-*`) and the brain alone (`nemar-mark-*`), in:
+Each variant comes in three shapes:
+
+| File | Shape | Use it for |
+|---|---|---|
+| `nemar-logo-*` | horizontal, brain beside NEMAR | headers, documents, slides |
+| `nemar-stacked-*` | square, brain above NEMAR | posters, covers, social cards |
+| `nemar-mark-*` | square, brain only | avatars, app icons, favicons |
+
+Formats:
 
 - **SVG**: vector, scales to any size. Preferred for the web, Word, PowerPoint, Keynote, and Illustrator.
 - **PDF**: vector, for print vendors and LaTeX.
-- **PNG**: transparent background, 4000 px wide for the logo and 2400 px wide for the mark, enough for print up to roughly 13 inches wide at 300 dpi.
+- **PNG**: transparent background, 4000 px wide for the horizontal logo and 2400 px square for the others, enough for print up to roughly 13 inches wide at 300 dpi.
+- **PNG on a flat ground** (`*-on-white.png`, `*-on-navy.png`): the square color and reverse files again with a solid background, for avatar and upload forms that reject transparency.
 
 The wordmark is outlined paths, so no font is needed.
 Leave clear space around the logo equal to the height of the letter N, and do not recolor, stretch, or add effects.

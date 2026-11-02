@@ -36,7 +36,7 @@ const VARIANTS = [
   {
     name: "reverse",
     note: "full color, for navy or dark backgrounds",
-    text: "#f8fafc",
+    text: "#f1f5f9",
     brain: "#5bbad5",
     electrode: "#f4d06b",
     electrodeOpacity: "0.85",
@@ -59,8 +59,6 @@ const VARIANTS = [
   },
 ];
 
-const PNG_WIDTH = { logo: 4000, mark: 2400 };
-
 const source = await Bun.file("src/assets/nemar-logo.svg").text();
 
 /** Replace the theme variables in the source with this variant's colors. */
@@ -80,10 +78,15 @@ function standalone(svg, title) {
   )}\n`;
 }
 
-// The wordmark is the first <path> (before the brain's first <g>). The mark is
-// everything inside the two <g> groups, cropped to the brain's bounds.
+// Source layout: the wordmark is the first <path>, then the brain's <g> groups.
+const wordStart = source.indexOf("<path");
 const markStart = source.indexOf("<g ");
-if (markStart < 0) throw new Error("nemar-logo.svg changed shape: no brain groups found");
+if (wordStart < 0 || markStart < wordStart) {
+  throw new Error("nemar-logo.svg changed shape: expected a wordmark path then brain groups");
+}
+const end = source.lastIndexOf("</svg>");
+const wordBody = source.slice(wordStart, markStart);
+const markBody = source.slice(markStart, end);
 const [, , vbW, vbH] = source
   .match(/viewBox="([\d. -]+)"/)[1]
   .split(/\s+/)
@@ -91,31 +94,53 @@ const [, , vbW, vbH] = source
 
 await initWasm(await Bun.file("node_modules/@resvg/resvg-wasm/index_bg.wasm").arrayBuffer());
 
-/** Tight bounding box of the brain alone, so the mark SVG has no wordmark gap. */
-function markBounds() {
-  const brainOnly = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbW} ${vbH}">${source.slice(markStart, source.lastIndexOf("</svg>"))}</svg>`;
-  const box = new Resvg(
-    brainOnly
-      .replaceAll("var(--brand-accent, currentColor)", "#000")
-      .replaceAll("var(--brand-electrode, currentColor)", "#000"),
-  ).innerBBox();
-  if (!box) throw new Error("could not measure the brain mark");
+/** Tight bounding box of a piece of the artwork, measured by resvg. */
+function measure(body) {
+  const flat = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbW} ${vbH}">${body}</svg>`
+    .replaceAll("currentColor", "#000")
+    .replace(/var\(--[a-z-]+, #000\)/g, "#000");
+  const box = new Resvg(flat).innerBBox();
+  if (!box) throw new Error("could not measure the artwork");
   return box;
 }
 
-const bounds = markBounds();
-const pad = 0.6;
-const markBox = {
-  x: +(bounds.x - pad).toFixed(2),
-  y: +(bounds.y - pad).toFixed(2),
-  w: +(bounds.width + pad * 2).toFixed(2),
-  h: +(bounds.height + pad * 2).toFixed(2),
-};
+const markBox = measure(markBody);
+const wordBox = measure(wordBody);
+const SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
+const num = (n) => +n.toFixed(2);
 
+/** The brain alone, centered in an exact square with clear space around it. */
 function markSvg() {
-  const body = source.slice(markStart, source.lastIndexOf("</svg>"));
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${markBox.x} ${markBox.y} ${markBox.w} ${markBox.h}" aria-label="NEMAR" role="img">${body}</svg>`;
+  const side = Math.max(markBox.width, markBox.height) * 1.12;
+  const x = markBox.x + markBox.width / 2 - side / 2;
+  const y = markBox.y + markBox.height / 2 - side / 2;
+  return `<svg ${SVG_NS} viewBox="${num(x)} ${num(y)} ${num(side)} ${num(side)}" aria-label="NEMAR" role="img">${markBody}</svg>`;
 }
+
+/** Brain above the NEMAR wordmark, centered in an exact square. */
+function stackedSvg() {
+  const SIDE = 300;
+  const wordW = 236;
+  const wordK = wordW / wordBox.width;
+  const wordH = wordBox.height * wordK;
+  const markH = 150;
+  const markK = markH / markBox.height;
+  const markW = markBox.width * markK;
+  const gap = 18;
+  const top = (SIDE - (markH + gap + wordH)) / 2;
+  const markT = `translate(${num((SIDE - markW) / 2)} ${num(top)}) scale(${num(markK)}) translate(${num(-markBox.x)} ${num(-markBox.y)})`;
+  const wordT = `translate(${num((SIDE - wordW) / 2)} ${num(top + markH + gap)}) scale(${num(wordK)}) translate(${num(-wordBox.x)} ${num(-wordBox.y)})`;
+  return `<svg ${SVG_NS} viewBox="0 0 ${SIDE} ${SIDE}" aria-label="NEMAR" role="img"><g transform="${markT}">${markBody}</g><g transform="${wordT}">${wordBody}</g></svg>`;
+}
+
+const KINDS = [
+  { kind: "logo", svg: source, title: "NEMAR logo", px: 4000 },
+  { kind: "mark", svg: markSvg(), title: "NEMAR brain mark", px: 2400, square: true },
+  { kind: "stacked", svg: stackedSvg(), title: "NEMAR stacked logo", px: 2400, square: true },
+];
+// Avatars and some upload forms reject transparency, so square files also get
+// a flat-background PNG on the ground their variant is meant for.
+const GROUND = { color: ["on-white", "#ffffff"], reverse: ["on-navy", "#0a1224"] };
 
 await mkdir(OUT, { recursive: true });
 
@@ -124,20 +149,21 @@ if (!hasRsvg) console.warn("rsvg-convert not found: skipping PDF output");
 
 const written = [];
 for (const v of VARIANTS) {
-  for (const [kind, raw, title] of [
-    ["logo", source, "NEMAR logo"],
-    ["mark", markSvg(), "NEMAR brain mark"],
-  ]) {
+  for (const { kind, svg: raw, title, px, square } of KINDS) {
     const base = `nemar-${kind}-${v.name}`;
     const svg = standalone(bake(raw, v), title);
     await writeFile(`${OUT}/${base}.svg`, svg);
     written.push(`${base}.svg`);
 
-    const png = new Resvg(svg, { fitTo: { mode: "width", value: PNG_WIDTH[kind] } })
-      .render()
-      .asPng();
-    await writeFile(`${OUT}/${base}.png`, png);
+    const render = (options) =>
+      new Resvg(svg, { fitTo: { mode: "width", value: px }, ...options }).render().asPng();
+    await writeFile(`${OUT}/${base}.png`, render({}));
     written.push(`${base}.png`);
+    if (square && GROUND[v.name]) {
+      const [suffix, background] = GROUND[v.name];
+      await writeFile(`${OUT}/${base}-${suffix}.png`, render({ background }));
+      written.push(`${base}-${suffix}.png`);
+    }
 
     if (hasRsvg) {
       const pdf = spawnSync("rsvg-convert", [
@@ -162,11 +188,20 @@ Do not edit these files by hand; change the source and regenerate.
 |---|---|
 ${VARIANTS.map((v) => `| \`${v.name}\` | ${v.note} |`).join("\n")}
 
-Each variant comes as the full logo (\`nemar-logo-*\`) and the brain alone (\`nemar-mark-*\`), in:
+Each variant comes in three shapes:
+
+| File | Shape | Use it for |
+|---|---|---|
+| \`nemar-logo-*\` | horizontal, brain beside NEMAR | headers, documents, slides |
+| \`nemar-stacked-*\` | square, brain above NEMAR | posters, covers, social cards |
+| \`nemar-mark-*\` | square, brain only | avatars, app icons, favicons |
+
+Formats:
 
 - **SVG**: vector, scales to any size. Preferred for the web, Word, PowerPoint, Keynote, and Illustrator.
 - **PDF**: vector, for print vendors and LaTeX.
-- **PNG**: transparent background, ${PNG_WIDTH.logo} px wide for the logo and ${PNG_WIDTH.mark} px wide for the mark, enough for print up to roughly 13 inches wide at 300 dpi.
+- **PNG**: transparent background, 4000 px wide for the horizontal logo and 2400 px square for the others, enough for print up to roughly 13 inches wide at 300 dpi.
+- **PNG on a flat ground** (\`*-on-white.png\`, \`*-on-navy.png\`): the square color and reverse files again with a solid background, for avatar and upload forms that reject transparency.
 
 The wordmark is outlined paths, so no font is needed.
 Leave clear space around the logo equal to the height of the letter N, and do not recolor, stretch, or add effects.
