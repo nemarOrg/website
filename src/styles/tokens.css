@@ -274,6 +274,11 @@
   --color-link: #93c5fd;
   --color-link-hover: #bfdbfe;
 
+  /* Brand — same flip as the prefers-color-scheme block above. Without it an
+     explicit dark choice kept the deep gold on the navy ground (logo electrodes
+     and --news-event). */
+  --brand-gold: var(--brand-gold-light);
+
   /* Semantic — dark-lifted where used as text (see :root). Success/warning
      reuse the exact hexes already dark-lifted on --license-public /
      --license-sharealike below (same light values too), rather than
