@@ -163,7 +163,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           <img src="/logos/ucsd-library.png" alt="UCSD Library" loading="lazy" />
         </a>
         <a
-          class="logo-chip logo-chip--ezid logo-chip--colorable"
+          class="logo-chip logo-chip--colorable"
           href="https://ezid.cdlib.org"
           target="_blank"
           rel="noopener noreferrer external"
@@ -179,6 +179,15 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
           aria-label="OpenNeuro (opens in a new tab)"
         >
           <img src="/logos/openneuro.png" alt="OpenNeuro" loading="lazy" />
+        </a>
+        <a
+          class="logo-chip logo-chip--colorable"
+          href="https://neurobagel.org"
+          target="_blank"
+          rel="noopener noreferrer external"
+          aria-label="Neurobagel (opens in a new tab)"
+        >
+          <img src="/logos/neurobagel.svg" alt="Neurobagel" loading="lazy" />
         </a>
         <a
           class="logo-chip"
@@ -370,14 +379,6 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
   .logo-chip--sdsc img {
     block-size: 30px;
   }
-  /* EZID's wordmark+tagline lockup is ~7.3:1, wider than every other mark
-     here fits under the shared 160px cap without object-fit:contain
-     letterboxing it down from 34px to ~22px tall. Full width at 34px is
-     ~248px; 250px gives it headroom to render at the same height as its
-     neighbors instead of shrinking. */
-  .logo-chip--ezid img {
-    max-inline-size: 250px;
-  }
   .site-footer__maker .site-footer__credits-label {
     margin-block-end: var(--space-2);
   }
@@ -395,7 +396,7 @@ const versionUrl = isRelease ? `${REPO_URL}/releases/tag/v${APP_VERSION}` : `${R
      instead of staying flattened: SDSC, AWS, OpenNeuro, UCSD Library, and NIH
      are navy/gray paired with a warm or blue accent; SCCN is a single deep
      navy blue; EZID is a single teal (#05788C), its own brand color from
-     ezid.cdlib.org. BIDS and HED are excluded on purpose: both are authored
+     ezid.cdlib.org; Neurobagel is an orange-to-magenta gradient. BIDS and HED are excluded on purpose: both are authored
      as flat black/white with no brand hue underneath, so there's nothing for
      a hover reveal to show, and they keep the always-legible normalized
      treatment.
