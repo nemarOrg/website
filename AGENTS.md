@@ -118,6 +118,7 @@ src/
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
+public/brand/                         GENERATED press logo kit (SVG, PDF, transparent PNG; color, reverse, black, white); rebuild with `bun scripts/generate-brand-kit.mjs`, never hand-edit
 public/vendor/bids-validator/<ver>/   GENERATED worker bundle of the BIDS validator + SHA256SUMS + provenance + licenses (ADR 0028); never hand-edited
 validator-version.json                copy of nemar-cli's validator pin; CI fails when the two differ
 scripts/vendor-bids-validator.ts      Deno script that rebuilds public/vendor/ from the pin (not part of `bun run build`)

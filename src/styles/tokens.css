@@ -12,6 +12,10 @@
   --brand-gold-light: #f4d06b;
   --brand-gold-deep: #b8860b;
   --brand-accent: var(--brand-teal);
+  /* Text on surfaces that stay navy in both themes (hero panels, the closing
+     band). --color-fg-inverse flips to navy in dark mode, which is the right
+     answer for the inverse of the page ground but invisible on a navy panel. */
+  --on-navy: #f8fafc;
   --brand-gold: var(--brand-gold-deep);
   --brand-electrode: var(--brand-gold);
 
@@ -269,6 +273,11 @@
   --color-focus: #60a5fa;
   --color-link: #93c5fd;
   --color-link-hover: #bfdbfe;
+
+  /* Brand — same flip as the prefers-color-scheme block above. Without it an
+     explicit dark choice kept the deep gold on the navy ground (logo electrodes
+     and --news-event). */
+  --brand-gold: var(--brand-gold-light);
 
   /* Semantic — dark-lifted where used as text (see :root). Success/warning
      reuse the exact hexes already dark-lifted on --license-public /
