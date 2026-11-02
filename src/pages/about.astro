@@ -470,7 +470,7 @@ import Base from "../layouts/Base.astro";
   .button--primary:hover,
   .button--primary:focus-visible {
     background: var(--brand-purple);
-    color: var(--color-fg-inverse);
+    color: var(--on-navy);
   }
 
   .button--secondary {
@@ -504,7 +504,8 @@ import Base from "../layouts/Base.astro";
     border: 1px solid color-mix(in srgb, var(--brand-teal) 40%, var(--color-border));
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-lg);
-    color: var(--color-fg-inverse);
+    color: var(--on-navy);
+    container: architecture / inline-size;
     justify-self: end;
     max-inline-size: 560px;
     padding: var(--space-6);
@@ -519,7 +520,7 @@ import Base from "../layouts/Base.astro";
 
   .architecture-heading {
     align-items: baseline;
-    border-block-end: 1px solid color-mix(in srgb, var(--color-fg-inverse) 16%, transparent);
+    border-block-end: 1px solid color-mix(in srgb, var(--on-navy) 16%, transparent);
     gap: var(--space-3);
     justify-content: space-between;
     padding-block-end: var(--space-4);
@@ -536,7 +537,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .architecture-status {
-    color: color-mix(in srgb, var(--color-fg-inverse) 64%, transparent);
+    color: color-mix(in srgb, var(--on-navy) 64%, transparent);
     font-family: var(--font-mono);
     font-size: 0.64rem;
   }
@@ -550,7 +551,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .architecture-node {
-    border: 1px solid color-mix(in srgb, var(--color-fg-inverse) 32%, transparent);
+    border: 1px solid color-mix(in srgb, var(--on-navy) 32%, transparent);
     border-radius: var(--radius-md);
     display: grid;
     gap: 0.35rem;
@@ -568,13 +569,13 @@ import Base from "../layouts/Base.astro";
 
   .architecture-node > span:last-child,
   .architecture-access span {
-    color: color-mix(in srgb, var(--color-fg-inverse) 70%, transparent);
+    color: color-mix(in srgb, var(--on-navy) 70%, transparent);
     font-size: var(--fs-xs);
     line-height: var(--lh-snug);
   }
 
   .architecture-node--source {
-    border-color: color-mix(in srgb, var(--color-fg-inverse) 60%, transparent);
+    border-color: color-mix(in srgb, var(--on-navy) 60%, transparent);
     min-inline-size: 0;
   }
 
@@ -584,7 +585,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .architecture-node--core .architecture-node__label {
-    color: var(--brand-gold);
+    color: var(--brand-gold-light);
   }
 
   .architecture-arrow {
@@ -618,8 +619,8 @@ import Base from "../layouts/Base.astro";
 
   .architecture-roadmap {
     align-items: baseline;
-    background: color-mix(in srgb, var(--brand-gold) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--brand-gold) 70%, transparent);
+    background: color-mix(in srgb, var(--brand-gold-light) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--brand-gold-light) 70%, transparent);
     border-radius: var(--radius-md);
     flex-wrap: wrap;
     gap: 0.45rem 0.75rem;
@@ -627,7 +628,7 @@ import Base from "../layouts/Base.astro";
   }
 
   .architecture-roadmap .architecture-node__label {
-    color: var(--brand-gold);
+    color: var(--brand-gold-light);
   }
 
   .architecture-roadmap strong {
@@ -644,17 +645,17 @@ import Base from "../layouts/Base.astro";
   }
 
   .architecture-roadmap__description {
-    color: color-mix(in srgb, var(--color-fg-inverse) 70%, transparent);
+    color: color-mix(in srgb, var(--on-navy) 70%, transparent);
   }
 
   .architecture-roadmap__planned {
-    border-block-start: 1px solid color-mix(in srgb, var(--brand-gold) 35%, transparent);
-    color: var(--brand-gold);
+    border-block-start: 1px solid color-mix(in srgb, var(--brand-gold-light) 35%, transparent);
+    color: var(--brand-gold-light);
     padding-block-start: 0.65rem;
   }
 
   .architecture-footnote {
-    color: color-mix(in srgb, var(--color-fg-inverse) 56%, transparent);
+    color: color-mix(in srgb, var(--on-navy) 56%, transparent);
     font-family: var(--font-mono);
     font-size: 0.65rem;
     line-height: var(--lh-relaxed);
@@ -890,7 +891,7 @@ import Base from "../layouts/Base.astro";
 
   .closing-card {
     border-block-start: 0;
-    color: var(--color-fg-inverse);
+    color: var(--on-navy);
     padding-block: var(--space-8);
   }
 
@@ -914,8 +915,8 @@ import Base from "../layouts/Base.astro";
   }
 
   .closing-links a {
-    border-block-end: 1px solid color-mix(in srgb, var(--color-fg-inverse) 25%, transparent);
-    color: var(--color-fg-inverse);
+    border-block-end: 1px solid color-mix(in srgb, var(--on-navy) 25%, transparent);
+    color: var(--on-navy);
     display: flex;
     font-weight: var(--fw-semibold);
     justify-content: space-between;
@@ -927,6 +928,30 @@ import Base from "../layouts/Base.astro";
   .closing-links a:focus-visible {
     border-block-end-color: var(--brand-teal);
     color: var(--brand-teal);
+  }
+
+  /* The flow is five columns; below about 440px of card width the 0.68rem
+     tracked labels (CONTRACTS) no longer fit a node and break mid-word, so the
+     card stacks by its own width rather than by the viewport's. */
+  @container architecture (max-width: 440px) {
+    .architecture-flow {
+      align-items: stretch;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .architecture-arrow {
+      align-self: center;
+      transform: rotate(90deg);
+    }
+
+    .architecture-node {
+      min-block-size: auto;
+    }
+
+    .architecture-access > div {
+      align-items: flex-start;
+    }
   }
 
   @media (max-width: 820px) {
@@ -960,24 +985,6 @@ import Base from "../layouts/Base.astro";
 
     .about-hero h1 {
       max-inline-size: none;
-    }
-
-    .architecture-flow {
-      align-items: stretch;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .architecture-arrow {
-      transform: rotate(90deg);
-    }
-
-    .architecture-node {
-      min-block-size: auto;
-    }
-
-    .architecture-access > div {
-      align-items: flex-start;
     }
 
     .mission-grid,
