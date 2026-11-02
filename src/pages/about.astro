@@ -930,10 +930,12 @@ import Base from "../layouts/Base.astro";
     color: var(--brand-teal);
   }
 
-  /* The flow is five columns; below about 440px of card width the 0.68rem
-     tracked labels (CONTRACTS) no longer fit a node and break mid-word, so the
-     card stacks by its own width rather than by the viewport's. */
-  @container architecture (max-width: 440px) {
+  /* The flow is five columns; when the card's content box (its width less the
+     padding and border) drops below about 420px, the 0.68rem tracked labels
+     (CONTRACTS) no longer fit a node and break mid-word. The card stacks by
+     its own width rather than by the viewport's. The 560px card has a 510px
+     content box, and the labels need roughly 422px, so there is margin. */
+  @container architecture (max-width: 420px) {
     .architecture-flow {
       align-items: stretch;
       display: flex;
