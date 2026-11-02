@@ -23,9 +23,9 @@ Formats:
 - **SVG**: vector, scales to any size. Preferred for the web, Word, PowerPoint, Keynote, and Illustrator.
 - **PDF**: vector, for print vendors and LaTeX.
 - **PNG**: transparent background, 4000 px wide for the horizontal logo and 2400 px square for the others, enough for print up to roughly 13 inches wide at 300 dpi.
-- **PNG on a flat ground** (`*-on-white.png`, `*-on-navy.png`): the square color and reverse files again with a solid background, for avatar and upload forms that reject transparency.
+- **PNG on a flat ground** (`*-on-white.png`, `*-on-navy.png`; the navy is the site's dark page ground, `#0a1224`): the square color and reverse files again with a solid background, for avatar and upload forms that reject transparency.
 
 The wordmark is outlined paths, so no font is needed.
 Leave clear space around the logo equal to the height of the letter N, and do not recolor, stretch, or add effects.
 
-Colors: wordmark navy `#0f172a`, brain teal `#5bbad5`, electrodes gold `#b8860b` (light backgrounds) or `#f4d06b` (dark backgrounds).
+Colors: wordmark ink `#0f172a`, brain teal `#5bbad5`, electrodes gold `#b8860b` (light backgrounds) or `#f4d06b` (dark backgrounds).

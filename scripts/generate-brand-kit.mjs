@@ -63,11 +63,19 @@ const source = await Bun.file("src/assets/nemar-logo.svg").text();
 
 /** Replace the theme variables in the source with this variant's colors. */
 function bake(svg, v) {
-  return svg
+  const out = svg
     .replaceAll('fill="currentColor"', `fill="${v.text}"`)
     .replaceAll('fill="var(--brand-accent, currentColor)"', `fill="${v.brain}"`)
     .replaceAll('fill="var(--brand-electrode, currentColor)"', `fill="${v.electrode}"`)
     .replace('opacity="0.85"', `opacity="${v.electrodeOpacity}"`);
+  // A source edit that renames a variable or the opacity must fail loudly here,
+  // not ship a file that only renders inside this site.
+  if (/var\(|currentColor/.test(out) || !out.includes(`opacity="${v.electrodeOpacity}"`)) {
+    throw new Error(
+      `nemar-logo.svg changed: unresolved theme variable or opacity in the ${v.name} variant`,
+    );
+  }
+  return out;
 }
 
 /** Adds the XML prolog and a <title> so the file is self-describing. */
@@ -144,8 +152,11 @@ const GROUND = { color: ["on-white", "#ffffff"], reverse: ["on-navy", "#0a1224"]
 
 await mkdir(OUT, { recursive: true });
 
-const hasRsvg = spawnSync("rsvg-convert", ["--version"]).status === 0;
-if (!hasRsvg) console.warn("rsvg-convert not found: skipping PDF output");
+// The README promises PDFs, so a machine without rsvg-convert must not quietly
+// leave stale ones next to fresh SVGs and PNGs.
+if (spawnSync("rsvg-convert", ["--version"]).status !== 0) {
+  throw new Error("rsvg-convert is required to write the PDFs (brew install librsvg)");
+}
 
 const written = [];
 for (const v of VARIANTS) {
@@ -165,17 +176,15 @@ for (const v of VARIANTS) {
       written.push(`${base}-${suffix}.png`);
     }
 
-    if (hasRsvg) {
-      const pdf = spawnSync("rsvg-convert", [
-        "-f",
-        "pdf",
-        "-o",
-        `${OUT}/${base}.pdf`,
-        `${OUT}/${base}.svg`,
-      ]);
-      if (pdf.status !== 0) throw new Error(`rsvg-convert failed for ${base}: ${pdf.stderr}`);
-      written.push(`${base}.pdf`);
-    }
+    const pdf = spawnSync("rsvg-convert", [
+      "-f",
+      "pdf",
+      "-o",
+      `${OUT}/${base}.pdf`,
+      `${OUT}/${base}.svg`,
+    ]);
+    if (pdf.status !== 0) throw new Error(`rsvg-convert failed for ${base}: ${pdf.stderr}`);
+    written.push(`${base}.pdf`);
   }
 }
 
@@ -201,12 +210,12 @@ Formats:
 - **SVG**: vector, scales to any size. Preferred for the web, Word, PowerPoint, Keynote, and Illustrator.
 - **PDF**: vector, for print vendors and LaTeX.
 - **PNG**: transparent background, 4000 px wide for the horizontal logo and 2400 px square for the others, enough for print up to roughly 13 inches wide at 300 dpi.
-- **PNG on a flat ground** (\`*-on-white.png\`, \`*-on-navy.png\`): the square color and reverse files again with a solid background, for avatar and upload forms that reject transparency.
+- **PNG on a flat ground** (\`*-on-white.png\`, \`*-on-navy.png\`; the navy is the site's dark page ground, \`#0a1224\`): the square color and reverse files again with a solid background, for avatar and upload forms that reject transparency.
 
 The wordmark is outlined paths, so no font is needed.
 Leave clear space around the logo equal to the height of the letter N, and do not recolor, stretch, or add effects.
 
-Colors: wordmark navy \`#0f172a\`, brain teal \`#5bbad5\`, electrodes gold \`#b8860b\` (light backgrounds) or \`#f4d06b\` (dark backgrounds).
+Colors: wordmark ink \`#0f172a\`, brain teal \`#5bbad5\`, electrodes gold \`#b8860b\` (light backgrounds) or \`#f4d06b\` (dark backgrounds).
 `;
 await writeFile(`${OUT}/README.md`, readme);
 
