@@ -350,6 +350,9 @@ export const OSA_WIDGET_EXCLUDED_PATHS = [
   "/signup",
   "/auth",
   "/settings",
+  // The OpenID Connect consent screen (nemar-cli ADR 0119): it asks the reader to let another site
+  // act as them, and its URL carries that site's request.
+  "/oauth",
 ] as const;
 
 export function isOsaWidgetExcludedPath(pathname: string): boolean {
