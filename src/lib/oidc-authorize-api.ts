@@ -6,7 +6,9 @@
  * a status means (`oidcAnswerOutcome` in `./oidc-authorize.ts` does). Both run during SSR on the app
  * host, so `cookieHeader` is the visitor's own `Cookie` header, forwarded so the API resolves the same
  * session the browser is signed into, and `origin` is pinned by the page, because a server-side call
- * carries no `Origin` of its own and the API refuses one without it.
+ * carries no `Origin` of its own and the API refuses one without it. Both carry
+ * `OIDC_AUTHORIZE_CALLER_HEADER`, which the API requires and the general browser proxy never
+ * forwards, so an answer (a code, a consent token) reaches only this server code.
  *
  * NOTHING HERE LOGS THE REQUEST, a consent token or an answer: an answer can carry a code. A failure
  * is logged by its kind only.
@@ -15,6 +17,8 @@
 import { apiBase } from "./api-base";
 import { apiFetch } from "./api-fetch";
 import {
+  OIDC_AUTHORIZE_CALLER_HEADER,
+  OIDC_AUTHORIZE_CALLER_VALUE,
   OIDC_AUTHORIZE_CHECK_PATH,
   OIDC_AUTHORIZE_CONSENT_PATH,
   type OidcConsentDecision,
@@ -53,6 +57,8 @@ async function post(path: string, init: CallInit, body: unknown): Promise<OidcAu
     "Content-Type": "application/json",
     Accept: "application/json",
     Origin: init.origin,
+    // Marks the call as this page's own; the browser proxy never forwards it.
+    [OIDC_AUTHORIZE_CALLER_HEADER]: OIDC_AUTHORIZE_CALLER_VALUE,
   };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   try {

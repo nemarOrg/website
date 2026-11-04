@@ -8,6 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { OIDC_AUTHORIZE_CALLER_HEADER, OIDC_AUTHORIZE_CALLER_VALUE } from "./oidc-authorize";
 import { requestOidcCheck, requestOidcConsent } from "./oidc-authorize-api";
 
 const REQUEST = "client_id=oc_0123456789abcdef01234567&state=secret-state-value";
@@ -54,6 +55,8 @@ describe("requestOidcCheck", () => {
     expect(cap.calls[0].method).toBe("POST");
     expect(JSON.parse(cap.calls[0].body as string)).toEqual({ request: REQUEST });
     expect(headerMap(cap.calls[0])["Content-Type"]).toBe("application/json");
+    // The marker the API requires, which the browser proxy never forwards.
+    expect(headerMap(cap.calls[0])[OIDC_AUTHORIZE_CALLER_HEADER]).toBe(OIDC_AUTHORIZE_CALLER_VALUE);
     expect(result).toEqual({ status: 200, body: { kind: "login", request: REQUEST } });
   });
 
@@ -107,6 +110,7 @@ describe("requestOidcConsent", () => {
     expect(headerMap(cap.calls[0]).Origin).toBe("https://app.nemar.org");
     expect(headerMap(cap.calls[0]).Cookie).toBe("__Host-nemar_session=abc");
     expect(cap.calls[0].redirect).toBe("manual");
+    expect(headerMap(cap.calls[0])[OIDC_AUTHORIZE_CALLER_HEADER]).toBe(OIDC_AUTHORIZE_CALLER_VALUE);
   });
 });
 

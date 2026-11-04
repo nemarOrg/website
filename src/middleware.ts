@@ -391,8 +391,11 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * `state` that must not leave in a `Referer`. The value the page set is the
  * signal, not the path: Astro decodes a request path before routing, so
  * `/auth/private/%61uthorize` renders that page while a path comparison here
- * would not recognize it. Only `no-referrer` is honored, so a page can make
- * the policy stricter and never looser (ADR 0021).
+ * would not recognize it. Only `no-referrer` and `same-origin` are honored,
+ * so a page can make the policy stricter and never looser (ADR 0021). The
+ * authorization page's consent screen uses `same-origin`: under `no-referrer`
+ * a same-origin form post carries `Origin: null`, which the site's cross-site
+ * form check refuses.
  *
  * `X-Frame-Options` can be tightened the same way: a page that sets `DENY`
  * keeps it, and gets `frame-ancestors 'none'` with it, whatever its path. The
@@ -409,15 +412,17 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * other path it widens nothing.
  */
 export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
-  // Read BEFORE the loop below overwrites them.
-  const pageSetNoReferrer = headers.get("Referrer-Policy") === "no-referrer";
+  // Read BEFORE the loop below overwrites them. A page may tighten the referrer policy to
+  // `no-referrer` or `same-origin` (the consent form needs the second to keep its Origin).
+  const pageReferrer = headers.get("Referrer-Policy");
+  const pageTightensReferrer = pageReferrer === "no-referrer" || pageReferrer === "same-origin";
   const pageForbidsFraming = headers.get("X-Frame-Options")?.trim().toUpperCase() === "DENY";
   const formActionOrigin = headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER);
   headers.delete(OIDC_FORM_ACTION_ORIGIN_HEADER);
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
-  if (pageSetNoReferrer) headers.set("Referrer-Policy", "no-referrer");
+  if (pageTightensReferrer) headers.set("Referrer-Policy", pageReferrer as string);
   const forbidFraming =
     !routeAllowsFraming(pathname) && (pageForbidsFraming || isOidcAuthorizeRoute(pathname));
   if (forbidFraming) headers.set("X-Frame-Options", "DENY");

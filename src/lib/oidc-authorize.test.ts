@@ -153,6 +153,27 @@ describe("what the visitor sent", () => {
       kind: "invalid",
     });
   });
+
+  it("stops reading a POST with no Content-Length once it passes the bound", async () => {
+    let pulled = 0;
+    const chunk = new TextEncoder().encode("a".repeat(4096));
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += chunk.length;
+        controller.enqueue(chunk);
+      },
+    });
+    const request = new Request(PAGE, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: endless,
+      duplex: "half",
+    } as RequestInit);
+    expect(request.headers.get("content-length")).toBeNull();
+    expect(await readAuthorizeInput(request)).toEqual({ kind: "invalid" });
+    // It read past the bound by at most one chunk and then stopped, rather than to the end.
+    expect(pulled).toBeLessThanOrEqual(OIDC_POST_BODY_MAX_LENGTH + 4 * 4096);
+  });
 });
 
 describe("where a person may be sent", () => {
@@ -190,6 +211,9 @@ describe("the one origin the consent form may reach", () => {
       "https://client.example.org:8443",
       "http://localhost:8080",
       "http://127.0.0.1:3000",
+      // The API accepts an http redirect on the IPv6 loopback outside production; the form must
+      // be able to reach the client there too.
+      "http://[::1]:8080",
     ]) {
       expect(isFormActionOrigin(good), good).toBe(true);
     }
@@ -402,6 +426,15 @@ describe("what each panel says", () => {
     expect(view.deny).toBe("Deny");
   });
 
+  it("names the host the answer sends the person to", () => {
+    expect(consentView(consent).redirectHost).toBe(
+      fillCopy(ACCOUNT_COPY["oidc.consent.redirect_host"], { redirect_host: "client.example.org" }),
+    );
+    expect(
+      consentView({ ...consent, redirectOrigin: "http://localhost:8080" }).redirectHost,
+    ).toContain("localhost:8080");
+  });
+
   it("says the client can spend compute time only when the API says it can", () => {
     expect(consentView(consent).computeSpend).toBe(ACCOUNT_COPY["oidc.consent.compute_spend"]);
     expect(consentView({ ...consent, computeSpend: false }).computeSpend).toBeNull();
@@ -466,6 +499,7 @@ describe("what each panel says", () => {
     const client = { client: "Compute portal" };
     const all = consentView({ ...consent, scopes: Object.keys(OIDC_SCOPE_COPY) });
     for (const s of [
+      all.redirectHost,
       all.title,
       all.actsAsYou,
       all.computeSpend,
@@ -494,7 +528,10 @@ describe("what each panel says", () => {
     }
     const unprinted = Object.entries(ACCOUNT_COPY)
       .filter(([key]) => key.startsWith("oidc."))
-      .filter(([, value]) => !printed.has(fillCopy(value, client)))
+      .filter(
+        ([, value]) =>
+          !printed.has(fillCopy(value, { ...client, redirect_host: "client.example.org" })),
+      )
       .map(([key]) => key);
     expect(unprinted).toEqual([]);
   });

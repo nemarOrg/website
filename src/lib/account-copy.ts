@@ -224,6 +224,7 @@ export const ACCOUNT_COPY = {
   "oidc.consent.title": "{client} wants to use your NEMAR account",
   "oidc.consent.acts_as_you":
     "If you allow it, {client} can act as you on NEMAR in the ways listed below.",
+  // DRAFT: wording pending the owner (#2017)
   "oidc.consent.compute_spend": "It can also reserve and spend your NEMAR compute time.",
   "oidc.consent.scopes_title": "It is asking to:",
   // One line per scope a person can grant, keyed by the scope's name.
@@ -238,6 +239,7 @@ export const ACCOUNT_COPY = {
   "oidc.consent.scope.compute.reserve":
     "Reserve compute time, report jobs and release reservations for you",
   "oidc.consent.scope.compute.submit": "Submit compute jobs that NEMAR runs for you",
+  "oidc.consent.redirect_host": "Either answer sends you to {redirect_host}.",
   "oidc.consent.allow": "Allow",
   "oidc.consent.deny": "Deny",
   "oidc.rule.title": "You can’t sign in to {client} with this account",

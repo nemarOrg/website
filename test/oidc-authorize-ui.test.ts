@@ -97,9 +97,22 @@ describe("each answer leads to exactly one destination", () => {
 });
 
 describe("the consent screen", () => {
+  it("keeps the form's Origin: same-origin referrer policy on the consent screen only", () => {
+    // Under no-referrer a same-origin form post carries `Origin: null` and the site's cross-site
+    // form check refuses every Allow and Deny. Redirects and the other panels keep no-referrer.
+    expect(FRONTMATTER).toMatch(
+      /if \(outcome\.kind === "consent"\) \{[\s\S]{0,600}Astro\.response\.headers\.set\("Referrer-Policy", OIDC_CONSENT_REFERRER_POLICY\);/,
+    );
+    expect(FRONTMATTER.match(/OIDC_CONSENT_REFERRER_POLICY\)/g)).toHaveLength(1);
+  });
+
+  it("says where either answer sends the person", () => {
+    expect(TEMPLATE).toContain("{consent.redirectHost}");
+  });
+
   it("names the one origin the form may reach, on the consent screen only", () => {
     expect(FRONTMATTER).toMatch(
-      /if \(outcome\.kind === "consent"\) \{[\s\S]{0,400}Astro\.response\.headers\.set\(OIDC_FORM_ACTION_ORIGIN_HEADER, outcome\.redirectOrigin\);\s*\}/,
+      /if \(outcome\.kind === "consent"\) \{[\s\S]{0,400}Astro\.response\.headers\.set\(OIDC_FORM_ACTION_ORIGIN_HEADER, outcome\.redirectOrigin\);/,
     );
     expect(FRONTMATTER.match(/headers\.set\(OIDC_FORM_ACTION_ORIGIN_HEADER/g)).toHaveLength(1);
   });

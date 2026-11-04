@@ -9,8 +9,12 @@
  * visitor's answer goes to the API's consent route the same way. Every rule is the API's
  * (nemar-cli `backend/src/services/oidc-authorize.ts`); the helpers are `../../lib/oidc-authorize.ts`.
  *
+ * The API answers 404 while its provider is off: until `OIDC_SECRET` is set AND
+ * `HOST_PREFIXED_SESSION_COOKIE` is "1" there, this page shows its unavailable panel.
+ *
  * Server-rendered with no client script. Every response carries `OIDC_AUTHORIZE_HEADERS` (no-store,
- * no-referrer, noindex, X-Frame-Options DENY); the middleware adds `frame-ancestors 'none'`, keeps
+ * no-referrer, noindex, X-Frame-Options DENY; the consent screen alone uses `same-origin`, so its
+ * form keeps its Origin); the middleware adds `frame-ancestors 'none'`, keeps
  * the page out of the edge cache, and, on the consent screen only, lets the form's redirect reach
  * the one origin this page names in `OIDC_FORM_ACTION_ORIGIN_HEADER`. Nothing here logs the
  * request, a code or a consent token. `/oauth` is an app-host route and the assistant widget is
@@ -20,6 +24,7 @@ import Base from "../../layouts/Base.astro";
 import {
   OIDC_AUTHORIZE_HEADERS,
   OIDC_AUTHORIZE_PAGE_PATH,
+  OIDC_CONSENT_REFERRER_POLICY,
   OIDC_FORM_ACTION_ORIGIN_HEADER,
   OIDC_FORM_CONSENT_TOKEN,
   OIDC_FORM_DECISION,
@@ -91,6 +96,10 @@ if (outcome.kind === "consent") {
   // `form-action` on this path. Validated by `oidcAnswerOutcome`; the middleware checks it again
   // and removes the header.
   Astro.response.headers.set(OIDC_FORM_ACTION_ORIGIN_HEADER, outcome.redirectOrigin);
+  // Under no-referrer the consent form's same-origin post would carry `Origin: null` and the
+  // site's cross-site form check would refuse Allow and Deny alike; same-origin keeps the Origin
+  // and still sends no referrer to another site. Redirects and the other panels keep no-referrer.
+  Astro.response.headers.set("Referrer-Policy", OIDC_CONSENT_REFERRER_POLICY);
 }
 Astro.response.status = oidcPanelStatus(outcome);
 ---
@@ -113,6 +122,7 @@ Astro.response.status = oidcPanelStatus(outcome);
                 <li>{line}</li>
               ))}
             </ul>
+            <p class="authorize__note">{consent.redirectHost}</p>
             <form class="authorize__form" method="post" action={OIDC_AUTHORIZE_PAGE_PATH}>
               <input type="hidden" name={OIDC_FORM_REQUEST} value={formRequest} />
               <input type="hidden" name={OIDC_FORM_CONSENT_TOKEN} value={consentToken} />

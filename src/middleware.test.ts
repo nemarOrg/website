@@ -2250,6 +2250,22 @@ describe("the authorization page's headers", () => {
     expect(directive(embed.get("Content-Security-Policy"), "frame-ancestors")).toBe("*");
   });
 
+  it("keeps a page's same-origin referrer policy, which a consent form needs to keep its Origin", () => {
+    // Under no-referrer a same-origin form post carries `Origin: null`, and the site's own
+    // cross-site form check then refuses it; same-origin keeps the Origin and still sends no
+    // referrer to another site. A page may tighten the policy, never loosen it.
+    for (const kept of ["same-origin", "no-referrer"]) {
+      const headers = new Headers({ "Referrer-Policy": kept });
+      applySecurityHeaders(headers, AUTHORIZE);
+      expect(headers.get("Referrer-Policy"), kept).toBe(kept);
+    }
+    for (const loosened of ["unsafe-url", "origin", "no-referrer-when-downgrade"]) {
+      const headers = new Headers({ "Referrer-Policy": loosened });
+      applySecurityHeaders(headers, AUTHORIZE);
+      expect(headers.get("Referrer-Policy"), loosened).toBe("strict-origin-when-cross-origin");
+    }
+  });
+
   it("widens form-action to the one origin the page names, and removes the header", () => {
     const headers = named(CLIENT);
     applySecurityHeaders(headers, AUTHORIZE);

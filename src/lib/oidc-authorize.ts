@@ -43,8 +43,22 @@ export const OIDC_AUTHORIZE_CHECK_PATH = "/auth/oidc/authorize";
 /** The API's consent route. */
 export const OIDC_AUTHORIZE_CONSENT_PATH = "/auth/oidc/consent";
 
-/** The sign-in marker the API adds to a request it sends back through sign-in. Read by nothing here. */
+/**
+ * The header the API requires on both routes: it marks a call as this page's own, server-side. The
+ * general browser proxy (`src/pages/api/v1/[...path].ts`) forwards a fixed list of headers that never
+ * includes it, and refuses the authorization paths outright.
+ */
+export const OIDC_AUTHORIZE_CALLER_HEADER = "X-Nemar-Authorize-Caller";
+export const OIDC_AUTHORIZE_CALLER_VALUE = "authorize-page";
+
+/**
+ * The sign-in marker the API adds to a request it sends back through sign-in, signed by the API.
+ * Read by nothing here.
+ */
 export const OIDC_AUTH_AFTER_PARAM = "nemar_auth_after";
+
+/** How long the API honours a sign-in marker, in seconds. Mirrored for the drift test only. */
+export const OIDC_AUTH_AFTER_TTL_SECONDS = 600;
 
 /** The longest authorization request the API reads, in characters of its query string. */
 export const OIDC_AUTHORIZE_REQUEST_MAX_LENGTH = 8192;
@@ -75,6 +89,18 @@ export const OIDC_RULE_REFUSAL_REASONS = [
 export type OidcRuleRefusalReason = (typeof OIDC_RULE_REFUSAL_REASONS)[number];
 
 export const OIDC_CONSENT_DECISIONS = ["allow", "deny"] as const;
+
+/** The `error` values the API's redirects carry to the client. Never shown here; the client reads them. */
+export const OIDC_AUTHORIZE_REDIRECT_ERRORS = [
+  "invalid_request",
+  "unsupported_response_type",
+  "invalid_scope",
+  "request_not_supported",
+  "request_uri_not_supported",
+  "login_required",
+  "consent_required",
+  "access_denied",
+] as const;
 export type OidcConsentDecision = (typeof OIDC_CONSENT_DECISIONS)[number];
 
 // -------------------------------------------------------------------------------------------------
@@ -112,6 +138,15 @@ export const OIDC_AUTHORIZE_HEADERS: Readonly<Record<string, string>> = {
   "X-Robots-Tag": "noindex",
   "X-Frame-Options": "DENY",
 };
+
+/**
+ * The consent screen's referrer policy, in place of `no-referrer`. Under `no-referrer` a browser
+ * sends a same-origin form post with `Origin: null`, and the site's own cross-site form check then
+ * refuses every Allow and Deny. `same-origin` keeps the form's Origin and still sends no referrer
+ * to any other site; the middleware keeps it as a tightening. Redirects and the other panels keep
+ * `no-referrer`.
+ */
+export const OIDC_CONSENT_REFERRER_POLICY = "same-origin";
 
 /**
  * The 405 for anything but GET and POST, or null. OpenID Connect requires both (Core 3.1.2.1); HEAD
@@ -169,8 +204,37 @@ export function authorizeInputFromForm(body: string): AuthorizeInput {
 }
 
 /**
+ * A request body as text, reading at most `max` bytes: null once it is longer, and the rest is never
+ * read, whether or not the request declared a `Content-Length`.
+ */
+async function boundedText(request: Request, max: number): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
  * The request as this page reads it. A POST must be a form (`application/x-www-form-urlencoded`) of
- * at most {@link OIDC_POST_BODY_MAX_LENGTH} characters; anything else is `invalid` and reaches no API.
+ * at most {@link OIDC_POST_BODY_MAX_LENGTH} bytes, counted as it streams in; anything else is
+ * `invalid` and reaches no API.
  */
 export async function readAuthorizeInput(request: Request): Promise<AuthorizeInput> {
   if (request.method === "GET") return authorizeInputFromQuery(new URL(request.url).search);
@@ -178,8 +242,8 @@ export async function readAuthorizeInput(request: Request): Promise<AuthorizeInp
   if (type !== "application/x-www-form-urlencoded") return { kind: "invalid" };
   const declared = Number(request.headers.get("content-length") ?? "0");
   if (declared > OIDC_POST_BODY_MAX_LENGTH) return { kind: "invalid" };
-  const body = await request.text();
-  if (body.length > OIDC_POST_BODY_MAX_LENGTH) return { kind: "invalid" };
+  const body = await boundedText(request, OIDC_POST_BODY_MAX_LENGTH);
+  if (body === null) return { kind: "invalid" };
   return authorizeInputFromForm(body);
 }
 
@@ -238,11 +302,13 @@ export function usableLocation(value: unknown): string | null {
   return null;
 }
 
-const ORIGIN_SHAPE = /^https?:\/\/[a-z0-9.-]+(:\d{1,5})?$/;
+/** `https://host[:port]` (or http), lower-case host, or the IPv6 loopback in brackets. */
+const ORIGIN_SHAPE = /^https?:\/\/([a-z0-9.-]+|\[::1\])(:\d{1,5})?$/;
 
 /**
  * True for a serialized origin the consent form's redirect may be allowed to reach: `https://host`
- * (or `http://` on a loopback host), with an optional port, lower case, nothing else. The shape is
+ * (or `http://` on a loopback host, `[::1]` included, which the API accepts outside production), with
+ * an optional port, lower case, nothing else. The shape is
  * strict because the value is written into a Content-Security-Policy: a space, a semicolon or a
  * quote would add a directive or a source of its own. The middleware asks this again before it uses
  * the value.
@@ -406,6 +472,8 @@ export const OIDC_SCOPE_COPY: Readonly<Record<string, AccountCopyKey>> = {
 
 export interface ConsentView {
   readonly title: string;
+  /** Where either answer sends the person: the host of the redirect address. */
+  readonly redirectHost: string;
   readonly actsAsYou: string;
   readonly computeSpend: string | null;
   readonly scopesTitle: string;
@@ -425,6 +493,9 @@ export function consentView(
   const client = { client: outcome.clientName };
   return {
     title: fillCopy(ACCOUNT_COPY["oidc.consent.title"], client),
+    redirectHost: fillCopy(ACCOUNT_COPY["oidc.consent.redirect_host"], {
+      redirect_host: new URL(outcome.redirectOrigin).host,
+    }),
     actsAsYou: fillCopy(ACCOUNT_COPY["oidc.consent.acts_as_you"], client),
     computeSpend: outcome.computeSpend ? ACCOUNT_COPY["oidc.consent.compute_spend"] : null,
     scopesTitle: ACCOUNT_COPY["oidc.consent.scopes_title"],
