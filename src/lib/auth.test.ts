@@ -1,10 +1,19 @@
 import { describe, expect, it } from "vitest";
+// Astro's own cookie jar, imported by path (the package does not export it): the fake jar below
+// is only as good as its resemblance to this, so some tests use this one.
+import { AstroCookies } from "../../node_modules/astro/dist/core/cookies/cookies.js";
 import {
+  LEGACY_ORCID_PENDING_COOKIE_NAME,
+  LEGACY_SESSION_COOKIE_NAME,
+  ORCID_PENDING_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
   fullName,
+  hasOrcidPendingCookie,
   isValidEmail,
   isValidGithubUsername,
   isValidOrcid,
   maskEmail,
+  readSessionCookie,
   safeRedirectPath,
 } from "./auth";
 
@@ -136,5 +145,183 @@ describe("fullName", () => {
   it("returns empty string when both absent or blank", () => {
     expect(fullName({})).toBe("");
     expect(fullName({ given_name: "  ", family_name: "" })).toBe("");
+  });
+});
+
+describe("the session cookie's name (nemar-cli ADR 0119)", () => {
+  // Literals on purpose: a test that imported the constant would agree with whatever it said.
+  it("is __Host-nemar_session, with nemar_session as the legacy name", () => {
+    expect(SESSION_COOKIE_NAME).toBe("__Host-nemar_session");
+    expect(LEGACY_SESSION_COOKIE_NAME).toBe("nemar_session");
+  });
+
+  /**
+   * The shape of Astro's `cookies`, as Astro really behaves (`AstroCookies` in
+   * astro/dist/core/cookies/cookies.js): `has` is true for a cookie that is present, an empty one
+   * included, and `get` answers undefined for an empty value. A jar that returned
+   * `{ value: "" }` would describe a state Astro never produces.
+   */
+  const jar = (values: Record<string, string>) => ({
+    has: (name: string) => name in values,
+    get: (name: string) => (values[name] ? { value: values[name] } : undefined),
+  });
+
+  /** The real thing, built from a raw `Cookie` header the way the Worker's request builds it. */
+  const realJar = (header: string) =>
+    new AstroCookies(new Request("https://app.nemar.org/x", { headers: { cookie: header } }));
+
+  it("reads the new name", () => {
+    expect(readSessionCookie(jar({ "__Host-nemar_session": "new" }))).toEqual({
+      name: "__Host-nemar_session",
+      value: "new",
+    });
+  });
+
+  it("falls back to the legacy name only when the new one is absent", () => {
+    expect(readSessionCookie(jar({ nemar_session: "old" }))).toEqual({
+      name: "nemar_session",
+      value: "old",
+    });
+  });
+
+  it("prefers the new name when both are present", () => {
+    expect(readSessionCookie(jar({ nemar_session: "old", "__Host-nemar_session": "new" }))).toEqual(
+      { name: "__Host-nemar_session", value: "new" },
+    );
+  });
+
+  it("does not rescue an empty new cookie with a legacy one (the API's rule)", () => {
+    // The API treats a present-but-empty new cookie as no session; a site that fell back to the
+    // legacy cookie here would show a signed-in page the API had already refused.
+    expect(readSessionCookie(jar({ "__Host-nemar_session": "", nemar_session: "old" }))).toEqual({
+      name: "__Host-nemar_session",
+      value: "",
+    });
+  });
+
+  it("is null when neither is present, and ignores every other cookie", () => {
+    expect(readSessionCookie(jar({}))).toBeNull();
+    expect(readSessionCookie(jar({ analytics: "reject" }))).toBeNull();
+  });
+
+  describe("against Astro's real cookie jar", () => {
+    it("Astro answers undefined for an empty cookie but still reports it present", () => {
+      // The fact the rule below rests on. If an Astro upgrade changes it, this fails first.
+      const real = realJar("__Host-nemar_session=; nemar_session=old");
+      expect(real.get("__Host-nemar_session")).toBeUndefined();
+      expect(real.has("__Host-nemar_session")).toBe(true);
+      expect(real.get("nemar_session")?.value).toBe("old");
+    });
+
+    it("does not rescue an empty new cookie with a legacy one, as the API does not", () => {
+      expect(readSessionCookie(realJar("__Host-nemar_session=; nemar_session=old"))).toEqual({
+        name: "__Host-nemar_session",
+        value: "",
+      });
+      expect(readSessionCookie(realJar("nemar_session=old; __Host-nemar_session="))).toEqual({
+        name: "__Host-nemar_session",
+        value: "",
+      });
+    });
+
+    it("reads the new name, the legacy name, and prefers the new one", () => {
+      expect(readSessionCookie(realJar("__Host-nemar_session=new"))).toEqual({
+        name: "__Host-nemar_session",
+        value: "new",
+      });
+      expect(readSessionCookie(realJar("nemar_session=old"))).toEqual({
+        name: "nemar_session",
+        value: "old",
+      });
+      expect(readSessionCookie(realJar("nemar_session=old; __Host-nemar_session=new"))).toEqual({
+        name: "__Host-nemar_session",
+        value: "new",
+      });
+    });
+
+    it("is null for no session cookie, an unrelated one, or an empty legacy one", () => {
+      expect(readSessionCookie(realJar("analytics=reject"))).toBeNull();
+      expect(readSessionCookie(realJar("nemar_session="))).toBeNull();
+      expect(
+        readSessionCookie(new AstroCookies(new Request("https://app.nemar.org/x"))),
+      ).toBeNull();
+    });
+  });
+});
+
+describe("a header that carries more than one __Host- session cookie", () => {
+  // The API treats such a header as no session and does not fall back to the legacy cookie. A
+  // cookie jar keeps the first value of a repeated name, so the site has to look at the raw header
+  // to see the repeat at all.
+  const realJar = (header: string) =>
+    new AstroCookies(new Request("https://app.nemar.org/x", { headers: { cookie: header } }));
+
+  it("is no session, whatever else the header holds", () => {
+    for (const header of [
+      "__Host-nemar_session=a; __Host-nemar_session=a",
+      "__Host-nemar_session=a; __Host-nemar_session=b",
+      "__Host-nemar_session=a; nemar_session=old; __Host-nemar_session=a",
+    ]) {
+      expect(readSessionCookie(realJar(header), header), header).toBeNull();
+    }
+  });
+
+  it("is still read when it appears once, with or without a legacy cookie", () => {
+    for (const header of ["__Host-nemar_session=a", "nemar_session=old; __Host-nemar_session=a"]) {
+      expect(readSessionCookie(realJar(header), header)).toEqual({
+        name: "__Host-nemar_session",
+        value: "a",
+      });
+    }
+  });
+
+  it("is not looked for when the caller has no raw header (the jar alone decides)", () => {
+    const header = "__Host-nemar_session=a; __Host-nemar_session=b";
+    expect(readSessionCookie(realJar(header))).toEqual({
+      name: "__Host-nemar_session",
+      value: "a",
+    });
+    expect(readSessionCookie(realJar(header), null)).toEqual({
+      name: "__Host-nemar_session",
+      value: "a",
+    });
+  });
+
+  it("does not mistake a cookie whose name merely contains the session name", () => {
+    const header = "x__Host-nemar_session=a; __Host-nemar_session=b; __Host-nemar_session_2=c";
+    expect(readSessionCookie(realJar(header), header)).toEqual({
+      name: "__Host-nemar_session",
+      value: "b",
+    });
+  });
+});
+
+describe("the pending-signup cookie's name", () => {
+  // The API sets `__Host-nemar_orcid_pending`; a signup that was in flight when it moved still
+  // holds the old name. The page only needs to know a pending cookie is there, under either name,
+  // so that it does not bounce (the API's finalize reads only the new name).
+  it("is __Host-nemar_orcid_pending, with nemar_orcid_pending as the old name", () => {
+    expect(ORCID_PENDING_COOKIE_NAME).toBe("__Host-nemar_orcid_pending");
+    expect(LEGACY_ORCID_PENDING_COOKIE_NAME).toBe("nemar_orcid_pending");
+  });
+
+  const real = (header: string | null) =>
+    new AstroCookies(
+      new Request("https://app.nemar.org/auth/orcid/complete", {
+        headers: header === null ? {} : { cookie: header },
+      }),
+    );
+
+  it("is present under the new name, the old name, or both", () => {
+    expect(hasOrcidPendingCookie(real("__Host-nemar_orcid_pending=abc"))).toBe(true);
+    expect(hasOrcidPendingCookie(real("nemar_orcid_pending=abc"))).toBe(true);
+    expect(
+      hasOrcidPendingCookie(real("nemar_orcid_pending=abc; __Host-nemar_orcid_pending=def")),
+    ).toBe(true);
+  });
+
+  it("is absent with neither name, or with another cookie only", () => {
+    expect(hasOrcidPendingCookie(real(null))).toBe(false);
+    expect(hasOrcidPendingCookie(real("analytics=reject; nemar_session=abc"))).toBe(false);
   });
 });

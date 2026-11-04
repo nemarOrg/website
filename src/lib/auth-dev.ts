@@ -211,6 +211,9 @@ export async function reissueDevSession(
 }
 
 export function devSessionCookie(token: string): string {
+  // The legacy name, on purpose (nemar-cli ADR 0119): this is the `astro dev` login path, served
+  // over plain http on localhost, and a `__Host-` cookie must be Secure, so a browser would refuse
+  // it here. `readSessionCookie` falls back to the legacy name, so the dev session still reads.
   // HttpOnly so the dev cookie behaves like the real one (JS can't read it).
   // Secure is omitted in dev because localhost is plain http.
   return [
@@ -222,4 +225,5 @@ export function devSessionCookie(token: string): string {
   ].join("; ");
 }
 
+// The legacy name for the same reason as `devSessionCookie` above.
 export const devClearSessionCookie = ["nemar_session=", "Path=/", "Max-Age=0"].join("; ");

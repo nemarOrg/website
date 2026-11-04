@@ -6,9 +6,10 @@ import { isSafeProxyPath } from "../../../lib/proxy-path";
 /**
  * Same-origin proxy for dashboard / admin / collaborator API calls (#59).
  *
- * The `nemar_session` cookie is deliberately scoped `Domain=app.nemar.org`
- * (host-only against siblings like `data.nemar.org`, `api.nemar.org`,
- * `docs.nemar.org`). Browser-side fetches from dashboard JS to
+ * The session cookie (`__Host-nemar_session`, or the legacy `nemar_session`) is
+ * deliberately scoped to `app.nemar.org` alone: the legacy name by `Domain=app.nemar.org`,
+ * the new one by its `__Host-` prefix, which forbids a `Domain` (host-only against
+ * siblings like `data.nemar.org`, `api.nemar.org`, `docs.nemar.org`). Browser-side fetches from dashboard JS to
  * `api.nemar.org` therefore don't carry the cookie even with
  * `credentials: "include"`. This catch-all proxy lets the browser hit a
  * same-origin URL (`/api/v1/datasets?mine=true`), which automatically
