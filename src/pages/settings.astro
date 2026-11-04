@@ -516,15 +516,14 @@ if (tier !== "unverified") {
         ) : (
           <div class="orcid orcid--empty">
             <p class="orcid__prompt">No ORCID iD linked yet. Linking verifies your identity and keeps your name in sync.</p>
-            {/* `mode=link` is the documented entry point for linking a session
-                that has no iD yet (nemar-cli backend/src/routes/auth-orcid.ts:
-                "Linking is initiated via GET /auth/orcid/start?mode=link").
-                An authenticated GET links to the CURRENT session's account
-                regardless of mode -- the callback checks the session cookie
-                before it looks at `mode` -- so this was harmless without the
-                param too, but spelling it out matches the documented contract
-                instead of relying on that fallback. */}
-            <a class="btn btn--primary" href="/auth/orcid/start?mode=link&next=%2Fsettings">Connect your ORCID</a>
+            {/* A real form POST, never a link: the API arms a link only from a
+                POST that carries this site's Origin and a live session, and a
+                GET with `mode=link` starts a plain sign-in instead (nemar-cli
+                ADR 0119 rule 10, the relink rule of ADR 0022). Astro's
+                `checkOrigin` also refuses a cross-site form post here. */}
+            <form class="orcid__connect" method="post" action="/auth/orcid/start?mode=link&next=%2Fsettings">
+              <button type="submit" class="btn btn--primary">Connect your ORCID</button>
+            </form>
           </div>
         )}
       </article>
@@ -1148,6 +1147,11 @@ if (tier !== "unverified") {
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
     line-height: var(--lh-normal);
+  }
+  /* The Connect button submits a form POST (see the markup); the form adds
+     no box, so the button keeps the place the link had in the grid. */
+  .orcid__connect {
+    display: contents;
   }
 
   /* ---------- Fields / forms ---------- */
