@@ -13,6 +13,15 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
+  A site registered with NEMAR sends a person here to sign in with their NEMAR account.
+  The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
+  It cannot be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), never enters the edge cache, sends no referrer, and carries no assistant widget.
+  On the consent screen only, `form-action` also admits the one client origin the API returned, so the redirect after the form can reach it.
+  Needs the nemar-cli API with `POST /auth/oidc/authorize` and `POST /auth/oidc/consent`; until then, or while the provider is off, the page shows its unavailable panel.
+
 ### Changed
 
 - **The mirror chip follows the API's `mirror` flag, not the version number** (#478).
