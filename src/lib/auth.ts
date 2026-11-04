@@ -160,6 +160,26 @@ export function readSessionCookie(cookies: CookieJar): { name: string; value: st
 }
 
 /**
+ * The pending-signup cookie the API sets between ORCID's callback and the email step. Host-only
+ * and `__Host-` prefixed like the session cookie: every cookie the API trusts to authenticate or
+ * link a session is one a sibling host cannot set (nemar-cli ADR 0119, decision 10).
+ */
+export const ORCID_PENDING_COOKIE_NAME = "__Host-nemar_orcid_pending";
+
+/** The pending cookie's name before the move. A signup that was in flight when the API changed
+ *  still holds it, so the page accepts either. */
+export const LEGACY_ORCID_PENDING_COOKIE_NAME = "nemar_orcid_pending";
+
+/**
+ * Whether the request carries a pending-signup cookie, under either name. PRESENCE only: the page
+ * never reads the value (it is HttpOnly to the API's form post, which reads and verifies it
+ * server-side), so this asks `has`, which is true for any value.
+ */
+export function hasOrcidPendingCookie(cookies: { has(name: string): boolean }): boolean {
+  return cookies.has(ORCID_PENDING_COOKIE_NAME) || cookies.has(LEGACY_ORCID_PENDING_COOKIE_NAME);
+}
+
+/**
  * Where a browser form POST to `/api/auth/logout` lands afterwards.
  *
  * It must be an app-host route, and it must not be `/`. The sign-out form is

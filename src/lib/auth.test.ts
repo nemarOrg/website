@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 // is only as good as its resemblance to this, so some tests use this one.
 import { AstroCookies } from "../../node_modules/astro/dist/core/cookies/cookies.js";
 import {
+  LEGACY_ORCID_PENDING_COOKIE_NAME,
   LEGACY_SESSION_COOKIE_NAME,
+  ORCID_PENDING_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   fullName,
+  hasOrcidPendingCookie,
   isValidEmail,
   isValidGithubUsername,
   isValidOrcid,
@@ -243,5 +246,34 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
         readSessionCookie(new AstroCookies(new Request("https://app.nemar.org/x"))),
       ).toBeNull();
     });
+  });
+});
+
+describe("the pending-signup cookie's name", () => {
+  // The API sets `__Host-nemar_orcid_pending`; a signup that was in flight when it moved still
+  // holds the old name. The page only needs to know a pending cookie is there, under either name.
+  it("is __Host-nemar_orcid_pending, with nemar_orcid_pending as the old name", () => {
+    expect(ORCID_PENDING_COOKIE_NAME).toBe("__Host-nemar_orcid_pending");
+    expect(LEGACY_ORCID_PENDING_COOKIE_NAME).toBe("nemar_orcid_pending");
+  });
+
+  const real = (header: string | null) =>
+    new AstroCookies(
+      new Request("https://app.nemar.org/auth/orcid/complete", {
+        headers: header === null ? {} : { cookie: header },
+      }),
+    );
+
+  it("is present under the new name, the old name, or both", () => {
+    expect(hasOrcidPendingCookie(real("__Host-nemar_orcid_pending=abc"))).toBe(true);
+    expect(hasOrcidPendingCookie(real("nemar_orcid_pending=abc"))).toBe(true);
+    expect(
+      hasOrcidPendingCookie(real("nemar_orcid_pending=abc; __Host-nemar_orcid_pending=def")),
+    ).toBe(true);
+  });
+
+  it("is absent with neither name, or with another cookie only", () => {
+    expect(hasOrcidPendingCookie(real(null))).toBe(false);
+    expect(hasOrcidPendingCookie(real("analytics=reject; nemar_session=abc"))).toBe(false);
   });
 });
