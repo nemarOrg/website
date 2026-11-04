@@ -2150,6 +2150,22 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
       }
     });
 
+    it("a header with more than one __Host- cookie is no session, even beside a legacy one", async () => {
+      // The API treats it as no session; a cookie jar keeps only the first value of a repeated
+      // name, so the middleware has to read the raw header to agree.
+      for (const header of [
+        `${NEW}=a; ${NEW}=b`,
+        `${NEW}=a; ${LEGACY}=old; ${NEW}=a`,
+        `${LEGACY}=old; ${NEW}=a; ${NEW}=b`,
+      ]) {
+        const sent = recordAuthMe();
+        const redirected = await onRequest(realCtx(MARKETING_PATH, header), passthrough);
+        expect(redirected?.status, header).toBe(301);
+        await onRequest(realCtx(APP_URL, header), passthrough);
+        expect(sent, header).toEqual([]);
+      }
+    });
+
     it("a legacy cookie alone is still a session", async () => {
       const sent = recordAuthMe();
       const res = await onRequest(realCtx(MARKETING_PATH, `${LEGACY}=abc`), passthrough);

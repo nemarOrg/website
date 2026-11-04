@@ -442,7 +442,9 @@ const serve = async (
   // before `applySession`, and resolving costs an `/auth/me` round-trip we
   // would then throw away on every redirect. See `CrossHostOptions.hasSession`
   // for why presence is a safe basis here.
-  const hasSessionCookie = Boolean(readSessionCookie(context.cookies)?.value);
+  const hasSessionCookie = Boolean(
+    readSessionCookie(context.cookies, context.request.headers.get("cookie"))?.value,
+  );
 
   const redirectTarget = getCrossHostRedirect(url, { hasSession: hasSessionCookie });
   if (redirectTarget) {
@@ -728,7 +730,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {
-  const found = readSessionCookie(context.cookies);
+  const found = readSessionCookie(context.cookies, context.request.headers.get("cookie"));
   const cookie = found?.value;
   if (!found || !cookie) {
     context.locals.session = null;

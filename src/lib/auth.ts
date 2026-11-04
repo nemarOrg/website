@@ -143,20 +143,39 @@ export interface CookieJar {
  * reading the API gives the raw header (`readSessionCookie` in nemar-cli
  * `services/web-session.ts`). It asks `has`, not `get`, because Astro's `get` answers undefined
  * for an empty value, which would otherwise fall through to the legacy cookie, and a legacy
- * cookie is the one a page on a sibling subdomain can plant.
+ * cookie is the one a sibling host can set for the parent domain.
+ *
+ * A header that carries MORE THAN ONE `__Host-nemar_session` is no session, as for the API. A
+ * cookie jar keeps only the first value of a repeated name, so a caller that has the raw `Cookie`
+ * header passes it as `rawCookieHeader` and the repeat is counted there. Without it the jar alone
+ * decides.
  *
  * The API is the authority, not this function: the middleware forwards the whole `Cookie` header
  * to `/auth/me` and the API decides what it means. This only has to agree with the API about which
  * cookie it will look at, so that the site does not keep a signed-in page for a request the API
  * will refuse. Every caller here treats an empty `value` as no session.
  */
-export function readSessionCookie(cookies: CookieJar): { name: string; value: string } | null {
+export function readSessionCookie(
+  cookies: CookieJar,
+  rawCookieHeader?: string | null,
+): { name: string; value: string } | null {
+  if (rawCookieHeader && countCookies(rawCookieHeader, SESSION_COOKIE_NAME) > 1) return null;
   if (cookies.has(SESSION_COOKIE_NAME)) {
     return { name: SESSION_COOKIE_NAME, value: cookies.get(SESSION_COOKIE_NAME)?.value ?? "" };
   }
   const legacy = cookies.get(LEGACY_SESSION_COOKIE_NAME);
   if (legacy) return { name: LEGACY_SESSION_COOKIE_NAME, value: legacy.value };
   return null;
+}
+
+/** How many cookies of this exact name a raw `Cookie` header carries. */
+function countCookies(header: string, name: string): number {
+  let n = 0;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq >= 0 && part.slice(0, eq).trim() === name) n += 1;
+  }
+  return n;
 }
 
 /**

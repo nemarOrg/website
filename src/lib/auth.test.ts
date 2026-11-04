@@ -249,6 +249,53 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
   });
 });
 
+describe("a header that carries more than one __Host- session cookie", () => {
+  // The API treats such a header as no session and does not fall back to the legacy cookie. A
+  // cookie jar keeps the first value of a repeated name, so the site has to look at the raw header
+  // to see the repeat at all.
+  const realJar = (header: string) =>
+    new AstroCookies(new Request("https://app.nemar.org/x", { headers: { cookie: header } }));
+
+  it("is no session, whatever else the header holds", () => {
+    for (const header of [
+      "__Host-nemar_session=a; __Host-nemar_session=a",
+      "__Host-nemar_session=a; __Host-nemar_session=b",
+      "__Host-nemar_session=a; nemar_session=old; __Host-nemar_session=a",
+    ]) {
+      expect(readSessionCookie(realJar(header), header), header).toBeNull();
+    }
+  });
+
+  it("is still read when it appears once, with or without a legacy cookie", () => {
+    for (const header of ["__Host-nemar_session=a", "nemar_session=old; __Host-nemar_session=a"]) {
+      expect(readSessionCookie(realJar(header), header)).toEqual({
+        name: "__Host-nemar_session",
+        value: "a",
+      });
+    }
+  });
+
+  it("is not looked for when the caller has no raw header (the jar alone decides)", () => {
+    const header = "__Host-nemar_session=a; __Host-nemar_session=b";
+    expect(readSessionCookie(realJar(header))).toEqual({
+      name: "__Host-nemar_session",
+      value: "a",
+    });
+    expect(readSessionCookie(realJar(header), null)).toEqual({
+      name: "__Host-nemar_session",
+      value: "a",
+    });
+  });
+
+  it("does not mistake a cookie whose name merely contains the session name", () => {
+    const header = "x__Host-nemar_session=a; __Host-nemar_session=b; __Host-nemar_session_2=c";
+    expect(readSessionCookie(realJar(header), header)).toEqual({
+      name: "__Host-nemar_session",
+      value: "b",
+    });
+  });
+});
+
 describe("the pending-signup cookie's name", () => {
   // The API sets `__Host-nemar_orcid_pending`; a signup that was in flight when it moved still
   // holds the old name. The page only needs to know a pending cookie is there, under either name.
