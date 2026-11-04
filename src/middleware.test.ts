@@ -1,5 +1,7 @@
 import type { APIContext } from "astro";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Astro's own cookie jar, imported by path (the package does not export it).
+import { AstroCookies } from "../node_modules/astro/dist/core/cookies/cookies.js";
 import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
 import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
@@ -123,7 +125,10 @@ describe("embed call counting", () => {
     return {
       request: new Request(url, { method: opts.method ?? "GET", headers: opts.headers }),
       locals: opts.runtime === undefined ? {} : { runtime: opts.runtime },
-      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+      cookies: {
+        has: () => Boolean(opts.cookie),
+        get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined),
+      },
     } as unknown as APIContext;
   }
 
@@ -758,7 +763,7 @@ describe("onRequest host dispatch", () => {
     return {
       request,
       locals: {},
-      cookies: { get: () => ({ value: "stale-cookie-from-other-host" }) },
+      cookies: { has: () => true, get: () => ({ value: "stale-cookie-from-other-host" }) },
     } as unknown as TestCtx;
   }
 
@@ -773,7 +778,7 @@ describe("onRequest host dispatch", () => {
     return {
       request,
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as TestCtx;
   }
   const passthrough = async () => new Response("ok", { status: 200 });
@@ -912,7 +917,7 @@ describe("security headers", () => {
     return {
       request,
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as TestCtx;
   }
   const passthrough = async () => new Response("ok", { status: 200 });
@@ -1233,7 +1238,7 @@ describe("framing", () => {
     return {
       request: new Request(url, { method }),
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
   }
   const passthrough = async () => new Response("ok", { status: 200 });
@@ -1379,7 +1384,7 @@ describe("request context for background work", () => {
     return {
       request: new Request(`https://${MARKETING_HOST}/discover`),
       locals: runtime === undefined ? {} : { runtime },
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
   }
 
@@ -1517,13 +1522,13 @@ describe("signed-in pages are not public", () => {
     ({
       request: new Request(`https://${host}/discover`),
       locals: {},
-      cookies: { get: () => ({ value: "a-session-cookie" }) },
+      cookies: { has: () => true, get: () => ({ value: "a-session-cookie" }) },
     }) as unknown as APIContext;
   const anon = (): APIContext =>
     ({
       request: new Request(`https://${MARKETING_HOST}/discover`),
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     }) as unknown as APIContext;
   const PUBLIC = "public, max-age=60, s-maxage=3600, stale-while-revalidate=600";
 
@@ -1588,7 +1593,7 @@ describe("the page cache: MISS, HIT, and what is stored", () => {
     ({
       request: new Request(`https://${MARKETING_HOST}${path}`),
       locals: { runtime },
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     }) as unknown as APIContext;
 
   const PAGE = "public, max-age=60, s-maxage=3600";
@@ -1692,7 +1697,7 @@ describe("the stale flag is read once, and a late mark is not silent", () => {
     const ctx = {
       request: new Request(`https://${MARKETING_HOST}/discover`),
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
     const res = (await onRequest(ctx, async () => {
       // A catalog read made after the response exists (a component while it streams).
@@ -1754,7 +1759,10 @@ describe("the API service binding", () => {
     return {
       request: new Request(url, { headers }),
       locals: opts.api === undefined ? {} : { runtime: { env: { API: opts.api } } },
-      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+      cookies: {
+        has: () => Boolean(opts.cookie),
+        get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined),
+      },
     } as unknown as APIContext;
   }
 
@@ -1978,9 +1986,22 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
   const NEW = "__Host-nemar_session";
   const LEGACY = "nemar_session";
 
-  /** A request's cookies the way Astro exposes them: by name, only for the names present. */
+  /**
+   * A request's cookies the way Astro exposes them: `has` is true for every name present, an empty
+   * value included, and `get` answers undefined for an empty value (`AstroCookies`, in
+   * astro/dist/core/cookies/cookies.js). The tests under "the real jar" below use the real class.
+   */
   function jar(values: Record<string, string>) {
-    return { get: (name: string) => (name in values ? { value: values[name] } : undefined) };
+    return {
+      has: (name: string) => name in values,
+      get: (name: string) => (values[name] ? { value: values[name] } : undefined),
+    };
+  }
+
+  /** A context whose cookies are Astro's own, built from the raw header, as in the Worker. */
+  function realCtx(url: string, header: string): APIContext {
+    const request = new Request(url, { headers: { cookie: header } });
+    return { request, locals: {}, cookies: new AstroCookies(request) } as unknown as APIContext;
   }
 
   function ctx(url: string, cookies: Record<string, string>, header?: string): APIContext {
@@ -2093,6 +2114,47 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
         await onRequest(ctx(APP_URL, cookies), passthrough);
         expect(sent).toEqual([]);
       }
+    });
+  });
+
+  describe("the real jar (Astro's own AstroCookies)", () => {
+    const APP_URL = `https://${APP_HOST}/dashboard`;
+    const MARKETING_PATH = `https://${APP_HOST}/discover?modality=eeg`;
+
+    it("an empty new cookie beside a valid legacy one is not a session, as for the API", async () => {
+      // Astro answers undefined for the empty value, so a reader that asked `get` alone would
+      // fall through to the legacy cookie and keep a marketing route for a visitor the API
+      // refuses. The reader asks `has`.
+      const sent = recordAuthMe();
+      const redirected = await onRequest(
+        realCtx(MARKETING_PATH, `${NEW}=; ${LEGACY}=abc`),
+        passthrough,
+      );
+      expect(redirected?.status).toBe(301);
+      await onRequest(realCtx(APP_URL, `${NEW}=; ${LEGACY}=abc`), passthrough);
+      expect(sent).toEqual([]);
+    });
+
+    it("a valid new cookie beside any legacy one is a session, and the header goes to the API as sent", async () => {
+      for (const header of [
+        `${NEW}=new; ${LEGACY}=old`,
+        `${LEGACY}=old; ${NEW}=new`,
+        `${NEW}=new`,
+      ]) {
+        const sent = recordAuthMe();
+        // A marketing route on the app host is kept (not redirected) only for a session, and the
+        // render of it asks the API who the visitor is.
+        const res = await onRequest(realCtx(MARKETING_PATH, header), passthrough);
+        expect(res?.status).toBe(200);
+        expect(sent).toEqual([header]);
+      }
+    });
+
+    it("a legacy cookie alone is still a session", async () => {
+      const sent = recordAuthMe();
+      const res = await onRequest(realCtx(MARKETING_PATH, `${LEGACY}=abc`), passthrough);
+      expect(res?.status).toBe(200);
+      expect(sent).toEqual([`${LEGACY}=abc`]);
     });
   });
 });

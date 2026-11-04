@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+// Astro's own cookie jar, imported by path (the package does not export it): the fake jar below
+// is only as good as its resemblance to this, so some tests use this one.
+import { AstroCookies } from "../../node_modules/astro/dist/core/cookies/cookies.js";
 import {
   LEGACY_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
@@ -149,10 +152,20 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
     expect(LEGACY_SESSION_COOKIE_NAME).toBe("nemar_session");
   });
 
-  /** The shape of Astro's `cookies`: `get` returns an object with a `value`, or undefined. */
+  /**
+   * The shape of Astro's `cookies`, as Astro really behaves (`AstroCookies` in
+   * astro/dist/core/cookies/cookies.js): `has` is true for a cookie that is present, an empty one
+   * included, and `get` answers undefined for an empty value. A jar that returned
+   * `{ value: "" }` would describe a state Astro never produces.
+   */
   const jar = (values: Record<string, string>) => ({
-    get: (name: string) => (name in values ? { value: values[name] } : undefined),
+    has: (name: string) => name in values,
+    get: (name: string) => (values[name] ? { value: values[name] } : undefined),
   });
+
+  /** The real thing, built from a raw `Cookie` header the way the Worker's request builds it. */
+  const realJar = (header: string) =>
+    new AstroCookies(new Request("https://app.nemar.org/x", { headers: { cookie: header } }));
 
   it("reads the new name", () => {
     expect(readSessionCookie(jar({ "__Host-nemar_session": "new" }))).toEqual({
@@ -186,5 +199,49 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
   it("is null when neither is present, and ignores every other cookie", () => {
     expect(readSessionCookie(jar({}))).toBeNull();
     expect(readSessionCookie(jar({ analytics: "reject" }))).toBeNull();
+  });
+
+  describe("against Astro's real cookie jar", () => {
+    it("Astro answers undefined for an empty cookie but still reports it present", () => {
+      // The fact the rule below rests on. If an Astro upgrade changes it, this fails first.
+      const real = realJar("__Host-nemar_session=; nemar_session=old");
+      expect(real.get("__Host-nemar_session")).toBeUndefined();
+      expect(real.has("__Host-nemar_session")).toBe(true);
+      expect(real.get("nemar_session")?.value).toBe("old");
+    });
+
+    it("does not rescue an empty new cookie with a legacy one, as the API does not", () => {
+      expect(readSessionCookie(realJar("__Host-nemar_session=; nemar_session=old"))).toEqual({
+        name: "__Host-nemar_session",
+        value: "",
+      });
+      expect(readSessionCookie(realJar("nemar_session=old; __Host-nemar_session="))).toEqual({
+        name: "__Host-nemar_session",
+        value: "",
+      });
+    });
+
+    it("reads the new name, the legacy name, and prefers the new one", () => {
+      expect(readSessionCookie(realJar("__Host-nemar_session=new"))).toEqual({
+        name: "__Host-nemar_session",
+        value: "new",
+      });
+      expect(readSessionCookie(realJar("nemar_session=old"))).toEqual({
+        name: "nemar_session",
+        value: "old",
+      });
+      expect(readSessionCookie(realJar("nemar_session=old; __Host-nemar_session=new"))).toEqual({
+        name: "__Host-nemar_session",
+        value: "new",
+      });
+    });
+
+    it("is null for no session cookie, an unrelated one, or an empty legacy one", () => {
+      expect(readSessionCookie(realJar("analytics=reject"))).toBeNull();
+      expect(readSessionCookie(realJar("nemar_session="))).toBeNull();
+      expect(
+        readSessionCookie(new AstroCookies(new Request("https://app.nemar.org/x"))),
+      ).toBeNull();
+    });
   });
 });

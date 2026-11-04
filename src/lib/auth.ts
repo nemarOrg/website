@@ -125,8 +125,13 @@ export const SESSION_COOKIE_NAME = "__Host-nemar_session";
 /** The name every session cookie had before the move. Read as a fallback, and cleared on sign-out. */
 export const LEGACY_SESSION_COOKIE_NAME = "nemar_session";
 
-/** The part of Astro's `cookies` this needs: `get` returns an object carrying `value`, or undefined. */
+/**
+ * The part of Astro's `cookies` this needs. As Astro really behaves (`AstroCookies`):
+ * `has` is true for a cookie that is present, an empty one included, and `get` answers undefined
+ * for an empty value. Both are needed to see an empty cookie at all.
+ */
 export interface CookieJar {
+  has(name: string): boolean;
   get(name: string): { value: string } | undefined;
 }
 
@@ -134,16 +139,21 @@ export interface CookieJar {
  * The session cookie a request carries, with the name it was read under, or null for none.
  *
  * The new name wins. The legacy one is used only when the new one is ABSENT: a new cookie that is
- * present but empty is returned as it is and not replaced by a legacy one, which is the rule the
- * API applies (`readSessionCookie` in nemar-cli `services/web-session.ts`). A reader that fell
- * back here would show a signed-in page for a session the API had already refused, and a legacy
+ * present but empty is returned with an empty value and is not replaced by a legacy one, the same
+ * reading the API gives the raw header (`readSessionCookie` in nemar-cli
+ * `services/web-session.ts`). It asks `has`, not `get`, because Astro's `get` answers undefined
+ * for an empty value, which would otherwise fall through to the legacy cookie, and a legacy
  * cookie is the one a page on a sibling subdomain can plant.
  *
- * The caller decides what an empty `value` means; every caller here treats it as no session.
+ * The API is the authority, not this function: the middleware forwards the whole `Cookie` header
+ * to `/auth/me` and the API decides what it means. This only has to agree with the API about which
+ * cookie it will look at, so that the site does not keep a signed-in page for a request the API
+ * will refuse. Every caller here treats an empty `value` as no session.
  */
 export function readSessionCookie(cookies: CookieJar): { name: string; value: string } | null {
-  const current = cookies.get(SESSION_COOKIE_NAME);
-  if (current) return { name: SESSION_COOKIE_NAME, value: current.value };
+  if (cookies.has(SESSION_COOKIE_NAME)) {
+    return { name: SESSION_COOKIE_NAME, value: cookies.get(SESSION_COOKIE_NAME)?.value ?? "" };
+  }
   const legacy = cookies.get(LEGACY_SESSION_COOKIE_NAME);
   if (legacy) return { name: LEGACY_SESSION_COOKIE_NAME, value: legacy.value };
   return null;
