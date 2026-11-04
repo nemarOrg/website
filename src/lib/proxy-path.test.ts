@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeProxyPath } from "./proxy-path";
+import { isAuthorizationProxyPath, isSafeProxyPath } from "./proxy-path";
 
 describe("isSafeProxyPath", () => {
   it.each([
@@ -52,5 +52,39 @@ describe("isSafeProxyPath", () => {
     expect(isSafeProxyPath("datasets//")).toBe(false);
     expect(isSafeProxyPath("datasets//foo")).toBe(false);
     expect(isSafeProxyPath("admin//publish/requests")).toBe(false);
+  });
+});
+
+describe("isAuthorizationProxyPath", () => {
+  // Answers of the OpenID Connect authorization routes carry codes and consent tokens, which only
+  // the /oauth/authorize page's server code may read, so the browser proxy refuses every spelling
+  // that reaches them.
+  it.each([
+    "auth/oidc/authorize",
+    "auth/oidc/consent",
+    "auth/oidc",
+    "auth/oidc/",
+    "Auth/OIDC/Authorize",
+    "auth/%6Fidc/authorize",
+    "auth/%256Fidc/authorize",
+    "auth%2Foidc%2Fauthorize",
+    "auth/./oidc/authorize",
+    "auth/oidc/./consent",
+    "auth/oidc/authorize?x=1",
+    "nemar/auth/oidc/authorize",
+    "./auth/oidc/authorize",
+  ])("refuses %s", (path) => {
+    expect(isAuthorizationProxyPath(path)).toBe(true);
+  });
+
+  it.each([
+    "auth/me",
+    "auth/oidcx/authorize",
+    "auth/oauth/authorize",
+    "datasets/oidc",
+    "auth/private/grant",
+    "auth/docs/grant",
+  ])("leaves %s alone", (path) => {
+    expect(isAuthorizationProxyPath(path)).toBe(false);
   });
 });

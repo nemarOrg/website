@@ -32,3 +32,35 @@ export function isSafeProxyPath(path: string | undefined): path is string {
   if (path.includes("//")) return false;
   return true;
 }
+
+/**
+ * Whether a proxy path reaches the OpenID Connect authorization routes (nemar-cli ADR 0119): their
+ * answers carry one-time codes and consent tokens, which only the /oauth/authorize page's server
+ * code may read, so the browser proxy must never forward a call to them. The page calls the API
+ * directly, server-side, with a marker header this proxy never forwards; this is the other half.
+ *
+ * The path is normalized before it is matched, so a spelling the API would route the same way is
+ * refused too: percent-decoding repeated until it settles (a doubly encoded letter included), the
+ * query dropped, lower case, empty and `.` segments removed. Any path whose segments contain
+ * `auth` followed by `oidc` is refused, wherever the pair sits (the API's legacy `/nemar` mount
+ * included).
+ */
+export function isAuthorizationProxyPath(path: string): boolean {
+  let decoded = path;
+  for (let i = 0; i < 4; i++) {
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      break;
+    }
+    if (next === decoded) break;
+    decoded = next;
+  }
+  const segments = decoded
+    .split("?")[0]
+    .toLowerCase()
+    .split("/")
+    .filter((s) => s !== "" && s !== ".");
+  return segments.some((s, i) => s === "auth" && segments[i + 1] === "oidc");
+}
