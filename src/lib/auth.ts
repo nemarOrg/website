@@ -186,7 +186,9 @@ function countCookies(header: string, name: string): number {
 export const ORCID_PENDING_COOKIE_NAME = "__Host-nemar_orcid_pending";
 
 /** The pending cookie's name before the move. A signup that was in flight when the API changed
- *  still holds it, so the page accepts either. */
+ *  still holds it, so the page accepts either and does not bounce. That is all it buys: the API
+ *  reads the pending cookie only under the new name, so such a signup fails once at finalize with
+ *  `orcid_pending_expired` after the API deploys, and the person signs in with ORCID again. */
 export const LEGACY_ORCID_PENDING_COOKIE_NAME = "nemar_orcid_pending";
 
 /**

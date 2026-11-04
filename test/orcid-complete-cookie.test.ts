@@ -4,7 +4,8 @@
  *
  * The API moved the pending-signup cookie to `__Host-nemar_orcid_pending`. The page checks that the
  * cookie is present before it shows the email form, and a signup that was in flight when the API
- * changed still holds the old name, so the page has to accept either. `lib/auth.test.ts` pins
+ * changed still holds the old name, so the page has to accept either (it does not bounce; the
+ * API's finalize reads only the new name, so that signup fails there once). `lib/auth.test.ts` pins
  * `hasOrcidPendingCookie` itself; this pins that the page asks it, because a revert to a bare
  * `cookies.has("nemar_orcid_pending")` would pass every other test and bounce the signup.
  * Source-level, as in `test/logout-redirect.test.ts`: an Astro page needs a Workers runtime to run.

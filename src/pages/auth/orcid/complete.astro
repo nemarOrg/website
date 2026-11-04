@@ -12,8 +12,9 @@ import { hasOrcidPendingCookie } from "../../../lib/auth";
 // Fail fast when there's no pending cookie (direct hit, restored tab, or a
 // cookie already consumed by a prior finalize): render nothing useful, bounce
 // back to sign-in instead of showing a form whose submit can only 401.
-// Either name counts: a signup that was in flight when the API moved the cookie still holds the
-// old one (nemar-cli ADR 0119).
+// Either name counts, so the page does not bounce a signup that was in flight when the API moved
+// the cookie (nemar-cli ADR 0119). That signup still fails once at finalize, which reads only the
+// new name; the person signs in with ORCID again.
 if (!hasOrcidPendingCookie(Astro.cookies)) {
   return Astro.redirect("/login?error=orcid_pending_expired");
 }

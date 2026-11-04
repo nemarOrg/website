@@ -298,7 +298,8 @@ describe("a header that carries more than one __Host- session cookie", () => {
 
 describe("the pending-signup cookie's name", () => {
   // The API sets `__Host-nemar_orcid_pending`; a signup that was in flight when it moved still
-  // holds the old name. The page only needs to know a pending cookie is there, under either name.
+  // holds the old name. The page only needs to know a pending cookie is there, under either name,
+  // so that it does not bounce (the API's finalize reads only the new name).
   it("is __Host-nemar_orcid_pending, with nemar_orcid_pending as the old name", () => {
     expect(ORCID_PENDING_COOKIE_NAME).toBe("__Host-nemar_orcid_pending");
     expect(LEGACY_ORCID_PENDING_COOKIE_NAME).toBe("nemar_orcid_pending");
