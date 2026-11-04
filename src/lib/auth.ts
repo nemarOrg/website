@@ -111,7 +111,43 @@ export interface AuthSession {
   readonly user: AuthUser;
 }
 
-export const SESSION_COOKIE_NAME = "nemar_session";
+/**
+ * The session cookie's name once the API issues it host-prefixed (nemar-cli ADR 0119, decision
+ * 10). A `__Host-` cookie has no `Domain` and no other host can set one for this one, which a
+ * sibling `nemar.org` subdomain can for the legacy name below.
+ *
+ * The API issues it behind a flag and keeps reading the legacy name, so a browser can hold either
+ * for as long as the window lasts. Every reader of the cookie here goes through
+ * {@link readSessionCookie}, never a bare `cookies.get(...)`.
+ */
+export const SESSION_COOKIE_NAME = "__Host-nemar_session";
+
+/** The name every session cookie had before the move. Read as a fallback, and cleared on sign-out. */
+export const LEGACY_SESSION_COOKIE_NAME = "nemar_session";
+
+/** The part of Astro's `cookies` this needs: `get` returns an object carrying `value`, or undefined. */
+export interface CookieJar {
+  get(name: string): { value: string } | undefined;
+}
+
+/**
+ * The session cookie a request carries, with the name it was read under, or null for none.
+ *
+ * The new name wins. The legacy one is used only when the new one is ABSENT: a new cookie that is
+ * present but empty is returned as it is and not replaced by a legacy one, which is the rule the
+ * API applies (`readSessionCookie` in nemar-cli `services/web-session.ts`). A reader that fell
+ * back here would show a signed-in page for a session the API had already refused, and a legacy
+ * cookie is the one a page on a sibling subdomain can plant.
+ *
+ * The caller decides what an empty `value` means; every caller here treats it as no session.
+ */
+export function readSessionCookie(cookies: CookieJar): { name: string; value: string } | null {
+  const current = cookies.get(SESSION_COOKIE_NAME);
+  if (current) return { name: SESSION_COOKIE_NAME, value: current.value };
+  const legacy = cookies.get(LEGACY_SESSION_COOKIE_NAME);
+  if (legacy) return { name: LEGACY_SESSION_COOKIE_NAME, value: legacy.value };
+  return null;
+}
 
 /**
  * Where a browser form POST to `/api/auth/logout` lands afterwards.

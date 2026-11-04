@@ -2,10 +2,12 @@
  * Same-origin proxy for authenticated auth-account mutations (email change,
  * profile edit, ORCID unlink). Distinct from `code/request` + `code/verify`,
  * which are pre-auth and forward only Origin: these run *inside* a session, so
- * the handler MUST forward the `nemar_session` cookie to api.nemar.org. The
- * cookie is scoped `Domain=app.nemar.org`, so a browser fetch to a same-origin
- * `/api/auth/...` route carries it automatically and this helper relays it
- * server-side — the same trick the `/api/v1` dashboard proxy uses.
+ * the handler MUST forward the session cookie (`__Host-nemar_session`, or the legacy
+ * `nemar_session`) to api.nemar.org. The cookie is host-only to `app.nemar.org`
+ * (the legacy one by a `Domain` attribute, the new one by its `__Host-` prefix), so
+ * a browser fetch to a same-origin `/api/auth/...` route carries it automatically
+ * and this helper relays the whole `Cookie` header server-side — the same trick the
+ * `/api/v1` dashboard proxy uses.
  *
  * `Cache-Control: no-store` is hardcoded on every response: these are
  * per-user mutations that must never touch the edge cache. Set-Cookie is

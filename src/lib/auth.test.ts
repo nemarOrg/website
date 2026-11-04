@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  LEGACY_SESSION_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
   fullName,
   isValidEmail,
   isValidGithubUsername,
   isValidOrcid,
   maskEmail,
+  readSessionCookie,
   safeRedirectPath,
 } from "./auth";
 
@@ -136,5 +139,52 @@ describe("fullName", () => {
   it("returns empty string when both absent or blank", () => {
     expect(fullName({})).toBe("");
     expect(fullName({ given_name: "  ", family_name: "" })).toBe("");
+  });
+});
+
+describe("the session cookie's name (nemar-cli ADR 0119)", () => {
+  // Literals on purpose: a test that imported the constant would agree with whatever it said.
+  it("is __Host-nemar_session, with nemar_session as the legacy name", () => {
+    expect(SESSION_COOKIE_NAME).toBe("__Host-nemar_session");
+    expect(LEGACY_SESSION_COOKIE_NAME).toBe("nemar_session");
+  });
+
+  /** The shape of Astro's `cookies`: `get` returns an object with a `value`, or undefined. */
+  const jar = (values: Record<string, string>) => ({
+    get: (name: string) => (name in values ? { value: values[name] } : undefined),
+  });
+
+  it("reads the new name", () => {
+    expect(readSessionCookie(jar({ "__Host-nemar_session": "new" }))).toEqual({
+      name: "__Host-nemar_session",
+      value: "new",
+    });
+  });
+
+  it("falls back to the legacy name only when the new one is absent", () => {
+    expect(readSessionCookie(jar({ nemar_session: "old" }))).toEqual({
+      name: "nemar_session",
+      value: "old",
+    });
+  });
+
+  it("prefers the new name when both are present", () => {
+    expect(readSessionCookie(jar({ nemar_session: "old", "__Host-nemar_session": "new" }))).toEqual(
+      { name: "__Host-nemar_session", value: "new" },
+    );
+  });
+
+  it("does not rescue an empty new cookie with a legacy one (the API's rule)", () => {
+    // The API treats a present-but-empty new cookie as no session; a site that fell back to the
+    // legacy cookie here would show a signed-in page the API had already refused.
+    expect(readSessionCookie(jar({ "__Host-nemar_session": "", nemar_session: "old" }))).toEqual({
+      name: "__Host-nemar_session",
+      value: "",
+    });
+  });
+
+  it("is null when neither is present, and ignores every other cookie", () => {
+    expect(readSessionCookie(jar({}))).toBeNull();
+    expect(readSessionCookie(jar({ analytics: "reject" }))).toBeNull();
   });
 });

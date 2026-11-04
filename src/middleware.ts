@@ -1,7 +1,7 @@
 import type { MiddlewareHandler, MiddlewareNext } from "astro";
 import { apiBase } from "./lib/api-base";
 import { apiFetch } from "./lib/api-fetch";
-import { type AuthSession, type AuthUser, SESSION_COOKIE_NAME } from "./lib/auth";
+import { type AuthSession, type AuthUser, readSessionCookie } from "./lib/auth";
 import { verifyDevSession } from "./lib/auth-dev";
 import { BUILD_ID } from "./lib/build-info";
 import { edgeCacheUrl } from "./lib/edge-cache";
@@ -372,7 +372,8 @@ function withSecurityHeaders(response: Response, pathname: string, noindex = fal
  *      single-host mode (localhost, preview *.pages.dev) with no redirect,
  *      so QA against a preview URL doesn't need both domains wired up.
  *
- *   2. Read the `nemar_session` cookie, resolve it to a user via
+ *   2. Read the session cookie (`__Host-nemar_session`, or the legacy `nemar_session`:
+ *      `readSessionCookie`), resolve it to a user via
  *      `GET ${apiBase}/auth/me`, and stash the result on
  *      `context.locals.session`. Skipped on the marketing host so anonymous
  *      traffic never pays the round-trip and a stale wildcard cookie can't
@@ -441,7 +442,7 @@ const serve = async (
   // before `applySession`, and resolving costs an `/auth/me` round-trip we
   // would then throw away on every redirect. See `CrossHostOptions.hasSession`
   // for why presence is a safe basis here.
-  const hasSessionCookie = Boolean(context.cookies.get(SESSION_COOKIE_NAME)?.value);
+  const hasSessionCookie = Boolean(readSessionCookie(context.cookies)?.value);
 
   const redirectTarget = getCrossHostRedirect(url, { hasSession: hasSessionCookie });
   if (redirectTarget) {
@@ -727,8 +728,9 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
 };
 
 async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<void> {
-  const cookie = context.cookies.get(SESSION_COOKIE_NAME)?.value;
-  if (!cookie) {
+  const found = readSessionCookie(context.cookies);
+  const cookie = found?.value;
+  if (!found || !cookie) {
     context.locals.session = null;
     return;
   }
@@ -748,7 +750,7 @@ async function applySession(context: Parameters<MiddlewareHandler>[0]): Promise<
   // Forward the full cookie header (not just our session cookie) so the
   // backend sees the request as it came from the browser. A cookie that
   // depends on a sibling (CSRF token, etc.) won't verify if we strip it.
-  const fullCookie = context.request.headers.get("cookie") ?? `${SESSION_COOKIE_NAME}=${cookie}`;
+  const fullCookie = context.request.headers.get("cookie") ?? `${found.name}=${cookie}`;
   let session: AuthSession | null = null;
   try {
     const res = await apiFetch(`${apiBase()}/auth/me`, {

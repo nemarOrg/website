@@ -1968,3 +1968,131 @@ describe("the API service binding", () => {
     });
   });
 });
+
+describe("the session cookie's name (nemar-cli ADR 0119)", () => {
+  // The API moves the session cookie to `__Host-nemar_session` behind a flag and keeps reading
+  // the legacy `nemar_session`, so for the whole window this site has to recognise BOTH: a
+  // reader that knew only the new name would sign out everyone who still holds the old one, and
+  // one that knew only the old name would sign out everyone the moment the flag turns on.
+  const API_URL = "https://api.nemar.org";
+  const NEW = "__Host-nemar_session";
+  const LEGACY = "nemar_session";
+
+  /** A request's cookies the way Astro exposes them: by name, only for the names present. */
+  function jar(values: Record<string, string>) {
+    return { get: (name: string) => (name in values ? { value: values[name] } : undefined) };
+  }
+
+  function ctx(url: string, cookies: Record<string, string>, header?: string): APIContext {
+    const headers = new Headers();
+    if (header !== undefined) headers.set("Cookie", header);
+    return {
+      request: new Request(url, { headers }),
+      locals: {},
+      cookies: jar(cookies),
+    } as unknown as APIContext;
+  }
+
+  /** Stand in for the API's `/auth/me`, recording the Cookie header each call carried. */
+  function recordAuthMe(): string[] {
+    const sent: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${API_URL}/auth/me`) {
+        sent.push(new Headers(init?.headers).get("cookie") ?? "");
+        return new Response('{"error":"Unauthorized"}', {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected network call in a middleware test: ${url}`);
+    }) as unknown as typeof fetch;
+    return sent;
+  }
+
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  beforeEach(() => {
+    // Not `astro dev`: the dev fast path would verify the cookie locally and never ask the API.
+    vi.stubEnv("DEV", false);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  describe("presence, before the cross-host redirect", () => {
+    // A marketing path on the app host is kept (not bounced to the marketing host, where the
+    // session does not travel) only for a request that carries a session cookie.
+    const URL_ = `https://${APP_HOST}/discover?modality=eeg`;
+
+    it("treats the new name as a session", async () => {
+      recordAuthMe();
+      const res = await onRequest(ctx(URL_, { [NEW]: "abc" }), passthrough);
+      expect(res?.status).toBe(200);
+      expect(res?.headers.get("Location")).toBeNull();
+    });
+
+    it("treats the legacy name as a session", async () => {
+      recordAuthMe();
+      const res = await onRequest(ctx(URL_, { [LEGACY]: "abc" }), passthrough);
+      expect(res?.status).toBe(200);
+      expect(res?.headers.get("Location")).toBeNull();
+    });
+
+    it("still redirects a request with neither name, or with only an unrelated cookie", async () => {
+      for (const cookies of [{}, { analytics: "reject" }] as Array<Record<string, string>>) {
+        const res = await onRequest(ctx(URL_, cookies), passthrough);
+        expect(res?.status).toBe(301);
+        expect(res?.headers.get("Location")).toBe(`${MARKETING_BASE_URL}/discover?modality=eeg`);
+      }
+    });
+
+    it("does not count an empty new cookie as a session, even beside a legacy one", async () => {
+      // The API reads a present-but-empty new cookie as no session and does not fall back to the
+      // legacy one, so this site must not keep a marketing route for a visitor the API refuses.
+      const res = await onRequest(ctx(URL_, { [NEW]: "", [LEGACY]: "abc" }), passthrough);
+      expect(res?.status).toBe(301);
+    });
+  });
+
+  describe("asking the API who the visitor is", () => {
+    const APP_URL = `https://${APP_HOST}/dashboard`;
+
+    it("forwards the Cookie header exactly as the browser sent it, whichever name it carries", async () => {
+      for (const header of [`${NEW}=abc`, `${LEGACY}=abc`, `${LEGACY}=old; ${NEW}=new; a=b`]) {
+        const sent = recordAuthMe();
+        const names: Record<string, string> = header.includes(NEW)
+          ? { [NEW]: "x" }
+          : { [LEGACY]: "x" };
+        await onRequest(ctx(APP_URL, names, header), passthrough);
+        expect(sent).toEqual([header]);
+      }
+    });
+
+    it("builds the forwarded cookie with the name it read when the request carries no Cookie header", async () => {
+      // The fallback: Astro parsed a cookie the raw header does not have (a runtime that hands
+      // cookies over separately). It must forward the cookie under the name it found, not under
+      // a hardcoded one, or the API would not see a session at all.
+      const cases: Array<[Record<string, string>, string]> = [
+        [{ [NEW]: "abc" }, `${NEW}=abc`],
+        [{ [LEGACY]: "abc" }, `${LEGACY}=abc`],
+        // New first, as the API reads it.
+        [{ [LEGACY]: "old", [NEW]: "new" }, `${NEW}=new`],
+      ];
+      for (const [cookies, expected] of cases) {
+        const sent = recordAuthMe();
+        await onRequest(ctx(APP_URL, cookies), passthrough);
+        expect(sent).toEqual([expected]);
+      }
+    });
+
+    it("asks the API nothing for a visitor with no session cookie, or an empty new one", async () => {
+      for (const cookies of [{}, { [NEW]: "", [LEGACY]: "abc" }] as Array<Record<string, string>>) {
+        const sent = recordAuthMe();
+        await onRequest(ctx(APP_URL, cookies), passthrough);
+        expect(sent).toEqual([]);
+      }
+    });
+  });
+});

@@ -1,7 +1,11 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
 import { apiFetch } from "../../../lib/api-fetch";
-import { SESSION_COOKIE_NAME, SIGNED_OUT_PATH } from "../../../lib/auth";
+import {
+  LEGACY_SESSION_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  SIGNED_OUT_PATH,
+} from "../../../lib/auth";
 import { devClearSessionCookie } from "../../../lib/auth-dev";
 
 /**
@@ -14,14 +18,22 @@ import { devClearSessionCookie } from "../../../lib/auth-dev";
  * The user-visible worst case from a forged POST is a forced sign-out.
  *
  * Defensive clear: if the backend doesn't issue a Set-Cookie (unreachable,
- * synthesized 502), we still clear the cookie locally so the browser
- * doesn't keep a stale session that the backend will reject on every
- * subsequent request. `Secure` is set unconditionally because the Workers
+ * synthesized 502), we still clear the cookie locally (under both of its names,
+ * see `appendDefensiveClears`) so the browser doesn't keep a stale session that
+ * the backend will reject on every subsequent request. `Secure` is set unconditionally because the Workers
  * runtime serves over HTTPS in production; `Domain` is intentionally
  * omitted (the backend's host-only cookie clears with a host-only delete,
  * and we don't know the backend's chosen domain scope from here).
  */
-const DEFENSIVE_CLEAR_COOKIE = `${SESSION_COOKIE_NAME}=; Max-Age=0; Path=/; SameSite=Lax; Secure`;
+const DEFENSIVE_CLEAR_COOKIES = [SESSION_COOKIE_NAME, LEGACY_SESSION_COOKIE_NAME].map(
+  (name) => `${name}=; Max-Age=0; Path=/; SameSite=Lax; Secure`,
+);
+
+/** Both names, appended, because a browser can hold either while the API's cookie moves from
+ *  the legacy name to the host-prefixed one (nemar-cli ADR 0119, decision 10). */
+function appendDefensiveClears(headers: Headers): void {
+  for (const clear of DEFENSIVE_CLEAR_COOKIES) headers.append("Set-Cookie", clear);
+}
 
 export const POST: APIRoute = async ({ request }) => {
   const accept = request.headers.get("Accept") ?? "";
@@ -78,7 +90,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (accept.includes("text/html")) {
     const headers = new Headers({ Location: SIGNED_OUT_PATH, "Cache-Control": "no-store" });
     const copied = copySetCookies(res, headers);
-    if (!copied) headers.set("Set-Cookie", DEFENSIVE_CLEAR_COOKIE);
+    if (!copied) appendDefensiveClears(headers);
     return new Response(null, { status: 303, headers });
   }
 
@@ -88,6 +100,6 @@ export const POST: APIRoute = async ({ request }) => {
     "Cache-Control": "no-store",
   });
   const copied = copySetCookies(res, headers);
-  if (!copied) headers.set("Set-Cookie", DEFENSIVE_CLEAR_COOKIE);
+  if (!copied) appendDefensiveClears(headers);
   return new Response(body, { status: res.status, headers });
 };
