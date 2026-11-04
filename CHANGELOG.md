@@ -20,7 +20,7 @@ The release pull request from `staging` to `main` moves those entries under the 
   The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
   It cannot be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), never enters the edge cache, sends no referrer (the consent screen sends one only to this site, so its form keeps its Origin), and carries no assistant widget.
   On the consent screen only, `form-action` also admits the one client origin the API returned, so the redirect after the form can reach it, and the screen names the host either answer goes to.
-  The general `/api/v1` proxy refuses the authorization routes, whose answers only the page's server code may read.
+  The general `/api/v1` proxy refuses the authorization routes, whose answers only the page's server code may read; it decides on the path it would actually fetch, and refuses any path that holds a control character or a backslash.
   Needs the nemar-cli API with `POST /auth/oidc/authorize` and `POST /auth/oidc/consent`; until then, or while the provider is off (the API answers 404 until both `OIDC_SECRET` is set and `HOST_PREFIXED_SESSION_COOKIE` is `"1"`), the page shows its unavailable panel.
   Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
 

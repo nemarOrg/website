@@ -48,6 +48,51 @@ describe("/api/v1 never reaches the authorization routes", () => {
     expect(upstream).toEqual([]);
   });
 
+  // Astro hands the catch-all a decoded capture, so these are what `%09`, `%0A` and `%5C` become.
+  // The URL parser would drop the tab and the line feed and read `\` as `/`, so the capture is
+  // refused before any URL is built.
+  it.each(["auth/oi\tdc/authorize", "auth/oidc\n/authorize", "auth\\oidc\\authorize"])(
+    "POST %j is 400 and nothing is sent upstream",
+    async (path) => {
+      const upstream = recordUpstream();
+      const res = await callRoute(
+        POST,
+        "https://app.nemar.org/api/v1/x",
+        { path },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: "https://app.nemar.org" },
+          body: JSON.stringify({ request: "client_id=x" }),
+        },
+      );
+      expect(res.status).toBe(400);
+      expect(upstream).toEqual([]);
+    },
+  );
+
+  // Spellings that pass the capture checks but that the URL parser resolves onto the routes, or
+  // that decode onto them: the decision is made on the path the fetch would request.
+  it.each([
+    "auth/x/%2e%2e/oidc/authorize",
+    "auth/x/%2E%2E/oidc/consent",
+    "auth/oi%09dc/authorize",
+    "auth%5Coidc%5Cauthorize",
+  ])("POST %s is 404 and nothing is sent upstream", async (path) => {
+    const upstream = recordUpstream();
+    const res = await callRoute(
+      POST,
+      "https://app.nemar.org/api/v1/x",
+      { path },
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "https://app.nemar.org" },
+        body: JSON.stringify({ request: "client_id=x" }),
+      },
+    );
+    expect(res.status).toBe(404);
+    expect(upstream).toEqual([]);
+  });
+
   it("still forwards an ordinary path", async () => {
     const upstream = recordUpstream();
     const res = await callRoute(

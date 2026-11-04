@@ -53,6 +53,18 @@ describe("isSafeProxyPath", () => {
     expect(isSafeProxyPath("datasets//foo")).toBe(false);
     expect(isSafeProxyPath("admin//publish/requests")).toBe(false);
   });
+
+  it.each([
+    ["a tab", "datasets/nm0\t00103"],
+    ["a line feed", "datasets\n/nm000103"],
+    ["a carriage return", "datasets/nm000103\r"],
+    ["a NUL", "datasets/\u0000nm000103"],
+    ["a DEL", "datasets/nm000103\u007f"],
+    ["a backslash", "datasets\\nm000103"],
+  ])("rejects %s, which the URL parser would drop or rewrite", (_label, path) => {
+    // Astro hands the capture over decoded, so `%09`, `%0A` and `%5C` arrive as the characters.
+    expect(isSafeProxyPath(path)).toBe(false);
+  });
 });
 
 describe("isAuthorizationProxyPath", () => {
@@ -75,6 +87,15 @@ describe("isAuthorizationProxyPath", () => {
     "auth/oidc?x=1",
     "nemar/auth/oidc/authorize",
     "./auth/oidc/authorize",
+    // Characters the URL parser drops (tab, line breaks) or rewrites (`\` to `/`), as the
+    // characters and doubly encoded.
+    "auth/oi\tdc/authorize",
+    "auth/oidc\n/authorize",
+    "auth/oi\r\ndc/consent",
+    "auth\\oidc\\authorize",
+    "auth/oi%09dc/authorize",
+    "auth%5Coidc%5Cauthorize",
+    "auth/oidc%250A/authorize",
   ])("refuses %s", (path) => {
     expect(isAuthorizationProxyPath(path)).toBe(true);
   });

@@ -22,6 +22,9 @@
  *   URLs (`https://api.nemar.org//datasets//`) and 4xxs that look like
  *   route bugs.
  * - A leading `/` is also rejected (would produce `${apiBase()}//path`).
+ * - Control characters and `\` are rejected: Astro hands the capture over
+ *   decoded, and the URL parser drops a tab or a line break and reads `\`
+ *   as `/`, so the upstream path would not be the path that was checked.
  */
 export function isSafeProxyPath(path: string | undefined): path is string {
   if (!path) return false;
@@ -30,8 +33,13 @@ export function isSafeProxyPath(path: string | undefined): path is string {
   if (path.includes("://")) return false;
   if (path.includes("@")) return false;
   if (path.includes("//")) return false;
+  if (UNSAFE_CHARACTER.test(path)) return false;
   return true;
 }
+
+/** C0 controls, DEL and the backslash. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point.
+const UNSAFE_CHARACTER = /[\u0000-\u001f\u007f\\]/;
 
 /**
  * Whether a proxy path reaches the OpenID Connect authorization routes (nemar-cli ADR 0119): their
@@ -39,11 +47,13 @@ export function isSafeProxyPath(path: string | undefined): path is string {
  * code may read, so the browser proxy must never forward a call to them. The page calls the API
  * directly, server-side, with a marker header this proxy never forwards; this is the other half.
  *
- * The path is normalized before it is matched, so a spelling the API would route the same way is
- * refused too: percent-decoding repeated until it settles (a doubly encoded letter included), the
- * query dropped, lower case, empty and `.` segments removed. Any path whose segments contain
- * `auth` followed by `oidc` is refused, wherever the pair sits (the API's legacy `/nemar` mount
- * included).
+ * The proxy asks this of the path it will actually fetch (the pathname of the upstream URL, after
+ * the URL parser has resolved it), not of the capture it was handed. The path is also normalized
+ * before it is matched, so a spelling the API would route the same way is refused too:
+ * percent-decoding repeated until it settles (a doubly encoded letter included), tabs and line
+ * breaks dropped and `\` read as `/` as the URL parser does, the query dropped, lower case, empty
+ * and `.` segments removed. Any path whose segments contain `auth` followed by `oidc` is refused,
+ * wherever the pair sits (the API's legacy `/nemar` mount included).
  */
 export function isAuthorizationProxyPath(path: string): boolean {
   let decoded = path;
@@ -58,6 +68,8 @@ export function isAuthorizationProxyPath(path: string): boolean {
     decoded = next;
   }
   const segments = decoded
+    .replace(/[\t\n\r]/g, "")
+    .replace(/\\/g, "/")
     .split("?")[0]
     .toLowerCase()
     .split("/")
