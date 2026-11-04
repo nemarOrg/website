@@ -71,6 +71,8 @@ describe("isAuthorizationProxyPath", () => {
     "auth/./oidc/authorize",
     "auth/oidc/./consent",
     "auth/oidc/authorize?x=1",
+    // A query on the `oidc` segment itself: only the query strip lets the pair match.
+    "auth/oidc?x=1",
     "nemar/auth/oidc/authorize",
     "./auth/oidc/authorize",
   ])("refuses %s", (path) => {
