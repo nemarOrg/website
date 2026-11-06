@@ -224,8 +224,8 @@ export const ACCOUNT_COPY = {
   "oidc.consent.title": "{client} wants to use your NEMAR account",
   "oidc.consent.acts_as_you":
     "If you allow it, {client} can act as you on NEMAR in the ways listed below.",
-  // DRAFT: wording pending the owner (#2017)
-  "oidc.consent.compute_spend": "It can also reserve and spend your NEMAR compute time.",
+  "oidc.consent.compute_spend":
+    "If you sign in and run compute with this app, it counts against your NEMAR compute allocation.",
   "oidc.consent.scopes_title": "It is asking to:",
   // One line per scope a person can grant, keyed by the scope's name.
   "oidc.consent.scope.openid": "Know which NEMAR account is yours",
