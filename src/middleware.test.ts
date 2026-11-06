@@ -6,6 +6,7 @@ import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from
 import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
+import { OIDC_FORM_ACTION_ORIGIN_HEADER } from "./lib/oidc-authorize";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
   type ApiBinding,
@@ -17,6 +18,7 @@ import {
   SECURITY_HEADERS,
   applySecurityHeaders,
   contentSecurityPolicy,
+  isOidcAuthorizeRoute,
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
@@ -24,6 +26,7 @@ import {
   resetEmbedCountWarnings,
   resetPageCacheWarningsForTests,
   routeAllowsFraming,
+  routeBypassesEdgeCache,
   routeNeedsUnsafeEval,
 } from "./middleware";
 
@@ -1345,6 +1348,7 @@ describe("framing", () => {
 
   it("makes exactly one page frameable: the embed route", async () => {
     const frameable: string[] = [];
+    const unframeable: string[] = [];
     for (const file of pageFiles) {
       const path = representativePath(file);
       for (const variant of path === "/" ? [path] : [path, `${path}/`]) {
@@ -1356,6 +1360,11 @@ describe("framing", () => {
           frameable.push(file);
           expect(ancestors, variant).toBe("*");
           expect(xfo, variant).toBeNull();
+        } else if (isOidcAuthorizeRoute(variant)) {
+          // The authorization page may not be framed even by this site (nemar-cli ADR 0119).
+          unframeable.push(file);
+          expect(ancestors, variant).toBe("'none'");
+          expect(xfo, variant).toBe("DENY");
         } else {
           expect(ancestors, variant).toBe("'self'");
           expect(xfo, variant).toBe("SAMEORIGIN");
@@ -1363,11 +1372,16 @@ describe("framing", () => {
         // And through the middleware's passthrough serve path.
         const res = await onRequest(anonCtx(`http://localhost:4321${variant}`), passthrough);
         expect(res?.headers.get("X-Frame-Options") ?? null, variant).toBe(
-          routeAllowsFraming(variant) ? null : "SAMEORIGIN",
+          routeAllowsFraming(variant)
+            ? null
+            : isOidcAuthorizeRoute(variant)
+              ? "DENY"
+              : "SAMEORIGIN",
         );
       }
     }
     expect([...new Set(frameable)]).toEqual(["./pages/dataset/[id]/embed.astro"]);
+    expect([...new Set(unframeable)]).toEqual(["./pages/oauth/authorize.astro"]);
   });
 });
 
@@ -2172,5 +2186,193 @@ describe("the session cookie's name (nemar-cli ADR 0119)", () => {
       expect(res?.status).toBe(200);
       expect(sent).toEqual([`${LEGACY}=abc`]);
     });
+  });
+});
+
+/**
+ * The OpenID Connect authorization page, `/oauth/authorize` (nemar-cli ADR 0119): never framed, never
+ * cached, and its `form-action` widened to the client's one origin on that path only, when the page
+ * names a valid one, and never anywhere else.
+ */
+describe("the authorization page's headers", () => {
+  const AUTHORIZE = "/oauth/authorize";
+  const CLIENT = "https://client.example.org";
+  const directive = (csp: string | null, name: string) =>
+    csp
+      ?.split("; ")
+      .find((d) => d.startsWith(`${name} `))
+      ?.slice(name.length + 1);
+  const named = (origin: string) => new Headers({ [OIDC_FORM_ACTION_ORIGIN_HEADER]: origin });
+
+  it("is matched exactly, with or without a trailing slash", () => {
+    expect(isOidcAuthorizeRoute(AUTHORIZE)).toBe(true);
+    expect(isOidcAuthorizeRoute(`${AUTHORIZE}/`)).toBe(true);
+    for (const path of [
+      "/oauth",
+      "/oauth/authorizex",
+      "/oauth/authorize/x",
+      "/auth/private/authorize",
+    ]) {
+      expect(isOidcAuthorizeRoute(path), path).toBe(false);
+    }
+  });
+
+  it("cannot be framed, even by this site", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, AUTHORIZE);
+    expect(headers.get("X-Frame-Options")).toBe("DENY");
+    expect(directive(headers.get("Content-Security-Policy"), "frame-ancestors")).toBe("'none'");
+    // Everything else about the policy is the site's.
+    expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(
+      contentSecurityPolicy(AUTHORIZE).replace("frame-ancestors 'none'", "frame-ancestors 'self'"),
+    ).toBe(contentSecurityPolicy("/discover"));
+  });
+
+  it("a page that sets X-Frame-Options DENY keeps it, with frame-ancestors 'none', on any path", () => {
+    // An encoded spelling of the path renders the page without matching it here.
+    for (const path of ["/oauth/%61uthorize", "/dashboard"]) {
+      const headers = new Headers({ "X-Frame-Options": "DENY" });
+      applySecurityHeaders(headers, path);
+      expect(headers.get("X-Frame-Options"), path).toBe("DENY");
+      expect(directive(headers.get("Content-Security-Policy"), "frame-ancestors"), path).toBe(
+        "'none'",
+      );
+    }
+    // A page can tighten, never loosen: anything else is the site's SAMEORIGIN.
+    const loosened = new Headers({ "X-Frame-Options": "ALLOW-FROM https://evil.example" });
+    applySecurityHeaders(loosened, "/dashboard");
+    expect(loosened.get("X-Frame-Options")).toBe("SAMEORIGIN");
+    // The embed route stays the only framable one, whatever a page says.
+    const embed = new Headers({ "X-Frame-Options": "DENY" });
+    applySecurityHeaders(embed, "/dataset/on007753/embed");
+    expect(embed.get("X-Frame-Options")).toBeNull();
+    expect(directive(embed.get("Content-Security-Policy"), "frame-ancestors")).toBe("*");
+  });
+
+  it("keeps a page's same-origin referrer policy, which a consent form needs to keep its Origin", () => {
+    // Under no-referrer a same-origin form post carries `Origin: null`, and the site's own
+    // cross-site form check then refuses it; same-origin keeps the Origin and still sends no
+    // referrer to another site. A page may tighten the policy, never loosen it.
+    for (const kept of ["same-origin", "no-referrer"]) {
+      const headers = new Headers({ "Referrer-Policy": kept });
+      applySecurityHeaders(headers, AUTHORIZE);
+      expect(headers.get("Referrer-Policy"), kept).toBe(kept);
+    }
+    for (const loosened of ["unsafe-url", "origin", "no-referrer-when-downgrade"]) {
+      const headers = new Headers({ "Referrer-Policy": loosened });
+      applySecurityHeaders(headers, AUTHORIZE);
+      expect(headers.get("Referrer-Policy"), loosened).toBe("strict-origin-when-cross-origin");
+    }
+  });
+
+  it("widens form-action to the one origin the page names, and removes the header", () => {
+    const headers = named(CLIENT);
+    applySecurityHeaders(headers, AUTHORIZE);
+    expect(directive(headers.get("Content-Security-Policy"), "form-action")).toBe(
+      `'self' ${CLIENT}`,
+    );
+    expect(headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER)).toBeNull();
+  });
+
+  it("without a named origin the form may reach only this site", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, AUTHORIZE);
+    expect(directive(headers.get("Content-Security-Policy"), "form-action")).toBe("'self'");
+  });
+
+  it("widens nothing on any other path, and still removes the header", () => {
+    for (const path of ["/dashboard", "/oauth/%61uthorize", "/auth/private/authorize", "/"]) {
+      const headers = named(CLIENT);
+      applySecurityHeaders(headers, path);
+      expect(directive(headers.get("Content-Security-Policy"), "form-action"), path).toBe("'self'");
+      expect(headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER), path).toBeNull();
+    }
+  });
+
+  it("ignores a named value that is not a strict origin, so nothing can be added to the policy", () => {
+    for (const value of [
+      `${CLIENT}; script-src *`,
+      // A host the URL parser keeps as an origin, character for character.
+      `${CLIENT};script-src`,
+      "https://evil.example,https",
+      "https://a'b.example",
+      `${CLIENT} https://evil.example`,
+      `${CLIENT}/callback`,
+      "'unsafe-inline'",
+      "*",
+      "https:",
+      "http://client.example.org",
+      "javascript:alert(1)",
+    ]) {
+      const headers = named(value);
+      applySecurityHeaders(headers, AUTHORIZE);
+      const csp = headers.get("Content-Security-Policy") ?? "";
+      expect(directive(csp, "form-action"), value).toBe("'self'");
+      for (const fragment of ["evil.example", "a'b.example", ";script-src", "client.example.org"]) {
+        expect(csp, value).not.toContain(fragment);
+      }
+      const scriptSrc = csp.split(";").filter((d) => d.trim().startsWith("script-src"));
+      expect(scriptSrc, value).toHaveLength(1);
+      expect(headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER)).toBeNull();
+    }
+  });
+
+  it("carries the widened policy through the whole middleware, and the header never leaves", async () => {
+    const page = async () =>
+      new Response("consent", {
+        status: 200,
+        headers: {
+          [OIDC_FORM_ACTION_ORIGIN_HEADER]: CLIENT,
+          "Cache-Control": "no-store",
+          "X-Frame-Options": "DENY",
+        },
+      });
+    const ctx = {
+      request: new Request(`https://${APP_HOST}${AUTHORIZE}?client_id=x`, { method: "POST" }),
+      locals: {},
+      cookies: { has: () => false, get: () => undefined },
+    } as unknown as APIContext;
+    const res = (await onRequest(ctx, page)) as Response;
+    expect(directive(res.headers.get("Content-Security-Policy"), "form-action")).toBe(
+      `'self' ${CLIENT}`,
+    );
+    expect(directive(res.headers.get("Content-Security-Policy"), "frame-ancestors")).toBe("'none'");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER)).toBeNull();
+  });
+
+  it("never enters the edge cache: the cache is not even opened for /oauth", async () => {
+    expect(routeBypassesEdgeCache(AUTHORIZE)).toBe(true);
+    expect(routeBypassesEdgeCache("/oauth")).toBe(true);
+    expect(routeBypassesEdgeCache("/oauthx")).toBe(false);
+    const opened: string[] = [];
+    const storage = {
+      open: async (name: string) => {
+        opened.push(name);
+        return { match: async () => undefined, put: async () => {} };
+      },
+    } as unknown as CacheStorage;
+    const anon = (url: string) =>
+      ({
+        request: new Request(url),
+        locals: { runtime: { caches: storage } },
+        cookies: { has: () => false, get: () => undefined },
+      }) as unknown as APIContext;
+    // Even a page that (wrongly) said it was public would not be stored or served from the cache.
+    const publicPage = async () =>
+      new Response("x", { headers: { "Cache-Control": "public, max-age=60" } });
+    for (const origin of [`https://${APP_HOST}`, "http://localhost:4321"]) {
+      const res = (await onRequest(
+        anon(`${origin}${AUTHORIZE}?client_id=x`),
+        publicPage,
+      )) as Response;
+      expect(res.status, origin).toBe(200);
+      expect(res.headers.get("x-nemar-cache"), origin).toBeNull();
+    }
+    expect(opened).toEqual([]);
+    // The control: an anonymous page elsewhere does open it.
+    await onRequest(anon("http://localhost:4321/discover"), publicPage);
+    expect(opened.length).toBe(1);
   });
 });

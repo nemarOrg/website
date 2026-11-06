@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
 import { apiFetch } from "../../../lib/api-fetch";
-import { isSafeProxyPath } from "../../../lib/proxy-path";
+import { isAuthorizationProxyPath, isSafeProxyPath } from "../../../lib/proxy-path";
 
 /**
  * Same-origin proxy for dashboard / admin / collaborator API calls (#59).
@@ -18,8 +18,13 @@ import { isSafeProxyPath } from "../../../lib/proxy-path";
  * client-side mutations authenticate.
  *
  * Path traversal & SSRF protection: the `[...path]` capture cannot
- * contain `..` or `://`, and cannot start with `/`. Anything matching
- * those patterns returns 400 before the upstream fetch fires.
+ * contain `..`, `://`, a control character or `\`, and cannot start with `/`.
+ * Anything matching those patterns returns 400 before the upstream fetch fires.
+ *
+ * Never the OpenID Connect authorization routes (`/auth/oidc/*`, however spelled): their answers
+ * carry one-time codes and consent tokens, which only the `/oauth/authorize` page's server code may
+ * read. Those paths answer 404 here and nothing is sent upstream (`isAuthorizationProxyPath`, asked
+ * of the upstream URL's resolved path, which is what the fetch requests).
  *
  * Routes that have their own dedicated proxy under `/api/` (e.g.
  * `/api/auth/code/request`, `/api/dataset/[id]/readme`) win over this
@@ -46,12 +51,21 @@ const proxy: APIRoute = async ({ params, request }) => {
   if (!isSafeProxyPath(rawPath)) {
     return json({ error: "invalid_path" }, 400);
   }
+  const url = new URL(request.url);
+  const targetUrl = `${apiBase()}/${rawPath}${url.search}`;
+  // Decided on the path the fetch will actually request, after the URL parser has resolved it.
+  let targetPath: string;
+  try {
+    targetPath = new URL(targetUrl).pathname;
+  } catch {
+    return json({ error: "invalid_path" }, 400);
+  }
+  if (isAuthorizationProxyPath(targetPath)) {
+    return json({ error: "not_found" }, 404);
+  }
   if (!ALLOWED_METHODS.has(request.method)) {
     return json({ error: "method_not_allowed" }, 405);
   }
-
-  const url = new URL(request.url);
-  const targetUrl = `${apiBase()}/${rawPath}${url.search}`;
 
   const upstreamHeaders = new Headers();
   for (const name of FORWARD_REQUEST_HEADERS) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSafeProxyPath } from "./proxy-path";
+import { isAuthorizationProxyPath, isSafeProxyPath } from "./proxy-path";
 
 describe("isSafeProxyPath", () => {
   it.each([
@@ -52,5 +52,62 @@ describe("isSafeProxyPath", () => {
     expect(isSafeProxyPath("datasets//")).toBe(false);
     expect(isSafeProxyPath("datasets//foo")).toBe(false);
     expect(isSafeProxyPath("admin//publish/requests")).toBe(false);
+  });
+
+  it.each([
+    ["a tab", "datasets/nm0\t00103"],
+    ["a line feed", "datasets\n/nm000103"],
+    ["a carriage return", "datasets/nm000103\r"],
+    ["a NUL", "datasets/\u0000nm000103"],
+    ["a DEL", "datasets/nm000103\u007f"],
+    ["a backslash", "datasets\\nm000103"],
+  ])("rejects %s, which the URL parser would drop or rewrite", (_label, path) => {
+    // Astro hands the capture over decoded, so `%09`, `%0A` and `%5C` arrive as the characters.
+    expect(isSafeProxyPath(path)).toBe(false);
+  });
+});
+
+describe("isAuthorizationProxyPath", () => {
+  // Answers of the OpenID Connect authorization routes carry codes and consent tokens, which only
+  // the /oauth/authorize page's server code may read, so the browser proxy refuses every spelling
+  // that reaches them.
+  it.each([
+    "auth/oidc/authorize",
+    "auth/oidc/consent",
+    "auth/oidc",
+    "auth/oidc/",
+    "Auth/OIDC/Authorize",
+    "auth/%6Fidc/authorize",
+    "auth/%256Fidc/authorize",
+    "auth%2Foidc%2Fauthorize",
+    "auth/./oidc/authorize",
+    "auth/oidc/./consent",
+    "auth/oidc/authorize?x=1",
+    // A query on the `oidc` segment itself: only the query strip lets the pair match.
+    "auth/oidc?x=1",
+    "nemar/auth/oidc/authorize",
+    "./auth/oidc/authorize",
+    // Characters the URL parser drops (tab, line breaks) or rewrites (`\` to `/`), as the
+    // characters and doubly encoded.
+    "auth/oi\tdc/authorize",
+    "auth/oidc\n/authorize",
+    "auth/oi\r\ndc/consent",
+    "auth\\oidc\\authorize",
+    "auth/oi%09dc/authorize",
+    "auth%5Coidc%5Cauthorize",
+    "auth/oidc%250A/authorize",
+  ])("refuses %s", (path) => {
+    expect(isAuthorizationProxyPath(path)).toBe(true);
+  });
+
+  it.each([
+    "auth/me",
+    "auth/oidcx/authorize",
+    "auth/oauth/authorize",
+    "datasets/oidc",
+    "auth/private/grant",
+    "auth/docs/grant",
+  ])("leaves %s alone", (path) => {
+    expect(isAuthorizationProxyPath(path)).toBe(false);
   });
 });

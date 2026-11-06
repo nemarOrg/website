@@ -69,6 +69,11 @@ const APP_ROUTE_PREFIXES: readonly string[] = [
   // back on `/login` (which itself redirects to the app host), and this
   // classification is what avoids it.
   "/cli",
+  // The OpenID Connect authorization endpoint (nemar-cli ADR 0119): `/oauth/authorize` proves the
+  // session another site is asking about, so it lives where the sign-in cookie does. The API's
+  // discovery document names `${APP_BASE_URL}/oauth/authorize`, so a visitor lands here directly;
+  // on the marketing host this classification sends them to the app host (307 for a POST).
+  "/oauth",
   // Post-sign-in account setup (website#301): username, name, location. App
   // host only for the same reason /settings is — it reads and PATCHes the
   // session's own account through the `Domain=app.nemar.org` cookie.

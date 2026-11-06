@@ -15,6 +15,11 @@ import {
   isNoindexHost,
   isProductionHost,
 } from "./lib/host";
+import {
+  OIDC_AUTHORIZE_PAGE_PATH,
+  OIDC_FORM_ACTION_ORIGIN_HEADER,
+  isFormActionOrigin,
+} from "./lib/oidc-authorize";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
   type ApiBinding,
@@ -60,7 +65,10 @@ import { privateIfPublicHtml, withStaleDataHeaders } from "./lib/response-cache-
  *     worker-src blob:, for the Open Science Assistant widget, embedded site-wide.
  *     See OSA_WIDGET_CDN below for why this one is not route-scoped.
  *   - frame-src the two notebook hosts, for the widget's notebook tab (OSA_FRAME_SRC).
- *   - frame-ancestors 'self', except `*` on the embed route (see routeAllowsFraming).
+ *   - frame-ancestors 'self', except `*` on the embed route (see routeAllowsFraming) and
+ *     'none' on the authorization page (see isOidcAuthorizeRoute).
+ *   - form-action 'self', plus the one client origin the authorization page's consent form
+ *     may redirect to, on that page only (see applySecurityHeaders).
  *
  * README-borne script injection is already blocked at the markdown sanitizer
  * (it strips <script>, unit-tested), so this is defense-in-depth.
@@ -103,6 +111,34 @@ export function routeNeedsUnsafeEval(pathname: string): boolean {
  */
 export function routeAllowsFraming(pathname: string): boolean {
   return isEmbedRoute(pathname);
+}
+
+/**
+ * The OpenID Connect authorization page, `/oauth/authorize` (nemar-cli ADR 0119): the one route
+ * that may not be framed at all, even by this site (`frame-ancestors 'none'`, `X-Frame-Options:
+ * DENY`), because its consent screen lets another site act as the visitor; and the one route whose
+ * `form-action` may name an origin other than this site's, the client's, for the redirect that
+ * follows the consent form (see {@link applySecurityHeaders}).
+ *
+ * The match is the exact path, with or without a trailing slash. An encoded spelling that Astro
+ * still routes to the page is not matched here; the page's own `X-Frame-Options: DENY` keeps it
+ * unframeable, and its `form-action` stays `'self'`, which fails closed.
+ *
+ * Exported for the middleware unit tests.
+ */
+export function isOidcAuthorizeRoute(pathname: string): boolean {
+  return pathname === OIDC_AUTHORIZE_PAGE_PATH || pathname === `${OIDC_AUTHORIZE_PAGE_PATH}/`;
+}
+
+/**
+ * Routes whose responses never enter the edge cache, whatever they say: everything under `/oauth`.
+ * Each answer there is per visitor and some carry a one-time code; the page sends `no-store`, and
+ * this keeps the cache from even being consulted for them.
+ *
+ * Exported for the middleware unit tests.
+ */
+export function routeBypassesEdgeCache(pathname: string): boolean {
+  return pathname === "/oauth" || pathname.startsWith("/oauth/");
 }
 
 /** Base connect-src for every route: same-site APIs plus the raw README host. */
@@ -229,19 +265,39 @@ const OSA_WORKER_SRC = "worker-src 'self' blob:";
  */
 const OSA_FRAME_SRC = `frame-src 'self' ${OSA_NOTEBOOK_ORIGINS.join(" ")}`;
 
-/** Build the Content-Security-Policy for a given request path. */
-export function contentSecurityPolicy(pathname: string): string {
+/**
+ * Build the Content-Security-Policy for a given request path.
+ *
+ * `forbidFraming` turns `frame-ancestors` to `'none'` (never on the embed route, which only
+ * {@link routeAllowsFraming} decides). `formActionOrigin` is added to `form-action` only on the
+ * authorization route ({@link isOidcAuthorizeRoute}) and only when it is a strict serialized origin
+ * ({@link isFormActionOrigin}): a value written into a policy must not be able to add a directive or
+ * a source of its own. Anywhere else, or malformed, it is ignored.
+ */
+export function contentSecurityPolicy(
+  pathname: string,
+  opts: { forbidFraming?: boolean; formActionOrigin?: string | null } = {},
+): string {
   const scriptSrc = routeNeedsUnsafeEval(pathname)
     ? `${SCRIPT_SRC_BASE} 'unsafe-eval'`
     : SCRIPT_SRC_BASE;
   const connectSrc = routeNeedsS3Upload(pathname)
     ? `${CONNECT_SRC_BASE} ${S3_UPLOAD_HOSTS} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`
     : `${CONNECT_SRC_BASE} ${OSA_WIDGET_CDN} ${OSA_API_HOSTS}`;
+  const frameAncestors = routeAllowsFraming(pathname)
+    ? "frame-ancestors *"
+    : opts.forbidFraming || isOidcAuthorizeRoute(pathname)
+      ? "frame-ancestors 'none'"
+      : "frame-ancestors 'self'";
+  const formAction =
+    isOidcAuthorizeRoute(pathname) && isFormActionOrigin(opts.formActionOrigin)
+      ? `form-action 'self' ${opts.formActionOrigin}`
+      : "form-action 'self'";
   return [
     "default-src 'self'",
     "base-uri 'self'",
     "object-src 'none'",
-    routeAllowsFraming(pathname) ? "frame-ancestors *" : "frame-ancestors 'self'",
+    frameAncestors,
     `img-src 'self' data: ${OSA_LOGO_HOSTS}`,
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
@@ -249,7 +305,7 @@ export function contentSecurityPolicy(pathname: string): string {
     connectSrc,
     OSA_WORKER_SRC,
     OSA_FRAME_SRC,
-    "form-action 'self'",
+    formAction,
   ].join("; ");
 }
 
@@ -335,23 +391,51 @@ export const SECURITY_HEADERS: Readonly<Record<string, string>> = {
  * `state` that must not leave in a `Referer`. The value the page set is the
  * signal, not the path: Astro decodes a request path before routing, so
  * `/auth/private/%61uthorize` renders that page while a path comparison here
- * would not recognize it. Only `no-referrer` is honored, so a page can make
- * the policy stricter and never looser (ADR 0021).
+ * would not recognize it. Only `no-referrer` and `same-origin` are honored,
+ * so a page can make the policy stricter and never looser (ADR 0021). The
+ * authorization page's consent screen uses `same-origin`: under `no-referrer`
+ * a same-origin form post carries `Origin: null`, which the site's cross-site
+ * form check refuses.
+ *
+ * `X-Frame-Options` can be tightened the same way: a page that sets `DENY`
+ * keeps it, and gets `frame-ancestors 'none'` with it, whatever its path. The
+ * authorization page (`/oauth/authorize`, nemar-cli ADR 0119) sets it, and its
+ * path gets both regardless ({@link isOidcAuthorizeRoute}). The embed route is
+ * the one exception: only {@link routeAllowsFraming} decides it.
+ *
+ * The authorization page's consent form posts to this site, and the response
+ * redirects to the client that asked; Chrome applies `form-action` to that
+ * redirect, so `'self'` alone would block it. The page names the client's one
+ * origin in the internal `OIDC_FORM_ACTION_ORIGIN_HEADER`; here, and only on
+ * that route, the origin is re-validated and added to `form-action`. The header
+ * is deleted from EVERY response, so it never reaches a browser, and on any
+ * other path it widens nothing.
  */
 export function applySecurityHeaders(headers: Headers, pathname: string, noindex = false): void {
-  // Read BEFORE the loop below overwrites it.
-  const pageSetNoReferrer = headers.get("Referrer-Policy") === "no-referrer";
+  // Read BEFORE the loop below overwrites them. A page may tighten the referrer policy to
+  // `no-referrer` or `same-origin` (the consent form needs the second to keep its Origin).
+  const pageReferrer = headers.get("Referrer-Policy");
+  const pageTightensReferrer = pageReferrer === "no-referrer" || pageReferrer === "same-origin";
+  const pageForbidsFraming = headers.get("X-Frame-Options")?.trim().toUpperCase() === "DENY";
+  const formActionOrigin = headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER);
+  headers.delete(OIDC_FORM_ACTION_ORIGIN_HEADER);
   for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
     headers.set(name, value);
   }
-  if (pageSetNoReferrer) headers.set("Referrer-Policy", "no-referrer");
+  if (pageTightensReferrer) headers.set("Referrer-Policy", pageReferrer as string);
+  const forbidFraming =
+    !routeAllowsFraming(pathname) && (pageForbidsFraming || isOidcAuthorizeRoute(pathname));
+  if (forbidFraming) headers.set("X-Frame-Options", "DENY");
   // The embed route (website#410): `frame-ancestors *` in the CSP below says
   // "any site", which X-Frame-Options cannot, and a browser that honours both
   // would refuse the frame on SAMEORIGIN alone. Deleted rather than never
   // set, so a value that arrived from anywhere upstream (a cached response's
   // headers, a page) cannot survive either.
   if (routeAllowsFraming(pathname)) headers.delete("X-Frame-Options");
-  headers.set("Content-Security-Policy", contentSecurityPolicy(pathname));
+  headers.set(
+    "Content-Security-Policy",
+    contentSecurityPolicy(pathname, { forbidFraming, formActionOrigin }),
+  );
   headers.set("x-nemar-version", BUILD_ID);
   if (noindex) headers.set("X-Robots-Tag", "noindex, nofollow");
 }
@@ -466,6 +550,10 @@ const serve = async (
 
   const request = context.request;
   if (request.method !== "GET") return withSecurityHeaders(await next(), url.pathname, noindex);
+  // Never consulted, never written, whatever the response says (`routeBypassesEdgeCache`).
+  if (routeBypassesEdgeCache(url.pathname)) {
+    return withSecurityHeaders(await next(), url.pathname, noindex);
+  }
   // Skip the edge cache whenever a session cookie is present, not merely when
   // it resolved to a user. Since website#210 the app host renders marketing
   // routes for cookie-bearing requests, and a cookie that fails to resolve
