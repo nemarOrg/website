@@ -14,7 +14,7 @@
  * nemar-cli is caught by rerunning this script and the test, not by a visitor copying a command that
  * fails. Nothing here is written by hand. The checkout needs `bun install` at its root.
  *
- * Captured from nemar-cli commit e0685a25 (Epic D phase D4, `feature/issue-2021-epic-compute-users`).
+ * Last captured from nemar-cli commit 27eecff9 (Epic D, `feature/issue-2021-epic-compute-users`); the commit of each capture is in index.json.
  */
 
 import { spawnSync } from "node:child_process";

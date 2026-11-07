@@ -8,8 +8,8 @@ Options:
 
 Description:
   Shows your compute access and, for each pool (cpu and gpu), the service units (SU) granted to you, held
-  for jobs that have not finished, charged so far, and still available. Available is granted minus held
-  minus charged and can be negative after an overrun. Amounts are SU with three decimals.
+  for jobs that have not finished, charged so far, and still available. Available is granted minus held minus charged and can be negative after an overrun.
+  Amounts are SU with three decimals.
 
   It works in every access state: without a grant it says so and how to ask for one.
 
