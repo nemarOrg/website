@@ -31,6 +31,7 @@ import {
   isFormActionOrigin,
   oidcAnswerOutcome,
   oidcAuthorizeMethodRefusal,
+  oidcCrossSiteRefusal,
   oidcLoginRedirect,
   oidcNavigate,
   oidcPanelStatus,
@@ -40,7 +41,8 @@ import {
 } from "./oidc-authorize";
 import { isOsaWidgetExcludedPath } from "./osa-widget";
 
-const PAGE = `https://app.nemar.org${OIDC_AUTHORIZE_PAGE_PATH}`;
+const ORIGIN = "https://app.nemar.org";
+const PAGE = `${ORIGIN}${OIDC_AUTHORIZE_PAGE_PATH}`;
 const REQUEST =
   "client_id=oc_0123456789abcdef01234567&redirect_uri=https%3A%2F%2Fclient.example.org%2Fcallback&response_type=code&scope=openid+profile&state=st-123+%26+a%3Db&code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM&code_challenge_method=S256";
 const LOCATION =
@@ -138,18 +140,25 @@ describe("what the visitor sent", () => {
   });
 
   it("reads a GET from the URL and a POST only as a form within the size bound", async () => {
-    expect(await readAuthorizeInput(new Request(`${PAGE}?${REQUEST}`))).toEqual({
+    expect(await readAuthorizeInput(new Request(`${PAGE}?${REQUEST}`), ORIGIN)).toEqual({
       kind: "check",
       request: REQUEST,
     });
     const form = (body: string, type = "application/x-www-form-urlencoded; charset=UTF-8") =>
       new Request(PAGE, { method: "POST", headers: { "Content-Type": type }, body });
-    expect(await readAuthorizeInput(form(REQUEST))).toEqual({ kind: "check", request: REQUEST });
-    expect(await readAuthorizeInput(form(REQUEST, "application/json"))).toEqual({
+    expect(await readAuthorizeInput(form(REQUEST), ORIGIN)).toEqual({
+      kind: "check",
+      request: REQUEST,
+    });
+    expect(await readAuthorizeInput(form(REQUEST, "application/json"), ORIGIN)).toEqual({
       kind: "invalid",
     });
-    expect(await readAuthorizeInput(form(REQUEST, "text/plain"))).toEqual({ kind: "invalid" });
-    expect(await readAuthorizeInput(form("a".repeat(OIDC_POST_BODY_MAX_LENGTH + 1)))).toEqual({
+    expect(await readAuthorizeInput(form(REQUEST, "text/plain"), ORIGIN)).toEqual({
+      kind: "invalid",
+    });
+    expect(
+      await readAuthorizeInput(form("a".repeat(OIDC_POST_BODY_MAX_LENGTH + 1)), ORIGIN),
+    ).toEqual({
       kind: "invalid",
     });
   });
@@ -170,7 +179,7 @@ describe("what the visitor sent", () => {
       duplex: "half",
     } as RequestInit);
     expect(request.headers.get("content-length")).toBeNull();
-    expect(await readAuthorizeInput(request)).toEqual({ kind: "invalid" });
+    expect(await readAuthorizeInput(request, ORIGIN)).toEqual({ kind: "invalid" });
     // It read past the bound by at most one chunk and then stopped, rather than to the end.
     expect(pulled).toBeLessThanOrEqual(OIDC_POST_BODY_MAX_LENGTH + 4 * 4096);
   });
@@ -560,5 +569,144 @@ describe("where the page lives", () => {
       "X-Robots-Tag": "noindex",
       "X-Frame-Options": "DENY",
     });
+  });
+});
+
+// -------------------------------------------------------------------------------------------------
+describe("a POST from another site (OpenID Connect Core 3.1.2.1; nemarOrg/website ADR 0030)", () => {
+  const CONSENT_FORM = new URLSearchParams({
+    [OIDC_FORM_REQUEST]: REQUEST,
+    [OIDC_FORM_CONSENT_TOKEN]: "1999999999.token",
+    [OIDC_FORM_DECISION]: "allow",
+  }).toString();
+  const post = (body: string, headers: Record<string, string> = {}, url = PAGE) =>
+    new Request(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", ...headers },
+      body,
+    });
+
+  it("is an authorization request: read as `check` whatever its Origin, as the same GET would be", async () => {
+    const origins: Record<string, string>[] = [
+      { Origin: "https://rp.example.org", "Sec-Fetch-Site": "cross-site" },
+      { Origin: "null" },
+      { Origin: "https://evil.nemar.org", "Sec-Fetch-Site": "same-site" },
+      {},
+    ];
+    for (const headers of origins) {
+      expect(
+        await readAuthorizeInput(post(REQUEST, headers), ORIGIN),
+        JSON.stringify(headers),
+      ).toEqual({
+        kind: "check",
+        request: REQUEST,
+      });
+    }
+    // The same string a GET carries, so the API treats the two alike, duplicates and order included.
+    const dup = `${REQUEST}&state=again&prompt=none`;
+    expect(await readAuthorizeInput(post(dup), ORIGIN)).toEqual(authorizeInputFromQuery(`?${dup}`));
+  });
+
+  it("reads the body and never the URL's query", async () => {
+    const input = await readAuthorizeInput(
+      post(
+        REQUEST,
+        {},
+        `${PAGE}?client_id=oc_ffffffffffffffffffffffff&redirect_uri=https%3A%2F%2Fevil.example`,
+      ),
+      ORIGIN,
+    );
+    expect(input).toEqual({ kind: "check", request: REQUEST });
+  });
+
+  it("can never be a consent: any body naming a consent field is forbidden unless it is the site's own", async () => {
+    const dressed = [
+      CONSENT_FORM,
+      `${REQUEST}&${OIDC_FORM_DECISION}=allow`,
+      `${REQUEST}&${OIDC_FORM_CONSENT_TOKEN}=x`,
+      `${OIDC_FORM_REQUEST}=${encodeURIComponent(REQUEST)}`,
+      `${CONSENT_FORM}&${OIDC_FORM_DECISION}=deny`,
+      `${CONSENT_FORM}&${OIDC_FORM_CONSENT_TOKEN}=second`,
+      `${OIDC_FORM_DECISION}=allow`,
+      `${encodeURIComponent(OIDC_FORM_DECISION)}=allow&${REQUEST}`,
+    ];
+    const foreign: Record<string, string>[] = [
+      { Origin: "https://rp.example.org", "Sec-Fetch-Site": "cross-site" },
+      { Origin: "https://rp.example.org" },
+      { Origin: "null" },
+      {},
+      { Origin: "https://evil.nemar.org", "Sec-Fetch-Site": "same-site" },
+      { Origin: "http://app.nemar.org" },
+      { Origin: "https://app.nemar.org:8443" },
+      { Origin: "https://APP.nemar.org.evil.example" },
+      // The right Origin, a browser that says it is cross-site: a forged Origin is not enough.
+      { Origin: ORIGIN, "Sec-Fetch-Site": "cross-site" },
+      { Origin: ORIGIN, "Sec-Fetch-Site": "same-site" },
+      { Origin: ORIGIN, "Sec-Fetch-Site": "none" },
+    ];
+    for (const body of dressed) {
+      for (const headers of foreign) {
+        expect(
+          await readAuthorizeInput(post(body, headers), ORIGIN),
+          `${body} ${JSON.stringify(headers)}`,
+        ).toEqual({ kind: "forbidden" });
+      }
+    }
+  });
+
+  it("the site's own consent form is still read as a consent", async () => {
+    const own: Record<string, string>[] = [
+      { Origin: ORIGIN },
+      { Origin: ORIGIN, "Sec-Fetch-Site": "same-origin" },
+    ];
+    for (const headers of own) {
+      expect(await readAuthorizeInput(post(CONSENT_FORM, headers), ORIGIN)).toEqual({
+        kind: "consent",
+        request: REQUEST,
+        consentToken: "1999999999.token",
+        decision: "allow",
+      });
+    }
+    // Malformed from the site itself stays `invalid`, as before.
+    expect(
+      await readAuthorizeInput(
+        post(`${CONSENT_FORM}&${OIDC_FORM_DECISION}=deny`, { Origin: ORIGIN }),
+        ORIGIN,
+      ),
+    ).toEqual({ kind: "invalid" });
+  });
+
+  it("answers a refused consent with Astro's 403, and the page's headers", async () => {
+    const refusal = oidcCrossSiteRefusal("POST");
+    expect(refusal.status).toBe(403);
+    expect(await refusal.text()).toBe("Cross-site POST form submissions are forbidden");
+    for (const [name, value] of Object.entries(OIDC_AUTHORIZE_HEADERS)) {
+      expect(refusal.headers.get(name), name).toBe(value);
+    }
+  });
+
+  it("not signed in (a Lax cookie does not ride a cross-site POST): sign-in, then back as a GET with the same request", async () => {
+    const input = await readAuthorizeInput(
+      post(REQUEST, { Origin: "https://rp.example.org" }),
+      ORIGIN,
+    );
+    expect(input.kind).toBe("check");
+    if (input.kind !== "check") return;
+    // What the API answers a request with no session: `login`, carrying the request as a query
+    // (`request.params.toString()` in nemar-cli `services/oidc-authorize.ts`).
+    const answer = oidcAnswerOutcome(
+      ok({ kind: "login", request: new URLSearchParams(input.request).toString() }),
+    );
+    expect(answer.kind).toBe("login");
+    if (answer.kind !== "login") return;
+    const response = oidcNavigate(oidcLoginRedirect(answer.request, false), "POST");
+    // 303: the browser follows with a GET, so the sign-in page and the return trip are GETs.
+    expect(response.status).toBe(303);
+    const next = new URL(response.headers.get("Location") ?? "", ORIGIN).searchParams.get("next");
+    expect(next?.startsWith(`${OIDC_AUTHORIZE_PAGE_PATH}?`)).toBe(true);
+    const back = authorizeInputFromQuery(new URL(next ?? "", ORIGIN).search);
+    expect(back.kind).toBe("check");
+    if (back.kind !== "check") return;
+    expect([...new URLSearchParams(back.request)]).toEqual([...new URLSearchParams(REQUEST)]);
   });
 });

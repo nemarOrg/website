@@ -36,9 +36,23 @@ describe("the order of things", () => {
   it("refuses any method but GET and POST before the request is read or the API called", () => {
     const methodAt = at("oidcAuthorizeMethodRefusal(Astro.request.method)");
     expect(FRONTMATTER).toContain("if (methodRefusal !== null) return methodRefusal;");
-    expect(at("await readAuthorizeInput(Astro.request)")).toBeGreaterThan(methodAt);
+    expect(at("await readAuthorizeInput(Astro.request, Astro.url.origin)")).toBeGreaterThan(methodAt);
     expect(at("await requestOidcCheck(")).toBeGreaterThan(methodAt);
     expect(at("await requestOidcConsent(")).toBeGreaterThan(methodAt);
+  });
+
+  it("a cross-site POST that names a consent field is refused with a 403 before the API is called", () => {
+    // The middleware exempts the authorization-request POST (`src/lib/origin-check.ts`); the page is
+    // where a cross-site consent dies. The reader is given this site's origin, and its `forbidden`
+    // answer returns the 403 straight away: before the API calls, before anything is rendered.
+    const readAt = at("await readAuthorizeInput(Astro.request, Astro.url.origin)");
+    const forbiddenAt = at('if (input.kind === "forbidden") return oidcCrossSiteRefusal(method);');
+    expect(forbiddenAt).toBeGreaterThan(readAt);
+    expect(forbiddenAt).toBeLessThan(at("await requestOidcCheck("));
+    expect(forbiddenAt).toBeLessThan(at("await requestOidcConsent("));
+    // The consent route is reached from the `consent` kind only, which the reader makes only for a
+    // same-origin POST (`src/lib/oidc-authorize.test.ts` holds that half).
+    expect(FRONTMATTER.match(/input\.kind === "consent"/g)).toHaveLength(1);
   });
 
   it("a request this page cannot read never reaches the API", () => {

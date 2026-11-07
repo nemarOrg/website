@@ -16,7 +16,13 @@
  * no-referrer, noindex, X-Frame-Options DENY; the consent screen alone uses `same-origin`, so its
  * form keeps its Origin); the middleware adds `frame-ancestors 'none'`, keeps
  * the page out of the edge cache, and, on the consent screen only, lets the form's redirect reach
- * the one origin this page names in `OIDC_FORM_ACTION_ORIGIN_HEADER`. Nothing here logs the
+ * the one origin this page names in `OIDC_FORM_ACTION_ORIGIN_HEADER`.
+ *
+ * A POST from ANY site may reach this page as an authorization request (OpenID Connect Core 3.1.2.1;
+ * the middleware exempts exactly that, `src/lib/origin-check.ts`), and then does what the same
+ * request in a GET does: it is checked and renders or redirects. The consent form posts to this same
+ * path, so `readAuthorizeInput` refuses (403) any POST that names a consent field unless it is
+ * same-origin; a consent decision can only come from this site's own screen. Nothing here logs the
  * request, a code or a consent token. `/oauth` is an app-host route and the assistant widget is
  * never mounted here.
  */
@@ -34,6 +40,7 @@ import {
   errorPanelView,
   oidcAnswerOutcome,
   oidcAuthorizeMethodRefusal,
+  oidcCrossSiteRefusal,
   oidcLoginRedirect,
   oidcNavigate,
   oidcPanelStatus,
@@ -51,7 +58,11 @@ const methodRefusal = oidcAuthorizeMethodRefusal(Astro.request.method);
 if (methodRefusal !== null) return methodRefusal;
 
 const method = Astro.request.method;
-const input = await readAuthorizeInput(Astro.request);
+const input = await readAuthorizeInput(Astro.request, Astro.url.origin);
+// The middleware lets an authorization-request POST in from any site (`src/lib/origin-check.ts`).
+// A POST that names a consent field and is not this site's own is the one thing that must not go on:
+// the same 403 Astro's built-in check gave, before any API call.
+if (input.kind === "forbidden") return oidcCrossSiteRefusal(method);
 const call = {
   cookieHeader: Astro.request.headers.get("cookie") ?? undefined,
   origin: Astro.url.origin,
