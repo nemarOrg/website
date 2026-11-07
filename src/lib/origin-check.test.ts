@@ -191,6 +191,25 @@ describe("the one exemption", () => {
     expect(isAuthorizationRequestPost("POST", "/oauth/authorize", "")).toBe(false);
   });
 
+  it("exempts the spellings the URL parser itself normalizes to the exact path, which is the page Astro routes them to", async () => {
+    // Backslash, dot segments (plain or %2e), a tab and `..` all collapse to `/oauth/authorize` before
+    // Astro routes the request, so they ARE the exact path and are exempt; any spelling that is not
+    // normalized away reaches the page (or nothing) and is refused cross-site (the cases above).
+    for (const path of [
+      "/oauth\\authorize",
+      "/oauth/./authorize",
+      "/oauth/%2e/authorize",
+      "/oauth/%2E/authorize",
+      "/oauth/x/../authorize",
+      "/oauth/auth\torize",
+      "/oauth/%2e%2e/oauth/authorize",
+    ]) {
+      const req = request({ path, origin: FOREIGN, contentType: FORM });
+      expect(new URL(req.url).pathname, path).toBe("/oauth/authorize");
+      expect(await ours(req), path).toBeNull();
+    }
+  });
+
   it("matches the URL parser's path, so the dot-segment spelling is the exact path and nothing else is", () => {
     expect(new URL(`${ORIGIN}/oauth/./authorize`).pathname).toBe("/oauth/authorize");
     for (const path of [
