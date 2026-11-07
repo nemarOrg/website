@@ -860,7 +860,7 @@ if (tier !== "unverified") {
                     />
                     <span>
                       {ACCOUNT_COPY["compute_access.request.terms_label"]} (version{" "}
-                      <a href={computeTermsUrl} rel="external noopener">{COMPUTE_TERMS_VERSION}</a>)
+                      <a href={computeTermsUrl} target="_blank" rel="external noopener noreferrer">{COMPUTE_TERMS_VERSION}</a>)
                     </span>
                   </label>
 
@@ -2415,7 +2415,7 @@ if (tier !== "unverified") {
         const code = err instanceof AccountApiError ? err.code : undefined;
         const detail = err instanceof AccountApiError ? err.backendMessage : undefined;
         const missing = err instanceof AccountApiError ? err.missing : [];
-        const message = computeAccessErrorMessage(status, code, detail);
+        const message = computeAccessErrorMessage(status, code, detail, missing);
         let keepDisabled = false;
         if (code && LIST_CODES.includes(code) && missing.length > 0) {
           renderRefusal(missingBox, missingList, missing, { orcidVerified, block: "compute_access" });

@@ -117,8 +117,9 @@ describe("the form", () => {
       /<input\s+id="compute-access-terms"\s+type="checkbox"[\s\S]{0,80}required/,
     );
     expect(SETTINGS).toContain('ACCOUNT_COPY["compute_access.request.terms_label"]');
+    // A new tab, so reading the terms does not lose the purpose draft.
     expect(SETTINGS).toMatch(
-      /<a href=\{computeTermsUrl\} rel="external noopener">\{COMPUTE_TERMS_VERSION\}<\/a>/,
+      /<a href=\{computeTermsUrl\} target="_blank" rel="external noopener noreferrer">\{COMPUTE_TERMS_VERSION\}<\/a>/,
     );
     expect(SETTINGS).toContain("DOCS_COMPUTE_TERMS_PATH");
   });
@@ -151,12 +152,16 @@ describe("the form", () => {
   });
 
   it("maps each refusal the way the plan says", () => {
-    expect(computeScript).toContain("computeAccessErrorMessage(status, code, detail)");
+    expect(computeScript).toContain("computeAccessErrorMessage(status, code, detail, missing)");
     // The backend's sentence only, not the generic message the class falls back to.
     expect(computeScript).toContain("err.backendMessage");
     for (const code of ["email_not_verified", "orcid_not_proven", "profile_incomplete"]) {
       expect(computeScript).toContain(`"${code}"`);
     }
+    // An empty list is not rendered as a heading over nothing: the message,
+    // which the mapper made from the backend's sentence, is shown instead.
+    expect(computeScript).toContain("LIST_CODES.includes(code) && missing.length > 0");
+    expect(computeScript).toMatch(/\} else \{\s*setMsg\(msg, message, "error"\);/);
     expect(computeScript).toContain('code === "terms_unpublished"');
     expect(computeScript).toContain('"access_closed", "already_active"');
     expect(computeScript).toContain("purpose?.focus()");
