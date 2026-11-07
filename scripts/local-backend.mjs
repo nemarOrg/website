@@ -583,6 +583,13 @@ async function seedComputeJobs() {
     fx.tapis.advance(uuid, "FINISHED");
     setTapisTimes(fx, uuid, 30 * MINUTE, 0);
     await advanceComputeJob(env, id);
+    // The stand-in reports the run as 30 minutes long, ending now, and the backend copies the
+    // scheduler's start into `started_at`; the job record itself was only just made. A job cannot
+    // start before it exists, so the record is backdated to just before its start. (Without this the
+    // job page showed Started earlier than Created: a seed artifact, not a display bug.)
+    db.query(
+      "UPDATE compute_jobs SET created_at = datetime(started_at, '-1 minute') WHERE id = ? AND started_at < created_at",
+    ).run(id);
   };
   const outputs = [
     { path: "report.txt", content: "the report\n" },
@@ -656,10 +663,15 @@ async function seedComputeJobs() {
     const id = await make(rich, label);
     const uuid = await toRunning(id);
     await finish(id, uuid, { outputs });
-    db.query("UPDATE compute_jobs SET ended_at = datetime('now', ?) WHERE id = ?").run(
-      `-${daysAgo} days`,
-      id,
-    );
+    // The whole record moves back, not only its end: a job that ended 31 days ago did not start or
+    // get created after that.
+    db.query(
+      `UPDATE compute_jobs
+          SET ended_at = datetime('now', ?1),
+              started_at = datetime('now', ?1, '-30 minutes'),
+              created_at = datetime('now', ?1, '-31 minutes')
+        WHERE id = ?2`,
+    ).run(`-${daysAgo} days`, id);
   }
 
   const foreign = await make(frozen, "foreign");
