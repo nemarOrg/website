@@ -210,7 +210,7 @@ describe("no compute sentence is typed at a call site", () => {
   );
 
   it("finds every copy value only in the copy table", () => {
-    expect(computeCopy.length).toBe(22);
+    expect(computeCopy.length).toBe(23);
     for (const [key, value] of computeCopy) {
       // A one- or two-word label ("Compute access") also appears in comments
       // and class names; the sentences are what must not be retyped.

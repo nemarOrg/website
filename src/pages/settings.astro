@@ -808,7 +808,10 @@ if (tier !== "unverified") {
               )}
 
               {compute.state === "active" && (
-                <p class="compute-access__body">{ACCOUNT_COPY["compute_access.granted.body"]}</p>
+                <p class="compute-access__body">
+                  {ACCOUNT_COPY["compute_access.granted.body"]}
+                  {" "}<a href="/compute">{ACCOUNT_COPY["compute_access.granted.link"]}</a>.
+                </p>
               )}
 
               {compute.state === "suspended" && (

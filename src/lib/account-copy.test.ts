@@ -137,6 +137,34 @@ describe("compute access copy (nemar-cli 3a869903)", () => {
   });
 });
 
+describe("compute page copy (nemar-cli epic #2021 phase E2)", () => {
+  /** The seven keys the `/compute` page added to nemar-cli's contract. */
+  const PAGE_KEYS = [
+    "compute_page.frozen.body",
+    "compute_page.units_note",
+    "compute_page.available_note",
+    "compute_page.queue_note",
+    "compute_page.usage_note",
+    "compute_page.unreported_note",
+    "compute_access.granted.link",
+  ] as const;
+
+  it("has all seven keys, each a non-empty string with no placeholder", () => {
+    expect(PAGE_KEYS).toHaveLength(7);
+    for (const key of PAGE_KEYS) {
+      expect(Object.hasOwn(ACCOUNT_COPY, key), key).toBe(true);
+      expect(ACCOUNT_COPY[key].trim().length, key).toBeGreaterThan(0);
+      expect(ACCOUNT_COPY[key], key).not.toMatch(/\{\w+\}/);
+    }
+  });
+
+  it("says jobs are submitted with the command line, not from the website", () => {
+    // The epic builds no web submission; the sentence used to promise one.
+    expect(ACCOUNT_COPY["compute_access.granted.body"]).toContain("`nemar compute` command line");
+    expect(ACCOUNT_COPY["compute_access.granted.body"]).not.toContain("from there");
+  });
+});
+
 describe("what the copy must never say", () => {
   // The sentences these pages used to carry are the reason website#301
   // existed: `pending` stopped meaning "an admin is looking at you", and
