@@ -272,7 +272,7 @@ list.page_two = await call(
 );
 list.empty = await call("GET", "/access?after=999999", "admin");
 list.invalid_state_none = await call("GET", "/access?state=none", "admin");
-list.invalid_unknown_key = await call("GET", "/access?colour=red", "admin");
+list.invalid_unknown_key = await call("GET", "/access?color=red", "admin");
 list.invalid_limit = await call("GET", "/access?limit=500", "admin");
 list.one_by_cursor = await call("GET", `/access?after=${p.long - 1}&limit=1`, "admin");
 list.unauthenticated = await call("GET", "/access", null);

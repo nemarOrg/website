@@ -519,7 +519,7 @@ export interface PoolRowModel {
   /** Printed from the served figure; a negative one reads negative. */
   readonly available: string;
   readonly negative: boolean;
-  /** A word, not a colour: frozen pools say so. */
+  /** A word, not a color: frozen pools say so. */
   readonly frozen: boolean;
   readonly frozenText: string;
   readonly updated: string;

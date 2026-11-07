@@ -43,7 +43,7 @@ const { title, active } = Astro.props;
 const hasLede = Astro.slots.has("lede");
 
 // Tab badges, rendered from every admin page (not just their own tab) since
-// the shell is shared. All four are fail-soft — neither throws — so a
+// the shell is shared. All four are fail-soft (none throws), so a
 // `nemar-cli` hiccup degrades to "no badge" instead of breaking every admin
 // page's render; see each fetch's docstring for the mirrored contract in
 // observability.ts. Issued together so the deadlines overlap rather

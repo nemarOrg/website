@@ -194,7 +194,7 @@ describe("requestRowModel", () => {
     expect(row.actions).toEqual([]);
   });
 
-  it("gives each known state its own label, tone and a shape beyond colour", () => {
+  it("gives each known state its own label, tone and a shape beyond color", () => {
     const tones = Object.fromEntries(COMPUTE_ACCESS_LISTED_STATES.map((s) => [s, statePill(s)]));
     expect(tones.active).toMatchObject({ label: "Active", tone: "success", icon: "ok" });
     expect(tones.denied).toMatchObject({ label: "Denied", tone: "danger", icon: "error" });
