@@ -67,7 +67,7 @@ import {
   unmatchedRowModel,
   unmatchedSummary,
 } from "../../lib/compute-admin-view";
-import { jobStateBadge } from "../../lib/compute-badges";
+import { jobBadge } from "../../lib/compute-badges";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -452,7 +452,7 @@ if (view === "drift") {
                 <tbody>
                   {flaggedJobs.value.jobs.map((job) => {
                     const m = jobRowModel(job);
-                    const badge = jobStateBadge(m.state);
+                    const badge = jobBadge(m.state);
                     return (
                       <tr>
                         <th scope="row" class="mono">{m.id}</th>
@@ -602,7 +602,7 @@ if (view === "drift") {
                   <tbody>
                     {mismatched.value.jobs.map((job) => {
                       const m = jobRowModel(job);
-                      const badge = jobStateBadge(m.state);
+                      const badge = jobBadge(m.state);
                       return (
                         <tr>
                           <th scope="row" class="mono">{m.id}</th>
