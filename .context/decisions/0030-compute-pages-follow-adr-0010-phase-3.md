@@ -21,7 +21,7 @@ nemar-cli ADR 0040 keeps `service_access` as the upload grant and makes admin ap
 The session user carries `compute_access`, `compute_access_requested_at` and `compute_access_granted_at` as optional fields that are never defaulted: absent means the backend cannot say, and the Settings card then renders nothing rather than "Not requested".
 A state outside the closed six (`none`, `requested`, `active`, `suspended`, `denied`, `revoked`) is dropped at the parser for the same reason.
 
-**Compute pages live on the app host only** (ADR 0006), next to Settings and the dashboard; the marketing host links to docs, not to a compute surface.
+**Compute pages live on the app host only** (ADR 0006), next to Settings and the dashboard; the marketing host links to docs, not to a compute surface. (Amended by the phase E5 addendum below: the dataset page's dialog also links to the app host's compute surfaces, as navigation only.)
 
 **Charts are hand-rolled in SVG** (ADR 0007) when the dashboard phase needs them.
 Untrusted text a compute page shows (a purpose, a job name, a log line) renders as inert text, as ADR 0029 requires of the mail tab.
@@ -80,7 +80,21 @@ The captured fixtures in `test/fixtures/compute/` gain a `GET /compute/me` captu
 - **Shared copy.** Seven keys were added to nemar-cli's contract and transcribed (`compute_page.*`, `compute_access.granted.link`), and `compute_access.granted.body` no longer promises submission from the website: jobs are submitted with the command line.
 - **Still open from the hand-off above:** replacing `compute-terms.ts` and `COMPUTE_REQUESTS_ENABLED` with `access.current_terms_version` and `access.requests_open` is a follow-up; `/compute` already reads `requests_open` (falling back to `terms_published`) for its own "request" link.
 
+## Addendum: the dataset page dialog (phase E5, website#498, 2026-11-07)
+
+The dataset page's "Compute instructions" dialog now describes `nemar compute` instead of an S3 prefix and a Neuroscience Gateway flow that never shipped. The decisions that are expensive to reverse:
+
+- **One state-agnostic dialog.** The dataset page is a marketing-host page cached at the edge and anonymous (the session cookie is scoped to the app host, ADR 0006), so it cannot know the visitor's access state and must not try. The dialog never claims the visitor has access; each state is handled where it is known: Settings (the request), `/compute` (state, balance, jobs) and the CLI (`nemar compute balance` works in every access state).
+- **Same release gate as Settings.** The dialog is open only when `computeRequestsOpen(COMPUTE_REQUESTS_ENABLED, apiBase())` says so; otherwise it shows the shared `compute_access.terms_unpublished.body` and no commands. Production therefore shows the "not open yet" dialog until the owner flips the flag, in the same change that opens the Settings form. A request-based probe was rejected: no compute route is public, and a per-render upstream call would sit on the cached page's hot path. nemar-cli#2090 asks for the public availability read that would replace the constant for both surfaces.
+- **Marketing host links to the app host.** This amends the sentence above that the marketing host "links to docs, not to a compute surface": from this phase the dialog links to `/settings#compute-access` and `/compute` through `appUrl`. They are navigation only; nothing from compute renders on the marketing host.
+- **The Neuroscience Gateway route and the S3 prefix are removed for good.** The dialog never names a storage URL, a prefix, a machine or a partner site, and states no limit, price, balance or allocation size. Where a job finds the staged data and where it writes are not in the CLI's help, so the dialog does not say (nemar-cli#2092).
+- **Commands are quoted, not invented.** `src/lib/compute-instructions.ts` is the pure builder; every command and flag it prints is pinned to the captured help in `test/fixtures/compute/cli-help/` (`scripts/capture-compute-cli-help.mjs`) by `test/compute-instructions-cli-parity.test.ts`. Rerun the capture, and the test, whenever nemar-cli's compute commands change; a rename there passes the website's tests until then.
+- **The id-band pre-filter is interim.** Commands are offered only for a published, non-anonymous `nm` or `on` dataset with a version of the form `1.0.2` or `v1.0.2`; anything else gets one sentence, whatever the reason, as the backend gives one `dataset_not_eligible` for all of them. The page never reads the repository URL for this, so an anonymous deposit gains no route that discloses its repository. The backend stays the authority (reserved fixture ids, withdrawn and tombstoned datasets reach the CLI, which prints its refusal); nemar-cli#2091 asks for an eligibility fact on a public read so the filter can go. A subset of a dataset (the job specification's `include` glob) is not exposed by `--dataset`, and the dialog does not mention it (nemar-cli#2093).
+- **No terms link** until a compute terms page exists.
+
+Receipts for this addendum: website#498, #493; nemar-cli#2021, #2024, #2090, #2091, #2092, #2093.
+
 ## Receipts
 
-- website#493 (epic), website#494 (phase E1), website#495 (phase E2); nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
+- website#493 (epic), website#494 (phase E1), website#495 (phase E2), website#498 (phase E5); nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
 - ADRs 0006, 0007, 0010, 0014, 0015, 0029; nemar-cli ADRs 0040, 0042, 0118.

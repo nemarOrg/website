@@ -1,11 +1,14 @@
 /**
- * The short UI words of the `/compute` page: headings, column headers, button text, empty and error
- * states (website ADR 0030 phase E2 addendum). Sentences that the command line also says are NOT here:
- * they live in `./account-copy.ts` (mirrored from nemar-cli, ADR 0015). What is here is a label or a
- * description of this page's own state, which the CLI does not print.
+ * The short UI words of the `/compute` page and of the dataset page's Compute dialog: headings, column
+ * headers, button text, empty and error states (website ADR 0030 phase E2 and E5 addenda). Sentences
+ * that the command line also says are NOT here: they live in `./account-copy.ts` (mirrored from
+ * nemar-cli, ADR 0015). What is here is a label or a description of this surface's own layout, which the
+ * CLI does not print, or a paraphrase of one line of the CLI's help (`datasetDialog`, pinned to the
+ * captured help by `test/compute-instructions-cli-parity.test.ts`).
  *
  * `test/compute-dashboard-ui.test.ts` fails if a page or component under /compute types a long
- * sentence outside this file and the copy table, which is how a sentence stays in one place.
+ * sentence outside this file and the copy table, which is how a sentence stays in one place;
+ * `test/compute-dialog-ui.test.ts` does the same for the dialog.
  */
 
 export const COMPUTE_LABELS = {
@@ -89,6 +92,57 @@ export const COMPUTE_LABELS = {
     rejected: "The server refused the request.",
     notAvailableTitle: "Compute is not available on this server yet",
     notAvailableBody: "The page cannot show your compute account until the server supports it.",
+  },
+  /**
+   * The dataset page's Compute dialog (phase E5). Access sentences (what access is, that an admin
+   * reviews, the queue is not a promise) are NOT here; the dialog reads them from the copy table.
+   * Each explanation paraphrases one line of `nemar compute <command> --help-all`; no number, limit,
+   * price or allocation size appears, and no claim about where a job runs.
+   */
+  datasetDialog: {
+    title: "Compute on this dataset",
+    intro:
+      "NEMAR compute runs a script, a folder of code or a pinned container image that reads this dataset, from the command line.",
+    install: {
+      heading: "Install the NEMAR CLI and sign in",
+      link: "Install the NEMAR CLI",
+      signIn: "Sign in",
+    },
+    access: {
+      heading: "Ask for compute access, once",
+      row: "Ask an admin",
+      explain: "You ask once, and the request tells you what your account is still missing.",
+    },
+    check: {
+      heading: "Check the job first",
+      row: "Dry run",
+      explain:
+        "A dry run packs and checks your job and prints it. It sends nothing about the job and needs no sign-in.",
+    },
+    run: {
+      heading: "Run it on this dataset",
+      script: "A script",
+      scriptExplain:
+        "Name the dataset with its version so the job can be run again on the same data. With --wait the command follows the job; Ctrl-C stops waiting and does not cancel it.",
+      folder: "A folder",
+      folderExplain: "A folder needs the file to run.",
+      limits: "Limits",
+      limitsExplain:
+        "What one job may ask for on each partition offered to you, and how many jobs you may have at once.",
+      balance: "Balance",
+      balanceExplain: "Your access and balance. It works in every access state.",
+    },
+    follow: {
+      heading: "Follow it and collect the results",
+      row: "Your jobs",
+      explain:
+        "<job> is the id submit prints. List your jobs, show one, read its log, download its files or cancel it.",
+      queue: "Queue",
+      queueLead: "Shows recent queue waits per partition.",
+    },
+    computePageLead: "Where your access stands is on your compute page.",
+    closedPointer: "To work with this data now, use one of the routes in Download.",
+    notAvailable: "NEMAR compute cannot read this dataset.",
   },
 } as const;
 
