@@ -234,7 +234,7 @@ const usageDayPartition = {
   _provenance: provenance(
     "GET /compute/me/usage",
     `group=day,partition&from=${WINDOW.from}&to=${WINDOW.to}`,
-    "Several days on both pools, a 23:59:59 and a 00:00:00 entry on neighbouring days, a net-negative refund row, an administrator's correction (null partition) on both pools, and quiet days that have no row. The window is explicit so the file is reproducible; the page itself asks for the server's default window.",
+    "Several days on both pools, a 23:59:59 and a 00:00:00 entry on neighboring days, a net-negative refund row, an administrator's correction (null partition) on both pools, and quiet days that have no row. The window is explicit so the file is reproducible; the page itself asks for the server's default window.",
   ),
   ...(await get(
     rich.db,

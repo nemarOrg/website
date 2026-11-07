@@ -12,7 +12,7 @@ describe("jobBadge", () => {
     ["archiving", "Archiving", "info", "progress"],
     ["finished", "Finished", "success", "ok"],
     ["failed", "Failed", "danger", "error"],
-    ["cancelled", "Cancelled", "neutral", "neutral"],
+    ["cancelled", "Canceled", "neutral", "neutral"],
     ["unreported", "Unreported", "warning", "warn"],
   ])("%s reads %s as %s with the %s icon", (state, label, tone, icon) => {
     expect(jobBadge(state)).toEqual({ label, tone, icon, known: true });

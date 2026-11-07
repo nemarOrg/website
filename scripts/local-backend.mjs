@@ -354,7 +354,7 @@ async function seedComputeData() {
       started_at: ago(0, 2),
     });
   }
-  // One job in each of the ten states, over the four front doors (the running one asks to be cancelled)...
+  // One job in each of the ten states, over the four front doors (the running one asks to be canceled)...
   COMPUTE_STATES.forEach((state, i) => {
     const terminal = ["finished", "failed", "cancelled"].includes(state);
     insertJob(db, {

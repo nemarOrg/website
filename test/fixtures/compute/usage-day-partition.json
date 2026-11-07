@@ -4,7 +4,7 @@
     "nemar_cli_commit": "e0685a25",
     "route": "GET /compute/me/usage",
     "request": "group=day,partition&from=2026-10-09&to=2026-11-07",
-    "note": "Several days on both pools, a 23:59:59 and a 00:00:00 entry on neighbouring days, a net-negative refund row, an administrator's correction (null partition) on both pools, and quiet days that have no row. The window is explicit so the file is reproducible; the page itself asks for the server's default window."
+    "note": "Several days on both pools, a 23:59:59 and a 00:00:00 entry on neighboring days, a net-negative refund row, an administrator's correction (null partition) on both pools, and quiet days that have no row. The window is explicit so the file is reproducible; the page itself asks for the server's default window."
   },
   "status": 200,
   "body": {

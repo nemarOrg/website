@@ -22,7 +22,7 @@ export const COMPUTE_STATE_LABELS: Readonly<Record<ComputeJobState, string>> = {
   archiving: "Archiving",
   finished: "Finished",
   failed: "Failed",
-  cancelled: "Cancelled",
+  cancelled: "Canceled",
   unreported: "Unreported",
 };
 

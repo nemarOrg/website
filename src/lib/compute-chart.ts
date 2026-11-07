@@ -27,7 +27,7 @@ const NAMED_SERIES = CHART_SERIES_COLORS - 1;
 /** The viewBox is `BAND` units wide per day and `PLOT_HEIGHT` units tall; the SVG stretches to fit. */
 export const BAND = 10;
 export const PLOT_HEIGHT = 100;
-/** A bar is inset this far from each side of its band, leaving a gap between neighbours. */
+/** A bar is inset this far from each side of its band, leaving a gap between neighbors. */
 const BAR_INSET = 1;
 /** A non-zero segment is never thinner than this many viewBox units (about 2 px on the tall chart). */
 export const MIN_VISIBLE_UNITS = 1;
