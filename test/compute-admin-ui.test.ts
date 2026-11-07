@@ -304,6 +304,32 @@ describe("the layout badge", () => {
   });
 });
 
+describe("a confirmed decision updates the page in place", () => {
+  it("marks the layout badge and adjusts it from the state the server reported", () => {
+    expect(LAYOUT).toContain("data-admin-badge={tab.id}");
+    expect(LAYOUT).toContain("data-badge-count");
+    expect(PAGE).toContain("adjustRequestsBadge(currentBadge(), before, after)");
+  });
+
+  it("moves a card that left the filtered list to a decided group, and says so in a live region", () => {
+    expect(PAGE).toContain("cardLeavesList(list.dataset.filter as RequestFilter, after)");
+    expect(PAGE).toContain("data-compute-decided-list");
+    expect(PAGE).toMatch(/role="status" aria-live="polite" data-compute-announce/);
+    expect(PAGE).toContain("announce.textContent");
+  });
+
+  it("acts only on a state the server reported, never on a refusal that changed nothing", () => {
+    // `known` is the response's account or the re-read's; a refusal without a re-read has none.
+    expect(PAGE).toContain("const known = out.row;");
+    expect(PAGE).toContain("if (known && after !== before)");
+  });
+
+  it("keeps the empty note for the list becoming empty", () => {
+    expect(PAGE).toContain("data-compute-empty");
+    expect(PAGE).toContain("list.hidden = true;");
+  });
+});
+
 describe("the sections that have no backend route say so", () => {
   it("names the missing reads and links the tracking issues, and derives nothing", () => {
     expect(PAGE).toContain('ACCOUNT_COPY["compute_admin.unavailable.usage_by_day"]');

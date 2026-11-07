@@ -25,8 +25,10 @@ import {
 import { COMPUTE_ACCESS_DECISIONS, COMPUTE_ACCESS_LISTED_STATES } from "./compute-admin-contract";
 import {
   PURPOSE_PREVIEW_CHARS,
+  adjustRequestsBadge,
   allowedDecisions,
   attentionLines,
+  cardLeavesList,
   currentQuarter,
   describeDecision,
   describeFailure,
@@ -510,5 +512,41 @@ describe("requestsBadge", () => {
     expect(requestsBadge({ count: 0, capped: false })).toBeNull();
     expect(requestsBadge({ count: 3, capped: false })).toBe("3");
     expect(requestsBadge({ count: 200, capped: true })).toBe("200+");
+  });
+});
+
+describe("adjustRequestsBadge", () => {
+  it("counts down when a request is decided and up when one is requested again", () => {
+    expect(adjustRequestsBadge("3", "requested", "active")).toBe("2");
+    expect(adjustRequestsBadge("3", "requested", "denied")).toBe("2");
+    expect(adjustRequestsBadge("2", "active", "requested")).toBe("3");
+  });
+
+  it("removes the badge at zero, as the server render does", () => {
+    expect(adjustRequestsBadge("1", "requested", "active")).toBeNull();
+  });
+
+  it("changes nothing when the move does not touch the requested state", () => {
+    expect(adjustRequestsBadge("3", "active", "suspended")).toBe("3");
+    expect(adjustRequestsBadge("3", "requested", "requested")).toBe("3");
+    expect(adjustRequestsBadge("3", "", "")).toBe("3");
+  });
+
+  it("leaves a capped or absent or unreadable badge alone", () => {
+    expect(adjustRequestsBadge("200+", "requested", "active")).toBe("200+");
+    expect(adjustRequestsBadge(null, "requested", "active")).toBeNull();
+    expect(adjustRequestsBadge(null, "active", "requested")).toBeNull();
+    expect(adjustRequestsBadge("many", "requested", "active")).toBe("many");
+  });
+});
+
+describe("cardLeavesList", () => {
+  it("keeps every card on the All list and only matching cards on a state list", () => {
+    expect(cardLeavesList("all", "active")).toBe(false);
+    expect(cardLeavesList("requested", "requested")).toBe(false);
+    expect(cardLeavesList("requested", "active")).toBe(true);
+    expect(cardLeavesList("requested", "denied")).toBe(true);
+    expect(cardLeavesList("active", "suspended")).toBe(true);
+    expect(cardLeavesList("active", "active")).toBe(false);
   });
 });

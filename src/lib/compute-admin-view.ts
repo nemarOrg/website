@@ -684,3 +684,33 @@ export function requestsBadge(count: ComputeRequestsCount | null): string | null
   if (count === null || count.count === 0) return null;
   return count.capped ? `${count.count}+` : String(count.count);
 }
+
+/**
+ * The tab badge after one account moved between states on this page, without a reload. The badge
+ * counts accounts in `requested`, so only a move out of (or into) that state changes it. A capped
+ * badge ("200+") stays as it is: it is a lower bound and one fewer is still above it. A badge that
+ * was not drawn (no count, or a count of zero) stays absent, since an unknown count cannot be
+ * moved by one. Reaching zero removes the badge, as the server render does.
+ */
+export function adjustRequestsBadge(
+  current: string | null,
+  before: string,
+  after: string,
+): string | null {
+  const delta = Number(after === "requested") - Number(before === "requested");
+  if (delta === 0 || current === null) return current;
+  const match = /^(\d+)(\+?)$/.exec(current);
+  if (!match || match[2] === "+") return current;
+  const next = Number(match[1]) + delta;
+  return next > 0 ? String(next) : null;
+}
+
+/**
+ * Whether a request card still belongs in the list it is drawn in once its state is known. The
+ * list is the page's state filter: `all` keeps every card, any other filter keeps only that state.
+ * A card that no longer belongs is moved out so the list is not a lie, and the page keeps it in
+ * a "decided on this page" group with its result note.
+ */
+export function cardLeavesList(filter: RequestFilter, after: string): boolean {
+  return filter !== "all" && after !== filter;
+}

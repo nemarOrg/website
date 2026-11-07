@@ -144,6 +144,8 @@ export const COMPUTE_LABELS = {
     closedPointer: "To work with this data now, use one of the routes in Download.",
     notAvailable: "NEMAR compute cannot read this dataset.",
   },
+  /** The admin Compute tab: the group a decided card moves to when it leaves the filtered list. */
+  adminDecided: { title: "Decided on this page" },
 } as const;
 
 /** The plural-aware word for a number of days in a queue window. */
