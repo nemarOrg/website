@@ -17,8 +17,11 @@
  *    disabled until it is ticked;
  *  - for a REVOKE only, the word the administrator types to confirm, as on the Users tab.
  *
+ * The acknowledgement is a prompt for the administrator and nothing more: it is not sent, stored or
+ * shown to anyone, so no copy may call it a record. The decision itself is audited by the backend.
+ *
  * Events (the style of `ConfirmDialog.astro`):
- *   in   `nemar:compute-decision-open`    { id, decision, label, subject: { name, username, country, affiliation } }
+ *   in   `nemar:compute-decision-open`    { id, decision, label, opener, subject: { account, country, affiliation } }
  *   out  `nemar:compute-decision-confirm` { id, decision, reason }
  */
 import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
@@ -133,7 +136,7 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
 
 <style>
   .compute-dialog {
-    /* The global reset removes the browser's auto margin that centres a modal <dialog>. */
+    /* The global reset removes the browser's auto margin that centers a modal <dialog>. */
     margin: auto;
     inline-size: min(34rem, calc(100vw - 2 * var(--space-4)));
     max-block-size: calc(100dvh - 2 * var(--space-4));
@@ -298,6 +301,9 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
       id: number;
       decision: string;
       label: string;
+      /** The button that was clicked: Safari and macOS Firefox do not focus a clicked button, so
+       *  `document.activeElement` is the body there and cannot be the place focus returns to. */
+      opener: HTMLElement | null;
       subject: { account: string; country: string; affiliation: string };
     }
     let current: { id: number; decision: string } | null = null;
@@ -336,7 +342,9 @@ const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
       const detail = (event as CustomEvent<OpenDetail>).detail;
       if (!detail || !confirm) return;
       current = { id: detail.id, decision: detail.decision };
-      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      opener =
+        detail.opener ??
+        (document.activeElement instanceof HTMLElement ? document.activeElement : null);
       for (const block of blocks) {
         const mine = block.dataset.decisionBlock === detail.decision;
         block.hidden = !mine;

@@ -5,7 +5,7 @@
  * Five views by `?view=`: Requests (the default; the one place a person is granted, denied,
  * suspended or revoked), then four READ-ONLY views of what the backend serves: Pools, Usage,
  * Flagged jobs and Reconciliation. Nothing owner-only or cost-bearing is offered here: policy,
- * legal holds, record reads, moving a charge, pool grants and adjustments and cancelling a job
+ * legal holds, record reads, moving a charge, pool grants and adjustments and canceling a job
  * stay in the command line, and the lede says so.
  *
  * NO SECTION SHOWS A NUMBER THE PAGE COMPUTED. Every figure is printed from a served integer;
@@ -29,7 +29,7 @@ import ComputePill from "../../components/admin/ComputePill.astro";
 import ComputeRequestRow from "../../components/admin/ComputeRequestRow.astro";
 import ComputeSectionError from "../../components/admin/ComputeSectionError.astro";
 import AdminLayout from "../../layouts/AdminLayout.astro";
-import { ACCOUNT_COPY } from "../../lib/account-copy";
+import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
 import { adminGate } from "../../lib/admin-guard";
 import { getSession } from "../../lib/auth";
 import {
@@ -79,6 +79,8 @@ if (!session) {
   // layout's required prop.
   return Astro.redirect("/login");
 }
+// Admin pages carry decisions and people's details: no shared or browser cache keeps them.
+Astro.response.headers.set("Cache-Control", "no-store");
 const viewer = { userId: session.user.id, isOwner: session.user.backend_role === "owner" };
 
 const url = new URL(Astro.request.url);
@@ -326,6 +328,13 @@ if (view === "drift") {
                   </table>
                 </div>
               )}
+              {key !== "account" && result?.ok === true && result.value.next_after !== null && (
+                <p class="compute-note" data-pools-truncated>
+                  {fillCopy(ACCOUNT_COPY["compute_admin.pools.truncated"], {
+                    shown: String(result.value.pools.length),
+                  })}
+                </p>
+              )}
             </section>
           ))}
           {poolPager && (poolPager.first || poolPager.next) && (
@@ -521,9 +530,14 @@ if (view === "drift") {
             {unmatched?.ok === false && <ComputeSectionError {...unmatched.error} />}
             {unmatched?.ok === true && unmatched.value.rows.length === 0 && (
               <div class="admin-empty">
-                <p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.drift.unmatched_none"]}</p>
-                {status?.ok === true && status.value.reconciliation_paused === true && (
-                  <p class="admin-empty__body">{ACCOUNT_COPY["compute_admin.drift.paused"]}</p>
+                {status?.ok === true && status.value.reconciliation_paused === false ? (
+                  <p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.drift.unmatched_none"]}</p>
+                ) : (
+                  <p class="admin-empty__title" data-drift-empty-caveat>
+                    {status?.ok === true && status.value.reconciliation_paused === true
+                      ? ACCOUNT_COPY["compute_admin.drift.paused"]
+                      : ACCOUNT_COPY["compute_admin.drift.pause_unknown"]}
+                  </p>
                 )}
               </div>
             )}
@@ -890,6 +904,7 @@ if (view === "drift") {
             id,
             decision: button.dataset.decision,
             label: (button.textContent ?? "").trim(),
+            opener: button,
             subject: {
               account: `${text(row, "name")} ${text(row, "username")} #${id}`,
               country: text(row, "country"),
