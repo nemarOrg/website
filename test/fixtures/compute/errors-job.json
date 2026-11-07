@@ -1,0 +1,148 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "27eecff9",
+    "route": "the job routes",
+    "request": "a foreign job, an absent id and a malformed id on every job route; no credential; an account that is not approved",
+    "note": "Real refusals. A foreign, an absent and a malformed id answer the same bytes on every route (no route is an oracle). The 401 and 403 are authMiddleware's own shapes."
+  },
+  "job_not_found": {
+    "GET /me/jobs/<id>": {
+      "foreign": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "absent": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "malformed": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      }
+    },
+    "GET /jobs/<id>/logs": {
+      "foreign": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "absent": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "malformed": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      }
+    },
+    "GET /jobs/<id>/results": {
+      "foreign": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "absent": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "malformed": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      }
+    },
+    "POST /jobs/<id>/results/renew": {
+      "foreign": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "absent": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "malformed": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      }
+    },
+    "POST /jobs/<id>/cancel": {
+      "foreign": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "absent": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      },
+      "malformed": {
+        "status": 404,
+        "body": {
+          "error": "No such job.",
+          "code": "job_not_found"
+        }
+      }
+    }
+  },
+  "no_credential": {
+    "status": 401,
+    "body": {
+      "error": "Missing Authorization header"
+    }
+  },
+  "account_not_approved": {
+    "status": 403,
+    "body": {
+      "error": "Account not approved",
+      "status": "pending",
+      "message": "Verify your email address to activate your account. Check your inbox for the verification link, or run 'nemar auth resend-verification' to get a new one."
+    }
+  },
+  "invalid_after": {
+    "status": 400,
+    "body": {
+      "error": "The request is not valid.",
+      "code": "invalid_spec",
+      "field": "after"
+    }
+  }
+}

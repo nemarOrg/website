@@ -1,0 +1,39 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "27eecff9",
+    "route": "GET /compute/me/jobs/:id",
+    "request": "a submitted job whose last cluster read is ten minutes old, with the Tapis stand-in down",
+    "note": "Real route: the refresh failed, so the stored record is served with `stale: true`."
+  },
+  "job_id": "job_50f3a028f61ee1ff1f2564ae",
+  "submitted": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_50f3a028f61ee1ff1f2564ae",
+        "kind": "batch",
+        "source": "cli",
+        "state": "submitted",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-07 15:35:57",
+        "started_at": null,
+        "ended_at": null,
+        "charged_milli": 0,
+        "failure_code": null,
+        "cancel_requested": false
+      },
+      "stale": true
+    }
+  }
+}
