@@ -77,6 +77,7 @@ src/
     upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + full BIDS validation in a worker + direct-to-storage PUTs)
     settings.astro                    account: name/email/ORCID/GitHub/profile self-service; CLI keys card; compute access card
     compute/index.astro               compute dashboard (app host, ADR 0030): access, balances, usage chart per pool, jobs with Load more, queue waits; each read and panel fails alone
+    compute/jobs/[id].astro           one compute job (app host, ADR 0030 E3): timeline, resources and charge, failure sentence, log and result links on request (bearer links minted only by a click), cancel; private no-store, one 404 for absent, foreign or malformed ids; the page the results-ready mail links to
     admin/publication-requests.astro  admin-only (role=admin; 404s for others)
     admin/mail.astro admin/mail/{[id],queues,away}.astro   admin Mail tab: tickets, queues, away windows (ADR 0029); email is escaped text only
     admin/compute.astro               admin Compute tab (website#497, ADR 0030): Requests (grant, deny, suspend, revoke by id, each through ComputeDecisionDialog) and read-only Pools, Usage, Flagged jobs, Reconciliation; a section the backend does not serve says so and links its nemar-cli issue; nothing owner-only or cost-bearing is offered
@@ -98,6 +99,8 @@ src/
     compute-view.ts compute-labels.ts compute-badges.ts   pure view models (panelsFor, access, balances, queue, jobRowView, usage), the page's short labels (sentences live in account-copy.ts), job-state badges
     compute-format.ts compute-chart.ts   integer milli-SU formatting (`suFixed`: the CLI's three-decimal digits; `formatSu`: the shortest exact decimal, the same rule as nemar-cli's `formatSu`) and the usage chart geometry (nice ceiling from the stacked total, hand-rolled SVG, ADR 0007)
     compute-jobs-dom.ts               builds appended job rows with createElement/textContent only
+    compute-job-view.ts compute-logs.ts compute-failure.ts compute-copy.ts   the job page's pure modules (E3): timeline, canCancel, retention window, results rows, cancel outcome words and the polling schedule (`nextPoll`, no clock); `prepareLog` (ANSI stripped, hostile characters written out, long lines capped); one sentence per failure code; the website-owned sentences
+    compute-job-dom.ts compute-job-page.ts compute-job-live.ts   the job page's browser side: nodes from the same view models (createElement and textContent only), the controller (poll, log, results, cancel), and the ONE job module that reads a clock or holds a timer
     compute-admin-api.ts              admin Compute client (browser-safe): access list and decisions by id, pools, jobs by flag, unmatched accounting rows, access report, status, the badge count; { error, code } reader, decision failure classes, no POST retry
     compute-admin-contract.ts         hand copy of the closed lists the Compute tab branches on (drift-tested, test/compute-admin-contract-drift.test.ts, strict via NEMAR_CLI_COMPUTE_ADMIN_CONTRACT)
     compute-admin-view.ts             pure view models for the Compute tab: request row, allowed buttons, decision and failure sentences, pool and job rows, parameters, pager
@@ -128,7 +131,7 @@ src/
     eeg-viewer.css                    global signal-viewer styles (runtime-built DOM), imported by BidsTree and the embed
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
-  fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1) and `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2); `fixtures/compute/cli-help/` is the real `nemar ... --help-all` text the dialog's commands are checked against: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-cli-help.mjs` (E5)
+  fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1), `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2) and `bun scripts/capture-compute-job-fixtures.mjs` (job, log, results, cancel, refusals; E3, on the backend's lifecycle fixture and Tapis stand-in); `fixtures/compute/cli-help/` is the real `nemar ... --help-all` text the dialog's commands are checked against: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-cli-help.mjs` (E5)
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
 public/brand/                         GENERATED press logo kit (SVG, PDF, transparent PNG; color, reverse, black, white); rebuild with `bun scripts/generate-brand-kit.mjs`, never hand-edit
 public/vendor/bids-validator/<ver>/   GENERATED worker bundle of the BIDS validator + SHA256SUMS + provenance + licenses (ADR 0028); never hand-edited

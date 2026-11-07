@@ -94,3 +94,18 @@ Worked on 2026-11-07. Differences from production: the compute switch reads `off
 exact production environment), so Reconciliation shows its paused banner; no mail is sent, so a
 decision answers `email_sent: false` and the row says the person could not be emailed. Browser
 windows cannot be narrower than about 600 px in the Chrome tools; check 375 px in devtools.
+
+## The job page (website#496)
+
+`--seed-compute-jobs` (with `--seed-compute` and `LOCAL_BACKEND_JOBS=1`) makes the job page's jobs for
+the account `localjobs` (sign in with the `jobs` cookie) through the real services and the Tapis
+stand-in: a finished job (three outputs, a log), a running one, one to cancel, a failed job with a
+hostile log, one with a log over 1 MiB, one with 1,002 outputs (a second page of links), one whose
+results expire in two days, one whose results are past the 30 days (the real 410), a running job of
+another account (the 404 check) and a job that advances by itself every 20 seconds (queued, running,
+finished). Ids are printed and written to `.local-backend/jobs.json`. The seed runs the backend with
+`ENVIRONMENT=development` (compute only runs in `production` or `development`); mail stays fenced.
+The seed takes about 40 seconds, and the watch job starts advancing when it ends: open it at once.
+Result links point at the local object store on `127.0.0.1`, which is why `safeResultHref` accepts
+`http:` on loopback. Not reachable here: a `stale: true` job (needs the stand-in down at read time;
+covered by the captured fixture) and a real 5xx.
