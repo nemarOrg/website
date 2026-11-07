@@ -1,7 +1,7 @@
 /**
  * The compute chart's color tokens (website ADR 0007, ADR 0030 phase E2): defined for the light theme,
  * for the `prefers-color-scheme: dark` block guarded by `:root:not([data-theme="light"])`, and for
- * `:root[data-theme="dark"]`, and each series clears 3:1 against `--admin-surface` in its theme.
+ * `:root[data-theme="dark"]`, and each series clears 3.5:1 against `--admin-surface` in its theme and any two of them 8 L* apart in grayscale.
  * Separation by hue, lightness and the color-vision simulations was checked when the values were picked
  * (see the comment above them in tokens.css); this pins the parts that can regress silently.
  */
@@ -70,6 +70,12 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+/** CIE L* of a color's relative luminance: its lightness as a grayscale viewer sees it. */
+function lightness(hex: string): number {
+  const y = luminance(hex);
+  return y > 0.008856 ? 116 * y ** (1 / 3) - 16 : 903.3 * y;
+}
+
 describe("the chart tokens", () => {
   it.each([
     ["light", LIGHT],
@@ -88,10 +94,22 @@ describe("the chart tokens", () => {
   it.each([
     ["light", LIGHT],
     ["dark", DARK_ATTR],
-  ])("keep every series at 3:1 or better on the card surface in %s", (_theme, scope) => {
+  ])("keep every series at 3.5:1 or better on the card surface in %s", (_theme, scope) => {
     const surface = value(scope, "--admin-surface");
     for (const name of NAMES.slice(0, 4)) {
-      expect(contrast(value(scope, name), surface), name).toBeGreaterThanOrEqual(3);
+      expect(contrast(value(scope, name), surface), name).toBeGreaterThanOrEqual(3.5);
+    }
+  });
+
+  it.each([
+    ["light", LIGHT],
+    ["dark", DARK_ATTR],
+  ])("keeps any two series at least 8 L* apart in grayscale in %s", (_theme, scope) => {
+    const L = NAMES.slice(0, 4).map((n) => lightness(value(scope, n)));
+    for (let i = 0; i < L.length; i++) {
+      for (let j = i + 1; j < L.length; j++) {
+        expect(Math.abs(L[i] - L[j]), `series ${i + 1} and ${j + 1}`).toBeGreaterThanOrEqual(8);
+      }
     }
   });
 
