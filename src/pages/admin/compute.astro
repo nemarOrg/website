@@ -50,6 +50,7 @@ import {
 import {
   FLAG_CHIPS,
   REQUEST_FILTERS,
+  STATE_FILTER_LABELS,
   attentionLines,
   flagMeaning,
   jobRowModel,
@@ -240,7 +241,7 @@ if (view === "drift") {
                 })}
                 aria-current={filter === value ? "page" : undefined}
               >
-                {ACCOUNT_COPY[`compute_admin.state.${value}` as const]}
+                {STATE_FILTER_LABELS[value]}
               </a>
             ))}
           </nav>

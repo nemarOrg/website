@@ -158,6 +158,35 @@ export const REVOKE_CONFIRM_WORD = "REVOKE";
 
 const NOT_SET = ACCOUNT_COPY["compute_admin.row.not_set"];
 
+// The words chosen by a state, a decision or a flag are spelled out key by key, so each key has a
+// reader the copy rule can see (account-copy.ts rule 4) and a typo is a type error.
+export const STATE_FILTER_LABELS: Readonly<Record<RequestFilter, string>> = {
+  requested: ACCOUNT_COPY["compute_admin.state.requested"],
+  active: ACCOUNT_COPY["compute_admin.state.active"],
+  suspended: ACCOUNT_COPY["compute_admin.state.suspended"],
+  denied: ACCOUNT_COPY["compute_admin.state.denied"],
+  revoked: ACCOUNT_COPY["compute_admin.state.revoked"],
+  all: ACCOUNT_COPY["compute_admin.state.all"],
+};
+const ACTION_LABELS: Readonly<Record<ComputeAccessDecision, string>> = {
+  grant: ACCOUNT_COPY["compute_admin.action.grant"],
+  deny: ACCOUNT_COPY["compute_admin.action.deny"],
+  suspend: ACCOUNT_COPY["compute_admin.action.suspend"],
+  revoke: ACCOUNT_COPY["compute_admin.action.revoke"],
+};
+const FLAG_LABELS: Readonly<Record<ComputeJobFlag, string>> = {
+  unreserved: ACCOUNT_COPY["compute_admin.flag.unreserved"],
+  unattributed: ACCOUNT_COPY["compute_admin.flag.unattributed"],
+  mismatch: ACCOUNT_COPY["compute_admin.flag.mismatch"],
+  overrun: ACCOUNT_COPY["compute_admin.flag.overrun"],
+};
+const FLAG_MEANINGS: Readonly<Record<ComputeJobFlag, string>> = {
+  unreserved: ACCOUNT_COPY["compute_admin.flag.meaning.unreserved"],
+  unattributed: ACCOUNT_COPY["compute_admin.flag.meaning.unattributed"],
+  mismatch: ACCOUNT_COPY["compute_admin.flag.meaning.mismatch"],
+  overrun: ACCOUNT_COPY["compute_admin.flag.meaning.overrun"],
+};
+
 function lineOrNotSet(value: string | null | undefined): string {
   const text = displaySafeLine((value ?? "").trim());
   return text || NOT_SET;
@@ -213,9 +242,7 @@ export function statePill(word: string): StatePill {
   const tone = known ? STATE_TONES[word] : "neutral";
   return {
     word,
-    label: known
-      ? ACCOUNT_COPY[`compute_admin.state.${word}` as const]
-      : displaySafeLine(word.trim() || "unknown"),
+    label: known ? STATE_FILTER_LABELS[word] : displaySafeLine(word.trim() || "unknown"),
     tone,
     icon: badgeIcon(tone),
   };
@@ -241,7 +268,7 @@ export function actionLabel(decision: ComputeAccessDecision, state: string): str
       return ACCOUNT_COPY["compute_admin.action.grant_again"];
     }
   }
-  return ACCOUNT_COPY[`compute_admin.action.${decision}` as const];
+  return ACTION_LABELS[decision];
 }
 
 export interface RowAction {
@@ -525,14 +552,12 @@ export function poolRowModel(pool: ComputePoolRow): PoolRowModel {
 }
 
 export function flagLabel(flag: string): string {
-  return isJobFlag(flag)
-    ? ACCOUNT_COPY[`compute_admin.flag.${flag}` as const]
-    : displaySafeLine(flag);
+  return isJobFlag(flag) ? FLAG_LABELS[flag] : displaySafeLine(flag);
 }
 
 /** One line on what a flag means, or null for a flag this build has no wording for. */
 export function flagMeaning(flag: string): string | null {
-  return isJobFlag(flag) ? ACCOUNT_COPY[`compute_admin.flag.meaning.${flag}` as const] : null;
+  return isJobFlag(flag) ? FLAG_MEANINGS[flag] : null;
 }
 
 export const FLAG_CHIPS: ReadonlyArray<{ flag: ComputeJobFlag; label: string }> =
