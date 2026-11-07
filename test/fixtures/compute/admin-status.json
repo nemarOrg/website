@@ -1,0 +1,114 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /admin/compute/status",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "compute_off": {
+    "status": 200,
+    "body": {
+      "switches": {
+        "environment": "other",
+        "compute_enabled": false,
+        "pipelines_dispatch_enabled": false
+      },
+      "tapis": {
+        "configured": false,
+        "strategy": null,
+        "problems": [
+          "TAPIS_AUTH_STRATEGY:missing",
+          "TAPIS_TENANT_ID:missing"
+        ],
+        "token": "unconfigured",
+        "health": "ok"
+      },
+      "storage": {
+        "records_binding": true,
+        "results_binding": true,
+        "signing_configured": true
+      },
+      "access": {
+        "key_configured": false,
+        "resource_name_configured": false
+      },
+      "runtime_image": {
+        "set": true,
+        "valid": true,
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "prerequisites": {
+        "callback_secret": true,
+        "api_base_url": true,
+        "pipelines_account": false,
+        "policy_set": false,
+        "people_pool_granted": true,
+        "pipelines_pool_granted": false
+      },
+      "reconciliation": {
+        "paused": true
+      },
+      "attention": {
+        "access_reports_failed": 0,
+        "cancel_pending_failed": 0,
+        "copy_abandoned": 0
+      }
+    }
+  },
+  "attention": {
+    "status": 200,
+    "body": {
+      "switches": {
+        "environment": "other",
+        "compute_enabled": false,
+        "pipelines_dispatch_enabled": false
+      },
+      "tapis": {
+        "configured": false,
+        "strategy": null,
+        "problems": [
+          "TAPIS_AUTH_STRATEGY:missing",
+          "TAPIS_TENANT_ID:missing"
+        ],
+        "token": "unconfigured",
+        "health": "ok"
+      },
+      "storage": {
+        "records_binding": true,
+        "results_binding": true,
+        "signing_configured": true
+      },
+      "access": {
+        "key_configured": false,
+        "resource_name_configured": false
+      },
+      "runtime_image": {
+        "set": true,
+        "valid": true,
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "prerequisites": {
+        "callback_secret": true,
+        "api_base_url": true,
+        "pipelines_account": false,
+        "policy_set": false,
+        "people_pool_granted": true,
+        "pipelines_pool_granted": false
+      },
+      "reconciliation": {
+        "paused": true
+      },
+      "attention": {
+        "access_reports_failed": 0,
+        "cancel_pending_failed": 1,
+        "copy_abandoned": 0
+      }
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}
