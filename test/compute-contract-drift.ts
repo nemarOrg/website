@@ -71,3 +71,47 @@ export function extractTargets(source: string, name: string): Record<string, str
   for (const m of block.matchAll(/(\w+)\s*:\s*"([^"]*)"/g)) out[m[1]] = m[2];
   return Object.keys(out).length > 0 ? out : undefined;
 }
+
+/** `export const NAME = { a: 403, // note\n b: 401 } as const satisfies Record<...>;` -> the numbers. */
+export function extractSatisfiedNumberMap(
+  source: string,
+  name: string,
+): Record<string, number> | undefined {
+  const m = stripComments(source).match(
+    new RegExp(`export\\s+const\\s+${name}\\s*=\\s*\\{([^}]*)\\}\\s*as\\s+const\\s+satisfies[^;]*;`),
+  );
+  if (!m) return undefined;
+  const out: Record<string, number> = {};
+  for (const entry of m[1].matchAll(/(\w+)\s*:\s*(\d+)/g)) out[entry[1]] = Number(entry[2]);
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** `export const NAME = { a: "text", b:\n "more" } as const ...;` -> the strings (spread entries are skipped). */
+export function extractStringMap(source: string, name: string): Record<string, string> | undefined {
+  const stripped = stripComments(source);
+  const start = stripped.search(new RegExp(`export\\s+const\\s+${name}\\s*=\\s*\\{`));
+  if (start < 0) return undefined;
+  const end = stripped.indexOf("} as const", start);
+  if (end < 0) return undefined;
+  const out: Record<string, string> = {};
+  for (const m of stripped.slice(start, end).matchAll(/(\w+)\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
+    out[m[1]] = m[2];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** `export const NAME = "text";` -> the string. */
+export function extractString(source: string, name: string): string | undefined {
+  return stripComments(source).match(
+    new RegExp(`export\\s+const\\s+${name}\\s*=\\s*"((?:[^"\\\\]|\\\\.)*)"\\s*;`),
+  )?.[1];
+}
+
+/** `export const NAME = 1024 * 1024;` -> 1048576 (a product of whole numbers; anything else is `undefined`). */
+export function extractProduct(source: string, name: string): number | undefined {
+  const m = stripComments(source).match(
+    new RegExp(`export\\s+const\\s+${name}\\s*=\\s*(\\d+(?:\\s*\\*\\s*\\d+)*)\\s*;`),
+  );
+  if (!m) return undefined;
+  return m[1].split("*").reduce((a, n) => a * Number(n.trim()), 1);
+}
