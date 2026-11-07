@@ -31,6 +31,12 @@ import {
   COMPUTE_USER_ERROR_STATUS,
   COMPUTE_WINDOW_MAX_DAYS,
 } from "../src/lib/compute-contract";
+import {
+  extractNumber,
+  extractNumberMap,
+  extractRegexSource,
+  extractSatisfiedArray,
+} from "./compute-contract-drift";
 import { compareLists, extractStringArray } from "./mail-contract-drift";
 
 async function nodeFs(): Promise<{
@@ -44,45 +50,6 @@ async function nodeFs(): Promise<{
 async function nodeProcess(): Promise<{ cwd(): string; env: Record<string, string | undefined> }> {
   const specifier = "node:process";
   return await import(/* @vite-ignore */ specifier);
-}
-
-function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-}
-
-/** `export const NAME = [ ... ] as const satisfies ...;` -> the strings (the form the terminal list has). */
-function extractSatisfiedArray(source: string, name: string): string[] | undefined {
-  const re = new RegExp(
-    `export\\s+const\\s+${name}\\s*=\\s*\\[([^\\]]*)\\]\\s*as\\s+const\\s+satisfies[^;]*;`,
-  );
-  const m = stripComments(source).match(re);
-  return m ? [...m[1].matchAll(/"([^"]*)"/g)].map((x) => x[1]) : undefined;
-}
-
-/** `export const NAME = 25;` -> 25. A computed value is `undefined`, never a guess. */
-function extractNumber(source: string, name: string): number | undefined {
-  const m = stripComments(source).match(
-    new RegExp(`export\\s+const\\s+${name}\\s*=\\s*(\\d+)\\s*;`),
-  );
-  return m ? Number(m[1]) : undefined;
-}
-
-/** `export const NAME = { a: 403, b: 401 } as const;` -> { a: 403, b: 401 }. */
-function extractNumberMap(source: string, name: string): Record<string, number> | undefined {
-  const m = stripComments(source).match(
-    new RegExp(`export\\s+const\\s+${name}\\s*=\\s*\\{([^}]*)\\}\\s*as\\s+const\\s*;`),
-  );
-  if (!m) return undefined;
-  const out: Record<string, number> = {};
-  for (const entry of m[1].matchAll(/(\w+)\s*:\s*(\d+)/g)) out[entry[1]] = Number(entry[2]);
-  return out;
-}
-
-/** `export const NAME = /^...$/;` -> the pattern source. */
-function extractRegexSource(source: string, name: string): string | undefined {
-  return stripComments(source).match(
-    new RegExp(`export\\s+const\\s+${name}\\s*=\\s*/(.+)/[a-z]*\\s*;`),
-  )?.[1];
 }
 
 const fs = await nodeFs();
@@ -133,34 +100,6 @@ function read(src: { path: string | undefined }): string {
   ).toBe(true);
   return fs.readFileSync(src.path as string, "utf8");
 }
-
-describe("the extractors", () => {
-  it("read the shapes the contract files use", () => {
-    const state = [
-      "export const COMPUTE_STATES = [",
-      '  "created", // a comment',
-      '  "running",',
-      "] as const;",
-      'export const TERMINAL = ["finished"] as const satisfies readonly ComputeState[];',
-    ].join("\n");
-    expect(extractStringArray(state, "COMPUTE_STATES")).toEqual(["created", "running"]);
-    expect(extractSatisfiedArray(state, "TERMINAL")).toEqual(["finished"]);
-    expect(extractNumber("export const N = 25;", "N")).toBe(25);
-    expect(extractNumberMap("export const M = { a: 403, b_c: 401 } as const;", "M")).toEqual({
-      a: 403,
-      b_c: 401,
-    });
-    expect(extractRegexSource("export const R = /^job_[0-9a-f]{24}$/;", "R")).toBe(
-      "^job_[0-9a-f]{24}$",
-    );
-  });
-
-  it("answer undefined for a computed value, never a guess", () => {
-    expect(extractNumber("export const N = 5 * 5;", "N")).toBeUndefined();
-    expect(extractStringArray("export const L = make();", "L")).toBeUndefined();
-    expect(extractNumberMap("export const M = build();", "M")).toBeUndefined();
-  });
-});
 
 describe.skipIf(SHOULD_SKIP)("the compute read vocabulary agrees with nemar-cli", () => {
   it("has the same ten job states in the same order", () => {

@@ -14,7 +14,7 @@ function assertAmount(milli: number): void {
 }
 
 /** Whole milli-SU as SU with exactly three decimals: 12500 is `12.500`, -500 is `-0.500`. Integer math only. */
-export function formatSu(milli: number): string {
+export function suFixed(milli: number): string {
   assertAmount(milli);
   const abs = Math.abs(milli);
   const whole = Math.floor(abs / 1000);
@@ -23,10 +23,11 @@ export function formatSu(milli: number): string {
 }
 
 /**
- * The shortest exact decimal of whole milli-SU, for axis ticks: 2500 is `2.5`, 10000 is `10`, -500 is
- * `-0.5`. Valid for a tick because every tick is an exact multiple of the step.
+ * The shortest exact decimal of whole milli-SU: 2500 is `2.5`, 10000 is `10`, -500 is `-0.5`. The same
+ * rule as `formatSu` in nemar-cli `shared/contract/compute.ts`; this page uses it for axis ticks (every
+ * tick is an exact multiple of the step), and `suFixed` for every amount a person compares with the CLI.
  */
-export function formatSuShort(milli: number): string {
+export function formatSu(milli: number): string {
   assertAmount(milli);
   const abs = Math.abs(milli);
   const whole = Math.floor(abs / 1000);

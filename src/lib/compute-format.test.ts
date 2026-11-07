@@ -1,5 +1,5 @@
 /**
- * Formatters for the /compute page. Vectors for `formatSu` and `formatDuration` are copied from
+ * Formatters for the /compute page. Vectors for `suFixed` and `formatDuration` are copied from
  * nemar-cli's `suFixed` and `durationText` (src/commands/compute-read.ts), so the page and
  * `nemar compute balance` print the same digits.
  */
@@ -10,8 +10,8 @@ import {
   epochDay,
   formatDayShort,
   formatDuration,
+  suFixed,
   formatSu,
-  formatSuShort,
   formatUtcDate,
   formatUtcMinute,
   formatUtcSecond,
@@ -19,7 +19,7 @@ import {
   sumMilli,
 } from "./compute-format";
 
-describe("formatSu", () => {
+describe("suFixed", () => {
   it.each([
     [0, "0.000"],
     [1, "0.001"],
@@ -33,27 +33,27 @@ describe("formatSu", () => {
     [-12345, "-12.345"],
     [Number.MAX_SAFE_INTEGER, "9007199254740.991"],
   ])("%i milli is %s", (milli, text) => {
-    expect(formatSu(milli)).toBe(text);
+    expect(suFixed(milli)).toBe(text);
   });
 
   it("prints a negative balance as negative, never as zero", () => {
-    expect(formatSu(-2500)).toBe("-2.500");
-    expect(formatSu(-2500)).not.toBe("0.000");
+    expect(suFixed(-2500)).toBe("-2.500");
+    expect(suFixed(-2500)).not.toBe("0.000");
   });
 
   it.each([Number.NaN, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY])(
     "throws for %s instead of printing a wrong figure",
     (bad) => {
-      expect(() => formatSu(bad)).toThrow(RangeError);
+      expect(() => suFixed(bad)).toThrow(RangeError);
     },
   );
 
   it("has no thousands separator, so the digits match the CLI", () => {
-    expect(formatSu(1234567890)).toBe("1234567.890");
+    expect(suFixed(1234567890)).toBe("1234567.890");
   });
 });
 
-describe("formatSuShort", () => {
+describe("formatSu", () => {
   it.each([
     [0, "0"],
     [2500, "2.5"],
@@ -63,10 +63,10 @@ describe("formatSuShort", () => {
     [-500, "-0.5"],
     [500000, "500"],
   ])("%i milli is %s", (milli, text) => {
-    expect(formatSuShort(milli)).toBe(text);
+    expect(formatSu(milli)).toBe(text);
   });
   it("throws for a float", () => {
-    expect(() => formatSuShort(0.5)).toThrow(RangeError);
+    expect(() => formatSu(0.5)).toThrow(RangeError);
   });
 });
 

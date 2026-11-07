@@ -59,7 +59,10 @@ interface ErrorBody {
   readonly sentence?: string;
 }
 
-/** Reads `{ error: <sentence>, code: <word> }`, and the 403 `{ error, status, message }` shape. */
+/**
+ * Reads `{ error: <sentence>, code: <word> }`, and the 403 `{ error, status, message }` shape. Neutral by
+ * name and exported so the admin compute tab reads the same envelope with the same function.
+ */
 export async function readComputeError(res: Response): Promise<ErrorBody> {
   let body: unknown;
   try {

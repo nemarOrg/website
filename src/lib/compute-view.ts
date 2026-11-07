@@ -35,7 +35,7 @@ import {
 import {
   dbTimeToIso,
   formatDuration,
-  formatSu,
+  suFixed,
   formatUtcDate,
   formatUtcMinute,
   formatUtcSecond,
@@ -229,10 +229,10 @@ function poolView(pool: "cpu" | "gpu", p: ComputePool): PoolBalanceView {
   const L = COMPUTE_LABELS.balance;
   const negative = p.available_milli < 0;
   const rows: BalanceRow[] = [
-    { key: "granted", label: L.granted, text: formatSu(p.granted_milli), negative: false },
-    { key: "held", label: L.held, text: formatSu(p.held_milli), negative: false },
-    { key: "charged", label: L.charged, text: formatSu(p.charged_milli), negative: false },
-    { key: "available", label: L.available, text: formatSu(p.available_milli), negative },
+    { key: "granted", label: L.granted, text: suFixed(p.granted_milli), negative: false },
+    { key: "held", label: L.held, text: suFixed(p.held_milli), negative: false },
+    { key: "charged", label: L.charged, text: suFixed(p.charged_milli), negative: false },
+    { key: "available", label: L.available, text: suFixed(p.available_milli), negative },
   ];
   // The bar is decoration: the numbers carry the meaning, and nothing printed comes from this division.
   const barPercent =
@@ -346,13 +346,13 @@ export function jobRowView(job: ComputeJob): JobRowView {
   let charged: string;
   let chargeKind: JobRowView["chargeKind"];
   if (terminal) {
-    charged = formatSu(job.charged_milli);
+    charged = suFixed(job.charged_milli);
     chargeKind = "terminal";
   } else if (known) {
-    charged = job.charged_milli > 0 ? formatSu(job.charged_milli) : L.notChargedYet;
+    charged = job.charged_milli > 0 ? suFixed(job.charged_milli) : L.notChargedYet;
     chargeKind = "live";
   } else {
-    charged = job.charged_milli > 0 ? formatSu(job.charged_milli) : L.chargeUnknown;
+    charged = job.charged_milli > 0 ? suFixed(job.charged_milli) : L.chargeUnknown;
     chargeKind = "unknown";
   }
   const badge = jobBadge(job.state);
@@ -474,11 +474,11 @@ export function usageView(me: ComputeMe, usage: ComputeUsage): UsageView {
     const names = chart.series.map((s) => displaySafeLine(s.name));
     const barTitles = chart.days.map((bar) => {
       const parts = bar.segments.map(
-        (seg) => `${names[seg.seriesIndex]} ${formatSu(seg.milli)} SU`,
+        (seg) => `${names[seg.seriesIndex]} ${suFixed(seg.milli)} SU`,
       );
       return parts.length === 0
         ? `${bar.label}: 0.000 SU`
-        : `${bar.label}: ${parts.join(", ")}, total ${formatSu(bar.drawnMilli)} SU`;
+        : `${bar.label}: ${parts.join(", ")}, total ${suFixed(bar.drawnMilli)} SU`;
     });
     const poolName = COMPUTE_LABELS.pools[pool];
     const days = chart.days.length;
@@ -489,7 +489,7 @@ export function usageView(me: ComputeMe, usage: ComputeUsage): UsageView {
     const summary =
       busiest === null
         ? `${poolName} usage, ${days} days, no charges.`
-        : `${poolName} usage, ${days} days, ${formatSu(chart.totalMilli)} SU charged on ${chart.daysWithCharges} days, busiest ${busiestLabel} (${formatSu(busiest.milli)} SU).`;
+        : `${poolName} usage, ${days} days, ${suFixed(chart.totalMilli)} SU charged on ${chart.daysWithCharges} days, busiest ${busiestLabel} (${suFixed(busiest.milli)} SU).`;
     pools.push({
       pool,
       name: poolName,
@@ -499,16 +499,16 @@ export function usageView(me: ComputeMe, usage: ComputeUsage): UsageView {
       legend: chart.series.map((s, i) => ({
         name: names[i],
         colorIndex: s.colorIndex,
-        totalText: `${formatSu(s.netMilli)} SU`,
+        totalText: `${suFixed(s.netMilli)} SU`,
       })),
       barTitles,
-      ceilingText: `${formatSu(chart.ceilingMilli)} SU`,
+      ceilingText: `${suFixed(chart.ceilingMilli)} SU`,
       table: {
         headers: [L.day, ...names, L.total],
         rows: chart.table.map((r) => ({
           label: r.label,
-          cells: r.cells.map((c) => formatSu(c ?? 0)),
-          total: formatSu(r.netMilli),
+          cells: r.cells.map((c) => suFixed(c ?? 0)),
+          total: suFixed(r.netMilli),
         })),
       },
       negativeNote: chart.omitted.cells.length > 0 ? L.negativeNote : null,
@@ -520,11 +520,11 @@ export function usageView(me: ComputeMe, usage: ComputeUsage): UsageView {
       ? null
       : {
           label: L.adjustmentsLine,
-          totalText: `${formatSu(sumMilli(asideRows.map((r) => r.charged_milli)))} SU`,
+          totalText: `${suFixed(sumMilli(asideRows.map((r) => r.charged_milli)))} SU`,
           rows: asideRows.map((r) => ({
             day: r.day,
             partition: r.partition === null ? L.noJob : displaySafeLine(r.partition),
-            amount: formatSu(r.charged_milli),
+            amount: suFixed(r.charged_milli),
           })),
         };
 

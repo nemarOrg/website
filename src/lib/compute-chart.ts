@@ -16,7 +16,7 @@
  *    the "other" series.
  */
 
-import { dayFromEpoch, epochDay, formatDayShort, formatSuShort, sumMilli } from "./compute-format";
+import { dayFromEpoch, epochDay, formatDayShort, formatSu, sumMilli } from "./compute-format";
 
 /** The most days a window may span (the API refuses more). */
 const MAX_DAYS = 366;
@@ -268,7 +268,7 @@ export function computeUsageChart(input: ChartInput): UsageChart {
   for (let milli = 0; milli <= ceiling; milli += step) {
     ticks.push({
       milli,
-      label: formatSuShort(milli),
+      label: formatSu(milli),
       topPercent: round3(100 - (milli / ceiling) * 100),
     });
   }

@@ -11,6 +11,8 @@
  *    and the words a read refusal carries.
  *  - `shared/contract/compute.ts`: the job id shape.
  *
+ * This is the ONE place the job-state and front-door vocabulary lives on this site
+ * (`COMPUTE_JOB_STATES`, `COMPUTE_JOB_SOURCES`, ...): the dashboard and the admin compute tab import it.
  * A leaf module on purpose: it imports nothing and is safe in the browser bundle. It carries words and
  * numbers only; what they mean is the backend's (ADR 0030).
  */
