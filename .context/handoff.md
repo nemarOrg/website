@@ -21,6 +21,7 @@ Branch `feature/issue-497-admin-compute-tab`, PR into the epic branch (not `stag
 - **Copy:** 156 `compute_admin.*` keys added to nemar-cli `shared/contract/account-copy.ts` (small PR into the Epic D branch) and transcribed here, with new placeholder names the nemar-cli parity test declares. The parity pair is red in nemar-cli CI until the website keys reach `dev`.
 - **Gates:** `test/compute-admin-contract-drift.test.ts` is strict in CI (`NEMAR_CLI_COMPUTE_ADMIN_CONTRACT`) and red until the compute epic is on nemar-cli `dev`; locally pass `NEMAR_CLI_COMPUTE_ADMIN_CONTRACT=<checkout>/shared/contract/compute-admin.ts`.
 - **Fixtures:** `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-admin-fixtures.mjs` (needs `bun install` at the checkout root and in `backend/`). Local browser world: `.context/local-backend.md`.
+- **Shared with E2:** `formatSu` (shortest exact decimal, used for every admin figure), `jobBadge`, `readComputeError` and the job state and source lists come from E2's `compute-format.ts`, `compute-badges.ts`, `compute-api.ts` and `compute-contract.ts`; the admin contract file keeps only admin-specific lists.
 - **The badge** is the length of the first page of the `requested` listing (`200+` when more), one more API call per admin render, 2 s deadline, fail-soft.
 
 ## 2026-11-06: Compute access card in Settings (website#494, epic website#493 phase E1)
