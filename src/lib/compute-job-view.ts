@@ -364,6 +364,12 @@ export interface ResultsPanelView {
   readonly headline: string;
   /** Whether the "Get download links" button shows. It stays in `expired`: the 410 decides. */
   readonly canGetLinks: boolean;
+  /**
+   * Whether the "To download everything, run nemar compute results ..." line shows: only when the
+   * job has results to download (finished and not past retention). A failed or canceled job has
+   * none, a queued or running one has none yet, and an expired one has lost them.
+   */
+  readonly showCliLine: boolean;
 }
 
 export function resultsPanelView(input: {
@@ -392,7 +398,12 @@ export function resultsPanelView(input: {
       headline =
         w.untilText === null || w.days === null ? C.keptLimited : C.kept(w.days, w.untilText);
   }
-  return { window: w, headline, canGetLinks: input.state === "finished" };
+  return {
+    window: w,
+    headline,
+    canGetLinks: input.state === "finished",
+    showCliLine: w.state === "available" || w.state === "expiring",
+  };
 }
 
 // --- Failures of the log, the results and the cancel ---------------------------------------------
