@@ -123,7 +123,11 @@ const L = COMPUTE_LABELS.jobs;
     };
 
     more.addEventListener("click", async (event) => {
-      // Without JavaScript the link loads the next page on the server; with it, rows are appended.
+      // A modified or non-primary click is the visitor's own choice (a new tab, a download): leave it to
+      // the browser, which follows the real `?after=` link. Without JavaScript that link also works.
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
       event.preventDefault();
       if (busy) return;
       const after = more.dataset.after;
