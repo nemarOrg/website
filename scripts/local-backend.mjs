@@ -18,6 +18,13 @@
  * `http://localhost:4321`) and prints the session cookie to paste into the
  * browser. The database lives in memory: restarting resets everything.
  *
+ * It listens on 127.0.0.1 only. It injects `X-Test-Bypass` into every request
+ * and prints a fixed owner key, so it must never be reachable from another
+ * machine; it refuses to start under a production-like `ENVIRONMENT`, a bind
+ * override (`BIND_HOST`, `HOST`, `BUN_HOST`) that is not loopback, or a
+ * `WEB_ORIGIN` that is not loopback, and it checks the socket it got.
+ * `test/local-backend-guard.test.ts` runs those refusals.
+ *
  * Environment:
  *   NEMAR_CLI_DIR   required; the nemar-cli checkout (bun install at its root
  *                   and in backend/)
@@ -27,6 +34,35 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+
+// Guards first, before anything is imported: this process hands out a bypass of
+// the rate limiter and a known owner key, so it is loopback-only and local-only.
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
+function refuse(reason) {
+  console.error(`Refusing to start: ${reason}`);
+  process.exit(1);
+}
+const ENVIRONMENT = process.env.ENVIRONMENT;
+if (ENVIRONMENT !== undefined && !["test", "dev", "development", "local"].includes(ENVIRONMENT)) {
+  refuse(`ENVIRONMENT=${ENVIRONMENT} is not a local environment (this script is for local use only).`);
+}
+for (const name of ["BIND_HOST", "HOST", "BUN_HOST"]) {
+  const value = process.env[name];
+  if (value !== undefined && value !== "" && !LOOPBACK_HOSTS.has(value)) {
+    refuse(`${name}=${value} would bind a non-loopback address; this script listens on 127.0.0.1 only.`);
+  }
+}
+{
+  let origin;
+  try {
+    origin = new URL(process.env.WEB_ORIGIN ?? "http://localhost:4321");
+  } catch {
+    refuse("WEB_ORIGIN is not a URL.");
+  }
+  if (!LOOPBACK_HOSTS.has(origin.hostname)) {
+    refuse(`WEB_ORIGIN host ${origin.hostname} is not loopback.`);
+  }
+}
 
 const NEMAR_CLI_DIR = process.env.NEMAR_CLI_DIR;
 if (!NEMAR_CLI_DIR) {
@@ -200,7 +236,10 @@ async function signIn(email) {
   return cookie;
 }
 
-Bun.serve({
+const server = Bun.serve({
+  // Loopback only: `port` alone binds every interface, and this server adds the
+  // rate limiter's bypass header to whatever reaches it.
+  hostname: "127.0.0.1",
   port: PORT,
   fetch(req) {
     const headers = new Headers(req.headers);
@@ -208,6 +247,10 @@ Bun.serve({
     return worker.fetch(new Request(req, { headers }), env, ctx);
   },
 });
+if (server.hostname !== "127.0.0.1") {
+  server.stop(true);
+  refuse(`the server bound ${server.hostname}, not 127.0.0.1.`);
+}
 
 const cookies = {};
 for (const p of PERSONAS) cookies[p.who] = await signIn(`${p.who}@nemar.test`);

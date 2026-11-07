@@ -6,6 +6,15 @@ Worked on 2026-11-06 (website#494). It runs the real backend, not a stand-in:
 additions are the platform's: an `ExecutionContext`, and the backend's documented `X-Test-Bypass`
 for its rate limiter (which needs the Cloudflare Cache API that bun lacks).
 
+## Safety
+
+The server listens on `127.0.0.1` only (`Bun.serve({ hostname })`; without it bun binds every
+interface). It adds `X-Test-Bypass` to every request and prints a fixed owner key, so it is never to
+be reachable from another machine. The script refuses to start under a production-like
+`ENVIRONMENT` (anything but `test`, `dev`, `development`, `local`), a `BIND_HOST`, `HOST` or
+`BUN_HOST` that is not loopback, or a `WEB_ORIGIN` that is not loopback, and exits if the socket it
+got is not `127.0.0.1`. `test/local-backend-guard.test.ts` runs the refusals.
+
 ## Steps
 
 1. A checkout of the nemar-cli branch to run (for the compute card, the Epic D branch
