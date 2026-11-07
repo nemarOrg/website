@@ -25,6 +25,18 @@
  * `WEB_ORIGIN` that is not loopback, and it checks the socket it got.
  * `test/local-backend-guard.test.ts` runs those refusals.
  *
+ * Options:
+ *   --seed-compute  also seeds the compute dashboard's data (website phase E2, #495), with the backend's
+ *                   own helpers and ledger services, never a stand-in: `localrich` (active; grants,
+ *                   charges across the last 30 days on both pools, one administrator's correction,
+ *                   an open hold, 40 jobs in all ten states, queue samples with figures), `localfrozen`
+ *                   (a frozen pool), `localoverrun` (a negative available), `localgranted` (granted
+ *                   through the REAL admin routes: access, then a pool grant; no jobs, no charges).
+ *                   There is no unverified persona: signing in by emailed code verifies the email, so
+ *                   the real flow cannot leave one signed in (`bun run dev` without
+ *                   PUBLIC_API_BASE_URL has the `@nemar.cpending` mock for that screen). The
+ *                   loopback guards below are unchanged.
+ *
  * Environment:
  *   NEMAR_CLI_DIR   required; the nemar-cli checkout (bun install at its root
  *                   and in backend/)
@@ -201,6 +213,21 @@ const PERSONAS = [
   { who: "noprofile", compute_access: "none", given_name: null, city: null, affiliation: null },
   { who: "noorcid", compute_access: "none", identity: false },
 ];
+const SEED_COMPUTE = process.argv.includes("--seed-compute");
+if (SEED_COMPUTE) {
+  const active = {
+    compute_access: "active",
+    compute_access_requested_at: STAMPS.requested,
+    compute_access_granted_at: STAMPS.granted,
+  };
+  PERSONAS.push(
+    { who: "rich", ...active },
+    { who: "frozen", ...active },
+    { who: "overrun", ...active },
+    // Asks, then is granted through the real admin routes below.
+    { who: "granted", compute_access: "requested", compute_access_requested_at: STAMPS.requested },
+  );
+}
 for (const p of PERSONAS) {
   const { who, ...rest } = p;
   insertUser({ username: `local${who}`, email: `${who}@nemar.test`, ...rest });
@@ -251,6 +278,164 @@ if (server.hostname !== "127.0.0.1") {
   server.stop(true);
   refuse(`the server bound ${server.hostname}, not 127.0.0.1.`);
 }
+
+
+/** The compute dashboard's data (--seed-compute): the backend's own seed helpers and ledger services. */
+async function seedComputeData() {
+  const seeds = await import(join(root, "backend/test/helpers/compute-user-seed.ts"));
+  const { fundAccount, fundPlatform } = await import(join(root, "backend/test/helpers/compute-seed.ts"));
+  const { placeHold } = await import(join(root, "backend/src/services/compute-ledger.ts"));
+  const { COMPUTE_STATES } = await import(join(root, "shared/compute-state.ts"));
+  const { insertJob, jobIdFor, chargeAt, correctionAt, sqliteAt } = seeds;
+  const d1 = realD1(db);
+  const idOf = (name) => db.query("SELECT id FROM users WHERE username = ?").get(`local${name}`).id;
+  const now = Date.now();
+  const DAY = 86_400_000;
+  /** A time `days` days and `hours` hours ago, as SQLite text (UTC). */
+  const ago = (days, hours = 0) => sqliteAt(now - days * DAY - hours * 3_600_000);
+  const budget = (word) =>
+    db
+      .query(
+        "SELECT id FROM compute_pools WHERE holder_kind = 'platform' AND holder_ref = 'people' AND pool = ?",
+      )
+      .get(word).id;
+
+  await fundPlatform(d1, "people", 1_000_000_000);
+  await fundPlatform(d1, "people", 1_000_000_000, "gpu");
+
+  // --- rich: charges on several days of the last 30, a correction, a hold, jobs in all ten states.
+  const rich = idOf("rich");
+  const cpu = await fundAccount(d1, rich, 100_000, "cpu");
+  await fundAccount(d1, rich, 40_000, "gpu");
+  const charged = (partition, milli, days, hours = 0, source = "cli") => {
+    const pool = partition.startsWith("gpu") ? "gpu" : "cpu";
+    const at = ago(days, hours);
+    const id = insertJob(db, {
+      account_id: rich,
+      partition,
+      pool,
+      source,
+      state: "finished",
+      charged_milli: milli,
+      created_at: ago(days, hours + 1),
+      started_at: at,
+      ended_at: at,
+    });
+    chargeAt(db, { accountId: rich, jobId: id, milli, at, pool });
+  };
+  charged("shared", 4_000, 24);
+  charged("compute", 12_500, 24, 2);
+  charged("shared", 2_500, 23, 0, "web");
+  charged("shared", 6_000, 17);
+  charged("debug", 500, 17, 1);
+  charged("compute", 9_000, 10);
+  charged("shared", 3_250, 3, 0, "partner");
+  charged("shared", 1_750, 3, 3);
+  charged("gpu-shared", 5_000, 21);
+  charged("gpu", 8_000, 9);
+  charged("gpu-shared", 1_500, 2, 0, "pipeline");
+  correctionAt(db, { accountId: rich, milli: 1_000, at: ago(8) });
+  {
+    const held = jobIdFor();
+    const hold = await placeHold(d1, {
+      poolId: cpu,
+      budgetPoolId: budget("cpu"),
+      amountMilli: 20_000,
+      jobId: held,
+    });
+    if (!hold.ok) throw new Error(`could not place the seed hold: ${JSON.stringify(hold)}`);
+    insertJob(db, {
+      id: held,
+      account_id: rich,
+      partition: "shared",
+      state: "running",
+      held_milli: 20_000,
+      created_at: ago(0, 3),
+      started_at: ago(0, 2),
+    });
+  }
+  // One job in each of the ten states, over the four front doors (the running one asks to be cancelled)...
+  COMPUTE_STATES.forEach((state, i) => {
+    const terminal = ["finished", "failed", "cancelled"].includes(state);
+    insertJob(db, {
+      account_id: rich,
+      state,
+      source: ["cli", "web", "partner", "pipeline"][i % 4],
+      partition: i % 3 === 0 ? "gpu-shared" : "shared",
+      pool: i % 3 === 0 ? "gpu" : "cpu",
+      gpus: i % 3 === 0 ? 1 : 0,
+      created_at: ago(1, i),
+      started_at: ["running", "archiving", "finished", "failed"].includes(state) ? ago(1, i - 1) : null,
+      ended_at: terminal ? ago(1, i - 2) : null,
+      cancel_requested_at: state === "running" ? ago(0, 1) : null,
+    });
+  });
+  // ...and enough finished ones that "Load more" has a second page.
+  for (let i = 0; i < 30; i++) {
+    insertJob(db, {
+      account_id: rich,
+      state: i % 5 === 0 ? "failed" : "finished",
+      created_at: ago(12 + i / 4, i),
+      started_at: ago(12 + i / 4, i),
+      ended_at: ago(12 + i / 4, i),
+    });
+  }
+  // Queue samples (the whole platform, not this person): figures, a real zero, and a thin sample.
+  const sample = (partition, wait) =>
+    insertJob(db, {
+      partition,
+      pool: partition.startsWith("gpu") ? "gpu" : "cpu",
+      account_id: null,
+      source: "pipeline",
+      started_at: ago(1),
+      remote_submitted_at: sqliteAt(now - DAY - wait * 1000),
+    });
+  for (const wait of [10, 20, 30, 40, 50, 75, 3700]) sample("shared", wait);
+  for (const wait of [0, 0, 0, 0, 0]) sample("gpu-shared", wait);
+  for (const wait of [5, 6, 7]) sample("compute", wait);
+
+  // --- frozen: a pool the backend reports as frozen.
+  const frozen = idOf("frozen");
+  const frozenPool = await fundAccount(d1, frozen, 50_000, "cpu");
+  db.query("UPDATE compute_pools SET frozen = 1 WHERE id = ?").run(frozenPool);
+
+  // --- overrun: charged past the grant, so available is negative.
+  const overrun = idOf("overrun");
+  await fundAccount(d1, overrun, 10_000, "cpu");
+  {
+    const id = insertJob(db, {
+      account_id: overrun,
+      partition: "shared",
+      state: "finished",
+      charged_milli: 12_500,
+      created_at: ago(2, 1),
+    });
+    chargeAt(db, { accountId: overrun, jobId: id, milli: 12_500, at: ago(2) });
+  }
+
+  // --- granted: through the REAL admin routes (access, then a pool grant). No jobs, no charges.
+  const asOwner = (path, body) =>
+    call(path, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OWNER_KEY}`,
+        "content-type": "application/json",
+        "Idempotency-Key": `seed-${body?.pool ?? "access"}-${path.length}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  const accessRes = await asOwner("/admin/compute/access/grant/localgranted");
+  if (!accessRes.ok) throw new Error(`grant failed: ${accessRes.status} ${await accessRes.text()}`);
+  const grantedId = idOf("granted");
+  for (const [pool, amount] of [["cpu", 25_000], ["gpu", 10_000]]) {
+    const res = await asOwner(`/admin/compute/pools/by-id/${grantedId}/grant`, {
+      pool,
+      amount_milli: amount,
+    });
+    if (!res.ok) throw new Error(`pool grant failed: ${res.status} ${await res.text()}`);
+  }
+}
+if (SEED_COMPUTE) await seedComputeData();
 
 const cookies = {};
 for (const p of PERSONAS) cookies[p.who] = await signIn(`${p.who}@nemar.test`);
