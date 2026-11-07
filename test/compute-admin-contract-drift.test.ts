@@ -25,8 +25,6 @@ import {
   COMPUTE_POOLS_PAGE_MAX,
   COMPUTE_POOL_HOLDER_KINDS,
   COMPUTE_REPORT_PAGE_MAX,
-  COMPUTE_SOURCES,
-  COMPUTE_STATES,
 } from "../src/lib/compute-admin-contract";
 import { extractTargets, extractTransitions } from "./compute-contract-drift";
 import { compareConstants, extractConstants, formatDifference } from "./docs-contract-drift";
@@ -146,9 +144,7 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's compute contracts", () => {
         COMPUTE_POOL_HOLDER_KINDS,
         extractStringArray(admin, "COMPUTE_POOL_HOLDER_KINDS"),
       ],
-      ["COMPUTE_STATES", COMPUTE_STATES, extractStringArray(state, "COMPUTE_STATES")],
       ["COMPUTE_JOB_FLAGS", COMPUTE_JOB_FLAGS, extractStringArray(state, "COMPUTE_JOB_FLAGS")],
-      ["COMPUTE_SOURCES", COMPUTE_SOURCES, extractStringArray(state, "COMPUTE_SOURCES")],
     ];
     const differences = lists
       .map(([name, ours, theirs]) => compareLists(name, ours, theirs))

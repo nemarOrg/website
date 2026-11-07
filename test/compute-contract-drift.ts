@@ -45,6 +45,7 @@ export function extractRegexSource(source: string, name: string): string | undef
   return stripComments(source).match(
     new RegExp(`export\\s+const\\s+${name}\\s*=\\s*/(.+)/[a-z]*\\s*;`),
   )?.[1];
+}
 
 /** `{ none: ["requested"], active: ["suspended", "revoked"] }` out of a record literal. */
 export function extractTransitions(

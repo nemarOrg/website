@@ -4,7 +4,9 @@
  * `test/compute-admin-contract-drift.test.ts` against:
  *
  *   shared/compute-access-state.ts      the states, the edges, the decisions and their targets
- *   shared/compute-state.ts             job states, flags, sources
+ *   shared/compute-state.ts             the job flags (the job states and front doors are
+ *                                       `compute-contract.ts`'s, drift-tested by
+ *                                       `test/compute-user-contract-drift.test.ts`)
  *   shared/contract/compute-access.ts   the decision error words, page and reason bounds
  *   shared/contract/compute-admin.ts    pool holder kinds, platform keys, page bounds
  *
@@ -76,24 +78,6 @@ export const COMPUTE_REPORT_PAGE_MAX = 200;
 export const COMPUTE_POOL_HOLDER_KINDS = ["account", "platform", "partner"] as const;
 export type ComputePoolHolderKind = (typeof COMPUTE_POOL_HOLDER_KINDS)[number];
 
-/** Every state of a job. */
-export const COMPUTE_STATES = [
-  "created",
-  "uploading",
-  "submitted",
-  "queued",
-  "running",
-  "archiving",
-  "finished",
-  "failed",
-  "cancelled",
-  "unreported",
-] as const;
-export type ComputeJobState = (typeof COMPUTE_STATES)[number];
-
 /** What an administrator is told about a job, besides its state. The API takes ONE per call. */
 export const COMPUTE_JOB_FLAGS = ["unreserved", "unattributed", "mismatch", "overrun"] as const;
 export type ComputeJobFlag = (typeof COMPUTE_JOB_FLAGS)[number];
-
-/** The front door that submitted a job. */
-export const COMPUTE_SOURCES = ["cli", "web", "partner", "pipeline"] as const;
