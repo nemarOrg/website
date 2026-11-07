@@ -55,7 +55,8 @@ export default defineConfig({
   // the built-in's rule with that one exemption, so every other route keeps the protection it had
   // (ADR 0031). Turning this back on would refuse the conformance suite's cross-site POST; deleting
   // the middleware check while this is false would leave every form endpoint open to CSRF.
-  // `test/origin-check-config.test.ts` pins both halves.
+  // `test/origin-check-middleware.test.ts` pins both halves (the config value, and the middleware's own 403),
+  // and `test/astro-origin-check-upgrade.test.ts` fails when an Astro upgrade changes what the option gates.
   security: { checkOrigin: false },
   experimental: {
     clientPrerender: true,
