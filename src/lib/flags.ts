@@ -61,3 +61,26 @@ export const ORCID_SIGNIN_ENABLED = true;
  * web button away again, for example while the Action is misbehaving.
  */
 export const WEB_PUBLISH_APPROVE_ENABLED = true;
+
+/**
+ * Compute-access requests from Settings (website ADR 0030). While `false`,
+ * the production build shows the card's inert "not open yet" state and no
+ * form: the compute terms are held as a draft until the owner publishes them,
+ * and the backend refuses a request in production meanwhile
+ * (`terms_unpublished`). Flip it with the terms, in a reviewed change.
+ */
+export const COMPUTE_REQUESTS_ENABLED = false;
+
+/**
+ * Whether the Settings card offers the request form: launched, OR the build
+ * talks to a non-production backend. Pure, with the base passed in, so the
+ * rule is testable without a build. Deliberately NOT keyed on
+ * `import.meta.env.DEV`: a bare `bun run dev` points at the production API
+ * and must show the production-like inert card, while setting
+ * `PUBLIC_API_BASE_URL` to a local or staging backend shows the form that
+ * backend will accept (it takes requests whether or not the terms are
+ * published).
+ */
+export function computeRequestsOpen(launched: boolean, base: string): boolean {
+  return launched || base !== DEFAULT_API_BASE;
+}
