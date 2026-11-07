@@ -446,7 +446,7 @@ if (view === "drift") {
                     return (
                       <tr>
                         <th scope="row" class="mono">{m.id}</th>
-                        <td>{m.flags.join(", ")}</td>
+                        <td class="nowrap">{m.flags.join(", ")}</td>
                         <td>{m.account}</td>
                         <td>{m.source}</td>
                         <td>{m.partition}</td>
@@ -823,6 +823,9 @@ if (view === "drift") {
     color: var(--admin-error-text);
     font-weight: var(--fw-semibold);
   }
+  .compute-table .nowrap {
+    white-space: nowrap;
+  }
   .compute-table .mono {
     font-family: var(--font-mono);
     font-size: var(--fs-xs);
@@ -885,7 +888,7 @@ if (view === "drift") {
           detail: {
             id,
             decision: button.dataset.decision,
-            label: button.textContent ?? "",
+            label: (button.textContent ?? "").trim(),
             subject: {
               account: `${text(row, "name")} ${text(row, "username")} #${id}`,
               country: text(row, "country"),
