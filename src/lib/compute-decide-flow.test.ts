@@ -179,6 +179,31 @@ describe("an outcome that cannot be told", () => {
     });
   }
 
+  it("tells the administrator to check the email when the re-read shows the decision landed", async () => {
+    // The re-read answers the account as the backend served it after a grant.
+    const granted = dec.grant_allocated.body as { account: { id: number } };
+    const landed = world(
+      () => new Response("<html>", { status: 502 }),
+      () => json({ status: 200, body: { accounts: [granted.account], next_after: null } }),
+    );
+    const out = await landed.flow.submit({ id: granted.account.id, decision: "grant" });
+    expect(out.outcome).toBe("failed");
+    if (out.outcome !== "failed") return;
+    expect(out.note.text).toBe(
+      `${ACCOUNT_COPY["compute_admin.result.unconfirmed"]} ${ACCOUNT_COPY["compute_admin.result.check_email"]}`,
+    );
+    expect(out.row?.compute_access).toBe("active");
+    // A re-read that shows some other state adds no such line.
+    const other = world(
+      () => new Response("<html>", { status: 502 }),
+      () => json(accessList.one_by_cursor),
+    );
+    const o = await other.flow.submit({ id: 8, decision: "grant" });
+    expect(o.outcome === "failed" && o.note.text).toBe(
+      ACCOUNT_COPY["compute_admin.result.unconfirmed"],
+    );
+  });
+
   it("says so when the re-read fails too, and still posts once", async () => {
     const w = world(
       () => new Response("<html>", { status: 502 }),

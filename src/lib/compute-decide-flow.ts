@@ -26,7 +26,7 @@ import {
   type ComputeDecisionResult,
   classifyDecisionFailure,
 } from "./compute-admin-api";
-import type { ComputeAccessDecision } from "./compute-admin-contract";
+import { COMPUTE_DECISION_TARGET, type ComputeAccessDecision } from "./compute-admin-contract";
 import {
   type DecisionNote,
   type FailureNote,
@@ -86,11 +86,29 @@ export function createDecideFlow(options: {
           const result = await options.decide(request.id, request.decision, request.reason);
           return { outcome: "done", row: result.account, note: describeDecision(result) };
         } catch (err) {
-          const note = describeFailure(classifyDecisionFailure(err), err);
+          const kind = classifyDecisionFailure(err);
+          const note = describeFailure(kind, err);
           if (!note.reread) return { outcome: "failed", note, row: null, rereadFailed: false };
           try {
             const row = await options.reread(request.id);
-            return { outcome: "failed", note, row, rereadFailed: false };
+            // The answer was lost but the account is in the state the decision aims at, so it
+            // went through. The route emails the person BEFORE it answers, and a lost answer
+            // hides whether that mail went (`email_sent`), so the administrator is told to check.
+            const landed =
+              kind === "unknown_outcome" &&
+              row !== null &&
+              row.compute_access === COMPUTE_DECISION_TARGET[request.decision];
+            return {
+              outcome: "failed",
+              note: landed
+                ? {
+                    ...note,
+                    text: `${note.text} ${ACCOUNT_COPY["compute_admin.result.check_email"]}`,
+                  }
+                : note,
+              row,
+              rereadFailed: false,
+            };
           } catch {
             return {
               outcome: "failed",
