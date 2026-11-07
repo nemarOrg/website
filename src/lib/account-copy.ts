@@ -108,6 +108,49 @@ export const ACCOUNT_COPY = {
   "upload_access.docs_link": "How upload access works",
 
   // -------------------------------------------------------------------------
+  // Compute access (nemar-cli ADR 0118, the compute-access addendum, epic
+  // #2021 phase D1; transcribed from nemar-cli 3a869903): its OWN grant, never
+  // upload access. One request, one admin answer; the states are `none`,
+  // `requested`, `active`, `suspended`, `denied` and `revoked`
+  // (`src/lib/compute-access-state.ts`). `cli.compute_access.cta` is the
+  // CLI's own and is not transcribed.
+  // -------------------------------------------------------------------------
+  "compute_access.section.title": "Compute access",
+  "compute_access.section.lede":
+    "A separate grant from upload access. An admin reviews each request against export-control and local-jurisdiction rules and the purpose you state, and a grant opens a starting allocation of service units.",
+  "compute_access.state.none": "Not requested",
+  "compute_access.state.requested": "Requested",
+  "compute_access.state.active": "Active",
+  "compute_access.state.suspended": "Suspended",
+  "compute_access.state.denied": "Not granted",
+  "compute_access.state.revoked": "Ended",
+  "compute_access.request.cta": "Request compute access",
+  "compute_access.request.form_body":
+    "Tell us what you plan to compute. An admin reviews this alongside your name, affiliation and location, then answers once. You also accept the compute terms.",
+  "compute_access.request.purpose_label": "What do you intend to compute?",
+  // The bounds are `COMPUTE_PURPOSE_MIN_CHARS` / `COMPUTE_PURPOSE_MAX_CHARS` in
+  // ./account-tier.ts; written out per rule 1 in the header, and
+  // `account-copy.test.ts` fails if the numbers here stop matching them.
+  "compute_access.request.purpose_hint":
+    "Describe what you intend to compute in 20-1000 characters",
+  "compute_access.request.terms_label": "I accept the compute terms",
+  "compute_access.requested.title": "Your compute request is with an admin",
+  "compute_access.requested.lede": "An admin is reviewing your request.",
+  "compute_access.requested.lede_dated": "An admin is reviewing your request from {date}.",
+  "compute_access.requested.body":
+    "We’ll email you when there’s a decision. Everything else on your account keeps working in the meantime.",
+  "compute_access.granted.body":
+    "Compute access is active. Your starting allocation is on your compute page, and you can submit jobs from there or with `nemar compute`.",
+  "compute_access.closed.body":
+    "This request has been answered and cannot be asked again. If you think that is a mistake, contact support and an admin will take another look.",
+  // A suspended account is not a request that was answered: its access exists and is paused.
+  "compute_access.suspended.body":
+    "Your compute access is paused. Contact support to find out why or to ask for it to be lifted.",
+  "compute_access.terms_unpublished.body":
+    "Compute access is not open yet: the compute terms are not published. Please check back later.",
+  "compute_access.docs_link": "How compute access works",
+
+  // -------------------------------------------------------------------------
   // Profile gaps: the sentence, its two halves, and the vocabulary they use
   //
   // `gap.sentence` + " " + one of the `gap.set_on.*` templates is what
@@ -125,6 +168,7 @@ export const ACCOUNT_COPY = {
   // could reach.
   "gap.blocks.verified": "to activate your account",
   "gap.blocks.upload_access": "to request upload access",
+  "gap.blocks.compute_access": "to request compute access",
   "gap.blocks.publication": "to publish a dataset",
   // For a field this build has never heard of (the backend's `profile_gaps`
   // grew one), or one that names no block at all. Saying nothing about what
@@ -135,6 +179,7 @@ export const ACCOUNT_COPY = {
   // "upload access and publication", not "to request upload access".
   "gap.blocks.noun.verified": "account activation",
   "gap.blocks.noun.upload_access": "upload access",
+  "gap.blocks.noun.compute_access": "compute access",
   "gap.blocks.noun.publication": "publication",
   // Where a field this build does not recognise is set. Settings is the only
   // honest answer: it is the page that holds the account form.
@@ -151,6 +196,7 @@ export const ACCOUNT_COPY = {
   "gap.field.github_username.label": "GitHub handle",
   "gap.field.city.label": "City",
   "gap.field.country.label": "Country",
+  "gap.field.affiliation.label": "Affiliation",
   "gap.field.why.label": "A description of what you intend to upload",
 
   // Where each one is set. `.web` is prose that fits "Set it in ___"; `.cli`
@@ -178,6 +224,8 @@ export const ACCOUNT_COPY = {
   "gap.field.city.set_on.cli": "nemar auth profile set-location",
   "gap.field.country.set_on.web": "Settings",
   "gap.field.country.set_on.cli": "nemar auth profile set-location",
+  "gap.field.affiliation.set_on.web": "Settings",
+  "gap.field.affiliation.set_on.cli": "nemar auth profile set-affiliation",
   "gap.field.why.set_on.web": "the request form in Settings",
   "gap.field.why.set_on.cli": "nemar auth request-upload-access",
 
