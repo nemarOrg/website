@@ -1,0 +1,38 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "27eecff9",
+    "route": "GET /compute/me/jobs/:id",
+    "request": "a running job with a cancel recorded",
+    "note": "Real route over a row written with fixed times: `cancel_requested` is true while the state is still live."
+  },
+  "running": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000001c",
+        "kind": "batch",
+        "source": "cli",
+        "state": "running",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": null,
+        "charged_milli": 0,
+        "failure_code": null,
+        "cancel_requested": true
+      },
+      "stale": false
+    }
+  }
+}

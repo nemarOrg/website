@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { apiBase, copySetCookies } from "../../../lib/api-base";
 import { apiFetch } from "../../../lib/api-fetch";
+import { COMPUTE_TRUNCATED_HEADER } from "../../../lib/compute-contract";
 import { isAuthorizationProxyPath, isSafeProxyPath } from "../../../lib/proxy-path";
 
 /**
@@ -118,6 +119,10 @@ const proxy: APIRoute = async ({ params, request }) => {
   const contentType = upstream.headers.get("content-type");
   if (contentType) respHeaders.set("Content-Type", contentType);
   respHeaders.set("Cache-Control", "no-store");
+  // The compute log route marks a log cut at 1 MiB with this header (website#496). It is the ONE
+  // upstream header besides the content type that the job page reads, and this is its only reader.
+  const truncated = upstream.headers.get(COMPUTE_TRUNCATED_HEADER);
+  if (truncated !== null) respHeaders.set(COMPUTE_TRUNCATED_HEADER, truncated);
   copySetCookies(upstream, respHeaders);
 
   return new Response(upstream.body, { status: upstream.status, headers: respHeaders });

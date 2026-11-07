@@ -47,6 +47,18 @@ const ALL_COMPUTE: Record<string, string> = {
   ...Object.fromEntries(LIB_FILES),
 };
 
+/** The only Compute file that may read the clock: the job page's poller (`test/compute-job-ui.test.ts` pins that nothing else of the job page does). */
+const CLOCK_EXCEPTION = "/src/lib/compute-job-live.ts";
+
+/** Files whose purpose is to hold the page's sentences: website-owned wording (website#496). */
+const SENTENCE_FILES = [
+  "compute-labels.ts",
+  "compute-copy.ts",
+  "compute-failure.ts",
+  // The one backend sentence transcribed by hand (`upload_expired`), drift-tested.
+  "compute-contract.ts",
+];
+
 /** Source with comments removed and runs of whitespace collapsed, so a formatter's line breaks do not matter. */
 function flat(src: string): string {
   return src
@@ -116,6 +128,9 @@ describe("the page", () => {
   it("asks for the server's default window and never builds a date from a clock", () => {
     expect(PAGE).toContain("getComputeUsage(init)");
     for (const [name, src] of Object.entries(ALL_COMPUTE)) {
+      // The one named exception (website#496): the job page's poller holds the timer and reads the
+      // clock; its schedule is pure and tested with an injected clock (compute-job-view.test.ts).
+      if (name === CLOCK_EXCEPTION) continue;
       expect(code(src), name).not.toMatch(/Date\.now\(|new Date\(\)/);
     }
   });
@@ -304,7 +319,7 @@ describe("copy", () => {
   it("types no long sentence at a call site: those live in compute-labels.ts or the copy table", () => {
     const offenders: string[] = [];
     for (const [name, src] of Object.entries(ALL_COMPUTE)) {
-      if (name.endsWith("compute-labels.ts")) continue;
+      if (SENTENCE_FILES.some((f) => name.endsWith(f))) continue;
       const stripped = code(src);
       for (const m of stripped.matchAll(/(["'`])((?:\\.|(?!\1)[^\\\n]){40,})\1/g)) {
         // A message thrown for a developer (a RangeError) is not text a visitor reads.

@@ -1,0 +1,78 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "27eecff9",
+    "route": "GET /compute/jobs/:id/logs",
+    "request": "a running job (from Tapis), an empty log, a hostile log, a log over 1 MiB, a job that has not started, an ended job",
+    "note": "Real route. The body is the job's own bytes as `text/plain`, `nosniff`, `no-store`; `X-Nemar-Truncated: true` only when cut at 1 MiB. The route serves the FIRST 1 MiB and has no `tail` (nemar-cli#2094). The hostile log's bytes are written to the Tapis stand-in's output and read back through the route."
+  },
+  "live": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff"
+    },
+    "text": "step one\nstep two\n"
+  },
+  "live_before_output": {
+    "status": 404,
+    "headers": {
+      "content-type": "application/json",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "error": "The job has no log yet.",
+      "code": "logs_not_available"
+    }
+  },
+  "ended": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff"
+    },
+    "text": "Traceback (most recent call last):\n  File \"main.py\", line 3, in <module>\n    print(1 / 0)\nZeroDivisionError: division by zero\n"
+  },
+  "empty": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff"
+    },
+    "text": ""
+  },
+  "hostile": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff"
+    },
+    "text": "plain line\n\u001b[31mred\u001b[0m and \u001b[2K cleared\nlink \u001b]8;;https://example.org\u0007text\u001b]8;;\u0007 end\nprogress 10%\rprogress 50%\rprogress 100%\nnul \u0000 bell \u0007 next-line  end\noverride ‮gnp.exe and isolate ⁦x⁩ and zero​width\n<script>alert(\"x\")</script> <img src=x onerror=alert(1)> &amp; \"quotes\" back\\slash\nTraceback (most recent call last):\n  File \"main.py\", line 3, in <module>\nZeroDivisionError: division by zero\n"
+  },
+  "truncated": {
+    "status": 200,
+    "headers": {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+      "x-nemar-truncated": "true"
+    },
+    "byte_length": 1048576,
+    "note": "Headers and length only: the body is the first 1 MiB of 'x', which the test rebuilds."
+  },
+  "not_available": {
+    "status": 404,
+    "headers": {
+      "content-type": "application/json",
+      "cache-control": "no-store"
+    },
+    "body": {
+      "error": "The job has no log yet.",
+      "code": "logs_not_available"
+    }
+  }
+}

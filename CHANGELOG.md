@@ -15,6 +15,16 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **The compute job page** (website#496, epic website#493 phase E3; nemar-cli epic #2021 phase D3, website ADR 0030 addendum).
+  `/compute/jobs/<id>` shows one job: its state on a timeline that claims only what the record carries (three times), its resources and charge (the same three-decimal digits as `nemar compute status`), a plain sentence for each of the 17 failure codes, its log on request, its result links on request (renewable), and a cancel for a live job.
+  A live job refreshes itself every 10 seconds, backing off to 60 while nothing changes, pausing in a hidden tab and stopping at an ended state.
+  The log is shown as inert text with hostile characters written out (`\x1b`, `\u202e`) rather than silently dropped; a log cut at 1 MiB says so and points at `nemar compute logs` (the end of a long log cannot be read yet: nemar-cli#2094).
+  Result links are bearer links: viewing the page mints none, only the button does, and they are never stored, logged or copied.
+  The page is the one the "results ready" email links to, answers the same 404 for an absent, foreign or malformed id, and is never edge-cached (`/compute` joins `/oauth` in `routeBypassesEdgeCache`).
+  The API proxy forwards one more response header, `X-Nemar-Truncated`.
+  Backend gaps filed: nemar-cli#2094 (log tail), #2095 (links as attachments), #2096 (state when results are deleted), #2097 (per-stage times).
+  `scripts/capture-compute-job-fixtures.mjs` captures nine fixture files from the real router, and `scripts/local-backend.mjs --seed-compute-jobs` seeds jobs through the real services and the Tapis stand-in.
+
 - **The `/compute` dashboard** (website#495, epic website#493 phase E2; nemar-cli epic #2021 phase D2, website ADR 0030 addendum).
   A signed-in person sees their compute access, CPU and GPU balances (granted, held, charged, available, in the same three-decimal service units `nemar compute balance` prints), a daily usage chart per pool stacked by partition (hand-rolled SVG, themed by new `--chart-*` tokens, with the numbers in a table beside it), their jobs from every front door with "Load more", and the platform's recent queue waits ("Not enough data" with the count when fewer than five jobs started).
   A person without active access sees why and how to ask, not an error; a suspended or ended account keeps its history read-only; one failed read shows one notice that says the figures are missing, not zero.

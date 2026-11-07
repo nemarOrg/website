@@ -100,6 +100,12 @@ export function formatUtcMinute(text: string): string {
   return ms === null ? text : `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
+/** Epoch milliseconds as `YYYY-MM-DD HH:MM UTC`. */
+export function formatEpochUtcMinute(ms: number): string {
+  if (!Number.isFinite(ms)) throw new RangeError("a time is a finite number of milliseconds");
+  return `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
 /** A database time as `YYYY-MM-DD HH:MM:SS UTC`, for a tooltip; the original text when it does not parse. */
 export function formatUtcSecond(text: string): string {
   const ms = parseDbTime(text);

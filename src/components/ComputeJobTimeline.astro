@@ -1,0 +1,145 @@
+---
+/**
+ * The state timeline and the details list of a job page (website ADR 0030 phase E3, #496). Both come
+ * from `jobDetailView` in `src/lib/compute-job-view.ts`; the browser rebuilds the same nodes from the
+ * same view (`src/lib/compute-job-dom.ts`), so the styles are GLOBAL and prefixed `.compute-job` (Astro
+ * scoped styles do not reach script-built nodes). Keep the class names in step with that module.
+ *
+ * The timeline claims only what the record carries: three times, no per-stage times. A step that is
+ * not known reads "not known" in words and carries a dash, never a check mark. The current step has a
+ * shape and the word, not a color alone.
+ */
+import { JOB_COPY } from "../lib/compute-copy";
+import type { JobDetailView } from "../lib/compute-job-view";
+import StatusIcon from "./admin/StatusIcon.astro";
+
+interface Props {
+  view: JobDetailView;
+}
+
+const { view } = Astro.props;
+---
+
+<ol class="compute-job-timeline" data-job-timeline aria-label={JOB_COPY.sections.status}>
+  {view.timeline.steps.map((step) => (
+    <li
+      class:list={["compute-job-step", `compute-job-step--${step.status}`]}
+      data-step={step.key}
+      aria-current={step.status === "current" ? "step" : undefined}
+    >
+      <StatusIcon name={step.icon} size={16} />
+      <span class="compute-job-step__text">
+        <span class="compute-job-step__label">{step.label}</span>{" "}
+        <span class="visually-hidden">({step.statusWord})</span>
+        {step.time && (
+          <span class="compute-job-step__time">
+            {step.time.label ? `${step.time.label} ` : ""}
+            <time datetime={step.time.iso ?? undefined} title={step.time.title}>{step.time.text}</time>
+          </span>
+        )}
+      </span>
+    </li>
+  ))}
+</ol>
+<p class="compute-job__line" data-job-unknown-state hidden={view.timeline.unknownState === null}>
+  {view.timeline.unknownState !== null && `${JOB_COPY.timeline.stateLine}: ${view.timeline.unknownState}`}
+</p>
+
+<style is:global>
+  .compute-job-timeline {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .compute-job-timeline:empty {
+    display: none;
+  }
+  .compute-job-step {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    min-inline-size: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-job-step svg {
+    flex: none;
+    margin-block-start: 1px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .compute-job-step__text {
+    display: grid;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .compute-job-step__label {
+    font-weight: var(--fw-semibold);
+  }
+  .compute-job-step__time {
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-job-step--passed {
+    color: var(--admin-ok-text);
+  }
+  .compute-job-step--current {
+    color: var(--color-fg);
+  }
+  .compute-job-step--current .compute-job-step__label {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .compute-job-step--unknown .compute-job-step__label {
+    font-weight: var(--fw-regular, 400);
+    font-style: italic;
+  }
+  /* A horizontal row from 720 px up, a vertical list below. */
+  @media (min-width: 720px) {
+    .compute-job-timeline {
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      gap: var(--space-4);
+    }
+  }
+  @media (forced-colors: active) {
+    .compute-job-step--current {
+      border: 1px solid CanvasText;
+    }
+  }
+
+  .compute-job-rows {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+  }
+  .compute-job-row {
+    display: grid;
+    grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
+    gap: var(--space-3);
+    font-size: var(--fs-sm);
+  }
+  .compute-job-row__label {
+    color: var(--color-fg-muted);
+  }
+  .compute-job-row__value {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-job-row__value[data-charge-kind="live"],
+  .compute-job-row__value[data-charge-kind="unknown"] {
+    color: var(--color-fg-muted);
+  }
+  @media (max-width: 639px) {
+    .compute-job-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0;
+    }
+  }
+</style>

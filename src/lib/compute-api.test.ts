@@ -128,7 +128,14 @@ describe("GET /compute/me", () => {
     };
     const me = parseComputeMe(body);
     expect(Object.keys(me.pools)).toEqual(["cpu", "gpu"]);
-    expect(Object.keys(me)).toEqual(["access", "pools", "frozen", "partitions", "queue"]);
+    expect(Object.keys(me)).toEqual([
+      "access",
+      "pools",
+      "frozen",
+      "partitions",
+      "resultsDays",
+      "queue",
+    ]);
     expect(JSON.stringify(me)).not.toContain("tenant");
     expect(JSON.stringify(me)).not.toContain("platform_remaining");
   });

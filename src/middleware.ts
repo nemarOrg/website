@@ -132,14 +132,21 @@ export function isOidcAuthorizeRoute(pathname: string): boolean {
 }
 
 /**
- * Routes whose responses never enter the edge cache, whatever they say: everything under `/oauth`.
- * Each answer there is per visitor and some carry a one-time code; the page sends `no-store`, and
- * this keeps the cache from even being consulted for them.
+ * Routes whose responses never enter the edge cache, whatever they say: everything under `/oauth`
+ * and everything under `/compute`. Each answer there is per visitor; `/oauth` carries one-time codes
+ * and a job page can carry bearer result links after a click (website#496). The page sends
+ * `no-store`, and this keeps the cache from even being consulted for them, so even a signed-out
+ * redirect or a mistaken header cannot put one in the shared cache.
  *
  * Exported for the middleware unit tests.
  */
 export function routeBypassesEdgeCache(pathname: string): boolean {
-  return pathname === "/oauth" || pathname.startsWith("/oauth/");
+  return (
+    pathname === "/oauth" ||
+    pathname.startsWith("/oauth/") ||
+    pathname === "/compute" ||
+    pathname.startsWith("/compute/")
+  );
 }
 
 /** Base connect-src for every route: same-site APIs plus the raw README host. */

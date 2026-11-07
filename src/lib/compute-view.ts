@@ -334,27 +334,41 @@ export interface JobRowView {
 }
 
 /**
+ * What a job's charge reads, for the table and the job page alike so the two cannot disagree. A
+ * finished, failed or canceled job prints a true `0.000`; a live one reads "Not charged yet" until the
+ * backend reports an amount; a state this build does not know prints its amount when it has one and
+ * "Not known" when it has none.
+ */
+export function chargeText(job: { state: string; charged_milli: number }): {
+  readonly text: string;
+  readonly kind: JobRowView["chargeKind"];
+} {
+  const L = COMPUTE_LABELS.jobs;
+  if (isComputeJobState(job.state) && isTerminalComputeState(job.state)) {
+    return { text: suFixed(job.charged_milli), kind: "terminal" };
+  }
+  if (isComputeJobState(job.state)) {
+    return {
+      text: job.charged_milli > 0 ? suFixed(job.charged_milli) : L.notChargedYet,
+      kind: "live",
+    };
+  }
+  return {
+    text: job.charged_milli > 0 ? suFixed(job.charged_milli) : L.chargeUnknown,
+    kind: "unknown",
+  };
+}
+
+/**
  * One job as cells of data. The SSR template and the browser script are two thin renderers over this.
  * A finished job with no charge prints a true `0.000`; a live job with none reads "Not charged yet",
  * because the backend charges at the end; a state this build does not know prints its amount when it
  * has one and "Not known" when it has none (a claim of zero or of "not yet" would be a guess).
  */
 export function jobRowView(job: ComputeJob): JobRowView {
-  const L = COMPUTE_LABELS.jobs;
   const known = isComputeJobState(job.state);
   const terminal = known && isTerminalComputeState(job.state);
-  let charged: string;
-  let chargeKind: JobRowView["chargeKind"];
-  if (terminal) {
-    charged = suFixed(job.charged_milli);
-    chargeKind = "terminal";
-  } else if (known) {
-    charged = job.charged_milli > 0 ? suFixed(job.charged_milli) : L.notChargedYet;
-    chargeKind = "live";
-  } else {
-    charged = job.charged_milli > 0 ? suFixed(job.charged_milli) : L.chargeUnknown;
-    chargeKind = "unknown";
-  }
+  const { text: charged, kind: chargeKind } = chargeText(job);
   const badge = jobBadge(job.state);
   return {
     id: displaySafeLine(job.id),
