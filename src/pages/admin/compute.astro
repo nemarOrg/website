@@ -942,7 +942,7 @@ if (view === "drift") {
         emptyNote.hidden = false;
       }
       if (announce) {
-        announce.textContent = [text(row, "name"), ...lines].join(". ");
+        announce.textContent = `${text(row, "name")}: ${lines.join(" ")}`;
       }
     }
 
