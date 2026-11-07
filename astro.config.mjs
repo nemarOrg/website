@@ -49,6 +49,14 @@ export default defineConfig({
   // hostname in `src/layouts/Base.astro` so app-host pages get the right origin.
   site: "https://nemar.org",
   trailingSlash: "ignore",
+  // Astro's built-in cross-site form check is OFF on purpose: it has no exemption, and OpenID
+  // Connect Core 3.1.2.1 requires the authorization endpoint (`/oauth/authorize`) to accept a form
+  // POST from any site. `src/middleware.ts` runs the site's own check (`src/lib/origin-check.ts`),
+  // the built-in's rule with that one exemption, so every other route keeps the protection it had
+  // (ADR 0030). Turning this back on would refuse the conformance suite's cross-site POST; deleting
+  // the middleware check while this is false would leave every form endpoint open to CSRF.
+  // `test/origin-check-config.test.ts` pins both halves.
+  security: { checkOrigin: false },
   experimental: {
     clientPrerender: true,
   },
