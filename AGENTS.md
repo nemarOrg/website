@@ -75,7 +75,8 @@ src/
     api/v1/[...path].ts               generic authenticated API proxy
     dashboard.astro                   my-datasets list + publish status (app host)
     upload.astro upload/success.astro upload flow (dropzone + BIDS pre-check + full BIDS validation in a worker + direct-to-storage PUTs)
-    settings.astro                    account: name/email/ORCID/GitHub/profile self-service; CLI keys card
+    settings.astro                    account: name/email/ORCID/GitHub/profile self-service; CLI keys card; compute access card
+    compute/index.astro               compute dashboard (app host, ADR 0030): access, balances, usage chart per pool, jobs with Load more, queue waits; each read and panel fails alone
     admin/publication-requests.astro  admin-only (role=admin; 404s for others)
     admin/mail.astro admin/mail/{[id],queues,away}.astro   admin Mail tab: tickets, queues, away windows (ADR 0029); email is escaped text only
     about.astro support.astro community.astro
@@ -91,6 +92,10 @@ src/
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
     mail-admin-api.ts                 admin Mail client (browser-safe): tickets, queues, away window, reply failure classes, badge count, staff directory
     mail-admin-contract.ts            hand copy of nemar-cli shared/contract/mail-admin.ts (drift-tested, test/mail-admin-contract-drift.test.ts)
+    compute-api.ts compute-contract.ts   browser-safe client for GET /compute/me, /me/usage, /me/jobs (guards copy out only the keys read; a rejected body is a `shape` error, never zeros) and the hand copy of the vocabulary it needs (drift-tested, test/compute-user-contract-drift.test.ts)
+    compute-view.ts compute-labels.ts compute-badges.ts   pure view models (panelsFor, access, balances, queue, jobRowView, usage), the page's short labels (sentences live in account-copy.ts), job-state badges
+    compute-format.ts compute-chart.ts   integer milli-SU formatting (the CLI's digits) and the usage chart geometry (nice ceiling from the stacked total, hand-rolled SVG, ADR 0007)
+    compute-jobs-dom.ts               builds appended job rows with createElement/textContent only
     mail-display.ts                   escape set for ticket text, thread order, reply draft state machine and its sessionStorage form
     device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
     device-authorize.ts               pure view model for /cli/authorize (no mirrored refusal vocabulary)
@@ -117,6 +122,7 @@ src/
     eeg-viewer.css                    global signal-viewer styles (runtime-built DOM), imported by BidsTree and the embed
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
+  fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1) and `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2)
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
 public/brand/                         GENERATED press logo kit (SVG, PDF, transparent PNG; color, reverse, black, white); rebuild with `bun scripts/generate-brand-kit.mjs`, never hand-edit
 public/vendor/bids-validator/<ver>/   GENERATED worker bundle of the BIDS validator + SHA256SUMS + provenance + licenses (ADR 0028); never hand-edited

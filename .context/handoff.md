@@ -1,6 +1,16 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-11-06.
+**Last session:** 2026-11-07.
+
+## 2026-11-07: The compute dashboard (website#495, epic website#493 phase E2)
+
+Branch `feature/issue-495-compute-dashboard`, PR into the epic branch. ADR 0030 addendum. Depends on nemar-cli's Epic D branch (phase D2 routes) and its copy PR #2082 (seven keys, reworded `compute_access.granted.body`).
+
+- **Recipe:** `NEMAR_CLI_DIR=<Epic D checkout> PORT=8791 bun scripts/local-backend.mjs --seed-compute`, then `PUBLIC_API_BASE_URL=http://localhost:8791 bun run dev`; cookies for `rich`, `frozen`, `overrun`, `granted` print with the others (`.context/local-backend.md`).
+- **Fixtures** (`test/fixtures/compute/*.json`, 13 new files) are captured by `scripts/capture-compute-read-fixtures.mjs` from the real router; a rerun writes the same bytes.
+- **Drift gates:** `test/compute-user-contract-drift.test.ts` (`NEMAR_CLI_COMPUTE_STATE`, `_USER_CONTRACT`, `_CONTRACT`) and the account-copy drift test are red in CI until the compute epic and #2082 reach nemar-cli `dev`. Never put them on `staging` earlier.
+- **Release gate:** do not promote until the production API serves `GET /compute/me`; a site talking to an API without it shows one "not available" notice.
+- **Follow-ups:** a usage window selector, a `?state=` filter, the ADR 0030 hand-off (drop `compute-terms.ts` and `COMPUTE_REQUESTS_ENABLED`), the job page (E3). Backend gaps: nemar-cli#2078 (pool as a usage group), #2079 (job name), #2080 (are new jobs accepted).
 
 ## 2026-11-06: Compute access card in Settings (website#494, epic website#493 phase E1)
 
