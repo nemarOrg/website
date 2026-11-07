@@ -144,3 +144,11 @@ export function formatDayShort(day: string): string {
   if (!m || epochDay(day) === null) return day;
   return `${MONTHS[Number(m[2]) - 1]} ${Number(m[3])}`;
 }
+
+/** A database time as `Oct 20, 2026` (the UTC date), locale-free; the original text when it does not parse. */
+export function formatUtcDate(text: string): string {
+  const ms = parseDbTime(text);
+  if (ms === null) return text;
+  const d = new Date(ms);
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}

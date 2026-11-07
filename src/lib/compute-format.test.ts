@@ -12,6 +12,7 @@ import {
   formatDuration,
   formatSu,
   formatSuShort,
+  formatUtcDate,
   formatUtcMinute,
   formatUtcSecond,
   parseDbTime,
@@ -114,6 +115,11 @@ describe("database times are UTC whatever the machine's zone", () => {
   it("formats to the minute and to the second", () => {
     expect(formatUtcMinute("2026-11-05 12:07:59")).toBe("2026-11-05 12:07 UTC");
     expect(formatUtcSecond("2026-11-05 12:07:59")).toBe("2026-11-05 12:07:59 UTC");
+  });
+  it("formats the UTC date, not the viewer's", () => {
+    expect(formatUtcDate("2026-10-20 23:59:59")).toBe("Oct 20, 2026");
+    expect(formatUtcDate("2026-01-01 00:00:00")).toBe("Jan 1, 2026");
+    expect(formatUtcDate("soon")).toBe("soon");
   });
   it("rejects a shape or an impossible instant, and returns the text unchanged", () => {
     for (const bad of [
