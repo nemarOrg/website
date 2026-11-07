@@ -162,6 +162,8 @@ const L = JOB_COPY;
         data-state={view.state}
         data-cancel-requested={String(view.cancelRequested)}
         data-live={String(view.live)}
+        data-charged={outcome.read.job.charged_milli}
+        data-stale={String(view.stale)}
         data-results-days={resultsDays ?? undefined}
       >
         <header class="compute-job__header">

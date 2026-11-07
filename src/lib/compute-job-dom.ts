@@ -132,7 +132,10 @@ export function resultRowElement(
   meta.append(" ", sha);
   li.append(meta);
   if (row.href) {
+    // The visible word is the same for every row; the file's name is in the link's text for a screen
+    // reader (and is a text node, like the path above).
     const a = el(doc, "a", "compute-job-result__link", words.download);
+    a.append(" ", el(doc, "span", "visually-hidden", row.path));
     a.setAttribute("href", row.href);
     a.setAttribute("rel", "noopener noreferrer");
     a.setAttribute("referrerpolicy", "no-referrer");

@@ -28,6 +28,7 @@ import {
   cancelOutcome,
   initialPoll,
   isLive,
+  isLoopbackHost,
   isTerminal,
   jobDetailView,
   linksExpired,
@@ -414,8 +415,15 @@ describe("resultsFailure and logFailure", () => {
 describe("result rows", () => {
   it("accepts https and loopback http, and nothing else", () => {
     expect(safeResultHref("https://store.example/x?sig=1")).toBe("https://store.example/x?sig=1");
-    expect(safeResultHref("http://127.0.0.1:9000/a")).toBe("http://127.0.0.1:9000/a");
-    expect(safeResultHref("http://localhost/a")).toBe("http://localhost/a");
+    // Plain http on loopback only when the page itself is on a loopback host (the local backend).
+    expect(safeResultHref("http://127.0.0.1:9000/a", true)).toBe("http://127.0.0.1:9000/a");
+    expect(safeResultHref("http://localhost/a", true)).toBe("http://localhost/a");
+    expect(safeResultHref("http://127.0.0.1:9000/a")).toBeNull();
+    expect(safeResultHref("http://localhost/a", false)).toBeNull();
+    // The flag never opens a non-loopback http link.
+    expect(safeResultHref("http://evil.example/a", true)).toBeNull();
+    expect(isLoopbackHost("localhost")).toBe(true);
+    expect(isLoopbackHost("app.nemar.org")).toBe(false);
     for (const bad of [
       "javascript:alert(1)",
       "JavaScript:alert(1)",

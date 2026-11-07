@@ -34,6 +34,11 @@ export interface PollerHandlers {
 export interface Poller {
   /** Start (or restart) from a fresh schedule, as after Resume. */
   start(): void;
+  /**
+   * Restart from a fresh schedule and read once now, through the same one-request-in-flight rule as the
+   * schedule (a read already out is waited for, not doubled). Resolves true when the read worked.
+   */
+  restartNow(): Promise<boolean>;
   /** Read once now, outside the schedule (after a cancel), and continue the schedule from it. */
   refreshNow(): void;
   stop(): void;
@@ -76,25 +81,38 @@ export function createPoller(handlers: PollerHandlers): Poller {
     }
   };
 
-  const tick = async (): Promise<void> => {
+  let inflight: Promise<boolean> | null = null;
+
+  /** One read; at most one at a time. Resolves true when it worked. */
+  const tick = (): Promise<boolean> => {
     clear();
-    if (!running || controller) return; // one request in flight at most
+    if (inflight) return inflight;
+    if (!running) return Promise.resolve(false);
     const mine = new AbortController();
     controller = mine;
-    let event: PollEvent;
-    try {
-      const got = await handlers.read(mine.signal);
-      lastReadAt = nowMs();
-      event = { kind: "read", state: got.state, changed: got.changed };
-    } catch (err) {
-      if (mine.signal.aborted) {
-        if (controller === mine) controller = undefined;
-        return; // aborted on purpose (hidden tab, pagehide): the visibility event restarts it
+    const run = (async (): Promise<boolean> => {
+      let event: PollEvent;
+      let ok = false;
+      try {
+        const got = await handlers.read(mine.signal);
+        lastReadAt = nowMs();
+        event = { kind: "read", state: got.state, changed: got.changed };
+        ok = true;
+      } catch (err) {
+        if (mine.signal.aborted) {
+          if (controller === mine) controller = undefined;
+          return false; // aborted on purpose (hidden tab, pagehide): the visibility event restarts it
+        }
+        event = { kind: "error", fatal: handlers.fatal(err) };
       }
-      event = { kind: "error", fatal: handlers.fatal(err) };
-    }
-    if (controller === mine) controller = undefined;
-    if (running) apply(event);
+      if (controller === mine) controller = undefined;
+      if (running) apply(event);
+      return ok;
+    })();
+    inflight = run.finally(() => {
+      inflight = null;
+    });
+    return inflight;
   };
 
   const onVisibility = (): void => {
@@ -121,10 +139,16 @@ export function createPoller(handlers: PollerHandlers): Poller {
       abort();
       if (!document.hidden) timer = setTimeout(() => void tick(), state.delayMs);
     },
+    restartNow() {
+      state = initialPoll(nowMs());
+      running = true;
+      lastReadAt = nowMs();
+      clear();
+      return tick();
+    },
     refreshNow() {
       if (!running) return;
       clear();
-      abort();
       state = { ...state, delayMs: 10_000 };
       void tick();
     },

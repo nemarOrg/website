@@ -54,6 +54,8 @@ export const JOB_COPY = {
   },
   live: {
     paused: "Updates paused.",
+    refreshing: "Refreshing",
+    refreshFailed: "Could not refresh just now. Try again.",
     refresh: "Refresh",
     resume: "Resume",
     sessionEnded: "Your session expired. Sign in again.",

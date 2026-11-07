@@ -460,12 +460,18 @@ export const RESULT_ROWS_STEP = 100;
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
+/** Whether a host name is this machine. The page asks it of ITS OWN host (`location.hostname`). */
+export function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK.has(hostname);
+}
+
 /**
- * The only way a result address reaches an `href`: `https:`, or `http:` on a loopback host (the local
- * backend's object store, for the browser check). `javascript:`, `data:` and anything else render no
- * link.
+ * The only way a result address reaches an `href`: `https:`, or `http:` on a loopback host when
+ * `allowLoopback` is true (the local backend's object store, for the browser check). The page sets that
+ * flag from its own host, so a deployed page never accepts a plain-http link, loopback or not.
+ * `javascript:`, `data:` and anything else render no link.
  */
-export function safeResultHref(url: string): string | null {
+export function safeResultHref(url: string, allowLoopback = false): string | null {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -473,7 +479,9 @@ export function safeResultHref(url: string): string | null {
     return null;
   }
   if (parsed.protocol === "https:") return parsed.href;
-  if (parsed.protocol === "http:" && LOOPBACK.has(parsed.hostname)) return parsed.href;
+  if (allowLoopback && parsed.protocol === "http:" && LOOPBACK.has(parsed.hostname)) {
+    return parsed.href;
+  }
   return null;
 }
 
@@ -486,13 +494,13 @@ export interface ResultRow {
   readonly href: string | null;
 }
 
-export function resultRow(file: ComputeResultFile): ResultRow {
+export function resultRow(file: ComputeResultFile, allowLoopback = false): ResultRow {
   return {
     path: displaySafeLine(file.path),
     size: formatBytes(file.size),
     shaShort: displaySafeLine(file.sha256.slice(0, 12)),
     sha: displaySafeLine(file.sha256),
-    href: safeResultHref(file.url),
+    href: safeResultHref(file.url, allowLoopback),
   };
 }
 

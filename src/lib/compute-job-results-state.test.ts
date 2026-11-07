@@ -22,7 +22,8 @@ import { RESULT_ROWS_STEP, resultRow } from "./compute-job-view";
 
 const response = parseComputeResults(results.get.body);
 const expiresMs = Date.parse(response.expires_at);
-const held = { rows: response.files.map(resultRow), response };
+// The captured links are on the local object store, so this page is "on loopback" too.
+const held = { rows: response.files.map((f) => resultRow(f, true)), response };
 const withLinks = (): ResultsHold => holdPage(EMPTY_HOLD, held, null, 0);
 
 describe("holding a page", () => {

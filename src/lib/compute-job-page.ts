@@ -38,6 +38,7 @@ import {
 } from "./compute-job-results-state";
 import {
   cancelOutcome,
+  isLoopbackHost,
   jobDetailView,
   linksOutliveFiles,
   logFailure,
@@ -60,6 +61,35 @@ function setText(node: Element, text: string): void {
   node.textContent = text;
 }
 
+const pendingText = new WeakMap<HTMLElement, string>();
+
+/**
+ * Show or hide a `role="status"` region. A live region announces what CHANGES inside it, so one that is
+ * un-hidden with its text already in place can be missed: the text is put in one tick after the region
+ * appears. `target` is the element that holds the text when that is not the region itself.
+ */
+function showStatus(region: HTMLElement, text: string | null, target: HTMLElement = region): void {
+  if (text === null || text === "") {
+    region.hidden = true;
+    target.textContent = "";
+    pendingText.delete(target);
+    return;
+  }
+  if (region.hidden) {
+    region.hidden = false;
+    target.textContent = "";
+    pendingText.set(target, text);
+    setTimeout(() => {
+      const later = pendingText.get(target);
+      if (later !== undefined) target.textContent = later;
+      pendingText.delete(target);
+    }, 0);
+  } else {
+    pendingText.delete(target);
+    target.textContent = text;
+  }
+}
+
 /** Add "(your time: ...)" to a line that carries the instant it names in `data-until-iso`. */
 function addLocalTime(node: HTMLElement): void {
   const iso = node.dataset.untilIso;
@@ -76,7 +106,8 @@ export function initJobPage(root: HTMLElement): void {
   let resultsDays: number | null = root.dataset.resultsDays
     ? Number(root.dataset.resultsDays)
     : null;
-  let current: ComputeJobRead | null = null;
+  let lastCharged = Number(root.dataset.charged ?? "");
+  let lastStale = root.dataset.stale === "true";
   let lastState = root.dataset.state ?? "";
   let lastCancel = root.dataset.cancelRequested === "true";
   let ended = false;
@@ -95,11 +126,11 @@ export function initJobPage(root: HTMLElement): void {
     const changed =
       view.state !== lastState ||
       view.cancelRequested !== lastCancel ||
-      current === null ||
-      current.job.charged_milli !== read.job.charged_milli ||
-      current.stale !== read.stale;
+      (!Number.isNaN(lastCharged) && lastCharged !== read.job.charged_milli) ||
+      lastStale !== read.stale;
     const stateChanged = view.state !== lastState;
-    current = read;
+    lastCharged = read.job.charged_milli;
+    lastStale = read.stale;
     root.dataset.state = view.state;
     must<HTMLElement>(root, "[data-job-badge]").replaceChildren(badgeElement(doc, view.badge));
     must<HTMLElement>(root, "[data-job-cancel-note]").hidden = !view.cancelRequested;
@@ -180,6 +211,7 @@ export function initJobPage(root: HTMLElement): void {
 
   // --- the poller ----------------------------------------------------------------------------------
 
+  let lastStop: string | null = null;
   const poller = createPoller({
     async read(signal) {
       const read = await getComputeJob(jobId, { signal });
@@ -193,36 +225,43 @@ export function initJobPage(root: HTMLElement): void {
       return undefined;
     },
     onStop(reason) {
+      lastStop = reason;
       if (reason === "terminal" || reason === "unknown_state") {
-        paused.hidden = true;
+        showStatus(paused, null, pausedText);
         return;
       }
-      paused.hidden = false;
       pausedSignIn.hidden = reason !== "session";
       pausedButton.hidden = reason === "session" || reason === "not_found";
       pausedButton.textContent =
         reason === "hard_stop" ? JOB_COPY.live.resume : JOB_COPY.live.refresh;
-      setText(
-        pausedText,
+      showStatus(
+        paused,
         reason === "session"
           ? JOB_COPY.live.sessionEnded
           : reason === "not_found"
             ? JOB_COPY.notFoundBody
             : JOB_COPY.live.paused,
+        pausedText,
       );
     },
   });
   pausedButton.addEventListener("click", () => {
-    paused.hidden = true;
-    // One read now, then the schedule from the start.
-    void getComputeJob(jobId)
-      .then((read) => {
-        applyJob(read);
-        if (jobDetailView(read).live) poller.start();
-      })
-      .catch(() => {
-        paused.hidden = false;
-      });
+    if (pausedButton.disabled) return;
+    pausedButton.disabled = true;
+    lastStop = null;
+    showStatus(paused, JOB_COPY.live.refreshing, pausedText);
+    // One read now (through the poller's one-in-flight rule), then the schedule from the start.
+    void poller.restartNow().then((ok) => {
+      pausedButton.disabled = false;
+      if (ok) {
+        if (lastStop === null) showStatus(paused, null, pausedText);
+      } else if (lastStop === null) {
+        // The read failed and nothing ended the poller: stop it here, say so, and let the person retry.
+        poller.stop();
+        pausedButton.hidden = false;
+        showStatus(paused, JOB_COPY.live.refreshFailed, pausedText);
+      }
+    });
   });
 
   // --- logs ----------------------------------------------------------------------------------------
@@ -268,8 +307,7 @@ export function initJobPage(root: HTMLElement): void {
     const mine = new AbortController();
     logController = mine;
     logsShow.disabled = true;
-    logsStatus.hidden = false;
-    setText(logsStatus, JOB_COPY.logs.loading);
+    showStatus(logsStatus, JOB_COPY.logs.loading);
     try {
       const log = await getComputeLogs(jobId, { signal: mine.signal });
       const prepared = prepareLog(log.text);
@@ -279,11 +317,10 @@ export function initJobPage(root: HTMLElement): void {
       logsShow.textContent = JOB_COPY.logs.refresh;
       must<HTMLElement>(root, "[data-logs-ended-note]").hidden = true;
       if (prepared.lines.length === 0) {
-        setText(logsStatus, JOB_COPY.logs.empty);
+        showStatus(logsStatus, JOB_COPY.logs.empty);
         logsTruncated.hidden = !log.truncated;
       } else {
-        logsStatus.hidden = true;
-        setText(logsStatus, "");
+        showStatus(logsStatus, null);
       }
       renderLog();
     } catch (err) {
@@ -291,7 +328,7 @@ export function initJobPage(root: HTMLElement): void {
       logLines = [];
       renderLog();
       const failure = logFailure(err, source);
-      setText(logsStatus, failure.sentence);
+      showStatus(logsStatus, failure.sentence);
       if (failure.kind === "none") logsShow.textContent = JOB_COPY.logs.refresh;
       if (failure.kind === "not_found") onNotFound();
     } finally {
@@ -322,6 +359,8 @@ export function initJobPage(root: HTMLElement): void {
   const resultsNext = must<HTMLButtonElement>(root, "[data-results-next]");
   const resultsFirst = must<HTMLButtonElement>(root, "[data-results-first]");
   const resultsRenew = must<HTMLButtonElement>(root, "[data-results-renew]");
+  // Plain http result links are accepted only when this page is itself on a loopback host.
+  const loopbackPage = isLoopbackHost(window.location.hostname);
   let hold: ResultsHold = EMPTY_HOLD;
   let canGetLinks = !resultsGet.hidden;
   let resultsBusy = false;
@@ -337,8 +376,7 @@ export function initJobPage(root: HTMLElement): void {
       sha: JOB_COPY.results.sha,
     };
     resultsList.replaceChildren(...ui.visibleRows.map((r) => resultRowElement(doc, r, words)));
-    resultsStatus.hidden = ui.status === null;
-    setText(resultsStatus, ui.status ?? "");
+    showStatus(resultsStatus, ui.status);
     const held = hold.held;
     if (held === null) return;
     const from = hold.offset + 1;
@@ -380,7 +418,12 @@ export function initJobPage(root: HTMLElement): void {
       const response = renew
         ? await renewComputeResults(jobId, after)
         : await getComputeResults(jobId, after);
-      hold = holdPage(hold, { rows: response.files.map(resultRow), response }, after, offset);
+      hold = holdPage(
+        hold,
+        { rows: response.files.map((f) => resultRow(f, loopbackPage)), response },
+        after,
+        offset,
+      );
     } catch (err) {
       const failure = resultsFailure(err, resultsDays, source);
       hold = setStatus(hold, failure.sentence);
@@ -457,27 +500,26 @@ export function initJobPage(root: HTMLElement): void {
     cancelBusy = true;
     cancelOpen.disabled = true;
     cancelOpen.setAttribute("aria-busy", "true");
-    cancelStatus.hidden = false;
-    setText(cancelStatus, JOB_COPY.cancel.working);
+    showStatus(cancelStatus, JOB_COPY.cancel.working);
     try {
       const answer = await cancelComputeJob(jobId);
       const outcome = cancelOutcome(answer);
-      setText(cancelStatus, outcome.sentence);
+      showStatus(cancelStatus, outcome.sentence);
       await reread();
       if (outcome.poll) poller.refreshNow();
     } catch (err) {
       if (err instanceof ComputeApiError && err.code === "job_not_found") {
         onNotFound();
       } else if (err instanceof ComputeApiError && err.kind === "session") {
-        setText(cancelStatus, JOB_COPY.live.sessionEnded);
+        showStatus(cancelStatus, JOB_COPY.live.sessionEnded);
       } else if (err instanceof ComputeApiError && err.kind === "account") {
-        setText(cancelStatus, err.sentence ?? JOB_COPY.cancel.notRecorded);
+        showStatus(cancelStatus, err.sentence ?? JOB_COPY.cancel.notRecorded);
       } else {
         // The answer may have been lost after the cancel went through: the job record says which.
-        setText(cancelStatus, JOB_COPY.cancel.unclear);
+        showStatus(cancelStatus, JOB_COPY.cancel.unclear);
         const read = await reread();
-        if (read?.job.cancel_requested) setText(cancelStatus, JOB_COPY.cancel.recorded);
-        else if (read) setText(cancelStatus, JOB_COPY.cancel.notRecorded);
+        if (read?.job.cancel_requested) showStatus(cancelStatus, JOB_COPY.cancel.recorded);
+        else if (read) showStatus(cancelStatus, JOB_COPY.cancel.notRecorded);
       }
     } finally {
       cancelBusy = false;
