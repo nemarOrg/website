@@ -9,19 +9,27 @@
  */
 
 import { describe, expect, it } from "vitest";
+import requestResponses from "../../test/fixtures/compute/request-responses.json";
+import { ACCOUNT_COPY } from "./account-copy";
 import {
+  COMPUTE_PURPOSE_MAX_CHARS,
+  COMPUTE_PURPOSE_MIN_CHARS,
   USERNAME_MAX_LENGTH,
   USERNAME_MIN_LENGTH,
   WHY_MAX_CHARS,
   WHY_MIN_CHARS,
+  computeAccessErrorMessage,
   deriveAccountTier,
+  deriveComputeAccessState,
   deriveUploadAccessState,
   deriveUploadPageState,
   needsOnboarding,
   onboardingSteps,
   profileErrorMessage,
+  requestStatusMessage,
   showsUploadForm,
   uploadAccessErrorMessage,
+  validatePurpose,
   validateUsername,
   validateWhy,
   verifyEmailFailure,
@@ -427,5 +435,244 @@ describe("profileErrorMessage", () => {
     expect(profileErrorMessage(404, "brand_new_code")).toContain("available yet");
     expect(profileErrorMessage(401, undefined)).toContain("session expired");
     expect(profileErrorMessage(418, undefined)).toContain("Something went wrong");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compute access (website ADR 0030)
+// ---------------------------------------------------------------------------
+
+/** Refusals captured from the real backend; see test/fixtures/compute/ and
+ *  scripts/capture-compute-fixtures.mjs (nemar-cli 3a869903). */
+const CAPTURED = requestResponses as unknown as Record<
+  string,
+  { status: number; body: { error: string; message: string; missing: string[] } }
+>;
+
+describe("deriveComputeAccessState", () => {
+  const REQUESTED = "2026-10-20 09:30:00";
+  const GRANTED = "2026-10-24 14:05:00";
+
+  it("answers null when the backend did not say, never `none`", () => {
+    // An older backend sends no compute fields at all. Mapping that to "Not
+    // requested" would invite a request the backend will refuse.
+    // MUTATION: `return { state: user.compute_access ?? "none" }`.
+    expect(deriveComputeAccessState({})).toBeNull();
+    expect(deriveComputeAccessState(null)).toBeNull();
+    expect(deriveComputeAccessState(undefined)).toBeNull();
+    expect(
+      deriveComputeAccessState({
+        compute_access_requested_at: REQUESTED,
+        compute_access_granted_at: GRANTED,
+      }),
+    ).toBeNull();
+  });
+
+  it("answers null for a state outside the closed six", () => {
+    const unknown = { compute_access: "approved" } as unknown as Parameters<
+      typeof deriveComputeAccessState
+    >[0];
+    expect(deriveComputeAccessState(unknown)).toBeNull();
+  });
+
+  it("answers none with no stamp", () => {
+    expect(deriveComputeAccessState({ compute_access: "none" })).toEqual({ state: "none" });
+    // Even a stray stamp is not shown beside a state that has none.
+    expect(
+      deriveComputeAccessState({ compute_access: "none", compute_access_requested_at: REQUESTED }),
+    ).toEqual({ state: "none" });
+  });
+
+  it("carries the request time for requested only", () => {
+    expect(
+      deriveComputeAccessState({
+        compute_access: "requested",
+        compute_access_requested_at: REQUESTED,
+      }),
+    ).toEqual({ state: "requested", at: REQUESTED });
+    expect(deriveComputeAccessState({ compute_access: "requested" })).toEqual({
+      state: "requested",
+    });
+  });
+
+  it("carries the grant time for active only", () => {
+    expect(
+      deriveComputeAccessState({
+        compute_access: "active",
+        compute_access_requested_at: REQUESTED,
+        compute_access_granted_at: GRANTED,
+      }),
+    ).toEqual({ state: "active", at: GRANTED });
+    expect(deriveComputeAccessState({ compute_access: "active" })).toEqual({ state: "active" });
+  });
+
+  it("carries no date for suspended, denied or revoked, whatever stamps the row keeps", () => {
+    // The stamps are history on the backend: a suspended account still has the
+    // time it was granted, and "since {date}" beside "Suspended" would claim
+    // something the backend never said.
+    for (const state of ["suspended", "denied", "revoked"] as const) {
+      expect(
+        deriveComputeAccessState({
+          compute_access: state,
+          compute_access_requested_at: REQUESTED,
+          compute_access_granted_at: GRANTED,
+        }),
+        state,
+      ).toEqual({ state });
+    }
+  });
+
+  it("ignores a blank stamp", () => {
+    expect(
+      deriveComputeAccessState({ compute_access: "active", compute_access_granted_at: "  " }),
+    ).toEqual({ state: "active" });
+  });
+});
+
+describe("validatePurpose", () => {
+  const hint = ACCOUNT_COPY["compute_access.request.purpose_hint"];
+
+  it("pins the bounds to the backend's", () => {
+    expect(COMPUTE_PURPOSE_MIN_CHARS).toBe(20);
+    expect(COMPUTE_PURPOSE_MAX_CHARS).toBe(1000);
+  });
+
+  it("is inclusive at both ends, and counts the trimmed text", () => {
+    expect(validatePurpose("x".repeat(19))).toBe(hint);
+    expect(validatePurpose("x".repeat(20))).toBeNull();
+    expect(validatePurpose("x".repeat(1000))).toBeNull();
+    expect(validatePurpose("x".repeat(1001))).toBe(hint);
+    expect(validatePurpose(`   ${"x".repeat(19)}   `)).toBe(hint);
+    expect(validatePurpose(`   ${"x".repeat(20)}   `)).toBeNull();
+    expect(validatePurpose("")).toBe(hint);
+  });
+
+  it("counts code points, not UTF-16 units", () => {
+    // MUTATION: count `raw.trim().length`. Nineteen emoji are 38 units, so a
+    // unit count lets them through to a database CHECK that refuses them.
+    const brain = "\u{1F9E0}";
+    expect(brain.length).toBe(2);
+    expect(validatePurpose(brain.repeat(19))).toBe(hint);
+    expect(validatePurpose(brain.repeat(20))).toBeNull();
+    expect(validatePurpose(brain.repeat(1000))).toBeNull();
+    expect(validatePurpose(brain.repeat(1001))).toBe(hint);
+  });
+});
+
+describe("computeAccessErrorMessage", () => {
+  const body = (name: string) => CAPTURED[name].body;
+  const status = (name: string) => CAPTURED[name].status;
+
+  it("prints the backend's sentence for a purpose refusal, and the shared hint without one", () => {
+    expect(
+      computeAccessErrorMessage(400, "purpose_required", body("purpose_required").message),
+    ).toBe(body("purpose_required").message);
+    expect(computeAccessErrorMessage(400, "purpose_required")).toBe(
+      ACCOUNT_COPY["compute_access.request.purpose_hint"],
+    );
+  });
+
+  it("prints the backend's sentence for a terms refusal, and the terms label without one", () => {
+    expect(
+      computeAccessErrorMessage(400, "terms_not_accepted", body("terms_not_accepted").message),
+    ).toBe(body("terms_not_accepted").message);
+    expect(computeAccessErrorMessage(400, "terms_not_accepted")).toBe(
+      ACCOUNT_COPY["compute_access.request.terms_label"],
+    );
+  });
+
+  it.each(["email_not_verified", "orcid_not_proven", "profile_incomplete"])(
+    "prints the list heading, never the backend's raw field names, for %s",
+    (code) => {
+      // The backend sentence for profile_incomplete is
+      // "...: given_name, family_name, city, country, affiliation". The page
+      // renders `missing` as linked, worded lines instead.
+      const captured = body(code);
+      const out = computeAccessErrorMessage(status(code), code, captured.message);
+      expect(out).toBe(ACCOUNT_COPY["gaps.request.title"]);
+      expect(out).not.toContain("given_name");
+      expect(out).not.toBe(captured.message);
+    },
+  );
+
+  it("prints the backend's sentence for a closed request, falling back to the closed copy", () => {
+    // Denied and revoked share a sentence; suspended has its own, and both
+    // arrive under the one code `access_closed`.
+    for (const name of [
+      "access_closed_denied",
+      "access_closed_revoked",
+      "access_closed_suspended",
+    ]) {
+      expect(computeAccessErrorMessage(409, "access_closed", body(name).message), name).toBe(
+        body(name).message,
+      );
+    }
+    expect(computeAccessErrorMessage(409, "access_closed")).toBe(
+      ACCOUNT_COPY["compute_access.closed.body"],
+    );
+  });
+
+  it("prints the backend's sentence for an active account, falling back to the granted copy", () => {
+    expect(computeAccessErrorMessage(409, "already_active", body("already_active").message)).toBe(
+      body("already_active").message,
+    );
+    expect(computeAccessErrorMessage(409, "already_active")).toBe(
+      ACCOUNT_COPY["compute_access.granted.body"],
+    );
+  });
+
+  it("always prints the shared copy for unpublished terms", () => {
+    expect(computeAccessErrorMessage(503, "terms_unpublished", "some other words")).toBe(
+      ACCOUNT_COPY["compute_access.terms_unpublished.body"],
+    );
+    expect(
+      computeAccessErrorMessage(503, "terms_unpublished", body("terms_unpublished").message),
+    ).toBe(body("terms_unpublished").message);
+  });
+
+  it("never lets a known code fall through to the generic message", () => {
+    // MUTATION: delete any `case` above; that code then answers the status
+    // tail, which for the captured status is the generic "Couldn't send".
+    const generic = requestStatusMessage(0);
+    for (const name of [
+      "purpose_required",
+      "terms_not_accepted",
+      "email_not_verified",
+      "orcid_not_proven",
+      "profile_incomplete",
+      "access_closed_denied",
+      "already_active",
+      "terms_unpublished",
+    ]) {
+      const { error, message } = body(name);
+      expect(computeAccessErrorMessage(status(name), error, message), name).not.toBe(generic);
+      expect(computeAccessErrorMessage(status(name), error), `${name} without a message`).not.toBe(
+        requestStatusMessage(status(name)),
+      );
+    }
+  });
+
+  it("ends an unknown code in the shared status tail and ignores the body's text", () => {
+    expect(computeAccessErrorMessage(500, "something_new", "raw words")).toBe(
+      requestStatusMessage(500),
+    );
+    expect(computeAccessErrorMessage(401, undefined, "Unauthorized")).toBe(
+      "Your session expired. Sign in again.",
+    );
+    expect(computeAccessErrorMessage(429, undefined)).toBe(
+      "Too many attempts. Wait a few minutes and try again.",
+    );
+    expect(computeAccessErrorMessage(404, undefined)).toBe(
+      "This isn't available yet — check back soon.",
+    );
+    expect(computeAccessErrorMessage(0, undefined)).toBe("Couldn't send that request. Try again.");
+  });
+});
+
+describe("requestStatusMessage", () => {
+  it("is the tail the upload card ends in too, so the two cards word a status alike", () => {
+    for (const status of [0, 400, 401, 404, 429, 500, 503]) {
+      expect(uploadAccessErrorMessage(status, "no_such_code")).toBe(requestStatusMessage(status));
+    }
   });
 });
