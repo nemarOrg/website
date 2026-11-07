@@ -100,3 +100,8 @@ export const COMPUTE_LABELS = {
 export function daysText(days: number): string {
   return days === 1 ? "1 day" : `${days} days`;
 }
+
+/** The polite announcement after "Load more" appended rows. */
+export function loadedText(count: number): string {
+  return `Loaded ${count} more ${count === 1 ? "job" : "jobs"}.`;
+}
