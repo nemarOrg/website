@@ -99,6 +99,8 @@ export const JOB_COPY = {
     expired410: (days: number | null) =>
       `The results of this job were deleted${days === null ? "" : ` after ${days} ${days === 1 ? "day" : "days"}`}. This page keeps the job's record (state, resources and charge) and its log.`,
     badState: "NEMAR has no result files for this job.",
+    badStatePartner:
+      "NEMAR has no result files for this job yet. A partner job's results appear once NEMAR has checked the job.",
     loading: "Getting the links",
     yourTime: "your time",
     localTime: (when: string) => `In your time zone: ${when}.`,

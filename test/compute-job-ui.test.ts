@@ -25,6 +25,7 @@ const JOB_LIBS = [
   "compute-job-dom.ts",
   "compute-job-live.ts",
   "compute-job-page.ts",
+  "compute-job-results-state.ts",
   "compute-logs.ts",
   "compute-failure.ts",
   "compute-copy.ts",
@@ -165,8 +166,10 @@ describe("result links are bearer links", () => {
   });
 
   it("clears the list when a page comes back from the back-forward cache", () => {
+    // The rule itself is tested behaviorally (compute-job-results-state.test.ts); here only that the
+    // listener calls it with the event's own flag.
     expect(flat(JOB["compute-job-page.ts"])).toMatch(
-      /"pageshow", \(event\) => \{ if \(event\.persisted\)/,
+      /"pageshow", \(event\) => \{ hold = handlePageshow\(hold, event\.persisted\);/,
     );
   });
 

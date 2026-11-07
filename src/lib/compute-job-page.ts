@@ -15,7 +15,6 @@
 import {
   ComputeApiError,
   type ComputeJobRead,
-  type ComputeResults,
   cancelComputeJob,
   getComputeJob,
   getComputeLogs,
@@ -27,16 +26,23 @@ import { JOB_COPY } from "./compute-copy";
 import { detailRows, el, failureNodes, resultRowElement, timelineItems } from "./compute-job-dom";
 import { createPoller, nowMs } from "./compute-job-live";
 import {
-  RESULT_ROWS_STEP,
-  type ResultRow,
+  EMPTY_HOLD,
+  type ResultsHold,
+  expireIfDue,
+  handlePageshow,
+  holdPage,
+  markGone,
+  resultsUi,
+  setStatus,
+  showMore,
+} from "./compute-job-results-state";
+import {
   cancelOutcome,
   jobDetailView,
-  linksExpired,
   linksOutliveFiles,
   logFailure,
   resultRow,
   resultsFailure,
-  resultsPaging,
   resultsPanelView,
 } from "./compute-job-view";
 import { badgeElement } from "./compute-jobs-dom";
@@ -167,9 +173,9 @@ export function initJobPage(root: HTMLElement): void {
     if (panel.window.untilMs !== null) root.dataset.untilMs = String(panel.window.untilMs);
     else delete root.dataset.untilMs;
     addLocalTime(headline);
-    // Do not offer the button again once a 410 settled it.
-    must<HTMLButtonElement>(root, "[data-results-get]").hidden =
-      !panel.canGetLinks || resultsGone || heldResults !== null;
+    // Derived from the job, never from what the panel showed last: a restored page needs it back.
+    canGetLinks = panel.canGetLinks;
+    renderResults();
   }
 
   // --- the poller ----------------------------------------------------------------------------------
@@ -316,79 +322,50 @@ export function initJobPage(root: HTMLElement): void {
   const resultsNext = must<HTMLButtonElement>(root, "[data-results-next]");
   const resultsFirst = must<HTMLButtonElement>(root, "[data-results-first]");
   const resultsRenew = must<HTMLButtonElement>(root, "[data-results-renew]");
-  let heldResults: { rows: ResultRow[]; response: ComputeResults } | null = null;
-  let resultsShown = RESULT_ROWS_STEP;
-  let resultsOffset = 0;
-  let resultsAfter: string | null = null;
-  let resultsGone = false;
+  let hold: ResultsHold = EMPTY_HOLD;
+  let canGetLinks = !resultsGet.hidden;
   let resultsBusy = false;
 
-  function clearResults(): void {
-    heldResults = null;
-    resultsList.replaceChildren();
-    resultsPanel.hidden = true;
-    if (current) void renderResultsPanel(current);
-  }
-
+  /** The one place the results panel is written: from the hold and from what the JOB allows. */
   function renderResults(): void {
-    if (heldResults === null) return;
-    const { rows, response } = heldResults;
-    resultsPanel.hidden = false;
-    resultsGet.hidden = true;
+    const ui = resultsUi(hold, canGetLinks);
+    resultsGet.hidden = ui.getHidden;
+    resultsPanel.hidden = ui.panelHidden;
     const words = {
       download: JOB_COPY.results.download,
       unavailable: JOB_COPY.results.unavailableLink,
       sha: JOB_COPY.results.sha,
     };
-    resultsList.replaceChildren(
-      ...rows.slice(0, resultsShown).map((r) => resultRowElement(doc, r, words)),
-    );
-    const from = resultsOffset + 1;
-    const to = resultsOffset + rows.length;
+    resultsList.replaceChildren(...ui.visibleRows.map((r) => resultRowElement(doc, r, words)));
+    resultsStatus.hidden = ui.status === null;
+    setText(resultsStatus, ui.status ?? "");
+    const held = hold.held;
+    if (held === null) return;
+    const from = hold.offset + 1;
+    const to = hold.offset + held.rows.length;
     setText(
       resultsSummary,
-      response.truncated || resultsOffset > 0
-        ? JOB_COPY.results.showingRange(from, to, response.total)
-        : JOB_COPY.results.filesCount(response.total),
+      held.response.truncated || hold.offset > 0
+        ? JOB_COPY.results.showingRange(from, to, held.response.total)
+        : JOB_COPY.results.filesCount(held.response.total),
     );
-    setText(resultsNotice, response.notice);
-    const until = new Date(response.expires_at);
+    setText(resultsNotice, held.response.notice);
+    const until = new Date(held.response.expires_at);
     const when = Number.isNaN(until.getTime())
-      ? response.expires_at
+      ? held.response.expires_at
       : `${until.toISOString().slice(0, 16).replace("T", " ")} UTC (${JOB_COPY.results.yourTime}: ${until.toLocaleString()})`;
     setText(resultsExpiry, JOB_COPY.results.linksExpire(when));
     const untilMs = Number(root.dataset.untilMs ?? "");
     resultsOutlive.hidden = !linksOutliveFiles(
-      response.expires_at,
+      held.response.expires_at,
       Number.isNaN(untilMs) ? null : untilMs,
     );
-    const paging = resultsPaging({
-      held: rows.length,
-      shown: Math.min(resultsShown, rows.length),
-      offset: resultsOffset,
-      total: response.total,
-      nextAfter: response.next_after,
-    });
-    resultsMore.hidden = paging.showMore === 0;
-    setText(resultsMore, JOB_COPY.results.showMore(paging.showMore));
-    resultsNext.hidden = paging.nextPageRemaining === null;
-    if (paging.nextPageRemaining !== null) {
-      setText(resultsNext, JOB_COPY.results.nextPage(paging.nextPageRemaining));
-    }
-    resultsFirst.hidden = resultsOffset === 0;
-  }
-
-  /** Replace the rows with a notice when the links' own expiry has passed: no stale link stays in the DOM. */
-  function expireLinksIfDue(): void {
-    if (heldResults === null) return;
-    if (!linksExpired(heldResults.response.expires_at, nowMs())) return;
-    heldResults = null;
-    resultsList.replaceChildren();
-    resultsMore.hidden = true;
-    resultsNext.hidden = true;
-    resultsFirst.hidden = true;
-    setText(resultsStatus, JOB_COPY.results.linksExpired);
-    resultsStatus.hidden = false;
+    resultsMore.hidden = ui.moreCount === 0;
+    setText(resultsMore, JOB_COPY.results.showMore(ui.moreCount));
+    resultsNext.hidden = ui.nextRemaining === null;
+    if (ui.nextRemaining !== null)
+      setText(resultsNext, JOB_COPY.results.nextPage(ui.nextRemaining));
+    resultsFirst.hidden = ui.firstHidden;
   }
 
   async function fetchResults(after: string | null, renew: boolean, offset: number): Promise<void> {
@@ -397,29 +374,18 @@ export function initJobPage(root: HTMLElement): void {
     for (const b of [resultsGet, resultsRenew, resultsNext, resultsFirst, resultsMore]) {
       b.disabled = true;
     }
-    resultsStatus.hidden = false;
-    setText(resultsStatus, JOB_COPY.results.loading);
+    hold = setStatus(hold, JOB_COPY.results.loading);
+    renderResults();
     try {
       const response = renew
         ? await renewComputeResults(jobId, after)
         : await getComputeResults(jobId, after);
-      heldResults = { rows: response.files.map(resultRow), response };
-      resultsAfter = after;
-      resultsOffset = offset;
-      resultsShown = RESULT_ROWS_STEP;
-      resultsStatus.hidden = true;
-      setText(resultsStatus, "");
-      renderResults();
+      hold = holdPage(hold, { rows: response.files.map(resultRow), response }, after, offset);
     } catch (err) {
-      const failure = resultsFailure(err, resultsDays);
-      setText(resultsStatus, failure.sentence);
-      if (failure.kind === "expired") {
-        resultsGone = true;
-        heldResults = null;
-        resultsPanel.hidden = true;
-        resultsGet.hidden = true;
-      }
-      if (failure.kind === "not_ready") resultsGet.hidden = true;
+      const failure = resultsFailure(err, resultsDays, source);
+      hold = setStatus(hold, failure.sentence);
+      if (failure.kind === "expired") hold = markGone(hold, failure.sentence);
+      if (failure.kind === "not_ready") canGetLinks = false;
       if (failure.kind === "not_found") onNotFound();
     } finally {
       resultsBusy = false;
@@ -427,31 +393,33 @@ export function initJobPage(root: HTMLElement): void {
         b.disabled = false;
       }
     }
+    renderResults();
   }
   resultsGet.addEventListener("click", () => void fetchResults(null, false, 0));
   resultsRenew.addEventListener("click", () => {
-    expireLinksIfDue();
-    void fetchResults(resultsAfter, true, resultsOffset);
+    hold = expireIfDue(hold, nowMs());
+    renderResults();
+    void fetchResults(hold.after, true, hold.offset);
   });
   resultsMore.addEventListener("click", () => {
-    resultsShown += RESULT_ROWS_STEP;
+    hold = showMore(hold);
     renderResults();
   });
   resultsNext.addEventListener("click", () => {
-    const next = heldResults?.response.next_after ?? null;
-    if (next === null || heldResults === null) return;
-    void fetchResults(next, false, resultsOffset + heldResults.rows.length);
+    const held = hold.held;
+    if (held === null || held.response.next_after === null) return;
+    void fetchResults(held.response.next_after, false, hold.offset + held.rows.length);
   });
   resultsFirst.addEventListener("click", () => void fetchResults(null, false, 0));
   doc.addEventListener("visibilitychange", () => {
-    if (!doc.hidden) expireLinksIfDue();
+    if (doc.hidden) return;
+    hold = expireIfDue(hold, nowMs());
+    renderResults();
   });
   // A page restored from the back-forward cache must not bring bearer links back.
   window.addEventListener("pageshow", (event) => {
-    if (event.persisted) {
-      resultsStatus.hidden = true;
-      clearResults();
-    }
+    hold = handlePageshow(hold, event.persisted);
+    renderResults();
   });
 
   // --- cancel --------------------------------------------------------------------------------------

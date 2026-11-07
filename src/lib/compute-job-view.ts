@@ -418,12 +418,21 @@ function transport(err: unknown): FailureNotice {
 }
 
 /** What the results panel says for a failed links call. A 410 is the expired state; a 409 means no files. */
-export function resultsFailure(err: unknown, resultsDays: number | null): FailureNotice {
+export function resultsFailure(
+  err: unknown,
+  resultsDays: number | null,
+  source = "",
+): FailureNotice {
   if (err instanceof ComputeApiError) {
     if (err.code === "results_expired") {
       return { kind: "expired", sentence: JOB_COPY.results.expired410(resultsDays) };
     }
-    if (err.code === "bad_state") return { kind: "not_ready", sentence: JOB_COPY.results.badState };
+    if (err.code === "bad_state") {
+      // A partner job's files are the person's only once NEMAR has checked the job; say so, as the log does.
+      const sentence =
+        source === "partner" ? JOB_COPY.results.badStatePartner : JOB_COPY.results.badState;
+      return { kind: "not_ready", sentence };
+    }
   }
   return transport(err);
 }

@@ -375,6 +375,13 @@ describe("resultsFailure and logFailure", () => {
       "deleted.",
     );
     expect(resultsFailure(err("rejected", 409, "bad_state"), 30).kind).toBe("not_ready");
+    expect(resultsFailure(err("rejected", 409, "bad_state"), 30, "cli").sentence).toBe(
+      "NEMAR has no result files for this job.",
+    );
+    // A partner job's files are the person's only once NEMAR has checked it, as for the log.
+    expect(resultsFailure(err("rejected", 409, "bad_state"), 30, "partner").sentence).toMatch(
+      /appear once NEMAR has checked the job/,
+    );
   });
 
   it("maps a 404 job_not_found to not-found and a bare 404 to a message", () => {
