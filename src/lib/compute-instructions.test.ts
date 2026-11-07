@@ -6,6 +6,7 @@ import {
   commandWords,
   instructionStrings,
 } from "./compute-instructions";
+import { COMPUTE_LABELS } from "./compute-labels";
 
 /** The shape `ActionBar` passes for a published dataset, compute open. */
 const GOOD: ComputeInstructionsInput = {
@@ -54,6 +55,14 @@ describe("a published dataset", () => {
       const placeholders = command.match(/<[^>]+>/g) ?? [];
       for (const p of placeholders) expect(p).toBe("<job>");
     }
+  });
+
+  it("opens the access step with the shared lede, verbatim, and no other step", () => {
+    const steps = ready().steps;
+    expect(steps.find((s) => s.id === "access")?.lead).toBe(
+      ACCOUNT_COPY["compute_access.section.lede"],
+    );
+    expect(steps.filter((s) => s.lead !== null).map((s) => s.id)).toEqual(["access"]);
   });
 
   it("takes its access words from the shared copy table", () => {
@@ -148,6 +157,25 @@ describe("honesty: what the dialog never says", () => {
       const stripped = s.replace(/nm000104@1\.0\.2/g, "");
       expect(stripped, s).not.toMatch(/\d/);
     }
+  });
+
+  it("no label and no shared key the dialog reads contains a forbidden word, a link or a number", () => {
+    const flatten = (v: unknown): string[] =>
+      typeof v === "string" ? [v] : Object.values(v as object).flatMap(flatten);
+    const labels = flatten(COMPUTE_LABELS.datasetDialog);
+    // Every string the dialog can render that is not a command: the labels (title, intro, step
+    // headings, explanations, link labels, the three fallback sentences) and the shared keys it reads.
+    const shared = [
+      ACCOUNT_COPY["compute_access.section.lede"],
+      ACCOUNT_COPY["compute_access.request.cta"],
+      ACCOUNT_COPY["compute_access.granted.link"],
+      ACCOUNT_COPY["compute_access.terms_unpublished.body"],
+      ACCOUNT_COPY["compute_page.queue_note"],
+    ];
+    const all = [...labels, ...shared];
+    expect(labels.length).toBeGreaterThan(25);
+    expect(offenders(all)).toEqual([]);
+    for (const s of all) expect(s, s).not.toMatch(/\d/);
   });
 
   it("catches each forbidden thing when it returns (mutation check)", () => {
