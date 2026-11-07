@@ -237,7 +237,8 @@ export function computeUsageChart(input: ChartInput): UsageChart {
 
   const days: DayBar[] = dayList.map((day, di) => {
     const segments: Segment[] = [];
-    let offset = 0;
+    // The positive net charges of the day, bottom to top, with their heights before any floor.
+    const parts: { seriesIndex: number; milli: number; height: number }[] = [];
     names.forEach((_s, si) => {
       const value = net(di, si);
       if (value === null) return;
@@ -245,10 +246,28 @@ export function computeUsageChart(input: ChartInput): UsageChart {
         if (value < 0) negativeCells.push({ day, seriesIndex: si, milli: value });
         return;
       }
-      const height = Math.max(MIN_VISIBLE_UNITS, round3((value / ceiling) * PLOT_HEIGHT));
-      offset = round3(offset + height);
-      segments.push({ seriesIndex: si, milli: value, y: round3(PLOT_HEIGHT - offset), height });
+      parts.push({ seriesIndex: si, milli: value, height: (value / ceiling) * PLOT_HEIGHT });
     });
+    // A segment is never thinner than the floor, but raising tiny ones must not push the stack past the
+    // plot (the SVG draws outside its box): the segments above the floor give up the difference.
+    const floored = parts.filter((p) => p.height < MIN_VISIBLE_UNITS);
+    const roomy = parts.filter((p) => p.height >= MIN_VISIBLE_UNITS);
+    const roomySum = roomy.reduce((sum, p) => sum + p.height, 0);
+    const room = PLOT_HEIGHT - floored.length * MIN_VISIBLE_UNITS;
+    const factor = roomySum > room && roomySum > 0 ? room / roomySum : 1;
+    let offset = 0;
+    for (const part of parts) {
+      const height = round3(
+        part.height < MIN_VISIBLE_UNITS ? MIN_VISIBLE_UNITS : part.height * factor,
+      );
+      offset = round3(offset + height);
+      segments.push({
+        seriesIndex: part.seriesIndex,
+        milli: part.milli,
+        y: round3(PLOT_HEIGHT - offset),
+        height,
+      });
+    }
     return {
       day,
       label: formatDayShort(day),

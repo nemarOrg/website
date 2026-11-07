@@ -218,6 +218,50 @@ describe("one large outlier", () => {
   });
 });
 
+describe("a stack never leaves the plot", () => {
+  it("when tiny segments raised to the minimum sit on a bar that fills the ceiling", () => {
+    // 399.998 + 0.001 + 0.001 = 400.000, which is the ceiling; the two 0.001 segments are raised to
+    // one unit each, so the large one gives up 2 units instead of the stack reaching 102.
+    const chart = computeUsageChart({
+      from: "2026-11-01",
+      to: "2026-11-01",
+      rows: [
+        { day: "2026-11-01", partition: "shared", charged_milli: 399_998, jobs: 1 },
+        { day: "2026-11-01", partition: "compute", charged_milli: 1, jobs: 1 },
+        { day: "2026-11-01", partition: "debug", charged_milli: 1, jobs: 1 },
+      ],
+      partitions: CPU,
+      otherLabel: "Other",
+    });
+    expect(chart.ceilingMilli).toBe(400_000);
+    const segs = chart.days[0].segments;
+    expect(segs).toHaveLength(3);
+    expect(segs[1].height).toBe(MIN_VISIBLE_UNITS);
+    expect(segs[2].height).toBe(MIN_VISIBLE_UNITS);
+    const top = segs[segs.length - 1];
+    expect(top.y).toBeGreaterThanOrEqual(0);
+    expect(segs.reduce((sum, s) => sum + s.height, 0)).toBeLessThanOrEqual(PLOT_HEIGHT + 0.001);
+    expect(segs[0].height).toBeCloseTo(PLOT_HEIGHT - 2 * MIN_VISIBLE_UNITS, 2);
+  });
+
+  it("for every day of every fixture", () => {
+    for (const body of [day.body, outlier.body]) {
+      const chart = computeUsageChart({
+        from: body.from,
+        to: body.to,
+        rows: rowsOf(body, CPU),
+        partitions: CPU,
+        otherLabel: "Other",
+      });
+      for (const bar of chart.days) {
+        const total = bar.segments.reduce((sum, s) => sum + s.height, 0);
+        expect(total).toBeLessThanOrEqual(PLOT_HEIGHT + 0.001);
+        for (const seg of bar.segments) expect(seg.y).toBeGreaterThanOrEqual(-0.001);
+      }
+    }
+  });
+});
+
 describe("a single day", () => {
   it("is one band with its own label", () => {
     const chart = computeUsageChart({
