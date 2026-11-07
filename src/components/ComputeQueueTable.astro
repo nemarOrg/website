@@ -1,0 +1,87 @@
+---
+/**
+ * The "Recent queue waits" panel of /compute (active accounts only): per offered partition, the median
+ * and 90th percentile wait from scheduler submission to start over the last days, and how many jobs
+ * that rests on. A null figure reads "Not enough data" with the count beside it, never a dash and never
+ * zero; a real zero reads `0s`. The panel says what happened on the whole platform, never "your wait".
+ * Cells come from `queueView` in `src/lib/compute-view.ts`.
+ */
+import { COMPUTE_LABELS } from "../lib/compute-labels";
+import type { QueueView } from "../lib/compute-view";
+import ComputePanel from "./ComputePanel.astro";
+
+interface Props {
+  view: QueueView;
+}
+
+const { view } = Astro.props;
+const L = COMPUTE_LABELS.queue;
+---
+
+<ComputePanel id="queue" title={COMPUTE_LABELS.panels.queue}>
+  <p class="compute-queue__note">{view.intro}</p>
+  {view.empty ? (
+    <p class="compute-queue__empty">{view.emptyText}</p>
+  ) : (
+    <div class="compute-queue__scroll" tabindex="0" role="region" aria-label={COMPUTE_LABELS.panels.queue}>
+      <table class="compute-queue">
+        <thead>
+          <tr>
+            <th scope="col">{L.partition}</th>
+            <th scope="col">{L.median}</th>
+            <th scope="col">{L.p90}</th>
+            <th scope="col">{L.counted}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {view.rows.map((row) => (
+            <tr data-compute-queue-thin={row.thin ? "true" : "false"}>
+              <th scope="row">{row.partition}</th>
+              <td class:list={{ "compute-queue__thin": row.thin }}>{row.median}</td>
+              <td class:list={{ "compute-queue__thin": row.thin }}>{row.p90}</td>
+              <td>{row.counted}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+  <p class="compute-queue__note">{view.note}</p>
+</ComputePanel>
+
+<style>
+  .compute-queue__note,
+  .compute-queue__empty {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-queue__scroll {
+    overflow-x: auto;
+    max-inline-size: 100%;
+  }
+  .compute-queue {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-queue th,
+  .compute-queue td {
+    padding: var(--space-2) var(--space-3);
+    text-align: start;
+    border-block-end: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+  .compute-queue thead th {
+    color: var(--color-fg-muted);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-queue tbody th {
+    font-weight: var(--fw-medium);
+  }
+  .compute-queue__thin {
+    color: var(--color-fg-muted);
+    font-style: italic;
+  }
+</style>

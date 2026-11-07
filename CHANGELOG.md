@@ -15,6 +15,13 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **The `/compute` dashboard** (website#495, epic website#493 phase E2; nemar-cli epic #2021 phase D2, website ADR 0030 addendum).
+  A signed-in person sees their compute access, CPU and GPU balances (granted, held, charged, available, in the same three-decimal service units `nemar compute balance` prints), a daily usage chart per pool stacked by partition (hand-rolled SVG, themed by new `--chart-*` tokens, with the numbers in a table beside it), their jobs from every front door with "Load more", and the platform's recent queue waits ("Not enough data" with the count when fewer than five jobs started).
+  A person without active access sees why and how to ask, not an error; a suspended or ended account keeps its history read-only; one failed read shows one notice that says the figures are missing, not zero.
+  `/compute` is an app-host route, linked from the user menu for active, suspended and ended accounts and from the active Compute card in Settings.
+  Seven shared copy keys were added (`compute_page.*`, `compute_access.granted.link`) and `compute_access.granted.body` now says jobs are submitted with the command line; they come with nemar-cli's phase PR, so the account-copy drift test is red until it reaches `dev`.
+  `scripts/local-backend.mjs --seed-compute` seeds the dashboard's data through the real backend helpers.
+
 - **A compute access card in Settings** (website#494, epic website#493 phase E1; nemar-cli epic #2021 phase D1, ADR 0030).
   Beside the upload-access card, `#compute-access` shows the account's compute-access state (not requested, requested, active, suspended, not granted, ended) and, for a verified account that has never asked, a request form: a purpose of 20 to 1,000 characters, a required checkbox for the compute terms (with the version, linking the terms page), and the refusal list a refused request returns, as links to the fields to fix.
   Every sentence is a transcribed copy key, the same words the CLI prints.

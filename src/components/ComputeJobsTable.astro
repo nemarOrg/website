@@ -1,0 +1,304 @@
+---
+/**
+ * The Jobs panel of /compute: the person's jobs from every front door, newest first. Rows come from
+ * `jobRowView` in `src/lib/compute-view.ts`, the same place the browser script reads for later pages
+ * (`src/lib/compute-jobs-dom.ts`), so the two renderers cannot disagree.
+ *
+ * - There is no job name (the user job has none): a job is its id and its app. Each id links to its page.
+ * - "Load more" is a plain link to `/compute?after=<cursor>#jobs`, so it works without JavaScript (the
+ *   server then renders that page); the script intercepts it, fetches the next page through the
+ *   `/api/v1` proxy and APPENDS rows. The cursor is opaque: it is read from the last answer each time
+ *   and never computed. A failure keeps the same cursor and offers a retry.
+ * - Backend text is only ever a text node: the template escapes, the script uses `textContent`.
+ * - Narrow screens: below 640 px each row becomes a stacked block (id and state, then app, partition and
+ *   front door, then created and charged), each value labeled by `data-label`; DOM order is reading order.
+ *
+ * The styles are GLOBAL and prefixed `.compute-jobs` because the script builds rows in the browser, which
+ * Astro's scoped styles do not reach.
+ */
+import { COMPUTE_LABELS } from "../lib/compute-labels";
+import type { JobsView } from "../lib/compute-view";
+import ComputeBadge from "./ComputeBadge.astro";
+import ComputePanel from "./ComputePanel.astro";
+
+interface Props {
+  view: JobsView;
+}
+
+const { view } = Astro.props;
+const L = COMPUTE_LABELS.jobs;
+---
+
+<ComputePanel id="jobs" title={COMPUTE_LABELS.panels.jobs}>
+  {view.empty ? (
+    <p class="compute-jobs__empty">{L.empty}</p>
+  ) : (
+    <div class="compute-jobs__scroll" tabindex="0" role="region" aria-label={COMPUTE_LABELS.panels.jobs}>
+      <table class="compute-jobs" data-compute-jobs>
+        <thead>
+          <tr>
+            <th scope="col">{L.job}</th>
+            <th scope="col">{L.state}</th>
+            <th scope="col">{L.app}</th>
+            <th scope="col">{L.partition}</th>
+            <th scope="col">{L.frontDoor}</th>
+            <th scope="col">{L.created}</th>
+            <th scope="col">{L.charged}</th>
+          </tr>
+        </thead>
+        <tbody data-compute-jobs-body>
+          {view.rows.map((row) => (
+            <tr class="compute-jobs__row">
+              <td class="compute-jobs__cell compute-jobs__cell--id" data-label={L.job}>
+                {row.href ? (
+                  <a class="compute-jobs__link" href={row.href}>{row.id}</a>
+                ) : (
+                  <span class="compute-jobs__id">{row.id}</span>
+                )}
+              </td>
+              <td class="compute-jobs__cell compute-jobs__cell--state" data-label={L.state}>
+                <ComputeBadge label={row.state.label} tone={row.state.tone} icon={row.state.icon} />
+                {row.cancelRequested && <span class="compute-jobs__cancel">{L.cancelRequested}</span>}
+              </td>
+              <td class="compute-jobs__cell compute-jobs__cell--app" data-label={L.app}>
+                <span>{row.app}</span>{" "}<span class="compute-jobs__version">{row.appVersion}</span>
+              </td>
+              <td class="compute-jobs__cell" data-label={L.partition}>{row.partition}</td>
+              <td class="compute-jobs__cell" data-label={L.frontDoor}>{row.frontDoor}</td>
+              <td class="compute-jobs__cell compute-jobs__cell--created" data-label={L.created}>
+                <time datetime={row.createdIso ?? undefined} title={row.createdTitle}>{row.createdText}</time>
+              </td>
+              <td class="compute-jobs__cell compute-jobs__cell--charged" data-label={L.charged} data-charge-kind={row.chargeKind}>
+                {row.charged}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+
+  <p class="compute-jobs__note" data-compute-unreported-note hidden={!view.showUnreportedNote}>
+    {view.unreportedNote}
+  </p>
+
+  <p class="compute-jobs__error" role="alert" data-compute-jobs-error hidden></p>
+  <p class="compute-jobs__status" role="status" data-compute-jobs-status></p>
+
+  <p class="compute-jobs__actions">
+    {view.loadMoreHref && view.nextAfter && (
+      <a
+        class="compute-jobs__more"
+        href={view.loadMoreHref}
+        data-compute-load-more
+        data-after={view.nextAfter}
+      >{L.loadMore}</a>
+    )}
+    <a class="compute-jobs__refresh" href="/compute#jobs">{L.refresh}</a>
+  </p>
+</ComputePanel>
+
+<script>
+  import { listComputeJobs } from "../lib/compute-api";
+  import { jobRowElement } from "../lib/compute-jobs-dom";
+  import { COMPUTE_LABELS, loadedText } from "../lib/compute-labels";
+  import { jobRowView, noticeFor } from "../lib/compute-view";
+
+  const L = COMPUTE_LABELS.jobs;
+  const more = document.querySelector<HTMLAnchorElement>("[data-compute-load-more]");
+  const body = document.querySelector<HTMLElement>("[data-compute-jobs-body]");
+  const errorBox = document.querySelector<HTMLElement>("[data-compute-jobs-error]");
+  const status = document.querySelector<HTMLElement>("[data-compute-jobs-status]");
+  const unreported = document.querySelector<HTMLElement>("[data-compute-unreported-note]");
+
+  if (more && body) {
+    let busy = false;
+
+    const setBusy = (on: boolean) => {
+      busy = on;
+      more.setAttribute("aria-busy", String(on));
+      if (on) more.setAttribute("aria-disabled", "true");
+      else more.removeAttribute("aria-disabled");
+      more.textContent = on ? L.loading : L.loadMore;
+    };
+
+    more.addEventListener("click", async (event) => {
+      // A modified or non-primary click is the visitor's own choice (a new tab, a download): leave it to
+      // the browser, which follows the real `?after=` link. Without JavaScript that link also works.
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      event.preventDefault();
+      if (busy) return;
+      const after = more.dataset.after;
+      if (!after) return;
+      setBusy(true);
+      if (errorBox) errorBox.hidden = true;
+      try {
+        const page = await listComputeJobs({ after });
+        for (const job of page.jobs) {
+          const view = jobRowView(job);
+          body.append(jobRowElement(document, view));
+          if (job.state === "unreported" && unreported) unreported.hidden = false;
+        }
+        if (status) status.textContent = loadedText(page.jobs.length);
+        if (page.next_after) {
+          // Read from the last answer each time, never computed.
+          more.dataset.after = page.next_after;
+          more.setAttribute("href", `/compute?after=${encodeURIComponent(page.next_after)}#jobs`);
+          setBusy(false);
+        } else {
+          more.remove();
+        }
+      } catch (err) {
+        // The cursor is untouched, so the same link retries the same page.
+        setBusy(false);
+        more.textContent = L.retry;
+        if (errorBox) {
+          errorBox.textContent = `${L.loadFailed} ${noticeFor(L.job, err).reason}`;
+          errorBox.hidden = false;
+        }
+      }
+    });
+  }
+</script>
+
+<style is:global>
+  .compute-jobs__scroll {
+    max-inline-size: 100%;
+    overflow-x: auto;
+  }
+  .compute-jobs {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+  }
+  .compute-jobs th,
+  .compute-jobs td {
+    padding: var(--space-2) var(--space-3);
+    text-align: start;
+    border-block-end: 1px solid var(--color-border);
+    vertical-align: middle;
+  }
+  .compute-jobs thead th {
+    color: var(--color-fg-muted);
+    font-weight: var(--fw-semibold);
+    white-space: nowrap;
+  }
+  .compute-jobs__link,
+  .compute-jobs__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+  .compute-jobs__link {
+    color: var(--color-link);
+  }
+  .compute-jobs__cell--state {
+    white-space: nowrap;
+  }
+  .compute-jobs__cancel {
+    margin-inline-start: var(--space-2);
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-jobs__version {
+    color: var(--color-fg-muted);
+  }
+  .compute-jobs__cell--app,
+  .compute-jobs__cell {
+    overflow-wrap: anywhere;
+  }
+  .compute-jobs__cell--charged,
+  .compute-jobs__cell--created {
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-jobs__cell--created {
+    white-space: nowrap;
+  }
+  .compute-jobs__cell--charged[data-charge-kind="live"],
+  .compute-jobs__cell--charged[data-charge-kind="unknown"] {
+    color: var(--color-fg-muted);
+  }
+  .compute-jobs__empty,
+  .compute-jobs__note,
+  .compute-jobs__status {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-jobs__error {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .compute-jobs__error[hidden],
+  .compute-jobs__note[hidden] {
+    display: none;
+  }
+  .compute-jobs__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    align-items: center;
+    margin: 0;
+  }
+  .compute-jobs__more,
+  .compute-jobs__refresh {
+    min-block-size: 44px;
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-jobs__more[aria-busy="true"] {
+    color: var(--color-fg-muted);
+    pointer-events: none;
+  }
+
+  /* Phone: each row is a stacked block, labeled by data-label, in reading order. */
+  @media (max-width: 639px) {
+    .compute-jobs thead {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+    }
+    .compute-jobs,
+    .compute-jobs tbody {
+      display: block;
+    }
+    .compute-jobs__row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-1) var(--space-3);
+      padding: var(--space-3) 0;
+      border-block-end: 1px solid var(--color-border);
+    }
+    .compute-jobs td {
+      display: block;
+      padding: 0;
+      border: 0;
+      min-inline-size: 0;
+    }
+    .compute-jobs td::before {
+      content: attr(data-label);
+      display: block;
+      color: var(--color-fg-muted);
+      font-size: var(--fs-xs);
+    }
+    .compute-jobs__cell--id,
+    .compute-jobs__cell--state {
+      grid-column: auto;
+    }
+    .compute-jobs__cell--app {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

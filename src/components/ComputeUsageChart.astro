@@ -1,0 +1,343 @@
+---
+/**
+ * One pool's usage chart for /compute: a daily bar chart of net service units charged, each bar stacked
+ * by partition (website ADR 0007: hand-rolled SVG, every color a token, both themes equal, no chart
+ * library). Geometry comes from `computeUsageChart` and the text from `usageView`; this file only draws.
+ *
+ * Rendering follows `admin/MetricSparkline.astro`: the SVG holds only bars and gridlines and stretches to
+ * its container (`preserveAspectRatio="none"`, `vector-effect="non-scaling-stroke"` on lines). The AXIS
+ * LABELS are HTML positioned by percentage, so the text stays crisp and never scales down on a phone.
+ * Below 480 px only three x labels show (first, middle, last).
+ *
+ * Accessibility: a `<figure>` with a `<figcaption>`; the SVG is `role="img"` named by a `<title>` and
+ * described by a `<desc>` that give the total, the number of days with charges and the busiest day; each
+ * bar carries a `<title>`. A real table of the same numbers sits in a `<details>`, NOT hidden, so a
+ * keyboard or low-vision user, or a copy of the page without CSS, still has the data. A segment is never
+ * told apart by color alone: the legend lists the series in stacking order with their totals.
+ *
+ * No animation or transition at all, so `prefers-reduced-motion` is satisfied by construction.
+ */
+import { COMPUTE_LABELS } from "../lib/compute-labels";
+import type { PoolUsageView } from "../lib/compute-view";
+
+interface Props {
+  view: PoolUsageView;
+}
+
+const { view } = Astro.props;
+const { chart } = view;
+const ids = { title: `compute-chart-${view.pool}-title`, desc: `compute-chart-${view.pool}-desc` };
+const lastX = chart.xLabels.regular.length - 1;
+---
+
+<figure class="compute-chart" data-compute-chart={view.pool}>
+  <figcaption class="compute-chart__caption">{view.caption}</figcaption>
+
+  <ul class="compute-chart__legend" aria-label={`${view.name} series`}>
+    {view.legend.map((entry) => (
+      <li class="compute-chart__legend-item">
+        <span class={`compute-chart__swatch compute-chart__swatch--${entry.colorIndex + 1}`} aria-hidden="true" />
+        <span>{entry.name}</span>
+        <span class="compute-chart__legend-total">{entry.totalText}</span>
+      </li>
+    ))}
+  </ul>
+
+  <div class="compute-chart__plot">
+    <div class="compute-chart__yaxis" aria-hidden="true">
+      {chart.ticks.map((tick) => (
+        <span class="compute-chart__ytick" style={`top: ${tick.topPercent}%`}>{tick.label}</span>
+      ))}
+    </div>
+    <div class="compute-chart__area">
+      <svg
+        class="compute-chart__svg"
+        viewBox={`0 0 ${chart.viewBoxWidth} ${chart.viewBoxHeight}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-labelledby={`${ids.title} ${ids.desc}`}
+      >
+        <title id={ids.title}>{view.caption}</title>
+        <desc id={ids.desc}>{view.summary}</desc>
+        {chart.ticks.map((tick) => (
+          <line
+            class:list={["compute-chart__grid", { "compute-chart__grid--base": tick.milli === 0 }]}
+            x1="0"
+            x2={chart.viewBoxWidth}
+            y1={tick.topPercent}
+            y2={tick.topPercent}
+            vector-effect="non-scaling-stroke"
+          />
+        ))}
+        {chart.days.map((bar, i) =>
+          bar.segments.length > 0 ? (
+            <g>
+              <title>{view.barTitles[i]}</title>
+              {bar.segments.map((seg) => (
+                <rect
+                  class={`compute-chart__seg compute-chart__seg--${chart.series[seg.seriesIndex].colorIndex + 1}`}
+                  x={bar.x}
+                  y={seg.y}
+                  width={bar.width}
+                  height={seg.height}
+                  vector-effect="non-scaling-stroke"
+                />
+              ))}
+            </g>
+          ) : null,
+        )}
+      </svg>
+      {chart.empty && <p class="compute-chart__empty">{COMPUTE_LABELS.usage.empty}</p>}
+      <div class="compute-chart__xaxis compute-chart__xaxis--regular" aria-hidden="true">
+        {chart.xLabels.regular.map((label, i) => (
+          <span
+            class:list={[
+              "compute-chart__xtick",
+              { "compute-chart__xtick--start": i === 0, "compute-chart__xtick--end": i === lastX && lastX > 0 },
+            ]}
+            style={`left: ${label.leftPercent}%`}>{label.text}</span>
+        ))}
+      </div>
+      <div class="compute-chart__xaxis compute-chart__xaxis--sparse" aria-hidden="true">
+        {chart.xLabels.sparse.map((label, i, all) => (
+          <span
+            class:list={[
+              "compute-chart__xtick",
+              { "compute-chart__xtick--start": i === 0, "compute-chart__xtick--end": i === all.length - 1 && i > 0 },
+            ]}
+            style={`left: ${label.leftPercent}%`}>{label.text}</span>
+        ))}
+      </div>
+    </div>
+  </div>
+
+  {view.table.rows.length > 0 && (
+    <details class="compute-chart__details">
+      <summary>{COMPUTE_LABELS.usage.showNumbers}</summary>
+      <div class="compute-chart__table-scroll" tabindex="0" role="region" aria-label={`${view.name} ${COMPUTE_LABELS.usage.showNumbers.toLowerCase()}`}>
+        <table class="compute-chart__table">
+          <caption>{COMPUTE_LABELS.usage.numbersNote}</caption>
+          <thead>
+            <tr>
+              {view.table.headers.map((h) => <th scope="col">{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {view.table.rows.map((row) => (
+              <tr>
+                <th scope="row">{row.label}</th>
+                {row.cells.map((cell) => <td>{cell}</td>)}
+                <td class="compute-chart__table-total">{row.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  )}
+  {view.negativeNote && <p class="compute-chart__note">{view.negativeNote}</p>}
+</figure>
+
+<style>
+  .compute-chart {
+    display: grid;
+    gap: var(--space-3);
+    margin: 0;
+    min-inline-size: 0;
+  }
+  .compute-chart__caption {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+  }
+  .compute-chart__legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .compute-chart__legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    overflow-wrap: anywhere;
+  }
+  .compute-chart__legend-total {
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg);
+  }
+  .compute-chart__swatch {
+    inline-size: 12px;
+    block-size: 12px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .compute-chart__swatch--1,
+  .compute-chart__seg--1 {
+    fill: var(--chart-series-1);
+    background: var(--chart-series-1);
+  }
+  .compute-chart__swatch--2,
+  .compute-chart__seg--2 {
+    fill: var(--chart-series-2);
+    background: var(--chart-series-2);
+  }
+  .compute-chart__swatch--3,
+  .compute-chart__seg--3 {
+    fill: var(--chart-series-3);
+    background: var(--chart-series-3);
+  }
+  .compute-chart__swatch--4,
+  .compute-chart__seg--4 {
+    fill: var(--chart-series-4);
+    background: var(--chart-series-4);
+  }
+  .compute-chart__plot {
+    display: grid;
+    grid-template-columns: 3.25rem minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+  .compute-chart__yaxis {
+    position: relative;
+    block-size: 220px;
+    color: var(--chart-axis);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-chart__ytick {
+    position: absolute;
+    inset-inline-end: 0;
+    transform: translateY(-50%);
+    line-height: 1;
+  }
+  .compute-chart__area {
+    position: relative;
+    padding-block-end: 1.5rem;
+    min-inline-size: 0;
+  }
+  .compute-chart__svg {
+    display: block;
+    inline-size: 100%;
+    block-size: 220px;
+    overflow: visible;
+  }
+  .compute-chart__grid {
+    stroke: var(--chart-grid);
+    stroke-width: 1;
+  }
+  .compute-chart__grid--base {
+    stroke: var(--chart-axis);
+  }
+  /* A 1px surface-colored line around each segment sets neighbors apart without relying on hue. */
+  .compute-chart__seg {
+    stroke: var(--admin-surface);
+    stroke-width: 1;
+  }
+  .compute-chart__empty {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: 0;
+    block-size: 220px;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    pointer-events: none;
+  }
+  .compute-chart__xaxis {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-end: 0;
+    block-size: 1.25rem;
+    color: var(--chart-axis);
+    font-size: var(--fs-xs);
+  }
+  .compute-chart__xaxis--sparse {
+    display: none;
+  }
+  .compute-chart__xtick {
+    position: absolute;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    line-height: 1.25rem;
+  }
+  .compute-chart__xtick--start {
+    transform: none;
+  }
+  .compute-chart__xtick--end {
+    transform: translateX(-100%);
+  }
+  .compute-chart__details summary {
+    cursor: pointer;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    min-block-size: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .compute-chart__table-scroll {
+    overflow-x: auto;
+    max-inline-size: 100%;
+  }
+  .compute-chart__table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-chart__table caption {
+    text-align: start;
+    color: var(--color-fg-muted);
+    padding-block-end: var(--space-2);
+  }
+  .compute-chart__table th,
+  .compute-chart__table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: end;
+    border-block-end: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+  .compute-chart__table th:first-child,
+  .compute-chart__table thead th {
+    text-align: start;
+  }
+  .compute-chart__table thead th {
+    color: var(--color-fg-muted);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-chart__table-total {
+    font-weight: var(--fw-semibold);
+  }
+  .compute-chart__note {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  @media (max-width: 480px) {
+    .compute-chart__yaxis,
+    .compute-chart__svg {
+      block-size: 180px;
+    }
+    .compute-chart__empty {
+      block-size: 180px;
+    }
+    .compute-chart__xaxis--regular {
+      display: none;
+    }
+    .compute-chart__xaxis--sparse {
+      display: block;
+    }
+  }
+  @media (forced-colors: active) {
+    .compute-chart__seg {
+      forced-color-adjust: none;
+    }
+  }
+</style>

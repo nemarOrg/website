@@ -1,0 +1,40 @@
+---
+/**
+ * The card every /compute panel sits in: a titled section on the admin portal's card ground
+ * (`--admin-surface`, which the chart colors are checked against). The title is the section's
+ * accessible name. Panels fail independently, so each one is wrapped on its own.
+ */
+interface Props {
+  id: string;
+  title: string;
+  /** Extra attributes for the section, e.g. a data attribute a test or the browser check reads. */
+  attrs?: Record<string, string>;
+}
+
+const { id, title, attrs = {} } = Astro.props;
+---
+
+<section class="compute-panel" id={id} aria-labelledby={`${id}-heading`} {...attrs}>
+  <h2 class="compute-panel__title" id={`${id}-heading`}>{title}</h2>
+  <slot />
+</section>
+
+<style>
+  .compute-panel {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    min-inline-size: 0;
+    scroll-margin-block-start: calc(var(--header-height) + var(--space-4));
+  }
+  .compute-panel__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+  }
+</style>

@@ -1,0 +1,92 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me/usage",
+    "request": "group=day,partition&from=2026-10-09&to=2026-11-07",
+    "note": "Several days on both pools, a 23:59:59 and a 00:00:00 entry on neighboring days, a net-negative refund row, an administrator's correction (null partition) on both pools, and quiet days that have no row. The window is explicit so the file is reproducible; the page itself asks for the server's default window."
+  },
+  "status": 200,
+  "body": {
+    "from": "2026-10-09",
+    "to": "2026-11-07",
+    "group": [
+      "day",
+      "partition"
+    ],
+    "rows": [
+      {
+        "charged_milli": 12500,
+        "jobs": 1,
+        "day": "2026-10-12",
+        "partition": "compute"
+      },
+      {
+        "charged_milli": 4000,
+        "jobs": 1,
+        "day": "2026-10-12",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 2500,
+        "jobs": 1,
+        "day": "2026-10-13",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 5000,
+        "jobs": 1,
+        "day": "2026-10-14",
+        "partition": "gpu-shared"
+      },
+      {
+        "charged_milli": 500,
+        "jobs": 1,
+        "day": "2026-10-20",
+        "partition": "debug"
+      },
+      {
+        "charged_milli": 6000,
+        "jobs": 1,
+        "day": "2026-10-20",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": -300,
+        "jobs": 1,
+        "day": "2026-10-22",
+        "partition": "debug"
+      },
+      {
+        "charged_milli": 9000,
+        "jobs": 1,
+        "day": "2026-10-27",
+        "partition": "compute"
+      },
+      {
+        "charged_milli": 8000,
+        "jobs": 1,
+        "day": "2026-10-28",
+        "partition": "gpu"
+      },
+      {
+        "charged_milli": 1750,
+        "jobs": 0,
+        "day": "2026-10-30",
+        "partition": null
+      },
+      {
+        "charged_milli": 5000,
+        "jobs": 2,
+        "day": "2026-11-03",
+        "partition": "shared"
+      },
+      {
+        "charged_milli": 1500,
+        "jobs": 1,
+        "day": "2026-11-05",
+        "partition": "gpu-shared"
+      }
+    ]
+  }
+}

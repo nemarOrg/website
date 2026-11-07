@@ -180,6 +180,20 @@
   --admin-error-soft: rgb(208 59 59 / 10%);
   --admin-neutral-soft: rgb(100 116 139 / 10%);
   --admin-shadow-sm: 0 1px 2px rgb(15 23 42 / 5%);
+
+  /* --- COMPUTE CHARTS (website ADR 0007, ADR 0030 phase E2) ---
+     Categorical marks for the usage chart's stacked partitions: series 1 to 3 are the first three offered
+     partitions of a pool and series 4 is "other". Chosen so each clears 3.5:1 on --admin-surface in its
+     theme AND stays separable without hue: the difference in CIE L* between any two series (their
+     grayscale lightness) is at least 8 in both themes, and the Lab distance between any two stays above
+     10 under deuteranopia and protanopia (Machado 2009 matrices, full severity). A segment is also set
+     apart by a 1px surface-colored gap and by the legend order, never by color alone. */
+  --chart-series-1: #172554;
+  --chart-series-2: #ea580c;
+  --chart-series-3: #0f766e;
+  --chart-series-4: #334155;
+  --chart-grid: #d5dbe5; /* gridlines, decoration */
+  --chart-axis: #56657a; /* axis labels and the baseline */
 }
 
 /* Dark theme: auto via prefers-color-scheme, overridden by explicit [data-theme]. */
@@ -256,6 +270,14 @@
     --admin-error-soft: rgb(229 83 75 / 16%);
     --admin-neutral-soft: rgb(148 163 184 / 14%);
     --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+
+    /* Compute chart marks, dark (see :root). */
+    --chart-series-1: #3987e5;
+    --chart-series-2: #fcd34d;
+    --chart-series-3: #2dd4bf;
+    --chart-series-4: #94a3b8;
+    --chart-grid: #2a3a5c;
+    --chart-axis: #94a3b8;
   }
 }
 
@@ -333,4 +355,12 @@
   --admin-error-soft: rgb(229 83 75 / 16%);
   --admin-neutral-soft: rgb(148 163 184 / 14%);
   --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+
+  /* Compute chart marks, dark (see :root). */
+  --chart-series-1: #3987e5;
+  --chart-series-2: #fcd34d;
+  --chart-series-3: #2dd4bf;
+  --chart-series-4: #94a3b8;
+  --chart-grid: #2a3a5c;
+  --chart-axis: #94a3b8;
 }

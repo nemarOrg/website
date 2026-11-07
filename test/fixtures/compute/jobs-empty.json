@@ -1,0 +1,14 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me/jobs",
+    "request": "no query",
+    "note": "A fresh account has no jobs."
+  },
+  "status": 200,
+  "body": {
+    "jobs": [],
+    "next_after": null
+  }
+}

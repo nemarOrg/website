@@ -1,0 +1,19 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me/usage",
+    "request": "group=day,partition&from=2026-10-09&to=2026-11-07",
+    "note": "A freshly granted account with no charge: rows is [], which is true."
+  },
+  "status": 200,
+  "body": {
+    "from": "2026-10-09",
+    "to": "2026-11-07",
+    "group": [
+      "day",
+      "partition"
+    ],
+    "rows": []
+  }
+}

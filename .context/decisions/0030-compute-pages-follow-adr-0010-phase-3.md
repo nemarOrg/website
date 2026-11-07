@@ -68,7 +68,19 @@ The captured fixtures in `test/fixtures/compute/` gain a `GET /compute/me` captu
 - **Read the terms version server-side in the page frontmatter now.** Not available until D2 serves `GET /compute/me`; the transcription and its drift test are the bridge.
 - **Show the backend's sentence for the profile refusals.** Rejected: it lists raw field names (`given_name, affiliation`); the linked, worded list is what the CLI prints.
 
+## Addendum: the dashboard (phase E2, website#495, 2026-11-07)
+
+`/compute` reads nemar-cli's `GET /compute/me`, `/compute/me/usage` and `/compute/me/jobs` (Epic D, phase D2). The decisions that are expensive to reverse:
+
+- **Independent panels.** The account read comes first because it names the state; usage and the first page of jobs then run in parallel, each in its own `try/catch`. A failed read degrades one panel with a notice that says the figures are missing, which is not zero. A guard that rejects a body is a `shape` error, never an empty list or zeros. A 404 on the account read is the release gate (an API without the compute routes) and shows one notice; a 401 redirects to sign-in; a 403 is the backend's "not approved" for an unverified account, never a compute-access answer.
+- **One chart per pool.** CPU and GPU service units are different currencies, so the usage chart is drawn once per pool (daily net charge, stacked by partition, at most three offered partitions plus "other") and the two are never added. Usage rows reach a pool only through `limits.partitions[].pool`; a correction that names no job, or a partition no longer offered, is shown as a separate "Adjustments and other partitions" line rather than guessed into a pool (nemar-cli#2078 asks for `pool` as a usage group).
+- **Three-decimal parity with the CLI.** `suFixed` is the CLI's own function of that name (integer milli-SU in, `12.500` out, no thousands separator, a negative stays negative), and sums go through an exact adder; nothing printed passes through a float. A finished job with no charge prints `0.000`; a live one reads "Not charged yet" (the CLI prints `-` for both).
+- **No synthesized figures.** Only `pools.cpu` and `pools.gpu` are read, by name, so a pool or platform figure the Worker adds later cannot reach the markup. A partner job's front door is the plain label "Partner site". The frozen sentence shows for an ACTIVE account only (the CLI's rule). A state outside the closed six shows its escaped raw word and nothing else. "New jobs are paused" is not shown because no read serves it (nemar-cli#2080).
+- **Untrusted text is inert.** Every backend string (an app, a partition, a state) is escaped through `displaySafeLine` and rendered as a text node, in the template and in the "Load more" script (`createElement` and `textContent` only; a test forbids every markup-writing API in the Compute files). A job id reaches an `href` only if it is `job_` and 24 hex digits.
+- **Shared copy.** Seven keys were added to nemar-cli's contract and transcribed (`compute_page.*`, `compute_access.granted.link`), and `compute_access.granted.body` no longer promises submission from the website: jobs are submitted with the command line.
+- **Still open from the hand-off above:** replacing `compute-terms.ts` and `COMPUTE_REQUESTS_ENABLED` with `access.current_terms_version` and `access.requests_open` is a follow-up; `/compute` already reads `requests_open` (falling back to `terms_published`) for its own "request" link.
+
 ## Receipts
 
-- website#493 (epic), website#494 (phase E1); nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
+- website#493 (epic), website#494 (phase E1), website#495 (phase E2); nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
 - ADRs 0006, 0007, 0010, 0014, 0015, 0029; nemar-cli ADRs 0040, 0042, 0118.

@@ -49,6 +49,18 @@ got is not `127.0.0.1`. `test/local-backend-guard.test.ts` runs the refusals.
      http://localhost:8787/admin/compute/access/grant/localrequested
    ```
 
+## Seeding the compute dashboard (`--seed-compute`)
+
+```bash
+NEMAR_CLI_DIR=/path/to/nemar-cli-checkout bun scripts/local-backend.mjs --seed-compute
+```
+
+Adds, with the backend's own test helpers and ledger services (never a stand-in): `localrich` (active; a CPU and a GPU grant, charges on several days of the last 30 on both pools, one administrator's correction naming no job, an open hold, 40 jobs over the ten states and four front doors with enough finished ones for a second page, and queue samples with figures, a real zero and a thin sample), `localfrozen` (a frozen pool), `localoverrun` (a negative available) and `localgranted` (granted through the REAL admin routes, access then a pool grant: no jobs, no charges). Their cookies print with the others. `PORT=<n>` moves the backend (and `PUBLIC_API_BASE_URL` with it). The loopback guards are unchanged.
+
+There is no unverified persona: signing in by emailed code verifies the email. `bun run dev` without `PUBLIC_API_BASE_URL` has the `@nemar.cpending` mock for that screen. The database refuses a markup-bearing `app_id` (a CHECK on `compute_jobs`), so the "hostile text" case is covered by unit tests, not by a seeded row.
+
+A second browser profile on the same host shares cookies; use `http://127.0.0.1:4321` beside `http://localhost:4321` to keep two sessions apart.
+
 ## What differs from production
 
 - `ENVIRONMENT` is `test`: the backend takes compute requests whether or not the terms are
