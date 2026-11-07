@@ -1,7 +1,9 @@
 /**
- * Compute read client: `GET /compute/me`, `/compute/me/usage` and `/compute/me/jobs` (website ADR 0030
- * phase E2 addendum; nemar-cli `shared/contract/compute-user.ts`). All three answer for every access
- * state and with compute switched off, because they read the ledger and the job index.
+ * Compute client: the reads `GET /compute/me`, `/compute/me/usage` and `/compute/me/jobs` (website ADR
+ * 0030 phase E2 addendum; nemar-cli `shared/contract/compute-user.ts`), which answer for every access
+ * state and with compute switched off because they read the ledger and the job index; and, for the job
+ * page (phase E3), `GET /compute/me/jobs/:id`, the log, the result links and their renewal, and the
+ * cancel (nemar-cli `shared/contract/compute-responses.ts`, `compute-submit.ts`).
  *
  * Browser-safe: this module imports nothing from `./api-fetch.ts` (which pulls in a Node module the
  * browser bundle must not carry; `test/client-bundle-guard.test.ts`). SSR callers pass
@@ -19,7 +21,12 @@
  *    `readError` in `./api-base.ts` assumes, so this client has its own error parser.
  */
 import { dashboardApiBase } from "./api-base";
-import { COMPUTE_JOBS_PAGE_DEFAULT, COMPUTE_JOBS_PAGE_MAX } from "./compute-contract";
+import {
+  COMPUTE_JOBS_PAGE_DEFAULT,
+  COMPUTE_JOBS_PAGE_MAX,
+  COMPUTE_JOB_ID_RE,
+  COMPUTE_TRUNCATED_HEADER,
+} from "./compute-contract";
 import { DEFAULT_REQUEST_TIMEOUT_MS, resolveSignal } from "./request-deadline";
 
 // --- Errors ---------------------------------------------------------------------------------------
@@ -128,6 +135,12 @@ export interface ComputeMe {
   readonly frozen: boolean;
   /** The partitions offered to people, with the pool each draws on. */
   readonly partitions: readonly { readonly name: string; readonly pool: string }[];
+  /**
+   * How many days results are kept after a job ends (`limits.results_days`); null when the body does
+   * not carry it. The job page derives its retention date from this until the server states one
+   * (nemar-cli#2096).
+   */
+  readonly resultsDays: number | null;
   readonly queue: readonly ComputeQueueEstimate[];
 }
 
@@ -216,6 +229,17 @@ function nullableInteger(o: Record<string, unknown>, key: string, what: string):
   return integer(o, key, what);
 }
 
+function optionalPositiveInteger(
+  o: Record<string, unknown>,
+  key: string,
+  what: string,
+): number | null {
+  const v = o[key];
+  if (v === undefined || v === null) return null;
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 1) shape(`${what} ${key}`);
+  return v as number;
+}
+
 function array(o: Record<string, unknown>, key: string, what: string): unknown[] {
   const v = o[key];
   if (!Array.isArray(v)) shape(`${what} ${key}`);
@@ -258,6 +282,7 @@ export function parseComputeMe(body: unknown): ComputeMe {
       const o = record(p, "partition");
       return { name: str(o, "name", "partition"), pool: str(o, "pool", "partition") };
     }),
+    resultsDays: optionalPositiveInteger(limits, "results_days", "limits"),
     queue: array(root, "queue", "account").map((q) => {
       const o = record(q, "queue estimate");
       return {
@@ -321,6 +346,136 @@ export function parseComputeJobs(body: unknown): ComputeJobsPage {
   };
 }
 
+// --- The job page (phase E3) ----------------------------------------------------------------------
+
+export interface ComputeJobResources {
+  readonly nodes: number;
+  readonly cores_per_node: number;
+  /** Null when the job asked for no memory figure. */
+  readonly memory_mb: number | null;
+  readonly gpus: number;
+  readonly minutes: number;
+}
+
+/** One job as `GET /compute/me/jobs/:id` serves it: the list row plus its resources. */
+export interface ComputeJobDetail extends ComputeJob {
+  readonly resources: ComputeJobResources;
+  /**
+   * A name the job was given. The user view carries none today (nemar-cli#2079); the guard reads an
+   * optional string so the page needs no change the day it appears.
+   */
+  readonly name: string | null;
+}
+
+/** `GET /compute/me/jobs/:id`: the job, and whether the cluster read behind it failed. */
+export interface ComputeJobRead {
+  readonly job: ComputeJobDetail;
+  /** True when the refresh from the cluster failed and the stored record is shown. */
+  readonly stale: boolean;
+}
+
+/** `GET /compute/me/jobs/:id`, copied out key by key. */
+export function parseComputeJob(body: unknown): ComputeJobRead {
+  const root = record(body, "job answer");
+  const row = record(root.job, "job");
+  const res = record(row.resources, "job resources");
+  const stale = root.stale;
+  if (stale !== undefined && typeof stale !== "boolean") shape("job answer stale");
+  const name = row.name;
+  if (name !== undefined && name !== null && typeof name !== "string") shape("job name");
+  return {
+    job: {
+      ...job(row),
+      resources: {
+        nodes: integer(res, "nodes", "job resources"),
+        cores_per_node: integer(res, "cores_per_node", "job resources"),
+        memory_mb: nullableInteger(res, "memory_mb", "job resources"),
+        gpus: integer(res, "gpus", "job resources"),
+        minutes: integer(res, "minutes", "job resources"),
+      },
+      name: typeof name === "string" && name.length > 0 ? name : null,
+    },
+    stale: stale === true,
+  };
+}
+
+export interface ComputeResultFile {
+  readonly path: string;
+  readonly size: number;
+  readonly sha256: string;
+  /** A BEARER link: whoever holds it can download until `expires_at`. Never stored, logged or copied. */
+  readonly url: string;
+}
+
+/** `GET|POST /compute/jobs/:id/results[/renew]`: seven-day links to a finished job's outputs. */
+export interface ComputeResults {
+  readonly expires_at: string;
+  readonly files: readonly ComputeResultFile[];
+  /** How many outputs the job has in all. */
+  readonly total: number;
+  readonly truncated: boolean;
+  /** The cursor for the next page, opaque to the client; null on the last page. */
+  readonly next_after: string | null;
+  /** The backend's own sentence about the links, shown as served. */
+  readonly notice: string;
+}
+
+/** The results answer, copied out key by key. `bearer_links` must be `true`: anything else is not this contract. */
+export function parseComputeResults(body: unknown): ComputeResults {
+  const root = record(body, "results");
+  if (root.bearer_links !== true) shape("results bearer_links");
+  if (!("next_after" in root)) shape("results next_after");
+  return {
+    expires_at: str(root, "expires_at", "results"),
+    files: array(root, "files", "results").map((f) => {
+      const o = record(f, "result file");
+      return {
+        path: str(o, "path", "result file"),
+        size: integer(o, "size", "result file"),
+        sha256: str(o, "sha256", "result file"),
+        url: str(o, "url", "result file"),
+      };
+    }),
+    total: integer(root, "total", "results"),
+    truncated: bool(root, "truncated", "results"),
+    next_after: nullableStr(root, "next_after", "results"),
+    notice: str(root, "notice", "results"),
+  };
+}
+
+/** `POST /compute/jobs/:id/cancel`. */
+export interface ComputeCancel {
+  /** The job's state after the call; a cancel at the cluster is carried out afterwards. */
+  readonly state: string | null;
+  /** One of `COMPUTE_CANCEL_OUTCOMES` today; the field is open. */
+  readonly outcome: string;
+  /** False when the job had already ended another way; absent from an older Worker. */
+  readonly cancelled: boolean | null;
+}
+
+export function parseComputeCancel(body: unknown): ComputeCancel {
+  const root = record(body, "cancel answer");
+  if (root.ok !== true) shape("cancel answer ok");
+  const cancelled = root.cancelled;
+  if (cancelled !== undefined && typeof cancelled !== "boolean") shape("cancel answer cancelled");
+  return {
+    state: nullableStr(root, "state", "cancel answer"),
+    outcome: str(root, "outcome", "cancel answer"),
+    cancelled: typeof cancelled === "boolean" ? cancelled : null,
+  };
+}
+
+/** A job's log: the first 1 MiB of its text, and whether there is more after it. */
+export interface ComputeLog {
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+/** Whether an error is the backend's one answer for an absent, foreign or malformed job. */
+export function isJobNotFound(err: unknown): boolean {
+  return err instanceof ComputeApiError && err.code === "job_not_found";
+}
+
 // --- Transport ------------------------------------------------------------------------------------
 
 export interface ComputeInit {
@@ -338,25 +493,25 @@ export function computeUrl(path: string, query: URLSearchParams, cookieHeader?: 
   return `${dashboardApiBase(cookieHeader)}/compute${path}${qs ? `?${qs}` : ""}`;
 }
 
-async function computeGet<T>(
+/** One request, mapped to a `ComputeApiError` on a transport failure or a refusal; the caller reads the body. */
+async function computeRequest(
+  method: "GET" | "POST",
   path: string,
   query: URLSearchParams,
   init: ComputeInit,
-  parse: (body: unknown) => T,
-): Promise<T> {
+  accept: string,
+  defaultTimeoutMs: number,
+): Promise<Response> {
   const fetchImpl = init.fetch ?? fetch;
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = { Accept: accept };
   if (init.cookieHeader) headers.Cookie = init.cookieHeader;
   let res: Response;
   try {
     res = await fetchImpl(computeUrl(path, query, init.cookieHeader), {
-      method: "GET",
+      method,
       headers,
       credentials: "include",
-      signal: resolveSignal(
-        { signal: init.signal, timeoutMs: init.timeoutMs },
-        DEFAULT_REQUEST_TIMEOUT_MS,
-      ),
+      signal: resolveSignal({ signal: init.signal, timeoutMs: init.timeoutMs }, defaultTimeoutMs),
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "TimeoutError") {
@@ -369,6 +524,22 @@ async function computeGet<T>(
     const { code, sentence } = await readComputeError(res);
     throw new ComputeApiError(kindOf(res.status, code), res.status, code, sentence);
   }
+  return res;
+}
+
+async function computeGet<T>(
+  path: string,
+  query: URLSearchParams,
+  init: ComputeInit,
+  parse: (body: unknown) => T,
+): Promise<T> {
+  return readJson(
+    await computeRequest("GET", path, query, init, "application/json", DEFAULT_REQUEST_TIMEOUT_MS),
+    parse,
+  );
+}
+
+async function readJson<T>(res: Response, parse: (body: unknown) => T): Promise<T> {
   let body: unknown;
   try {
     body = await res.json();
@@ -376,6 +547,23 @@ async function computeGet<T>(
     throw new ComputeApiError("shape", res.status, undefined, "unreadable body");
   }
   return parse(body);
+}
+
+/**
+ * A write: no body, no key, no retry. A cookie session passes the backend's origin guard because the
+ * browser sends `Origin` and the same-origin proxy forwards it; a repeat of a lost answer is the
+ * caller's decision (the page re-reads the job first).
+ */
+async function computePost<T>(
+  path: string,
+  query: URLSearchParams,
+  init: ComputeInit,
+  parse: (body: unknown) => T,
+): Promise<T> {
+  return readJson(
+    await computeRequest("POST", path, query, init, "application/json", DEFAULT_REQUEST_TIMEOUT_MS),
+    parse,
+  );
 }
 
 /** The caller's access, balances, partitions and queue estimates. Answers in every access state. */
@@ -414,4 +602,82 @@ export function listComputeJobs(
   const query = new URLSearchParams({ limit: String(limit) });
   if (input.after) query.set("after", input.after);
   return computeGet("/me/jobs", query, init, parseComputeJobs);
+}
+
+// --- The job page's calls -------------------------------------------------------------------------
+
+/** The longest the log read waits: the backend may read the cluster for several seconds first. */
+export const COMPUTE_LOG_TIMEOUT_MS = 30_000;
+
+function jobPath(id: string, rest: string): string {
+  // The id goes into a URL path: nothing that is not a job id may.
+  if (!COMPUTE_JOB_ID_RE.test(id))
+    throw new RangeError("a job id is job_ and 24 lowercase hex digits");
+  return `/${rest.replace(":id", id)}`;
+}
+
+/** One of the caller's jobs; `stale` says the cluster could not be asked and the stored record is shown. */
+export function getComputeJob(id: string, init: ComputeInit = {}): Promise<ComputeJobRead> {
+  return computeGet(jobPath(id, "me/jobs/:id"), new URLSearchParams(), init, parseComputeJob);
+}
+
+/**
+ * The job's log as text (the FIRST 1 MiB; `truncated` says more follows). Never JSON: the body is the
+ * job's own bytes and is read with `text()`, which turns invalid UTF-8 into U+FFFD.
+ */
+export async function getComputeLogs(id: string, init: ComputeInit = {}): Promise<ComputeLog> {
+  const res = await computeRequest(
+    "GET",
+    jobPath(id, "jobs/:id/logs"),
+    new URLSearchParams(),
+    init,
+    "text/plain",
+    COMPUTE_LOG_TIMEOUT_MS,
+  );
+  let text: string;
+  try {
+    text = await res.text();
+  } catch {
+    throw new ComputeApiError("network", res.status);
+  }
+  return { text, truncated: res.headers.get(COMPUTE_TRUNCATED_HEADER) === "true" };
+}
+
+function afterQuery(after: string | null | undefined): URLSearchParams {
+  const query = new URLSearchParams();
+  if (after) query.set("after", after);
+  return query;
+}
+
+/** New seven-day links for a finished job's outputs, from `after` (the previous `next_after`) on. MINTS links. */
+export function getComputeResults(
+  id: string,
+  after: string | null = null,
+  init: ComputeInit = {},
+): Promise<ComputeResults> {
+  return computeGet(jobPath(id, "jobs/:id/results"), afterQuery(after), init, parseComputeResults);
+}
+
+/** The same handler as {@link getComputeResults} over POST; MINTS links. */
+export function renewComputeResults(
+  id: string,
+  after: string | null = null,
+  init: ComputeInit = {},
+): Promise<ComputeResults> {
+  return computePost(
+    jobPath(id, "jobs/:id/results/renew"),
+    afterQuery(after),
+    init,
+    parseComputeResults,
+  );
+}
+
+/** Ask for the job to be stopped. No body, no key; an ended job answers 200 with `cancelled: false`. */
+export function cancelComputeJob(id: string, init: ComputeInit = {}): Promise<ComputeCancel> {
+  return computePost(
+    jobPath(id, "jobs/:id/cancel"),
+    new URLSearchParams(),
+    init,
+    parseComputeCancel,
+  );
 }
