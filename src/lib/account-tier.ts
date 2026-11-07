@@ -26,6 +26,7 @@
 import { ACCOUNT_COPY } from "./account-copy";
 import type { AuthUser } from "./auth";
 import { type ComputeAccessState, isComputeAccessState } from "./compute-access-state";
+import { COMPUTE_TERMS_VERSION } from "./compute-terms";
 import { canUpload } from "./profile";
 
 /** The subset of the session every derivation below reads. */
@@ -407,7 +408,8 @@ export function validatePurpose(raw: string): string | null {
  *
  * Two kinds of code. The three that name PROFILE gaps (`email_not_verified`,
  * `orcid_not_proven`, `profile_incomplete`) return the list heading and nothing
- * else: the backend's sentence for them lists raw field names
+ * else, unless `missing` is passed and empty (then there is no list to head, and
+ * the backend's sentence or the status tail is returned): the backend's sentence for them lists raw field names
  * (`given_name, affiliation`), and the page renders the `missing` array as
  * linked, worded lines instead. The rest prefer the backend's own sentence
  * and fall back to the shared copy; `terms_unpublished` always prints the
@@ -423,6 +425,7 @@ export function computeAccessErrorMessage(
   status: number,
   code: string | undefined,
   backendMessage?: string,
+  missing?: readonly string[],
 ): string {
   const backend =
     backendMessage && backendMessage.trim().length > 0 ? backendMessage.trim() : undefined;
@@ -430,10 +433,24 @@ export function computeAccessErrorMessage(
     case "purpose_required":
       return backend ?? ACCOUNT_COPY["compute_access.request.purpose_hint"];
     case "terms_not_accepted":
-      return backend ?? ACCOUNT_COPY["compute_access.request.terms_label"];
+      // The checkbox label ("I accept the compute terms") reads as a label, not
+      // an instruction, and the copy table has no instruction key (a mirrored
+      // one would change the 27-key parity with nemar-cli). So the fallback is
+      // composed here, in the backend's own words and with the version the page
+      // printed. A mirrored key is the follow-up if the owner wants it in the CLI's copy.
+      return (
+        backend ??
+        `Accept the compute terms (version ${COMPUTE_TERMS_VERSION}) to request compute access.`
+      );
     case "email_not_verified":
     case "orcid_not_proven":
     case "profile_incomplete":
+      // The heading is only a message when a list stands under it. A caller
+      // that says the list is empty gets the backend's sentence, or the status
+      // tail, so the box never reads "Finish these first:" over nothing.
+      if (missing !== undefined && missing.length === 0) {
+        return backend ?? requestStatusMessage(status);
+      }
       return ACCOUNT_COPY["gaps.request.title"];
     case "access_closed":
       return backend ?? ACCOUNT_COPY["compute_access.closed.body"];

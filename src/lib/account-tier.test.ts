@@ -34,6 +34,7 @@ import {
   validateWhy,
   verifyEmailFailure,
 } from "./account-tier";
+import { COMPUTE_TERMS_VERSION } from "./compute-terms";
 
 const completeProfile = { city: "San Diego", country: "USA", github_username: "octocat" };
 
@@ -572,13 +573,19 @@ describe("computeAccessErrorMessage", () => {
     );
   });
 
-  it("prints the backend's sentence for a terms refusal, and the terms label without one", () => {
+  it("prints the backend's sentence for a terms refusal, and an instruction without one", () => {
     expect(
       computeAccessErrorMessage(400, "terms_not_accepted", body("terms_not_accepted").message),
     ).toBe(body("terms_not_accepted").message);
-    expect(computeAccessErrorMessage(400, "terms_not_accepted")).toBe(
-      ACCOUNT_COPY["compute_access.request.terms_label"],
+    // The checkbox label reads as a label, not an instruction; the fallback
+    // says what to do, with the version the page printed, and is the backend's
+    // own sentence word for word.
+    const fallback = computeAccessErrorMessage(400, "terms_not_accepted");
+    expect(fallback).toBe(
+      `Accept the compute terms (version ${COMPUTE_TERMS_VERSION}) to request compute access.`,
     );
+    expect(fallback).not.toBe(ACCOUNT_COPY["compute_access.request.terms_label"]);
+    expect(`${body("terms_not_accepted").message}.`).toBe(fallback);
   });
 
   it.each(["email_not_verified", "orcid_not_proven", "profile_incomplete"])(
@@ -629,6 +636,30 @@ describe("computeAccessErrorMessage", () => {
       computeAccessErrorMessage(503, "terms_unpublished", body("terms_unpublished").message),
     ).toBe(body("terms_unpublished").message);
   });
+
+  it.each(["email_not_verified", "orcid_not_proven", "profile_incomplete"])(
+    "does not print the list heading over an empty list for %s",
+    (code) => {
+      // MUTATION: drop the `missing.length === 0` branch; the box then reads
+      // "Finish these first:" with nothing under it.
+      const captured = body(code);
+      // The backend's sentence when it sent one, the status tail when it did not.
+      expect(computeAccessErrorMessage(status(code), code, captured.message, [])).toBe(
+        captured.message,
+      );
+      expect(computeAccessErrorMessage(status(code), code, undefined, [])).toBe(
+        requestStatusMessage(status(code)),
+      );
+      // A list that is there keeps the heading, and a caller that does not say
+      // keeps the old behavior.
+      expect(
+        computeAccessErrorMessage(status(code), code, captured.message, captured.missing),
+      ).toBe(ACCOUNT_COPY["gaps.request.title"]);
+      expect(computeAccessErrorMessage(status(code), code, captured.message)).toBe(
+        ACCOUNT_COPY["gaps.request.title"],
+      );
+    },
+  );
 
   it("never lets a known code fall through to the generic message", () => {
     // MUTATION: delete any `case` above; that code then answers the status
