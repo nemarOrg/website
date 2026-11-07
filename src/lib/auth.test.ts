@@ -33,6 +33,11 @@ describe("safeRedirectPath", () => {
     expect(safeRedirectPath("/path\nwith\nnewline")).toBe("/");
     expect(safeRedirectPath("/path\rwith\rcr")).toBe("/");
   });
+  it("keeps a job page path, which the mail link and a signed-out visit return to", () => {
+    const job = "/compute/jobs/job_0123456789abcdef01234567";
+    expect(safeRedirectPath(job)).toBe(job);
+    expect(safeRedirectPath(decodeURIComponent(encodeURIComponent(job)))).toBe(job);
+  });
   it("guards against URL-encoded protocol-relative URLs", () => {
     expect(safeRedirectPath("/%2F%2Fevil.com")).toBe("/");
     expect(safeRedirectPath("/%5C%5Cevil.com")).toBe("/");

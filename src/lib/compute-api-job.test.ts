@@ -140,17 +140,37 @@ describe("GET /compute/me/jobs/:id", () => {
   });
 
   it("rejects a missing key or a wrong type as a shape error, never zeros", () => {
-    const bad = (mutate: (b: { job: Record<string, any> }) => void) => {
-      const b = structuredClone(jobStates.running.body) as { job: Record<string, any> };
+    type Loose = { job: Record<string, unknown> & { resources: Record<string, unknown> } };
+    const bad = (mutate: (b: Loose) => void) => {
+      const b = structuredClone(jobStates.running.body) as unknown as Loose;
       mutate(b);
       return () => parseComputeJob(b);
     };
-    expect(bad((b) => delete b.job.resources)).toThrow(ComputeApiError);
-    expect(bad((b) => delete b.job.resources.minutes)).toThrow(ComputeApiError);
-    expect(bad((b) => (b.job.resources.nodes = "1"))).toThrow(ComputeApiError);
-    expect(bad((b) => (b.job.charged_milli = 1.5))).toThrow(ComputeApiError);
-    expect(bad((b) => (b.job.cancel_requested = 0))).toThrow(ComputeApiError);
-    expect(bad((b) => (b.job.name = 5))).toThrow(ComputeApiError);
+    const without = (o: Record<string, unknown>, key: string) => {
+      Reflect.deleteProperty(o, key);
+    };
+    expect(bad((b) => without(b.job, "resources"))).toThrow(ComputeApiError);
+    expect(bad((b) => without(b.job.resources, "minutes"))).toThrow(ComputeApiError);
+    expect(
+      bad((b) => {
+        b.job.resources.nodes = "1";
+      }),
+    ).toThrow(ComputeApiError);
+    expect(
+      bad((b) => {
+        b.job.charged_milli = 1.5;
+      }),
+    ).toThrow(ComputeApiError);
+    expect(
+      bad((b) => {
+        b.job.cancel_requested = 0;
+      }),
+    ).toThrow(ComputeApiError);
+    expect(
+      bad((b) => {
+        b.job.name = 5;
+      }),
+    ).toThrow(ComputeApiError);
     expect(() => parseComputeJob(null)).toThrow(ComputeApiError);
     expect(() => parseComputeJob({ job: jobStates.running.body.job, stale: "yes" })).toThrow(
       ComputeApiError,
@@ -273,7 +293,9 @@ describe("results and renew", () => {
   });
 
   it("copies only the keys the page reads", () => {
-    const body = structuredClone(results.get.body) as Record<string, any>;
+    const body = structuredClone(results.get.body) as unknown as Record<string, unknown> & {
+      files: Record<string, unknown>[];
+    };
     body.extra = 1;
     body.files[0].etag = "x";
     expect(Object.keys(parseComputeResults(body)).sort()).toEqual(

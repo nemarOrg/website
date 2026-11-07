@@ -63,7 +63,6 @@ const { submitComputeJob, advanceComputeJob } = await import(
   join(root, "backend/src/services/compute-lifecycle.ts")
 );
 const { hashApiKey } = await import(join(root, "backend/src/services/token.ts"));
-const { logKey } = await import(join(root, "backend/src/services/compute-records.ts"));
 const { COMPUTE_STATES, COMPUTE_FAILURE_CODES } = await import(
   join(root, "shared/compute-state.ts")
 );

@@ -2378,6 +2378,47 @@ describe("the authorization page's headers", () => {
   });
 });
 
+describe("the compute pages never enter the edge cache (website#496)", () => {
+  const JOB = "/compute/jobs/job_0123456789abcdef01234567";
+
+  it("bypasses /compute and everything under it, and nothing that only starts with it", () => {
+    for (const path of ["/compute", "/compute/", JOB, "/compute/jobs"]) {
+      expect(routeBypassesEdgeCache(path), path).toBe(true);
+    }
+    for (const path of ["/computex", "/compute-x", "/discover", "/"]) {
+      expect(routeBypassesEdgeCache(path), path).toBe(false);
+    }
+  });
+
+  it("does not open the cache for a signed-out request to a job page, whatever the page says", async () => {
+    const opened: string[] = [];
+    const storage = {
+      open: async (name: string) => {
+        opened.push(name);
+        return { match: async () => undefined, put: async () => {} };
+      },
+    } as unknown as CacheStorage;
+    const make = (url: string, cookie: boolean) =>
+      ({
+        request: new Request(url),
+        locals: { runtime: { caches: storage } },
+        cookies: { has: () => cookie, get: () => undefined },
+      }) as unknown as APIContext;
+    const publicPage = async () =>
+      new Response("x", { headers: { "Cache-Control": "public, max-age=60" } });
+    for (const origin of [`https://${APP_HOST}`, "http://localhost:4321"]) {
+      for (const cookie of [false, true]) {
+        for (const path of ["/compute", JOB]) {
+          const res = (await onRequest(make(`${origin}${path}`, cookie), publicPage)) as Response;
+          expect(res.status, `${origin}${path} ${cookie}`).toBe(200);
+          expect(res.headers.get("x-nemar-cache"), `${origin}${path}`).toBeNull();
+        }
+      }
+    }
+    expect(opened).toEqual([]);
+  });
+});
+
 // Compute access on the session user (website ADR 0030). The bodies are the
 // real `GET /auth/me` answers captured for each state by
 // scripts/capture-compute-fixtures.mjs (nemar-cli 3a869903).
