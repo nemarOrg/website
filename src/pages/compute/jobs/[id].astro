@@ -237,9 +237,11 @@ const L = JOB_COPY;
           <ComputeJobResults jobId={outcome.read.job.id} panel={results} />
         </ComputePanel>
 
-        <ComputePanel id="actions" title={L.sections.actions}>
-          <ComputeJobActions canCancel={view.canCancel} />
-        </ComputePanel>
+        <div data-job-actions-panel hidden={!view.canCancel}>
+          <ComputePanel id="actions" title={L.sections.actions}>
+            <ComputeJobActions canCancel={view.canCancel} />
+          </ComputePanel>
+        </div>
       </div>
     )}
   </section>

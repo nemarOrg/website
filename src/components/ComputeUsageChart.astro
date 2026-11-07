@@ -17,6 +17,7 @@
  *
  * No animation or transition at all, so `prefers-reduced-motion` is satisfied by construction.
  */
+import { emptyLabelTopPercent } from "../lib/compute-chart";
 import { COMPUTE_LABELS } from "../lib/compute-labels";
 import type { PoolUsageView } from "../lib/compute-view";
 
@@ -87,7 +88,11 @@ const lastX = chart.xLabels.regular.length - 1;
           ) : null,
         )}
       </svg>
-      {chart.empty && <p class="compute-chart__empty">{COMPUTE_LABELS.usage.empty}</p>}
+      {chart.empty && (
+        <p class="compute-chart__empty" style={`--empty-top: ${emptyLabelTopPercent(chart.ticks)}`}>
+          {COMPUTE_LABELS.usage.empty}
+        </p>
+      )}
       <div class="compute-chart__xaxis compute-chart__xaxis--regular" aria-hidden="true">
         {chart.xLabels.regular.map((label, i) => (
           <span
@@ -238,14 +243,16 @@ const lastX = chart.xLabels.regular.length - 1;
     stroke: var(--admin-surface);
     stroke-width: 1;
   }
+  /* Centered between two gridlines, never on one: `--empty-top` is a percent of the plot height
+     (emptyLabelTopPercent). Without a background so the lines still read as the axis. */
   .compute-chart__empty {
+    --empty-height: 220px;
     position: absolute;
     inset-inline: 0;
-    inset-block-start: 0;
-    block-size: 220px;
-    display: grid;
-    place-items: center;
+    inset-block-start: calc(var(--empty-height) * var(--empty-top) / 100);
+    transform: translateY(-50%);
     margin: 0;
+    text-align: center;
     color: var(--color-fg-muted);
     font-size: var(--fs-sm);
     pointer-events: none;
@@ -326,7 +333,7 @@ const lastX = chart.xLabels.regular.length - 1;
       block-size: 180px;
     }
     .compute-chart__empty {
-      block-size: 180px;
+      --empty-height: 180px;
     }
     .compute-chart__xaxis--regular {
       display: none;

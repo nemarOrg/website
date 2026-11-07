@@ -38,7 +38,7 @@ const L = JOB_COPY.results;
       <button type="button" class="compute-job__btn" data-results-renew>{L.renew}</button>
     </p>
   </div>
-  <p class="compute-job__line" data-results-cli>
+  <p class="compute-job__line" data-results-cli hidden={!panel.showCliLine}>
     {L.allLead}<code>nemar compute results {jobId} --download &lt;dir&gt;</code>{L.allTail}
   </p>
 </div>

@@ -331,6 +331,23 @@ describe("the page", () => {
   });
 });
 
+describe("an ended job draws nothing it cannot offer", () => {
+  it("does not draw the Actions card when there is no action, on render and on every poll", () => {
+    expect(PAGE).toContain("<div data-job-actions-panel hidden={!view.canCancel}>");
+    const page = JOB["compute-job-page.ts"];
+    expect(page).toMatch(
+      /\[data-job-actions-panel\]"\)\.hidden =\s*!view\.canCancel && must<HTMLElement>\(root, "\[data-cancel-status\]"\)\.hidden/,
+    );
+  });
+
+  it("draws the download-everything line only while there are results", () => {
+    expect(RESULTS).toContain("data-results-cli hidden={!panel.showCliLine}");
+    expect(JOB["compute-job-page.ts"]).toContain(
+      '"[data-results-cli]").hidden = !panel.showCliLine',
+    );
+  });
+});
+
 describe("clocks and timers", () => {
   it("no job file reads a clock except the poller module and the page's use of its nowMs", () => {
     for (const [name, src] of Object.entries(JOB)) {

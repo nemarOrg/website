@@ -18,6 +18,7 @@ import {
   PLOT_HEIGHT,
   type UsageRow,
   computeUsageChart,
+  emptyLabelTopPercent,
   niceCeiling,
   niceStep,
 } from "./compute-chart";
@@ -197,6 +198,36 @@ describe("a window with nothing in it", () => {
     expect(chart.ticks.map((t) => t.label)).toEqual(["0", "0.5", "1"]);
     expect(chart.days.every((d) => d.segments.length === 0)).toBe(true);
     expect(chart.table).toEqual([]);
+  });
+});
+
+describe("where the empty-chart text sits", () => {
+  const chart = computeUsageChart({
+    from: empty.body.from,
+    to: empty.body.to,
+    rows: [],
+    partitions: CPU,
+    otherLabel: "Other partitions",
+  });
+  // The plot is 220 px tall (180 px on a phone); the text is one line of --fs-sm, 14 px, with room.
+  const TEXT_PX = 24;
+  for (const plotPx of [220, 180]) {
+    it(`clears every gridline on a ${plotPx} px plot`, () => {
+      const top = emptyLabelTopPercent(chart.ticks);
+      const centerPx = (top / 100) * plotPx;
+      for (const tick of chart.ticks) {
+        const linePx = (tick.topPercent / 100) * plotPx;
+        expect(Math.abs(centerPx - linePx)).toBeGreaterThan(TEXT_PX / 2);
+      }
+    });
+  }
+  it("is not the middle of the plot, where the 0.5 gridline is", () => {
+    expect(chart.ticks.map((t) => t.topPercent)).toContain(50);
+    expect(emptyLabelTopPercent(chart.ticks)).toBe(25);
+  });
+  it("sits between gridlines on any tick set", () => {
+    const ticks = [0, 25, 50, 75, 100].map((topPercent) => ({ milli: 0, label: "", topPercent }));
+    expect(emptyLabelTopPercent(ticks)).toBe(12.5);
   });
 });
 

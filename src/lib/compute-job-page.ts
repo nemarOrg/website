@@ -159,6 +159,10 @@ export function initJobPage(root: HTMLElement): void {
       .querySelector("[data-job-failure-body]")
       ?.replaceChildren(...(view.failure ? failureNodes(doc, view.failure) : []));
     must<HTMLElement>(root, "[data-cancel-block]").hidden = !view.canCancel;
+    // The Actions card has one action. With none to offer it is not drawn, unless the cancel's own
+    // outcome is on screen (the answer to a cancel just made stays readable).
+    must<HTMLElement>(root, "[data-job-actions-panel]").hidden =
+      !view.canCancel && must<HTMLElement>(root, "[data-cancel-status]").hidden;
     if (stateChanged || view.cancelRequested !== lastCancel) {
       setText(
         announce,
@@ -206,6 +210,7 @@ export function initJobPage(root: HTMLElement): void {
     addLocalTime(headline);
     // Derived from the job, never from what the panel showed last: a restored page needs it back.
     canGetLinks = panel.canGetLinks;
+    must<HTMLElement>(root, "[data-results-cli]").hidden = !panel.showCliLine;
     renderResults();
   }
 

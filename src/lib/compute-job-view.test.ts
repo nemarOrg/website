@@ -349,6 +349,17 @@ describe("resultsWindow", () => {
     expect(resultsPanelView(input(endedMs, { state: "failed" })).canGetLinks).toBe(false);
   });
 
+  it("shows the download-everything line only while the job has results to download", () => {
+    expect(resultsPanelView(input(endedMs)).showCliLine).toBe(true);
+    expect(resultsPanelView(input(endedMs + 29 * DAY)).showCliLine).toBe(true); // expiring
+    expect(resultsPanelView(input(endedMs + 31 * DAY)).showCliLine).toBe(false); // expired
+    for (const state of ["failed", "cancelled", "running", "queued"]) {
+      expect(resultsPanelView(input(endedMs, { state })).showCliLine, state).toBe(false);
+    }
+    // No retention figure known: the results are still there.
+    expect(resultsPanelView(input(endedMs, { resultsDays: null })).showCliLine).toBe(true);
+  });
+
   it("words the retention line from the days and the date, or generally without them", () => {
     expect(resultsPanelView(input(endedMs)).headline).toBe(
       "Results are kept for 30 days after the job ends, until 2026-12-05 09:50 UTC.",

@@ -99,8 +99,8 @@ function badgeText(tab: AdminTab): string | null {
             >
               {tab.label}
               {badgeText(tab.id) !== null && (
-                <span class="admin-tabs__badge">
-                  {badgeText(tab.id)}
+                <span class="admin-tabs__badge" data-admin-badge={tab.id}>
+                  <span data-badge-count>{badgeText(tab.id)}</span>
                   <span class="visually-hidden"> {BADGE_WORDS[tab.id]}</span>
                 </span>
               )}

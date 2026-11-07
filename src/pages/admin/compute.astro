@@ -68,6 +68,7 @@ import {
   unmatchedSummary,
 } from "../../lib/compute-admin-view";
 import { jobBadge } from "../../lib/compute-badges";
+import { COMPUTE_LABELS } from "../../lib/compute-labels";
 
 const session = getSession(Astro.locals);
 const redirectTo = adminGate(session, Astro.url.pathname);
@@ -249,13 +250,19 @@ if (view === "drift") {
           </nav>
           <p class="compute-note">{ACCOUNT_COPY["compute_admin.page.order_note"]}</p>
           {requests?.ok === false && <ComputeSectionError {...requests.error} />}
-          {requests?.ok === true && requests.value.accounts.length === 0 && (
-            <div class="admin-empty">
+          {requests?.ok === true && (
+            <div class="admin-empty" data-compute-empty hidden={requests.value.accounts.length > 0}>
               <p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.requests.none"]}</p>
             </div>
           )}
-          {requests?.ok === true && requests.value.accounts.length > 0 && (
-            <ul class="admin-list" role="list" data-compute-list>
+          {requests?.ok === true && (
+            <ul
+              class="admin-list"
+              role="list"
+              data-compute-list
+              data-filter={filter}
+              hidden={requests.value.accounts.length === 0}
+            >
               {requests.value.accounts.map((account) => (
                 <li>
                   <ComputeRequestRow model={requestRowModel(account, viewer, now)} />
@@ -263,6 +270,13 @@ if (view === "drift") {
               ))}
             </ul>
           )}
+          {requests?.ok === true && (
+            <section class="compute-decided" aria-labelledby="decided-title" data-compute-decided hidden>
+              <h3 class="compute-decided__title" id="decided-title">{COMPUTE_LABELS.adminDecided.title}</h3>
+              <ul class="admin-list" role="list" data-compute-decided-list></ul>
+            </section>
+          )}
+          <p class="visually-hidden" role="status" aria-live="polite" data-compute-announce></p>
           {requestPager && (requestPager.first || requestPager.next) && (
             <nav class="compute-pager" aria-label={ACCOUNT_COPY["compute_admin.view.requests"]}>
               {requestPager.first && <a href={requestPager.first}>{ACCOUNT_COPY["compute_admin.pager.first"]}</a>}
@@ -717,6 +731,24 @@ if (view === "drift") {
     display: grid;
     gap: var(--space-3);
   }
+  .admin-empty[hidden],
+  .admin-list[hidden],
+  .compute-decided[hidden] {
+    display: none;
+  }
+  .compute-decided {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+    padding-block-start: var(--space-4);
+    border-block-start: 1px solid var(--color-border);
+  }
+  .compute-decided__title {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg-muted);
+  }
   .compute-section {
     display: grid;
     gap: var(--space-3);
@@ -856,7 +888,12 @@ if (view === "drift") {
   import { decideComputeAccess, getComputeAccount } from "../../lib/compute-admin-api";
   import type { ComputeAccessDecision } from "../../lib/compute-admin-contract";
   import { createDecideFlow } from "../../lib/compute-decide-flow";
-  import { requestRowModel } from "../../lib/compute-admin-view";
+  import {
+    type RequestFilter,
+    adjustRequestsBadge,
+    cardLeavesList,
+    requestRowModel,
+  } from "../../lib/compute-admin-view";
   import {
     applyRowModel,
     markRowStale,
@@ -871,6 +908,43 @@ if (view === "drift") {
       decide: (id, decision, reason) => decideComputeAccess(id, decision, reason),
       reread: (id) => getComputeAccount(id),
     });
+
+    const list = page.querySelector<HTMLElement>("[data-compute-list]");
+    const emptyNote = page.querySelector<HTMLElement>("[data-compute-empty]");
+    const decided = page.querySelector<HTMLElement>("[data-compute-decided]");
+    const decidedList = page.querySelector<HTMLElement>("[data-compute-decided-list]");
+    const announce = page.querySelector<HTMLElement>("[data-compute-announce]");
+
+    // The Compute tab's badge is drawn by the shared admin layout, outside this page's root.
+    const badgeCount = (): HTMLElement | null =>
+      document.querySelector<HTMLElement>("[data-admin-badge='compute'] [data-badge-count]");
+    const currentBadge = (): string | null => badgeCount()?.textContent?.trim() || null;
+    function updateRequestsBadge(next: string | null): void {
+      const count = badgeCount();
+      if (!count) return;
+      if (next === null) count.closest<HTMLElement>("[data-admin-badge]")?.remove();
+      else count.textContent = next;
+    }
+
+    // A card whose state no longer matches the list's filter leaves the list for the "decided on
+    // this page" group, so the list is true and the result note stays readable. The live region
+    // says it too, because a node that moves is not reliably announced.
+    function moveToDecided(row: HTMLElement): void {
+      const item = row.closest("li");
+      if (!item || !decided || !decidedList || !list) return;
+      const lines = [...row.querySelectorAll<HTMLElement>("[data-row-status] > *")]
+        .map((n) => n.textContent?.trim() ?? "")
+        .filter((t) => t.length > 0);
+      if (!decidedList.contains(item)) decidedList.append(item);
+      decided.hidden = false;
+      if (emptyNote && list.querySelector("[data-compute-row]") === null) {
+        list.hidden = true;
+        emptyNote.hidden = false;
+      }
+      if (announce) {
+        announce.textContent = `${text(row, "name")}: ${lines.join(" ")}`;
+      }
+    }
 
     const rowOf = (id: number): HTMLElement | null =>
       page.querySelector<HTMLElement>(`[data-compute-row][data-account-id="${id}"]`);
@@ -927,6 +1001,11 @@ if (view === "drift") {
       lockPage(false);
       setRowWorking(row, false, "");
       if (out.outcome === "ignored") return;
+      // What the server SAID the account's state is, if it said: the response of a decision that
+      // went through, or the re-read after one whose outcome was not known. Nothing else moves
+      // the card or the badge, so a refusal that changed nothing leaves both as they were.
+      const before = row.dataset.computeState ?? "";
+      const known = out.row;
       if (out.outcome === "done") {
         applyRowModel(row, requestRowModel(out.row, viewer));
         setRowNote(row, [out.note.text, out.note.emailNote ?? ""], "ok");
@@ -935,6 +1014,13 @@ if (view === "drift") {
         setRowNote(row, [out.note.text], "error");
         if (out.note.stale || out.rereadFailed || (out.note.reread && out.row === null)) {
           markRowStale(row);
+        }
+      }
+      const after = row.dataset.computeState ?? "";
+      if (known && after !== before) {
+        updateRequestsBadge(adjustRequestsBadge(currentBadge(), before, after));
+        if (list && cardLeavesList(list.dataset.filter as RequestFilter, after)) {
+          moveToDecided(row);
         }
       }
       row.focus();
