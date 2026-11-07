@@ -18,6 +18,7 @@ import PILL from "../src/components/admin/ComputePill.astro?raw";
 import ROW from "../src/components/admin/ComputeRequestRow.astro?raw";
 import SECTION_ERROR from "../src/components/admin/ComputeSectionError.astro?raw";
 import LAYOUT from "../src/layouts/AdminLayout.astro?raw";
+import ACCOUNT_COPY_TEXT from "../src/lib/account-copy.ts?raw";
 import { adminGate } from "../src/lib/admin-guard";
 import API from "../src/lib/compute-admin-api.ts?raw";
 import VIEW from "../src/lib/compute-admin-view.ts?raw";
@@ -121,6 +122,27 @@ describe("no sentence is typed in a page or component", () => {
     }
   });
 
+  it.each(Object.entries({ API, VIEW, FLOW, ROW_DOM }))(
+    "%s has no multi-word string literal either: its words are copy keys or the backend's own",
+    (_name, source) => {
+      const lines = code(source)
+        .split("\n")
+        .filter(
+          (l) =>
+            !/^\s*import\b/.test(l) &&
+            !/console\./.test(l) &&
+            !/"\[[a-z-]+\]/.test(l) &&
+            !/^\s*\*/.test(l),
+        );
+      for (const line of lines) {
+        // Template literals and double-quoted strings alike.
+        expect(line, line).not.toMatch(
+          /["`][^"`\n]*\b[A-Za-z]{3,} [A-Za-z]{3,} [A-Za-z]{3,}[^"`\n]*["`]/,
+        );
+      }
+    },
+  );
+
   it("takes its words from the shared copy", () => {
     for (const key of [
       "compute_admin.page.lede",
@@ -199,6 +221,16 @@ describe("approval is a person's decision", () => {
     }
   });
 
+  it("gives a decision its own, longer deadline than a read", () => {
+    expect(code(API)).toContain("DECISION_TIMEOUT_MS = 25_000");
+    expect(code(API)).toMatch(/parseDecisionResult, \{\s*body,\s*timeoutMs: DECISION_TIMEOUT_MS/);
+  });
+
+  it("hands the clicked button to the dialog so focus can return to it", () => {
+    expect(PAGE).toContain("opener: button");
+    expect(DIALOG).toContain("detail.opener");
+  });
+
   it("never retries a POST on its own", () => {
     expect(code(FLOW)).not.toMatch(/for \(|while \(|retry/);
     expect(code(API)).not.toMatch(/retryPost|retries/);
@@ -236,6 +268,30 @@ describe("the gate and the owner-only line", () => {
     );
     expect(code(API)).not.toContain('"PUT"');
     expect(code(API)).not.toContain('"DELETE"');
+  });
+});
+
+describe("the page's honesty about what it could not read", () => {
+  it("is never cached", () => {
+    expect(code(PAGE)).toContain('Astro.response.headers.set("Cache-Control", "no-store")');
+  });
+
+  it("says when a pool group is cut off", () => {
+    expect(PAGE).toContain('ACCOUNT_COPY["compute_admin.pools.truncated"]');
+    expect(PAGE).toContain("next_after !== null");
+  });
+
+  it("says 'none waiting' only when reconciliation is known to be running", () => {
+    expect(PAGE).toMatch(
+      /reconciliation_paused === false \? \(\s*<p class="admin-empty__title">\{ACCOUNT_COPY\["compute_admin.drift.unmatched_none"\]\}/,
+    );
+    expect(PAGE).toContain('ACCOUNT_COPY["compute_admin.drift.pause_unknown"]');
+  });
+
+  it("does not describe the acknowledgement as a record", () => {
+    expect(ACCOUNT_COPY_TEXT).not.toMatch(
+      /ack_export_review"\s*:\s*"I (have )?(reviewed|completed)/,
+    );
   });
 });
 
@@ -280,21 +336,10 @@ describe("every compute_admin copy key has a consumer", () => {
 
   it("is read by a page, a component or a view model", async () => {
     const { ACCOUNT_COPY } = await import("../src/lib/account-copy");
-    const unread = Object.keys(ACCOUNT_COPY)
+    const read = Object.keys(ACCOUNT_COPY)
       .filter((key) => key.startsWith("compute_admin."))
-      .filter((key) => {
-        if (readers.includes(`"${key}"`)) return true;
-        // Keys chosen by a word the code holds: state, action, flag and its meaning.
-        const dynamic = [
-          "compute_admin.state.",
-          "compute_admin.action.",
-          "compute_admin.flag.meaning.",
-          "compute_admin.flag.",
-        ];
-        const prefix = dynamic.find((p) => key.startsWith(p) && !key.slice(p.length).includes("."));
-        return prefix !== undefined && readers.includes(`\`${prefix}\${`);
-      });
+      .filter((key) => readers.includes(`"${key}"`));
     const all = Object.keys(ACCOUNT_COPY).filter((key) => key.startsWith("compute_admin."));
-    expect(all.filter((k) => !unread.includes(k))).toEqual([]);
+    expect(all.filter((k) => !read.includes(k))).toEqual([]);
   });
 });
