@@ -167,12 +167,8 @@ export interface ComputeJobsPage {
 // --- Guards ---------------------------------------------------------------------------------------
 
 function shape(what: string): never {
-  throw new ComputeApiError(
-    "shape",
-    200,
-    undefined,
-    `The server's ${what} was not in the expected form.`,
-  );
+  // The detail is for the log; the page shows the reason class, not this.
+  throw new ComputeApiError("shape", 200, undefined, `unexpected ${what}`);
 }
 
 function record(value: unknown, what: string): Record<string, unknown> {
@@ -374,12 +370,7 @@ async function computeGet<T>(
   try {
     body = await res.json();
   } catch {
-    throw new ComputeApiError(
-      "shape",
-      res.status,
-      undefined,
-      "The server sent an answer this page could not read.",
-    );
+    throw new ComputeApiError("shape", res.status, undefined, "unreadable body");
   }
   return parse(body);
 }
