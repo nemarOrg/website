@@ -9,23 +9,36 @@
  * check must replace that too, update the lists below and ADR 0031, and re-run
  * `src/lib/origin-check.test.ts`, which compares the site's rule with Astro's built-in.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const DIST = join(__dirname, "..", "node_modules", "astro", "dist");
+/** `node:fs` reached without a static import (no `@types/node` here); see the OIDC contract drift test. */
+interface Dirent {
+  name: string;
+  isDirectory(): boolean;
+}
+interface NodeFs {
+  readdirSync(path: string, options: { withFileTypes: true }): Dirent[];
+  readFileSync(path: string, encoding: string): string;
+}
+const fsSpecifier = "node:fs";
+const fs = (await import(/* @vite-ignore */ fsSpecifier)) as NodeFs;
+
+/** The test's own location, so the path does not depend on the working directory. */
+const DIST = `${decodeURIComponent(new URL("../node_modules/astro/dist", import.meta.url).pathname)}`;
 
 function jsFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name);
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = `${dir}/${entry.name}`;
     if (entry.isDirectory()) return jsFiles(path);
     return entry.name.endsWith(".js") ? [path] : [];
   });
 }
 
+const read = (file: string) => fs.readFileSync(`${DIST}/${file}`, "utf8");
+
 const MENTIONS = jsFiles(DIST)
-  .filter((file) => readFileSync(file, "utf8").includes("checkOrigin"))
-  .map((file) => relative(DIST, file))
+  .map((file) => file.slice(DIST.length + 1))
+  .filter((file) => read(file).includes("checkOrigin"))
   .sort();
 
 describe("what Astro's checkOrigin option reaches", () => {
@@ -40,11 +53,9 @@ describe("what Astro's checkOrigin option reaches", () => {
   });
 
   it("is READ (off the manifest) by core/base-pipeline.js alone, where it adds the origin check", () => {
-    const readers = MENTIONS.filter((file) =>
-      /manifest\.checkOrigin/.test(readFileSync(join(DIST, file), "utf8")),
-    );
+    const readers = MENTIONS.filter((file) => /manifest\.checkOrigin/.test(read(file)));
     expect(readers).toEqual(["core/base-pipeline.js"]);
-    const pipeline = readFileSync(join(DIST, "core/base-pipeline.js"), "utf8");
+    const pipeline = read("core/base-pipeline.js");
     expect(pipeline).toMatch(
       /if \(this\.manifest\.checkOrigin\) \{\s*internalMiddlewares\.unshift\(createOriginCheckMiddleware\(\)\);/,
     );
