@@ -1,0 +1,924 @@
+---
+/**
+ * The admin Compute tab (website ADR 0030; epic nemarOrg/website#493 phase E4, issue #497).
+ *
+ * Five views by `?view=`: Requests (the default; the one place a person is granted, denied,
+ * suspended or revoked), then four READ-ONLY views of what the backend serves: Pools, Usage,
+ * Flagged jobs and Reconciliation. Nothing owner-only or cost-bearing is offered here: policy,
+ * legal holds, record reads, moving a charge, pool grants and adjustments and cancelling a job
+ * stay in the command line, and the lede says so.
+ *
+ * NO SECTION SHOWS A NUMBER THE PAGE COMPUTED. Every figure is printed from a served integer;
+ * where the backend serves nothing (platform usage over time, the ledger-versus-scheduler
+ * difference and its tolerance) the page says "not available yet" and links the tracking issue
+ * instead of deriving it from other routes.
+ *
+ * EVERY READ IS ITS OWN. Within a view each read is a separate `Promise.allSettled` entry, and a
+ * failure draws a `ComputeSectionError` naming what failed with the backend's own sentence, never
+ * an empty table: "nothing here" and "could not ask" are different facts.
+ *
+ * ALL USER-CONTROLLED TEXT IS INERT (website ADR 0029). The view models pass every free-text value
+ * through `displaySafeLine` / `displaySafeBody`; this page prints them as `{expression}` text
+ * nodes, never `set:html`, and puts none of them in an `href`.
+ *
+ * ROLES. `adminGate` collapses owner and admin to `admin`, and the backend is the authority. The
+ * page reads `backend_role` for one thing: disabling Grant on a non-owner's own row.
+ */
+import ComputeDecisionDialog from "../../components/admin/ComputeDecisionDialog.astro";
+import ComputePill from "../../components/admin/ComputePill.astro";
+import ComputeRequestRow from "../../components/admin/ComputeRequestRow.astro";
+import ComputeSectionError from "../../components/admin/ComputeSectionError.astro";
+import AdminLayout from "../../layouts/AdminLayout.astro";
+import { ACCOUNT_COPY } from "../../lib/account-copy";
+import { adminGate } from "../../lib/admin-guard";
+import { getSession } from "../../lib/auth";
+import {
+  type ComputeAccessPage,
+  type ComputeAccessReport,
+  type ComputeJobsPage,
+  type ComputePoolsPage,
+  type ComputeStatus,
+  type ComputeUnmatchedPage,
+  computeAdminErrorText,
+  getComputeAccessReport,
+  getComputeStatus,
+  listComputeAccess,
+  listComputeJobs,
+  listComputePools,
+  listUnmatchedAccounting,
+} from "../../lib/compute-admin-api";
+import {
+  FLAG_CHIPS,
+  REQUEST_FILTERS,
+  attentionLines,
+  flagMeaning,
+  jobRowModel,
+  pagerLinks,
+  parseAfter,
+  parseFlag,
+  parseQuarter,
+  parseRequestFilter,
+  parseView,
+  poolRowModel,
+  recentQuarters,
+  requestRowModel,
+  tapisLine,
+  unmatchedRowModel,
+  unmatchedSummary,
+} from "../../lib/compute-admin-view";
+import { jobStateBadge } from "../../lib/compute-badges";
+
+const session = getSession(Astro.locals);
+const redirectTo = adminGate(session, Astro.url.pathname);
+if (redirectTo) {
+  return Astro.redirect(redirectTo);
+}
+if (!session) {
+  // adminGate(null, ...) always returns a redirect above; this only narrows `session` for the
+  // layout's required prop.
+  return Astro.redirect("/login");
+}
+const viewer = { userId: session.user.id, isOwner: session.user.backend_role === "owner" };
+
+const url = new URL(Astro.request.url);
+const q = url.searchParams;
+const view = parseView(q.get("view"));
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const init = { cookieHeader };
+const now = new Date();
+
+// Where the tracking issues for what the backend does not serve yet live (nemar-cli is public).
+const ISSUE_BASE = "https://github.com/nemarOrg/nemar-cli/issues";
+const ISSUE_USAGE = `${ISSUE_BASE}/2083`;
+const ISSUE_DRIFT = `${ISSUE_BASE}/2084`;
+
+/** A read that failed, as the notice needs it. */
+const failure = (what: string, err: unknown) => ({ what, reason: computeAdminErrorText(err) });
+type Failed = ReturnType<typeof failure>;
+type Read<T> = { ok: true; value: T } | { ok: false; error: Failed };
+async function read<T>(what: string, run: () => Promise<T>): Promise<Read<T>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (err) {
+    return { ok: false, error: failure(what, err) };
+  }
+}
+
+const hrefFor = (params: Record<string, string | undefined>) => {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v) search.set(k, v);
+  const qs = search.toString();
+  return qs ? `/admin/compute?${qs}` : "/admin/compute";
+};
+
+const VIEW_TABS = [
+  { view: "requests", label: ACCOUNT_COPY["compute_admin.view.requests"] },
+  { view: "pools", label: ACCOUNT_COPY["compute_admin.view.pools"] },
+  { view: "usage", label: ACCOUNT_COPY["compute_admin.view.usage"] },
+  { view: "flagged", label: ACCOUNT_COPY["compute_admin.view.flagged"] },
+  { view: "drift", label: ACCOUNT_COPY["compute_admin.view.drift"] },
+] as const;
+
+// ---- Requests --------------------------------------------------------------------------------
+const filter = parseRequestFilter(q.get("state"));
+const after = parseAfter(q.get("after"));
+let requests: Read<ComputeAccessPage> | null = null;
+if (view === "requests") {
+  requests = await read(ACCOUNT_COPY["compute_admin.view.requests"], () =>
+    listComputeAccess({ state: filter === "all" ? undefined : filter, after, limit: 25 }, init),
+  );
+}
+const requestPager =
+  requests?.ok === true
+    ? pagerLinks(
+        "/admin/compute",
+        { view: "requests", state: filter === "requested" ? undefined : filter },
+        after,
+        requests.value.next_after,
+      )
+    : null;
+
+// ---- Pools -----------------------------------------------------------------------------------
+let platformPools: Read<ComputePoolsPage> | null = null;
+let partnerPools: Read<ComputePoolsPage> | null = null;
+let accountPools: Read<ComputePoolsPage> | null = null;
+if (view === "pools") {
+  [platformPools, partnerPools, accountPools] = await Promise.all([
+    read(ACCOUNT_COPY["compute_admin.pools.platform"], () =>
+      listComputePools({ holderKind: "platform", limit: 50 }, init),
+    ),
+    read(ACCOUNT_COPY["compute_admin.pools.partner"], () =>
+      listComputePools({ holderKind: "partner", limit: 50 }, init),
+    ),
+    read(ACCOUNT_COPY["compute_admin.pools.account"], () =>
+      listComputePools({ holderKind: "account", after, limit: 50 }, init),
+    ),
+  ]);
+}
+const poolPager =
+  accountPools?.ok === true
+    ? pagerLinks("/admin/compute", { view: "pools" }, after, accountPools.value.next_after)
+    : null;
+
+// ---- Usage -----------------------------------------------------------------------------------
+const quarter = parseQuarter(q.get("quarter"), now);
+let report: Read<ComputeAccessReport> | null = null;
+if (view === "usage") {
+  report = await read(ACCOUNT_COPY["compute_admin.view.usage"], () =>
+    getComputeAccessReport(quarter, init),
+  );
+}
+
+// ---- Flagged jobs ----------------------------------------------------------------------------
+const flag = parseFlag(q.get("flag"));
+let flaggedJobs: Read<ComputeJobsPage> | null = null;
+if (view === "flagged") {
+  flaggedJobs = await read(ACCOUNT_COPY["compute_admin.view.flagged"], () =>
+    listComputeJobs({ flag, after, limit: 50 }, init),
+  );
+}
+const flaggedPager =
+  flaggedJobs?.ok === true
+    ? pagerLinks("/admin/compute", { view: "flagged", flag }, after, flaggedJobs.value.next_after)
+    : null;
+
+// ---- Reconciliation --------------------------------------------------------------------------
+let status: Read<ComputeStatus> | null = null;
+let unmatched: Read<ComputeUnmatchedPage> | null = null;
+let mismatched: Read<ComputeJobsPage> | null = null;
+if (view === "drift") {
+  [status, unmatched, mismatched] = await Promise.all([
+    read(ACCOUNT_COPY["compute_admin.drift.status"], () => getComputeStatus(init)),
+    read(ACCOUNT_COPY["compute_admin.drift.unmatched"], () => listUnmatchedAccounting(100, init)),
+    read(ACCOUNT_COPY["compute_admin.drift.mismatch"], () =>
+      listComputeJobs({ flag: "mismatch", limit: 25 }, init),
+    ),
+  ]);
+}
+---
+
+<AdminLayout title={ACCOUNT_COPY["compute_admin.page.title"]} active="compute" session={session}>
+  <Fragment slot="lede">
+    {ACCOUNT_COPY["compute_admin.page.lede"]}
+    {" "}
+    {ACCOUNT_COPY["compute_admin.page.cli_note"]}
+  </Fragment>
+
+  <div
+    class="compute-page"
+    data-compute-page
+    data-viewer-id={viewer.userId}
+    data-viewer-owner={viewer.isOwner ? "1" : "0"}
+  >
+    <nav class="admin-filters" aria-label={ACCOUNT_COPY["compute_admin.view.nav"]}>
+      {
+        VIEW_TABS.map((tab) => (
+          <a
+            class:list={["admin-filters__chip", { "admin-filters__chip--active": view === tab.view }]}
+            href={hrefFor({ view: tab.view === "requests" ? undefined : tab.view })}
+            aria-current={view === tab.view ? "page" : undefined}
+          >
+            {tab.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    {
+      view === "requests" && (
+        <section class="compute-section" aria-labelledby="requests-title">
+          <h2 class="compute-section__title" id="requests-title">
+            {ACCOUNT_COPY["compute_admin.view.requests"]}
+          </h2>
+          <nav class="admin-filters" aria-label={ACCOUNT_COPY["compute_admin.state.nav"]}>
+            {REQUEST_FILTERS.map((value) => (
+              <a
+                class:list={["admin-filters__chip", { "admin-filters__chip--active": filter === value }]}
+                href={hrefFor({
+                  view: "requests",
+                  state: value === "requested" ? undefined : value,
+                })}
+                aria-current={filter === value ? "page" : undefined}
+              >
+                {ACCOUNT_COPY[`compute_admin.state.${value}` as const]}
+              </a>
+            ))}
+          </nav>
+          <p class="compute-note">{ACCOUNT_COPY["compute_admin.page.order_note"]}</p>
+          {requests?.ok === false && <ComputeSectionError {...requests.error} />}
+          {requests?.ok === true && requests.value.accounts.length === 0 && (
+            <div class="admin-empty">
+              <p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.requests.none"]}</p>
+            </div>
+          )}
+          {requests?.ok === true && requests.value.accounts.length > 0 && (
+            <ul class="admin-list" role="list" data-compute-list>
+              {requests.value.accounts.map((account) => (
+                <li>
+                  <ComputeRequestRow model={requestRowModel(account, viewer, now)} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {requestPager && (requestPager.first || requestPager.next) && (
+            <nav class="compute-pager" aria-label={ACCOUNT_COPY["compute_admin.view.requests"]}>
+              {requestPager.first && <a href={requestPager.first}>{ACCOUNT_COPY["compute_admin.pager.first"]}</a>}
+              {requestPager.next && <a href={requestPager.next}>{ACCOUNT_COPY["compute_admin.pager.next"]}</a>}
+            </nav>
+          )}
+        </section>
+      )
+    }
+
+    {
+      view === "pools" && (
+        <>
+          {[
+            { key: "platform", title: ACCOUNT_COPY["compute_admin.pools.platform"], result: platformPools, none: ACCOUNT_COPY["compute_admin.pools.none_platform"] },
+            { key: "partner", title: ACCOUNT_COPY["compute_admin.pools.partner"], result: partnerPools, none: ACCOUNT_COPY["compute_admin.pools.none"] },
+            { key: "account", title: ACCOUNT_COPY["compute_admin.pools.account"], result: accountPools, none: ACCOUNT_COPY["compute_admin.pools.none"] },
+          ].map(({ key, title, result, none }) => (
+            <section class="compute-section" aria-labelledby={`pools-${key}`}>
+              <h2 class="compute-section__title" id={`pools-${key}`}>{title}</h2>
+              {result?.ok === false && <ComputeSectionError {...result.error} />}
+              {result?.ok === true && result.value.pools.length === 0 && (
+                <div class="admin-empty"><p class="admin-empty__title">{none}</p></div>
+              )}
+              {result?.ok === true && result.value.pools.length > 0 && (
+                <div class="compute-table-wrap" role="region" aria-label={title} tabindex="0">
+                  <table class="compute-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.holder"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.pool"]}</th>
+                        <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.granted"]}</th>
+                        <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.held"]}</th>
+                        <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.charged"]}</th>
+                        <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.available"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.frozen"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.updated"]}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.value.pools.map((pool) => {
+                        const m = poolRowModel(pool);
+                        return (
+                          <tr>
+                            <th scope="row">{m.holder}</th>
+                            <td>{m.pool}</td>
+                            <td class="num">{m.granted}</td>
+                            <td class="num">{m.held}</td>
+                            <td class="num">{m.charged}</td>
+                            <td class:list={["num", { "num--negative": m.negative }]}>{m.available}</td>
+                            <td>
+                              <ComputePill
+                                tone={m.frozen ? "warning" : "neutral"}
+                                icon={m.frozen ? "warn" : "neutral"}
+                                label={m.frozenText}
+                              />
+                            </td>
+                            <td>{m.updated}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ))}
+          {poolPager && (poolPager.first || poolPager.next) && (
+            <nav class="compute-pager" aria-label={ACCOUNT_COPY["compute_admin.pools.account"]}>
+              {poolPager.first && <a href={poolPager.first}>{ACCOUNT_COPY["compute_admin.pager.first"]}</a>}
+              {poolPager.next && <a href={poolPager.next}>{ACCOUNT_COPY["compute_admin.pager.next"]}</a>}
+            </nav>
+          )}
+        </>
+      )
+    }
+
+    {
+      view === "usage" && (
+        <section class="compute-section" aria-labelledby="usage-title">
+          <h2 class="compute-section__title" id="usage-title">{ACCOUNT_COPY["compute_admin.view.usage"]}</h2>
+          <nav class="admin-filters" aria-label={ACCOUNT_COPY["compute_admin.usage.quarter"]}>
+            {recentQuarters(now).map((value) => (
+              <a
+                class:list={["admin-filters__chip", { "admin-filters__chip--active": quarter === value }]}
+                href={hrefFor({ view: "usage", quarter: value })}
+                aria-current={quarter === value ? "page" : undefined}
+              >
+                {value}
+              </a>
+            ))}
+          </nav>
+          <p class="compute-note">{ACCOUNT_COPY["compute_admin.usage.counts_note"]}</p>
+          {report?.ok === false && <ComputeSectionError {...report.error} />}
+          {report?.ok === true && report.value.rows.length === 0 && (
+            <div class="admin-empty"><p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.usage.none"]}</p></div>
+          )}
+          {report?.ok === true && report.value.rows.length > 0 && (
+            <div class="compute-table-wrap" role="region" aria-label={quarter} tabindex="0">
+              <table class="compute-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.partition"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.source"]}</th>
+                    <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.users"]}</th>
+                    <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.jobs"]}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.value.rows.map((row) => (
+                    <tr>
+                      <th scope="row">{row.partition}</th>
+                      <td>{row.source}</td>
+                      <td class="num">{row.distinct_users}</td>
+                      <td class="num">{row.jobs}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row" colspan="2">{ACCOUNT_COPY["compute_admin.usage.totals"]}</th>
+                    <td class="num">{report.value.totals.distinct_users}</td>
+                    <td class="num">{report.value.totals.jobs}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+          <div class="compute-unavailable" role="note">
+            <p class="compute-unavailable__title">{ACCOUNT_COPY["compute_admin.unavailable.title"]}</p>
+            <p>{ACCOUNT_COPY["compute_admin.unavailable.usage_by_day"]}</p>
+            <a href={ISSUE_USAGE} rel="external noopener" target="_blank">
+              {ACCOUNT_COPY["compute_admin.unavailable.link"]} #2083
+            </a>
+          </div>
+        </section>
+      )
+    }
+
+    {
+      view === "flagged" && (
+        <section class="compute-section" aria-labelledby="flagged-title">
+          <h2 class="compute-section__title" id="flagged-title">{ACCOUNT_COPY["compute_admin.view.flagged"]}</h2>
+          <nav class="admin-filters" aria-label={ACCOUNT_COPY["compute_admin.flag.nav"]}>
+            {FLAG_CHIPS.map((chip) => (
+              <a
+                class:list={["admin-filters__chip", { "admin-filters__chip--active": flag === chip.flag }]}
+                href={hrefFor({ view: "flagged", flag: chip.flag === "unreserved" ? undefined : chip.flag })}
+                aria-current={flag === chip.flag ? "page" : undefined}
+              >
+                {chip.label}
+              </a>
+            ))}
+          </nav>
+          <p class="compute-note">{flagMeaning(flag)}</p>
+          {flag === "unreserved" && <p class="compute-note">{ACCOUNT_COPY["compute_admin.flag.followup"]}</p>}
+          {flaggedJobs?.ok === false && <ComputeSectionError {...flaggedJobs.error} />}
+          {flaggedJobs?.ok === true && flaggedJobs.value.jobs.length === 0 && (
+            <div class="admin-empty"><p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.flagged.none"]}</p></div>
+          )}
+          {flaggedJobs?.ok === true && flaggedJobs.value.jobs.length > 0 && (
+            <div class="compute-table-wrap" role="region" aria-label={ACCOUNT_COPY["compute_admin.view.flagged"]} tabindex="0">
+              <table class="compute-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.job"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.flags"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.account"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.source"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.partition"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.pool"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.state"]}</th>
+                    <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.charged"]}</th>
+                    <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.held"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.failure"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.created"]}</th>
+                    <th scope="col">{ACCOUNT_COPY["compute_admin.col.ended"]}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flaggedJobs.value.jobs.map((job) => {
+                    const m = jobRowModel(job);
+                    const badge = jobStateBadge(m.state);
+                    return (
+                      <tr>
+                        <th scope="row" class="mono">{m.id}</th>
+                        <td>{m.flags.join(", ")}</td>
+                        <td>{m.account}</td>
+                        <td>{m.source}</td>
+                        <td>{m.partition}</td>
+                        <td>{m.pool}</td>
+                        <td><ComputePill tone={badge.tone} icon={badge.icon} label={badge.label} /></td>
+                        <td class="num">{m.charged}</td>
+                        <td class="num">{m.held}</td>
+                        <td>
+                          {m.platformFailure && <strong>{ACCOUNT_COPY["compute_admin.flagged.platform_failure"]}</strong>}
+                          {m.platformFailure && (m.failure || m.partner) ? ": " : ""}
+                          {m.failure}
+                          {m.failure && m.partner ? " " : ""}
+                          {m.partner}
+                        </td>
+                        <td>{m.created}</td>
+                        <td>{m.ended}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {flaggedPager && (flaggedPager.first || flaggedPager.next) && (
+            <nav class="compute-pager" aria-label={ACCOUNT_COPY["compute_admin.view.flagged"]}>
+              {flaggedPager.first && <a href={flaggedPager.first}>{ACCOUNT_COPY["compute_admin.pager.first"]}</a>}
+              {flaggedPager.next && <a href={flaggedPager.next}>{ACCOUNT_COPY["compute_admin.pager.next"]}</a>}
+            </nav>
+          )}
+        </section>
+      )
+    }
+
+    {
+      view === "drift" && (
+        <>
+          <section class="compute-section" aria-labelledby="drift-status">
+            <h2 class="compute-section__title" id="drift-status">{ACCOUNT_COPY["compute_admin.drift.status"]}</h2>
+            {status?.ok === false && <ComputeSectionError {...status.error} />}
+            {status?.ok === true && (
+              <>
+                {status.value.reconciliation_paused === true && (
+                  <p class="compute-banner" role="note" data-drift-paused>
+                    {ACCOUNT_COPY["compute_admin.drift.paused"]}
+                  </p>
+                )}
+                <ul class="compute-facts" role="list">
+                  <li>
+                    {status.value.compute_enabled
+                      ? ACCOUNT_COPY["compute_admin.drift.compute_on"]
+                      : ACCOUNT_COPY["compute_admin.drift.compute_off"]}
+                  </li>
+                  <li>
+                    {tapisLine(status.value)}
+                  </li>
+                </ul>
+                <h3 class="compute-section__subtitle">{ACCOUNT_COPY["compute_admin.drift.attention"]}</h3>
+                {attentionLines(status.value.attention).length === 0 ? (
+                  <p class="compute-note">{ACCOUNT_COPY["compute_admin.drift.attention_none"]}</p>
+                ) : (
+                  <ul class="compute-facts" role="list">
+                    {attentionLines(status.value.attention).map((line) => <li>{line}</li>)}
+                  </ul>
+                )}
+              </>
+            )}
+          </section>
+
+          <section class="compute-section" aria-labelledby="drift-unmatched">
+            <h2 class="compute-section__title" id="drift-unmatched">{ACCOUNT_COPY["compute_admin.drift.unmatched"]}</h2>
+            {unmatched?.ok === false && <ComputeSectionError {...unmatched.error} />}
+            {unmatched?.ok === true && unmatched.value.rows.length === 0 && (
+              <div class="admin-empty">
+                <p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.drift.unmatched_none"]}</p>
+                {status?.ok === true && status.value.reconciliation_paused === true && (
+                  <p class="admin-empty__body">{ACCOUNT_COPY["compute_admin.drift.paused"]}</p>
+                )}
+              </div>
+            )}
+            {unmatched?.ok === true && unmatched.value.rows.length > 0 && (
+              <>
+                <p class="compute-note">
+                  {unmatchedSummary(unmatched.value.rows.length, unmatched.value.total)}
+                </p>
+                <div class="compute-table-wrap" role="region" aria-label={ACCOUNT_COPY["compute_admin.drift.unmatched"]} tabindex="0">
+                  <table class="compute-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.slurm"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.partition"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.state"]}</th>
+                        <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.elapsed"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.resources"]}</th>
+                        <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.charged"]}</th>
+                        <th scope="col">{ACCOUNT_COPY["compute_admin.col.ingested"]}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unmatched.value.rows.map((row) => {
+                        const m = unmatchedRowModel(row);
+                        return (
+                          <tr>
+                            <th scope="row" class="mono">{m.slurm}</th>
+                            <td>{m.partition}</td>
+                            <td>{m.state}</td>
+                            <td class="num">{m.elapsed}</td>
+                            <td>{m.resources}</td>
+                            <td class="num">{m.charged}</td>
+                            <td>{m.ingested}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
+
+          <section class="compute-section" aria-labelledby="drift-mismatch">
+            <h2 class="compute-section__title" id="drift-mismatch">{ACCOUNT_COPY["compute_admin.drift.mismatch"]}</h2>
+            {mismatched?.ok === false && <ComputeSectionError {...mismatched.error} />}
+            {mismatched?.ok === true && mismatched.value.jobs.length === 0 && (
+              <div class="admin-empty"><p class="admin-empty__title">{ACCOUNT_COPY["compute_admin.flagged.none"]}</p></div>
+            )}
+            {mismatched?.ok === true && mismatched.value.jobs.length > 0 && (
+              <div class="compute-table-wrap" role="region" aria-label={ACCOUNT_COPY["compute_admin.drift.mismatch"]} tabindex="0">
+                <table class="compute-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{ACCOUNT_COPY["compute_admin.col.job"]}</th>
+                      <th scope="col">{ACCOUNT_COPY["compute_admin.col.account"]}</th>
+                      <th scope="col">{ACCOUNT_COPY["compute_admin.col.state"]}</th>
+                      <th scope="col" class="num">{ACCOUNT_COPY["compute_admin.col.charged"]}</th>
+                      <th scope="col">{ACCOUNT_COPY["compute_admin.col.created"]}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mismatched.value.jobs.map((job) => {
+                      const m = jobRowModel(job);
+                      const badge = jobStateBadge(m.state);
+                      return (
+                        <tr>
+                          <th scope="row" class="mono">{m.id}</th>
+                          <td>{m.account}</td>
+                          <td><ComputePill tone={badge.tone} icon={badge.icon} label={badge.label} /></td>
+                          <td class="num">{m.charged}</td>
+                          <td>{m.created}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p class="compute-pager">
+              <a href={hrefFor({ view: "flagged", flag: "mismatch" })}>
+                {ACCOUNT_COPY["compute_admin.drift.mismatch_more"]}
+              </a>
+            </p>
+          </section>
+
+          <div class="compute-unavailable" role="note">
+            <p class="compute-unavailable__title">{ACCOUNT_COPY["compute_admin.unavailable.title"]}</p>
+            <p>{ACCOUNT_COPY["compute_admin.unavailable.drift_difference"]}</p>
+            <a href={ISSUE_DRIFT} rel="external noopener" target="_blank">
+              {ACCOUNT_COPY["compute_admin.unavailable.link"]} #2084
+            </a>
+          </div>
+        </>
+      )
+    }
+  </div>
+
+  <ComputeDecisionDialog />
+</AdminLayout>
+
+<style>
+  /* Shared admin page vocabulary, in the observability dashboard's family. Duplicated across the
+     admin pages per the scoped-style convention (AGENTS.md); keep them in sync. */
+  .compute-page {
+    display: grid;
+    gap: var(--space-5);
+    min-inline-size: 0;
+  }
+  .admin-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    inline-size: fit-content;
+    max-inline-size: 100%;
+    padding: 2px;
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-3);
+  }
+  .admin-filters__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-block-size: 2.25rem;
+    padding: var(--space-1) var(--space-3);
+    border-radius: 6px;
+    color: var(--color-fg-muted);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+    white-space: nowrap;
+  }
+  .admin-filters__chip:hover {
+    color: var(--color-fg);
+  }
+  .admin-filters__chip--active {
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+    box-shadow:
+      inset 0 -2px 0 var(--admin-accent),
+      var(--admin-shadow-sm),
+      0 0 0 1px var(--color-border);
+  }
+  @media (forced-colors: active) {
+    .admin-filters__chip--active {
+      forced-color-adjust: none;
+      background: Highlight;
+      color: HighlightText;
+    }
+  }
+  .admin-empty {
+    display: grid;
+    gap: var(--space-1);
+    margin: 0;
+    padding: var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    color: var(--color-fg-muted);
+  }
+  .admin-empty__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .admin-empty__body {
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .admin-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-3);
+  }
+  .compute-section {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .compute-section__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .compute-section__subtitle {
+    margin: var(--space-2) 0 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .compute-note {
+    margin: 0;
+    max-inline-size: 70ch;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .compute-banner {
+    margin: 0;
+    background: var(--admin-warn-soft);
+    border: 1px solid color-mix(in srgb, var(--admin-warn) 45%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  .compute-facts {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .compute-unavailable {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-4) var(--space-5);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .compute-unavailable p {
+    margin: 0;
+  }
+  .compute-unavailable__title {
+    font-weight: var(--fw-semibold);
+    color: var(--color-fg);
+  }
+  .compute-unavailable a,
+  .compute-pager a {
+    color: var(--color-link);
+  }
+  .compute-pager {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .compute-pager a {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 2.25rem;
+  }
+  /* A table that is wider than a phone scrolls inside its own region, never the page. */
+  .compute-table-wrap {
+    overflow-x: auto;
+    max-inline-size: 100%;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--admin-surface);
+  }
+  .compute-table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+  }
+  .compute-table th,
+  .compute-table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: start;
+    vertical-align: top;
+    border-block-end: 1px solid var(--color-border);
+    overflow-wrap: anywhere;
+  }
+  .compute-table thead th {
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    color: var(--admin-text-3);
+    background: var(--admin-surface-2);
+    white-space: nowrap;
+  }
+  .compute-table tbody th[scope="row"] {
+    font-weight: var(--fw-medium);
+    color: var(--color-fg);
+  }
+  .compute-table tfoot th,
+  .compute-table tfoot td {
+    font-weight: var(--fw-semibold);
+    border-block-end: 0;
+  }
+  .compute-table .num {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .compute-table .num--negative {
+    color: var(--admin-error-text);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-table .mono {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+  }
+  .compute-table-wrap:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+</style>
+
+<script>
+  import { ACCOUNT_COPY } from "../../lib/account-copy";
+  import { decideComputeAccess, getComputeAccount } from "../../lib/compute-admin-api";
+  import type { ComputeAccessDecision } from "../../lib/compute-admin-contract";
+  import { createDecideFlow } from "../../lib/compute-decide-flow";
+  import { requestRowModel } from "../../lib/compute-admin-view";
+  import {
+    applyRowModel,
+    markRowStale,
+    setRowNote,
+    setRowWorking,
+  } from "../../lib/compute-row-dom";
+
+  const page = document.querySelector<HTMLElement>("[data-compute-page]");
+  if (page) {
+    const viewer = { userId: page.dataset.viewerId ?? "", isOwner: page.dataset.viewerOwner === "1" };
+    const flow = createDecideFlow({
+      decide: (id, decision, reason) => decideComputeAccess(id, decision, reason),
+      reread: (id) => getComputeAccount(id),
+    });
+
+    const rowOf = (id: number): HTMLElement | null =>
+      page.querySelector<HTMLElement>(`[data-compute-row][data-account-id="${id}"]`);
+    const text = (row: HTMLElement, field: string): string =>
+      row.querySelector<HTMLElement>(`[data-field="${field}"]`)?.textContent?.trim() ?? "";
+
+    // One decision in flight page-wide: every decision button is locked while one is out, and
+    // goes back to what it was afterwards.
+    function lockPage(locked: boolean): void {
+      for (const b of page?.querySelectorAll<HTMLButtonElement>("[data-decision]") ?? []) {
+        if (locked) {
+          b.dataset.lockPrior = b.disabled ? "1" : "0";
+          b.disabled = true;
+        } else if (b.dataset.lockPrior !== undefined) {
+          b.disabled = b.dataset.lockPrior === "1";
+          delete b.dataset.lockPrior;
+        }
+      }
+    }
+
+    // A click opens the dialog; it never sends anything.
+    page.addEventListener("click", (event) => {
+      const button = (event.target as Element | null)?.closest<HTMLButtonElement>("[data-decision]");
+      if (!button || button.disabled || flow.busy) return;
+      const id = Number(button.dataset.accountId);
+      const row = rowOf(id);
+      if (!row || !Number.isSafeInteger(id)) return;
+      document.dispatchEvent(
+        new CustomEvent("nemar:compute-decision-open", {
+          detail: {
+            id,
+            decision: button.dataset.decision,
+            label: button.textContent ?? "",
+            subject: {
+              account: `${text(row, "name")} ${text(row, "username")} #${id}`,
+              country: text(row, "country"),
+              affiliation: text(row, "affiliation"),
+            },
+          },
+        }),
+      );
+    });
+
+    document.addEventListener("nemar:compute-decision-confirm", async (event) => {
+      const { id, decision, reason } = (
+        event as CustomEvent<{ id: number; decision: ComputeAccessDecision; reason: string }>
+      ).detail;
+      const row = rowOf(id);
+      if (!row || flow.busy) return;
+      lockPage(true);
+      setRowWorking(row, true, ACCOUNT_COPY["compute_admin.result.working"]);
+      const out = await flow.submit({ id, decision, reason });
+      lockPage(false);
+      setRowWorking(row, false, "");
+      if (out.outcome === "ignored") return;
+      if (out.outcome === "done") {
+        applyRowModel(row, requestRowModel(out.row, viewer));
+        setRowNote(row, [out.note.text, out.note.emailNote ?? ""], "ok");
+      } else {
+        if (out.row) applyRowModel(row, requestRowModel(out.row, viewer));
+        setRowNote(row, [out.note.text], "error");
+        if (out.note.stale || out.rereadFailed || (out.note.reread && out.row === null)) {
+          markRowStale(row);
+        }
+      }
+      row.focus();
+    });
+  }
+</script>

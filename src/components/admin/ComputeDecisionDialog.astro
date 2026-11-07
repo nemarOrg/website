@@ -1,0 +1,389 @@
+---
+/**
+ * The confirmation dialog for one compute-access decision (website ADR 0030; epic
+ * nemarOrg/website#493 phase E4). Not an extension of `ConfirmDialog.astro`, which has a static
+ * body and no reason field and is used by other pages.
+ *
+ * Approval is a person's decision (nemar-cli ADR 0042): one account at a time, no default-focused
+ * confirm button. Opening the dialog focuses Cancel, never the confirm button; Escape and Cancel
+ * close it with no request; focus goes back to the button that opened it. Everything the
+ * administrator reads comes from the copy: the four titles and consequence lists are rendered here
+ * and shown one at a time, and the page script fills only the subject (text nodes).
+ *
+ *  - an optional reason, at most 500 characters counted as UTF-16 code units (the server's
+ *    count), with the line saying it is recorded in the audit log and not sent to the person;
+ *  - for a GRANT only, an unticked acknowledgement that the person's name, affiliation and stated
+ *    country were reviewed against the export-control rules, which keeps the confirm button
+ *    disabled until it is ticked;
+ *  - for a REVOKE only, the word the administrator types to confirm, as on the Users tab.
+ *
+ * Events (the style of `ConfirmDialog.astro`):
+ *   in   `nemar:compute-decision-open`    { id, decision, label, subject: { name, username, country, affiliation } }
+ *   out  `nemar:compute-decision-confirm` { id, decision, reason }
+ */
+import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
+import {
+  COMPUTE_ACCESS_DECISIONS,
+  COMPUTE_ACCESS_REASON_MAX_CHARS,
+} from "../../lib/compute-admin-contract";
+import { REVOKE_CONFIRM_WORD } from "../../lib/compute-admin-view";
+
+const DIALOG_ID = "compute-decision-dialog";
+const TITLES = {
+  grant: ACCOUNT_COPY["compute_admin.dialog.title.grant"],
+  deny: ACCOUNT_COPY["compute_admin.dialog.title.deny"],
+  suspend: ACCOUNT_COPY["compute_admin.dialog.title.suspend"],
+  revoke: ACCOUNT_COPY["compute_admin.dialog.title.revoke"],
+} as const;
+const CONSEQUENCES = {
+  grant: ACCOUNT_COPY["compute_admin.dialog.consequence.grant"],
+  deny: ACCOUNT_COPY["compute_admin.dialog.consequence.deny"],
+  suspend: ACCOUNT_COPY["compute_admin.dialog.consequence.suspend"],
+  revoke: ACCOUNT_COPY["compute_admin.dialog.consequence.revoke"],
+} as const;
+const typeWord = fillCopy(ACCOUNT_COPY["compute_admin.dialog.type_word"], {
+  word: REVOKE_CONFIRM_WORD,
+});
+---
+
+<dialog
+  class="compute-dialog"
+  id={DIALOG_ID}
+  data-compute-dialog
+  data-reason-max={COMPUTE_ACCESS_REASON_MAX_CHARS}
+  data-reason-count-template={ACCOUNT_COPY["compute_admin.dialog.reason_count"]}
+  data-revoke-word={REVOKE_CONFIRM_WORD}
+>
+  <form class="compute-dialog__form" method="dialog" data-compute-form>
+    {
+      COMPUTE_ACCESS_DECISIONS.map((decision) => (
+        <section data-decision-block={decision} hidden>
+          <h2 class="compute-dialog__title" id={`${DIALOG_ID}-title-${decision}`}>
+            {TITLES[decision]}
+          </h2>
+          <p class="compute-dialog__body" id={`${DIALOG_ID}-body-${decision}`}>
+            {CONSEQUENCES[decision]}
+          </p>
+        </section>
+      ))
+    }
+
+    <dl class="compute-dialog__subject">
+      <div>
+        <dt>{ACCOUNT_COPY["compute_admin.col.account"]}</dt>
+        <dd data-subject="account"></dd>
+      </div>
+      <div>
+        <dt>{ACCOUNT_COPY["compute_admin.row.stated_country"]}</dt>
+        <dd class="compute-dialog__country" data-subject="country"></dd>
+      </div>
+      <div>
+        <dt>{ACCOUNT_COPY["compute_admin.row.affiliation"]}</dt>
+        <dd data-subject="affiliation"></dd>
+      </div>
+    </dl>
+
+    <div class="compute-dialog__field">
+      <label for={`${DIALOG_ID}-reason`}>{ACCOUNT_COPY["compute_admin.dialog.reason_label"]}</label>
+      <textarea
+        id={`${DIALOG_ID}-reason`}
+        class="compute-dialog__reason"
+        rows="3"
+        maxlength={COMPUTE_ACCESS_REASON_MAX_CHARS}
+        autocomplete="off"
+        spellcheck="true"
+        aria-describedby={`${DIALOG_ID}-reason-hint ${DIALOG_ID}-reason-count`}
+        data-reason></textarea>
+      <p class="compute-dialog__hint" id={`${DIALOG_ID}-reason-hint`}>
+        {ACCOUNT_COPY["compute_admin.dialog.reason_hint"]}
+      </p>
+      <p class="compute-dialog__hint" id={`${DIALOG_ID}-reason-count`} data-reason-count></p>
+    </div>
+
+    <label class="compute-dialog__check" data-grant-only hidden>
+      <input type="checkbox" data-ack-export />
+      <span>{ACCOUNT_COPY["compute_admin.dialog.ack_export_review"]}</span>
+    </label>
+
+    <label class="compute-dialog__verify" data-revoke-only hidden>
+      <span>{typeWord}</span>
+      <input
+        type="text"
+        class="compute-dialog__verify-input"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        data-revoke-input
+      />
+    </label>
+
+    <div class="compute-dialog__actions">
+      <button type="button" class="compute-dialog__btn" data-cancel>
+        {ACCOUNT_COPY["compute_admin.dialog.cancel"]}
+      </button>
+      <button
+        type="submit"
+        class="compute-dialog__btn compute-dialog__btn--confirm"
+        value="confirm"
+        data-confirm
+        disabled></button>
+    </div>
+  </form>
+</dialog>
+
+<style>
+  .compute-dialog {
+    /* The global reset removes the browser's auto margin that centres a modal <dialog>. */
+    margin: auto;
+    inline-size: min(34rem, calc(100vw - 2 * var(--space-4)));
+    max-block-size: calc(100dvh - 2 * var(--space-4));
+    overflow: auto;
+    padding: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+  .compute-dialog::backdrop {
+    background: rgb(15 23 42 / 55%);
+  }
+  .compute-dialog__form {
+    padding: var(--space-6);
+    display: grid;
+    gap: var(--space-4);
+  }
+  .compute-dialog [hidden] {
+    display: none;
+  }
+  .compute-dialog__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+  }
+  .compute-dialog__body {
+    margin: var(--space-2) 0 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+  }
+  .compute-dialog__subject {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--color-bg-subtle);
+  }
+  .compute-dialog__subject dt {
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .compute-dialog__subject dd {
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .compute-dialog__country {
+    font-weight: var(--fw-semibold);
+  }
+  .compute-dialog__field {
+    display: grid;
+    gap: var(--space-1);
+  }
+  .compute-dialog__field label {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium);
+  }
+  .compute-dialog__reason {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font: inherit;
+    font-size: var(--fs-sm);
+    resize: vertical;
+    min-block-size: 5rem;
+  }
+  .compute-dialog__hint {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .compute-dialog__check {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    font-size: var(--fs-sm);
+  }
+  .compute-dialog__check input {
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    margin-block-start: 2px;
+    flex: none;
+  }
+  .compute-dialog__verify {
+    display: grid;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .compute-dialog__verify-input {
+    padding: 8px var(--space-3);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    min-block-size: 40px;
+  }
+  .compute-dialog :is(button, input, textarea):focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .compute-dialog__actions {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .compute-dialog__btn {
+    min-block-size: 40px;
+    padding: 0 var(--space-5);
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-fg);
+    background: transparent;
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+  .compute-dialog__btn:hover:not(:disabled) {
+    background: var(--color-bg-subtle);
+  }
+  .compute-dialog__btn--confirm {
+    background: var(--color-fg);
+    color: var(--color-bg);
+    border-color: var(--color-fg);
+  }
+  .compute-dialog__btn--confirm:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+  .compute-dialog__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>
+
+<script>
+  import { fillCopy } from "../../lib/account-copy";
+
+  const dialog = document.querySelector<HTMLDialogElement>("[data-compute-dialog]");
+  if (dialog) {
+    const form = dialog.querySelector<HTMLFormElement>("[data-compute-form]");
+    const cancel = dialog.querySelector<HTMLButtonElement>("[data-cancel]");
+    const confirm = dialog.querySelector<HTMLButtonElement>("[data-confirm]");
+    const reason = dialog.querySelector<HTMLTextAreaElement>("[data-reason]");
+    const counter = dialog.querySelector<HTMLElement>("[data-reason-count]");
+    const grantOnly = dialog.querySelector<HTMLElement>("[data-grant-only]");
+    const ack = dialog.querySelector<HTMLInputElement>("[data-ack-export]");
+    const revokeOnly = dialog.querySelector<HTMLElement>("[data-revoke-only]");
+    const revokeInput = dialog.querySelector<HTMLInputElement>("[data-revoke-input]");
+    const blocks = Array.from(dialog.querySelectorAll<HTMLElement>("[data-decision-block]"));
+    const max = Number(dialog.dataset.reasonMax) || 500;
+    const countTemplate = dialog.dataset.reasonCountTemplate ?? "";
+    const revokeWord = dialog.dataset.revokeWord ?? "";
+
+    interface OpenDetail {
+      id: number;
+      decision: string;
+      label: string;
+      subject: { account: string; country: string; affiliation: string };
+    }
+    let current: { id: number; decision: string } | null = null;
+    let opener: HTMLElement | null = null;
+
+    function setSubject(key: string, text: string): void {
+      const el = dialog?.querySelector<HTMLElement>(`[data-subject="${key}"]`);
+      if (el) el.textContent = text;
+    }
+    function syncCount(): void {
+      if (!counter || !reason) return;
+      // `.length` is the UTF-16 length, which is what the server counts.
+      counter.textContent = fillCopy(countTemplate, {
+        count: String(reason.value.length),
+        max: String(max),
+      });
+    }
+    // The confirm button is enabled only when every extra step this decision asks for is done.
+    function syncConfirm(): void {
+      if (!confirm || !current) return;
+      const ackOk = current.decision !== "grant" || ack?.checked === true;
+      const typedOk = current.decision !== "revoke" || revokeInput?.value === revokeWord;
+      confirm.disabled = !(ackOk && typedOk);
+    }
+
+    reason?.addEventListener("input", syncCount);
+    ack?.addEventListener("change", syncConfirm);
+    revokeInput?.addEventListener("input", syncConfirm);
+    cancel?.addEventListener("click", () => dialog.close("cancel"));
+    form?.addEventListener("submit", (e) => {
+      // Enter in the reason field must not submit a disabled confirm.
+      if (confirm?.disabled) e.preventDefault();
+    });
+
+    document.addEventListener("nemar:compute-decision-open", (event) => {
+      const detail = (event as CustomEvent<OpenDetail>).detail;
+      if (!detail || !confirm) return;
+      current = { id: detail.id, decision: detail.decision };
+      opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      for (const block of blocks) {
+        const mine = block.dataset.decisionBlock === detail.decision;
+        block.hidden = !mine;
+        if (mine) {
+          const title = block.querySelector<HTMLElement>("h2");
+          const body = block.querySelector<HTMLElement>("p");
+          if (title) dialog.setAttribute("aria-labelledby", title.id);
+          if (body) dialog.setAttribute("aria-describedby", body.id);
+        }
+      }
+      setSubject("account", detail.subject.account);
+      setSubject("country", detail.subject.country);
+      setSubject("affiliation", detail.subject.affiliation);
+      confirm.textContent = detail.label;
+      if (reason) reason.value = "";
+      if (ack) ack.checked = false;
+      if (revokeInput) revokeInput.value = "";
+      if (grantOnly) grantOnly.hidden = detail.decision !== "grant";
+      if (revokeOnly) revokeOnly.hidden = detail.decision !== "revoke";
+      syncCount();
+      syncConfirm();
+      // An Escape close leaves the last returnValue, so a stale "confirm" would fire on the next
+      // Escape. Start every opening from nothing.
+      dialog.returnValue = "";
+      dialog.showModal();
+      // Never the confirm button: a decision is a person's, one click away from a mistake.
+      cancel?.focus();
+    });
+
+    dialog.addEventListener("close", () => {
+      const confirmed = dialog.returnValue === "confirm" && current !== null;
+      if (confirmed && current && confirm && !confirm.disabled) {
+        document.dispatchEvent(
+          new CustomEvent("nemar:compute-decision-confirm", {
+            detail: {
+              id: current.id,
+              decision: current.decision,
+              reason: reason?.value ?? "",
+            },
+          }),
+        );
+      } else if (opener?.isConnected && !(opener as HTMLButtonElement).disabled) {
+        // Cancel or Escape: back to the button that opened the dialog.
+        opener.focus();
+      }
+      dialog.returnValue = "";
+      current = null;
+    });
+  }
+</script>

@@ -1,0 +1,409 @@
+---
+/**
+ * One account in the admin Compute tab's request list. Layout and CSS mirror `UserAdminRow.astro`
+ * (the scoped-style convention keeps the copies in step by hand).
+ *
+ * EVERYTHING SHOWN HERE IS A TEXT NODE. A name, an affiliation, a country, an ORCID string, a
+ * username, an email and above all the purpose are typed by strangers, so each value arrives
+ * already passed through `displaySafeLine` / `displaySafeBody` by `requestRowModel` and is
+ * rendered with `{expression}`, never `set:html`. The purpose sits in a `dir="auto"`,
+ * `white-space: pre-wrap` block, and never inside a link. When it is longer than the preview, the
+ * whole text is one `<details>` away with no JavaScript. The only links are the Users tab (a
+ * path this site builds from a username) and orcid.org (only for a string shaped like an iD).
+ *
+ * The stated country is the export-control screen, so it is the most prominent field and sits
+ * right above the buttons; the page does not rule on it (the backend serves no country list and
+ * no verdict). Buttons are drawn from the model, and `ComputeDecisionDialog.astro` confirms each.
+ * There is no selection, no bulk action, and no button that decides on a single click.
+ */
+import { ACCOUNT_COPY } from "../../lib/account-copy";
+import type { RequestRowModel } from "../../lib/compute-admin-view";
+import ComputePill from "./ComputePill.astro";
+
+interface Props {
+  model: RequestRowModel;
+}
+
+const { model } = Astro.props;
+const headingId = `compute-row-${model.id}-name`;
+const why = model.actions.find((a) => a.why !== null)?.why ?? null;
+---
+
+<article
+  class="compute-row"
+  data-compute-row
+  data-account-id={model.id}
+  data-compute-state={model.state.word}
+  aria-labelledby={headingId}
+  tabindex="-1"
+>
+  <div class="compute-row__primary">
+    <div class="compute-row__heading">
+      <h3 class="compute-row__name" id={headingId} data-field="name">{model.heading}</h3>
+      <span
+        class:list={["compute-row__username", { "compute-row__username--missing": !model.hasUsername }]}
+        data-field="username">{model.usernameText}</span
+      >
+      <span class="compute-row__id">#{model.id}</span>
+      {model.kindChip && <span class="compute-row__chip">{model.kindChip}</span>}
+    </div>
+    <ComputePill tone={model.state.tone} icon={model.state.icon} label={model.state.label} />
+  </div>
+
+  <p class="compute-row__fact" data-row-granted hidden={model.granted === null}>{model.granted}</p>
+  <p class="compute-row__notice" role="note" data-row-not-notified hidden={!model.notNotified}>
+    {ACCOUNT_COPY["compute_admin.row.not_notified"]}
+  </p>
+
+  <div class="compute-row__screen">
+    <dl class="compute-row__screen-grid">
+      <div>
+        <dt>{ACCOUNT_COPY["compute_admin.row.stated_country"]}</dt>
+        <dd class="compute-row__country" data-field="country">{model.country}</dd>
+      </div>
+      <div>
+        <dt>{ACCOUNT_COPY["compute_admin.row.city"]}</dt>
+        <dd data-field="city">{model.city}</dd>
+      </div>
+      <div>
+        <dt>{ACCOUNT_COPY["compute_admin.row.affiliation"]}</dt>
+        <dd data-field="affiliation">{model.affiliation}</dd>
+      </div>
+    </dl>
+    <p class="compute-row__hint">{ACCOUNT_COPY["compute_admin.row.stated_country_hint"]}</p>
+  </div>
+
+  <dl class="compute-row__meta">
+    <div>
+      <dt>{ACCOUNT_COPY["compute_admin.row.email"]}</dt>
+      <dd>{model.email}</dd>
+    </div>
+    <div>
+      <dt>{ACCOUNT_COPY["compute_admin.row.orcid"]}</dt>
+      <dd>
+        {
+          model.orcid.href ? (
+            <a href={model.orcid.href} rel="external noopener" target="_blank">
+              {model.orcid.text}
+            </a>
+          ) : (
+            model.orcid.text
+          )
+        }
+      </dd>
+    </div>
+    <div>
+      <dt>{ACCOUNT_COPY["compute_admin.row.requested"]}</dt>
+      <dd>
+        {
+          model.requested
+            ? model.requested.relative
+              ? `${model.requested.absolute} (${model.requested.relative})`
+              : model.requested.absolute
+            : ACCOUNT_COPY["compute_admin.row.not_set"]
+        }
+      </dd>
+    </div>
+    <div>
+      <dt>{ACCOUNT_COPY["compute_admin.row.terms"]}</dt>
+      <dd>{model.terms}</dd>
+    </div>
+  </dl>
+
+  <section class="compute-row__purpose" aria-label={ACCOUNT_COPY["compute_admin.row.purpose"]}>
+    <h4 class="compute-row__label">{ACCOUNT_COPY["compute_admin.row.purpose"]}</h4>
+    {
+      model.purpose === null ? (
+        <p class="compute-row__purpose-text">{ACCOUNT_COPY["compute_admin.row.not_set"]}</p>
+      ) : model.purpose.truncated ? (
+        <>
+          <p class="compute-row__purpose-text" dir="auto" data-field="purpose">
+            {model.purpose.preview}
+          </p>
+          <details class="compute-row__more">
+            <summary>{ACCOUNT_COPY["compute_admin.row.show_full_purpose"]}</summary>
+            <p class="compute-row__purpose-text" dir="auto">{model.purpose.full}</p>
+          </details>
+        </>
+      ) : (
+        <p class="compute-row__purpose-text" dir="auto" data-field="purpose">{model.purpose.full}</p>
+      )
+    }
+  </section>
+
+  <p class="compute-row__status" role="status" aria-live="polite" data-row-status hidden></p>
+
+  <footer class="compute-row__actions">
+    <div class="compute-row__buttons" data-row-actions>
+      {
+        model.actions.map((a) => (
+          <button
+            type="button"
+            class={`compute-row__btn compute-row__btn--${a.decision}`}
+            data-decision={a.decision}
+            data-account-id={model.id}
+            disabled={a.disabled}
+            title={a.why ?? undefined}
+          >
+            {a.label}
+          </button>
+        ))
+      }
+    </div>
+    <p class="compute-row__why" data-row-disabled-why hidden={why === null}>{why}</p>
+    {
+      model.usersHref && (
+        <a class="compute-row__link" href={model.usersHref}>
+          {ACCOUNT_COPY["compute_admin.row.open_in_users"]}
+        </a>
+      )
+    }
+  </footer>
+</article>
+
+<style>
+  .compute-row {
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--admin-shadow-sm);
+    padding: var(--space-5);
+    display: grid;
+    gap: var(--space-4);
+    min-inline-size: 0;
+  }
+  .compute-row[hidden],
+  .compute-row [hidden] {
+    display: none;
+  }
+  .compute-row[data-stale="true"] {
+    opacity: 0.7;
+  }
+  .compute-row__primary {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .compute-row__heading {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    min-inline-size: 0;
+  }
+  .compute-row__name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+    letter-spacing: -0.005em;
+    color: var(--color-fg);
+    overflow-wrap: anywhere;
+  }
+  .compute-row__username,
+  .compute-row__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    overflow-wrap: anywhere;
+  }
+  .compute-row__username--missing {
+    color: var(--admin-warn-text);
+    font-style: italic;
+  }
+  .compute-row__chip {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 1.375rem;
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--admin-neutral-soft);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-row__fact {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+  }
+  .compute-row__notice {
+    margin: 0;
+    background: var(--admin-warn-soft);
+    border: 1px solid color-mix(in srgb, var(--admin-warn) 45%, transparent);
+    color: var(--color-fg);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--fs-sm);
+  }
+  /* The export-control screen: the field the decision is about, drawn first and strongest. */
+  .compute-row__screen {
+    border: 1px solid var(--color-border);
+    border-inline-start: 3px solid var(--admin-accent);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface);
+    padding: var(--space-4);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .compute-row__screen-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: 0;
+  }
+  .compute-row__screen-grid > div,
+  .compute-row__meta > div {
+    min-inline-size: 0;
+  }
+  .compute-row dt {
+    font-size: var(--fs-xs);
+    color: var(--admin-text-3);
+    margin-block-end: 2px;
+  }
+  .compute-row dd {
+    margin: 0;
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .compute-row__country {
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-row__hint {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .compute-row__meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+  }
+  .compute-row__meta a {
+    color: var(--color-link);
+  }
+  .compute-row__purpose {
+    display: grid;
+    gap: var(--space-1);
+    background: var(--admin-surface-2);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+  }
+  .compute-row__label {
+    margin: 0;
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-fg-muted);
+  }
+  /* A purpose is a stranger's text: shown as typed, wrapped, never linkified. */
+  .compute-row__purpose-text {
+    margin: 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    color: var(--color-fg);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .compute-row__more summary {
+    cursor: pointer;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    min-block-size: 2rem;
+    display: flex;
+    align-items: center;
+  }
+  .compute-row__status {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--admin-surface-2);
+    box-shadow: inset 3px 0 0 var(--admin-accent);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    display: grid;
+    gap: var(--space-1);
+    overflow-wrap: anywhere;
+  }
+  .compute-row__status[data-tone="ok"] {
+    box-shadow: inset 3px 0 0 var(--admin-ok);
+  }
+  .compute-row__status[data-tone="error"] {
+    box-shadow: inset 3px 0 0 var(--admin-error);
+  }
+  .compute-row__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    border-block-start: 1px solid var(--color-border);
+    padding-block-start: var(--space-3);
+  }
+  .compute-row__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+  .compute-row__why {
+    margin: 0;
+    flex: 1 1 14rem;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-muted);
+  }
+  .compute-row__link {
+    margin-inline-start: auto;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+  }
+  /* Buttons are also built by compute-row-dom.ts after a decision, so they are styled globally
+     from here, under the row. */
+  .compute-row :global(.compute-row__btn) {
+    min-block-size: 36px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--admin-surface);
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+    font-size: var(--fs-sm);
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .compute-row :global(.compute-row__btn:hover:not(:disabled)) {
+    background: var(--admin-surface-2);
+    border-color: var(--admin-control-border);
+  }
+  .compute-row :global(.compute-row__btn:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .compute-row :global(.compute-row__btn--suspend),
+  .compute-row :global(.compute-row__btn--deny) {
+    color: var(--admin-warn-text);
+  }
+  .compute-row :global(.compute-row__btn--revoke) {
+    color: var(--admin-error-text);
+    border-color: color-mix(in srgb, var(--admin-error) 45%, transparent);
+  }
+  .compute-row :global(.compute-row__note-line) {
+    display: block;
+  }
+  @media (max-width: 640px) {
+    .compute-row {
+      padding: var(--space-4);
+    }
+    .compute-row__link {
+      margin-inline-start: 0;
+    }
+  }
+</style>
