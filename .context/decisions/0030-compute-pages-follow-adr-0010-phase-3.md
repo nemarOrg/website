@@ -43,6 +43,14 @@ The field's tag in Settings reads "needed to request compute access" only on a p
    `COMPUTE_REQUESTS_ENABLED` is `false` in the production build while the terms are a held draft, and `computeRequestsOpen` also opens the form against any backend that is not the production API (`PUBLIC_API_BASE_URL`), because those backends take requests whether or not the terms are published.
    It is deliberately not keyed on the dev-server flag: a bare `bun run dev` shows the production-like inert card.
 
+**Hand-off for the follow-up that replaces both interim decisions.**
+nemar-cli phase D2 (PR 2072) serves `GET /compute/me`, whose `access` object carries `state`, `requested_at`, `granted_at`, `terms_version`, `current_terms_version`, `terms_published` and, where it is sent, `requests_open`.
+Once it is merged, one change (not this phase, because the route is not on the branch this phase builds against) reads it server-side in the Settings frontmatter, over `dashboardApiBase` with the visitor's cookie, and then:
+(a) takes the version printed beside the checkbox and sent as `accept_terms_version` from `access.current_terms_version`, which removes `src/lib/compute-terms.ts`, `data-terms-version`'s constant and `test/compute-terms-contract-drift.test.ts` (and its CI sparse-checkout path and variable), and ends the stale-version failure (a baked version after a backend bump gets `terms_not_accepted` with the box checked);
+(b) decides whether the form shows from `access.requests_open` (falling back to `access.terms_published`), which removes `COMPUTE_REQUESTS_ENABLED`, `computeRequestsOpen` and the flag tests; and
+(c) decides what to show when the read fails: the card keeps the state from `/auth/me` and shows no form, never a guess.
+The captured fixtures in `test/fixtures/compute/` gain a `GET /compute/me` capture at that point.
+
 ## Consequences
 
 - A compute sentence is never typed in a page; `test/compute-access-ui.test.ts` fails if one is.
