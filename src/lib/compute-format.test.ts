@@ -68,6 +68,21 @@ describe("formatSu", () => {
   it("throws for a float", () => {
     expect(() => formatSu(0.5)).toThrow(RangeError);
   });
+  it("prints the admin figures exactly: thousandths, a very large pool, a negative balance", () => {
+    expect(formatSu(999)).toBe("0.999");
+    expect(formatSu(1000)).toBe("1");
+    expect(formatSu(12500)).toBe("12.5");
+    expect(formatSu(1001)).toBe("1.001");
+    expect(formatSu(999_940_000)).toBe("999940");
+    expect(formatSu(Number.MAX_SAFE_INTEGER)).toBe("9007199254740.991");
+    expect(formatSu(-10_000)).toBe("-10");
+    expect(formatSu(-1)).toBe("-0.001");
+  });
+  it("refuses NaN, infinity and an amount past the safe range", () => {
+    expect(() => formatSu(Number.NaN)).toThrow(RangeError);
+    expect(() => formatSu(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+    expect(() => formatSu(2 ** 60)).toThrow(RangeError);
+  });
 });
 
 describe("sumMilli", () => {

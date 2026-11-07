@@ -1,0 +1,64 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /admin/compute/jobs?unmatched=1",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "observer_post_status": 200,
+  "list": {
+    "status": 200,
+    "body": {
+      "rows": [
+        {
+          "slurm_job_id": "77001",
+          "partition": "shared",
+          "state": "COMPLETED",
+          "elapsed_seconds": 1800,
+          "alloc_nodes": 1,
+          "alloc_cpus": 4,
+          "alloc_gpus": 0,
+          "charged_milli": null,
+          "ingested_at": "2026-11-06 12:00:00"
+        },
+        {
+          "slurm_job_id": "77002",
+          "partition": "shared",
+          "state": "FAILED",
+          "elapsed_seconds": 90,
+          "alloc_nodes": 1,
+          "alloc_cpus": 4,
+          "alloc_gpus": 0,
+          "charged_milli": null,
+          "ingested_at": "2026-11-06 12:00:00"
+        }
+      ],
+      "total": 2
+    }
+  },
+  "limited": {
+    "status": 200,
+    "body": {
+      "rows": [
+        {
+          "slurm_job_id": "77001",
+          "partition": "shared",
+          "state": "COMPLETED",
+          "elapsed_seconds": 1800,
+          "alloc_nodes": 1,
+          "alloc_cpus": 4,
+          "alloc_gpus": 0,
+          "charged_milli": null,
+          "ingested_at": "2026-11-06 12:00:00"
+        }
+      ],
+      "total": 2
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

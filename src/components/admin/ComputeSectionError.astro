@@ -1,0 +1,60 @@
+---
+/**
+ * The notice for one failed read on the admin Compute tab: what could not be loaded and why, in
+ * the backend's own words. A failed read is never drawn as an empty section, because "nothing
+ * here" and "could not ask" are different facts. Same visual family as `SectionErrorNotice.astro`
+ * (a solid card with an error rule), which is typed to the observability record and so is not
+ * bent to fit. Server-rendered with the page, so it carries no live-region role.
+ */
+import { ACCOUNT_COPY, fillCopy } from "../../lib/account-copy";
+import { displaySafeLine } from "../../lib/mail-display";
+import StatusIcon from "./StatusIcon.astro";
+
+interface Props {
+  /** What failed, as a noun phrase the copy composes into a sentence. */
+  what: string;
+  /** The reason as text (the backend's sentence or a transport word). */
+  reason: string;
+}
+
+const { what, reason } = Astro.props;
+const text = fillCopy(ACCOUNT_COPY["compute_admin.section.failed"], {
+  what,
+  reason: displaySafeLine(reason),
+});
+---
+
+<div class="compute-section-error" data-compute-section-error>
+  <StatusIcon name="error" size={18} class="compute-section-error__icon" />
+  <p class="compute-section-error__text">{text}</p>
+</div>
+
+<style>
+  .compute-section-error {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    margin: 0;
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg);
+    font-size: var(--fs-sm);
+  }
+  .compute-section-error :global(.compute-section-error__icon) {
+    margin-block-start: 2px;
+    color: var(--admin-error-text);
+  }
+  .compute-section-error__text {
+    margin: 0;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  @media (forced-colors: active) {
+    .compute-section-error {
+      border-inline-start: 3px solid CanvasText;
+    }
+  }
+</style>

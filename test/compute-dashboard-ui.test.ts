@@ -24,7 +24,13 @@ const libs = import.meta.glob("/src/lib/compute-*.ts", {
   import: "default",
   eager: true,
 }) as Record<string, string>;
-const LIB_FILES = Object.entries(libs).filter(([name]) => !name.endsWith(".test.ts"));
+// The admin Compute tab's libs are guarded by `compute-admin-ui.test.ts`; this file guards the person's
+// dashboard. The admin client throttles its badge warning by the clock, which the window rule below
+// forbids for the dashboard.
+const ADMIN_LIBS = /\/compute-(admin-|decide-flow|row-dom)/;
+const LIB_FILES = Object.entries(libs).filter(
+  ([name]) => !name.endsWith(".test.ts") && !ADMIN_LIBS.test(name),
+);
 
 const COMPONENTS: Record<string, string> = {
   "ComputeAccessPanel.astro": ACCESS_PANEL,
