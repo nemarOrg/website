@@ -75,3 +75,22 @@ A second browser profile on the same host shares cookies; use `http://127.0.0.1:
 The script fails loudly at the first thing it cannot do (a missing `NEMAR_CLI_DIR`, a missing
 `backend/node_modules`, a migration the checkout does not have). Do not substitute a mock backend:
 fix the checkout, or escalate with the error.
+
+## The admin Compute tab (website#497)
+
+The script also seeds the admin Compute tab's world: sign in as `owner` (an owner) or `adminself`
+(a non-owner administrator whose own compute request is open) and open `/admin/compute`. It seeds
+a queue of people who asked (varied countries, one purpose full of markup, a service account, an
+account with no name or affiliation), sets a non-zero owner default allocation through the real
+`PUT /admin/compute/policy`, and posts two scheduler accounting rows no job claims through the real
+observer route under a really minted run token.
+
+`LOCAL_BACKEND_JOBS=1` runs on the backend's lifecycle fixture (Miniflare's R2 and the Tapis
+stand-in, no tenant) and also makes jobs through the real services, flagged with the same
+`UPDATE compute_jobs SET flag_... = 1` the backend's own reporting test uses. No real path
+produces a flag without a live tenant.
+
+Worked on 2026-11-07. Differences from production: the compute switch reads `off` here (it needs the
+exact production environment), so Reconciliation shows its paused banner; no mail is sent, so a
+decision answers `email_sent: false` and the row says the person could not be emailed. Browser
+windows cannot be narrower than about 600 px in the Chrome tools; check 375 px in devtools.

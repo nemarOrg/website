@@ -12,6 +12,17 @@ Branch `feature/issue-495-compute-dashboard`, PR into the epic branch. ADR 0030 
 - **Release gate:** do not promote until the production API serves `GET /compute/me`; a site talking to an API without it shows one "not available" notice.
 - **Follow-ups:** a usage window selector, a `?state=` filter, the ADR 0030 hand-off (drop `compute-terms.ts` and `COMPUTE_REQUESTS_ENABLED`), the job page (E3). Backend gaps: nemar-cli#2078 (pool as a usage group), #2079 (job name), #2080 (are new jobs accepted).
 
+## 2026-11-07: Admin Compute tab (website#497, epic website#493 phase E4)
+
+Branch `feature/issue-497-admin-compute-tab`, PR into the epic branch (not `staging`). ADR 0030. Page `/admin/compute`, tab after Mail.
+
+- **Served:** Requests with grant, deny, suspend, revoke by id (Grant needs an unticked-by-default export-review acknowledgement, Revoke a typed word, nothing is focused but Cancel); read-only Pools, Usage (the quarterly counts), Flagged jobs (one flag per read) and Reconciliation (status, unmatched accounting rows, mismatch jobs).
+- **Not served, by decision:** policy, move-charge, pool grants and adjustments, job cancel and advance (the lede points to the CLI). **Not served by the backend:** platform SU by day (nemar-cli#2083), the ledger-versus-scheduler difference and its tolerance (#2084); also asked for: a count and an order option (#2085), last decision and standing on the access row (#2086), single-account read (#2088). Copy keys: #2087.
+- **Copy:** 141 `compute_admin.*` keys added to nemar-cli `shared/contract/account-copy.ts` (small PR into the Epic D branch) and transcribed here, with new placeholder names the nemar-cli parity test declares. The parity pair is red in nemar-cli CI until the website keys reach `dev`.
+- **Gates:** `test/compute-admin-contract-drift.test.ts` is strict in CI (`NEMAR_CLI_COMPUTE_ADMIN_CONTRACT`) and red until the compute epic is on nemar-cli `dev`; locally pass `NEMAR_CLI_COMPUTE_ADMIN_CONTRACT=<checkout>/shared/contract/compute-admin.ts`.
+- **Fixtures:** `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-admin-fixtures.mjs` (needs `bun install` at the checkout root and in `backend/`). Local browser world: `.context/local-backend.md`.
+- **The badge** is the length of the first page of the `requested` listing (`200+` when more), one more API call per admin render, 2 s deadline, fail-soft.
+
 ## 2026-11-06: Compute access card in Settings (website#494, epic website#493 phase E1)
 
 Branch `feature/issue-494-compute-access-card`, PR into the epic branch `feature/issue-493-epic-compute-web` (not `staging`). ADR 0030.
