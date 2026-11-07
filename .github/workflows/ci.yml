@@ -119,12 +119,17 @@ jobs:
       # test/oidc-authorize-contract-drift.test.ts is a SEVENTH, against
       # shared/contract/oidc-authorize.ts (the authorization endpoint's routes, answer kinds, codes
       # and reasons) and shared/oidc.ts beside it (the page's path). Same `dev` pairing, and strict.
+      # test/compute-terms-contract-drift.test.ts is an EIGHTH, against shared/contract/compute-terms.ts:
+      # the compute terms version a request must name (website ADR 0030, interim until phase D2's
+      # GET /compute/me serves it). Same `dev` pairing, strict, and red until the compute epic
+      # reaches nemar-cli `dev`; the ref stays `dev`.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
           path: nemar-cli-contract
           sparse-checkout: |
             /shared/contract/account-copy.ts
+            /shared/contract/compute-terms.ts
             /shared/contract/docs-auth.ts
             /shared/contract/mail-admin.ts
             /shared/contract/oidc-authorize.ts
@@ -139,6 +144,7 @@ jobs:
         run: bun run test
         env:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
+          NEMAR_CLI_COMPUTE_ACCESS_CONTRACT: nemar-cli-contract/shared/contract/compute-terms.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
           NEMAR_CLI_MAIL_ADMIN_CONTRACT: nemar-cli-contract/shared/contract/mail-admin.ts
           NEMAR_CLI_OIDC_AUTHORIZE_CONTRACT: nemar-cli-contract/shared/contract/oidc-authorize.ts

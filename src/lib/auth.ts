@@ -7,6 +7,7 @@
 // Type-only, so this stays a leaf module at runtime: `profile-gaps.ts`
 // describes its own account shape structurally rather than importing
 // `AuthUser`, and nothing here imports it back.
+import type { ComputeAccessState } from "./compute-access-state";
 import type { WireProfileGap } from "./profile-gaps";
 
 export interface AuthUser {
@@ -99,6 +100,19 @@ export interface AuthUser {
    * chose its own handle, or a backend that predates the assignment.
    */
   readonly username_auto_assigned?: boolean;
+  /**
+   * Compute access (nemar-cli ADR 0118, epic #2021 phase D1): a grant of its
+   * own, never derived from {@link AuthUser.service_access}. **Never
+   * defaulted.** Absent means the backend cannot say (an older backend, or a
+   * value this build does not know), and the Settings card renders nothing
+   * rather than "Not requested", which would invite a request that will be
+   * refused. `parseAuthMeResponse` drops a state outside the closed six.
+   */
+  readonly compute_access?: ComputeAccessState;
+  /** When the request was made; kept as history, so it can sit beside a later state. */
+  readonly compute_access_requested_at?: string;
+  /** When an administrator granted it; kept as history, like the stamp above. */
+  readonly compute_access_granted_at?: string;
 }
 
 /**
