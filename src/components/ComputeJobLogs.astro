@@ -1,0 +1,64 @@
+---
+/**
+ * The Log section of a job page (website ADR 0030 phase E3, #496). Nothing is read at page load: a log
+ * read can be a cluster read, so "Show log" asks for it. The text is the job's own output and is
+ * attacker-controlled: it is prepared by `src/lib/compute-logs.ts` (formatting removed, hostile
+ * characters written out, long lines capped) and set as `textContent` of the one `<pre>` by
+ * `src/lib/compute-job-page.ts`. The backend returns the FIRST 1 MiB only (nemar-cli#2094 asks for a
+ * tail), so a cut log says so and points at the command line.
+ */
+import { JOB_COPY } from "../lib/compute-copy";
+
+interface Props {
+  jobId: string;
+}
+const { jobId } = Astro.props;
+const L = JOB_COPY.logs;
+---
+
+<div class="compute-job-logs">
+  <p class="compute-job__actions">
+    <button type="button" class="compute-job__btn" data-logs-show>{L.show}</button>
+  </p>
+  <p class="compute-job__line" role="status" data-logs-status hidden></p>
+  <p class="compute-job__line" data-logs-ended-note hidden>{L.ended}</p>
+  <div class="compute-job-logs__scroll" tabindex="0" role="region" aria-label={L.region} data-logs-region hidden>
+    <pre class="compute-job-logs__pre" dir="ltr" data-logs-pre></pre>
+  </div>
+  <p class="compute-job__line" data-logs-count hidden></p>
+  <p class="compute-job__actions">
+    <button type="button" class="compute-job__btn" data-logs-earlier hidden>{L.earlier}</button>
+  </p>
+  <p class="compute-job__line" data-logs-truncated hidden>
+    {L.truncatedLead}<code>nemar compute logs {jobId}</code>{L.truncatedTail}
+  </p>
+</div>
+
+<style is:global>
+  .compute-job-logs {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .compute-job-logs__scroll {
+    max-block-size: 28rem;
+    overflow: auto;
+    max-inline-size: 100%;
+    background: var(--admin-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+  .compute-job-logs__scroll:not([hidden]) {
+    display: block;
+  }
+  .compute-job-logs__pre {
+    margin: 0;
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    line-height: var(--lh-relaxed);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--color-fg);
+  }
+</style>

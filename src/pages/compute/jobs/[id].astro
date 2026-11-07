@@ -1,0 +1,395 @@
+---
+/**
+ * `/compute/jobs/<id>`: one job of the signed-in person, its state as it changes, its resources and
+ * charge, its log on request, its result links on request (renewable) and a cancel for a live job
+ * (website ADR 0030 phase E3; epic nemarOrg/website#493, issue #496). App host only. This is the page
+ * the "results ready" email links to (`computeJobPageUrl` in nemar-cli), so it must be safe to open from
+ * a mail client: the server-rendered HTML names no result and carries no link.
+ *
+ * Order matters here, and `test/compute-job-ui.test.ts` pins it:
+ *  1. `Cache-Control: private, no-store` and `Referrer-Policy: no-referrer` are set BEFORE any return,
+ *     so the 404 and the notices carry them too (ADR 0021 keeps a page-set no-referrer);
+ *  2. a signed-out visitor goes to login with `next=` this path;
+ *  3. an id that is not `job_` and 24 hex digits is the SAME 404 as an unknown one, without calling the
+ *     API; a job that is absent or somebody else's is that 404 too, so the page is no oracle;
+ *  4. the job is read over the service binding with the visitor's cookie;
+ *  5. only for a finished job, `GET /compute/me` for `limits.results_days` (its own try/catch: a failure
+ *     degrades one line to "kept for a limited time" and never blocks the page).
+ * This frontmatter never imports the log or result clients: viewing a job mints nothing.
+ */
+import ComputeBadge from "../../../components/ComputeBadge.astro";
+import ComputeJobActions from "../../../components/ComputeJobActions.astro";
+import ComputeJobLogs from "../../../components/ComputeJobLogs.astro";
+import ComputeJobResults from "../../../components/ComputeJobResults.astro";
+import ComputeJobTimeline from "../../../components/ComputeJobTimeline.astro";
+import ComputePanel from "../../../components/ComputePanel.astro";
+import ComputePanelNotice from "../../../components/ComputePanelNotice.astro";
+import Base from "../../../layouts/Base.astro";
+import { apiFetch } from "../../../lib/api-fetch";
+import { getSession } from "../../../lib/auth";
+import {
+  ComputeApiError,
+  type ComputeInit,
+  type ComputeJobRead,
+  getComputeJob,
+  getComputeMe,
+} from "../../../lib/compute-api";
+import { COMPUTE_JOB_ID_RE } from "../../../lib/compute-contract";
+import { JOB_COPY } from "../../../lib/compute-copy";
+import { nowMs } from "../../../lib/compute-job-live";
+import { jobDetailView, resultsPanelView } from "../../../lib/compute-job-view";
+import { COMPUTE_LABELS } from "../../../lib/compute-labels";
+import { noticeFor } from "../../../lib/compute-view";
+
+// 1. Before any return.
+Astro.response.headers.set("Cache-Control", "private, no-store");
+Astro.response.headers.set("Referrer-Policy", "no-referrer");
+
+const id = Astro.params.id ?? "";
+const path = `/compute/jobs/${id}`;
+
+// 2. Signed out: login, then back here.
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent(path)}`);
+}
+
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const init: ComputeInit = { cookieHeader, fetch: apiFetch };
+
+type Outcome =
+  | { kind: "ok"; read: ComputeJobRead }
+  | { kind: "not_found" }
+  | { kind: "not_available" }
+  | { kind: "account"; sentence: string | null }
+  | { kind: "failed"; error: unknown };
+
+// 3 and 4.
+let outcome: Outcome;
+if (!COMPUTE_JOB_ID_RE.test(id)) {
+  outcome = { kind: "not_found" };
+} else {
+  try {
+    outcome = { kind: "ok", read: await getComputeJob(id, init) };
+  } catch (error) {
+    console.error(
+      `[compute-job] read failed: ${error instanceof ComputeApiError ? `${error.kind} ${error.status}` : String(error)}`,
+    );
+    if (error instanceof ComputeApiError && error.code === "job_not_found") {
+      outcome = { kind: "not_found" };
+    } else if (error instanceof ComputeApiError && error.kind === "session") {
+      return Astro.redirect(`/login?next=${encodeURIComponent(path)}`);
+    } else if (error instanceof ComputeApiError && error.kind === "account") {
+      outcome = { kind: "account", sentence: error.sentence ?? null };
+    } else if (
+      error instanceof ComputeApiError &&
+      error.kind === "unavailable" &&
+      error.status === 404
+    ) {
+      // A 404 with no job_not_found code is the release gate: an API without the compute routes.
+      outcome = { kind: "not_available" };
+    } else {
+      outcome = { kind: "failed", error };
+    }
+  }
+}
+if (outcome.kind === "not_found") Astro.response.status = 404;
+
+// 5. The retention policy, only for a finished job.
+let resultsDays: number | null = null;
+if (outcome.kind === "ok" && outcome.read.job.state === "finished") {
+  try {
+    resultsDays = (await getComputeMe(init)).resultsDays;
+  } catch (error) {
+    console.error(
+      `[compute-job] policy read failed: ${error instanceof ComputeApiError ? `${error.kind} ${error.status}` : String(error)}`,
+    );
+  }
+}
+
+const view = outcome.kind === "ok" ? jobDetailView(outcome.read) : null;
+const results =
+  outcome.kind === "ok"
+    ? resultsPanelView({
+        state: outcome.read.job.state,
+        endedAt: outcome.read.job.ended_at,
+        resultsDays,
+        nowMs: nowMs(),
+      })
+    : null;
+const source = outcome.kind === "ok" ? outcome.read.job.source : "";
+const L = JOB_COPY;
+---
+
+<Base title={L.pageTitle} description={L.pageDescription}>
+  <section class="compute-shell compute-job">
+    <p class="compute-job__back"><a href="/compute">{L.back}</a></p>
+
+    {outcome.kind === "not_found" && (
+      <div class="compute-job__notfound" role="note">
+        <h1 class="compute-job__title">{L.notFoundTitle}</h1>
+        <p class="compute-job__line">{L.notFoundBody}</p>
+      </div>
+    )}
+
+    {outcome.kind === "not_available" && (
+      <div class="compute-job__unavailable" role="note">
+        <h1 class="compute-job__title">{L.notAvailableTitle}</h1>
+        <p class="compute-job__line">{L.notAvailableBody}</p>
+      </div>
+    )}
+
+    {outcome.kind === "account" && (
+      <div class="compute-job__unavailable" role="note">
+        <h1 class="compute-job__title">{L.pageTitle}</h1>
+        <p class="compute-job__line">{COMPUTE_LABELS.access.forbidden}</p>
+        {outcome.sentence && <p class="compute-job__line">{outcome.sentence}</p>}
+      </div>
+    )}
+
+    {outcome.kind === "failed" && (
+      <>
+        <h1 class="compute-job__title">{L.pageTitle}</h1>
+        <ComputePanelNotice notice={noticeFor(L.loadFailedTitle, outcome.error)} retryHref={path} />
+      </>
+    )}
+
+    {view && results && outcome.kind === "ok" && (
+      <div
+        data-job-root
+        data-job-id={outcome.read.job.id}
+        data-source={source}
+        data-state={view.state}
+        data-cancel-requested={String(view.cancelRequested)}
+        data-live={String(view.live)}
+        data-results-days={resultsDays ?? undefined}
+      >
+        <header class="compute-job__header">
+          <h1 class="compute-job__title">
+            {L.jobHeading} <code class="compute-job__id" data-job-id-text>{view.id}</code>
+          </h1>
+          {view.title && <p class="compute-job__line compute-job__name">{view.title}</p>}
+          <p class="compute-job__meta">
+            <span>{L.app}: {view.app} <span class="compute-job__muted">{view.appVersion}</span></span>
+            <span>{L.frontDoor}: {view.frontDoor}</span>
+          </p>
+          <p class="compute-job__state">
+            <span data-job-badge>
+              <ComputeBadge label={view.badge.label} tone={view.badge.tone} icon={view.badge.icon} />
+            </span>
+            <span class="compute-job__cancelnote" data-job-cancel-note hidden={!view.cancelRequested}>{L.cancel.requested}</span>
+          </p>
+          <p class="compute-job__line compute-job__stale" role="note" data-job-stale hidden={!view.stale}>{L.stale}</p>
+          <p class="compute-job__line" data-job-unreported hidden={view.unreportedNote === null}>{view.unreportedNote}</p>
+          <p class="compute-job__line compute-job__paused" role="status" data-job-paused hidden>
+            <span data-job-paused-text>{L.live.paused}</span>
+            <button type="button" class="compute-job__btn" data-job-resume>{L.live.refresh}</button>
+            <a class="compute-job__signin" data-job-signin href={`/login?next=${encodeURIComponent(path)}`} hidden>{L.signIn}</a>
+          </p>
+          <p class="visually-hidden" aria-live="polite" data-job-announce></p>
+        </header>
+
+        <ComputePanel id="status" title={L.sections.status}>
+          <ComputeJobTimeline view={view} />
+        </ComputePanel>
+
+        <ComputePanel id="resources" title={L.sections.resources}>
+          <dl class="compute-job-rows" data-job-rows>
+            {view.rows.map((row) => (
+              <div class="compute-job-row" data-row={row.key}>
+                <dt class="compute-job-row__label">{row.label}</dt>
+                <dd class="compute-job-row__value">
+                  {row.time ? <time datetime={row.time.iso ?? undefined} title={row.time.title}>{row.value}</time> : row.value}
+                </dd>
+              </div>
+            ))}
+            <div class="compute-job-row" data-row="charged">
+              <dt class="compute-job-row__label">{L.rows.charged}</dt>
+              <dd class="compute-job-row__value" data-charge-kind={view.charge.kind}>{view.charge.text}</dd>
+            </div>
+          </dl>
+          <p class="compute-job__line" data-job-units-note>{view.unitsNote}</p>
+        </ComputePanel>
+
+        <div data-job-failure hidden={view.failure === null}>
+          <ComputePanel id="failure" title={L.sections.failure}>
+            <div class="compute-job-failure" data-job-failure-body>
+              {view.failure && (
+                <>
+                  <p class="compute-job-failure__sentence">{view.failure.sentence}</p>
+                  {view.failure.logHint && (
+                    <p class="compute-job-failure__hint">{view.failure.logHint.lead}<code>{view.failure.logHint.command}</code>.</p>
+                  )}
+                  <p class="compute-job-failure__code">Code: {view.failure.code}</p>
+                </>
+              )}
+            </div>
+          </ComputePanel>
+        </div>
+
+        <ComputePanel id="logs" title={L.sections.logs}>
+          <ComputeJobLogs jobId={outcome.read.job.id} />
+        </ComputePanel>
+
+        <ComputePanel id="results" title={L.sections.results}>
+          <ComputeJobResults jobId={outcome.read.job.id} panel={results} />
+        </ComputePanel>
+
+        <ComputePanel id="actions" title={L.sections.actions}>
+          <ComputeJobActions canCancel={view.canCancel} />
+        </ComputePanel>
+      </div>
+    )}
+  </section>
+</Base>
+
+<script>
+  import { initJobPage } from "../../../lib/compute-job-page";
+
+  const root = document.querySelector<HTMLElement>("[data-job-root]");
+  if (root) initJobPage(root);
+</script>
+
+<style is:global>
+  .compute-job {
+    max-inline-size: 64rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .compute-job [data-job-root] {
+    display: grid;
+    gap: var(--space-6);
+    min-inline-size: 0;
+  }
+  .compute-job__back {
+    margin: 0;
+    font-size: var(--fs-sm);
+  }
+  .compute-job__back a,
+  .compute-job__signin {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-job__header {
+    display: grid;
+    gap: var(--space-2);
+    min-inline-size: 0;
+  }
+  .compute-job__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .compute-job__id {
+    font-family: var(--font-mono);
+    font-size: var(--fs-lg);
+  }
+  .compute-job__meta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .compute-job__muted {
+    color: var(--color-fg-muted);
+  }
+  .compute-job__state {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .compute-job__cancelnote {
+    color: var(--admin-warn-text);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-job__line {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    overflow-wrap: anywhere;
+  }
+  .compute-job__line code {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+  }
+  .compute-job__line[data-job-stale]:not([hidden]),
+  .compute-job__paused:not([hidden]) {
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-warn);
+    color: var(--color-fg);
+  }
+  .compute-job__paused:not([hidden]) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .compute-job__actions {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+  }
+  .compute-job__btn {
+    min-block-size: 44px;
+    padding: 0 var(--space-4);
+    background: var(--color-bg-elevated);
+    color: var(--color-link);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    cursor: pointer;
+  }
+  .compute-job__btn:disabled {
+    color: var(--color-fg-muted);
+    cursor: default;
+  }
+  .compute-job__btn--danger {
+    color: var(--admin-error-text);
+    border-color: var(--admin-error);
+  }
+  .compute-job__notfound,
+  .compute-job__unavailable {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-inline-start: 3px solid var(--admin-warn);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    gap: var(--space-2);
+  }
+  .compute-job-failure {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .compute-job-failure p {
+    margin: 0;
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+  }
+  .compute-job-failure__code,
+  .compute-job-failure__hint {
+    color: var(--color-fg-muted);
+  }
+  .compute-job-failure code {
+    font-family: var(--font-mono);
+  }
+  .compute-job [hidden] {
+    display: none !important;
+  }
+</style>

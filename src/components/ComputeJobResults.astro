@@ -1,0 +1,111 @@
+---
+/**
+ * The Results section of a job page (website ADR 0030 phase E3, #496).
+ *
+ * Viewing the page mints NOTHING and the server-rendered HTML carries no link: the download links are
+ * seven-day BEARER links, minted by the backend only when "Get download links" (or "Renew links") is
+ * pressed, written into this section by `src/lib/compute-job-page.ts` as `href` attributes with
+ * `rel="noopener noreferrer"`, and never stored, logged, copied or put in a URL. The backend's own
+ * `notice` about keeping them private is shown as served.
+ */
+import { JOB_COPY } from "../lib/compute-copy";
+import type { ResultsPanelView } from "../lib/compute-job-view";
+
+interface Props {
+  jobId: string;
+  panel: ResultsPanelView;
+}
+const { jobId, panel } = Astro.props;
+const L = JOB_COPY.results;
+---
+
+<div class="compute-job-results">
+  <p class="compute-job__line" data-results-headline data-until-iso={panel.window.untilIso ?? undefined}>{panel.headline}</p>
+  <p class="compute-job__actions">
+    <button type="button" class="compute-job__btn" data-results-get hidden={!panel.canGetLinks}>{L.get}</button>
+  </p>
+  <p class="compute-job__line" role="status" data-results-status hidden></p>
+  <div class="compute-job-results__panel" data-results-panel hidden>
+    <p class="compute-job__line" data-results-summary></p>
+    <p class="compute-job__line" data-results-notice></p>
+    <p class="compute-job__line" data-results-expiry></p>
+    <p class="compute-job__line" data-results-outlive hidden>{L.mayOutlive}</p>
+    <ul class="compute-job-results__list" tabindex="0" role="region" aria-label={L.region} data-results-list></ul>
+    <p class="compute-job__actions">
+      <button type="button" class="compute-job__btn" data-results-more hidden></button>
+      <button type="button" class="compute-job__btn" data-results-next hidden></button>
+      <button type="button" class="compute-job__btn" data-results-first hidden>{L.firstPage}</button>
+      <button type="button" class="compute-job__btn" data-results-renew>{L.renew}</button>
+    </p>
+  </div>
+  <p class="compute-job__line" data-results-cli>
+    {L.allLead}<code>nemar compute results {jobId} --download &lt;dir&gt;</code>{L.allTail}
+  </p>
+</div>
+
+<style is:global>
+  .compute-job-results {
+    display: grid;
+    gap: var(--space-3);
+    min-inline-size: 0;
+  }
+  .compute-job-results__panel:not([hidden]) {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .compute-job-results__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-block-size: 28rem;
+    overflow: auto;
+    max-inline-size: 100%;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+  }
+  .compute-job-results__list:empty {
+    display: none;
+  }
+  .compute-job-result {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-2) var(--space-3);
+    border-block-end: 1px solid var(--color-border);
+    font-size: var(--fs-sm);
+  }
+  .compute-job-result:last-child {
+    border-block-end: 0;
+  }
+  .compute-job-result__path {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    overflow-wrap: anywhere;
+  }
+  .compute-job-result__meta {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .compute-job-result__link {
+    min-block-size: 44px;
+    min-inline-size: 44px;
+    display: inline-flex;
+    align-items: center;
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-job-result__none {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+  }
+  /* Phone: path over size and checksum over the link. */
+  @media (max-width: 639px) {
+    .compute-job-result {
+      grid-template-columns: minmax(0, 1fr);
+      gap: var(--space-1);
+    }
+  }
+</style>
