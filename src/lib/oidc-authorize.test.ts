@@ -25,7 +25,9 @@ import {
   OIDC_SCOPE_COPY,
   type OidcAuthorizeOutcome,
   authorizeInputFromForm,
+  OIDC_CONSENT_FORM_FIELDS,
   authorizeInputFromQuery,
+  crossSiteInputGate,
   consentView,
   errorPanelView,
   isFormActionOrigin,
@@ -39,6 +41,8 @@ import {
   rulePanelView,
   usableLocation,
 } from "./oidc-authorize";
+import * as oidc from "./oidc-authorize";
+import SOURCE from "./oidc-authorize.ts?raw";
 import { isOsaWidgetExcludedPath } from "./osa-widget";
 
 const ORIGIN = "https://app.nemar.org";
@@ -708,5 +712,44 @@ describe("a POST from another site (OpenID Connect Core 3.1.2.1; nemarOrg/websit
     expect(back.kind).toBe("check");
     if (back.kind !== "check") return;
     expect([...new URLSearchParams(back.request)]).toEqual([...new URLSearchParams(REQUEST)]);
+  });
+});
+
+describe("the cross-site refusal cannot drift from the parser", () => {
+  it("names every field authorizeInputFromForm reads", () => {
+    // The parser's own source: every OIDC_FORM_* constant it mentions must be in the refusal set.
+    const start = SOURCE.indexOf("export function authorizeInputFromForm");
+    const end = SOURCE.indexOf("\n}\n", start);
+    expect(start).toBeGreaterThan(-1);
+    const read = new Set(SOURCE.slice(start, end).match(/OIDC_FORM_[A-Z_]+/g) ?? []);
+    expect(read.size).toBeGreaterThanOrEqual(3);
+    const values = [...read].map((name) => (oidc as Record<string, unknown>)[name]);
+    for (const value of values) expect(typeof value).toBe("string");
+    expect([...OIDC_CONSENT_FORM_FIELDS].sort()).toEqual((values as string[]).sort());
+  });
+
+  it("refuses a body naming any one of those fields, alone, cross-site", () => {
+    for (const name of OIDC_CONSENT_FORM_FIELDS) {
+      const body = `${REQUEST}&${name}=x`;
+      expect(crossSiteInputGate(authorizeInputFromForm(body), body), name).toEqual({
+        kind: "forbidden",
+      });
+    }
+  });
+
+  it("refuses anything the parser reads as other than a plain authorization request, whatever the body names", () => {
+    const consent = {
+      kind: "consent",
+      request: REQUEST,
+      consentToken: "t",
+      decision: "allow",
+    } as const;
+    // A hypothetical new consent field: the parser would read it, the field list has not heard of it.
+    expect(crossSiteInputGate(consent, "brand_new_field=1")).toEqual({ kind: "forbidden" });
+    expect(crossSiteInputGate({ kind: "invalid" }, "")).toEqual({ kind: "forbidden" });
+    expect(crossSiteInputGate({ kind: "check", request: REQUEST }, REQUEST)).toEqual({
+      kind: "check",
+      request: REQUEST,
+    });
   });
 });

@@ -237,12 +237,34 @@ async function boundedText(request: Request, max: number): Promise<string | null
   return new TextDecoder().decode(bytes);
 }
 
+/**
+ * Every field the consent form carries and {@link authorizeInputFromForm} reads. One list, used by
+ * the refusal below and held to the parser by a test that reads the parser's source, so a field
+ * added to one and not the other fails a test instead of opening a gap.
+ */
+export const OIDC_CONSENT_FORM_FIELDS = [
+  OIDC_FORM_REQUEST,
+  OIDC_FORM_CONSENT_TOKEN,
+  OIDC_FORM_DECISION,
+] as const;
+
 /** True when a POST body names any field of the consent form, whatever else it holds. */
 function namesConsentField(body: string): boolean {
   const form = new URLSearchParams(body);
-  return (
-    form.has(OIDC_FORM_CONSENT_TOKEN) || form.has(OIDC_FORM_REQUEST) || form.has(OIDC_FORM_DECISION)
-  );
+  return OIDC_CONSENT_FORM_FIELDS.some((name) => form.has(name));
+}
+
+/**
+ * What a POST that is NOT the site's own may be read as: only what the parser itself reads as a plain
+ * authorization request AND whose body names no consent field. Derived from the parser (anything it
+ * takes for a consent, or refuses as a malformed one, is `forbidden`), with the field list as a
+ * second, independent guard, so a consent field added to the parser fails closed even if the list
+ * lags. Chosen over refusing every `nemar_`-prefixed key because `nemar_auth_after` is a legitimate
+ * authorization-request parameter. Exported for its test.
+ */
+export function crossSiteInputGate(input: AuthorizeInput, body: string): AuthorizeInput {
+  if (input.kind !== "check" || namesConsentField(body)) return { kind: "forbidden" };
+  return input;
 }
 
 /** The 403 for a cross-site POST that tried to answer the consent screen; Astro's own words, this page's headers. */
@@ -258,8 +280,8 @@ export function oidcCrossSiteRefusal(method: string): Response {
  * `pageOrigin` is this site's origin. The middleware lets an authorization-request POST from any site
  * through (`./origin-check.ts`), and the consent form posts to the same path with the same content
  * type, so THIS is where a cross-site consent is refused: a POST whose body names a consent field
- * (`nemar_consent_token`, `nemar_request` or `nemar_decision`, in any number or combination) is
- * `forbidden` unless its Origin is exactly `pageOrigin` and its `Sec-Fetch-Site`, if present, is
+ * (`OIDC_CONSENT_FORM_FIELDS`, in any number or combination), or that the parser does not read as a
+ * plain authorization request, is `forbidden` unless its Origin is exactly `pageOrigin` and its `Sec-Fetch-Site`, if present, is
  * `same-origin`. So a cross-site POST can only ever come out as `check` (which the page sends to the
  * API's check route, as it would the same request in a GET), `invalid` or `forbidden`. The size bound
  * is applied first; a body too long to read is `invalid` and has not been looked into.
@@ -276,10 +298,8 @@ export async function readAuthorizeInput(
   if (declared > OIDC_POST_BODY_MAX_LENGTH) return { kind: "invalid" };
   const body = await boundedText(request, OIDC_POST_BODY_MAX_LENGTH);
   if (body === null) return { kind: "invalid" };
-  if (namesConsentField(body) && !isSameOriginPost(request, pageOrigin)) {
-    return { kind: "forbidden" };
-  }
-  return authorizeInputFromForm(body);
+  const input = authorizeInputFromForm(body);
+  return isSameOriginPost(request, pageOrigin) ? input : crossSiteInputGate(input, body);
 }
 
 // -------------------------------------------------------------------------------------------------
