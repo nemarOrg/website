@@ -1,0 +1,22 @@
+Usage: nemar compute balance [options]
+
+Show your compute access and balance
+
+Options:
+  --json      Print the Worker's answer as JSON
+  -h, --help  display help for command
+
+Description:
+  Shows your compute access and, for each pool (cpu and gpu), the service units (SU) granted to you, held
+  for jobs that have not finished, charged so far, and still available. Available is granted minus held
+  minus charged and can be negative after an overrun. Amounts are SU with three decimals.
+
+  It works in every access state: without a grant it says so and how to ask for one.
+
+Exit codes:
+  0  the balance was read.
+  1  you are not signed in, or the balance could not be read (nothing is printed in its place).
+
+Examples:
+  $ nemar compute balance
+  $ nemar compute balance --json

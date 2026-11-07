@@ -1,0 +1,32 @@
+Usage: nemar compute request-access [options]
+
+Ask an admin for compute access (one-time)
+
+Options:
+  --purpose <text>  What you intend to compute (20-1000 characters)
+  --accept-terms    Accept the compute terms (version 2026-11-draft)
+  --json            Print the Worker's answer as JSON
+  -h, --help        display help for command
+
+Description:
+  Compute access is a grant of its own, separate from upload access: an administrator reviews each
+  request against export-control and local-jurisdiction rules and the purpose you state, and answers
+  once. A grant opens a starting allocation of service units. You ask once; asking again while the
+  request is open does nothing, and a request that was answered cannot be made again.
+
+  Before asking, your account needs a verified email address, an ORCID iD proven by signing in with
+  ORCID, your given and family name, your affiliation, and your city and country. The request tells you
+  which are missing and how to set each.
+
+  --purpose is what you intend to compute (20 to 1000 characters). --accept-terms accepts the compute
+  terms, version 2026-11-draft. In a terminal the command asks for whatever you did not pass; with
+  --json, or without a terminal, it needs both flags.
+
+Exit codes:
+  0  the request was recorded, or one was already open.
+  1  the request was refused (the reason and the fields to fix are printed), a flag was missing, or the
+     request could not be sent.
+
+Examples:
+  $ nemar compute request-access
+  $ nemar compute request-access --purpose "Run ICA decompositions on public EEG datasets" --accept-terms

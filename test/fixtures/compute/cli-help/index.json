@@ -1,0 +1,18 @@
+{
+  "note": "Real output of `nemar <command> --help-all`; regenerate with scripts/capture-compute-cli-help.mjs",
+  "nemar_cli_commit": "e0685a25",
+  "commands": [
+    "login",
+    "compute",
+    "compute balance",
+    "compute cancel",
+    "compute limits",
+    "compute list",
+    "compute logs",
+    "compute queue",
+    "compute request-access",
+    "compute results",
+    "compute status",
+    "compute submit"
+  ]
+}
