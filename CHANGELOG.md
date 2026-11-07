@@ -26,6 +26,13 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Changed
 
+- **`/oauth/authorize` accepts an authorization request sent by POST from any site; every other form keeps its cross-site check** (nemarOrg/nemar-cli#2020, nemar-cli ADR 0119, website ADR 0031).
+  OpenID Connect Core 3.1.2.1 requires the authorization endpoint to take a form POST, and Astro's built-in origin check refuses one from another site.
+  That check is switched off (`security.checkOrigin: false`) and the middleware runs the site's own, which is the same rule with one exemption: a `POST` to exactly `/oauth/authorize` with `application/x-www-form-urlencoded`.
+  The consent form posts to the same path, so the page refuses (403, as before) any POST that names a consent field unless its Origin is the site's own, and an authorization-request POST can only do what the same request in a GET does.
+  A trailing slash, another case, an encoded path, `multipart/form-data`, `text/plain`, a missing content type and every other method or route are refused cross-site exactly as before.
+  A visitor who is not signed in is sent to sign-in and returns by GET with the same request.
+
 - **Settings' "Connect your ORCID" submits a form POST instead of following a link** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119 rule 10).
   The API now arms an ORCID link only from a POST that carries this site's Origin and a live session, as it already did for re-linking, and a GET start is always a plain sign-in.
   The button, its copy and where it leads are unchanged.

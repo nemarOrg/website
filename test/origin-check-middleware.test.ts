@@ -1,5 +1,5 @@
 /**
- * The site's cross-site form check through the REAL `onRequest` (nemarOrg/website ADR 0030): Astro's
+ * The site's cross-site form check through the REAL `onRequest` (nemarOrg/website ADR 0031): Astro's
  * built-in `security.checkOrigin` is off, so this is the only thing standing between a form on
  * another site and every state-changing route here. Nothing stands in for the check; the table sends
  * real `Request`s through the middleware and then, for the one exempt path, through the page's own
@@ -136,7 +136,7 @@ describe("(method, path, content type, Origin, Sec-Fetch-Site, body) -> allowed 
       {
         path: AUTHORIZE,
         origin: FOREIGN,
-        contentType: `Application/X-WWW-Form-Urlencoded; charset=UTF-8`,
+        contentType: "Application/X-WWW-Form-Urlencoded; charset=UTF-8",
       },
       { status: 200, input: "check" },
     ],

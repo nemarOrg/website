@@ -1,6 +1,19 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-10-27.
+**Last session:** 2026-11-07.
+
+## 2026-11-07 - Authorization-request POST exempt from the form check (nemar-cli#2020, ADR 0031)
+
+Branch `feature/issue-2020-authorize-post`, PR to `staging`. Astro's `security.checkOrigin` is off; `src/middleware.ts` runs `crossSiteFormRefusal` (`src/lib/origin-check.ts`), Astro's rule plus one exemption (POST, exactly `/oauth/authorize`, urlencoded). The page refuses a cross-site POST that names a consent field (`readAuthorizeInput`).
+
+- **Manual check (S7, on a real deployment of the page or `PUBLIC_API_BASE_URL=http://127.0.0.1:9 bun run dev --port 4399`; the API being unreachable is fine, the status is 503 for what is let through):**
+  1. `curl -si -X POST -H 'Content-Type: application/x-www-form-urlencoded' -H 'Origin: https://rp.example.org' -d 'client_id=...&response_type=code' $HOST/oauth/authorize` is NOT 403 (503 with the API unreachable; with a live API and no cookie, a 200 error page or a 303 to `/login`).
+  2. The same with `-d 'nemar_request=x&nemar_consent_token=t&nemar_decision=allow'` is 403 `Cross-site POST form submissions are forbidden`; with `-H "Origin: $HOST" -H 'Sec-Fetch-Site: same-origin'` it reaches the API (consent route).
+  3. `/oauth/authorize/`, `/oauth/%61uthorize` and `/api/auth/logout` cross-site are 403; `-F a=b` (multipart) to `/oauth/authorize` cross-site is 403.
+  4. Response headers on the page and on the 403: `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`.
+  5. In a browser, signed out: a cross-site `<form method=post action=.../oauth/authorize>` lands on sign-in, and after signing in the consent screen (or the redirect to a first-party client) appears from a GET. On the consent screen Allow and Deny still work (same-origin).
+  6. Conformance: `oidcc-ensure-post-request-succeeds` passes.
+- **Gate:** the conformance run must use the exact `authorization_endpoint` from discovery; a trailing-slash spelling is refused by design.
 
 ## 2026-10-27: The mirror chip follows the API flag (website#478, PR #489)
 

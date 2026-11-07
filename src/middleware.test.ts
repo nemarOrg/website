@@ -757,7 +757,7 @@ describe("parseAuthMeResponse", () => {
 
 /**
  * The headers of a browser form post from the page itself: its own Origin on anything but a GET.
- * The site's cross-site form check (`onRequest`, ADR 0030) refuses a non-safe request without it.
+ * The site's cross-site form check (`onRequest`, ADR 0031) refuses a non-safe request without it.
  */
 function sameOrigin(url: string, method: string): Record<string, string> | undefined {
   return method === "GET" ? undefined : { Origin: new URL(url).origin };

@@ -573,7 +573,7 @@ describe("where the page lives", () => {
 });
 
 // -------------------------------------------------------------------------------------------------
-describe("a POST from another site (OpenID Connect Core 3.1.2.1; nemarOrg/website ADR 0030)", () => {
+describe("a POST from another site (OpenID Connect Core 3.1.2.1; nemarOrg/website ADR 0031)", () => {
   const CONSENT_FORM = new URLSearchParams({
     [OIDC_FORM_REQUEST]: REQUEST,
     [OIDC_FORM_CONSENT_TOKEN]: "1999999999.token",

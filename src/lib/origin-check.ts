@@ -1,5 +1,5 @@
 /**
- * The site's own cross-site form check (nemarOrg/website ADR 0030, nemar-cli ADR 0119).
+ * The site's own cross-site form check (nemarOrg/website ADR 0031, nemar-cli ADR 0119).
  *
  * Astro's built-in `security.checkOrigin` is switched OFF in `astro.config.mjs` and this module
  * stands in for it, because the built-in has no exemption and OpenID Connect Core 3.1.2.1 requires

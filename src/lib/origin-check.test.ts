@@ -1,5 +1,5 @@
 /**
- * The site's cross-site form check (nemarOrg/website ADR 0030): the rule it copies from Astro, the one
+ * The site's cross-site form check (nemarOrg/website ADR 0031): the rule it copies from Astro, the one
  * exemption it adds, and how narrow that exemption is. Real `Request`s throughout; nothing stands in
  * for the check. The middleware wiring and the route-table sweep are in
  * `test/origin-check-middleware.test.ts`.
