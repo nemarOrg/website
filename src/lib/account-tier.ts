@@ -25,6 +25,8 @@
 
 import { ACCOUNT_COPY } from "./account-copy";
 import type { AuthUser } from "./auth";
+import { type ComputeAccessState, isComputeAccessState } from "./compute-access-state";
+import { COMPUTE_TERMS_VERSION } from "./compute-terms";
 import { canUpload } from "./profile";
 
 /** The subset of the session every derivation below reads. */
@@ -315,11 +317,150 @@ export function uploadAccessErrorMessage(
     default:
       break;
   }
+  return requestStatusMessage(status);
+}
+
+/**
+ * The status-based tail both request refusals end in: what to say when the
+ * code is unknown or absent and only the HTTP status is left. Shared by
+ * {@link uploadAccessErrorMessage} and {@link computeAccessErrorMessage} so the
+ * two cards cannot word a 401 or a 429 differently.
+ */
+export function requestStatusMessage(status: number): string {
   if (status === 401) return "Your session expired. Sign in again.";
   if (status === 404) return "This isn't available yet — check back soon.";
   if (status === 429) return "Too many attempts. Wait a few minutes and try again.";
   if (status >= 500) return "The server had a problem. Try again in a moment.";
   return "Couldn't send that request. Try again.";
+}
+
+// ---------------------------------------------------------------------------
+// Compute access (nemar-cli ADR 0118, epic #2021 phase D1; website ADR 0030)
+// ---------------------------------------------------------------------------
+
+/** The subset of the session the compute derivation reads. */
+type ComputeUser = Pick<
+  AuthUser,
+  "compute_access" | "compute_access_requested_at" | "compute_access_granted_at"
+>;
+
+/**
+ * The compute-access state of the signed-in account, with the stamp that
+ * belongs to it, or `null` when the backend did not say.
+ *
+ * **`null` is not `none`.** The fields are optional and never defaulted: an
+ * older backend (or a value this build does not know, which
+ * `parseAuthMeResponse` drops) sends nothing, and mapping that to "Not
+ * requested" would invite a request the backend will refuse. The card renders
+ * nothing for `null`.
+ *
+ * `at` is the request time for `requested` and the grant time for `active`
+ * only. The stamps are history on the backend and outlive the state they
+ * describe, so a suspended or revoked account still carries a
+ * `compute_access_granted_at`; showing "since {date}" beside "Suspended"
+ * would be a claim the backend never made.
+ */
+export interface ComputeAccessInfo {
+  readonly state: ComputeAccessState;
+  readonly at?: string;
+}
+
+export function deriveComputeAccessState(
+  user: ComputeUser | null | undefined,
+): ComputeAccessInfo | null {
+  if (!user || !isComputeAccessState(user.compute_access)) return null;
+  const state = user.compute_access;
+  const stamp =
+    state === "requested"
+      ? nonBlank(user.compute_access_requested_at)
+      : state === "active"
+        ? nonBlank(user.compute_access_granted_at)
+        : undefined;
+  return stamp ? { state, at: stamp } : { state };
+}
+
+/** Bounds on the purpose text, matching `COMPUTE_PURPOSE_MIN_CHARS` and
+ *  `COMPUTE_PURPOSE_MAX_CHARS` in nemar-cli `shared/contract/compute-access.ts`
+ *  (a character is a code point, as the backend and the database count). */
+export const COMPUTE_PURPOSE_MIN_CHARS = 20;
+export const COMPUTE_PURPOSE_MAX_CHARS = 1000;
+
+/**
+ * The client-side refusal for the purpose, or null when it will pass.
+ *
+ * Counts CODE POINTS (`[...text].length`), not UTF-16 units: the backend
+ * counts the trimmed text in code points, so an emoji is one character on both
+ * sides. The textarea carries no `maxlength` attribute for the same reason,
+ * which counts units and would cut a 1,000 code-point text short. The sentence
+ * is `account-copy.ts`'s, so the hint, this refusal and the CLI's prompt are
+ * one string.
+ */
+export function validatePurpose(raw: string): string | null {
+  const length = [...raw.trim()].length;
+  if (length < COMPUTE_PURPOSE_MIN_CHARS || length > COMPUTE_PURPOSE_MAX_CHARS) {
+    return ACCOUNT_COPY["compute_access.request.purpose_hint"];
+  }
+  return null;
+}
+
+/**
+ * Human copy for a refused compute-access request.
+ *
+ * Two kinds of code. The three that name PROFILE gaps (`email_not_verified`,
+ * `orcid_not_proven`, `profile_incomplete`) return the list heading and nothing
+ * else, unless `missing` is passed and empty (then there is no list to head, and
+ * the backend's sentence or the status tail is returned): the backend's sentence for them lists raw field names
+ * (`given_name, affiliation`), and the page renders the `missing` array as
+ * linked, worded lines instead. The rest prefer the backend's own sentence
+ * and fall back to the shared copy; `terms_unpublished` always prints the
+ * shared sentence, because the backend sends the same words and a 503 from
+ * anywhere else must not be shown as a terms problem. An unknown code ends in
+ * the shared status tail, and the backend's text is NOT shown for it: an
+ * unrecognized body is as likely to be a proxy's as the Worker's.
+ *
+ * Stays free of `account-api.ts`, so this vocabulary is testable without a
+ * transport.
+ */
+export function computeAccessErrorMessage(
+  status: number,
+  code: string | undefined,
+  backendMessage?: string,
+  missing?: readonly string[],
+): string {
+  const backend =
+    backendMessage && backendMessage.trim().length > 0 ? backendMessage.trim() : undefined;
+  switch (code) {
+    case "purpose_required":
+      return backend ?? ACCOUNT_COPY["compute_access.request.purpose_hint"];
+    case "terms_not_accepted":
+      // The checkbox label ("I accept the compute terms") reads as a label, not
+      // an instruction, and the copy table has no instruction key (a mirrored
+      // one would change the 27-key parity with nemar-cli). So the fallback is
+      // composed here, in the backend's own words and with the version the page
+      // printed. A mirrored key is the follow-up if the owner wants it in the CLI's copy.
+      return (
+        backend ??
+        `Accept the compute terms (version ${COMPUTE_TERMS_VERSION}) to request compute access.`
+      );
+    case "email_not_verified":
+    case "orcid_not_proven":
+    case "profile_incomplete":
+      // The heading is only a message when a list stands under it. A caller
+      // that says the list is empty gets the backend's sentence, or the status
+      // tail, so the box never reads "Finish these first:" over nothing.
+      if (missing !== undefined && missing.length === 0) {
+        return backend ?? requestStatusMessage(status);
+      }
+      return ACCOUNT_COPY["gaps.request.title"];
+    case "access_closed":
+      return backend ?? ACCOUNT_COPY["compute_access.closed.body"];
+    case "already_active":
+      return backend ?? ACCOUNT_COPY["compute_access.granted.body"];
+    case "terms_unpublished":
+      return ACCOUNT_COPY["compute_access.terms_unpublished.body"];
+    default:
+      return requestStatusMessage(status);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ import USER_ADMIN_ROW from "../src/components/admin/UserAdminRow.astro?raw";
 import { ACCOUNT_COPY } from "../src/lib/account-copy";
 import { DOCS_ACCOUNT_SETTINGS_PATH, DOCS_UPLOAD_ACCESS_PATH } from "../src/lib/docs-base";
 import { gapsForFields } from "../src/lib/profile-gaps";
+import REFUSAL_LIST from "../src/lib/refusal-list.ts?raw";
 import ADMIN_USERS from "../src/pages/admin/users.astro?raw";
 import ADMIN_USER_DETAIL from "../src/pages/admin/users/[username].astro?raw";
 import DASHBOARD from "../src/pages/dashboard.astro?raw";
@@ -301,6 +302,7 @@ describe("Settings", () => {
       "github_username",
       "city",
       "country",
+      "affiliation",
     ]);
     for (const field of anchors) {
       const id = (field.href ?? "").split("#")[1];
@@ -328,10 +330,15 @@ describe("Settings", () => {
     );
   });
 
-  it("renders the refusal's missing list as links", () => {
-    expect(SETTINGS).toContain("gapsForFields");
+  it("renders the refusal's missing list as links, through the shared renderer", () => {
+    // The loop lives in `src/lib/refusal-list.ts` since website ADR 0030, so
+    // both request cards print the same list; the page only hands it the box.
     expect(SETTINGS).toContain("data-upload-access-missing-list");
-    expect(SETTINGS).toMatch(/createElement\("a"\)[\s\S]{0,120}a\.href = gap\.href/);
+    expect(SETTINGS).toContain(
+      "renderRefusal(missingBox, missingList, missing, { orcidVerified })",
+    );
+    expect(REFUSAL_LIST).toContain("gapsForFields");
+    expect(REFUSAL_LIST).toMatch(/createElement\("a"\)[\s\S]{0,120}a\.href = line\.href/);
   });
 
   it("locks the username once the grant is held, and explains why", () => {

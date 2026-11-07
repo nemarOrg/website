@@ -8,12 +8,14 @@
  * bodies are transcribed from nemar-cli's route handlers.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import requestResponses from "../../test/fixtures/compute/request-responses.json";
 import {
   AccountApiError,
   fetchAccountIdentity,
   fetchUsernameSuggestion,
   parseAccountErrorBody,
+  requestComputeAccess,
   requestUploadAccess,
 } from "./account-api";
 
@@ -256,5 +258,175 @@ describe("fetchAccountIdentity", () => {
     expect(await fetchAccountIdentity(undefined, { fetch: respondWith(jsonResponse({})) })).toEqual(
       { username: undefined },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Compute access (website ADR 0030)
+// ---------------------------------------------------------------------------
+
+/**
+ * Responses captured from the real backend routes by
+ * `scripts/capture-compute-fixtures.mjs` (nemar-cli 3a869903), replayed as
+ * real `Response` objects. Nothing stands in for the code under test.
+ */
+const CAPTURED = requestResponses as unknown as Record<
+  string,
+  { status: number; body: Record<string, unknown> }
+>;
+
+function captured(name: string): Response {
+  const { status, body } = CAPTURED[name];
+  return jsonResponse(body, status);
+}
+
+const REQUEST = {
+  purpose: "Run ICA on public EEG datasets for a methods paper",
+  acceptTermsVersion: "2026-11-draft",
+};
+
+describe("parseAccountErrorBody: a compute refusal", () => {
+  it("keeps the `missing` array of a profile refusal", () => {
+    const parsed = parseAccountErrorBody(CAPTURED.profile_incomplete.body);
+    expect(parsed.code).toBe("profile_incomplete");
+    expect(parsed.missing).toEqual(["given_name", "family_name", "city", "country", "affiliation"]);
+    expect(parsed.message).toContain("affiliation");
+  });
+
+  it("keeps the one-field arrays of the other refusals", () => {
+    expect(parseAccountErrorBody(CAPTURED.orcid_not_proven.body).missing).toEqual([
+      "orcid_verified",
+    ]);
+    expect(parseAccountErrorBody(CAPTURED.purpose_required.body).missing).toEqual(["purpose"]);
+    expect(parseAccountErrorBody(CAPTURED.access_closed_denied.body).missing).toEqual([]);
+  });
+});
+
+describe("requestComputeAccess", () => {
+  it("POSTs the purpose and the accepted version to the compute route, with the cookie on SSR", async () => {
+    let seen: { url: string; init: RequestInit } | undefined;
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen = { url, init };
+      return captured("created");
+    }) as unknown as typeof fetch;
+    await requestComputeAccess(REQUEST, { fetch: fetchImpl, cookieHeader: "nemar_session=abc" });
+    expect(seen?.url).toBe("https://api.nemar.org/users/me/compute-access/request");
+    expect(seen?.init.method).toBe("POST");
+    expect(JSON.parse(String(seen?.init.body))).toEqual({
+      purpose: REQUEST.purpose,
+      accept_terms_version: "2026-11-draft",
+    });
+    expect((seen?.init.headers as Record<string, string>).Cookie).toBe("nemar_session=abc");
+  });
+
+  it("goes through the same-origin proxy from the browser", async () => {
+    let url = "";
+    const fetchImpl = (async (u: string) => {
+      url = u;
+      return captured("created");
+    }) as unknown as typeof fetch;
+    await requestComputeAccess(REQUEST, { fetch: fetchImpl });
+    expect(url).toBe("/api/v1/users/me/compute-access/request");
+  });
+
+  it("gives the request a 15 second deadline: the admin mail is sent inside it", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    try {
+      await requestComputeAccess(REQUEST, { fetch: respondWith(captured("created")) });
+      expect(spy).toHaveBeenCalledWith(15_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("reports the 201 that opened a request (it carries no requested_at)", async () => {
+    const result = await requestComputeAccess(REQUEST, { fetch: respondWith(captured("created")) });
+    expect(result).toEqual({
+      ok: true,
+      already_requested: false,
+      requested_at: null,
+      email_sent: true,
+    });
+  });
+
+  it("reports an admin mail that did not go out, so the success text can promise none", async () => {
+    const result = await requestComputeAccess(REQUEST, {
+      fetch: respondWith(captured("created_unnotified")),
+    });
+    expect(result.email_sent).toBe(false);
+  });
+
+  it("reports the 200 that found a request already open", async () => {
+    const result = await requestComputeAccess(REQUEST, {
+      fetch: respondWith(captured("already_requested")),
+    });
+    expect(result.already_requested).toBe(true);
+    expect(result.requested_at).toBe("2026-11-05 12:00:00");
+  });
+
+  it("leaves email_sent absent when an older backend does not send it", async () => {
+    const result = await requestComputeAccess(REQUEST, {
+      fetch: respondWith(jsonResponse({ ok: true, already_requested: false }, 201)),
+    });
+    expect(result).not.toHaveProperty("email_sent");
+  });
+
+  it.each([
+    "purpose_required",
+    "terms_not_accepted",
+    "email_not_verified",
+    "orcid_not_proven",
+    "profile_incomplete",
+    "access_closed_denied",
+    "access_closed_suspended",
+    "already_active",
+    "terms_unpublished",
+  ])(
+    "throws the captured %s refusal with its code, missing list and own sentence",
+    async (name) => {
+      const { status, body } = CAPTURED[name];
+      const err: AccountApiError = await requestComputeAccess(REQUEST, {
+        fetch: respondWith(captured(name)),
+      }).then(
+        () => {
+          throw new Error("expected a refusal");
+        },
+        (e: unknown) => e as AccountApiError,
+      );
+      expect(err).toBeInstanceOf(AccountApiError);
+      expect(err.status).toBe(status);
+      expect(err.code).toBe(body.error);
+      expect(err.missing).toEqual(body.missing);
+      expect(err.backendMessage).toBe(body.message);
+      expect(err.message).toBe(body.message);
+    },
+  );
+
+  it("tells the backend's sentence from a generic one when the body has no message", async () => {
+    const err: AccountApiError = await requestComputeAccess(REQUEST, {
+      fetch: respondWith(jsonResponse({ error: "Failed to submit compute access request" }, 500)),
+    }).then(
+      () => {
+        throw new Error("expected a refusal");
+      },
+      (e: unknown) => e as AccountApiError,
+    );
+    expect(err.status).toBe(500);
+    expect(err.backendMessage).toBeUndefined();
+  });
+
+  it("throws on a non-JSON failure with an empty missing list", async () => {
+    const err: AccountApiError = await requestComputeAccess(REQUEST, {
+      fetch: respondWith(new Response("<html>bad gateway</html>", { status: 502 })),
+    }).then(
+      () => {
+        throw new Error("expected a refusal");
+      },
+      (e: unknown) => e as AccountApiError,
+    );
+    expect(err.status).toBe(502);
+    expect(err.code).toBeUndefined();
+    expect(err.missing).toEqual([]);
+    expect(err.backendMessage).toBeUndefined();
   });
 });

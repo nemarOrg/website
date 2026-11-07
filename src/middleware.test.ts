@@ -2,6 +2,7 @@ import type { APIContext } from "astro";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Astro's own cookie jar, imported by path (the package does not export it).
 import { AstroCookies } from "../node_modules/astro/dist/core/cookies/cookies.js";
+import authMeStates from "../test/fixtures/compute/auth-me-states.json";
 import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
 import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
@@ -2374,5 +2375,69 @@ describe("the authorization page's headers", () => {
     // The control: an anonymous page elsewhere does open it.
     await onRequest(anon("http://localhost:4321/discover"), publicPage);
     expect(opened.length).toBe(1);
+  });
+});
+
+// Compute access on the session user (website ADR 0030). The bodies are the
+// real `GET /auth/me` answers captured for each state by
+// scripts/capture-compute-fixtures.mjs (nemar-cli 3a869903).
+describe("parseAuthMeResponse: compute access", () => {
+  const STATES = authMeStates as unknown as Record<
+    string,
+    { status: number; user: Record<string, unknown> }
+  >;
+  const base = { id: "u_9", email: "someone@example.org", role: "member", status: "active" };
+
+  it.each([
+    ["none", undefined, undefined],
+    ["requested", "2026-10-20 09:30:00", undefined],
+    ["active", "2026-10-20 09:30:00", "2026-10-24 14:05:00"],
+    ["suspended", "2026-10-20 09:30:00", "2026-10-24 14:05:00"],
+    ["denied", "2026-10-20 09:30:00", undefined],
+    ["revoked", "2026-10-20 09:30:00", "2026-10-24 14:05:00"],
+  ])("keeps the state and the stamps the backend sent for %s", (state, requestedAt, grantedAt) => {
+    const out = parseAuthMeResponse({ user: STATES[state].user });
+    expect(out?.user.compute_access).toBe(state);
+    expect(out?.user.compute_access_requested_at).toBe(requestedAt);
+    expect(out?.user.compute_access_granted_at).toBe(grantedAt);
+  });
+
+  it("drops a state outside the closed six rather than guessing", () => {
+    for (const bad of ["approved", "ACTIVE", "", null, 1, true, {}]) {
+      const out = parseAuthMeResponse({ user: { ...base, compute_access: bad } });
+      expect(out?.user, String(bad)).not.toHaveProperty("compute_access");
+    }
+  });
+
+  it("reads the stamps as trimmed strings and drops the rest", () => {
+    const out = parseAuthMeResponse({
+      user: {
+        ...base,
+        compute_access: "active",
+        compute_access_requested_at: "  2026-10-20 09:30:00 ",
+        compute_access_granted_at: 12345,
+      },
+    });
+    expect(out?.user.compute_access_requested_at).toBe("2026-10-20 09:30:00");
+    expect(out?.user).not.toHaveProperty("compute_access_granted_at");
+  });
+
+  it("leaves an old-shaped body without any compute key, never defaulting to none", () => {
+    // MUTATION: `withOptional.compute_access = valid ? user.compute_access : "none"`.
+    const out = parseAuthMeResponse({ user: base });
+    expect(out?.user).not.toHaveProperty("compute_access");
+    expect(out?.user).not.toHaveProperty("compute_access_requested_at");
+    expect(out?.user).not.toHaveProperty("compute_access_granted_at");
+  });
+
+  it("does not let the real body's other fields disturb the session", () => {
+    const out = parseAuthMeResponse({ user: STATES.active.user });
+    expect(out?.user).toMatchObject({
+      email: "requester@example.org",
+      role: "user",
+      status: "active",
+      affiliation: "Example Institute",
+      service_access: false,
+    });
   });
 });

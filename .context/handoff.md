@@ -1,6 +1,16 @@
 # Handoff — nemar.org website
 
-**Last session:** 2026-10-27.
+**Last session:** 2026-11-06.
+
+## 2026-11-06: Compute access card in Settings (website#494, epic website#493 phase E1)
+
+Branch `feature/issue-494-compute-access-card`, PR into the epic branch `feature/issue-493-epic-compute-web` (not `staging`). ADR 0030.
+
+- **Recipe for the next phase:** run the real backend with `NEMAR_CLI_DIR=<nemar-cli Epic D checkout> bun scripts/local-backend.mjs`, then `PUBLIC_API_BASE_URL=http://localhost:8787 bun run dev`; `.context/local-backend.md` has the cookie steps. Fixtures are captured, not written: `scripts/capture-compute-fixtures.mjs` writes `test/fixtures/compute/`.
+- **Where the keys come from:** nemar-cli commit `3a869903` (phase D1, squash on `feature/issue-2021-epic-compute-users`): 27 copy keys, the `compute_access` gap block, the `affiliation` row, `COMPUTE_TERMS_VERSION`.
+- **Gates:** drift against that checkout passes locally (`NEMAR_CLI_ACCOUNT_COPY=<checkout>/shared/contract/account-copy.ts`, `NEMAR_CLI_COMPUTE_ACCESS_CONTRACT=<checkout>/shared/contract/compute-terms.ts`). In CI both are red until the compute epic is on nemar-cli `dev`; the CI ref stays `dev`. Never put these keys on `staging` before then.
+- **When D2 lands:** delete `src/lib/compute-terms.ts` and its drift test, and read `current_terms_version` from `GET /compute/me` in the page frontmatter; `COMPUTE_REQUESTS_ENABLED` flips with the published terms, in a reviewed change.
+- **Open:** the terms page (`/policies/compute-terms/`) is a held draft, so the link 404s on staging until docs publish. The active state's body mentions the compute page; the link comes with E2.
 
 ## 2026-10-27: The mirror chip follows the API flag (website#478, PR #489)
 

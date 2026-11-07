@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_API_BASE } from "./api-base";
-import { WEB_SIGNIN_ENABLED, webSigninEnabled } from "./flags";
+import {
+  COMPUTE_REQUESTS_ENABLED,
+  WEB_SIGNIN_ENABLED,
+  computeRequestsOpen,
+  webSigninEnabled,
+} from "./flags";
 
 /**
  * webSigninEnabled() is the gate that keeps the email-code form off the
@@ -35,5 +40,32 @@ describe("webSigninEnabled", () => {
     vi.stubEnv("DEV", true);
     vi.stubEnv("PUBLIC_API_BASE_URL", DEFAULT_API_BASE);
     expect(webSigninEnabled()).toBe(true);
+  });
+});
+
+describe("computeRequestsOpen", () => {
+  it("ships closed in the production build until the terms are published", () => {
+    // The flag flips with the terms, in a reviewed change (website ADR 0030).
+    expect(COMPUTE_REQUESTS_ENABLED).toBe(false);
+    expect(computeRequestsOpen(COMPUTE_REQUESTS_ENABLED, DEFAULT_API_BASE)).toBe(false);
+  });
+
+  it("opens when launched, whatever the backend", () => {
+    expect(computeRequestsOpen(true, DEFAULT_API_BASE)).toBe(true);
+    expect(computeRequestsOpen(true, "http://localhost:8787")).toBe(true);
+  });
+
+  it("opens against a non-production backend, which takes requests before publication", () => {
+    expect(computeRequestsOpen(false, "http://localhost:8787")).toBe(true);
+    expect(computeRequestsOpen(false, "https://api-test.nemar.org")).toBe(true);
+  });
+
+  it("does not read the dev-server flag: a bare `bun run dev` shows the production-like card", () => {
+    vi.stubEnv("DEV", true);
+    try {
+      expect(computeRequestsOpen(false, DEFAULT_API_BASE)).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
