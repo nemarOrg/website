@@ -249,6 +249,20 @@ export function safeRedirectPath(raw: string | null | undefined): string {
   return raw;
 }
 
+/**
+ * A fragment is never sent to the server, so a redirect to `/login?next=/settings` loses the
+ * `#compute-access` the visitor asked for. The login page's script puts it back: it appends the
+ * page's own `location.hash` to `next` before the next hop. Only a plain anchor name is carried
+ * (a letter, then letters, digits, `_` or `-`); anything else, and any `next` that already has a
+ * fragment, is left as it is. The result still goes through `safeRedirectPath` on the next page, so
+ * the open-redirect guard is not bypassed by this.
+ */
+export function nextWithHash(nextPath: string, hash: string): string {
+  if (nextPath.includes("#")) return nextPath;
+  if (!/^#[A-Za-z][\w-]*$/.test(hash)) return nextPath;
+  return `${nextPath}${hash}`;
+}
+
 export function maskEmail(email: string): string {
   const at = email.indexOf("@");
   if (at < 1) return email;
