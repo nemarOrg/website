@@ -23,6 +23,7 @@
  * here retries a POST.
  */
 
+import { ACCOUNT_COPY, fillCopy } from "./account-copy";
 import { dashboardApiBase } from "./api-base";
 import {
   COMPUTE_ACCESS_DECISIONS,
@@ -54,6 +55,11 @@ type Init = {
 const BADGE_TIMEOUT_MS = 2000;
 /** The status route mints one Tapis token and makes one health call; give it longer than a D1 read. */
 const STATUS_TIMEOUT_MS = 15_000;
+/**
+ * A decision waits for the person's mail before the route answers, so it gets longer than a D1
+ * read: a slow mail provider must not make the browser give up on a decision that went through.
+ */
+const DECISION_TIMEOUT_MS = 25_000;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -67,7 +73,11 @@ export class ComputeAdminApiError extends Error {
   /** The body's `error` text: a sentence from the API, or a word from the proxy. */
   readonly sentence?: string;
   constructor(status: number, code?: string, sentence?: string) {
-    super(sentence ?? code ?? `Compute request failed (${status})`);
+    super(
+      sentence ??
+        code ??
+        fillCopy(ACCOUNT_COPY["compute_admin.error.failed"], { status: String(status) }),
+    );
     this.name = "ComputeAdminApiError";
     this.status = status;
     this.code = code;
@@ -76,7 +86,7 @@ export class ComputeAdminApiError extends Error {
 }
 
 /** The sentence used for a 2xx whose body is not what the page expects. */
-export const MALFORMED_SENTENCE = "The server sent an answer this page could not read.";
+export const MALFORMED_SENTENCE = ACCOUNT_COPY["compute_admin.error.malformed"];
 
 /**
  * What a non-OK response says, whatever shape it has. Never throws: a body that is not JSON (a
@@ -107,27 +117,21 @@ export async function readComputeAdminError(
 export function computeAdminErrorText(err: unknown): string {
   if (err instanceof ComputeAdminApiError) {
     const word = err.sentence;
-    if (word === "upstream_unreachable") {
-      return "The server could not be reached. Check your connection and try again.";
-    }
-    if (word === "upstream_redirect") {
-      return "The server answered in a way this page cannot follow. Try again later.";
-    }
-    if (word === "origin_not_allowed") {
-      return "This page was not accepted as the source of the request. Reload and try again.";
-    }
+    if (word === "upstream_unreachable") return ACCOUNT_COPY["compute_admin.error.unreachable"];
+    if (word === "upstream_redirect") return ACCOUNT_COPY["compute_admin.error.redirect"];
+    if (word === "origin_not_allowed") return ACCOUNT_COPY["compute_admin.error.origin"];
     if (word) return word;
-    if (err.status === 401) return "You are signed out. Sign in again.";
-    if (err.status === 429) return "Too many requests. Wait a moment, then try again.";
-    return `The request failed (${err.status}). Try again.`;
+    if (err.status === 401) return ACCOUNT_COPY["compute_admin.result.signed_out"];
+    if (err.status === 429) return ACCOUNT_COPY["compute_admin.error.rate_limited"];
+    return fillCopy(ACCOUNT_COPY["compute_admin.error.failed"], { status: String(err.status) });
   }
   if (err instanceof DOMException && err.name === "TimeoutError") {
-    return "The server did not answer in time. Try again.";
+    return ACCOUNT_COPY["compute_admin.error.timeout"];
   }
-  if (err instanceof TypeError) {
-    return "The server could not be reached. Check your connection and try again.";
-  }
-  return err instanceof Error && err.message ? err.message : "Something went wrong. Try again.";
+  if (err instanceof TypeError) return ACCOUNT_COPY["compute_admin.error.unreachable"];
+  return err instanceof Error && err.message
+    ? err.message
+    : ACCOUNT_COPY["compute_admin.error.generic"];
 }
 
 // ---------------------------------------------------------------------------
@@ -658,7 +662,11 @@ export function getComputeAccessReport(
 ): Promise<ComputeAccessReport> {
   if (!QUARTER_PATTERN.test(quarter)) {
     return Promise.reject(
-      new ComputeAdminApiError(400, "invalid_query", "A quarter is written like 2026Q4."),
+      new ComputeAdminApiError(
+        400,
+        "invalid_query",
+        ACCOUNT_COPY["compute_admin.error.bad_quarter"],
+      ),
     );
   }
   return computeFetch(
@@ -692,11 +700,17 @@ export function decideComputeAccess(
 ): Promise<ComputeDecisionResult> {
   if (!Number.isSafeInteger(id) || id < 1) {
     return Promise.reject(
-      new ComputeAdminApiError(400, "invalid_query", "That is not an account id."),
+      new ComputeAdminApiError(400, "invalid_query", ACCOUNT_COPY["compute_admin.error.bad_id"]),
     );
   }
   if (!(COMPUTE_ACCESS_DECISIONS as readonly string[]).includes(decision)) {
-    return Promise.reject(new ComputeAdminApiError(400, "invalid_body", "That is not a decision."));
+    return Promise.reject(
+      new ComputeAdminApiError(
+        400,
+        "invalid_body",
+        ACCOUNT_COPY["compute_admin.error.bad_decision"],
+      ),
+    );
   }
   const trimmed = (reason ?? "").trim();
   if (trimmed.length > COMPUTE_ACCESS_REASON_MAX_CHARS) {
@@ -704,13 +718,16 @@ export function decideComputeAccess(
       new ComputeAdminApiError(
         400,
         "invalid_body",
-        `A reason is at most ${COMPUTE_ACCESS_REASON_MAX_CHARS} characters.`,
+        fillCopy(ACCOUNT_COPY["compute_admin.error.reason_too_long"], {
+          max: String(COMPUTE_ACCESS_REASON_MAX_CHARS),
+        }),
       ),
     );
   }
   const body = trimmed ? { reason: trimmed } : {};
   return computeFetch("POST", `/access/${decision}/by-id/${id}`, init, parseDecisionResult, {
     body,
+    timeoutMs: DECISION_TIMEOUT_MS,
   });
 }
 
