@@ -180,7 +180,7 @@ export const ACCOUNT_COPY = {
   "compute_admin.page.lede":
     "Compute access requests, and a read-only view of pools, usage, flagged jobs and reconciliation. A grant opens an allocation the person can spend, so each request is decided by a person, one at a time.",
   "compute_admin.page.cli_note":
-    "Owner policy, legal holds, record reads, moving a charge, pool grants and adjustments, and canceling a job are done with `nemar admin compute` in the command line, not here.",
+    "Owner policy, legal holds, record reads, moving a charge, pool grants and adjustments, and canceling a job are done with the nemar admin compute command in the command line, not here.",
   "compute_admin.page.order_note":
     "Accounts are listed in the order they were created, not the order they asked in.",
   "compute_admin.view.nav": "Compute views",
@@ -234,9 +234,9 @@ export const ACCOUNT_COPY = {
   "compute_admin.dialog.consequence.deny":
     "Closes this request. The person cannot ask again; only an administrator can grant later. The person is emailed when they have an email address that can receive it.",
   "compute_admin.dialog.consequence.suspend":
-    "Freezes the account’s pools, cancels its live jobs and ends its compute sign-ins. A grant lifts the suspension. The person is emailed when they have an email address that can receive it.",
+    "Freezes the account’s pools, cancels its live jobs and ends its compute sign-ins. A partner reservation that has no job reported under it is not canceled here: it is released after it expires, and a job reported under it is refused. A grant lifts the suspension. The person is emailed when they have an email address that can receive it.",
   "compute_admin.dialog.consequence.revoke":
-    "Freezes the account’s pools, cancels its live jobs and ends its compute sign-ins. Only a new grant restores access. The person is emailed when they have an email address that can receive it.",
+    "Freezes the account’s pools, cancels its live jobs and ends its compute sign-ins. A partner reservation that has no job reported under it is not canceled here: it is released after it expires, and a job reported under it is refused. Only a new grant restores access. The person is emailed when they have an email address that can receive it.",
   "compute_admin.dialog.reason_label": "Reason (optional)",
   "compute_admin.dialog.reason_hint": "Recorded in the audit log. The person is not sent it.",
   "compute_admin.dialog.reason_count": "{count} of {max}",
@@ -254,9 +254,9 @@ export const ACCOUNT_COPY = {
   "compute_admin.result.granted_other": "Granted. The allocation answered: {reason}.",
   "compute_admin.result.denied": "Denied.",
   "compute_admin.result.suspended":
-    "Suspended. The account’s pools are frozen and its live jobs are being canceled.",
+    "Suspended. The account’s pools are frozen and its live jobs are being canceled. A partner reservation with no job reported under it is left to expire.",
   "compute_admin.result.revoked":
-    "Revoked. The account’s pools are frozen and its live jobs are being canceled.",
+    "Revoked. The account’s pools are frozen and its live jobs are being canceled. A partner reservation with no job reported under it is left to expire.",
   "compute_admin.result.email_not_sent":
     "The decision stands, but the person could not be emailed. Tell them.",
   "compute_admin.result.state_changed":
@@ -333,7 +333,7 @@ export const ACCOUNT_COPY = {
   "compute_admin.flag.meaning.unattributed":
     "The job skipped the reservation and its owner maps to no active account.",
   "compute_admin.flag.meaning.mismatch":
-    "NEMAR’s record and the scheduler’s accounting disagree for this job.",
+    "NEMAR’s record and the scheduler’s accounting disagree for this job, or a partner’s report for it was refused or could not be checked, or a partner job used more than its hold and was capped.",
   "compute_admin.flag.meaning.overrun":
     "The job used more than its hold, and the excess is recorded as an overrun in the ledger.",
   "compute_admin.flag.followup":
