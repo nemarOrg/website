@@ -13,7 +13,7 @@ import DATASET_PAGE from "../src/pages/dataset/[id].astro?raw";
 
 /** The Compute dialog element: from its opening tag to its closing `</dialog>`. */
 function computeDialog(): string {
-  const start = ACTION_BAR.indexOf("<dialog class=\"compute-dialog\" data-compute-dialog");
+  const start = ACTION_BAR.indexOf('<dialog class="compute-dialog" data-compute-dialog');
   expect(start).toBeGreaterThan(-1);
   const end = ACTION_BAR.indexOf("</dialog>", start);
   return ACTION_BAR.slice(start, end + "</dialog>".length);
@@ -61,7 +61,14 @@ describe("the old dialog is gone", () => {
 
   it("the compute dialog does not repeat the Download dialog's routes", () => {
     const dialog = computeDialog();
-    for (const word of ["manifest.json", "wget", "rclone", "datalad", "git annex", "nemar dataset"]) {
+    for (const word of [
+      "manifest.json",
+      "wget",
+      "rclone",
+      "datalad",
+      "git annex",
+      "nemar dataset",
+    ]) {
       expect(dialog, word).not.toContain(word);
     }
   });
@@ -174,7 +181,13 @@ describe("copy", () => {
   });
 
   it("renders every backend or builder string as a text node (no markup-writing API)", () => {
-    for (const api of ["set:html", "innerHTML", "insertAdjacentHTML", "outerHTML", "document.write"]) {
+    for (const api of [
+      "set:html",
+      "innerHTML",
+      "insertAdjacentHTML",
+      "outerHTML",
+      "document.write",
+    ]) {
       expect(code(computeDialog()), api).not.toContain(api);
     }
   });

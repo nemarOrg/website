@@ -110,7 +110,8 @@ describe("every command the dialog prints exists in the captured help", () => {
     expect(submit).toContain("nm000104@1.0.2");
     const datasetFlags = ROWS.flatMap((r) => r.command.match(/--dataset \S+/g) ?? []);
     expect(datasetFlags.length).toBe(3);
-    for (const flag of datasetFlags) expect(flag).toMatch(/^--dataset (nm|on)\d{6}@v?\d+\.\d+\.\d+$/);
+    for (const flag of datasetFlags)
+      expect(flag).toMatch(/^--dataset (nm|on)\d{6}@v?\d+\.\d+\.\d+$/);
   });
 
   it("a renamed command or flag would fail (mutation check)", () => {
@@ -132,8 +133,16 @@ describe("every explanation that paraphrases the help still has its line there",
     ["a dataset names its version", "compute-submit.txt", "--dataset <id@version>"],
     ["a folder needs the file to run", "compute-submit.txt", "A folder needs --entry"],
     ["wait follows the job", "compute-submit.txt", "--wait follows the job until it ends"],
-    ["Ctrl-C does not cancel", "compute-submit.txt", "Ctrl-C stops waiting and does NOT cancel the job"],
-    ["limits are per partition", "compute-limits.txt", "what one job may ask for on each partition"],
+    [
+      "Ctrl-C does not cancel",
+      "compute-submit.txt",
+      "Ctrl-C stops waiting and does NOT cancel the job",
+    ],
+    [
+      "limits are per partition",
+      "compute-limits.txt",
+      "what one job may ask for on each partition",
+    ],
     ["balance works in every state", "compute-balance.txt", "It works in every access state"],
     ["the queue is the platform's, not a promise", "compute-queue.txt", "not a promise"],
     ["results download into a folder", "compute-results.txt", "--download <dir>"],
