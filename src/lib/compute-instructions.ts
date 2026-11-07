@@ -69,6 +69,8 @@ export interface InstructionRow {
 export interface InstructionStep {
   id: StepId;
   heading: string;
+  /** A sentence that opens the step, from the shared copy table; null for most steps. */
+  lead: string | null;
   link: StepLink | null;
   rows: InstructionRow[];
 }
@@ -81,7 +83,7 @@ export type ComputeInstructions =
 const L = COMPUTE_LABELS.datasetDialog;
 
 /** The job-id placeholder the follow row prints; the one placeholder a copied command carries. */
-export const JOB_PLACEHOLDER = "<job>";
+const JOB_PLACEHOLDER = "<job>";
 
 export function buildComputeInstructions(input: ComputeInstructionsInput): ComputeInstructions {
   if (!input.open) return { kind: "closed" };
@@ -102,12 +104,15 @@ export function buildComputeInstructions(input: ComputeInstructionsInput): Compu
     {
       id: "install",
       heading: L.install.heading,
+      lead: null,
       link: { kind: "install", label: L.install.link },
       rows: [{ label: L.install.signIn, command: "nemar login", explanation: "" }],
     },
     {
       id: "access",
       heading: L.access.heading,
+      // "A separate grant from upload access" has its antecedent here: the step that asks for the grant.
+      lead: ACCOUNT_COPY["compute_access.section.lede"],
       link: { kind: "request_access", label: ACCOUNT_COPY["compute_access.request.cta"] },
       rows: [
         {
@@ -120,6 +125,7 @@ export function buildComputeInstructions(input: ComputeInstructionsInput): Compu
     {
       id: "check",
       heading: L.check.heading,
+      lead: null,
       link: null,
       rows: [
         {
@@ -132,6 +138,7 @@ export function buildComputeInstructions(input: ComputeInstructionsInput): Compu
     {
       id: "run",
       heading: L.run.heading,
+      lead: null,
       link: null,
       rows: [
         {
@@ -159,6 +166,7 @@ export function buildComputeInstructions(input: ComputeInstructionsInput): Compu
     {
       id: "follow",
       heading: L.follow.heading,
+      lead: null,
       link: null,
       rows: [
         {
@@ -217,6 +225,7 @@ export function instructionStrings(result: ComputeInstructions): string[] {
   const out: string[] = [];
   for (const step of result.steps) {
     out.push(step.heading);
+    if (step.lead) out.push(step.lead);
     if (step.link) out.push(step.link.label);
     for (const row of step.rows) out.push(row.label, row.command, row.explanation);
   }

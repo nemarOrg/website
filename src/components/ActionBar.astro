@@ -255,12 +255,12 @@ const computePageHref = appUrl("/compute", requestHost);
   {computeInstructions.kind === "ready" && (
     <>
       <p class="compute-dialog__intro">{computeLabels.intro}</p>
-      <p class="compute-dialog__intro">{ACCOUNT_COPY["compute_access.section.lede"]}</p>
 
       <ol class="compute-dialog__steps">
         {computeInstructions.steps.map((step) => (
           <li>
             <strong>{step.heading}</strong>
+            {step.lead && <p>{step.lead}</p>}
             {step.link?.kind === "install" && (
               <p><a href={installUrl} rel="external">{step.link.label}</a></p>
             )}
@@ -298,7 +298,9 @@ const computePageHref = appUrl("/compute", requestHost);
   {computeInstructions.kind === "not_available" && (
     <>
       <p class="compute-dialog__intro">{computeLabels.notAvailable}</p>
-      <p class="compute-dialog__intro">{computeLabels.closedPointer}</p>
+      {computeInstructions.reason !== "unpublished" && computeInstructions.reason !== "no_version" && (
+        <p class="compute-dialog__intro">{computeLabels.closedPointer}</p>
+      )}
     </>
   )}
 
@@ -553,6 +555,11 @@ const computePageHref = appUrl("/compute", requestHost);
   .compute-row__label {
     color: var(--color-fg);
     font-weight: var(--fw-medium);
+  }
+  /* `.compute-dialog pre` (later in this file) puts a top margin on every pre; inside a copy row that
+     pushes the block below its Copy button. */
+  .compute-row .dl-cmd pre {
+    margin: 0;
   }
   .compute-row .dl-cmd__copy {
     align-self: flex-start;

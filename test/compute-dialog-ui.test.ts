@@ -156,12 +156,21 @@ describe("copy", () => {
     const keys = [...ACTION_BAR.matchAll(/ACCOUNT_COPY\["([^"]+)"\]/g)].map((m) => m[1] as string);
     expect(keys).toEqual(
       expect.arrayContaining([
-        "compute_access.section.lede",
         "compute_access.granted.link",
         "compute_access.terms_unpublished.body",
       ]),
     );
     for (const key of keys) expect(Object.keys(ACCOUNT_COPY), key).toContain(key);
+  });
+
+  it("the shared lede is read by the builder, in the access step, and rendered as the step's lead", () => {
+    expect(computeDialog()).toContain("{step.lead && <p>{step.lead}</p>}");
+  });
+
+  it("shows the Download pointer only when the dataset could be downloaded", () => {
+    const dialog = computeDialog();
+    expect(dialog).toContain('computeInstructions.reason !== "unpublished"');
+    expect(dialog).toContain('computeInstructions.reason !== "no_version"');
   });
 
   it("types no long sentence in the dialog or its frontmatter: those live in compute-labels.ts or the copy table", () => {
