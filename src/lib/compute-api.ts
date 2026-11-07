@@ -532,9 +532,10 @@ async function computeGet<T>(
   query: URLSearchParams,
   init: ComputeInit,
   parse: (body: unknown) => T,
+  defaultTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   return readJson(
-    await computeRequest("GET", path, query, init, "application/json", DEFAULT_REQUEST_TIMEOUT_MS),
+    await computeRequest("GET", path, query, init, "application/json", defaultTimeoutMs),
     parse,
   );
 }
@@ -559,9 +560,10 @@ async function computePost<T>(
   query: URLSearchParams,
   init: ComputeInit,
   parse: (body: unknown) => T,
+  defaultTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   return readJson(
-    await computeRequest("POST", path, query, init, "application/json", DEFAULT_REQUEST_TIMEOUT_MS),
+    await computeRequest("POST", path, query, init, "application/json", defaultTimeoutMs),
     parse,
   );
 }
@@ -609,6 +611,20 @@ export function listComputeJobs(
 /** The longest the log read waits: the backend may read the cluster for several seconds first. */
 export const COMPUTE_LOG_TIMEOUT_MS = 30_000;
 
+/**
+ * The longest a job read waits. A live job older than a minute is read back from the cluster first
+ * (the backend's read is bounded at about 8 s), so the 5 s default would turn a slow cluster into a
+ * false error instead of the stored record with `stale: true`.
+ */
+export const COMPUTE_JOB_READ_TIMEOUT_MS = 12_000;
+
+/**
+ * The longest a cancel waits. The backend carries the cancel out at the cluster and reads the job back
+ * before it answers, so a slow cluster must still end in the cancel's own outcome, not in a timeout the
+ * page reads as "could not tell".
+ */
+export const COMPUTE_CANCEL_TIMEOUT_MS = 20_000;
+
 function jobPath(id: string, rest: string): string {
   // The id goes into a URL path: nothing that is not a job id may.
   if (!COMPUTE_JOB_ID_RE.test(id))
@@ -618,7 +634,13 @@ function jobPath(id: string, rest: string): string {
 
 /** One of the caller's jobs; `stale` says the cluster could not be asked and the stored record is shown. */
 export function getComputeJob(id: string, init: ComputeInit = {}): Promise<ComputeJobRead> {
-  return computeGet(jobPath(id, "me/jobs/:id"), new URLSearchParams(), init, parseComputeJob);
+  return computeGet(
+    jobPath(id, "me/jobs/:id"),
+    new URLSearchParams(),
+    init,
+    parseComputeJob,
+    COMPUTE_JOB_READ_TIMEOUT_MS,
+  );
 }
 
 /**
@@ -679,5 +701,6 @@ export function cancelComputeJob(id: string, init: ComputeInit = {}): Promise<Co
     new URLSearchParams(),
     init,
     parseComputeCancel,
+    COMPUTE_CANCEL_TIMEOUT_MS,
   );
 }

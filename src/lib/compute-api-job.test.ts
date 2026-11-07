@@ -8,7 +8,7 @@
  * Transport conditions no route can be made to produce (a 502 with no JSON, a refused connection) use a
  * real `Response`, as the repo's rule allows for failure paths.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import cancel from "../../test/fixtures/compute/cancel.json";
 import errorsJob from "../../test/fixtures/compute/errors-job.json";
 import jobCancelRequested from "../../test/fixtures/compute/job-cancel-requested.json";
@@ -20,6 +20,9 @@ import logs from "../../test/fixtures/compute/logs.json";
 import meActive from "../../test/fixtures/compute/me-active-with-usage.json";
 import results from "../../test/fixtures/compute/results.json";
 import {
+  COMPUTE_CANCEL_TIMEOUT_MS,
+  COMPUTE_JOB_READ_TIMEOUT_MS,
+  COMPUTE_LOG_TIMEOUT_MS,
   ComputeApiError,
   cancelComputeJob,
   getComputeJob,
@@ -468,5 +471,64 @@ describe("the retention policy in GET /compute/me", () => {
     expect(() => parseComputeMe(body)).toThrow(ComputeApiError);
     body.limits.results_days = "30";
     expect(() => parseComputeMe(body)).toThrow(ComputeApiError);
+  });
+});
+
+// The suite above proves the calls work, not which deadline each one carries. A job read can wait on the
+// backend's cluster read (about 8 s) and a cancel on the cancel plus its read-back, so the 5 s default
+// would show a false error for a slow cluster. Spy on the static with no override so the fallback is
+// observable.
+describe("deadlines", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("names deadlines longer than the backend work behind them", () => {
+    expect(COMPUTE_JOB_READ_TIMEOUT_MS).toBeGreaterThan(8_000);
+    expect(COMPUTE_CANCEL_TIMEOUT_MS).toBeGreaterThan(COMPUTE_JOB_READ_TIMEOUT_MS);
+    expect(COMPUTE_LOG_TIMEOUT_MS).toBeGreaterThan(COMPUTE_JOB_READ_TIMEOUT_MS);
+  });
+
+  it("gives the job read the job-read deadline", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await getComputeJob(JOB_ID, { fetch: answering(json(jobStates.running.body)).fn });
+    expect(spy).toHaveBeenCalledWith(COMPUTE_JOB_READ_TIMEOUT_MS);
+  });
+
+  it("gives the cancel the cancel deadline", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await cancelComputeJob(JOB_ID, { fetch: answering(json(cancel.running.body)).fn });
+    expect(spy).toHaveBeenCalledWith(COMPUTE_CANCEL_TIMEOUT_MS);
+  });
+
+  it("gives the log read the log deadline", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await getComputeLogs(JOB_ID, { fetch: answering(new Response("a")).fn });
+    expect(spy).toHaveBeenCalledWith(COMPUTE_LOG_TIMEOUT_MS);
+  });
+
+  it("lets a slow cluster answer: a read that takes longer than 5 s still gets the stale record", async () => {
+    // The caller's deadline is the named one, not the 5 s default: a fetch that checks its own signal
+    // at the default's length sees it still open.
+    const timeouts: number[] = [];
+    const real = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return real(ms);
+    });
+    const read = await getComputeJob(JOB_ID, {
+      fetch: answering(json(jobStale.submitted.body)).fn,
+    });
+    expect(read.stale).toBe(true);
+    expect(Math.max(...timeouts)).toBeGreaterThan(5_000);
+  });
+
+  it("an explicit timeoutMs from the caller still wins", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    await getComputeJob(JOB_ID, {
+      fetch: answering(json(jobStates.running.body)).fn,
+      timeoutMs: 1_234,
+    });
+    expect(spy).toHaveBeenCalledWith(1_234);
   });
 });
