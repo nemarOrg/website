@@ -4,23 +4,30 @@ import Base from "../layouts/Base.astro";
 import { fetchAccountIdentity } from "../lib/account-api";
 import { ACCOUNT_COPY, fillCopy } from "../lib/account-copy";
 import {
+  COMPUTE_PURPOSE_MAX_CHARS,
   USERNAME_MAX_LENGTH,
   WHY_MAX_CHARS,
   WHY_MIN_CHARS,
   deriveAccountTier,
+  deriveComputeAccessState,
   deriveUploadAccessState,
 } from "../lib/account-tier";
+import { apiBase } from "../lib/api-base";
 import { fullName, getSession, isValidOrcid, maskEmail } from "../lib/auth";
+import { COMPUTE_TERMS_VERSION } from "../lib/compute-terms";
 import { listApiKeys } from "../lib/device-auth-api";
 import { listApiKeysDev } from "../lib/device-authorize-dev";
 import {
   DOCS_ACCOUNT_SETTINGS_PATH,
+  DOCS_COMPUTE_ACCESS_PATH,
+  DOCS_COMPUTE_TERMS_PATH,
   DOCS_UPLOAD_ACCESS_PATH,
   resolveDocsBase,
 } from "../lib/docs-base";
+import { COMPUTE_REQUESTS_ENABLED, computeRequestsOpen } from "../lib/flags";
 import { formatDate } from "../lib/format";
 import { IDENTITY_CONFLICT_MESSAGES } from "../lib/identity-errors";
-import { gapTail, profileGaps } from "../lib/profile-gaps";
+import { gapTail, gapsForFields, profileGaps, withoutComputeOnlyGaps } from "../lib/profile-gaps";
 
 const session = getSession(Astro.locals);
 if (!session) {
@@ -108,6 +115,8 @@ const nameMissingUnderOrcid = orcidVerified && name.length === 0;
 
 const accountDocsUrl = `${resolveDocsBase()}${DOCS_ACCOUNT_SETTINGS_PATH}`;
 const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
+const computeAccessDocsUrl = `${resolveDocsBase()}${DOCS_COMPUTE_ACCESS_PATH}`;
+const computeTermsUrl = `${resolveDocsBase()}${DOCS_COMPUTE_TERMS_PATH}`;
 
 // Everything this account is still missing, in one list at the top of the
 // account card (website#309) — the same list the dashboard nudge shows, the
@@ -115,10 +124,49 @@ const uploadAccessDocsUrl = `${resolveDocsBase()}${DOCS_UPLOAD_ACCESS_PATH}`;
 // upload-access request comes back with. The point of putting it HERE is that
 // Settings is where almost every one of them is fixed, so the list and the
 // controls are on one screen.
-const gaps = profileGaps({ ...session.user, username: identity.username });
+//
+// Compute-only gaps (Affiliation) are left out of this list: an account that
+// never asked for compute is not told it is missing a field it does not need.
+// The Affiliation tag below and the compute card's own refusal list are where
+// it surfaces (website ADR 0030).
+const gaps = withoutComputeOnlyGaps(profileGaps({ ...session.user, username: identity.username }));
 const requestedLede = requestedDate
   ? fillCopy(ACCOUNT_COPY["upload_access.requested.lede_dated"], { date: requestedDate })
   : ACCOUNT_COPY["upload_access.requested.lede"];
+
+// Compute access card (website ADR 0030; nemar-cli ADR 0118, epic #2021 phase
+// D1). `null` means the backend did not say, and then there is NO card: absent
+// is unknown, never "Not requested", which would invite a request the backend
+// will refuse. The website decides nothing here; every state, date and refusal
+// is the backend's, and every sentence is a transcribed copy key.
+const compute = deriveComputeAccessState(session.user);
+const computeOpen = computeRequestsOpen(COMPUTE_REQUESTS_ENABLED, apiBase());
+const computeDate = compute?.at ? formatDate(compute.at) : "";
+const computeStateLabel = {
+  none: ACCOUNT_COPY["compute_access.state.none"],
+  requested: ACCOUNT_COPY["compute_access.state.requested"],
+  active: ACCOUNT_COPY["compute_access.state.active"],
+  suspended: ACCOUNT_COPY["compute_access.state.suspended"],
+  denied: ACCOUNT_COPY["compute_access.state.denied"],
+  revoked: ACCOUNT_COPY["compute_access.state.revoked"],
+} as const;
+const computeBadgeClass = {
+  none: "",
+  requested: "badge--status-pending",
+  active: "badge--tier-upload",
+  suspended: "badge--status-pending",
+  denied: "badge--status-disabled",
+  revoked: "badge--status-disabled",
+} as const;
+// The unverified tier gets the same line the refusal would, with no form: the
+// review happens over email, and the request would be refused anyway.
+const computeUnverifiedGap =
+  compute && tier === "unverified"
+    ? gapsForFields(["email_verified"], { block: "compute_access" })[0]
+    : null;
+const computeRequestedLede = computeDate
+  ? fillCopy(ACCOUNT_COPY["compute_access.requested.lede_dated"], { date: computeDate })
+  : ACCOUNT_COPY["compute_access.requested.lede"];
 
 // CLI keys card (epic #1272 phase 2, nemarOrg/website#316; nemar-cli ADR
 // 0047). The list is fetched server-side here with `Origin: Astro.url.origin`
@@ -576,8 +624,17 @@ if (tier !== "unverified") {
             </label>
           </div>
           <label class="field">
-            <span class="field__label">Affiliation <span class="field__opt">optional</span></span>
-            <input class="field__input" type="text" name="affiliation" autocomplete="organization" placeholder="University or institute" value={affiliation} data-profile-affiliation />
+            {/* Required for compute access alone (the backend refuses a compute
+                request without it and an upload request never has). The tag
+                says so only when the compute card is on this page: without it
+                the field is optional, as it always was. The id is the anchor
+                the compute refusal list links to. */}
+            <span class="field__label">Affiliation {compute ? (
+              <span class="field__req">needed {ACCOUNT_COPY["gap.blocks.compute_access"]}</span>
+            ) : (
+              <span class="field__opt">optional</span>
+            )}</span>
+            <input id="profile-affiliation" class="field__input" type="text" name="affiliation" autocomplete="organization" placeholder="University or institute" value={affiliation} data-profile-affiliation />
           </label>
           <div class="flow__actions flow__actions--end">
             <p class="flow__msg" role="status" data-profile-msg hidden></p>
@@ -700,6 +757,137 @@ if (tier !== "unverified") {
           </a>
         </p>
       </article>
+
+      <!-- Compute access (website ADR 0030; nemar-cli ADR 0118): its OWN
+           grant, never upload access, so it is its own card and renders
+           nothing when the backend did not report a state. The markup and
+           CSS mirror the upload-access card on purpose; see the sync
+           comments in the style block. -->
+      {compute && (
+        <article class="card card--wide" id="compute-access" data-compute-access-state={compute.state}>
+          <div class="card__rail" aria-hidden="true"></div>
+          <header class="card__head">
+            <h2 class="card__title">{ACCOUNT_COPY["compute_access.section.title"]}</h2>
+            <p class="card__lede">{ACCOUNT_COPY["compute_access.section.lede"]}</p>
+          </header>
+
+          <dl class="kv">
+            <div class="kv__row">
+              <dt>Status</dt>
+              <dd>
+                <span class:list={["badge", computeBadgeClass[compute.state]]}>
+                  {computeStateLabel[compute.state]}
+                </span>
+                {compute.state === "requested" && computeDate && (
+                  <span class="kv__muted"> on {computeDate}</span>
+                )}
+                {compute.state === "active" && computeDate && (
+                  <span class="kv__muted"> since {computeDate}</span>
+                )}
+              </dd>
+            </div>
+          </dl>
+
+          {computeUnverifiedGap ? (
+            <p class="compute-access__body" data-compute-access-unverified>
+              <a href={computeUnverifiedGap.href ?? "/dashboard"}>{computeUnverifiedGap.label}</a>
+              {" "}{gapTail(computeUnverifiedGap)}
+            </p>
+          ) : (
+            <>
+              {compute.state === "none" && !computeOpen && (
+                <p class="compute-access__body" data-compute-access-closed>
+                  {ACCOUNT_COPY["compute_access.terms_unpublished.body"]}
+                </p>
+              )}
+
+              {compute.state === "requested" && (
+                <p class="compute-access__body">
+                  {computeRequestedLede} {ACCOUNT_COPY["compute_access.requested.body"]}
+                </p>
+              )}
+
+              {compute.state === "active" && (
+                <p class="compute-access__body">{ACCOUNT_COPY["compute_access.granted.body"]}</p>
+              )}
+
+              {compute.state === "suspended" && (
+                <p class="compute-access__body">{ACCOUNT_COPY["compute_access.suspended.body"]}</p>
+              )}
+
+              {(compute.state === "denied" || compute.state === "revoked") && (
+                <p class="compute-access__body">{ACCOUNT_COPY["compute_access.closed.body"]}</p>
+              )}
+
+              {/* The form: only a verified account that has never asked, and
+                  only while requests are open (computeRequestsOpen). A
+                  requested account gets no form: a request whose admin mail
+                  failed can only be re-sent from the CLI. `data-orcid-verified`
+                  is read by the refusal renderer in the script below, for the
+                  same reason as on the upload form. */}
+              {compute.state === "none" && computeOpen && (
+                <form
+                  class="compute-access__form"
+                  data-compute-access-form
+                  data-orcid-verified={orcidVerified ? "true" : "false"}
+                  data-terms-version={COMPUTE_TERMS_VERSION}
+                  novalidate
+                >
+                  <p class="compute-access__body">{ACCOUNT_COPY["compute_access.request.form_body"]}</p>
+                  <label class="field">
+                    <span class="field__label">{ACCOUNT_COPY["compute_access.request.purpose_label"]}</span>
+                    <textarea
+                      id="compute-access-purpose"
+                      class="field__input field__input--textarea"
+                      name="purpose"
+                      rows="5"
+                      aria-describedby="compute-access-purpose-hint"
+                      data-compute-access-purpose
+                    ></textarea>
+                  </label>
+                  <p class="flow__hint" id="compute-access-purpose-hint">
+                    {ACCOUNT_COPY["compute_access.request.purpose_hint"]}
+                    {" "}(<span data-compute-access-count>0</span> / {COMPUTE_PURPOSE_MAX_CHARS})
+                  </p>
+
+                  <label class="compute-access__terms">
+                    <input
+                      id="compute-access-terms"
+                      type="checkbox"
+                      name="accept_terms"
+                      required
+                      data-compute-access-terms
+                    />
+                    <span>
+                      {ACCOUNT_COPY["compute_access.request.terms_label"]} (version{" "}
+                      <a href={computeTermsUrl} rel="external noopener">{COMPUTE_TERMS_VERSION}</a>)
+                    </span>
+                  </label>
+
+                  {/* Populated from the refusal's `missing` array. */}
+                  <div class="compute-access__missing" data-compute-access-missing hidden>
+                    <p class="compute-access__missing-title">{ACCOUNT_COPY["gaps.request.title"]}</p>
+                    <ul class="compute-access__missing-list" data-compute-access-missing-list></ul>
+                  </div>
+
+                  <div class="flow__actions flow__actions--end">
+                    <button type="submit" class="btn btn--primary" data-compute-access-submit>
+                      {ACCOUNT_COPY["compute_access.request.cta"]}
+                    </button>
+                  </div>
+                  <p class="flow__msg" role="alert" data-compute-access-msg hidden></p>
+                </form>
+              )}
+            </>
+          )}
+
+          <p class="compute-access__footnote">
+            <a href={computeAccessDocsUrl} rel="external noopener">
+              {ACCOUNT_COPY["compute_access.docs_link"]}
+            </a>
+          </p>
+        </article>
+      )}
 
       <!-- CLI keys (epic #1272 phase 2; nemarOrg/website#316; nemar-cli ADR
            0047). Named API keys: one per machine signed in with
@@ -1368,6 +1556,10 @@ if (tier !== "unverified") {
   }
 
   /* ---------- Upload access ---------- */
+  /* SYNC: the `.compute-access__*` rules after the footnote below mirror these
+     (body, form, missing, footnote). Scoped styles do not cross components, and
+     the two cards are meant to look alike, so they are duplicated rather than
+     hoisted; change one, change the other. */
   .upload-access__body {
     margin: var(--space-3) 0 0;
     color: var(--color-fg-muted);
@@ -1456,6 +1648,79 @@ if (tier !== "unverified") {
     font-weight: var(--fw-semibold);
   }
   .upload-access__footnote {
+    margin: var(--space-4) 0 0;
+    font-size: var(--fs-xs);
+    color: var(--color-fg-subtle);
+  }
+
+  /* ---------- Compute access (website ADR 0030) ---------- */
+  /* SYNC: mirrors `.upload-access__*` above. The refusal box sets its display
+     only while NOT hidden: an author `display` on a bare class would beat the
+     UA's `[hidden]` rule, which is the Astro gotcha the upload box works
+     around with a second rule. */
+  .compute-access__body {
+    margin: var(--space-3) 0 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    max-inline-size: 62ch;
+  }
+  .compute-access__body a,
+  .compute-access__footnote a,
+  .compute-access__terms a {
+    color: var(--color-link);
+  }
+  .compute-access__form {
+    margin-block-start: var(--space-3);
+    display: grid;
+    gap: var(--space-3);
+  }
+  .compute-access__terms {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    font-size: var(--fs-sm);
+    color: var(--color-fg);
+    line-height: var(--lh-normal);
+  }
+  .compute-access__terms input {
+    flex: none;
+    margin-block-start: 3px;
+    accent-color: var(--brand-teal);
+  }
+  .compute-access__missing {
+    border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+  }
+  .compute-access__missing:not([hidden]) {
+    display: block;
+  }
+  .compute-access__missing[hidden] {
+    display: none;
+  }
+  .compute-access__missing-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-access__missing-list {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    display: grid;
+    gap: var(--space-1);
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    /* Full sentences, one carrying a backticked command: wrap anywhere
+       rather than widen the card. */
+    overflow-wrap: anywhere;
+  }
+  .compute-access__missing-list a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-access__footnote {
     margin: var(--space-4) 0 0;
     font-size: var(--fs-xs);
     color: var(--color-fg-subtle);
@@ -1695,19 +1960,22 @@ if (tier !== "unverified") {
 </style>
 
 <script>
-  import { AccountApiError, requestUploadAccess } from "../lib/account-api";
+  import { AccountApiError, requestComputeAccess, requestUploadAccess } from "../lib/account-api";
   import {
     COOKIE_CONSENT_CHANGED_EVENT,
     readCookieConsent,
     saveCookieConsent,
   } from "../lib/cookie-consent";
+  import { ACCOUNT_COPY } from "../lib/account-copy";
   import {
+    computeAccessErrorMessage,
     profileErrorMessage,
     uploadAccessErrorMessage,
+    validatePurpose,
     validateUsername,
     validateWhy,
   } from "../lib/account-tier";
-  import { describeGap, gapTail, gapsForFields } from "../lib/profile-gaps";
+  import { renderRefusal } from "../lib/refusal-list";
 
   // ---- Small helpers ----
   const $ = <T extends HTMLElement>(sel: string): T | null => document.querySelector<T>(sel);
@@ -2034,34 +2302,13 @@ if (tier !== "unverified") {
     // account does not get. The server rendered the answer onto the form.
     const orcidVerified = form.dataset.orcidVerified === "true";
 
-    /** Render the refusal's `missing` array as one line per field: the label
-     *  linked at the control that owns it, then the rest of `describeGap`'s
-     *  sentence — what the field blocks and where it is set. Word for word
-     *  what the dashboard nudge, `/upload` and `nemar auth status` print, so
-     *  a user who has already read this once does not have to re-parse it.
-     *  Entries with no Settings field of their own (`why` is the textarea
-     *  above; `email_verified` has its own surface) render as plain text
-     *  rather than as a link to nowhere. */
-    const showMissing = (missing: readonly string[]): void => {
-      if (!missingBox || !missingList || missing.length === 0) return;
-      missingList.textContent = "";
-      for (const gap of gapsForFields(missing, { orcidVerified })) {
-        const li = document.createElement("li");
-        if (gap.href) {
-          const a = document.createElement("a");
-          a.href = gap.href;
-          a.textContent = gap.label;
-          li.appendChild(a);
-          // textContent, never innerHTML: the tail is our own copy, but the
-          // label beside it is keyed off a backend-supplied field name.
-          li.appendChild(document.createTextNode(` ${gapTail(gap)}`));
-        } else {
-          li.textContent = describeGap(gap);
-        }
-        missingList.appendChild(li);
-      }
-      missingBox.hidden = false;
-    };
+    // The refusal's `missing` array, one line per field, rendered by the
+    // shared `renderRefusal` (src/lib/refusal-list.ts): the label linked at
+    // the control that owns it, then the rest of `describeGap`'s sentence,
+    // word for word what the nudge, `/upload` and the CLI print. The compute
+    // card calls the same function; the loop is not copied.
+    const showMissing = (missing: readonly string[]): void =>
+      renderRefusal(missingBox, missingList, missing, { orcidVerified });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -2096,6 +2343,98 @@ if (tier !== "unverified") {
         setMsg(msg, uploadAccessErrorMessage(status, code, detail), "error");
         if (err instanceof AccountApiError) showMissing(err.missing);
         if (submit) submit.disabled = false;
+      }
+    });
+  })();
+
+  // ================= Compute access request (website ADR 0030) =================
+  (() => {
+    const form = $<HTMLFormElement>("[data-compute-access-form]");
+    if (!form) return;
+    const purpose = $<HTMLTextAreaElement>("[data-compute-access-purpose]");
+    const terms = $<HTMLInputElement>("[data-compute-access-terms]");
+    const count = $("[data-compute-access-count]");
+    const msg = $("[data-compute-access-msg]");
+    const missingBox = $("[data-compute-access-missing]");
+    const missingList = $("[data-compute-access-missing-list]");
+    const submit = $<HTMLButtonElement>("[data-compute-access-submit]");
+    // The version the person accepts is the one the page printed beside the
+    // checkbox; the backend refuses a stale one with `terms_not_accepted`.
+    const termsVersion = form.dataset.termsVersion ?? "";
+    const orcidVerified = form.dataset.orcidVerified === "true";
+
+    // Code points, as the backend counts them: an emoji is one character.
+    const updateCount = (): void => {
+      if (count && purpose) count.textContent = String([...purpose.value.trim()].length);
+    };
+    purpose?.addEventListener("input", updateCount);
+    updateCount();
+
+    const clearMissing = (): void => {
+      if (missingBox) missingBox.hidden = true;
+      if (missingList) missingList.textContent = "";
+    };
+
+    // The three refusals that name PROFILE gaps render as the linked list and
+    // nothing else; the backend's sentence for them lists raw field names.
+    const LIST_CODES = ["email_not_verified", "orcid_not_proven", "profile_incomplete"];
+    // Refusals after which the page is out of date, not the form.
+    const RELOAD_CODES = ["access_closed", "already_active"];
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      clearMsg(msg);
+      clearMissing();
+      purpose?.removeAttribute("aria-invalid");
+      terms?.removeAttribute("aria-invalid");
+      const text = (purpose?.value ?? "").trim();
+      const problem = validatePurpose(text);
+      if (problem) {
+        purpose?.setAttribute("aria-invalid", "true");
+        setMsg(msg, problem, "error");
+        purpose?.focus();
+        return;
+      }
+      if (!terms?.checked) {
+        terms?.setAttribute("aria-invalid", "true");
+        setMsg(msg, computeAccessErrorMessage(400, "terms_not_accepted"), "error");
+        terms?.focus();
+        return;
+      }
+      if (submit) submit.disabled = true;
+      try {
+        await requestComputeAccess({ purpose: text, acceptTermsVersion: termsVersion });
+        // A fresh request (201) and an already-open one (200) both leave the
+        // card in the same state, so both reload. The text names the state and
+        // promises no email: a request whose admin mail failed is re-sent from
+        // the CLI, and the page cannot tell the two apart.
+        setMsg(msg, ACCOUNT_COPY["compute_access.requested.title"], "success");
+        setTimeout(() => location.reload(), 900);
+      } catch (err) {
+        const status = err instanceof AccountApiError ? err.status : 0;
+        const code = err instanceof AccountApiError ? err.code : undefined;
+        const detail = err instanceof AccountApiError ? err.backendMessage : undefined;
+        const missing = err instanceof AccountApiError ? err.missing : [];
+        const message = computeAccessErrorMessage(status, code, detail);
+        let keepDisabled = false;
+        if (code && LIST_CODES.includes(code) && missing.length > 0) {
+          renderRefusal(missingBox, missingList, missing, { orcidVerified, block: "compute_access" });
+        } else {
+          setMsg(msg, message, "error");
+        }
+        if (code === "purpose_required") {
+          purpose?.setAttribute("aria-invalid", "true");
+          purpose?.focus();
+        } else if (code === "terms_not_accepted") {
+          terms?.setAttribute("aria-invalid", "true");
+          terms?.focus();
+        } else if (code === "terms_unpublished") {
+          keepDisabled = true;
+        } else if (code && RELOAD_CODES.includes(code)) {
+          keepDisabled = true;
+          setTimeout(() => location.reload(), 1500);
+        }
+        if (submit) submit.disabled = keepDisabled;
       }
     });
   })();
