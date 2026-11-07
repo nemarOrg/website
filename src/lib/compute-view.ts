@@ -35,10 +35,10 @@ import {
 import {
   dbTimeToIso,
   formatDuration,
-  suFixed,
   formatUtcDate,
   formatUtcMinute,
   formatUtcSecond,
+  suFixed,
   sumMilli,
 } from "./compute-format";
 import { COMPUTE_LABELS, daysText } from "./compute-labels";
@@ -473,9 +473,7 @@ export function usageView(me: ComputeMe, usage: ComputeUsage): UsageView {
     });
     const names = chart.series.map((s) => displaySafeLine(s.name));
     const barTitles = chart.days.map((bar) => {
-      const parts = bar.segments.map(
-        (seg) => `${names[seg.seriesIndex]} ${suFixed(seg.milli)} SU`,
-      );
+      const parts = bar.segments.map((seg) => `${names[seg.seriesIndex]} ${suFixed(seg.milli)} SU`);
       return parts.length === 0
         ? `${bar.label}: 0.000 SU`
         : `${bar.label}: ${parts.join(", ")}, total ${suFixed(bar.drawnMilli)} SU`;

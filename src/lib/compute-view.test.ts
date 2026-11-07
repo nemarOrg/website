@@ -452,6 +452,10 @@ describe("usageView", () => {
     expect(view.pools[1].negativeNote).toBeNull();
   });
 
+  it("names the unit in the caption, so the axis numbers are not bare", () => {
+    expect(view.pools[0].caption).toMatch(/\bSU\b/);
+  });
+
   it("summarizes the chart in words: total, days with charges, busiest day", () => {
     expect(view.pools[0].summary).toBe(
       "CPU usage, 30 days, 39.500 SU charged on 5 days, busiest Oct 12 (16.500 SU).",

@@ -10,12 +10,12 @@ import {
   epochDay,
   formatDayShort,
   formatDuration,
-  suFixed,
   formatSu,
   formatUtcDate,
   formatUtcMinute,
   formatUtcSecond,
   parseDbTime,
+  suFixed,
   sumMilli,
 } from "./compute-format";
 

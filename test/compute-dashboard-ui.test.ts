@@ -135,6 +135,22 @@ describe("the page", () => {
     expect(JOBS_TABLE).toContain("event.preventDefault()");
   });
 
+  it("leaves a modified or non-primary click on Load more to the browser", () => {
+    const script = flat(JOBS_TABLE.slice(JOBS_TABLE.indexOf("<script>")));
+    expect(script).toMatch(
+      /event\.button !== 0 \|\| event\.metaKey \|\| event\.ctrlKey \|\| event\.shiftKey \|\| event\.altKey/,
+    );
+    expect(script.indexOf("event.metaKey")).toBeLessThan(script.indexOf("event.preventDefault()"));
+  });
+
+  it("prints 'No charges in this period.' only when the answer had no rows at all", () => {
+    expect(flat(PAGE)).toContain("usage.data.pools.length === 0 && !usage.data.anyRows");
+  });
+
+  it("does not fetch usage when the account read failed (it could not be drawn)", () => {
+    expect(flat(PAGE)).toContain("plan.readLedger && plan.usage && me ?");
+  });
+
   it("gives a bad cursor the Jobs notice with a way back to the first page", () => {
     expect(PAGE).toContain('jobsRead.error.code === "invalid_cursor"');
     expect(PAGE).toContain("L.jobs.firstPage");

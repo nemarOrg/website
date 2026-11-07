@@ -115,7 +115,7 @@ const plan = panelsFor(state, { unverified: unverified || accountRefused || notA
 
 // 2. Usage and the first page of jobs, in parallel, only where there is something to read.
 const [usageRead, jobsRead] = await Promise.all([
-  plan.readLedger && plan.usage ? attempt<ComputeUsage>(() => getComputeUsage(init)) : null,
+  plan.readLedger && plan.usage && me ? attempt<ComputeUsage>(() => getComputeUsage(init)) : null,
   plan.readLedger && plan.jobs
     ? attempt<ComputeJobsPage>(() => listComputeJobs({ after }, init))
     : null,
@@ -193,7 +193,7 @@ const accountFailure =
         {usage?.ok ? (
           <>
             <p class="compute-shell__line">{usage.data.windowText} {L.usage.window}. {usage.data.note}</p>
-            {usage.data.pools.length === 0 && <p class="compute-shell__line">{L.usage.empty}</p>}
+            {usage.data.pools.length === 0 && !usage.data.anyRows && <p class="compute-shell__line">{L.usage.empty}</p>}
             {usage.data.pools.map((pool) => <ComputeUsageChart view={pool} />)}
             {usage.data.aside && (
               <div class="compute-usage__aside" data-compute-usage-aside>
