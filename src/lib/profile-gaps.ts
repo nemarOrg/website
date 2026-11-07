@@ -62,7 +62,21 @@ import { ACCOUNT_COPY, type AccountCopyKey, fillCopy } from "./account-copy";
  * nearest wall, not every wall behind it — which is why the order is part of
  * the data and not incidental.
  */
-export type GapBlock = "verified" | "upload_access" | "publication";
+export type GapBlock = "verified" | "upload_access" | "compute_access" | "publication";
+
+/**
+ * The blocks in the order a surface walks them, nearest wall first. Exported
+ * so a test can pin the order against nemar-cli's `GAP_BLOCK_COPY`; the order
+ * is part of the data, because {@link describeGap} names a gap's FIRST block.
+ * Compute access sits after upload access: it is a separate grant (nemar-cli
+ * ADR 0118), but a person reaches the upload request first.
+ */
+export const GAP_BLOCKS: readonly GapBlock[] = [
+  "verified",
+  "upload_access",
+  "compute_access",
+  "publication",
+];
 
 /** The fields this build knows how to describe. A `profile_gaps` entry naming
  *  anything else still renders (see {@link gapsForFields}); it just renders
@@ -76,6 +90,7 @@ export type GapField =
   | "github_username"
   | "city"
   | "country"
+  | "affiliation"
   | "why";
 
 interface GapDefinition {
@@ -115,7 +130,7 @@ const GAP_DEFINITIONS: Record<GapField, GapDefinition> = {
     // Everything past browsing needs a proved inbox, and the upload-access
     // review itself happens over email (`email_not_verified` is its own
     // refusal, ahead of the profile check).
-    blocks: ["verified", "upload_access"],
+    blocks: ["verified", "upload_access", "compute_access"],
     href: "/dashboard",
     labelKey: "gap.field.email_verified.label",
     webKey: "gap.field.email_verified.set_on.web",
@@ -133,7 +148,7 @@ const GAP_DEFINITIONS: Record<GapField, GapDefinition> = {
   given_name: {
     // A DOI cites a person (nemar-cli ADR 0041), so the name outlives the
     // request that first asks for it.
-    blocks: ["upload_access", "publication"],
+    blocks: ["upload_access", "compute_access", "publication"],
     // The ROW, not the input: the inputs render only for an account with no
     // verified ORCID iD, and the account this is named to can be exactly the
     // other kind. See settings.astro.
@@ -145,7 +160,7 @@ const GAP_DEFINITIONS: Record<GapField, GapDefinition> = {
     derivable: true,
   },
   family_name: {
-    blocks: ["upload_access", "publication"],
+    blocks: ["upload_access", "compute_access", "publication"],
     href: "/settings#account-name",
     labelKey: "gap.field.family_name.label",
     webKey: "gap.field.family_name.set_on.web",
@@ -174,7 +189,7 @@ const GAP_DEFINITIONS: Record<GapField, GapDefinition> = {
     derivable: true,
   },
   city: {
-    blocks: ["upload_access"],
+    blocks: ["upload_access", "compute_access"],
     href: "/settings#profile-city",
     labelKey: "gap.field.city.label",
     webKey: "gap.field.city.set_on.web",
@@ -182,11 +197,26 @@ const GAP_DEFINITIONS: Record<GapField, GapDefinition> = {
     derivable: true,
   },
   country: {
-    blocks: ["upload_access"],
+    blocks: ["upload_access", "compute_access"],
     href: "/settings#profile-country",
     labelKey: "gap.field.country.label",
     webKey: "gap.field.country.set_on.web",
     cliKey: "gap.field.country.set_on.cli",
+    derivable: true,
+  },
+  affiliation: {
+    // Compute access only (nemar-cli epic #2021 phase D1): the export-control
+    // review of a compute grant reads the institution and upload access never
+    // has, so this field must not change what an upload-access request is
+    // refused for. An absent value reads as blank, like every text column
+    // here, which is why Settings and the dashboard nudge filter compute-only
+    // gaps out ({@link withoutComputeOnlyGaps}): the Affiliation tag and the
+    // compute card's refusal list are where it surfaces.
+    blocks: ["compute_access"],
+    href: "/settings#profile-affiliation",
+    labelKey: "gap.field.affiliation.label",
+    webKey: "gap.field.affiliation.set_on.web",
+    cliKey: "gap.field.affiliation.set_on.cli",
     derivable: true,
   },
   why: {
@@ -205,11 +235,12 @@ export const GAP_FIELDS = Object.keys(GAP_DEFINITIONS) as readonly GapField[];
 const GAP_BLOCK_COPY: Record<GapBlock, AccountCopyKey> = {
   verified: "gap.blocks.verified",
   upload_access: "gap.blocks.upload_access",
+  compute_access: "gap.blocks.compute_access",
   publication: "gap.blocks.publication",
 };
 
 function isGapBlock(value: unknown): value is GapBlock {
-  return value === "verified" || value === "upload_access" || value === "publication";
+  return (GAP_BLOCKS as readonly unknown[]).includes(value);
 }
 
 /** One gap, resolved to everything a surface needs to render it. */
@@ -284,6 +315,9 @@ export interface ProfileGapAccount {
   readonly github_username?: string | null;
   readonly city?: string | null;
   readonly country?: string | null;
+  /** Absent reads as blank (like every text column here), so it raises the
+   *  compute-only `affiliation` gap. */
+  readonly affiliation?: string | null;
 }
 
 function isBlank(value: string | null | undefined): boolean {
@@ -354,9 +388,18 @@ function fieldOrder(field: string): number {
  */
 export function gapsForFields(
   fields: readonly string[],
-  context: { readonly orcidVerified?: boolean } = {},
+  context: { readonly orcidVerified?: boolean; readonly block?: GapBlock } = {},
 ): ProfileGap[] {
-  return fields.map((field) => resolveGap(field, context.orcidVerified === true));
+  return fields.map((field) => {
+    const gap = resolveGap(field, context.orcidVerified === true);
+    // `block` is the thing the refusal is ABOUT. A field's own `blocks` list
+    // is its nearest wall in general (`orcid_verified` is "upload_access"), but
+    // a compute refusal that printed "needed to request upload access" for the
+    // ORCID iD would send the person to the wrong grant. The override is only
+    // for a field this build knows: an unknown one keeps the empty list, which
+    // renders the neutral "to finish setting up your account".
+    return context.block && gap.known ? { ...gap, blocks: [context.block] } : gap;
+  });
 }
 
 /** True when this account carries a server-computed list. Exported so a
@@ -432,6 +475,9 @@ function derivedGapFields(account: ProfileGapAccount): GapField[] {
   if (isBlank(account.github_username)) fields.push("github_username");
   if (isBlank(account.city)) fields.push("city");
   if (isBlank(account.country)) fields.push("country");
+  // Absent reads as blank: a caller that never selected the column raises the
+  // gap, which is loud on purpose (see the matrix row).
+  if (isBlank(account.affiliation)) fields.push("affiliation");
   return fields;
 }
 
@@ -479,12 +525,29 @@ export function describeGap(gap: ProfileGap): string {
   return `${gap.label} ${gapTail(gap)}`;
 }
 
+/**
+ * Drop the gaps that stop compute access and nothing else.
+ *
+ * `affiliation` is the only one today, and it is required for compute access
+ * alone. The dashboard nudge and the Settings account list use this so that an
+ * account which never asked for compute is not nagged about a field it does
+ * not need; the field surfaces in the Affiliation tag and in the compute
+ * card's own refusal list instead (website ADR 0030). `/upload` and
+ * `needsOnboarding` are untouched: neither lists it.
+ */
+export function withoutComputeOnlyGaps(gaps: readonly ProfileGap[]): ProfileGap[] {
+  return gaps.filter(
+    (gap) => !(gap.blocks.length > 0 && gap.blocks.every((b) => b === "compute_access")),
+  );
+}
+
 /** "upload access", "upload access and publication" — the full block list,
  *  for a surface that reports rather than instructs (the admin review card).
  *  Deliberately noun-phrased, not the sentence fragments above. */
 const GAP_BLOCK_NOUNS: Record<GapBlock, string> = {
   verified: ACCOUNT_COPY["gap.blocks.noun.verified"],
   upload_access: ACCOUNT_COPY["gap.blocks.noun.upload_access"],
+  compute_access: ACCOUNT_COPY["gap.blocks.noun.compute_access"],
   publication: ACCOUNT_COPY["gap.blocks.noun.publication"],
 };
 
