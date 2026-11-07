@@ -37,6 +37,16 @@
  *                   PUBLIC_API_BASE_URL has the `@nemar.cpending` mock for that screen). The
  *                   loopback guards below are unchanged.
  *
+ *   --seed-compute-jobs  with --seed-compute and LOCAL_BACKEND_JOBS=1, also makes the job page's
+ *                   (website phase E3, #496) jobs for `localjobs` through the REAL services and the
+ *                   Tapis stand-in: a finished job (three outputs, a log), a running one, a second
+ *                   running one to cancel, a hostile log, a log over 1 MiB, a failed job, a finished
+ *                   job with 1,002 outputs, one whose results expire soon and one whose results
+ *                   expired, a job that is queued and then advances by itself (queued, running,
+ *                   finished, every 20 s), and a running job of another account (the 404 check). The
+ *                   ids are printed and written to `.local-backend/jobs.json`. No route is stood in
+ *                   for; the launcher's last step is played by the backend's own helper.
+ *
  * It also seeds what the admin Compute tab (website#497) reviews: an owner and a
  * non-owner admin who are signed in, a queue of people who asked for compute
  * access (varied countries, a purpose full of markup, a service account, the
@@ -113,6 +123,7 @@ const { default: dailyDoc } = await import(
 
 // Job rows need the backend's lifecycle fixture (Miniflare's R2 and the Tapis stand-in).
 const WITH_JOBS = process.env.LOCAL_BACKEND_JOBS === "1";
+const SEED_COMPUTE_JOBS = process.argv.includes("--seed-compute-jobs");
 const lifecycle = WITH_JOBS
   ? await import(join(root, "backend/test/helpers/compute-lifecycle-fixture.ts"))
   : null;
@@ -138,7 +149,9 @@ const STAMPS = { requested: "2026-10-20 09:30:00", granted: "2026-10-24 14:05:00
 const db = fx ? fx.harness.db : freshDb();
 const env = {
   ...(fx ? fx.env() : { DB: realD1(db) }),
-  ENVIRONMENT: "test",
+  // Compute runs only in `production` or `development` (the backend's switch), so the job page's seed
+  // needs `development`; both are non-production and fenced from real mail.
+  ENVIRONMENT: SEED_COMPUTE_JOBS ? "development" : "test",
   // Decisions are bookkeeping and read no switch, but minting an observer run does.
   COMPUTE_ENABLED: "1",
   API_BASE_URL: `http://localhost:${PORT}`,
@@ -253,6 +266,9 @@ const PERSONAS = [
   { who: "noorcid", compute_access: "none", identity: false },
 ];
 const SEED_COMPUTE = process.argv.includes("--seed-compute");
+if (SEED_COMPUTE_JOBS && !(SEED_COMPUTE && WITH_JOBS)) {
+  refuse("--seed-compute-jobs needs --seed-compute and LOCAL_BACKEND_JOBS=1.");
+}
 if (SEED_COMPUTE) {
   const active = {
     compute_access: "active",
@@ -263,6 +279,8 @@ if (SEED_COMPUTE) {
     { who: "rich", ...active },
     { who: "frozen", ...active },
     { who: "overrun", ...active },
+    // The job page's account (--seed-compute-jobs): no other live jobs, so the concurrency limit has room.
+    ...(SEED_COMPUTE_JOBS ? [{ who: "jobs", ...active }] : []),
     // Asks, then is granted through the real admin routes below.
     { who: "granted", compute_access: "requested", compute_access_requested_at: STAMPS.requested },
   );
@@ -359,11 +377,12 @@ if (server.hostname !== "127.0.0.1") {
   refuse(`the server bound ${server.hostname}, not 127.0.0.1.`);
 }
 
-
 /** The compute dashboard's data (--seed-compute): the backend's own seed helpers and ledger services. */
 async function seedComputeData() {
   const seeds = await import(join(root, "backend/test/helpers/compute-user-seed.ts"));
-  const { fundAccount, fundPlatform } = await import(join(root, "backend/test/helpers/compute-seed.ts"));
+  const { fundAccount, fundPlatform } = await import(
+    join(root, "backend/test/helpers/compute-seed.ts")
+  );
   const { placeHold } = await import(join(root, "backend/src/services/compute-ledger.ts"));
   const { COMPUTE_STATES } = await import(join(root, "shared/compute-state.ts"));
   const { insertJob, jobIdFor, chargeAt, correctionAt, sqliteAt } = seeds;
@@ -445,7 +464,9 @@ async function seedComputeData() {
       pool: i % 3 === 0 ? "gpu" : "cpu",
       gpus: i % 3 === 0 ? 1 : 0,
       created_at: ago(1, i),
-      started_at: ["running", "archiving", "finished", "failed"].includes(state) ? ago(1, i - 1) : null,
+      started_at: ["running", "archiving", "finished", "failed"].includes(state)
+        ? ago(1, i - 1)
+        : null,
       ended_at: terminal ? ago(1, i - 2) : null,
       cancel_requested_at: state === "running" ? ago(0, 1) : null,
     });
@@ -507,7 +528,10 @@ async function seedComputeData() {
   const accessRes = await asOwner("/admin/compute/access/grant/localgranted");
   if (!accessRes.ok) throw new Error(`grant failed: ${accessRes.status} ${await accessRes.text()}`);
   const grantedId = idOf("granted");
-  for (const [pool, amount] of [["cpu", 25_000], ["gpu", 10_000]]) {
+  for (const [pool, amount] of [
+    ["cpu", 25_000],
+    ["gpu", 10_000],
+  ]) {
     const res = await asOwner(`/admin/compute/pools/by-id/${grantedId}/grant`, {
       pool,
       amount_milli: amount,
@@ -516,6 +540,163 @@ async function seedComputeData() {
   }
 }
 if (SEED_COMPUTE) await seedComputeData();
+
+/** The job page's jobs (--seed-compute-jobs): the backend's services, the Tapis stand-in, no route stood in. */
+const seededJobs = {};
+async function seedComputeJobs() {
+  const { createJob } = await import(join(root, "backend/src/services/compute-jobs.ts"));
+  const { fundAccount } = await import(join(root, "backend/test/helpers/compute-seed.ts"));
+  const { submitComputeJob, advanceComputeJob } = await import(
+    join(root, "backend/src/services/compute-lifecycle.ts")
+  );
+  const { launchableSpec, playLauncher, reread, setTapisTimes, MINUTE } = lifecycle;
+  const idOf = (name) => db.query("SELECT id FROM users WHERE username = ?").get(`local${name}`).id;
+  const rich = idOf("jobs");
+  const frozen = idOf("granted");
+  await fundAccount(realD1(db), rich, 400_000, "cpu");
+  const make = async (account, label) => {
+    const made = await createJob(env, {
+      source: "cli",
+      accountId: account,
+      appId: "nemar-launch",
+      appVersion: "1.0.0",
+      spec: launchableSpec(),
+    });
+    if (!made.ok) throw new Error(`could not make ${label}: ${made.code}`);
+    seededJobs[label] = made.job.id;
+    return made.job.id;
+  };
+  const submit = async (id) => {
+    const sub = await submitComputeJob(env, id);
+    if (!sub.ok) throw new Error(`could not submit ${id}: ${sub.outcome}`);
+    return (await reread(env, id)).tapis_uuid;
+  };
+  const toRunning = async (id) => {
+    const uuid = await submit(id);
+    fx.tapis.advance(uuid, "QUEUED");
+    fx.tapis.advance(uuid, "RUNNING");
+    await advanceComputeJob(env, id);
+    return uuid;
+  };
+  const finish = async (id, uuid, plan) => {
+    await playLauncher(fx, env, await reread(env, id), uuid, plan);
+    fx.tapis.advance(uuid, "FINISHED");
+    setTapisTimes(fx, uuid, 30 * MINUTE, 0);
+    await advanceComputeJob(env, id);
+  };
+  const outputs = [
+    { path: "report.txt", content: "the report\n" },
+    { path: "figures/plot.json", content: '{"x":[1,2,3]}' },
+    { path: "table.csv", content: "a,b\n1,2\n" },
+  ];
+
+  const finished = await make(rich, "finished");
+  const u1 = await toRunning(finished);
+  fx.tapis.setOutput(u1, "tapisjob.out", "step one\nstep two\ndone\n");
+  await finish(finished, u1, { outputs });
+
+  const running = await make(rich, "running");
+  fx.tapis.setOutput(await toRunning(running), "tapisjob.out", "starting\nworking...\n");
+
+  const toCancel = await make(rich, "cancel");
+  fx.tapis.setOutput(await toRunning(toCancel), "tapisjob.out", "this one will be canceled\n");
+
+  // Hostile and huge logs are on ENDED jobs (read from the records copy), which also keeps the
+  // number of live jobs under the concurrency limit.
+  const hostile = await make(rich, "hostile_log");
+  const uh = await toRunning(hostile);
+  fx.tapis.setOutput(
+    uh,
+    "tapisjob.out",
+    [
+      "plain line",
+      "\u001b[31mred\u001b[0m and \u001b[2K cleared",
+      "link \u001b]8;;https://example.org\u0007text\u001b]8;;\u0007 end",
+      "progress 10%\rprogress 50%\rprogress 100%",
+      "nul \u0000 bell \u0007 next-line \u0085 end",
+      "override \u202egnp.exe and isolate \u2066x\u2069 and zero\u200bwidth",
+      '<script>window.__pwned = 1; alert("x")</script> <img src=x onerror="window.__pwned = 2"> &amp; "q" back\\slash',
+      "x".repeat(5000),
+    ].join("\n"),
+  );
+  await finish(hostile, uh, { outputs: [], failureCode: "runtime_error" });
+
+  const big = await make(rich, "big_log");
+  const lines = Array.from({ length: 40_000 }, (_, i) => `line ${i + 1} ${"y".repeat(20)}`).join(
+    "\n",
+  );
+  const ub = await toRunning(big);
+  fx.tapis.setOutput(ub, "tapisjob.out", lines);
+  await finish(big, ub, { outputs: [], failureCode: "runtime_error" });
+
+  const failed = await make(rich, "failed");
+  const u2 = await toRunning(failed);
+  fx.tapis.setOutput(
+    u2,
+    "tapisjob.out",
+    'Traceback (most recent call last):\n  File "main.py", line 3\nZeroDivisionError: division by zero\n',
+  );
+  await finish(failed, u2, { outputs: [], failureCode: "runtime_error" });
+
+  const many = await make(rich, "many_results");
+  const u3 = await toRunning(many);
+  await finish(many, u3, {
+    outputs: Array.from({ length: 1002 }, (_, i) => ({
+      // `.dat`, not `.txt`: `bun run dev` answers a URL that ends in `.txt` (the cursor of the second page
+      // is the last path) as a static file lookup and 500s; a deployed build is not known to.
+      path: `out/file-${String(i).padStart(5, "0")}.dat`,
+      content: `n${i}\n`,
+    })),
+  });
+
+  for (const [label, daysAgo] of [
+    ["expiring", 28],
+    ["expired", 31],
+  ]) {
+    const id = await make(rich, label);
+    const uuid = await toRunning(id);
+    await finish(id, uuid, { outputs });
+    db.query("UPDATE compute_jobs SET ended_at = datetime('now', ?) WHERE id = ?").run(
+      `-${daysAgo} days`,
+      id,
+    );
+  }
+
+  const foreign = await make(frozen, "foreign");
+  await toRunning(foreign);
+
+  // A job that advances by itself every 20 s: submitted, queued, running, finished.
+  const watch = await make(rich, "watch");
+  const watchUuid = await submit(watch);
+  let step = 0;
+  const timer = setInterval(async () => {
+    try {
+      step += 1;
+      if (step === 1) fx.tapis.advance(watchUuid, "QUEUED");
+      if (step === 2) {
+        fx.tapis.advance(watchUuid, "RUNNING");
+        fx.tapis.setOutput(watchUuid, "tapisjob.out", "watch job running\n");
+      }
+      if (step === 3) {
+        fx.tapis.setOutput(watchUuid, "tapisjob.out", "watch job running\nwatch job done\n");
+        await playLauncher(fx, env, await reread(env, watch), watchUuid, { outputs });
+        fx.tapis.advance(watchUuid, "FINISHED");
+        setTimeout(() => {}, 0);
+      }
+      // The backend refreshes a live job from the stand-in at most once a minute per read: age the
+      // stored read so the next page read picks the change up.
+      db.query(
+        "UPDATE compute_jobs SET tapis_synced_at = datetime('now', '-5 minutes') WHERE id = ?",
+      ).run(watch);
+      if (step >= 3) clearInterval(timer);
+    } catch (err) {
+      console.error(`watch job step failed: ${err instanceof Error ? err.message : err}`);
+      clearInterval(timer);
+    }
+  }, 20_000);
+  timer.unref?.();
+}
+if (SEED_COMPUTE_JOBS) await seedComputeJobs();
 
 const cookies = {};
 for (const p of [...PERSONAS, ...ADMIN_PERSONAS])
@@ -593,6 +774,9 @@ if (fx) {
 const outDir = join(import.meta.dir, "..", ".local-backend");
 await mkdir(outDir, { recursive: true });
 await writeFile(join(outDir, "cookies.json"), `${JSON.stringify(cookies, null, 2)}\n`);
+if (SEED_COMPUTE_JOBS) {
+  await writeFile(join(outDir, "jobs.json"), `${JSON.stringify(seededJobs, null, 2)}\n`);
+}
 
 console.log(`nemar-cli backend on http://localhost:${PORT} (in-memory database; restart resets)`);
 console.log("");
@@ -603,6 +787,13 @@ console.log(
   "Session cookies (paste as `nemar_session` for localhost:4321; also in .local-backend/cookies.json):",
 );
 for (const [who, cookie] of Object.entries(cookies)) console.log(`  ${who.padEnd(14)} ${cookie}`);
+if (SEED_COMPUTE_JOBS) {
+  console.log("");
+  console.log(
+    "Job page jobs (also in .local-backend/jobs.json), open /compute/jobs/<id> as `jobs`:",
+  );
+  for (const [label, id] of Object.entries(seededJobs)) console.log(`  ${label.padEnd(14)} ${id}`);
+}
 console.log("");
 console.log(
   "Admin Compute tab: sign in as `owner` or `adminself` (a non-owner administrator whose own",

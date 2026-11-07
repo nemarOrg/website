@@ -20,7 +20,7 @@ const L = JOB_COPY.results;
 ---
 
 <div class="compute-job-results">
-  <p class="compute-job__line" data-results-headline data-until-iso={panel.window.untilIso ?? undefined}>{panel.headline}</p>
+  <p class="compute-job__line" data-results-headline data-until-iso={panel.window.state === "expired" ? undefined : (panel.window.untilIso ?? undefined)}>{panel.headline}</p>
   <p class="compute-job__actions">
     <button type="button" class="compute-job__btn" data-results-get hidden={!panel.canGetLinks}>{L.get}</button>
   </p>

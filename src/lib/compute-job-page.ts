@@ -59,7 +59,7 @@ function addLocalTime(node: HTMLElement): void {
   const iso = node.dataset.untilIso;
   const when = iso ? new Date(iso) : null;
   if (when && !Number.isNaN(when.getTime())) {
-    node.textContent = `${node.textContent ?? ""} (${JOB_COPY.results.yourTime}: ${when.toLocaleString()})`;
+    node.textContent = `${node.textContent ?? ""} ${JOB_COPY.results.localTime(when.toLocaleString())}`;
   }
 }
 
@@ -160,8 +160,10 @@ export function initJobPage(root: HTMLElement): void {
     });
     const headline = must<HTMLElement>(root, "[data-results-headline]");
     setText(headline, panel.headline);
-    if (panel.window.untilIso) headline.dataset.untilIso = panel.window.untilIso;
-    else delete headline.dataset.untilIso;
+    // The local time is only added where the line names the date (not for a derived "expired").
+    if (panel.window.untilIso && panel.window.state !== "expired") {
+      headline.dataset.untilIso = panel.window.untilIso;
+    } else delete headline.dataset.untilIso;
     if (panel.window.untilMs !== null) root.dataset.untilMs = String(panel.window.untilMs);
     else delete root.dataset.untilMs;
     addLocalTime(headline);

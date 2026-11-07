@@ -101,6 +101,7 @@ export const JOB_COPY = {
     badState: "NEMAR has no result files for this job.",
     loading: "Getting the links",
     yourTime: "your time",
+    localTime: (when: string) => `In your time zone: ${when}.`,
     linksExpire: (until: string) => `Links expire ${until}.`,
     filesCount: (total: number) =>
       `${total.toLocaleString("en-US")} ${total === 1 ? "file" : "files"}`,
