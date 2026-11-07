@@ -364,3 +364,14 @@ describe("navigation", () => {
     expect(SETTINGS.slice(active, active + 400)).toContain("/compute");
   });
 });
+
+describe("the empty usage chart text", () => {
+  it("is placed by the geometry between gridlines, not centered on the plot", () => {
+    expect(USAGE_CHART).toContain("emptyLabelTopPercent(chart.ticks)");
+    const rule = USAGE_CHART.slice(USAGE_CHART.indexOf(".compute-chart__empty {"));
+    const body = rule.slice(0, rule.indexOf("}"));
+    expect(body).toContain("var(--empty-top)");
+    // The old rule centered it in the whole plot, which is where the middle gridline is.
+    expect(body).not.toContain("place-items: center");
+  });
+});

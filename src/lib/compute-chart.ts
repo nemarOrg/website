@@ -339,3 +339,19 @@ export function computeUsageChart(input: ChartInput): UsageChart {
     empty: drawnTotals.every((m) => m === 0),
   };
 }
+
+/**
+ * Where the "No charges in this period." line sits in an empty chart: the vertical middle of the
+ * widest gap between two gridlines (the upper one on a tie), as a percent from the top of the plot.
+ * Centered on the plot it would land on the middle gridline, and the line would strike through the
+ * text. The text is 1.5 lines of `--fs-sm` tall at most; the caller checks it fits the gap.
+ */
+export function emptyLabelTopPercent(ticks: readonly Tick[]): number {
+  const tops = ticks.map((t) => t.topPercent).sort((a, b) => a - b);
+  let best = { gap: -1, mid: 50 };
+  for (let i = 1; i < tops.length; i++) {
+    const gap = tops[i] - tops[i - 1];
+    if (gap > best.gap) best = { gap, mid: round3((tops[i] + tops[i - 1]) / 2) };
+  }
+  return best.mid;
+}
