@@ -37,11 +37,23 @@
  *                   PUBLIC_API_BASE_URL has the `@nemar.cpending` mock for that screen). The
  *                   loopback guards below are unchanged.
  *
+ * It also seeds what the admin Compute tab (website#497) reviews: an owner and a
+ * non-owner admin who are signed in, a queue of people who asked for compute
+ * access (varied countries, a purpose full of markup, a service account, the
+ * admin's own request), a non-zero owner default allocation set through the real
+ * `PUT /admin/compute/policy`, and the scheduler accounting rows no job claims,
+ * posted through the real observer route with a really minted run token. With
+ * `LOCAL_BACKEND_JOBS=1` it runs on the backend's lifecycle fixture (Miniflare's
+ * R2 and the Tapis stand-in, no tenant) and also makes jobs through the real
+ * services and sets the flag columns the way the backend's own reporting test
+ * does, because no real path produces a flag without a live tenant.
+ *
  * Environment:
- *   NEMAR_CLI_DIR   required; the nemar-cli checkout (bun install at its root
- *                   and in backend/)
- *   PORT            default 8787
- *   WEB_ORIGIN      default http://localhost:4321 (the Origin sign-in sends)
+ *   NEMAR_CLI_DIR        required; the nemar-cli checkout (bun install at its
+ *                        root and in backend/)
+ *   PORT                 default 8787
+ *   WEB_ORIGIN           default http://localhost:4321 (the Origin sign-in sends)
+ *   LOCAL_BACKEND_JOBS   set to 1 for the job rows (starts Miniflare)
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -56,12 +68,16 @@ function refuse(reason) {
 }
 const ENVIRONMENT = process.env.ENVIRONMENT;
 if (ENVIRONMENT !== undefined && !["test", "dev", "development", "local"].includes(ENVIRONMENT)) {
-  refuse(`ENVIRONMENT=${ENVIRONMENT} is not a local environment (this script is for local use only).`);
+  refuse(
+    `ENVIRONMENT=${ENVIRONMENT} is not a local environment (this script is for local use only).`,
+  );
 }
 for (const name of ["BIND_HOST", "HOST", "BUN_HOST"]) {
   const value = process.env[name];
   if (value !== undefined && value !== "" && !LOOPBACK_HOSTS.has(value)) {
-    refuse(`${name}=${value} would bind a non-loopback address; this script listens on 127.0.0.1 only.`);
+    refuse(
+      `${name}=${value} would bind a non-loopback address; this script listens on 127.0.0.1 only.`,
+    );
   }
 }
 {
@@ -88,6 +104,20 @@ const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:4321";
 const { default: worker } = await import(join(root, "backend/src/index.ts"));
 const { freshDb, realD1 } = await import(join(root, "backend/test/helpers/d1.ts"));
 const { hashApiKey } = await import(join(root, "backend/src/services/token.ts"));
+const { DEFAULT_COMPUTE_POLICY } = await import(join(root, "shared/contract/compute.ts"));
+const { COMPUTE_TERMS_VERSION } = await import(join(root, "shared/contract/compute-terms.ts"));
+const { default: dailyDoc } = await import(
+  join(root, "test/fixtures/compute-observation/daily.v1.json"),
+  { with: { type: "json" } }
+);
+
+// Job rows need the backend's lifecycle fixture (Miniflare's R2 and the Tapis stand-in).
+const WITH_JOBS = process.env.LOCAL_BACKEND_JOBS === "1";
+const lifecycle = WITH_JOBS
+  ? await import(join(root, "backend/test/helpers/compute-lifecycle-fixture.ts"))
+  : null;
+const fx = lifecycle ? await lifecycle.startLifecycleFixture() : null;
+if (fx) await fx.reset();
 
 const BYPASS = "local-backend-bypass-token";
 const OWNER_KEY = "local-owner-key-0123456789abcdef0123456789abcdef";
@@ -105,10 +135,12 @@ function orcidFor(n) {
 let fixtureCount = 0;
 const STAMPS = { requested: "2026-10-20 09:30:00", granted: "2026-10-24 14:05:00" };
 
-const db = freshDb();
+const db = fx ? fx.harness.db : freshDb();
 const env = {
-  DB: realD1(db),
+  ...(fx ? fx.env() : { DB: realD1(db) }),
   ENVIRONMENT: "test",
+  // Decisions are bookkeeping and read no switch, but minting an observer run does.
+  COMPUTE_ENABLED: "1",
   API_BASE_URL: `http://localhost:${PORT}`,
   APP_BASE_URL: WEB_ORIGIN,
   ENCRYPTION_KEY: "local-backend-encryption-key-0123456789abcdef",
@@ -136,6 +168,8 @@ function insertUser(o) {
     compute_access: "none",
     compute_access_requested_at: null,
     compute_access_granted_at: null,
+    compute_purpose: null,
+    account_kind: "person",
     identity: true,
     ...o,
   };
@@ -144,8 +178,9 @@ function insertUser(o) {
                         given_name, family_name, city, country, affiliation,
                         orcid, orcid_verified, signup_source, service_access, account_kind,
                         compute_access, compute_access_requested_at, compute_access_granted_at,
-                        compute_access_notified_at)
-     VALUES (?, ?, 'x', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', 0, 'person', ?, ?, ?, ?)`,
+                        compute_access_notified_at, compute_purpose, compute_terms_version,
+                        compute_terms_accepted_at)
+     VALUES (?, ?, 'x', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'web', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.username,
     row.email,
@@ -159,10 +194,14 @@ function insertUser(o) {
     row.affiliation,
     row.identity ? orcid : null,
     row.identity ? 1 : 0,
+    row.account_kind,
     row.compute_access,
     row.compute_access_requested_at,
     row.compute_access_granted_at,
     row.compute_access_requested_at,
+    row.compute_purpose,
+    row.compute_purpose ? COMPUTE_TERMS_VERSION : null,
+    row.compute_purpose ? row.compute_access_requested_at : null,
   );
   const { id } = db.query("SELECT id FROM users WHERE email = ?").get(row.email);
   if (row.identity) {
@@ -232,6 +271,47 @@ for (const p of PERSONAS) {
   const { who, ...rest } = p;
   insertUser({ username: `local${who}`, email: `${who}@nemar.test`, ...rest });
 }
+
+// The admin Compute tab's world. A non-owner administrator, whose own request is open, to see
+// the self-grant refusal; and a queue of people who asked, with varied stated countries.
+const PURPOSE =
+  "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.";
+const HOSTILE =
+  "Plan: <img src=x onerror=alert(1)> and <script>alert(2)</script> [link](https://example.org) \u202Egnp.exe \u200B zero-width\nSecond line with a tab:\tend. " +
+  "Decompose recordings and compare the components across sites. ".repeat(6);
+const QUEUE = [
+  { who: "adminself", role: "admin", status: "approved", country: "USA", purpose: PURPOSE },
+  { who: "queueusa", country: "USA", purpose: PURPOSE },
+  { who: "queuefr", country: "France", given_name: "Zoe", family_name: "Martin", purpose: PURPOSE },
+  { who: "queuehostile", country: "Freedonia <b>x</b>", purpose: HOSTILE },
+  {
+    who: "queuebare",
+    affiliation: null,
+    city: null,
+    given_name: null,
+    family_name: null,
+    purpose: PURPOSE,
+  },
+  { who: "queueservice", account_kind: "service", purpose: PURPOSE },
+  { who: "queuedeny", country: "Sylvania", purpose: PURPOSE },
+  { who: "queuesuspend", country: "Canada", purpose: PURPOSE },
+];
+QUEUE.forEach((q, i) => {
+  const { who, purpose, ...rest } = q;
+  insertUser({
+    username: `local${who}`,
+    email: `${who}@nemar.test`,
+    compute_access: "requested",
+    compute_access_requested_at: `2026-11-0${(i % 6) + 1} 09:30:00`,
+    compute_purpose: purpose,
+    ...rest,
+  });
+});
+// The admin who is not an owner, and an owner who has signed in (the key above is the owner's).
+const ADMIN_PERSONAS = [
+  { who: "owner", email: "owner@nemar.test" },
+  { who: "adminself", email: "adminself@nemar.test" },
+];
 
 async function call(path, init = {}) {
   const headers = new Headers(init.headers);
@@ -438,7 +518,77 @@ async function seedComputeData() {
 if (SEED_COMPUTE) await seedComputeData();
 
 const cookies = {};
-for (const p of PERSONAS) cookies[p.who] = await signIn(`${p.who}@nemar.test`);
+for (const p of [...PERSONAS, ...ADMIN_PERSONAS])
+  cookies[p.who] = await signIn(`${p.who}@nemar.test`);
+
+// The owner's default allocation, through the real owner-only route: a grant then opens something.
+const ownerAuth = { Authorization: `Bearer ${OWNER_KEY}`, "content-type": "application/json" };
+{
+  const res = await call("/admin/compute/policy", {
+    method: "PUT",
+    headers: ownerAuth,
+    body: JSON.stringify({
+      policy: { ...DEFAULT_COMPUTE_POLICY, defaultGrantMilli: { cpu: 50_000, gpu: 5_000 } },
+      note: "local backend",
+    }),
+  });
+  if (!res.ok) throw new Error(`could not set the policy: ${res.status} ${await res.text()}`);
+}
+
+// Scheduler accounting rows that no job claims, through the real observer route: an
+// administrator mints a one-hour run and the document is posted under its token.
+{
+  const minted = await call("/admin/compute/observer-runs", { method: "POST", headers: ownerAuth });
+  if (!minted.ok)
+    throw new Error(`could not mint an observer run: ${minted.status} ${await minted.text()}`);
+  const { token } = await minted.json();
+  const row = (slurm, over = {}) => ({
+    job_id: slurm,
+    partition: "shared",
+    state: "COMPLETED",
+    elapsed_seconds: 1800,
+    alloc_tres: { billing: "4", cpu: "4", mem: "8000M", node: "1" },
+    submit: "2026-11-05T10:00:00",
+    start: "2026-11-05T10:01:00",
+    end: "2026-11-05T10:31:00",
+    ...over,
+  });
+  const jobs = [row("77001"), row("77002", { state: "FAILED", elapsed_seconds: 90 })];
+  const posted = await call("/compute/observer", {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      ...dailyDoc,
+      partitions: {},
+      accounting: {
+        ...dailyDoc.accounting,
+        rows_total: jobs.length,
+        rows_included: jobs.length,
+        jobs,
+      },
+    }),
+  });
+  if (!posted.ok)
+    throw new Error(`the observer post failed: ${posted.status} ${await posted.text()}`);
+}
+
+// Jobs, only with the lifecycle fixture: made through the real services, then flagged by the
+// same UPDATE the backend's own reporting test uses (no real path flags a job without a tenant).
+if (fx) {
+  const { makeJob } = lifecycle;
+  const { endedJob } = await import(join(root, "backend/test/helpers/compute-ended.ts"));
+  const flag = (column, id) => db.run(`UPDATE compute_jobs SET ${column} = 1 WHERE id = ?`, [id]);
+  const unreserved = await makeJob(fx);
+  const unattributed = await makeJob(fx);
+  const mismatch = await endedJob(fx, 30);
+  const overrun = await endedJob(fx, 45);
+  db.run("UPDATE compute_jobs SET flag_unreserved = 1, cancel_reason = 'unreserved' WHERE id = ?", [
+    unreserved.job.id,
+  ]);
+  flag("flag_unattributed", unattributed.job.id);
+  flag("flag_mismatch", mismatch.job.id);
+  flag("flag_overrun", overrun.job.id);
+}
 
 const outDir = join(import.meta.dir, "..", ".local-backend");
 await mkdir(outDir, { recursive: true });
@@ -449,9 +599,15 @@ console.log("");
 console.log("Start the website against it, in another terminal:");
 console.log(`  PUBLIC_API_BASE_URL=http://localhost:${PORT} bun run dev`);
 console.log("");
-console.log("Session cookies (paste as `nemar_session` for localhost:4321; also in .local-backend/cookies.json):");
+console.log(
+  "Session cookies (paste as `nemar_session` for localhost:4321; also in .local-backend/cookies.json):",
+);
 for (const [who, cookie] of Object.entries(cookies)) console.log(`  ${who.padEnd(14)} ${cookie}`);
 console.log("");
+console.log(
+  "Admin Compute tab: sign in as `owner` or `adminself` (a non-owner administrator whose own",
+);
+console.log("request is open) and open http://localhost:4321/admin/compute.");
 console.log(`Owner API key (grant from a terminal): ${OWNER_KEY}`);
 console.log(
   `  curl -s -X POST -H "Authorization: Bearer ${OWNER_KEY}" http://localhost:${PORT}/admin/compute/access/grant/localrequested`,
