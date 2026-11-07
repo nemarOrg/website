@@ -45,12 +45,72 @@ const JOB: Record<string, string> = {
   ),
 };
 
+/**
+ * Source with its comments removed and its string, template and regular-expression literals LEFT
+ * ALONE, so a `//` inside `"http://..."` or a pattern is never taken for a comment (a scan built on a
+ * comment-stripping regex missed code after one). A small scanner, not a parser: enough for these files.
+ */
+function stripJsComments(src: string): string {
+  let out = "";
+  let i = 0;
+  // A `/` starts a regular expression when the last significant character cannot end an operand.
+  const startsRegex = (): boolean => {
+    const before = out.trimEnd();
+    if (before === "") return true;
+    const last = before[before.length - 1];
+    return "(,=:[!&|?{};+-*%<>~^".includes(last) || /\b(return|typeof|case|in|of)$/.test(before);
+  };
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < src.length && src[i] !== "\n") i++;
+    } else if (c === "/" && next === "*") {
+      const end = src.indexOf("*/", i + 2);
+      i = end < 0 ? src.length : end + 2;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < src.length && src[j] !== c) j += src[j] === "\\" ? 2 : 1;
+      out += src.slice(i, j + 1);
+      i = j + 1;
+    } else if (c === "/" && startsRegex()) {
+      let j = i + 1;
+      let inClass = false;
+      while (j < src.length && (src[j] !== "/" || inClass)) {
+        if (src[j] === "\\") j++;
+        else if (src[j] === "[") inClass = true;
+        else if (src[j] === "]") inClass = false;
+        j++;
+      }
+      out += src.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      out += c;
+      i++;
+    }
+  }
+  return out;
+}
+
+/** The scripts and the frontmatter of an Astro file (the code), as one string. */
+function astroCode(src: string): string {
+  const parts: string[] = [];
+  const front = /^---\n([\s\S]*?)\n---/.exec(src);
+  if (front) parts.push(front[1]);
+  for (const m of src.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) parts.push(m[1]);
+  return parts.map(stripJsComments).join("\n");
+}
+
+/** What a scan reads: comments removed, `<style>` blocks dropped, string literals intact. */
 function code(src: string): string {
-  return src
+  const isAstro = src.startsWith("---\n") || src.includes("<script>");
+  if (!isAstro) return stripJsComments(src);
+  const markup = src
     .replace(/<style[\s\S]*?<\/style>/g, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
-    .replace(/<!--[\s\S]*?-->/g, "");
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/^---\n[\s\S]*?\n---/, "")
+    .replace(/<script[\s\S]*?<\/script>/g, "");
+  return `${astroCode(src)}\n${markup}`;
 }
 const flat = (src: string): string => code(src).replace(/\s+/g, " ");
 
@@ -127,7 +187,14 @@ describe("result links are bearer links", () => {
         expect(hrefs.length, name).toBe(0);
       }
     }
-    expect(JOB["compute-job-view.ts"]).toContain("href: safeResultHref(file.url)");
+    expect(JOB["compute-job-view.ts"]).toContain("href: safeResultHref(file.url, allowLoopback)");
+  });
+
+  it("plain-http result links are accepted only when the page itself is on a loopback host", () => {
+    expect(flat(JOB["compute-job-page.ts"])).toContain(
+      "const loopbackPage = isLoopbackHost(window.location.hostname);",
+    );
+    expect(flat(JOB["compute-job-page.ts"])).toContain("resultRow(f, loopbackPage)");
   });
 
   it("every result anchor carries rel noopener noreferrer, no referrer and a new tab", () => {
@@ -135,6 +202,26 @@ describe("result links are bearer links", () => {
     expect(dom).toContain('a.setAttribute("rel", "noopener noreferrer")');
     expect(dom).toContain('a.setAttribute("referrerpolicy", "no-referrer")');
     expect(dom).toContain('a.setAttribute("target", "_blank")');
+  });
+
+  it("no job file opens a window, navigates programmatically or beacons", () => {
+    for (const [name, src] of Object.entries(JOB)) {
+      const c = code(src);
+      for (const banned of [
+        "window.open",
+        "location.assign",
+        "location.replace",
+        "location.href =",
+        "sendBeacon",
+        "navigator.share",
+        "postMessage",
+        "XMLHttpRequest",
+        "new WebSocket",
+        "new EventSource",
+      ]) {
+        expect(c, `${name} uses ${banned}`).not.toContain(banned);
+      }
+    }
   });
 
   it("no job file stores, logs, copies or navigates with a link or a log", () => {
@@ -305,7 +392,9 @@ describe("theming and layout", () => {
 
   it("scrollable regions are focusable and named", () => {
     expect(LOGS).toMatch(/tabindex="0" role="region" aria-label=\{L\.region\}/);
-    expect(RESULTS).toMatch(/tabindex="0" role="region" aria-label=\{L\.region\}/);
+    // The result list keeps its list semantics: no role on the <ul>.
+    expect(RESULTS).toMatch(/<ul[^>]*tabindex="0" aria-label=\{L\.region\}/);
+    expect(RESULTS).not.toMatch(/<ul[^>]*role=/);
   });
 
   it("announces a state change in a polite live region", () => {
@@ -335,5 +424,33 @@ describe("copy", () => {
         ).toContain(m[1]);
       }
     }
+  });
+});
+
+describe("the comment stripper the scans rely on", () => {
+  it("keeps code that follows a // inside a string, a template or a pattern", () => {
+    const src = [
+      'const a = "http://example.org"; fetch(a);',
+      "const b = `x // y`; window.open(b);",
+      "const re = /a\\/\\/b|`/g; sendBeacon();",
+      "const c = 1; // a real comment with window.open( in it",
+      "/* block with location.assign( */ const d = 2;",
+    ].join("\n");
+    const out = stripJsComments(src);
+    expect(out).toContain("fetch(a)");
+    expect(out).toContain("window.open(b)");
+    expect(out).toContain("sendBeacon()");
+    expect(out).not.toContain("a real comment");
+    expect(out).not.toContain("location.assign(");
+    expect(out).toContain("const d = 2;");
+  });
+
+  it("does not take a division for a pattern", () => {
+    expect(stripJsComments("const r = a / b; // gone\nuse(r / 2);")).toContain("use(r / 2);");
+  });
+
+  it("sees a banned call hidden after a string with //", () => {
+    const hidden = 'const u = "https://a.example"; window.open(u);';
+    expect(code(hidden)).toContain("window.open");
   });
 });
