@@ -15,6 +15,17 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **A compute access card in Settings** (website#494, epic website#493 phase E1; nemar-cli epic #2021 phase D1, ADR 0030).
+  Beside the upload-access card, `#compute-access` shows the account's compute-access state (not requested, requested, active, suspended, not granted, ended) and, for a verified account that has never asked, a request form: a purpose of 20 to 1,000 characters, a required checkbox for the compute terms (with the version, linking the terms page), and the refusal list a refused request returns, as links to the fields to fix.
+  Every sentence is a transcribed copy key, the same words the CLI prints.
+  The card renders only when the backend reports a state; an older backend gets no card, never "Not requested".
+  The production build shows "not open yet" in place of the form until the compute terms are published (`COMPUTE_REQUESTS_ENABLED`); a build pointed at another backend shows the form.
+  The Affiliation field is tagged "needed to request compute access" on a page that has the card, and carries the `#profile-affiliation` anchor.
+  Affiliation is a new gap that stops compute access alone, so the dashboard nudge and Settings' account list leave it out.
+  The upload card's refusal list and the new one share one renderer.
+  Needs the nemar-cli backend with the compute epic; `test/compute-terms-contract-drift.test.ts` and the account-copy drift test stay red until it reaches nemar-cli `dev`.
+  `scripts/local-backend.mjs` runs that backend locally with seeded accounts (see `.context/local-backend.md`); the `astro dev` login has seven compute personas (`@nemar.cnone`, `.creq`, `.cactive`, `.csusp`, `.cdenied`, `.crevoked`, `.cpending`).
+
 - **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
   A site registered with NEMAR sends a person here to sign in with their NEMAR account.
   The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
