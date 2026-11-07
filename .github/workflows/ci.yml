@@ -123,13 +123,20 @@ jobs:
       # the compute terms version a request must name (website ADR 0030, interim until phase D2's
       # GET /compute/me serves it). Same `dev` pairing, strict, and red until the compute epic
       # reaches nemar-cli `dev`; the ref stays `dev`.
+      # test/compute-user-contract-drift.test.ts is a NINTH, against shared/compute-state.ts and
+      # shared/contract/compute-user.ts and compute.ts: the job states, front doors, usage groups,
+      # page bounds and read-refusal words the /compute page branches on (phase E2). Same `dev`
+      # pairing, strict, and red until the compute epic reaches nemar-cli `dev`.
       - uses: actions/checkout@v4
         with:
           repository: nemarOrg/nemar-cli
           path: nemar-cli-contract
           sparse-checkout: |
+            /shared/compute-state.ts
             /shared/contract/account-copy.ts
             /shared/contract/compute-terms.ts
+            /shared/contract/compute-user.ts
+            /shared/contract/compute.ts
             /shared/contract/docs-auth.ts
             /shared/contract/mail-admin.ts
             /shared/contract/oidc-authorize.ts
@@ -145,6 +152,9 @@ jobs:
         env:
           NEMAR_CLI_ACCOUNT_COPY: nemar-cli-contract/shared/contract/account-copy.ts
           NEMAR_CLI_COMPUTE_ACCESS_CONTRACT: nemar-cli-contract/shared/contract/compute-terms.ts
+          NEMAR_CLI_COMPUTE_CONTRACT: nemar-cli-contract/shared/contract/compute.ts
+          NEMAR_CLI_COMPUTE_STATE: nemar-cli-contract/shared/compute-state.ts
+          NEMAR_CLI_COMPUTE_USER_CONTRACT: nemar-cli-contract/shared/contract/compute-user.ts
           NEMAR_CLI_DOCS_CONTRACT: nemar-cli-contract/shared/contract/docs-auth.ts
           NEMAR_CLI_MAIL_ADMIN_CONTRACT: nemar-cli-contract/shared/contract/mail-admin.ts
           NEMAR_CLI_OIDC_AUTHORIZE_CONTRACT: nemar-cli-contract/shared/contract/oidc-authorize.ts
