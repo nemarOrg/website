@@ -94,6 +94,7 @@ src/
     mail-admin-api.ts                 admin Mail client (browser-safe): tickets, queues, away window, reply failure classes, badge count, staff directory
     mail-admin-contract.ts            hand copy of nemar-cli shared/contract/mail-admin.ts (drift-tested, test/mail-admin-contract-drift.test.ts)
     compute-api.ts compute-contract.ts   browser-safe client for GET /compute/me, /me/usage, /me/jobs (guards copy out only the keys read; a rejected body is a `shape` error, never zeros) and the hand copy of the vocabulary it needs, the one place the job-state and front-door words live here (drift-tested, test/compute-user-contract-drift.test.ts; extractors in test/compute-contract-drift.ts)
+    compute-instructions.ts           the dataset page Compute dialog as data (website#498, ADR 0030 E5 addendum): a pure builder from id, version, anonymous, unpublished and the release gate into `closed`, `not_available` or `ready` steps of copyable `nemar compute` commands; no URL, limit or machine in it; pinned to the captured CLI help by test/compute-instructions-cli-parity.test.ts
     compute-view.ts compute-labels.ts compute-badges.ts   pure view models (panelsFor, access, balances, queue, jobRowView, usage), the page's short labels (sentences live in account-copy.ts), job-state badges
     compute-format.ts compute-chart.ts   integer milli-SU formatting (`suFixed`: the CLI's three-decimal digits; `formatSu`: the shortest exact decimal, the same rule as nemar-cli's `formatSu`) and the usage chart geometry (nice ceiling from the stacked total, hand-rolled SVG, ADR 0007)
     compute-jobs-dom.ts               builds appended job rows with createElement/textContent only
@@ -127,7 +128,7 @@ src/
     eeg-viewer.css                    global signal-viewer styles (runtime-built DOM), imported by BidsTree and the embed
 test/
   fixtures/                           qa-aggregates, qa-file-dataqual, qa-hed-summary (Phase 3)
-  fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1) and `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2)
+  fixtures/compute/                   captured from the real nemar-cli routes, never hand-written: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-fixtures.mjs` (access, E1) and `bun scripts/capture-compute-read-fixtures.mjs` (me, usage, jobs, errors; E2); `fixtures/compute/cli-help/` is the real `nemar ... --help-all` text the dialog's commands are checked against: `NEMAR_CLI_DIR=<Epic D checkout> bun scripts/capture-compute-cli-help.mjs` (E5)
 public/                               static logos + brain hero assets (og/ cards are generated, gitignored)
 public/brand/                         GENERATED press logo kit (SVG, PDF, transparent PNG; color, reverse, black, white); rebuild with `bun scripts/generate-brand-kit.mjs`, never hand-edit
 public/vendor/bids-validator/<ver>/   GENERATED worker bundle of the BIDS validator + SHA256SUMS + provenance + licenses (ADR 0028); never hand-edited
