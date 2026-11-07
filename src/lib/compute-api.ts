@@ -326,7 +326,8 @@ export function parseComputeJobs(body: unknown): ComputeJobsPage {
 
 export interface ComputeInit {
   readonly signal?: AbortSignal;
-  readonly fetch?: typeof fetch;
+  /** `fetch`, or `apiFetch` on the server (it takes a string or a URL). */
+  readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
   /** SSR: the visitor's `Cookie` header. Absent in the browser, which uses the `/api/v1` proxy. */
   readonly cookieHeader?: string;
   readonly timeoutMs?: number;

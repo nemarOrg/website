@@ -8,7 +8,7 @@
  * Five tones are in use (neutral, info, success, danger, warning). Each has its own icon shape and the
  * word itself, so a state is never carried by color alone.
  */
-import { BADGE_TONE_ICONS, type BadgeTone, badgeIcon, badgeLabel, badgeTone } from "./admin-badges";
+import { type BadgeTone, badgeIcon, badgeLabel, badgeTone } from "./admin-badges";
 import type { ComputeJobSource, ComputeJobState } from "./compute-contract";
 import { displaySafeLine } from "./mail-display";
 import type { IconName } from "./status-icons";

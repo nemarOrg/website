@@ -1,0 +1,343 @@
+---
+/**
+ * `/compute`: the signed-in person's compute access, balances, usage and jobs (website ADR 0030 phase
+ * E2; epic nemarOrg/website#493). App host only. Every number is nemar-cli's, read through the
+ * `/compute/me*` routes with the visitor's session cookie; the page decides nothing the backend did not
+ * state, and sums nothing across the CPU and GPU pools.
+ *
+ * Reads: `GET /compute/me` first (it names the access state), then usage and the first page of jobs in
+ * parallel, each in its OWN try/catch. One failed read degrades one panel with a notice that says the
+ * figures are missing (which is not zero); it never blanks the page. For `none`, `requested`, `denied`
+ * and a state this build does not know there is nothing to read, so nothing is. SSR calls go over the
+ * API service binding (`fetch: apiFetch`, ADR 0026); "Load more" goes through the `/api/v1` proxy.
+ *
+ * Balances change when a job settles, so the page is `private, no-store`.
+ */
+import ComputeAccessPanel from "../../components/ComputeAccessPanel.astro";
+import ComputeBalances from "../../components/ComputeBalances.astro";
+import ComputeJobsTable from "../../components/ComputeJobsTable.astro";
+import ComputePanel from "../../components/ComputePanel.astro";
+import ComputePanelNotice from "../../components/ComputePanelNotice.astro";
+import ComputeQueueTable from "../../components/ComputeQueueTable.astro";
+import ComputeUsageChart from "../../components/ComputeUsageChart.astro";
+import Base from "../../layouts/Base.astro";
+import { deriveAccountTier, deriveComputeAccessState } from "../../lib/account-tier";
+import { apiFetch } from "../../lib/api-fetch";
+import { getSession } from "../../lib/auth";
+import {
+  ComputeApiError,
+  type ComputeInit,
+  type ComputeJobsPage,
+  type ComputeMe,
+  type ComputeUsage,
+  getComputeMe,
+  getComputeUsage,
+  listComputeJobs,
+} from "../../lib/compute-api";
+import { COMPUTE_LABELS } from "../../lib/compute-labels";
+import {
+  accessView,
+  balancesView,
+  jobsView,
+  noticeFor,
+  panelsFor,
+  queueView,
+  usageView,
+} from "../../lib/compute-view";
+import { gapTail, gapsForFields } from "../../lib/profile-gaps";
+
+const session = getSession(Astro.locals);
+if (!session) {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/compute")}`);
+}
+
+// Balances change when a job settles; nothing here may be served from a shared cache.
+Astro.response.headers.set("Cache-Control", "private, no-store");
+
+const L = COMPUTE_LABELS;
+const cookieHeader = Astro.request.headers.get("cookie") ?? undefined;
+const init: ComputeInit = { cookieHeader, fetch: apiFetch };
+// A pasted or hand-edited cursor is passed through untouched; the API says if it is not one it gave.
+const after = Astro.url.searchParams.get("after") || null;
+
+type Attempt<T> = { ok: true; data: T } | { ok: false; error: unknown };
+async function attempt<T>(read: () => Promise<T>): Promise<Attempt<T>> {
+  try {
+    return { ok: true, data: await read() };
+  } catch (error) {
+    console.error(
+      `[compute] read failed: ${error instanceof ComputeApiError ? `${error.kind} ${error.status}` : String(error)}`,
+    );
+    return { ok: false, error };
+  }
+}
+function build<T>(make: () => T): Attempt<T> {
+  try {
+    return { ok: true, data: make() };
+  } catch (error) {
+    console.error(
+      `[compute] view failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { ok: false, error };
+  }
+}
+
+const unverified = deriveAccountTier(session.user) === "unverified";
+const unverifiedGap = unverified
+  ? gapsForFields(["email_verified"], { block: "compute_access" })[0]
+  : null;
+
+// 1. The account read. An unverified account cannot pass authMiddleware, so nothing is asked for it.
+const meRead: Attempt<ComputeMe> | null = unverified
+  ? null
+  : await attempt(() => getComputeMe(init));
+const meError =
+  meRead && !meRead.ok && meRead.error instanceof ComputeApiError ? meRead.error : null;
+
+// A dead session is not a degraded page: sign in again.
+if (meError?.kind === "session") {
+  return Astro.redirect(`/login?next=${encodeURIComponent("/compute")}`);
+}
+// 404 is the release gate: a website talking to an API that does not have the compute routes.
+const notAvailable = meError?.kind === "unavailable" && meError.status === 404;
+// 403 is `authMiddleware` refusing an account that is not active; compute access is never a 403 on a read.
+const accountRefused = meError?.kind === "account";
+
+// The state: the account read's, else the session's (the session says only the state, no more).
+const me = meRead?.ok ? meRead.data : null;
+const sessionState = deriveComputeAccessState(session.user)?.state ?? null;
+const state: string | null = me
+  ? me.access.state
+  : accountRefused || notAvailable
+    ? null
+    : sessionState;
+const plan = panelsFor(state, { unverified: unverified || accountRefused || notAvailable });
+
+// 2. Usage and the first page of jobs, in parallel, only where there is something to read.
+const [usageRead, jobsRead] = await Promise.all([
+  plan.readLedger && plan.usage ? attempt<ComputeUsage>(() => getComputeUsage(init)) : null,
+  plan.readLedger && plan.jobs
+    ? attempt<ComputeJobsPage>(() => listComputeJobs({ after }, init))
+    : null,
+]);
+
+// 3. One view per panel, each in its own try/catch.
+const access =
+  state !== null ? build(() => accessView(state, me, { frozen: me?.frozen === true })) : null;
+const balances = plan.balances && me ? build(() => balancesView(me)) : null;
+const queue = plan.queue && me ? build(() => queueView(me)) : null;
+const usage = usageRead?.ok && me ? build(() => usageView(me, usageRead.data)) : null;
+const jobs = jobsRead?.ok ? build(() => jobsView(jobsRead.data)) : null;
+
+// A bad cursor is the Jobs panel's failure, with a way back to the first page.
+const badCursor =
+  jobsRead &&
+  !jobsRead.ok &&
+  jobsRead.error instanceof ComputeApiError &&
+  jobsRead.error.code === "invalid_cursor";
+
+// When the account read failed but the state came from the session, say so for Balances and Queue;
+// Usage needs the account read for its pool mapping, so it names the same failure.
+const accountFailure =
+  meRead && !meRead.ok && !accountRefused && !notAvailable ? meRead.error : null;
+---
+
+<Base title={L.pageTitle} description={L.pageDescription}>
+  <section class="compute-shell">
+    <header class="compute-header">
+      <h1 class="compute-header__title">{L.pageTitle}</h1>
+    </header>
+
+    {notAvailable && (
+      <div class="compute-unavailable" role="note">
+        <h2 class="compute-unavailable__title">{L.notice.notAvailableTitle}</h2>
+        <p class="compute-unavailable__body">{L.notice.notAvailableBody}</p>
+      </div>
+    )}
+
+    {unverifiedGap && (
+      <ComputePanel id="access" title={L.panels.access}>
+        <p class="compute-shell__line" data-compute-access-unverified>
+          <a href={unverifiedGap.href ?? "/dashboard"}>{unverifiedGap.label}</a>
+          {" "}{gapTail(unverifiedGap)}
+        </p>
+      </ComputePanel>
+    )}
+
+    {accountRefused && (
+      <ComputePanel id="access" title={L.panels.access}>
+        <p class="compute-shell__line">{L.access.forbidden}</p>
+        {meError?.sentence && <p class="compute-shell__line">{meError.sentence}</p>}
+      </ComputePanel>
+    )}
+
+    {access?.ok && <ComputeAccessPanel view={access.data} />}
+    {access && !access.ok && (
+      <ComputePanelNotice notice={noticeFor(L.panels.access, access.error)} />
+    )}
+
+    {plan.balances && (
+      balances?.ok ? (
+        <ComputeBalances view={balances.data} />
+      ) : (
+        <ComputePanel id="balances" title={L.panels.balances}>
+          <ComputePanelNotice
+            notice={noticeFor(L.panels.balances, balances ? balances.error : accountFailure)}
+          />
+        </ComputePanel>
+      )
+    )}
+
+    {plan.usage && (
+      <ComputePanel id="usage" title={L.panels.usage}>
+        {usage?.ok ? (
+          <>
+            <p class="compute-shell__line">{usage.data.windowText} {L.usage.window}. {usage.data.note}</p>
+            {usage.data.pools.length === 0 && <p class="compute-shell__line">{L.usage.empty}</p>}
+            {usage.data.pools.map((pool) => <ComputeUsageChart view={pool} />)}
+            {usage.data.aside && (
+              <div class="compute-usage__aside" data-compute-usage-aside>
+                <p class="compute-shell__line">
+                  {usage.data.aside.label}: <strong>{usage.data.aside.totalText}</strong>
+                </p>
+                <details>
+                  <summary>{L.usage.showNumbers}</summary>
+                  <div class="compute-usage__aside-scroll" tabindex="0" role="region" aria-label={usage.data.aside.label}>
+                    <table class="compute-usage__aside-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">{L.usage.day}</th>
+                          <th scope="col">{L.usage.partition}</th>
+                          <th scope="col">{L.usage.amount}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usage.data.aside.rows.map((row) => (
+                          <tr>
+                            <th scope="row">{row.day}</th>
+                            <td>{row.partition}</td>
+                            <td>{row.amount}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              </div>
+            )}
+          </>
+        ) : usageRead && !usageRead.ok ? (
+          <ComputePanelNotice notice={noticeFor(L.panels.usage, usageRead.error)} />
+        ) : usage && !usage.ok ? (
+          <ComputePanelNotice notice={noticeFor(L.panels.usage, usage.error)} />
+        ) : (
+          <ComputePanelNotice notice={noticeFor(L.panels.usage, accountFailure)} />
+        )}
+      </ComputePanel>
+    )}
+
+    {plan.jobs && (
+      jobs?.ok ? (
+        <ComputeJobsTable view={jobs.data} />
+      ) : (
+        <ComputePanel id="jobs" title={L.panels.jobs}>
+          <ComputePanelNotice
+            notice={noticeFor(
+              L.panels.jobs,
+              jobs ? jobs.error : jobsRead && !jobsRead.ok ? jobsRead.error : null,
+            )}
+            retryHref={badCursor ? "/compute#jobs" : "/compute"}
+            extraLink={badCursor ? { href: "/compute#jobs", label: L.jobs.firstPage } : undefined}
+          />
+        </ComputePanel>
+      )
+    )}
+
+    {plan.queue && (
+      queue?.ok ? (
+        <ComputeQueueTable view={queue.data} />
+      ) : (
+        <ComputePanel id="queue" title={L.panels.queue}>
+          <ComputePanelNotice
+            notice={noticeFor(L.panels.queue, queue ? queue.error : accountFailure)}
+          />
+        </ComputePanel>
+      )
+    )}
+  </section>
+</Base>
+
+<style>
+  .compute-shell {
+    max-inline-size: 64rem;
+    margin: 0 auto;
+    padding: var(--space-10) var(--space-4) var(--space-16);
+    display: grid;
+    gap: var(--space-6);
+  }
+  .compute-header__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-3xl);
+    margin: 0;
+  }
+  .compute-shell__line {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+    line-height: var(--lh-relaxed);
+    overflow-wrap: anywhere;
+  }
+  .compute-shell__line a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-unavailable {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-inline-start: 3px solid var(--admin-warn);
+    border-radius: var(--radius-md);
+    padding: var(--space-4) var(--space-5);
+    display: grid;
+    gap: var(--space-2);
+  }
+  .compute-unavailable__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+  }
+  .compute-unavailable__body {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-usage__aside {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .compute-usage__aside summary {
+    cursor: pointer;
+    color: var(--color-link);
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-semibold);
+    min-block-size: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .compute-usage__aside-scroll {
+    overflow-x: auto;
+    max-inline-size: 100%;
+  }
+  .compute-usage__aside-table {
+    inline-size: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+  .compute-usage__aside-table th,
+  .compute-usage__aside-table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: start;
+    border-block-end: 1px solid var(--color-border);
+    white-space: nowrap;
+  }
+</style>
