@@ -1,0 +1,76 @@
+---
+/**
+ * Status pill for the /compute page: the icon-plus-words badge of the admin portal
+ * (`ImportStatusBadge.astro`, `UserStatusBadge.astro`), used for a job's state and for the access
+ * state. Tone comes from `src/lib/compute-badges.ts` and `compute-view.ts`; a value this build does
+ * not know arrives as a neutral pill carrying its escaped raw word.
+ *
+ * The styles are GLOBAL on purpose and prefixed `.compute-badge`: the jobs table's "Load more" script
+ * builds the same pill with `createElement` (`src/lib/compute-jobs-dom.ts`), and Astro's scoped styles
+ * would not reach an element created in the browser. The class names are the contract between the two.
+ * SYNC: `ImportStatusBadge.astro` has the same shape with scoped styles; keep the tones in step.
+ */
+import type { BadgeTone } from "../lib/admin-badges";
+import type { IconName } from "../lib/status-icons";
+import StatusIcon from "./admin/StatusIcon.astro";
+
+interface Props {
+  label: string;
+  tone: BadgeTone;
+  icon: IconName;
+}
+
+const { label, tone, icon } = Astro.props;
+---
+
+<span class:list={["compute-badge", `compute-badge--${tone}`]}>
+  <StatusIcon name={icon} size={14} />
+  <span>{label}</span>
+</span>
+
+<style is:global>
+  .compute-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    min-block-size: 1.5rem;
+    padding: 0 var(--space-2) 0 7px;
+    border-radius: var(--radius-pill);
+    background: var(--admin-neutral-soft);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-semibold);
+    line-height: 1.3;
+    white-space: nowrap;
+  }
+  .compute-badge svg {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .compute-badge--info {
+    background: var(--admin-accent-soft);
+    color: var(--color-link);
+  }
+  .compute-badge--warning {
+    background: var(--admin-warn-soft);
+    color: var(--admin-warn-text);
+  }
+  .compute-badge--success {
+    background: var(--admin-ok-soft);
+    color: var(--admin-ok-text);
+  }
+  .compute-badge--danger {
+    background: var(--admin-error-soft);
+    color: var(--admin-error-text);
+  }
+  @media (forced-colors: active) {
+    .compute-badge {
+      border: 1px solid CanvasText;
+    }
+  }
+</style>

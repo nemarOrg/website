@@ -1,0 +1,77 @@
+---
+/**
+ * What a /compute panel shows when its read (or its view builder) failed: an error icon, "Could not
+ * load <panel>", the reason class, the backend's own sentence as inert text when it sent one, a line
+ * saying the figures are MISSING (which is not zero), and a way to try again. One failed panel never
+ * blanks the page. The text comes from `noticeFor` in `src/lib/compute-view.ts`.
+ * SYNC: the same shape as `admin/SectionErrorNotice.astro`; keep the two in step.
+ */
+import type { NoticeView } from "../lib/compute-view";
+import StatusIcon from "./admin/StatusIcon.astro";
+
+interface Props {
+  notice: NoticeView;
+  /** Where "Try again" goes; defaults to the page itself. */
+  retryHref?: string;
+  /** An extra link, e.g. back to the first page of jobs after a bad cursor. */
+  extraLink?: { href: string; label: string };
+}
+
+const { notice, retryHref = "/compute", extraLink } = Astro.props;
+---
+
+<div class="compute-notice" role="group" aria-label={notice.title}>
+  <StatusIcon name="error" size={18} class="compute-notice__icon" />
+  <div class="compute-notice__text">
+    <p class="compute-notice__title">{notice.title}</p>
+    <p class="compute-notice__body">{notice.reason} {notice.missing}</p>
+    {notice.sentence && <p class="compute-notice__sentence">{notice.sentence}</p>}
+    <p class="compute-notice__actions">
+      <a href={retryHref}>{notice.retryLabel}</a>
+      {extraLink && <a href={extraLink.href}>{extraLink.label}</a>}
+    </p>
+  </div>
+</div>
+
+<style>
+  .compute-notice {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
+    margin: 0;
+    padding: var(--space-4) var(--space-5);
+    background: var(--admin-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: inset 3px 0 0 var(--admin-error);
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-notice :global(.compute-notice__icon) {
+    margin-block-start: 2px;
+    color: var(--admin-error-text);
+  }
+  .compute-notice__text {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+  }
+  .compute-notice__title {
+    margin: 0;
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-notice__body,
+  .compute-notice__sentence,
+  .compute-notice__actions {
+    margin: var(--space-1) 0 0;
+  }
+  .compute-notice__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+  }
+  .compute-notice__actions a {
+    color: var(--color-link);
+    font-weight: var(--fw-semibold);
+  }
+</style>
