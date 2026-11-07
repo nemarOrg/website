@@ -84,7 +84,9 @@ describe("each reader parses its captured fixture", () => {
       "page_two",
       "empty",
     ]) {
-      const { fetchImpl } = recorder(() => captured((accessList as Record<string, Captured>)[key]));
+      const { fetchImpl } = recorder(() =>
+        captured((accessList as unknown as Record<string, Captured>)[key]),
+      );
       const page = await listComputeAccess({}, { fetch: fetchImpl });
       const raw = (accessList as unknown as Record<string, { body: { accounts: unknown[] } }>)[key];
       expect(page.accounts.length, key).toBe(raw.body.accounts.length);

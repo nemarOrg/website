@@ -93,6 +93,22 @@ export function currentQuarter(now: Date = new Date()): string {
   return `${now.getUTCFullYear()}Q${Math.floor(now.getUTCMonth() / 3) + 1}`;
 }
 
+/** The `count` quarters ending with the current one, newest first (`2026Q4`, `2026Q3`, ...). */
+export function recentQuarters(now: Date = new Date(), count = 6): string[] {
+  let year = now.getUTCFullYear();
+  let quarter = Math.floor(now.getUTCMonth() / 3) + 1;
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(`${year}Q${quarter}`);
+    quarter -= 1;
+    if (quarter === 0) {
+      quarter = 4;
+      year -= 1;
+    }
+  }
+  return out;
+}
+
 /** The usage view's quarter: `yyyyQn`, else the current one. */
 export function parseQuarter(raw: string | null | undefined, now: Date = new Date()): string {
   return typeof raw === "string" && /^\d{4}Q[1-4]$/.test(raw) ? raw : currentQuarter(now);
@@ -603,6 +619,14 @@ export function unmatchedSummary(shown: number, total: number): string {
   return fillCopy(ACCOUNT_COPY["compute_admin.drift.unmatched_shown"], {
     shown: String(shown),
     total: String(total),
+  });
+}
+
+/** "Scheduler gateway: token X, health Y." with both words as served. */
+export function tapisLine(status: { tapis_token: string; tapis_health: string }): string {
+  return fillCopy(ACCOUNT_COPY["compute_admin.drift.tapis"], {
+    token: displaySafeLine(status.tapis_token),
+    health: displaySafeLine(status.tapis_health),
   });
 }
 

@@ -57,7 +57,6 @@ const { makeRoutesApp } = await load("backend/test/helpers/compute-routes-app.ts
 const { realD1 } = await load("backend/test/helpers/d1.ts");
 const { fundPartner } = await load("backend/test/helpers/compute-seed.ts");
 const { mintObserverRun } = await load("backend/src/services/compute-observer.ts");
-const { decisionFlipStatement } = await load("backend/src/services/compute-access.ts");
 const { DEFAULT_COMPUTE_POLICY } = await load("shared/contract/compute.ts");
 const { COMPUTE_TERMS_VERSION } = await load("shared/contract/compute-terms.ts");
 const dailyDoc = (await import(join(root, "test/fixtures/compute-observation/daily.v1.json")))

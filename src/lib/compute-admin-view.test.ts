@@ -42,9 +42,11 @@ import {
   parseView,
   poolRowModel,
   purposeView,
+  recentQuarters,
   requestRowModel,
   requestsBadge,
   statePill,
+  tapisLine,
   unmatchedRowModel,
   unmatchedSummary,
 } from "./compute-admin-view";
@@ -414,6 +416,15 @@ describe("unmatched rows", () => {
   });
 });
 
+describe("tapisLine", () => {
+  it("prints both words as served, escaped", () => {
+    expect(tapisLine({ tapis_token: "unconfigured", tapis_health: "ok" })).toBe(
+      "Scheduler gateway: token unconfigured, health ok.",
+    );
+    expect(tapisLine({ tapis_token: "a\u202eb", tapis_health: "x" })).toContain("a\\u202eb");
+  });
+});
+
 describe("attentionLines", () => {
   it("lists positive counts by their served word and leaves out zeros", () => {
     expect(
@@ -477,6 +488,19 @@ describe("pager and parameters", () => {
     expect(parseQuarter("2025Q5", now)).toBe("2026Q4");
     expect(parseQuarter("Q3", now)).toBe("2026Q4");
     expect(parseQuarter(null, now)).toBe("2026Q4");
+  });
+});
+
+describe("recentQuarters", () => {
+  it("counts back across a year boundary, newest first", () => {
+    expect(recentQuarters(new Date("2026-02-10T00:00:00Z"), 4)).toEqual([
+      "2026Q1",
+      "2025Q4",
+      "2025Q3",
+      "2025Q2",
+    ]);
+    expect(recentQuarters(new Date("2026-11-07T00:00:00Z"))).toHaveLength(6);
+    expect(recentQuarters(new Date("2026-11-07T00:00:00Z"), 1)).toEqual(["2026Q4"]);
   });
 });
 
