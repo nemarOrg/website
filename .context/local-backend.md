@@ -109,3 +109,5 @@ The seed takes about 40 seconds, and the watch job starts advancing when it ends
 Result links point at the local object store on `127.0.0.1`, which is why `safeResultHref` accepts
 `http:` on loopback. Not reachable here: a `stale: true` job (needs the stand-in down at read time;
 covered by the captured fixture) and a real 5xx.
+
+`bun run dev` (Vite) 500s a request URL that ends in `.txt`, such as a results cursor `?after=out/f.txt`; this is dev-server only (a deployed build was checked), so the seed names its outputs `.dat`.
