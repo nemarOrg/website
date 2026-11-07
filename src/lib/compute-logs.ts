@@ -12,8 +12,9 @@
  *     in step 2 with the text after it, so a program cannot hide the rest of its log behind one.
  *  2. Everything else goes through `displaySafeBody` (the Mail tab's set, nemar-cli's escape set):
  *     `\r\n` and a bare `\r` become line breaks (nothing can be overwritten), newline and tab stay,
- *     and every other control, bidirectional override or isolate, zero-width and invisible character is
- *     WRITTEN OUT (`\x1b`, `‮`), which shows that something was there instead of cleaning it away
+ *     and every other control, bidirectional character (the three implicit marks too: a program's log
+ *     has no right-to-left prose to protect, so they are written out here, unlike in mail), zero-width
+ *     and invisible character is WRITTEN OUT (`\x1b`, `‮`), which shows that something was there instead of cleaning it away
  *     silently (the CLI drops them; ADR 0029 shows them).
  *  3. Lines are capped at 2,000 characters with a visible count of what was cut, so a 1 MiB single line
  *     cannot freeze the page.
@@ -65,7 +66,7 @@ export interface PreparedLog {
 /** A log made safe: formatting removed, hostile characters written out, long lines capped. */
 export function prepareLog(text: string): PreparedLog {
   if (text === "") return { lines: [] };
-  const lines = displaySafeBody(stripAnsi(text)).split("\n");
+  const lines = displaySafeBody(stripAnsi(text), { escapeMarks: true }).split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
   else if (lines.length === 1 && lines[0] === "") return { lines: [] };
   return { lines: lines.map(capLine) };

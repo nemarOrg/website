@@ -80,6 +80,12 @@ describe("prepareLog", () => {
     expect(lines).toEqual(["a\\u202eb\\u2066c\\u2069d\\u200be"]);
   });
 
+  it("writes out the three implicit direction marks too (LRM, RLM, ALM), unlike mail", () => {
+    expect(prepareLog("a\u200eb\u200fc\u061cd").lines).toEqual(["a\\u200eb\\u200fc\\u061cd"]);
+    const joined = prepareLog("x\u200e\u200f\u061cy").lines.join("");
+    expect(joined).not.toMatch(/[\u200e\u200f\u061c]/);
+  });
+
   it("writes out a stray ESC as a visible escape", () => {
     expect(prepareLog(`x${ESC}\u00e9`).lines).toEqual(["x\\x1b\u00e9"]);
   });
