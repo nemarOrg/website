@@ -311,7 +311,7 @@ describe("describeFailure, for each captured refusal", () => {
   it("never calls a lost answer a failure: it says the result is not confirmed and re-reads", () => {
     for (const err of [
       new ComputeAdminApiError(500, "internal", "The compute access routes failed unexpectedly."),
-      new ComputeAdminApiError(502, undefined, "upstream_unreachable"),
+      new ComputeAdminApiError(502, "upstream_unreachable"),
       new ComputeAdminApiError(502),
       new DOMException("t", "TimeoutError"),
       new TypeError("Failed to fetch"),

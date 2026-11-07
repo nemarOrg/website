@@ -32,7 +32,6 @@ import {
   listComputeJobs,
   listComputePools,
   listUnmatchedAccounting,
-  readComputeAdminError,
   resetComputeBadgeWarning,
 } from "./compute-admin-api";
 import { COMPUTE_ACCESS_ADMIN_ERROR_CODES } from "./compute-admin-contract";
@@ -420,7 +419,7 @@ describe("decideComputeAccess", () => {
     const proxy = await decideComputeAccess(5, "grant", undefined, {
       fetch: recorder(() => json({ error: "upstream_unreachable" }, 502)).fetchImpl,
     }).catch((e) => e);
-    expect(proxy.sentence).toBe("upstream_unreachable");
+    expect(proxy.code).toBe("upstream_unreachable");
     expect(classifyDecisionFailure(proxy)).toBe("unknown_outcome");
     expect(computeAdminErrorText(proxy)).toContain("could not be reached");
     const redirect = await decideComputeAccess(5, "grant", undefined, {
@@ -454,21 +453,31 @@ describe("decideComputeAccess", () => {
   });
 });
 
-describe("readComputeAdminError", () => {
-  it("reads { error, code } and tolerates anything else", async () => {
-    expect(
-      await readComputeAdminError(json({ error: "A sentence.", code: "stale_state" }, 409)),
-    ).toEqual({ code: "stale_state", sentence: "A sentence." });
-    expect(await readComputeAdminError(json({ error: "Admin access required" }, 403))).toEqual({
-      code: undefined,
-      sentence: "Admin access required",
-    });
-    expect(await readComputeAdminError(new Response("nope", { status: 502 }))).toEqual({});
-    expect(await readComputeAdminError(json(["x"], 500))).toEqual({});
-    expect(await readComputeAdminError(json({ error: 5, code: "" }, 500))).toEqual({
-      code: undefined,
-      sentence: undefined,
-    });
+describe("the shared error reader, as this client uses it", () => {
+  it("keeps the backend's sentence and word, and reads the proxy's bare word as a code", async () => {
+    const stale = await listComputeAccess(
+      {},
+      { fetch: recorder(() => json({ error: "A sentence.", code: "stale_state" }, 409)).fetchImpl },
+    ).catch((e) => e);
+    expect(stale).toMatchObject({ code: "stale_state", sentence: "A sentence.", status: 409 });
+    const gate = await listComputeAccess(
+      {},
+      { fetch: recorder(() => json({ error: "Admin access required" }, 403)).fetchImpl },
+    ).catch((e) => e);
+    expect(gate).toMatchObject({ sentence: "Admin access required", status: 403 });
+    expect(gate.code).toBeUndefined();
+    const proxy = await listComputeAccess(
+      {},
+      { fetch: recorder(() => json({ error: "upstream_unreachable" }, 502)).fetchImpl },
+    ).catch((e) => e);
+    expect(proxy).toMatchObject({ code: "upstream_unreachable", status: 502 });
+    expect(proxy.sentence).toBeUndefined();
+    const page = await listComputeAccess(
+      {},
+      { fetch: recorder(() => new Response("nope", { status: 502 })).fetchImpl },
+    ).catch((e) => e);
+    expect(page).toMatchObject({ status: 502 });
+    expect(page.code).toBeUndefined();
   });
 });
 

@@ -9,9 +9,9 @@
  * `Origin` on cookie-authenticated admin writes).
  *
  * ERRORS. These routes answer `{ error: <sentence>, code: <word> }`, the reverse of the Users
- * routes, where `readError()` in `api-base.ts` reads `error` as the code. So this client has its
- * own reader, {@link readComputeAdminError}. Other things also arrive here and are told apart:
- * the plain admin gate (`{ error: "Admin access required" }`, no `code`), the proxy's own
+ * routes, where `readError()` in `api-base.ts` reads `error` as the code. So this client reads
+ * them with the shared `readComputeError` (`compute-api.ts`). Other things also arrive here and
+ * are told apart: the plain admin gate (`{ error: "Admin access required" }`, no `code`), the proxy's own
  * `upstream_unreachable` and `upstream_redirect` words, and a gateway page that is not JSON.
  *
  * SHAPES. Hand-written guards (this repo has no zod): a body a guard rejects raises a
@@ -34,13 +34,14 @@ import {
   COMPUTE_POOLS_PAGE_MAX,
   COMPUTE_POOL_HOLDER_KINDS,
   COMPUTE_REPORT_PAGE_MAX,
-  COMPUTE_STATES,
   type ComputeAccessAdminErrorCode,
   type ComputeAccessDecision,
   type ComputeAccessListedState,
   type ComputeJobFlag,
   type ComputePoolHolderKind,
 } from "./compute-admin-contract";
+import { readComputeError } from "./compute-api";
+import { COMPUTE_JOB_STATES } from "./compute-contract";
 import { resolveSignal } from "./request-deadline";
 
 type Init = {
@@ -89,38 +90,17 @@ export class ComputeAdminApiError extends Error {
 export const MALFORMED_SENTENCE = ACCOUNT_COPY["compute_admin.error.malformed"];
 
 /**
- * What a non-OK response says, whatever shape it has. Never throws: a body that is not JSON (a
- * gateway page, maintenance mode) yields `{}` and the caller falls back on the status.
- */
-export async function readComputeAdminError(
-  res: Response,
-): Promise<{ code?: string; sentence?: string }> {
-  let body: unknown;
-  try {
-    body = await res.json();
-  } catch {
-    return {};
-  }
-  if (!body || typeof body !== "object") return {};
-  const { error, code } = body as Record<string, unknown>;
-  return {
-    code: typeof code === "string" && code.length > 0 ? code : undefined,
-    sentence: typeof error === "string" && error.length > 0 ? error : undefined,
-  };
-}
-
-/**
  * One line for a person, from whatever a compute call threw: the API's own sentence when it sent
  * one (the backend's words are the page's words), else the proxy's word in the site's voice, else
  * the transport failure.
  */
 export function computeAdminErrorText(err: unknown): string {
   if (err instanceof ComputeAdminApiError) {
-    const word = err.sentence;
-    if (word === "upstream_unreachable") return ACCOUNT_COPY["compute_admin.error.unreachable"];
-    if (word === "upstream_redirect") return ACCOUNT_COPY["compute_admin.error.redirect"];
-    if (word === "origin_not_allowed") return ACCOUNT_COPY["compute_admin.error.origin"];
-    if (word) return word;
+    // The proxy's own words arrive as a code (the shared reader tells a bare word from a sentence).
+    if (err.code === "upstream_unreachable") return ACCOUNT_COPY["compute_admin.error.unreachable"];
+    if (err.code === "upstream_redirect") return ACCOUNT_COPY["compute_admin.error.redirect"];
+    if (err.code === "origin_not_allowed") return ACCOUNT_COPY["compute_admin.error.origin"];
+    if (err.sentence) return err.sentence;
     if (err.status === 401) return ACCOUNT_COPY["compute_admin.result.signed_out"];
     if (err.status === 429) return ACCOUNT_COPY["compute_admin.error.rate_limited"];
     return fillCopy(ACCOUNT_COPY["compute_admin.error.failed"], { status: String(err.status) });
@@ -157,7 +137,7 @@ async function computeFetch<T>(
     signal: resolveSignal({ signal: init.signal, timeoutMs: init.timeoutMs ?? options.timeoutMs }),
   });
   if (!res.ok) {
-    const { code, sentence } = await readComputeAdminError(res);
+    const { code, sentence } = await readComputeError(res);
     throw new ComputeAdminApiError(res.status, code, sentence);
   }
   let body: unknown;
@@ -625,7 +605,7 @@ export function computeJobsQuery(input: JobsQueryInput): string {
   const flag = input.flag ?? "";
   if ((COMPUTE_JOB_FLAGS as readonly string[]).includes(flag)) params.set("flag", flag);
   const state = input.state ?? "";
-  if ((COMPUTE_STATES as readonly string[]).includes(state)) params.set("state", state);
+  if ((COMPUTE_JOB_STATES as readonly string[]).includes(state)) params.set("state", state);
   const account = positiveInt(input.account);
   if (account !== undefined) params.set("account", String(account));
   const after = positiveInt(input.after);
