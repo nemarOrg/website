@@ -248,6 +248,7 @@ const accountFailure =
             )}
             retryHref={badCursor ? "/compute#jobs" : "/compute"}
             extraLink={badCursor ? { href: "/compute#jobs", label: L.jobs.firstPage } : undefined}
+            hideRetry={badCursor}
           />
         </ComputePanel>
       )
