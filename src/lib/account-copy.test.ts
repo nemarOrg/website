@@ -163,6 +163,11 @@ describe("compute page copy (nemar-cli epic #2021 phase E2)", () => {
     expect(ACCOUNT_COPY["compute_access.granted.body"]).toContain("`nemar compute` command line");
     expect(ACCOUNT_COPY["compute_access.granted.body"]).not.toContain("from there");
   });
+
+  it("promises neither an allocation (the default may be zero) nor a human review", () => {
+    expect(ACCOUNT_COPY["compute_access.granted.body"]).not.toMatch(/allocation/i);
+    expect(ACCOUNT_COPY["compute_page.unreported_note"]).not.toMatch(/administrator|admin/i);
+  });
 });
 
 describe("what the copy must never say", () => {

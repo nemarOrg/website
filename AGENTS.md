@@ -92,9 +92,9 @@ src/
     dashboard-api.ts admin-api.ts collaborators-api.ts upload-client.ts   authenticated API clients
     mail-admin-api.ts                 admin Mail client (browser-safe): tickets, queues, away window, reply failure classes, badge count, staff directory
     mail-admin-contract.ts            hand copy of nemar-cli shared/contract/mail-admin.ts (drift-tested, test/mail-admin-contract-drift.test.ts)
-    compute-api.ts compute-contract.ts   browser-safe client for GET /compute/me, /me/usage, /me/jobs (guards copy out only the keys read; a rejected body is a `shape` error, never zeros) and the hand copy of the vocabulary it needs (drift-tested, test/compute-user-contract-drift.test.ts)
+    compute-api.ts compute-contract.ts   browser-safe client for GET /compute/me, /me/usage, /me/jobs (guards copy out only the keys read; a rejected body is a `shape` error, never zeros) and the hand copy of the vocabulary it needs, the one place the job-state and front-door words live here (drift-tested, test/compute-user-contract-drift.test.ts; extractors in test/compute-contract-drift.ts)
     compute-view.ts compute-labels.ts compute-badges.ts   pure view models (panelsFor, access, balances, queue, jobRowView, usage), the page's short labels (sentences live in account-copy.ts), job-state badges
-    compute-format.ts compute-chart.ts   integer milli-SU formatting (the CLI's digits) and the usage chart geometry (nice ceiling from the stacked total, hand-rolled SVG, ADR 0007)
+    compute-format.ts compute-chart.ts   integer milli-SU formatting (`suFixed`: the CLI's three-decimal digits; `formatSu`: the shortest exact decimal, the same rule as nemar-cli's `formatSu`) and the usage chart geometry (nice ceiling from the stacked total, hand-rolled SVG, ADR 0007)
     compute-jobs-dom.ts               builds appended job rows with createElement/textContent only
     mail-display.ts                   escape set for ticket text, thread order, reply draft state machine and its sessionStorage form
     device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
