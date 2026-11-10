@@ -756,6 +756,14 @@ describe("parseAuthMeResponse", () => {
   });
 });
 
+/**
+ * The headers of a browser form post from the page itself: its own Origin on anything but a GET.
+ * The site's cross-site form check (`onRequest`, ADR 0031) refuses a non-safe request without it.
+ */
+function sameOrigin(url: string, method: string): Record<string, string> | undefined {
+  return method === "GET" ? undefined : { Origin: new URL(url).origin };
+}
+
 describe("onRequest host dispatch", () => {
   // Minimal APIContext shim. `locals` is observable from the outside so we
   // can verify the marketing-host fast-path sets `session = null` without
@@ -763,7 +771,7 @@ describe("onRequest host dispatch", () => {
   // path must ignore it.
   type TestCtx = APIContext & { locals: { session?: unknown } };
   function ctx(url: string, method = "GET"): TestCtx {
-    const request = new Request(url, { method });
+    const request = new Request(url, { method, headers: sameOrigin(url, method) });
     return {
       request,
       locals: {},
@@ -778,7 +786,7 @@ describe("onRequest host dispatch", () => {
    * `ctx` above (which always supplies one) can no longer express both.
    */
   function anonCtx(url: string, method = "GET"): TestCtx {
-    const request = new Request(url, { method });
+    const request = new Request(url, { method, headers: sameOrigin(url, method) });
     return {
       request,
       locals: {},
@@ -917,7 +925,7 @@ describe("onRequest host dispatch", () => {
 describe("security headers", () => {
   type TestCtx = APIContext & { locals: { session?: unknown } };
   function ctx(url: string, method = "GET"): TestCtx {
-    const request = new Request(url, { method });
+    const request = new Request(url, { method, headers: sameOrigin(url, method) });
     return {
       request,
       locals: {},
@@ -1240,7 +1248,7 @@ describe("framing", () => {
 
   function anonCtx(url: string, method = "GET"): APIContext {
     return {
-      request: new Request(url, { method }),
+      request: new Request(url, { method, headers: sameOrigin(url, method) }),
       locals: {},
       cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
@@ -2330,7 +2338,10 @@ describe("the authorization page's headers", () => {
         },
       });
     const ctx = {
-      request: new Request(`https://${APP_HOST}${AUTHORIZE}?client_id=x`, { method: "POST" }),
+      request: new Request(`https://${APP_HOST}${AUTHORIZE}?client_id=x`, {
+        method: "POST",
+        headers: sameOrigin(`https://${APP_HOST}`, "POST"),
+      }),
       locals: {},
       cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;

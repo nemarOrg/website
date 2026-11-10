@@ -21,6 +21,7 @@ import {
   OIDC_FORM_ACTION_ORIGIN_HEADER,
   isFormActionOrigin,
 } from "./lib/oidc-authorize";
+import { crossSiteFormRefusal } from "./lib/origin-check";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
   type ApiBinding,
@@ -805,6 +806,13 @@ export function resetApiBindingWarningForTests(): void {
  * the page leaves the edge cache within a minute (response-cache-policy.ts).
  */
 export const onRequest: MiddlewareHandler = async (context, next) => {
+  // The site's cross-site form check, first of all, where Astro's own (now off, `astro.config.mjs`)
+  // used to run: before the host redirects, the session read and the page. Prerendered routes never
+  // ran the built-in either. The one exemption is the authorization-request POST (`origin-check.ts`).
+  if (context.isPrerendered !== true) {
+    const refused = crossSiteFormRefusal(context.request, new URL(context.request.url).origin);
+    if (refused) return refused;
+  }
   const requestContext: RequestContext = {
     waitUntil: edgeWaitUntil(context),
     apiBinding: apiBindingOf(context),
