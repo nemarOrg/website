@@ -37,6 +37,10 @@ The release pull request from `staging` to `main` moves those entries under the 
   The API now arms an ORCID link only from a POST that carries this site's Origin and a live session, as it already did for re-linking, and a GET start is always a plain sign-in.
   The button, its copy and where it leads are unchanged.
 
+## [0.2.36] - 2026-11-02
+
+### Changed
+
 - **The mirror chip follows the API's `mirror` flag, not the version number** (#478).
   The dataset page used to call every `vN.0.0` of an OpenNeuro dataset a mirror.
   It now reads the flag the landing carries on each version, `true`, `false` or `null` (nemar-cli ADR 0111, decision 5).
