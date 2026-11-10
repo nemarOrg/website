@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { COMPUTE_ACCESS_STATES } from "../src/lib/compute-access-state";
 import {
   COMPUTE_ACCESS_ADMIN_ERROR_CODES,
   COMPUTE_ACCESS_DECISIONS,
@@ -129,6 +130,11 @@ describe.skipIf(SHOULD_SKIP)("against nemar-cli's compute contracts", () => {
     const state = read(sibling("../compute-state.ts"));
     const accessState = read(sibling("../compute-access-state.ts"));
     const lists: ReadonlyArray<[string, readonly string[], string[] | undefined]> = [
+      [
+        "COMPUTE_ACCESS_STATES",
+        COMPUTE_ACCESS_STATES,
+        extractStringArray(accessState, "COMPUTE_ACCESS_STATES"),
+      ],
       [
         "COMPUTE_ACCESS_DECISIONS",
         COMPUTE_ACCESS_DECISIONS,
