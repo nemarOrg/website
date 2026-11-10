@@ -1,0 +1,134 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me",
+    "request": "no query",
+    "note": "A CPU grant of 10.000 SU charged 12.500 SU: available_milli is -2500, an integer, not clamped."
+  },
+  "status": 200,
+  "body": {
+    "access": {
+      "state": "active",
+      "requested_at": "2026-10-20 09:30:00",
+      "granted_at": "2026-10-24 14:05:00",
+      "terms_version": "2026-11-draft",
+      "current_terms_version": "2026-11-draft",
+      "terms_published": false,
+      "requests_open": false
+    },
+    "pools": {
+      "cpu": {
+        "granted_milli": 10000,
+        "held_milli": 0,
+        "charged_milli": 12500,
+        "available_milli": -2500
+      },
+      "gpu": {
+        "granted_milli": 0,
+        "held_milli": 0,
+        "charged_milli": 0,
+        "available_milli": 0
+      }
+    },
+    "frozen": false,
+    "limits": {
+      "partitions": [
+        {
+          "name": "shared",
+          "pool": "cpu",
+          "max_nodes": 1,
+          "max_cores_per_node": 64,
+          "max_gpus_per_node": 0,
+          "max_minutes": 2880
+        },
+        {
+          "name": "compute",
+          "pool": "cpu",
+          "max_nodes": 2,
+          "max_cores_per_node": 128,
+          "max_gpus_per_node": 0,
+          "max_minutes": 2880
+        },
+        {
+          "name": "debug",
+          "pool": "cpu",
+          "max_nodes": 2,
+          "max_cores_per_node": 128,
+          "max_gpus_per_node": 0,
+          "max_minutes": 30
+        },
+        {
+          "name": "gpu-shared",
+          "pool": "gpu",
+          "max_nodes": 1,
+          "max_cores_per_node": 40,
+          "max_gpus_per_node": 3,
+          "max_minutes": 2880
+        },
+        {
+          "name": "gpu",
+          "pool": "gpu",
+          "max_nodes": 1,
+          "max_cores_per_node": 40,
+          "max_gpus_per_node": 4,
+          "max_minutes": 2880
+        },
+        {
+          "name": "gpu-debug",
+          "pool": "gpu",
+          "max_nodes": 1,
+          "max_cores_per_node": 40,
+          "max_gpus_per_node": 4,
+          "max_minutes": 30
+        }
+      ],
+      "max_live_jobs": 4,
+      "results_days": 30
+    },
+    "queue": [
+      {
+        "partition": "shared",
+        "median_seconds": null,
+        "p90_seconds": null,
+        "count": 0,
+        "window_days": 7
+      },
+      {
+        "partition": "compute",
+        "median_seconds": null,
+        "p90_seconds": null,
+        "count": 0,
+        "window_days": 7
+      },
+      {
+        "partition": "debug",
+        "median_seconds": null,
+        "p90_seconds": null,
+        "count": 0,
+        "window_days": 7
+      },
+      {
+        "partition": "gpu-shared",
+        "median_seconds": null,
+        "p90_seconds": null,
+        "count": 0,
+        "window_days": 7
+      },
+      {
+        "partition": "gpu",
+        "median_seconds": null,
+        "p90_seconds": null,
+        "count": 0,
+        "window_days": 7
+      },
+      {
+        "partition": "gpu-debug",
+        "median_seconds": null,
+        "p90_seconds": null,
+        "count": 0,
+        "window_days": 7
+      }
+    ]
+  }
+}

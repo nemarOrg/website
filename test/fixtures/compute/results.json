@@ -1,0 +1,141 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "27eecff9",
+    "route": "GET|POST /compute/jobs/:id/results[/renew]",
+    "request": "a finished job with three outputs; a job with more outputs than one page (cursor); a job that is not finished; a job whose retention passed; a failed job",
+    "note": "Real routes. Both verbs mint NEW 7-day presigned links (a renewal is the same handler). Presigned addresses point at the local object-store stand-in and carry test signatures that expire. `bearer_links` and `notice` come from the route. Files are in path order. The retention rule is the backend's: expired once `now > ended_at + results_days` (the job in `expired` had its `ended_at` moved 40 days back)."
+  },
+  "job_id": "job_43ba0cc1a4808fad916c2c97",
+  "get": {
+    "status": 200,
+    "body": {
+      "expires_at": "2026-11-14T15:35:57.000Z",
+      "files": [
+        {
+          "path": "figures/plot.json",
+          "size": 13,
+          "sha256": "401592ba6d3e44c4697ec7f6e2c8500d8114f2b1b14d49e8cc1c1fb547f01040",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_43ba0cc1a4808fad916c2c97/outputs/figures/plot.json?X-Amz-Expires=604800&X-Amz-Date=20261107T153557Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=630055ce57a3b1dbcdee96587850039e865a02c9d33bbcb3b4be114659770d9c"
+        },
+        {
+          "path": "report.txt",
+          "size": 11,
+          "sha256": "c7976f1dbff10006eb9bf2d22a7959fee2fdadff032f0b57844e54138a1f7d8e",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_43ba0cc1a4808fad916c2c97/outputs/report.txt?X-Amz-Expires=604800&X-Amz-Date=20261107T153557Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=3ddf4470d94ad32fb682b0a48aca48e8d48b2bf287b36c6d84beb1d252571a98"
+        },
+        {
+          "path": "table.csv",
+          "size": 8,
+          "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_43ba0cc1a4808fad916c2c97/outputs/table.csv?X-Amz-Expires=604800&X-Amz-Date=20261107T153557Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=239852ab0ecac640de980dc985a545421e56fa7e8ec8faa58df753271f0e242d"
+        }
+      ],
+      "total": 3,
+      "truncated": false,
+      "next_after": null,
+      "bearer_links": true,
+      "notice": "Anyone who holds a link can download that file until the link expires; keep them private."
+    }
+  },
+  "renew": {
+    "status": 200,
+    "body": {
+      "expires_at": "2026-11-14T15:35:57.000Z",
+      "files": [
+        {
+          "path": "figures/plot.json",
+          "size": 13,
+          "sha256": "401592ba6d3e44c4697ec7f6e2c8500d8114f2b1b14d49e8cc1c1fb547f01040",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_43ba0cc1a4808fad916c2c97/outputs/figures/plot.json?X-Amz-Expires=604800&X-Amz-Date=20261107T153557Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=630055ce57a3b1dbcdee96587850039e865a02c9d33bbcb3b4be114659770d9c"
+        },
+        {
+          "path": "report.txt",
+          "size": 11,
+          "sha256": "c7976f1dbff10006eb9bf2d22a7959fee2fdadff032f0b57844e54138a1f7d8e",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_43ba0cc1a4808fad916c2c97/outputs/report.txt?X-Amz-Expires=604800&X-Amz-Date=20261107T153557Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=3ddf4470d94ad32fb682b0a48aca48e8d48b2bf287b36c6d84beb1d252571a98"
+        },
+        {
+          "path": "table.csv",
+          "size": 8,
+          "sha256": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_43ba0cc1a4808fad916c2c97/outputs/table.csv?X-Amz-Expires=604800&X-Amz-Date=20261107T153557Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=239852ab0ecac640de980dc985a545421e56fa7e8ec8faa58df753271f0e242d"
+        }
+      ],
+      "total": 3,
+      "truncated": false,
+      "next_after": null,
+      "bearer_links": true,
+      "notice": "Anyone who holds a link can download that file until the link expires; keep them private."
+    }
+  },
+  "many_job_id": "job_9acd6e17f55a2c43f855187b",
+  "many_first_page": {
+    "status": 200,
+    "summary": {
+      "file_count": 1000,
+      "total": 1002,
+      "truncated": true,
+      "next_after": "out/file-00999.txt",
+      "bearer_links": true,
+      "notice": "Anyone who holds a link can download that file until the link expires; keep them private.",
+      "expires_at": "2026-11-14T15:35:58.000Z",
+      "first_path": "out/file-00000.txt",
+      "last_path": "out/file-00999.txt",
+      "note": "The files array (1,000 presigned links) is elided; the second page below is stored whole."
+    }
+  },
+  "many_second_page": {
+    "status": 200,
+    "body": {
+      "expires_at": "2026-11-14T15:35:59.000Z",
+      "files": [
+        {
+          "path": "out/file-01000.txt",
+          "size": 6,
+          "sha256": "12de08b5c8d278d6f63ca5b2dee1286c7330577bf8ffb6fe9ab0a3ff0b35d84b",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_9acd6e17f55a2c43f855187b/outputs/out/file-01000.txt?X-Amz-Expires=604800&X-Amz-Date=20261107T153559Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=5a784b8044b6c8872907f3fb7442edac9e4e7e6b0fedaabb1210d2bd1c075a22"
+        },
+        {
+          "path": "out/file-01001.txt",
+          "size": 6,
+          "sha256": "691aea8bf48b1433ff3f8bee33d7b745a77a4b6c3cfcb5930c1915cc5acaa95c",
+          "url": "http://127.0.0.1:52938/nemar-compute-results/jobs/job_9acd6e17f55a2c43f855187b/outputs/out/file-01001.txt?X-Amz-Expires=604800&X-Amz-Date=20261107T153559Z&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=STANDINKEYID%2F20261107%2Fauto%2Fs3%2Faws4_request&X-Amz-SignedHeaders=host&X-Amz-Signature=e7dd3532c0e60128367ee3ca4889ecaedfbb5d83a172f47fe06086e17e4feb4a"
+        }
+      ],
+      "total": 1002,
+      "truncated": false,
+      "next_after": null,
+      "bearer_links": true,
+      "notice": "Anyone who holds a link can download that file until the link expires; keep them private."
+    }
+  },
+  "bad_state": {
+    "status": 409,
+    "body": {
+      "error": "The job is not in a state that accepts this.",
+      "code": "bad_state"
+    }
+  },
+  "expired": {
+    "status": 410,
+    "body": {
+      "error": "The results of this job have expired.",
+      "code": "results_expired"
+    }
+  },
+  "expired_renew": {
+    "status": 410,
+    "body": {
+      "error": "The results of this job have expired.",
+      "code": "results_expired"
+    }
+  },
+  "failed": {
+    "status": 409,
+    "body": {
+      "error": "The job is not in a state that accepts this.",
+      "code": "bad_state"
+    }
+  }
+}

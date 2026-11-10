@@ -1,0 +1,205 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /admin/compute/pools",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "adjust_charge_status": 201,
+  "platform": {
+    "status": 200,
+    "body": {
+      "pools": [
+        {
+          "id": 1,
+          "holder_kind": "platform",
+          "holder_ref": "pipelines",
+          "pool": "cpu",
+          "granted_milli": 0,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 0,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        },
+        {
+          "id": 2,
+          "holder_kind": "platform",
+          "holder_ref": "pipelines",
+          "pool": "gpu",
+          "granted_milli": 0,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 0,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        },
+        {
+          "id": 3,
+          "holder_kind": "platform",
+          "holder_ref": "people",
+          "pool": "cpu",
+          "granted_milli": 1000000000,
+          "held_milli": 0,
+          "charged_milli": 60000,
+          "available_milli": 999940000,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        },
+        {
+          "id": 4,
+          "holder_kind": "platform",
+          "holder_ref": "people",
+          "pool": "gpu",
+          "granted_milli": 0,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 0,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "partner": {
+    "status": 200,
+    "body": {
+      "pools": [
+        {
+          "id": 9,
+          "holder_kind": "partner",
+          "holder_ref": "example-client",
+          "pool": "cpu",
+          "granted_milli": 20000,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 20000,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "account": {
+    "status": 200,
+    "body": {
+      "pools": [
+        {
+          "id": 5,
+          "holder_kind": "account",
+          "holder_ref": "7",
+          "pool": "cpu",
+          "granted_milli": 50000,
+          "held_milli": 0,
+          "charged_milli": 60000,
+          "available_milli": -10000,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        },
+        {
+          "id": 6,
+          "holder_kind": "account",
+          "holder_ref": "7",
+          "pool": "gpu",
+          "granted_milli": 5000,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 5000,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        },
+        {
+          "id": 7,
+          "holder_kind": "account",
+          "holder_ref": "8",
+          "pool": "cpu",
+          "granted_milli": 50000,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 50000,
+          "frozen": true,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        },
+        {
+          "id": 8,
+          "holder_kind": "account",
+          "holder_ref": "8",
+          "pool": "gpu",
+          "granted_milli": 5000,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 5000,
+          "frozen": true,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "account_page_one": {
+    "status": 200,
+    "body": {
+      "pools": [
+        {
+          "id": 5,
+          "holder_kind": "account",
+          "holder_ref": "7",
+          "pool": "cpu",
+          "granted_milli": 50000,
+          "held_milli": 0,
+          "charged_milli": 60000,
+          "available_milli": -10000,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        }
+      ],
+      "next_after": 5
+    }
+  },
+  "account_page_two": {
+    "status": 200,
+    "body": {
+      "pools": [
+        {
+          "id": 6,
+          "holder_kind": "account",
+          "holder_ref": "7",
+          "pool": "gpu",
+          "granted_milli": 5000,
+          "held_milli": 0,
+          "charged_milli": 0,
+          "available_milli": 5000,
+          "frozen": false,
+          "created_at": "2026-11-06 09:00:00",
+          "updated_at": "2026-11-06 10:00:00"
+        }
+      ],
+      "next_after": 6
+    }
+  },
+  "invalid_holder_kind": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: holder_kind: invalid_enum_value",
+      "code": "invalid_query"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

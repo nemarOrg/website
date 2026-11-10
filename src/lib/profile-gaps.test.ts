@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ACCOUNT_COPY } from "./account-copy";
+import { COMPUTE_TERMS_PUBLISHED } from "./compute-terms";
 import {
+  GAP_BLOCKS,
   GAP_FIELDS,
+  type GapBlock,
   type GapField,
   type ProfileGapAccount,
   type WireProfileGap,
@@ -12,6 +15,7 @@ import {
   gapsForFields,
   hasWireProfileGaps,
   profileGaps,
+  withoutComputeOnlyGaps,
 } from "./profile-gaps";
 
 /** Every field the derivation can raise, in table order. `why` is in the
@@ -29,6 +33,7 @@ const DERIVABLE: readonly GapField[] = [
   "github_username",
   "city",
   "country",
+  "affiliation",
 ];
 
 /**
@@ -52,6 +57,8 @@ function accountMissing(missing: ReadonlySet<GapField>): ProfileGapAccount {
     github_username: missing.has("github_username") ? null : "alovelace",
     city: missing.has("city") ? "   " : "London",
     country: missing.has("country") ? "" : "United Kingdom",
+    // Absent reads as blank too; `null` here is the explicit form of it.
+    affiliation: missing.has("affiliation") ? null : "Analytical Engine Lab",
   };
 }
 
@@ -63,7 +70,7 @@ function wireFor(missing: ReadonlySet<GapField>): readonly WireProfileGap[] {
   return [...missing].map((field) => ({ field, set_on: [] }));
 }
 
-/** All 2^8 subsets of the derivable fields (one per DERIVABLE entry). */
+/** All 2^9 subsets of the derivable fields (one per DERIVABLE entry). */
 function everySubset(): Array<Set<GapField>> {
   const out: Array<Set<GapField>> = [];
   for (let mask = 0; mask < 1 << DERIVABLE.length; mask += 1) {
@@ -78,12 +85,16 @@ function everySubset(): Array<Set<GapField>> {
 
 const SUBSETS = everySubset();
 
+/** The two states of nemar-cli's `COMPUTE_TERMS_PUBLISHED`; the contract's matrix is the published one. */
+const PUBLISHED = { computeTermsPublished: true } as const;
+const UNPUBLISHED = { computeTermsPublished: false } as const;
+
 describe("profileGaps: the derivation", () => {
   it(`raises exactly the missing fields, in table order, for all ${SUBSETS.length} combinations`, () => {
     for (const missing of SUBSETS) {
       const expected = DERIVABLE.filter((f) => missing.has(f));
       expect(
-        profileGaps(accountMissing(missing)).map((g) => g.field),
+        profileGaps(accountMissing(missing), PUBLISHED).map((g) => g.field),
         `missing = [${[...missing].join(", ")}]`,
       ).toEqual(expected);
     }
@@ -91,7 +102,9 @@ describe("profileGaps: the derivation", () => {
 
   it("never raises `why`: nothing is stored until the form is submitted", () => {
     for (const missing of SUBSETS) {
-      expect(profileGaps(accountMissing(missing)).map((g) => g.field)).not.toContain("why");
+      expect(profileGaps(accountMissing(missing), PUBLISHED).map((g) => g.field)).not.toContain(
+        "why",
+      );
     }
   });
 
@@ -216,8 +229,8 @@ describe("profileGaps: the wire form", () => {
     // in the output. This is the assertion that keeps that true.
     for (const missing of SUBSETS) {
       const account = accountMissing(missing);
-      const derived = profileGaps(account);
-      const fromWire = profileGaps({ ...account, profile_gaps: wireFor(missing) });
+      const derived = profileGaps(account, PUBLISHED);
+      const fromWire = profileGaps({ ...account, profile_gaps: wireFor(missing) }, PUBLISHED);
       expect(fromWire, `missing = [${[...missing].join(", ")}]`).toEqual(derived);
       expect(fromWire.map(describeGap)).toEqual(derived.map(describeGap));
     }
@@ -238,7 +251,7 @@ describe("profileGaps: the wire form", () => {
     // question the server owns.
     const account = accountMissing(new Set(DERIVABLE));
     expect(profileGaps({ ...account, profile_gaps: [] })).toEqual([]);
-    expect(profileGaps(account).length).toBe(DERIVABLE.length);
+    expect(profileGaps(account, PUBLISHED).length).toBe(DERIVABLE.length);
   });
 
   it("takes blocks from the wire when it sends usable ones", () => {
@@ -257,10 +270,11 @@ describe("profileGaps: the wire form", () => {
       profile_gaps: [{ field: "city", blocks: ["compute", "upload_access"] }],
     });
     expect(gap.blocks).toEqual(["upload_access"]);
-    const [allUnknown] = profileGaps({
-      profile_gaps: [{ field: "city", blocks: ["compute"] }],
-    });
-    expect(allUnknown.blocks).toEqual(["upload_access"]);
+    const [allUnknown] = profileGaps(
+      { profile_gaps: [{ field: "city", blocks: ["compute"] }] },
+      PUBLISHED,
+    );
+    expect(allUnknown.blocks).toEqual(["upload_access", "compute_access"]);
   });
 
   it("ignores entries with no field name rather than rendering a blank line", () => {
@@ -324,7 +338,7 @@ describe("describeGap", () => {
 
   it("says what an unverified inbox blocks first", () => {
     const [email] = gapsForFields(["email_verified"]);
-    expect(email.blocks).toEqual(["verified", "upload_access"]);
+    expect(email.blocks).toEqual(["verified", "upload_access", "compute_access"]);
     expect(describeGap(email)).toBe(
       "A verified email address is missing: needed to activate your account. Set it in the verify step on your dashboard or run `nemar auth resend-verification`.",
     );
@@ -340,11 +354,11 @@ describe("describeGap", () => {
     // `github_username` could pass by naming its first block for any reason,
     // and a family name blocks a DOI just as surely.
     const [family] = gapsForFields(["family_name"]);
-    expect(family.blocks).toEqual(["upload_access", "publication"]);
+    expect(family.blocks).toEqual(["upload_access", "compute_access", "publication"]);
     expect(describeGap(family)).toBe(
       "Family name is missing: needed to request upload access. Set it in Settings or run `nemar auth profile set-name`.",
     );
-    expect(describeGapBlocks(family)).toBe("upload access and publication");
+    expect(describeGapBlocks(family)).toBe("upload access, compute access and publication");
   });
 
   it("falls back to a generic need for a gap that names no block", () => {
@@ -420,9 +434,11 @@ describe("describeGapBlocks", () => {
     const [github] = gapsForFields(["github_username"]);
     expect(describeGapBlocks(github)).toBe("upload access and publication");
     const [city] = gapsForFields(["city"]);
-    expect(describeGapBlocks(city)).toBe("upload access");
+    expect(describeGapBlocks(city)).toBe("upload access and compute access");
     const [email] = gapsForFields(["email_verified"]);
-    expect(describeGapBlocks(email)).toBe("account activation and upload access");
+    expect(describeGapBlocks(email)).toBe("account activation, upload access and compute access");
+    const [affiliation] = gapsForFields(["affiliation"]);
+    expect(describeGapBlocks(affiliation)).toBe("compute access");
   });
 
   it("is empty when nothing is known to be blocked", () => {
@@ -442,5 +458,233 @@ describe("the table and the copy module agree", () => {
   it("spells the unknown-field destination with the copy module's word", () => {
     const [unknown] = gapsForFields(["mystery"]);
     expect(unknown.setOnWeb).toBe(ACCOUNT_COPY["gap.set_on.default_web"]);
+  });
+});
+
+/**
+ * Compute access (website ADR 0030; nemar-cli epic #2021 phase D1, transcribed
+ * from nemar-cli 3a869903). The block lists below are nemar-cli's
+ * `PROFILE_GAP_MATRIX` rows, one per field; `test/compute-access-contract-drift`
+ * is not needed for them because the matrix is data this module already
+ * compares against the wire path above, but a change here is a change there.
+ */
+describe("compute access: blocks and the affiliation row", () => {
+  it("walks the blocks in nemar-cli's order", () => {
+    expect(GAP_BLOCKS).toEqual(["verified", "upload_access", "compute_access", "publication"]);
+  });
+
+  it("lists, for every existing field, the blocks the backend's matrix lists", () => {
+    const backend: Record<string, readonly GapBlock[]> = {
+      email_verified: ["verified", "upload_access", "compute_access"],
+      username: ["upload_access"],
+      given_name: ["upload_access", "compute_access", "publication"],
+      family_name: ["upload_access", "compute_access", "publication"],
+      orcid_verified: ["upload_access"],
+      github_username: ["upload_access", "publication"],
+      city: ["upload_access", "compute_access"],
+      country: ["upload_access", "compute_access"],
+      affiliation: ["compute_access"],
+      why: ["upload_access"],
+    };
+    expect(Object.keys(backend)).toEqual([...GAP_FIELDS]);
+    for (const gap of gapsForFields([...GAP_FIELDS])) {
+      expect(gap.blocks, gap.field).toEqual(backend[gap.field]);
+    }
+  });
+
+  it("puts affiliation after country and before why, blocking compute access alone", () => {
+    expect(GAP_FIELDS.indexOf("affiliation")).toBe(GAP_FIELDS.indexOf("country") + 1);
+    expect(GAP_FIELDS.indexOf("why")).toBe(GAP_FIELDS.indexOf("affiliation") + 1);
+    const [gap] = gapsForFields(["affiliation"]);
+    expect(gap.blocks).toEqual(["compute_access"]);
+    expect(gap.href).toBe("/settings#profile-affiliation");
+  });
+
+  it("prints the exact affiliation sentence", () => {
+    const [gap] = gapsForFields(["affiliation"]);
+    expect(describeGap(gap)).toBe(
+      "Affiliation is missing: needed to request compute access. Set it in Settings or run `nemar auth profile set-affiliation`.",
+    );
+  });
+
+  it("reads an absent affiliation as blank, and a filled one as present", () => {
+    const fields = (account: ProfileGapAccount) =>
+      profileGaps(account, PUBLISHED).map((g) => g.field);
+    expect(fields({ status: "active" })).toContain("affiliation");
+    expect(fields({ affiliation: "  " })).toContain("affiliation");
+    expect(fields({ affiliation: "SCCN" })).not.toContain("affiliation");
+  });
+
+  it("never changes what an upload-access request is refused for", () => {
+    const account = accountMissing(new Set(DERIVABLE));
+    const upload = gapsBlocking(profileGaps(account, PUBLISHED), "upload_access").map(
+      (g) => g.field,
+    );
+    expect(upload).not.toContain("affiliation");
+    expect(upload).toEqual(DERIVABLE.filter((f) => f !== "affiliation"));
+  });
+});
+
+describe("compute access: the block override", () => {
+  it("prints 'needed to request compute access' for the ORCID iD under block compute_access", () => {
+    // Without the override a compute refusal would print the field's own
+    // nearest wall, "to request upload access", and send the person to the
+    // wrong grant.
+    const [plain] = gapsForFields(["orcid_verified"]);
+    expect(describeGap(plain)).toContain("needed to request upload access");
+    const [gap] = gapsForFields(["orcid_verified"], { block: "compute_access" });
+    expect(gap.blocks).toEqual(["compute_access"]);
+    expect(describeGap(gap)).toBe(
+      "Verified ORCID iD is missing: needed to request compute access. Set it in Settings or run `nemar auth profile orcid link`.",
+    );
+  });
+
+  it("overrides every known field and leaves an unknown one neutral", () => {
+    for (const gap of gapsForFields([...GAP_FIELDS], { block: "compute_access" })) {
+      expect(gap.blocks, gap.field).toEqual(["compute_access"]);
+    }
+    const [unknown] = gapsForFields(["whatever"], { block: "compute_access" });
+    expect(unknown.known).toBe(false);
+    expect(describeGap(unknown)).toContain("needed to finish setting up your account");
+  });
+
+  it("keeps the ORCID record as the name's home under a verified iD", () => {
+    const [given] = gapsForFields(["given_name"], { orcidVerified: true, block: "compute_access" });
+    expect(describeGap(given)).toBe(
+      "Given name is missing: needed to request compute access. Set it in your ORCID record at orcid.org, then sign in again.",
+    );
+  });
+});
+
+describe("withoutComputeOnlyGaps", () => {
+  it("drops the gaps that stop compute access and nothing else", () => {
+    const gaps = gapsForFields(["city", "affiliation", "github_username"]);
+    expect(withoutComputeOnlyGaps(gaps).map((g) => g.field)).toEqual(["city", "github_username"]);
+  });
+
+  it("keeps a field that blocks compute access among other things, and an unknown one", () => {
+    const gaps = profileGaps({
+      profile_gaps: [{ field: "given_name" }, { field: "affiliation" }, { field: "whatever" }],
+    });
+    expect(withoutComputeOnlyGaps(gaps).map((g) => g.field)).toEqual(["given_name", "whatever"]);
+  });
+
+  it("drops affiliation from the wire path too", () => {
+    const gaps = profileGaps({
+      profile_gaps: [{ field: "affiliation", blocks: ["compute_access"] }],
+    });
+    expect(withoutComputeOnlyGaps(gaps)).toEqual([]);
+  });
+
+  it("is the identity for an account with no compute-only gap", () => {
+    const gaps = gapsForFields(["email_verified", "city"]);
+    expect(withoutComputeOnlyGaps(gaps)).toEqual(gaps);
+  });
+});
+
+/**
+ * The owner's ruling (nemar-cli epic #2021, `computeProfileGaps`): while the compute terms are
+ * unpublished no gap list may nudge toward compute. Written before the gate, against the
+ * contract's own two branches.
+ */
+describe("compute terms unpublished: no compute nudge from the gap table", () => {
+  const everything = accountMissing(new Set(DERIVABLE));
+
+  it("ships unpublished, so the default is the gated list", () => {
+    expect(COMPUTE_TERMS_PUBLISHED).toBe(false);
+    expect(profileGaps(everything).map((g) => g.field)).toEqual(
+      profileGaps(everything, UNPUBLISHED).map((g) => g.field),
+    );
+  });
+
+  it("does not raise the affiliation gap for an account with no affiliation", () => {
+    const account = { ...accountMissing(new Set<GapField>()), affiliation: null };
+    expect(profileGaps(account, UNPUBLISHED)).toEqual([]);
+    expect(profileGaps({ status: "active" }, UNPUBLISHED).map((g) => g.field)).not.toContain(
+      "affiliation",
+    );
+  });
+
+  it("raises the affiliation gap once the terms are published", () => {
+    const account = { ...accountMissing(new Set<GapField>()), affiliation: null };
+    expect(profileGaps(account, PUBLISHED).map((g) => g.field)).toEqual(["affiliation"]);
+  });
+
+  it("never names compute access among any gap's blocks", () => {
+    for (const missing of SUBSETS) {
+      for (const gap of profileGaps(accountMissing(missing), UNPUBLISHED)) {
+        expect(gap.blocks, `${gap.field}`).not.toContain("compute_access");
+        expect(gap.blocks.length, `${gap.field}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("leaves exactly the pre-compute list: published, minus affiliation, minus the compute block", () => {
+    for (const missing of SUBSETS) {
+      const account = accountMissing(missing);
+      const expected = profileGaps(account, PUBLISHED)
+        .filter((g) => g.field !== "affiliation")
+        .map((g) => ({ field: g.field, blocks: g.blocks.filter((b) => b !== "compute_access") }));
+      const actual = profileGaps(account, UNPUBLISHED).map((g) => ({
+        field: g.field,
+        blocks: g.blocks,
+      }));
+      expect(actual, `missing = [${[...missing].join(", ")}]`).toEqual(expected);
+    }
+  });
+
+  it("applies to the wire list too, so the two paths stay indistinguishable", () => {
+    for (const missing of SUBSETS) {
+      const account = accountMissing(missing);
+      expect(
+        profileGaps({ ...account, profile_gaps: wireFor(missing) }, UNPUBLISHED),
+        `missing = [${[...missing].join(", ")}]`,
+      ).toEqual(profileGaps(account, UNPUBLISHED));
+    }
+    // An API that has not gated its own list cannot put a compute nudge on a page.
+    const ungated = profileGaps(
+      {
+        profile_gaps: [
+          { field: "affiliation", blocks: ["compute_access"] },
+          { field: "city", blocks: ["upload_access", "compute_access"] },
+        ],
+      },
+      UNPUBLISHED,
+    );
+    expect(ungated.map((g) => [g.field, g.blocks])).toEqual([["city", ["upload_access"]]]);
+  });
+
+  it("keeps a sentence naming the first remaining block, never compute", () => {
+    const [city] = profileGaps(
+      {
+        city: "",
+        status: "active",
+        username: "a",
+        given_name: "A",
+        family_name: "B",
+        orcid_verified: true,
+        github_username: "a",
+        country: "X",
+      },
+      UNPUBLISHED,
+    );
+    expect(describeGap(city)).toContain("needed to request upload access");
+    expect(describeGapBlocks(city)).toBe("upload access");
+  });
+
+  it("keeps an unknown field the backend sent with no blocks", () => {
+    const [unknown] = profileGaps({ profile_gaps: [{ field: "whatever" }] }, UNPUBLISHED);
+    expect(unknown.field).toBe("whatever");
+  });
+
+  it("leaves a refusal's own `missing` list alone: that is the compute request flow, not a nudge", () => {
+    const [gap] = gapsForFields(["affiliation"], { block: "compute_access" });
+    expect(gap.blocks).toEqual(["compute_access"]);
+    expect(describeGap(gap)).toContain("needed to request compute access");
+  });
+
+  it("agrees with withoutComputeOnlyGaps once published", () => {
+    const gaps = profileGaps(everything, PUBLISHED);
+    expect(withoutComputeOnlyGaps(gaps).map((g) => g.field)).not.toContain("affiliation");
   });
 });

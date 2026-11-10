@@ -1,0 +1,24 @@
+Usage: nemar compute [options] [command]
+
+Use NEMAR compute: ask for access, run your own jobs, and see your balance,
+limits, jobs and results (NEMAR's own processing is a separate administrator
+path)
+
+Options:
+  -h, --help  display help for command
+
+Commands:
+  balance [options]                  Show your compute access and balance
+  cancel [options] <job>             Cancel one of your jobs
+  help [command]                     display help for command
+  limits [options]                   Show the partitions offered to you and
+                                     your limits
+  list [options]                     List your compute jobs
+  logs [options] <job>               Print the log of a job
+  queue [options]                    Show recent queue waits per partition
+  request-access [options]           Ask an admin for compute access (one-time)
+  results [options] <job>            List, or download, the files a finished
+                                     job made
+  status [options] <job>             Show one of your compute jobs
+  submit [options] [path] [args...]  Run a script, a folder or a container
+                                     image on NEMAR compute

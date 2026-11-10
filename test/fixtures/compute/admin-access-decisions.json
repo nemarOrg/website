@@ -1,0 +1,462 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "POST /admin/compute/access/{grant|deny|suspend|revoke}/by-id/:id",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org. A success body has no sentence; a refusal carries { error, code }."
+  },
+  "grant_default_zero": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "requested",
+      "to": "active",
+      "account": {
+        "id": 7,
+        "username": "person1",
+        "email": "person1@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0097",
+        "account_kind": "person",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-01 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-01 09:29:00"
+      },
+      "allocation": {
+        "granted": false,
+        "cpu_milli": 0,
+        "gpu_milli": 0,
+        "reason": "policy_default_zero",
+        "policy_version": null
+      },
+      "email_sent": true
+    }
+  },
+  "grant_allocated": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "requested",
+      "to": "active",
+      "account": {
+        "id": 7,
+        "username": "person1",
+        "email": "person1@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0097",
+        "account_kind": "person",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-01 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-01 09:29:00"
+      },
+      "allocation": {
+        "granted": true,
+        "cpu_milli": 50000,
+        "gpu_milli": 5000,
+        "reason": null,
+        "policy_version": 1
+      },
+      "email_sent": true
+    }
+  },
+  "suspend": {
+    "status": 200,
+    "body": {
+      "decision": "suspend",
+      "from": "active",
+      "to": "suspended",
+      "account": {
+        "id": 7,
+        "username": "person1",
+        "email": "person1@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0097",
+        "account_kind": "person",
+        "compute_access": "suspended",
+        "compute_access_requested_at": "2026-11-01 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-01 09:29:00"
+      },
+      "email_sent": true
+    }
+  },
+  "lift_suspension_already_granted": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "suspended",
+      "to": "active",
+      "account": {
+        "id": 7,
+        "username": "person1",
+        "email": "person1@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0097",
+        "account_kind": "person",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-01 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-01 09:29:00"
+      },
+      "allocation": {
+        "granted": false,
+        "cpu_milli": 0,
+        "gpu_milli": 0,
+        "reason": "already_granted",
+        "policy_version": 1
+      },
+      "email_sent": true
+    }
+  },
+  "revoke": {
+    "status": 200,
+    "body": {
+      "decision": "revoke",
+      "from": "active",
+      "to": "revoked",
+      "account": {
+        "id": 7,
+        "username": "person1",
+        "email": "person1@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0097",
+        "account_kind": "person",
+        "compute_access": "revoked",
+        "compute_access_requested_at": "2026-11-01 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-01 09:29:00"
+      },
+      "email_sent": true
+    }
+  },
+  "grant_again_after_revoke": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "revoked",
+      "to": "active",
+      "account": {
+        "id": 7,
+        "username": "person1",
+        "email": "person1@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0097",
+        "account_kind": "person",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-01 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 2,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-01 09:29:00"
+      },
+      "allocation": {
+        "granted": false,
+        "cpu_milli": 0,
+        "gpu_milli": 0,
+        "reason": "already_granted",
+        "policy_version": 1
+      },
+      "email_sent": true
+    }
+  },
+  "deny": {
+    "status": 200,
+    "body": {
+      "decision": "deny",
+      "from": "requested",
+      "to": "denied",
+      "account": {
+        "id": 8,
+        "username": "person2",
+        "email": "person2@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0098",
+        "account_kind": "person",
+        "compute_access": "denied",
+        "compute_access_requested_at": "2026-11-02 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": null,
+        "compute_access_granted_by": null,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-02 09:29:00"
+      },
+      "email_sent": true
+    }
+  },
+  "grant_again_after_deny": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "denied",
+      "to": "active",
+      "account": {
+        "id": 8,
+        "username": "person2",
+        "email": "person2@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0098",
+        "account_kind": "person",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-02 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-02 09:29:00"
+      },
+      "allocation": {
+        "granted": true,
+        "cpu_milli": 50000,
+        "gpu_milli": 5000,
+        "reason": null,
+        "policy_version": 1
+      },
+      "email_sent": true
+    }
+  },
+  "grant_email_not_sent": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "requested",
+      "to": "active",
+      "account": {
+        "id": 9,
+        "username": "person3",
+        "email": "person3@example.org",
+        "given_name": "Ada",
+        "family_name": "Rivers",
+        "affiliation": "Example Institute",
+        "city": "San Diego",
+        "country": "USA",
+        "orcid": "0000-0002-1825-0099",
+        "account_kind": "service",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-03 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 4,
+        "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-03 09:29:00"
+      },
+      "allocation": {
+        "granted": true,
+        "cpu_milli": 50000,
+        "gpu_milli": 5000,
+        "reason": null,
+        "policy_version": 1
+      },
+      "email_sent": false
+    }
+  },
+  "refused_not_requested_grant": {
+    "status": 409,
+    "body": {
+      "error": "That account has no open compute access request to decide.",
+      "code": "not_requested"
+    }
+  },
+  "refused_not_requested_deny": {
+    "status": 409,
+    "body": {
+      "error": "That account has no open compute access request to decide.",
+      "code": "not_requested"
+    }
+  },
+  "refused_already_active": {
+    "status": 409,
+    "body": {
+      "error": "That account already holds compute access.",
+      "code": "already_active"
+    }
+  },
+  "refused_not_active": {
+    "status": 409,
+    "body": {
+      "error": "That account does not hold compute access.",
+      "code": "not_active"
+    }
+  },
+  "refused_account_not_found": {
+    "status": 404,
+    "body": {
+      "error": "There is no such account.",
+      "code": "account_not_found"
+    }
+  },
+  "refused_invalid_id": {
+    "status": 400,
+    "body": {
+      "error": "That is not an account id (a whole number from 1).",
+      "code": "invalid_query"
+    }
+  },
+  "refused_invalid_body_reason": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. reason: too_big",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "reason",
+          "code": "too_big"
+        }
+      ]
+    }
+  },
+  "refused_invalid_body_key": {
+    "status": 400,
+    "body": {
+      "error": "The request body is not valid. body: unrecognized_keys",
+      "code": "invalid_body",
+      "fields": [
+        {
+          "path": "",
+          "code": "unrecognized_keys"
+        }
+      ]
+    }
+  },
+  "refused_not_in_good_standing": {
+    "status": 409,
+    "body": {
+      "error": "That account is deleted, revoked or not verified, so compute access cannot be granted to it.",
+      "code": "account_not_in_good_standing"
+    }
+  },
+  "refused_self_decision": {
+    "status": 409,
+    "body": {
+      "error": "An administrator cannot grant their own compute access; ask another administrator or an owner.",
+      "code": "self_decision"
+    }
+  },
+  "self_grant_by_other_admin": {
+    "status": 200,
+    "body": {
+      "decision": "grant",
+      "from": "requested",
+      "to": "active",
+      "account": {
+        "id": 4,
+        "username": "cmp-admin",
+        "email": "cmp-admin@example.org",
+        "given_name": null,
+        "family_name": null,
+        "affiliation": null,
+        "city": null,
+        "country": null,
+        "orcid": null,
+        "account_kind": "person",
+        "compute_access": "active",
+        "compute_access_requested_at": "2026-11-02 09:30:00",
+        "compute_access_notified_at": null,
+        "compute_access_granted_at": "2026-11-06 10:00:00",
+        "compute_access_granted_by": 5,
+        "compute_purpose": "An administrator asking for compute for their own research.",
+        "compute_terms_version": "2026-11-draft",
+        "compute_terms_accepted_at": "2026-11-02 09:29:00"
+      },
+      "allocation": {
+        "granted": true,
+        "cpu_milli": 50000,
+        "gpu_milli": 5000,
+        "reason": null,
+        "policy_version": 1
+      },
+      "email_sent": true
+    }
+  },
+  "refused_stale_state": {
+    "status": 409,
+    "body": {
+      "error": "The account's compute access changed while this was being decided; read it again.",
+      "code": "stale_state"
+    }
+  },
+  "refused_unauthenticated": {
+    "status": 401,
+    "body": {
+      "error": "Missing Authorization header"
+    }
+  },
+  "refused_member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  },
+  "refused_owner_only_policy": {
+    "status": 403,
+    "body": {
+      "error": "Only an owner can do that.",
+      "code": "owner_only"
+    }
+  },
+  "refused_policy_unreadable": {
+    "status": 503,
+    "body": {
+      "error": "The stored policy cannot be read, so nothing was granted.",
+      "code": "policy_unreadable"
+    }
+  }
+}

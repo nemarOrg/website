@@ -15,6 +15,52 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **The admin Compute tab** (website#497, epic website#493 phase E4; nemar-cli epic #2021, website ADR 0030 addendum).
+  `/admin/compute`, after Mail, shows the compute access requests awaiting a decision: a row per account with the stated country, affiliation, city, email, ORCID iD, request date, terms version and the purpose (shown as inert text, in full on request).
+  An administrator can Grant, Deny, Suspend, Revoke, Lift a suspension or Grant again, each from its own dialog with an optional reason (500 characters).
+  Grant needs a ticked reminder to review the person's name, affiliation and stated country against the export-control rules (the tick is not recorded), and Revoke needs a typed word.
+  An administrator who is not an owner cannot Grant their own account; the button says why.
+  A decision is never retried: after a lost answer the page says the result is not confirmed and reads the account again.
+  After a decision the tab's count goes down and a card that no longer matches the filter moves to a "Decided on this page" group, and the result is announced to screen readers.
+  Read-only views show the pools, the quarterly usage counts, flagged jobs (unreserved, unattributed, mismatch, overrun) and reconciliation status with the unmatched accounting rows; each read fails alone.
+  Where the API serves nothing yet (platform usage by day, the difference between NEMAR's ledger and the scheduler's accounting) the section says so and links the tracking issue (nemar-cli#2083, #2084).
+  The tab's badge is the number of requests in the first 50 rows (`50+` when there are more), fail-soft.
+  The suspend and revoke dialogs and the mismatch flag explain how a partner reservation is handled.
+  Policy, moving a charge, pool grants and adjustments, and canceling or advancing a job are not offered: they stay in `nemar admin compute`.
+  Needs the nemar-cli API with the compute routes; an older API reads "Compute is not available on this server yet."
+
+- **The compute job page** (website#496, epic website#493 phase E3; nemar-cli epic #2021 phase D3, website ADR 0030 addendum).
+  `/compute/jobs/<id>` shows one job: its state on a timeline that claims only what the record carries (three times), its resources and charge (the same three-decimal digits as `nemar compute status`), a plain sentence for each of the 17 failure codes, its log on request, its result links on request (renewable), and a cancel for a live job.
+  A live job refreshes itself every 10 seconds, backing off to 60 while nothing changes, pausing in a hidden tab and stopping at an ended state.
+  The log is shown as inert text with hostile characters written out (`\x1b`, `\u202e`) rather than silently dropped; a log cut at 1 MiB says so and points at `nemar compute logs` (the end of a long log cannot be read yet: nemar-cli#2094).
+  Result links are bearer links: viewing the page mints none, only the button does, and they are never stored, logged or copied.
+  The Actions card appears only when there is an action to take, and the "download everything" command line only while the job has results to download.
+  The page is the one the "results ready" email links to, answers the same 404 for an absent, foreign or malformed id, and is never edge-cached (`/compute` joins `/oauth` in `routeBypassesEdgeCache`).
+  The API proxy forwards one more response header, `X-Nemar-Truncated`.
+  Backend gaps filed: nemar-cli#2094 (log tail), #2095 (links as attachments), #2096 (state when results are deleted), #2097 (per-stage times).
+  `scripts/capture-compute-job-fixtures.mjs` captures nine fixture files from the real router, and `scripts/local-backend.mjs --seed-compute-jobs` seeds jobs through the real services and the Tapis stand-in.
+
+- **The `/compute` dashboard** (website#495, epic website#493 phase E2; nemar-cli epic #2021 phase D2, website ADR 0030 addendum).
+  A signed-in person sees their compute access, CPU and GPU balances (granted, held, charged, available, in the same three-decimal service units `nemar compute balance` prints), a daily usage chart per pool stacked by partition (hand-rolled SVG, themed by new `--chart-*` tokens, with the numbers in a table beside it), their jobs from every front door with "Load more", and the platform's recent queue waits ("Not enough data" with the count when fewer than five jobs started).
+  A person without active access sees why and how to ask, not an error; a suspended or ended account keeps its history read-only; one failed read shows one notice that says the figures are missing, not zero.
+  `/compute` is an app-host route, linked from the user menu for active, suspended and ended accounts and from the active Compute card in Settings.
+  `compute_access.granted.body` now says jobs are submitted with the command line, and seven shared copy keys were added for the page (`compute_page.*`, `compute_access.granted.link`).
+  The empty usage chart places "No charges in this period." between the gridlines.
+  Needs the nemar-cli API with the compute routes: the site must not be promoted to production before the production API serves `GET /compute/me` (an API without it shows one "not available" notice).
+  `scripts/local-backend.mjs --seed-compute` seeds the dashboard's data through the real backend helpers.
+
+- **A compute access card in Settings** (website#494, epic website#493 phase E1; nemar-cli epic #2021 phase D1, ADR 0030).
+  Beside the upload-access card, `#compute-access` shows the account's compute-access state (not requested, requested, active, suspended, not granted, ended) and, for a verified account that has never asked, a request form: a purpose of 20 to 1,000 characters, a required checkbox for the compute terms (with the version, linking the terms page), and the refusal list a refused request returns, as links to the fields to fix.
+  Every sentence is a transcribed copy key, the same words the CLI prints.
+  The card renders only when the backend reports a state; an older backend gets no card, never "Not requested".
+  The production build shows "not open yet" in place of the form until the compute terms are published (`COMPUTE_REQUESTS_ENABLED`); a build pointed at another backend shows the form.
+  The Affiliation field is tagged "needed to request compute access" where the request form is on offer (in the production build, once the terms are published), and carries the `#profile-affiliation` anchor.
+  Affiliation is a new gap that stops compute access alone, so the dashboard nudge and Settings' account list leave it out.
+  Until the compute terms are published, no account list or admin review card names compute access or raises the Affiliation gap, matching nemar-cli's `profile_gaps`.
+  The upload card's refusal list and the new one share one renderer.
+  Needs the nemar-cli backend with the compute epic.
+  `scripts/local-backend.mjs` runs that backend locally with seeded accounts (see `.context/local-backend.md`); the `astro dev` login has seven compute personas (`@nemar.cnone`, `.creq`, `.cactive`, `.csusp`, `.cdenied`, `.crevoked`, `.cpending`).
+
 - **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
   A site registered with NEMAR sends a person here to sign in with their NEMAR account.
   The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
@@ -25,6 +71,16 @@ The release pull request from `staging` to `main` moves those entries under the 
   Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
 
 ### Changed
+
+- **The dataset page's Compute dialog describes `nemar compute`** (website#498, epic website#493 phase E5; website ADR 0030 addendum).
+  The "Compute instructions" dialog no longer shows an S3 prefix and a Neuroscience Gateway flow; that route is gone.
+  For a published, non-anonymous `nm` or `on` dataset it gives copyable commands to request access, do a dry run, submit a job against the dataset's version, follow it and fetch its results, with links to Settings and `/compute`.
+  Every command and flag is checked against the real `nemar` help.
+  The dialog names no storage URL, machine, limit, price or allocation size, and does not say where a job reads or writes.
+  It is state-agnostic (the page is cached and anonymous): it never claims the visitor has access.
+  Until compute opens, the production build shows the shared "not open yet" sentence in place of the commands.
+  Any other dataset gets one sentence saying NEMAR compute cannot read it.
+  The old "coming soon" note and its link are removed.
 
 - **`/oauth/authorize` accepts an authorization request sent by POST from any site; every other form keeps its cross-site check** (nemarOrg/nemar-cli#2020, nemar-cli ADR 0119, website ADR 0031).
   OpenID Connect Core 3.1.2.1 requires the authorization endpoint to take a form POST, and Astro's built-in origin check refuses one from another site.

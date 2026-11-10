@@ -1,4 +1,5 @@
 ---
+import { deriveComputeAccessState } from "../lib/account-tier";
 import type { AuthSession } from "../lib/auth";
 import { SIGN_IN_TITLE } from "../lib/copy";
 
@@ -8,6 +9,12 @@ interface Props {
 const { session } = Astro.props;
 
 const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
+// Compute is in the menu for the states in which a person has, or had, a balance and jobs (website ADR
+// 0030 phase E2). For `none`, `requested`, `denied` and an absent state it stays out: the Settings card
+// is that person's way in.
+const computeState = deriveComputeAccessState(session?.user)?.state;
+const showCompute =
+  computeState === "active" || computeState === "suspended" || computeState === "revoked";
 ---
 
 {
@@ -46,6 +53,11 @@ const initial = session?.user?.email?.[0]?.toUpperCase() ?? "?";
           <li role="none">
             <a class="user-menu__item" href="/dashboard" role="menuitem">My datasets</a>
           </li>
+          {showCompute && (
+            <li role="none">
+              <a class="user-menu__item" href="/compute" role="menuitem">Compute</a>
+            </li>
+          )}
           <li role="none">
             <a class="user-menu__item" href="/settings" role="menuitem">Settings</a>
           </li>

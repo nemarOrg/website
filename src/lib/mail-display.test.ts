@@ -65,6 +65,12 @@ describe("displaySafeLine", () => {
     expect(displaySafeLine(input)).toBe(expected);
   });
 
+  it("writes out the three direction marks too when asked, and keeps newline and tab", () => {
+    expect(displaySafeBody("a\u200eb\u200fc\u061cd\n\te", { escapeMarks: true })).toBe(
+      "a\\u200eb\\u200fc\\u061cd\n\te",
+    );
+  });
+
   it("leaves ordinary text, including non-Latin scripts and emoji, alone", () => {
     const text = "Re: Zugang für Daten – ورود به سامانه 研究";
     expect(displaySafeLine(text)).toBe(text);
@@ -94,6 +100,9 @@ describe("the wider escape set (mirrors nemar-cli display-name)", () => {
   it("keeps exactly newline, tab, LRM, RLM and ALM in a body", () => {
     expect(displaySafeBody("a\n\tb\u200ec\u200fd\u061ce")).toBe("a\n\tb\u200ec\u200fd\u061ce");
     expect(displaySafeBody("a\u200bb\u200cc\u2066d")).toBe("a\\u200bb\\u200cc\\u2066d");
+    // The default is unchanged by the option: marks stay unless asked.
+    expect(displaySafeBody("a\u200eb", {})).toBe("a\u200eb");
+    expect(displaySafeBody("a\u200eb", { escapeMarks: false })).toBe("a\u200eb");
   });
 
   it("writes a line's escapes the way a body does, apart from newline and tab", () => {

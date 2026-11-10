@@ -290,6 +290,9 @@ export function gapAccountFromDetail(detail: AdminUserDetail): ProfileGapAccount
     github_username: detail.github_username,
     city: detail.city ?? null,
     country: detail.country ?? null,
+    // The compute-only gap (nemar-cli epic #2021 phase D1). The detail row
+    // carries the column; an absent one reads as blank, as for every field.
+    affiliation: detail.affiliation ?? null,
   };
 }
 

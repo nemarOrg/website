@@ -72,6 +72,11 @@ describe("isAppRoute", () => {
     // CLI device-authorization page (epic #1272 phase 2).
     "/cli/authorize",
     "/cli/authorize/",
+    // Compute dashboard (website ADR 0030 phase E2) and its job page.
+    "/compute",
+    "/compute/",
+    "/compute/jobs/abc",
+    "/compute/jobs/job_000000000000000000000001",
   ])("treats %s as app", (path) => {
     expect(isAppRoute(path)).toBe(true);
   });
@@ -102,6 +107,9 @@ describe("isAppRoute", () => {
     // "/cli" as a bare prefix must not swallow an unrelated route that merely
     // starts with the same three letters.
     expect(isAppRoute("/climate")).toBe(false);
+    // Nor may "/compute" swallow a route that merely starts with it.
+    expect(isAppRoute("/computex")).toBe(false);
+    expect(isAppRoute("/computing")).toBe(false);
   });
 });
 
@@ -228,6 +236,19 @@ describe("getCrossHostRedirect", () => {
 
   it("never redirects the CLI authorize page in single-host mode (test.nemar.org)", () => {
     expect(getCrossHostRedirect(url("test.nemar.org", "/cli/authorize?code=BCDF-GHJK"))).toBeNull();
+  });
+
+  // The compute dashboard (website ADR 0030 phase E2) reads the app-host session cookie, so the
+  // marketing hosts send it, and its job page, to the app host and the app host keeps it.
+  it("sends /compute and a job page from the marketing host to the app host", () => {
+    expect(getCrossHostRedirect(url(MARKETING_HOST, "/compute"))).toBe(
+      `https://${APP_HOST}/compute`,
+    );
+    expect(
+      getCrossHostRedirect(url(BETA_HOST, "/compute/jobs/abc?x=1"), { hasSession: false }),
+    ).toBe(`https://${APP_HOST}/compute/jobs/abc?x=1`);
+    expect(getCrossHostRedirect(url(APP_HOST, "/compute"))).toBeNull();
+    expect(getCrossHostRedirect(url("test.nemar.org", "/compute"))).toBeNull();
   });
 });
 
@@ -541,6 +562,8 @@ describe("canonicalOriginFor", () => {
   it("sends app routes to the app origin", () => {
     expect(canonicalOriginFor("/dashboard", APP_HOST)).toBe(`https://${APP_HOST}`);
     expect(canonicalOriginFor("/settings", MARKETING_HOST)).toBe(`https://${APP_HOST}`);
+    expect(canonicalOriginFor("/compute", MARKETING_HOST)).toBe(`https://${APP_HOST}`);
+    expect(canonicalOriginFor("/compute/jobs/abc", APP_HOST)).toBe(`https://${APP_HOST}`);
   });
 
   it("keeps single-host mode on the marketing origin, as before", () => {

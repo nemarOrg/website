@@ -20,6 +20,7 @@ import PROFILE_NUDGE from "../src/components/ProfileNudge.astro?raw";
 // while passing locally under vitest.
 import USER_ADMIN_ROW from "../src/components/admin/UserAdminRow.astro?raw";
 import { ACCOUNT_COPY } from "../src/lib/account-copy";
+import REFUSAL_LIST from "../src/lib/refusal-list.ts?raw";
 import ADMIN_USER_DETAIL from "../src/pages/admin/users/[username].astro?raw";
 import DASHBOARD from "../src/pages/dashboard.astro?raw";
 import ONBOARDING from "../src/pages/onboarding.astro?raw";
@@ -180,9 +181,14 @@ describe("Settings", () => {
   it("renders a refusal's missing list through describeGap", () => {
     // This is the sentence-for-sentence parity the issue asks for: the words
     // the request comes back with are the words the nudge already used.
-    expect(SETTINGS).toContain("gapsForFields(missing, { orcidVerified })");
-    expect(SETTINGS).toContain("describeGap(gap)");
-    expect(SETTINGS).toContain("gapTail(gap)");
+    // The loop moved to the shared renderer (website ADR 0030): the page no
+    // longer words a gap, it hands the box to the function that does.
+    expect(SETTINGS).toContain(
+      "renderRefusal(missingBox, missingList, missing, { orcidVerified })",
+    );
+    expect(REFUSAL_LIST).toContain("gapsForFields(missing, options)");
+    expect(REFUSAL_LIST).toContain("describeGap(gap)");
+    expect(REFUSAL_LIST).toContain("gapTail(gap)");
   });
 
   it("renders a positive empty state instead of vanishing", () => {

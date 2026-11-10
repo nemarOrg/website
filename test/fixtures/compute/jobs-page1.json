@@ -1,0 +1,61 @@
+{
+  "status": 200,
+  "body": {
+    "jobs": [
+      {
+        "id": "job_00000000000000000000001b",
+        "kind": "batch",
+        "source": "cli",
+        "state": "running",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-06 20:00:00",
+        "started_at": "2026-11-06 20:05:00",
+        "ended_at": null,
+        "charged_milli": 0,
+        "failure_code": null,
+        "cancel_requested": false
+      },
+      {
+        "id": "job_000000000000000000000015",
+        "kind": "batch",
+        "source": "cli",
+        "state": "finished",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "gpu-shared",
+        "pool": "gpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 12:00:00",
+        "started_at": "2026-11-05 12:00:00",
+        "ended_at": "2026-11-05 12:00:00",
+        "charged_milli": 1500,
+        "failure_code": null,
+        "cancel_requested": false
+      }
+    ],
+    "next_after": "2026-11-05T12:00:00|job_000000000000000000000015"
+  },
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-read-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /compute/me/jobs",
+    "request": "limit=2",
+    "note": "The first page of a rich account's jobs; next_after continues it."
+  }
+}

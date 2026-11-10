@@ -1,5 +1,11 @@
 ---
+import { ACCOUNT_COPY } from "../lib/account-copy";
+import { apiBase } from "../lib/api-base";
+import { buildComputeInstructions } from "../lib/compute-instructions";
+import { COMPUTE_LABELS } from "../lib/compute-labels";
 import { resolveDataBase } from "../lib/data-base";
+import { COMPUTE_REQUESTS_ENABLED, computeRequestsOpen } from "../lib/flags";
+import { appUrl } from "../lib/host";
 import type { LandingArchive } from "../lib/neuroschema";
 import DialogCloseButton from "./DialogCloseButton.astro";
 
@@ -17,9 +23,23 @@ interface Props {
   issuesUrl: string | null;
   githubUrl: string | null;
   openneuroId: string | null;
+  /** The dataset is an anonymous deposit; the Compute dialog offers it no commands. */
+  anonymous: boolean;
+  /** The dataset has no published version; the Compute dialog offers it no commands. */
+  unpublished: boolean;
 }
 
-const { datasetId, version, archiveUrl, archive, issuesUrl, githubUrl, openneuroId } = Astro.props;
+const {
+  datasetId,
+  version,
+  archiveUrl,
+  archive,
+  issuesUrl,
+  githubUrl,
+  openneuroId,
+  anonymous,
+  unpublished,
+} = Astro.props;
 const ds = datasetId;
 const versionSuffix = version ?? "latest";
 
@@ -46,7 +66,6 @@ const ghCloneUrl = githubUrl;
 // data-test.nemar.org on staging) so the copyable commands and direct link
 // point at the plane this site actually reads from.
 const dataBase = resolveDataBase();
-const dataHost = new URL(dataBase).host;
 
 // Per-method commands, each separately copyable in the modal.
 const cliCmd = `nemar dataset download ${ds}`;
@@ -55,6 +74,25 @@ const dataladCmd = ghCloneUrl
   : null;
 const annexCmd = ghCloneUrl ? `git clone ${ghCloneUrl} ${ds}\ncd ${ds} && git annex get .` : null;
 const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq -r '.[].url' > urls.txt\nwget -xc -i urls.txt`;
+
+// The Compute dialog (website#498, ADR 0030 phase E5 addendum). This page is cached and anonymous, so
+// the dialog cannot know the visitor's access state: it is one dialog for everyone, and the person is
+// sent to the surfaces that do know (Settings, /compute, the CLI). Whether compute is open is the one
+// switch ADR 0030 already owns; nothing else decides it here. nemarOrg/nemar-cli#2090 asks for a public
+// availability read that would replace the build constant.
+const computeLabels = COMPUTE_LABELS.datasetDialog;
+const computeInstructions = buildComputeInstructions({
+  datasetId: ds,
+  version,
+  anonymous,
+  unpublished,
+  open: computeRequestsOpen(COMPUTE_REQUESTS_ENABLED, apiBase()),
+});
+// Navigation only: nothing from compute renders on the marketing host. From the marketing host these are
+// absolute links to the app host; on the app host or a single-host preview they stay relative.
+const requestHost = new URL(Astro.request.url).hostname;
+const requestAccessHref = appUrl("/settings#compute-access", requestHost);
+const computePageHref = appUrl("/compute", requestHost);
 ---
 
 <div class="actions">
@@ -79,7 +117,7 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     </svg>
     View data
   </button>
-  <button class="action action--ghost" type="button" data-compute-stub>
+  <button class="action action--ghost" type="button" data-compute-open aria-haspopup="dialog">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M4 4h16v16H4zM9 9h6v6H9z"/>
     </svg>
@@ -209,57 +247,62 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
   </div>
 </dialog>
 
-<dialog class="compute-dialog" data-compute-dialog>
+<dialog class="compute-dialog" data-compute-dialog aria-labelledby="compute-dialog-heading">
   <DialogCloseButton />
   <div class="compute-dialog__scroll">
-  <h2>Compute on this dataset</h2>
-  <p class="compute-dialog__intro">
-    Two routes today, with a third (in-browser one-click submission)
-    landing soon.
-  </p>
+  <h2 id="compute-dialog-heading">{computeLabels.title}</h2>
 
-  <ol class="compute-dialog__steps">
-    <li>
-      <strong>NeuroScience Gateway (NSG) portal.</strong>
-      <p>
-        NSG runs EEGLAB / Brainstorm / MNE pipelines on supercomputing
-        time donated by SDSC. Create an account, point a job at this
-        dataset's S3 prefix (<code>s3://nemar/{datasetId}</code>), and
-        submit.
-        <br />
-        <a href="https://nsgportal.org" rel="external">nsgportal.org →</a>
-      </p>
-    </li>
-    <li>
-      <strong>Local processing with <code>nemar-cli</code>.</strong>
-      <p>
-        Pull the dataset to your machine and run any toolbox locally.
-        Honors the published version pinning.
-      </p>
-      <pre><code>npm install -g nemar-cli
-nemar dataset clone {datasetId}
-cd {datasetId} && nemar dataset get</code></pre>
-    </li>
-    <li>
-      <strong>Just the files.</strong>
-      <p>
-        <code>rclone</code>, <code>aria2c</code>, or any HTTPS client
-        works against <a href={`${dataBase}/${datasetId}/`} rel="external">{dataHost}/{datasetId}/</a>
-        — the manifest carries stable data-plane file URLs. Single-range requests are supported for
-        annex-backed entries; git-tracked files are served as full bodies. Real chunk-only byte delivery
-        remains under isolated acceptance.
-      </p>
-    </li>
-  </ol>
+  {computeInstructions.kind === "ready" && (
+    <>
+      <p class="compute-dialog__intro">{computeLabels.intro}</p>
 
-  <div class="compute-dialog__soon" role="note">
-    <strong>Direct compute access is coming soon.</strong>
-    <span>
-      One-click NSG submission from this page is scoped for a follow-up
-      phase. Tracked on
-      <a href="https://github.com/nemarOrg/website/issues/6" rel="external">nemarOrg/website#6</a>.
-    </span>
-  </div>
+      <ol class="compute-dialog__steps">
+        {computeInstructions.steps.map((step) => (
+          <li>
+            <strong>{step.heading}</strong>
+            {step.lead && <p>{step.lead}</p>}
+            {step.link?.kind === "install" && (
+              <p><a href={installUrl} rel="external">{step.link.label}</a></p>
+            )}
+            {step.link?.kind === "request_access" && (
+              <p><a href={requestAccessHref}>{step.link.label}</a></p>
+            )}
+            {step.rows.map((row) => (
+              <div class="compute-row">
+                <p class="compute-row__label">{row.label}</p>
+                {row.explanation && <p>{row.explanation}</p>}
+                <div class="dl-cmd">
+                  <pre tabindex="0"><code>{row.command}</code></pre>
+                  <button class="dl-cmd__copy" type="button" data-copy-text={row.command} aria-label={`Copy: ${row.label}`}>Copy</button>
+                </div>
+              </div>
+            ))}
+          </li>
+        ))}
+      </ol>
+
+      <p class="compute-dialog__links">
+        {computeLabels.computePageLead}
+        {" "}<a href={computePageHref}>{ACCOUNT_COPY["compute_access.granted.link"]}</a>
+      </p>
+    </>
+  )}
+
+  {computeInstructions.kind === "closed" && (
+    <>
+      <p class="compute-dialog__intro">{ACCOUNT_COPY["compute_access.terms_unpublished.body"]}</p>
+      <p class="compute-dialog__intro">{computeLabels.closedPointer}</p>
+    </>
+  )}
+
+  {computeInstructions.kind === "not_available" && (
+    <>
+      <p class="compute-dialog__intro">{computeLabels.notAvailable}</p>
+      {computeInstructions.reason !== "unpublished" && computeInstructions.reason !== "no_version" && (
+        <p class="compute-dialog__intro">{computeLabels.closedPointer}</p>
+      )}
+    </>
+  )}
 
   <form method="dialog">
     <button type="submit" class="dialog-close">Close</button>
@@ -506,22 +549,27 @@ cd {datasetId} && nemar dataset get</code></pre>
     background: transparent;
     padding: 0;
   }
-  .compute-dialog__soon {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--space-3) var(--space-4);
-    margin-block-end: var(--space-5);
-    border: 1px solid color-mix(in srgb, var(--brand-purple) 30%, transparent);
-    background: color-mix(in srgb, var(--brand-purple) 6%, transparent);
-    border-radius: var(--radius-md);
-    font-size: var(--fs-sm);
+  .compute-row {
+    margin-block-start: var(--space-3);
   }
-  .compute-dialog__soon strong {
+  .compute-row__label {
     color: var(--color-fg);
+    font-weight: var(--fw-medium);
   }
-  .compute-dialog__soon span {
+  /* `.compute-dialog pre` (later in this file) puts a top margin on every pre; inside a copy row that
+     pushes the block below its Copy button. */
+  .compute-row .dl-cmd pre {
+    margin: 0;
+  }
+  .compute-row .dl-cmd__copy {
+    align-self: flex-start;
+    min-block-size: 44px;
+    min-inline-size: 44px;
+  }
+  .compute-dialog__links {
+    margin-block-end: var(--space-5);
     color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
   }
   .dialog-close {
     padding: 0 var(--space-5);
@@ -665,7 +713,7 @@ cd {datasetId} && nemar dataset get</code></pre>
 <script>
   import { citeKindLabel, citedByLabel } from "../lib/citation-labels";
 
-  document.querySelectorAll<HTMLButtonElement>("[data-compute-stub]").forEach((btn) => {
+  document.querySelectorAll<HTMLButtonElement>("[data-compute-open]").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelector<HTMLDialogElement>("[data-compute-dialog]")?.showModal();
     });

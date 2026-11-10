@@ -61,4 +61,5 @@ Add new entries here as you create ADRs:
 - ADR 0027 - [The admin approval page prints the API's review words and computes no verdict](0027-the-admin-approval-page-prints-the-apis-review-words.md) (accepted)
 - ADR 0028 - [The BIDS validator runs in the browser from a vendored bundle, in a worker](0028-bids-validator-vendored-bundle-in-a-worker.md) (accepted)
 - ADR 0029 - [The admin Mail tab renders email as inert text and sends every reply under one key per draft](0029-admin-mail-tab-untrusted-text-and-reply-keys.md) (accepted)
+- ADR 0030 - [Compute pages are ADR 0010's Phase 3, behind a grant of their own, and decide nothing](0030-compute-pages-follow-adr-0010-phase-3.md) (accepted)
 - ADR 0031 - [The cross-site form check is the site's own, with one exemption: the authorization-request POST](0031-cross-site-form-check-is-the-sites-own-with-one-exemption.md) (accepted)

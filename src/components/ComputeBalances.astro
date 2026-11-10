@@ -1,0 +1,117 @@
+---
+/**
+ * The Balances panel of /compute: one card per pool, CPU then GPU, each with Granted, Held, Charged and
+ * Available in service units and a bar of available over granted. The two pools are different
+ * currencies and are never added together. Numbers come from `balancesView` (integer milli-SU, three
+ * decimals, the digits `nemar compute balance` prints). The bar is decoration (`aria-hidden`); a
+ * negative available prints as negative in the danger tone, with a sign, never as zero.
+ */
+import { COMPUTE_LABELS } from "../lib/compute-labels";
+import type { BalancesView } from "../lib/compute-view";
+import ComputePanel from "./ComputePanel.astro";
+
+interface Props {
+  view: BalancesView;
+}
+
+const { view } = Astro.props;
+---
+
+<ComputePanel id="balances" title={COMPUTE_LABELS.panels.balances}>
+  <div class="compute-pools">
+    {view.pools.map((pool) => (
+      <section class="compute-pool" aria-labelledby={`compute-pool-${pool.pool}`} data-compute-pool={pool.pool}>
+        <h3 class="compute-pool__name" id={`compute-pool-${pool.pool}`}>{pool.name}</h3>
+        <dl class="compute-pool__rows">
+          {pool.rows.map((row) => (
+            <div class="compute-pool__row">
+              <dt>{row.label}</dt>
+              <dd
+                class:list={["compute-pool__value", { "compute-pool__value--negative": row.negative }]}
+                data-compute-balance={row.key}
+              >
+                {row.text}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        {pool.barPercent === null ? (
+          <p class="compute-pool__none">{COMPUTE_LABELS.balance.nothingGranted}</p>
+        ) : (
+          <div class="compute-pool__bar" aria-hidden="true">
+            <span style={`inline-size: ${pool.barPercent}%`} />
+          </div>
+        )}
+      </section>
+    ))}
+  </div>
+  {view.notes.map((note) => <p class="compute-balances__note">{note}</p>)}
+</ComputePanel>
+
+<style>
+  .compute-pools {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: var(--space-4);
+  }
+  .compute-pool {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--admin-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    min-inline-size: 0;
+  }
+  .compute-pool__name {
+    margin: 0;
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .compute-pool__rows {
+    display: grid;
+    gap: var(--space-2);
+    margin: 0;
+  }
+  .compute-pool__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+  .compute-pool__row dt {
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-pool__value {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: var(--fw-semibold);
+    text-align: end;
+  }
+  .compute-pool__value--negative {
+    color: var(--admin-error-text);
+  }
+  .compute-pool__bar {
+    block-size: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--admin-surface-3);
+    overflow: hidden;
+  }
+  .compute-pool__bar span {
+    display: block;
+    block-size: 100%;
+    border-radius: var(--radius-pill);
+    background: var(--admin-accent);
+  }
+  .compute-pool__none {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+  .compute-balances__note {
+    margin: 0;
+    color: var(--color-fg-muted);
+    font-size: var(--fs-sm);
+  }
+</style>

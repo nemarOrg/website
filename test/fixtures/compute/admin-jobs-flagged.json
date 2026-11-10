@@ -1,0 +1,461 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /admin/compute/jobs?flag=",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "unreserved": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000001",
+          "account_id": 7,
+          "source": "cli",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": "unreserved",
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "unreserved"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": null,
+          "partner_flag": null
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "unattributed": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000002",
+          "account_id": 8,
+          "source": "cli",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "unattributed"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": null,
+          "partner_flag": null
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "mismatch": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000003",
+          "account_id": 11,
+          "source": "partner",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "mismatch"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": "mismatch",
+          "partner_flag": "owner_mismatch"
+        },
+        {
+          "id": "job_000000000000000000000004",
+          "account_id": 9,
+          "source": "cli",
+          "kind": "batch",
+          "state": "finished",
+          "tapis_status": "FINISHED",
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 2000,
+          "settled": true,
+          "flags": [
+            "mismatch"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": "2026-11-06 09:01:00",
+          "started_at": "2026-11-06 09:02:00",
+          "ended_at": "2026-11-06 09:32:00",
+          "tapis_synced_at": "2026-11-06 09:33:00",
+          "outputs_completed": true,
+          "results_verified": true,
+          "results_bytes": null,
+          "records_copied": true,
+          "partner_state": null,
+          "partner_flag": null
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "overrun": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000005",
+          "account_id": 10,
+          "source": "cli",
+          "kind": "batch",
+          "state": "finished",
+          "tapis_status": "FINISHED",
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 3000,
+          "settled": true,
+          "flags": [
+            "overrun"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": "2026-11-06 09:01:00",
+          "started_at": "2026-11-06 09:02:00",
+          "ended_at": "2026-11-06 09:32:00",
+          "tapis_synced_at": "2026-11-06 09:33:00",
+          "outputs_completed": true,
+          "results_verified": true,
+          "results_bytes": null,
+          "records_copied": true,
+          "partner_state": null,
+          "partner_flag": null
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "mismatch_page_one": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000003",
+          "account_id": 11,
+          "source": "partner",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "mismatch"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": "mismatch",
+          "partner_flag": "owner_mismatch"
+        }
+      ],
+      "next_after": 5
+    }
+  },
+  "mismatch_page_two": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000004",
+          "account_id": 9,
+          "source": "cli",
+          "kind": "batch",
+          "state": "finished",
+          "tapis_status": "FINISHED",
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 2000,
+          "settled": true,
+          "flags": [
+            "mismatch"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": "2026-11-06 09:01:00",
+          "started_at": "2026-11-06 09:02:00",
+          "ended_at": "2026-11-06 09:32:00",
+          "tapis_synced_at": "2026-11-06 09:33:00",
+          "outputs_completed": true,
+          "results_verified": true,
+          "results_bytes": null,
+          "records_copied": true,
+          "partner_state": null,
+          "partner_flag": null
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "all": {
+    "status": 200,
+    "body": {
+      "jobs": [
+        {
+          "id": "job_000000000000000000000003",
+          "account_id": 11,
+          "source": "partner",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "mismatch"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": "mismatch",
+          "partner_flag": "owner_mismatch"
+        },
+        {
+          "id": "job_000000000000000000000005",
+          "account_id": 10,
+          "source": "cli",
+          "kind": "batch",
+          "state": "finished",
+          "tapis_status": "FINISHED",
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 3000,
+          "settled": true,
+          "flags": [
+            "overrun"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": "2026-11-06 09:01:00",
+          "started_at": "2026-11-06 09:02:00",
+          "ended_at": "2026-11-06 09:32:00",
+          "tapis_synced_at": "2026-11-06 09:33:00",
+          "outputs_completed": true,
+          "results_verified": true,
+          "results_bytes": null,
+          "records_copied": true,
+          "partner_state": null,
+          "partner_flag": null
+        },
+        {
+          "id": "job_000000000000000000000004",
+          "account_id": 9,
+          "source": "cli",
+          "kind": "batch",
+          "state": "finished",
+          "tapis_status": "FINISHED",
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 2000,
+          "settled": true,
+          "flags": [
+            "mismatch"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": "2026-11-06 09:01:00",
+          "started_at": "2026-11-06 09:02:00",
+          "ended_at": "2026-11-06 09:32:00",
+          "tapis_synced_at": "2026-11-06 09:33:00",
+          "outputs_completed": true,
+          "results_verified": true,
+          "results_bytes": null,
+          "records_copied": true,
+          "partner_state": null,
+          "partner_flag": null
+        },
+        {
+          "id": "job_000000000000000000000002",
+          "account_id": 8,
+          "source": "cli",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": null,
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "unattributed"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": null,
+          "partner_flag": null
+        },
+        {
+          "id": "job_000000000000000000000001",
+          "account_id": 7,
+          "source": "cli",
+          "kind": "batch",
+          "state": "created",
+          "tapis_status": null,
+          "failure_code": null,
+          "failure_detail": null,
+          "platform_failure": false,
+          "cancel_requested": false,
+          "cancel_reason": "unreserved",
+          "partition": "shared",
+          "pool": "cpu",
+          "held_milli": 4000,
+          "charged_milli": 0,
+          "settled": false,
+          "flags": [
+            "unreserved"
+          ],
+          "created_at": "2026-11-06 09:00:00",
+          "submitted_at": null,
+          "started_at": null,
+          "ended_at": null,
+          "tapis_synced_at": null,
+          "outputs_completed": false,
+          "results_verified": false,
+          "results_bytes": null,
+          "records_copied": false,
+          "partner_state": null,
+          "partner_flag": null
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "invalid_flag": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: flag: invalid_enum_value",
+      "code": "invalid_query"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

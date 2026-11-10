@@ -1,0 +1,56 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /admin/compute/access-report",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "q4": {
+    "status": 200,
+    "body": {
+      "quarter": "2026Q4",
+      "rows": [
+        {
+          "partition": "shared",
+          "source": "cli",
+          "distinct_users": 2,
+          "jobs": 2
+        },
+        {
+          "partition": "shared",
+          "source": "web",
+          "distinct_users": 1,
+          "jobs": 1
+        }
+      ],
+      "totals": {
+        "distinct_users": 2,
+        "jobs": 3
+      }
+    }
+  },
+  "empty_quarter": {
+    "status": 200,
+    "body": {
+      "quarter": "2025Q1",
+      "rows": [],
+      "totals": {
+        "distinct_users": 0,
+        "jobs": 0
+      }
+    }
+  },
+  "invalid_quarter": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid: quarter is yyyyQn, for example 2026Q4.",
+      "code": "invalid_query"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

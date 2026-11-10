@@ -1,0 +1,502 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-job-fixtures.mjs",
+    "nemar_cli_commit": "27eecff9",
+    "route": "GET /compute/me/jobs/:id",
+    "request": "one failed job per failure code (COMPUTE_FAILURE_CODES, 17)",
+    "note": "Real route over rows written with fixed times. The user view carries `failure_code` only: `failure_detail` and `platform_failure` are not served."
+  },
+  "code_fetch_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000000b",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "code_fetch_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "dataset_fetch_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000000c",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "dataset_fetch_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "entry_not_found": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000000d",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "entry_not_found",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "runtime_error": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000000e",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "runtime_error",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "out_of_memory": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000000f",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "out_of_memory",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "time_limit": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000010",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "time_limit",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "result_upload_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000011",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "result_upload_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "tapis_submit_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000012",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "tapis_submit_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "submit_timeout": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000013",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "submit_timeout",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "staging_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000014",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "staging_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "launch_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000015",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "launch_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "archive_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000016",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "archive_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "tapis_error": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000017",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "tapis_error",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "result_verification_failed": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000018",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "result_verification_failed",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "records_unavailable": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_000000000000000000000019",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "records_unavailable",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "tapis_record_lost": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000001a",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "tapis_record_lost",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  },
+  "upload_expired": {
+    "status": 200,
+    "body": {
+      "job": {
+        "id": "job_00000000000000000000001b",
+        "kind": "batch",
+        "source": "cli",
+        "state": "failed",
+        "app_id": "nemar-launch",
+        "app_version": "1.0.0",
+        "partition": "shared",
+        "pool": "cpu",
+        "resources": {
+          "nodes": 1,
+          "cores_per_node": 4,
+          "memory_mb": null,
+          "gpus": 0,
+          "minutes": 60
+        },
+        "created_at": "2026-11-05 09:00:00",
+        "started_at": "2026-11-05 09:10:00",
+        "ended_at": "2026-11-05 09:50:00",
+        "charged_milli": 500,
+        "failure_code": "upload_expired",
+        "cancel_requested": false
+      },
+      "stale": false
+    }
+  }
+}

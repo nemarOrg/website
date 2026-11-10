@@ -1,0 +1,31 @@
+---
+/**
+ * The Actions section of a job page (website ADR 0030 phase E3, #496): Cancel, for a live job only.
+ * It opens the shared `ConfirmDialog` (danger tone); the confirmed cancel is one `POST` made by
+ * `src/lib/compute-job-page.ts`, which shows the backend's outcome in words. The status line is where
+ * focus returns, because the button disappears after a successful cancel.
+ */
+import { JOB_COPY } from "../lib/compute-copy";
+import ConfirmDialog from "./ConfirmDialog.astro";
+
+interface Props {
+  canCancel: boolean;
+}
+const { canCancel } = Astro.props;
+const L = JOB_COPY.cancel;
+---
+
+<div class="compute-job-actions">
+  <p class="compute-job__actions" data-cancel-block hidden={!canCancel}>
+    <button type="button" class="compute-job__btn compute-job__btn--danger" data-cancel-open>{L.button}</button>
+  </p>
+  <p class="compute-job__line" role="status" tabindex="-1" data-cancel-status hidden></p>
+  <ConfirmDialog
+    dialogId="compute-cancel"
+    title={L.dialogTitle}
+    body={L.dialogBody}
+    confirmLabel={L.confirm}
+    cancelLabel={L.keep}
+    confirmTone="danger"
+  />
+</div>

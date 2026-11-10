@@ -1,0 +1,518 @@
+{
+  "_provenance": {
+    "command": "NEMAR_CLI_DIR=<nemar-cli checkout> bun scripts/capture-compute-admin-fixtures.mjs",
+    "nemar_cli_commit": "e0685a25",
+    "route": "GET /admin/compute/access",
+    "note": "Real routes over a real migrated database. Wall-clock stamps are pinned to fixed values and job ids to a stable sequence. Emails are @example.org."
+  },
+  "all": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 7,
+          "username": "hostile",
+          "email": "person1@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "Freedonia <b>x</b>",
+          "orcid": "0000-0002-1825-0097",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-01 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Plan: <img src=x onerror=alert(1)> and <script>alert(2)</script> [link](https://example.org) ‮gnp.exe ​ zero-width\nSecond line with a tab:\tend.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-01 09:29:00"
+        },
+        {
+          "id": 8,
+          "username": null,
+          "email": "person2@example.org",
+          "given_name": null,
+          "family_name": null,
+          "affiliation": null,
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0098",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-02 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Long purpose. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose E",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-02 09:29:00"
+        },
+        {
+          "id": 9,
+          "username": "agent",
+          "email": "person3@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": null,
+          "country": "USA",
+          "orcid": "0000-0002-1825-0099",
+          "account_kind": "service",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-03 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-03 09:29:00"
+        },
+        {
+          "id": 10,
+          "username": "granted",
+          "email": "person4@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0100",
+          "account_kind": "person",
+          "compute_access": "active",
+          "compute_access_requested_at": "2026-11-04 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-04 09:29:00"
+        },
+        {
+          "id": 11,
+          "username": "suspended",
+          "email": "person5@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0101",
+          "account_kind": "person",
+          "compute_access": "suspended",
+          "compute_access_requested_at": "2026-11-05 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-05 09:29:00"
+        },
+        {
+          "id": 12,
+          "username": "denied",
+          "email": "person6@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0102",
+          "account_kind": "person",
+          "compute_access": "denied",
+          "compute_access_requested_at": "2026-11-06 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-06 09:29:00"
+        },
+        {
+          "id": 13,
+          "username": "revoked",
+          "email": "person7@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0103",
+          "account_kind": "person",
+          "compute_access": "revoked",
+          "compute_access_requested_at": "2026-11-07 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-07 09:29:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "requested": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 7,
+          "username": "hostile",
+          "email": "person1@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "Freedonia <b>x</b>",
+          "orcid": "0000-0002-1825-0097",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-01 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Plan: <img src=x onerror=alert(1)> and <script>alert(2)</script> [link](https://example.org) ‮gnp.exe ​ zero-width\nSecond line with a tab:\tend.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-01 09:29:00"
+        },
+        {
+          "id": 8,
+          "username": null,
+          "email": "person2@example.org",
+          "given_name": null,
+          "family_name": null,
+          "affiliation": null,
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0098",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-02 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Long purpose. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose E",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-02 09:29:00"
+        },
+        {
+          "id": 9,
+          "username": "agent",
+          "email": "person3@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": null,
+          "country": "USA",
+          "orcid": "0000-0002-1825-0099",
+          "account_kind": "service",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-03 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-03 09:29:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "active": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 10,
+          "username": "granted",
+          "email": "person4@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0100",
+          "account_kind": "person",
+          "compute_access": "active",
+          "compute_access_requested_at": "2026-11-04 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-04 09:29:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "suspended": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 11,
+          "username": "suspended",
+          "email": "person5@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0101",
+          "account_kind": "person",
+          "compute_access": "suspended",
+          "compute_access_requested_at": "2026-11-05 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-05 09:29:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "denied": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 12,
+          "username": "denied",
+          "email": "person6@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0102",
+          "account_kind": "person",
+          "compute_access": "denied",
+          "compute_access_requested_at": "2026-11-06 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-06 09:29:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "revoked": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 13,
+          "username": "revoked",
+          "email": "person7@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0103",
+          "account_kind": "person",
+          "compute_access": "revoked",
+          "compute_access_requested_at": "2026-11-07 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-07 09:29:00"
+        }
+      ],
+      "next_after": null
+    }
+  },
+  "page_one": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 7,
+          "username": "hostile",
+          "email": "person1@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "Freedonia <b>x</b>",
+          "orcid": "0000-0002-1825-0097",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-01 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Plan: <img src=x onerror=alert(1)> and <script>alert(2)</script> [link](https://example.org) ‮gnp.exe ​ zero-width\nSecond line with a tab:\tend.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-01 09:29:00"
+        },
+        {
+          "id": 8,
+          "username": null,
+          "email": "person2@example.org",
+          "given_name": null,
+          "family_name": null,
+          "affiliation": null,
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0098",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-02 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Long purpose. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose E",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-02 09:29:00"
+        }
+      ],
+      "next_after": 8
+    }
+  },
+  "page_two": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 9,
+          "username": "agent",
+          "email": "person3@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": null,
+          "country": "USA",
+          "orcid": "0000-0002-1825-0099",
+          "account_kind": "service",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-03 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-03 09:29:00"
+        },
+        {
+          "id": 10,
+          "username": "granted",
+          "email": "person4@example.org",
+          "given_name": "Ada",
+          "family_name": "Rivers",
+          "affiliation": "Example Institute",
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0100",
+          "account_kind": "person",
+          "compute_access": "active",
+          "compute_access_requested_at": "2026-11-04 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": "2026-11-06 10:00:00",
+          "compute_access_granted_by": 4,
+          "compute_purpose": "Run ICA decompositions on public EEG datasets for a methods comparison, 40 subjects.",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-04 09:29:00"
+        }
+      ],
+      "next_after": 10
+    }
+  },
+  "empty": {
+    "status": 200,
+    "body": {
+      "accounts": [],
+      "next_after": null
+    }
+  },
+  "invalid_state_none": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid. state: invalid_enum_value",
+      "code": "invalid_query",
+      "fields": [
+        {
+          "path": "state",
+          "code": "invalid_enum_value"
+        }
+      ]
+    }
+  },
+  "invalid_unknown_key": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid. body: unrecognized_keys",
+      "code": "invalid_query",
+      "fields": [
+        {
+          "path": "",
+          "code": "unrecognized_keys"
+        }
+      ]
+    }
+  },
+  "invalid_limit": {
+    "status": 400,
+    "body": {
+      "error": "The query is not valid. limit: too_big",
+      "code": "invalid_query",
+      "fields": [
+        {
+          "path": "limit",
+          "code": "too_big"
+        }
+      ]
+    }
+  },
+  "one_by_cursor": {
+    "status": 200,
+    "body": {
+      "accounts": [
+        {
+          "id": 8,
+          "username": null,
+          "email": "person2@example.org",
+          "given_name": null,
+          "family_name": null,
+          "affiliation": null,
+          "city": "San Diego",
+          "country": "USA",
+          "orcid": "0000-0002-1825-0098",
+          "account_kind": "person",
+          "compute_access": "requested",
+          "compute_access_requested_at": "2026-11-02 09:30:00",
+          "compute_access_notified_at": null,
+          "compute_access_granted_at": null,
+          "compute_access_granted_by": null,
+          "compute_purpose": "Long purpose. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose EEG recordings with ICA and compare the components across sites. Decompose E",
+          "compute_terms_version": "2026-11-draft",
+          "compute_terms_accepted_at": "2026-11-02 09:29:00"
+        }
+      ],
+      "next_after": 8
+    }
+  },
+  "unauthenticated": {
+    "status": 401,
+    "body": {
+      "error": "Missing Authorization header"
+    }
+  },
+  "member": {
+    "status": 403,
+    "body": {
+      "error": "Admin access required"
+    }
+  }
+}

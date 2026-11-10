@@ -35,6 +35,9 @@ const UNSAFE_CHARACTERS =
 /** What a body keeps besides ordinary text: newline, tab and the three implicit direction marks. */
 const BODY_KEPT: ReadonlySet<string> = new Set(["\n", "\t", "\u200e", "\u200f", "\u061c"]);
 
+/** What a body keeps when the direction marks are written out too: newline and tab only. */
+const BODY_KEPT_NO_MARKS: ReadonlySet<string> = new Set(["\n", "\t"]);
+
 function escapeCharacter(c: string): string {
   if (c === "\n") return "\\n";
   if (c === "\r") return "\\r";
@@ -52,12 +55,14 @@ export function displaySafeLine(text: string): string {
 
 /**
  * A message body: line endings normalized to `\n`, newlines and tabs kept, everything else in
- * the set written out except the three direction marks.
+ * the set written out except the three direction marks. `escapeMarks` writes those out too: a
+ * program's log has no right-to-left prose to protect (the job page passes it; mail does not).
  */
-export function displaySafeBody(text: string): string {
+export function displaySafeBody(text: string, options: { escapeMarks?: boolean } = {}): string {
+  const kept = options.escapeMarks === true ? BODY_KEPT_NO_MARKS : BODY_KEPT;
   return text
     .replace(/\r\n?/g, "\n")
-    .replace(UNSAFE_CHARACTERS, (c) => (BODY_KEPT.has(c) ? c : escapeCharacter(c)));
+    .replace(UNSAFE_CHARACTERS, (c) => (kept.has(c) ? c : escapeCharacter(c)));
 }
 
 // ---------------------------------------------------------------------------

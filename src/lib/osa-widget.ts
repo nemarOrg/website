@@ -353,6 +353,10 @@ export const OSA_WIDGET_EXCLUDED_PATHS = [
   // The OpenID Connect consent screen (nemar-cli ADR 0119): it asks the reader to let another site
   // act as them, and its URL carries that site's request.
   "/oauth",
+  // The compute dashboard and job pages: private to one person, they carry job ids in the URL and,
+  // on a job page, bearer result links that must never reach a third-party script or the model
+  // provider through "Share page URL".
+  "/compute",
 ] as const;
 
 export function isOsaWidgetExcludedPath(pathname: string): boolean {

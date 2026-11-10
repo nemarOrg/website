@@ -1,0 +1,28 @@
+Usage: nemar compute logs [options] <job>
+
+Print the log of a job
+
+Arguments:
+  job  The job id
+
+Options:
+  --tail <n>  Only the last n lines
+  --json      Print only the answer, as JSON
+  -h, --help  display help for command
+
+Description:
+  Prints the log of one of your jobs (what your code wrote to standard output and standard error, not the
+  files it made, which nemar compute results lists): at most the FIRST 1 MiB, with a
+  note on standard error when it was cut. A job that has not started has no log yet. A running job's log
+  is read as it is now. --tail <n> keeps only the last n lines of what was returned.
+
+  With --json standard output is { "job_id", "truncated", "text" } and nothing else.
+
+Exit codes:
+  0  the log was printed.
+  1  you are not signed in, there is no such job of yours, it has no log yet, or NEMAR could not answer.
+  2  the job id or --tail is not valid (nothing about the job was sent).
+
+Examples:
+  $ nemar compute logs job_0123456789abcdef01234567
+  $ nemar compute logs job_0123456789abcdef01234567 --tail 50
