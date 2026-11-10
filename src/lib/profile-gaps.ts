@@ -52,6 +52,7 @@
  */
 
 import { ACCOUNT_COPY, type AccountCopyKey, fillCopy } from "./account-copy";
+import { COMPUTE_TERMS_PUBLISHED } from "./compute-terms";
 
 /**
  * What a missing field stops the account from doing.
@@ -371,6 +372,32 @@ function resolveGap(
   };
 }
 
+/**
+ * Knobs for {@link profileGaps}, there so a test can prove both branches of a build-time constant;
+ * no page passes one.
+ */
+export interface ProfileGapOptions {
+  /**
+   * Whether the compute terms are published; defaults to `COMPUTE_TERMS_PUBLISHED`
+   * (`compute-terms.ts`, drift-tested against nemar-cli). The same gate as nemar-cli's
+   * `computeProfileGaps` (`shared/contract/profile-gaps.ts`): while it is false, a gap that blocks
+   * compute access alone (`affiliation`) is not raised and `compute_access` is not named among any
+   * other gap's blocks, so the list reads as it did before compute existed. Applied to the wire list
+   * as well as the derivation, so the two stay indistinguishable and an API that has not gated its
+   * own list cannot put a compute nudge on a page.
+   *
+   * It does not touch {@link gapsForFields}: that renders a refusal's own `missing` array, which is
+   * the compute request flow itself (a non-production backend takes requests before publication and
+   * its refusal must say what is missing), not a nudge toward it.
+   */
+  readonly computeTermsPublished?: boolean;
+}
+
+/** `blocks` without `compute_access`: what a gap blocks while compute is not open. */
+function withoutComputeBlock(blocks: readonly GapBlock[]): GapBlock[] {
+  return blocks.filter((b) => b !== "compute_access");
+}
+
 /** Position in {@link GAP_FIELDS}, or the end for an unknown field. */
 function fieldOrder(field: string): number {
   const index = GAP_FIELDS.indexOf(field as GapField);
@@ -415,8 +442,26 @@ export function hasWireProfileGaps(account: ProfileGapAccount | null | undefined
  * which is the backend saying "nothing is missing" and must not fall back to
  * a derivation that would disagree — and derives the same list otherwise.
  */
-export function profileGaps(account: ProfileGapAccount | null | undefined): ProfileGap[] {
+export function profileGaps(
+  account: ProfileGapAccount | null | undefined,
+  options: ProfileGapOptions = {},
+): ProfileGap[] {
   if (!account) return [];
+  const published = options.computeTermsPublished ?? COMPUTE_TERMS_PUBLISHED;
+  const gaps = resolvedGaps(account);
+  if (published) return gaps;
+  // A gap left with no block once the compute one is withheld stops nothing a surface could name, so
+  // it is not a gap (nemar-cli `computeProfileGaps`). An unknown field the backend sent with no
+  // blocks at all is kept: nothing was withheld from it.
+  return gaps.flatMap((gap) => {
+    if (!gap.blocks.includes("compute_access")) return [gap];
+    const blocks = withoutComputeBlock(gap.blocks);
+    return blocks.length > 0 ? [{ ...gap, blocks }] : [];
+  });
+}
+
+/** The list before the compute gate: the wire's when it sent one, else the derivation. */
+function resolvedGaps(account: ProfileGapAccount): ProfileGap[] {
   const orcidVerified = account.orcid_verified === true;
   const wire = account.profile_gaps;
   if (Array.isArray(wire)) {

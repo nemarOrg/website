@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_API_BASE } from "./api-base";
+import { COMPUTE_TERMS_PUBLISHED } from "./compute-terms";
 import {
   COMPUTE_REQUESTS_ENABLED,
   WEB_SIGNIN_ENABLED,
@@ -48,6 +49,13 @@ describe("computeRequestsOpen", () => {
     // The flag flips with the terms, in a reviewed change (website ADR 0030).
     expect(COMPUTE_REQUESTS_ENABLED).toBe(false);
     expect(computeRequestsOpen(COMPUTE_REQUESTS_ENABLED, DEFAULT_API_BASE)).toBe(false);
+  });
+
+  it("cannot be launched before the terms are published", () => {
+    // The production backend refuses a request while its constant is false (`terms_unpublished`),
+    // and the gap nudges follow the same constant: the two change together, in one reviewed change.
+    expect(!COMPUTE_REQUESTS_ENABLED || COMPUTE_TERMS_PUBLISHED).toBe(true);
+    expect(COMPUTE_TERMS_PUBLISHED).toBe(false);
   });
 
   it("opens when launched, whatever the backend", () => {

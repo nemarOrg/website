@@ -29,7 +29,7 @@ Untrusted text a compute page shows (a purpose, a job name, a log line) renders 
 **Copy and gap rules are transcribed, not imported** (ADR 0015).
 The 27 non-`cli.` compute keys, the `compute_access` gap block, the block order `verified, upload_access, compute_access, publication` and the `affiliation` row (which blocks compute access alone) are copied from nemar-cli commit 3a869903 and pinned by the existing drift test.
 The profile-gap list is no longer one list for every surface: the dashboard nudge and Settings' account list drop gaps that stop compute access and nothing else (`withoutComputeOnlyGaps`), so an account that never asked for compute is not nagged about Affiliation.
-The field's tag in Settings reads "needed to request compute access" only on a page where the compute card renders, and a refusal's list is worded for compute through a `block` override on `gapsForFields` (without it, an unproven ORCID iD would read "needed to request upload access" under a compute refusal).
+The field's tag in Settings reads "needed to request compute access" only where the request form is on offer (`computeRequestsOpen`), and a refusal's list is worded for compute through a `block` override on `gapsForFields` (without it, an unproven ORCID iD would read "needed to request upload access" under a compute refusal).
 
 **The refusal list is one function** (`src/lib/refusal-list.ts`), called by both request cards; the upload card's inline loop is gone.
 
@@ -61,6 +61,8 @@ The captured fixtures in `test/fixtures/compute/` gain a `GET /compute/me` captu
 - The affiliation gap now exists on the admin review card for upload requests ("blocks compute access"); it does not change what an upload request is refused for.
 - A request whose admin mail failed cannot be re-sent from the web (the card shows no form once the state is `requested`); the CLI re-sends it.
 - Local verification against the real backend is possible: `scripts/local-backend.mjs`, documented in `.context/local-backend.md`.
+
+- No compute nudge appears while the compute terms are unpublished (owner's ruling, nemar-cli `computeProfileGaps`). `src/lib/compute-terms.ts` carries `COMPUTE_TERMS_PUBLISHED`, drift-tested against nemar-cli's constant; while it is false `profileGaps` raises no Affiliation gap and names `compute_access` in no gap's blocks, on the wire list as well as the derivation, so the dashboard, Settings and the admin review card (which derives its own list) read as they did before compute. A refusal's own `missing` list (the compute request flow) is not gated. `COMPUTE_REQUESTS_ENABLED` cannot be true while the constant is false (`flags.test.ts`); all three flip together, in one reviewed change.
 
 ## Alternatives considered
 

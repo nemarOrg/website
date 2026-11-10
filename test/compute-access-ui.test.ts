@@ -197,9 +197,11 @@ describe("the Affiliation field", () => {
     expect(SETTINGS).toContain('id="profile-affiliation"');
   });
 
-  it("is tagged for compute access only when the compute card renders", () => {
+  it("is tagged for compute access only when requests are open, never as a nudge before", () => {
+    // The tag is a compute nudge: it must not appear in the production build while the terms are
+    // unpublished (`computeRequestsOpen` is false there), even though the card renders inert.
     expect(SETTINGS).toMatch(
-      /Affiliation \{compute \? \(\s*<span class="field__req">needed \{ACCOUNT_COPY\["gap\.blocks\.compute_access"\]\}<\/span>\s*\) : \(\s*<span class="field__opt">optional<\/span>/,
+      /Affiliation \{compute && computeOpen \? \(\s*<span class="field__req">needed \{ACCOUNT_COPY\["gap\.blocks\.compute_access"\]\}<\/span>\s*\) : \(\s*<span class="field__opt">optional<\/span>/,
     );
   });
 });

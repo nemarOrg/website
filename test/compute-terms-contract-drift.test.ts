@@ -22,7 +22,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { COMPUTE_TERMS_VERSION } from "../src/lib/compute-terms";
+import { COMPUTE_TERMS_PUBLISHED, COMPUTE_TERMS_VERSION } from "../src/lib/compute-terms";
 
 async function nodeFs(): Promise<{
   existsSync(path: string): boolean;
@@ -35,6 +35,12 @@ async function nodeFs(): Promise<{
 async function nodeProcess(): Promise<{ cwd(): string; env: Record<string, string | undefined> }> {
   const specifier = "node:process";
   return await import(/* @vite-ignore */ specifier);
+}
+
+/** Pull `COMPUTE_TERMS_PUBLISHED = true|false` out of the contract source. */
+function extractTermsPublished(source: string): boolean | undefined {
+  const word = source.match(/export const COMPUTE_TERMS_PUBLISHED\s*=\s*(true|false)\s*;/)?.[1];
+  return word === undefined ? undefined : word === "true";
 }
 
 /** Pull `COMPUTE_TERMS_VERSION = "<literal>"` out of the contract source. */
@@ -85,6 +91,13 @@ describe("the extractor", () => {
     expect(extractTermsVersion("export const OTHER = 'x';")).toBeUndefined();
   });
 
+  it("reads the published flag, and answers undefined for anything it cannot read", () => {
+    expect(extractTermsPublished("export const COMPUTE_TERMS_PUBLISHED = false;")).toBe(false);
+    expect(extractTermsPublished("export const COMPUTE_TERMS_PUBLISHED = true;")).toBe(true);
+    expect(extractTermsPublished("export const COMPUTE_TERMS_PUBLISHED = flag();")).toBeUndefined();
+    expect(extractTermsPublished("export const OTHER = true;")).toBeUndefined();
+  });
+
   it("matches the shape of this repo's own constant", () => {
     expect(COMPUTE_TERMS_VERSION).toMatch(/^[0-9A-Za-z._-]{1,32}$/);
   });
@@ -99,5 +112,11 @@ describe.skipIf(SHOULD_SKIP)("the compute terms version agrees with nemar-cli", 
     const theirs = extractTermsVersion(fs.readFileSync(CONTRACT_PATH as string, "utf8"));
     expect(theirs, "could not read COMPUTE_TERMS_VERSION from the contract").toBeDefined();
     expect(COMPUTE_TERMS_VERSION).toBe(theirs);
+  });
+
+  it("agrees on whether the terms are published (the gap nudges follow it)", () => {
+    const theirs = extractTermsPublished(fs.readFileSync(CONTRACT_PATH as string, "utf8"));
+    expect(theirs, "could not read COMPUTE_TERMS_PUBLISHED from the contract").toBeDefined();
+    expect(COMPUTE_TERMS_PUBLISHED).toBe(theirs);
   });
 });

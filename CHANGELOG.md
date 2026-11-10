@@ -54,8 +54,9 @@ The release pull request from `staging` to `main` moves those entries under the 
   Every sentence is a transcribed copy key, the same words the CLI prints.
   The card renders only when the backend reports a state; an older backend gets no card, never "Not requested".
   The production build shows "not open yet" in place of the form until the compute terms are published (`COMPUTE_REQUESTS_ENABLED`); a build pointed at another backend shows the form.
-  The Affiliation field is tagged "needed to request compute access" on a page that has the card, and carries the `#profile-affiliation` anchor.
+  The Affiliation field is tagged "needed to request compute access" where the request form is on offer (in the production build, once the terms are published), and carries the `#profile-affiliation` anchor.
   Affiliation is a new gap that stops compute access alone, so the dashboard nudge and Settings' account list leave it out.
+  Until the compute terms are published, no account list or admin review card names compute access or raises the Affiliation gap, matching nemar-cli's `profile_gaps`.
   The upload card's refusal list and the new one share one renderer.
   Needs the nemar-cli backend with the compute epic.
   `scripts/local-backend.mjs` runs that backend locally with seeded accounts (see `.context/local-backend.md`); the `astro dev` login has seven compute personas (`@nemar.cnone`, `.creq`, `.cactive`, `.csusp`, `.cdenied`, `.crevoked`, `.cpending`).

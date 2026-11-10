@@ -626,10 +626,12 @@ if (tier !== "unverified") {
           <label class="field">
             {/* Required for compute access alone (the backend refuses a compute
                 request without it and an upload request never has). The tag
-                says so only when the compute card is on this page: without it
-                the field is optional, as it always was. The id is the anchor
-                the compute refusal list links to. */}
-            <span class="field__label">Affiliation {compute ? (
+                is a compute nudge, so it says so only where the request form is
+                on offer (`computeOpen`: the terms are published, or the backend
+                takes requests before they are): in the production build while
+                they are unpublished the field is optional, as it always was.
+                The id is the anchor the compute refusal list links to. */}
+            <span class="field__label">Affiliation {compute && computeOpen ? (
               <span class="field__req">needed {ACCOUNT_COPY["gap.blocks.compute_access"]}</span>
             ) : (
               <span class="field__opt">optional</span>

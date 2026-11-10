@@ -67,7 +67,10 @@ export const WEB_PUBLISH_APPROVE_ENABLED = true;
  * the production build shows the card's inert "not open yet" state and no
  * form: the compute terms are held as a draft until the owner publishes them,
  * and the backend refuses a request in production meanwhile
- * (`terms_unpublished`). Flip it with the terms, in a reviewed change.
+ * (`terms_unpublished`). Flip it with the terms, in a reviewed change: together
+ * with `COMPUTE_TERMS_PUBLISHED` (`compute-terms.ts`, which also gates every compute
+ * nudge in the gap list) and nemar-cli's constant of that name. `flags.test.ts` fails a
+ * build that launches requests while the terms are unpublished.
  */
 export const COMPUTE_REQUESTS_ENABLED = false;
 
