@@ -857,6 +857,9 @@ describe("osaWidgetMarkup", () => {
       "/auth/docs/authorize",
       "/auth/orcid/complete",
       "/settings",
+      "/oauth/authorize",
+      "/compute",
+      "/compute/jobs/job_0123456789abcdef01234567",
     ];
     for (const pathname of credentialPages) {
       expect(osaWidgetMarkup(pathname, configured), pathname).toBe("");
@@ -871,6 +874,7 @@ describe("osaWidgetMarkup", () => {
       "/loginx",
       "/settings-help",
       "/authors",
+      "/computing",
     ]) {
       expect(isOsaWidgetExcludedPath(pathname), pathname).toBe(false);
       expect(osaWidgetMarkup(pathname, configured), pathname).toContain("<script");
