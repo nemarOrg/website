@@ -423,9 +423,8 @@ describe("decideComputeAccess", () => {
     }).catch((e) => e);
     expect(computeAdminErrorText(bare)).toBe("Compute is not available on this server yet.");
     const coded = await decideComputeAccess(5, "grant", undefined, {
-      fetch: recorder(() =>
-        json({ error: "No such account.", code: "account_not_found" }, 404),
-      ).fetchImpl,
+      fetch: recorder(() => json({ error: "No such account.", code: "account_not_found" }, 404))
+        .fetchImpl,
     }).catch((e) => e);
     expect(computeAdminErrorText(coded)).toBe("No such account.");
   });
