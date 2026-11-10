@@ -1,7 +1,8 @@
 Usage: nemar compute [options] [command]
 
-Use NEMAR compute: ask for access, run jobs, and see your balance, limits, jobs
-and results
+Use NEMAR compute: ask for access, run your own jobs, and see your balance,
+limits, jobs and results (NEMAR's own processing is a separate administrator
+path)
 
 Options:
   -h, --help  display help for command

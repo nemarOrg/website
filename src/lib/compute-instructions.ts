@@ -21,8 +21,9 @@
  *
  * Every command is pinned to the captured CLI help (`test/fixtures/compute/cli-help/`,
  * `scripts/capture-compute-cli-help.mjs`) by `test/compute-instructions-cli-parity.test.ts`. No limit,
- * price, balance, allocation size, storage URL or machine is named here. Where a job finds the staged
- * data and where it writes is not in the CLI's help, so it is not said (nemarOrg/nemar-cli#2092).
+ * price, balance, allocation size, storage URL or machine is named here. The CLI's help now states
+ * where a job finds the staged data and where it writes; the dialog deliberately does not say until
+ * compute opens to users (nemarOrg/nemar-cli#2092).
  */
 
 import { ACCOUNT_COPY } from "./account-copy";

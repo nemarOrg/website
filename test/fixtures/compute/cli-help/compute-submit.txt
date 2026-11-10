@@ -63,6 +63,17 @@ Description:
   job's last state); with --dry-run it is the request that would have been sent. Failures are on standard
   error.
 
+Job environment (under development; see https://docs.nemar.org/cli/guides/compute-job-environment/):
+  Your job runs in /work, which is writable. Your code is at /code, read-only. Each dataset
+  you name is at /data/<id>, read-only, with no version in the path and its files at their dataset paths.
+  Results: only regular files under $NEMAR_OUT (/work/outputs, created before your code starts) come back.
+  Anything else in /work or /tmp is discarded when the job ends, and a symbolic link or special file
+  under /work is deleted, so write results to /work/outputs and not to a relative path. A job whose
+  results pass the limits (currently 5,000 files and 20 GiB per job) ends as result_upload_failed.
+  Environment: the job sees only $NEMAR_OUT and what you set with --env, which accepts only
+  OMP_NUM_THREADS, MKL_NUM_THREADS, OPENBLAS_NUM_THREADS, NUMEXPR_NUM_THREADS, PYTHONHASHSEED, MPLBACKEND.
+  Not promised yet: network access from the job; HOME, PATH and LANG; free disk space in /work or /tmp; more than one node.
+
 Exit codes:
   0  the job was submitted (with --wait: it finished); with --dry-run, what would be sent was printed.
   1  NEMAR refused or could not take the job, the job failed or was canceled, or you are not signed in.

@@ -20,6 +20,10 @@ Description:
   symbolic link or otherwise, and a link that is not https, or that redirects, is refused. Two results whose
   names differ only in case cannot both be written on a case-insensitive disk: the later one is reported.
 
+  What a job returns: only regular files under $NEMAR_OUT (/work/outputs) inside the job. Anything else
+  the job leaves in /work or /tmp is discarded, and a symbolic link or special file is deleted. See
+  nemar compute submit --help-all for the job environment.
+
   The links are BEARER links: anyone who holds one can download that file until it expires, seven days
   after it was made. This command prints no link unless you ask with --json; keep them private. --renew
   makes new links for the same files while the files still exist. Results are kept for a limited time

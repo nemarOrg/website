@@ -11,7 +11,8 @@ Options:
   -h, --help  display help for command
 
 Description:
-  Prints the log of one of your jobs (what the job wrote to its output): at most the FIRST 1 MiB, with a
+  Prints the log of one of your jobs (what your code wrote to standard output and standard error, not the
+  files it made, which nemar compute results lists): at most the FIRST 1 MiB, with a
   note on standard error when it was cut. A job that has not started has no log yet. A running job's log
   is read as it is now. --tail <n> keeps only the last n lines of what was returned.
 
