@@ -33,7 +33,8 @@ The field's tag in Settings reads "needed to request compute access" only on a p
 
 **The refusal list is one function** (`src/lib/refusal-list.ts`), called by both request cards; the upload card's inline loop is gone.
 
-**Two interim decisions, each removed when nemar-cli's phase D2 lands.**
+**Two interim decisions, each removed by the follow-up change described below.**
+Phase D2 has landed on the Epic D branch and `/compute` already reads `GET /compute/me`, but Settings and the dataset dialog still use the two constants, so both decisions are in force until that change is made.
 
 1. The current terms version is transcribed into `src/lib/compute-terms.ts` (`2026-11-draft`).
    The intended route is `current_terms_version` from `GET /compute/me`, served by D2.
@@ -54,7 +55,8 @@ The captured fixtures in `test/fixtures/compute/` gain a `GET /compute/me` captu
 ## Consequences
 
 - A compute sentence is never typed in a page; `test/compute-access-ui.test.ts` fails if one is.
-- Until the compute epic merges to nemar-cli `dev`, the website's copy drift test and the new contract drift test are red on any website branch that CI pairs with `dev`; the keys must not reach website `staging` before then, or every nemar-cli pull request goes red.
+- Until the compute epic merges to nemar-cli `dev`, the website's compute drift tests (the shared copy, the terms version and the user, job and admin contracts) are red on any website branch that CI pairs with `dev`; the compute work must not reach website `staging` before then, or every nemar-cli pull request goes red.
+- The site must not be promoted to production before the production API serves `GET /compute/me`: against an API without it, `/compute` shows one "not available" notice.
 - The card needs a backend that sends `compute_access`; against an older one it is absent, by design.
 - The affiliation gap now exists on the admin review card for upload requests ("blocks compute access"); it does not change what an upload request is refused for.
 - A request whose admin mail failed cannot be re-sent from the web (the card shows no form once the state is `requested`); the CLI re-sends it.
@@ -109,7 +111,20 @@ The dataset page's "Compute instructions" dialog now describes `nemar compute` i
 
 Receipts for this addendum: website#498, #493; nemar-cli#2021, #2024, #2090, #2091, #2092, #2093.
 
+## Addendum: the admin Compute tab (phase E4, website#497, 2026-11-07)
+
+`/admin/compute` is the administrators' surface over nemar-cli's `/admin/compute/*` routes: the Requests queue, and the read-only Pools, Usage, Flagged jobs and Reconciliation views. The decisions that are expensive to reverse:
+
+- **Nothing owner-only or cost-bearing is offered.** Policy, moving a charge, pool grants and adjustments, and job cancel and advance stay in `nemar admin compute` (the page's lede says so). The tab can decide a request (Grant, Deny, Suspend, Revoke, and the Lift suspension and Grant again forms of Grant), and nothing else.
+- **An administrator cannot Grant their own row.** The backend refuses it (`self_decision`, 409) unless the actor is an owner; the page disables the button with the reason instead of offering a call it knows will fail. Deny, Suspend and Revoke of oneself stay allowed, because they only take access away.
+- **The export-review checkbox is only a prompt.** The Grant dialog shows an acknowledgement checkbox, unticked by default, and the Grant button stays disabled until it is ticked, but it only prompts the review: nothing records the tick, because the decision request carries no field for it and the page keeps none.
+- **No number is computed by the page.** Where the backend serves nothing (platform usage by day, the ledger-versus-scheduler difference and its tolerance), the section says "not available yet" and links the issue (nemar-cli#2083, #2084). The one derived figure is the tab badge: the length of the first page of the `requested` listing, 50 rows, shown as `50+` when a next page exists, one more API call per admin render with a 2 second deadline, fail-soft (nemar-cli#2085 asks for a count). The page size was lowered from the route's 200 maximum to 50 in the review round because the badge only needs "how many, or more".
+- **A decision that cannot be told is not retried.** A POST is never repeated; after a lost answer or a 5xx (which can follow a committed batch) the page says "not confirmed" and re-reads the account once. A 404 with no code from the route is an API that predates these routes and reads "not available on this server yet", the `/compute` page's wording (website-owned, so no mirrored key was added); a 404 that carries a code keeps the backend's sentence.
+- **Copy and contract.** The 156 `compute_admin.*` keys were added to nemar-cli's `account-copy.ts` (nemar-cli#2087, PR #2089) and transcribed here; `test/compute-admin-contract-drift.test.ts` compares the closed lists, edges, decision targets and bounds, strict in CI.
+
+Receipts for this addendum: website#497, PR #504; nemar-cli#2083 to #2089.
+
 ## Receipts
 
-- website#493 (epic), website#494 (phase E1), website#495 (phase E2), website#496 (phase E3), website#498 (phase E5); nemar-cli#2094 to #2097; nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
+- website#493 (epic), website#494 (phase E1), website#495 (phase E2), website#496 (phase E3), website#497 (phase E4), website#498 (phase E5); nemar-cli#2094 to #2097; nemar-cli#2021 (Epic D), #2071 (phase D1, commit 3a869903).
 - ADRs 0006, 0007, 0010, 0014, 0015, 0029; nemar-cli ADRs 0040, 0042, 0118.
