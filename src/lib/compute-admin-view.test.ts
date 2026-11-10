@@ -507,11 +507,11 @@ describe("recentQuarters", () => {
 });
 
 describe("requestsBadge", () => {
-  it("is nothing for zero or unknown, the count otherwise, and 200+ when capped", () => {
+  it("is nothing for zero or unknown, the count otherwise, and 50+ when capped", () => {
     expect(requestsBadge(null)).toBeNull();
     expect(requestsBadge({ count: 0, capped: false })).toBeNull();
     expect(requestsBadge({ count: 3, capped: false })).toBe("3");
-    expect(requestsBadge({ count: 200, capped: true })).toBe("200+");
+    expect(requestsBadge({ count: 50, capped: true })).toBe("50+");
   });
 });
 
@@ -533,7 +533,7 @@ describe("adjustRequestsBadge", () => {
   });
 
   it("leaves a capped or absent or unreadable badge alone", () => {
-    expect(adjustRequestsBadge("200+", "requested", "active")).toBe("200+");
+    expect(adjustRequestsBadge("50+", "requested", "active")).toBe("50+");
     expect(adjustRequestsBadge(null, "requested", "active")).toBeNull();
     expect(adjustRequestsBadge(null, "active", "requested")).toBeNull();
     expect(adjustRequestsBadge("many", "requested", "active")).toBe("many");

@@ -66,7 +66,7 @@ const BADGE_WORDS: Partial<Record<AdminTab, string>> = {
   compute: ACCOUNT_COPY["compute_admin.badge.awaiting_decision"],
 };
 // The text of a tab's badge, or null for none. A string, not a number, because the compute count
-// is the length of a served page and reads "200+" when more exist.
+// is the length of a served page and reads "50+" when more exist.
 function badgeText(tab: AdminTab): string | null {
   if (tab === "users") return usersAwaitingApproval ? String(usersAwaitingApproval) : null;
   if (tab === "imports") return importsNeedingAttention ? String(importsNeedingAttention) : null;

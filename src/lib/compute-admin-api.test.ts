@@ -411,6 +411,25 @@ describe("decideComputeAccess", () => {
     );
   });
 
+  it("an unrouted 404 reads as not available on this server; a coded 404 keeps the backend's sentence", async () => {
+    const unrouted = await decideComputeAccess(5, "grant", undefined, {
+      fetch: recorder(() =>
+        json({ error: "Not Found", message: "Route POST /admin/compute/access/5 not found" }, 404),
+      ).fetchImpl,
+    }).catch((e) => e);
+    expect(computeAdminErrorText(unrouted)).toBe("Compute is not available on this server yet.");
+    const bare = await decideComputeAccess(5, "grant", undefined, {
+      fetch: recorder(() => new Response("Not Found", { status: 404 })).fetchImpl,
+    }).catch((e) => e);
+    expect(computeAdminErrorText(bare)).toBe("Compute is not available on this server yet.");
+    const coded = await decideComputeAccess(5, "grant", undefined, {
+      fetch: recorder(() =>
+        json({ error: "No such account.", code: "account_not_found" }, 404),
+      ).fetchImpl,
+    }).catch((e) => e);
+    expect(computeAdminErrorText(coded)).toBe("No such account.");
+  });
+
   it("a lost answer is an unknown outcome: gateway page, proxy word, timeout, network, unreadable body", async () => {
     const gateway = await decideComputeAccess(5, "grant", undefined, {
       fetch: recorder(() => new Response("<html>bad gateway</html>", { status: 502 })).fetchImpl,
@@ -515,7 +534,7 @@ describe("fetchComputeRequestsCount", () => {
       count: 3,
       capped: false,
     });
-    expect(r.seen[0].url).toBe("/api/v1/admin/compute/access?state=requested&limit=200");
+    expect(r.seen[0].url).toBe("/api/v1/admin/compute/access?state=requested&limit=50");
     const capped = recorder(() => captured(accessList.page_one));
     expect(await fetchComputeRequestsCount({ fetch: capped.fetchImpl })).toEqual({
       count: 2,

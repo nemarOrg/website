@@ -679,7 +679,7 @@ export function attentionLines(attention: Readonly<Record<string, unknown>>): st
 // Badge
 // ---------------------------------------------------------------------------
 
-/** The tab badge text: the count, `200+` when the first page was full, nothing for zero or unknown. */
+/** The tab badge text: the count, `50+` when the first page was full, nothing for zero or unknown. */
 export function requestsBadge(count: ComputeRequestsCount | null): string | null {
   if (count === null || count.count === 0) return null;
   return count.capped ? `${count.count}+` : String(count.count);
@@ -688,7 +688,7 @@ export function requestsBadge(count: ComputeRequestsCount | null): string | null
 /**
  * The tab badge after one account moved between states on this page, without a reload. The badge
  * counts accounts in `requested`, so only a move out of (or into) that state changes it. A capped
- * badge ("200+") stays as it is: it is a lower bound and one fewer is still above it. A badge that
+ * badge ("50+") stays as it is: it is a lower bound and one fewer is still above it. A badge that
  * was not drawn (no count, or a count of zero) stays absent, since an unknown count cannot be
  * moved by one. Reaching zero removes the badge, as the server render does.
  */

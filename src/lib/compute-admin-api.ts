@@ -42,6 +42,7 @@ import {
 } from "./compute-admin-contract";
 import { readComputeError } from "./compute-api";
 import { COMPUTE_JOB_STATES } from "./compute-contract";
+import { COMPUTE_LABELS } from "./compute-labels";
 import { resolveSignal } from "./request-deadline";
 
 type Init = {
@@ -54,6 +55,15 @@ type Init = {
 
 /** The badge sits on every admin page, so it gets less than a page read. */
 const BADGE_TIMEOUT_MS = 2000;
+
+/**
+ * Rows the tab badge asks for on every admin page render. Small on purpose: the badge only needs
+ * "how many, or more than this", and the listing carries a full account row each. The page that
+ * works the queue still pages at `COMPUTE_ACCESS_PAGE_MAX`. A count route (nemar-cli#2085) would
+ * replace this.
+ */
+const BADGE_PAGE_SIZE = 50;
+
 /** The status route mints one Tapis token and makes one health call; give it longer than a D1 read. */
 const STATUS_TIMEOUT_MS = 15_000;
 /**
@@ -100,6 +110,13 @@ export function computeAdminErrorText(err: unknown): string {
     if (err.code === "upstream_unreachable") return ACCOUNT_COPY["compute_admin.error.unreachable"];
     if (err.code === "upstream_redirect") return ACCOUNT_COPY["compute_admin.error.redirect"];
     if (err.code === "origin_not_allowed") return ACCOUNT_COPY["compute_admin.error.origin"];
+    // A 404 that names no code is the router's own "no such route": an API that predates the
+    // compute admin routes. The backend's refusals that are a 404 (an unknown account, job or pool)
+    // always carry a code and their own sentence, which is shown below. The wording is the one the
+    // `/compute` page uses for the same case (website-owned, so no mirrored copy key is added).
+    if (err.status === 404 && err.code === undefined) {
+      return `${COMPUTE_LABELS.notice.notAvailableTitle}.`;
+    }
     if (err.sentence) return err.sentence;
     if (err.status === 401) return ACCOUNT_COPY["compute_admin.result.signed_out"];
     if (err.status === 429) return ACCOUNT_COPY["compute_admin.error.rate_limited"];
@@ -777,7 +794,7 @@ export interface ComputeRequestsCount {
 /**
  * Requests awaiting a decision, for the Compute tab badge. There is no count route
  * (nemar-cli#2085), so this is the length of the first page of the `requested` listing, capped
- * at the page maximum with `capped` set when more exist. This is the one number the page derives,
+ * at `BADGE_PAGE_SIZE` with `capped` set when more exist. This is the one number the page derives,
  * and it is the row count of a served list, not a computed quantity. Never throws: the shared
  * admin shell renders on every page and must not break on a compute hiccup, and a null is logged
  * so a broken route is not indistinguishable from an empty queue.
@@ -788,7 +805,7 @@ export async function fetchComputeRequestsCount(
   try {
     const page = await computeFetch(
       "GET",
-      `/access${computeAccessQuery({ state: "requested", limit: COMPUTE_ACCESS_PAGE_MAX })}`,
+      `/access${computeAccessQuery({ state: "requested", limit: BADGE_PAGE_SIZE })}`,
       init,
       parseAccessPage,
       { timeoutMs: BADGE_TIMEOUT_MS },
