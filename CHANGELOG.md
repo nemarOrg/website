@@ -13,6 +13,14 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.37] - 2026-11-11
+
+This release must reach production before the nemar-cli API 0.10.33.
+The API starts to write the `__Host-` ORCID flow cookies at that release, and this site reads the session cookie under its new name and accepts either name for the ORCID pending cookie.
+It also sends the form POST that the API's account linking now needs.
+The released API (0.10.32) accepts everything this site sends, so releasing the site first leaves no gap.
+If the API reaches production first, new ORCID sign-ups fail at the email step and "Connect your ORCID" starts a sign-up instead of a link.
+
 ### Added
 
 - **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
@@ -25,6 +33,13 @@ The release pull request from `staging` to `main` moves those entries under the 
   Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
 
 ### Changed
+
+- **The site reads the session cookie under its host-prefixed name** (nemarOrg/website#499, nemar-cli ADR 0119 decision 10).
+  The API is moving the session cookie from `nemar_session` to `__Host-nemar_session`, which no other `nemar.org` host can set.
+  Every reader of the cookie on this site now asks for the new name first and falls back to the old one only when the new one is absent; a request with more than one `__Host-nemar_session` counts as signed out, as it does for the API.
+  Sign-out clears both names, so a browser that holds either is signed out.
+  The ORCID sign-up page accepts the pending cookie under either name (`__Host-nemar_orcid_pending` or `nemar_orcid_pending`), so a sign-up already under way does not bounce on the page; a sign-up in flight when the API deploys fails once at the email step and the person signs in with ORCID again.
+  Nothing changes for anyone until the API issues the new cookie (behind a flag, the owner's step after the API release).
 
 - **`/oauth/authorize` accepts an authorization request sent by POST from any site; every other form keeps its cross-site check** (nemarOrg/nemar-cli#2020, nemar-cli ADR 0119, website ADR 0031).
   OpenID Connect Core 3.1.2.1 requires the authorization endpoint to take a form POST, and Astro's built-in origin check refuses one from another site.
