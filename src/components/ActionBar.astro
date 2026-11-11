@@ -437,6 +437,9 @@ cd {datasetId} && nemar dataset get</code></pre>
     gap: var(--space-3);
   }
   .ai-mode__link {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 36px;
     font-size: var(--fs-xs);
     color: var(--ai-hint-link);
     text-decoration: underline;
@@ -446,7 +449,8 @@ cd {datasetId} && nemar dataset get</code></pre>
     color: var(--ai-hint-fg);
   }
   .ai-mode__got-it {
-    padding: var(--space-1) var(--space-3);
+    min-block-size: 36px;
+    padding: var(--space-1) var(--space-4);
     border: 1px solid var(--ai-hint-action-border);
     border-radius: var(--radius-pill);
     background: transparent;

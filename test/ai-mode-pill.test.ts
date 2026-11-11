@@ -141,6 +141,13 @@ describe("AI Mode pill styles", () => {
   });
 });
 
+describe("AI Mode hint controls", () => {
+  it("keep a touch target of at least 36 px for Got it and the How it works link", () => {
+    expect(rule(ACTION_BAR, ".ai-mode__got-it")).toMatch(/min-block-size:\s*36px/);
+    expect(rule(ACTION_BAR, ".ai-mode__link")).toMatch(/min-block-size:\s*36px/);
+  });
+});
+
 describe("AI Mode hint tokens", () => {
   const roles = [
     "--ai-hint-bg",
