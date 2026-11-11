@@ -12,7 +12,7 @@ import { appUrl } from "../lib/host";
 import { landingCacheControl } from "../lib/landing-cache";
 import { listNews } from "../lib/news-api";
 import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
-import { overviewEndpoint } from "../lib/osa-overview";
+import { AI_MODE_HINT, overviewEndpoint } from "../lib/osa-overview";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
 
@@ -165,6 +165,15 @@ Astro.response.headers.set(
           </FieldControl>
           <button type="submit">Search</button>
         </div>
+        {aiEndpoint && (
+          <>
+            {/* The one small line under the field for a search of one or two words: always in the
+                page and drawn with visibility, so showing it moves nothing; the polite region says
+                it once per appearance (src/lib/ai-mode-search-client.ts). */}
+            <p class="hero__ai-hint" data-ai-hint aria-hidden="true">{AI_MODE_HINT}</p>
+            <span class="visually-hidden" role="status" aria-live="polite" data-ai-hint-status></span>
+          </>
+        )}
         {aiEndpoint && (
           <div class="hero__try" hidden data-ai-try>
             <span class="hero__try-label">Try</span>
@@ -525,6 +534,19 @@ Astro.response.headers.set(
   }
   .hero__search-control[data-ai="on"] .hero__search-icon {
     inset-inline-start: calc(var(--space-5) + 2px);
+  }
+  /* The line under the field for a search of one or two words: the smallest helper size the site
+     has (--fs-xs), the hero's muted AI Mode colour (dark value in tokens.css), never the error
+     colour. Always laid out and drawn with visibility, so it takes its row whether it shows or not. */
+  .hero__ai-hint {
+    max-inline-size: 44rem;
+    margin: var(--space-2) 0 0 var(--space-1);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--ai-try-label);
+  }
+  .hero__ai-hint:not([data-ai-visible]) {
+    visibility: hidden;
   }
   /* The "Try" row: example searches that fill the field and submit it. */
   .hero__try {

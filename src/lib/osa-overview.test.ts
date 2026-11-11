@@ -3,10 +3,10 @@ import RESPONSE from "../../test/fixtures/osa-overview-response.json";
 import SEARCH from "../../test/fixtures/search-corrected-query.json";
 import { type FilterState, defaultFilterState } from "./filters";
 import {
+  AI_MODE_HINT,
   OVERVIEW_ENDPOINTS,
   OVERVIEW_LIMITS,
   OVERVIEW_MIN_WORDS,
-  OVERVIEW_MIN_WORDS_NOTE,
   OVERVIEW_TIMEOUT_MS,
   OverviewError,
   type OverviewRequest,
@@ -68,10 +68,8 @@ describe("countQueryWords", () => {
   });
 
   it("words the rule once, for a short search and for a 422", () => {
-    expect(OVERVIEW_MIN_WORDS_NOTE).toBe(
-      "AI Mode gives an overview for searches of three words or more.",
-    );
-    expect(overviewErrorMessage("invalid")).toBe(OVERVIEW_MIN_WORDS_NOTE);
+    expect(AI_MODE_HINT).toBe("AI Mode is on. Use three or more words to see an AI response.");
+    expect(overviewErrorMessage("invalid")).toBe(AI_MODE_HINT);
   });
 });
 

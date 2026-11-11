@@ -12,7 +12,6 @@
  */
 
 import {
-  OVERVIEW_MIN_WORDS_NOTE,
   type OverviewAnswer,
   OverviewError,
   type OverviewErrorKind,
@@ -26,8 +25,11 @@ export type OverviewPanelState =
   | { kind: "off" }
   | { kind: "loading"; reading: number }
   | { kind: "answer"; answer: OverviewAnswer }
-  // The search has fewer than three words: no request was made, and this is not a failure.
+  // The search has fewer than three words: no request was made, and this is not a failure. The
+  // panel shows nothing; the line under the search field says why (`aiHintShown`).
   | { kind: "too_short" }
+  // The endpoint answered 422 for the search: its word count differs from ours. Same as above.
+  | { kind: "refused" }
   | { kind: "error"; error: OverviewErrorKind };
 
 /** What the panel shows for a state. Every field is data; none is markup. */
@@ -44,8 +46,6 @@ export interface PanelView {
   badge: string | null;
   /** Grey placeholder lines in place of the text. */
   skeleton: boolean;
-  /** A calm note in place of an overview, drawn without the error styling. */
-  note: string | null;
   summary: OverviewSegment[];
   picks: OverviewPick[];
   footnote: string | null;
@@ -66,7 +66,6 @@ const OFF: PanelView = {
   statusVisible: false,
   badge: null,
   skeleton: false,
-  note: null,
   summary: [],
   picks: [],
   footnote: null,
@@ -103,13 +102,10 @@ export function panelView(state: OverviewPanelState): PanelView {
         footnote: PANEL_FOOTNOTE,
         followUp: FOLLOW_UP_LABEL,
       };
+    // Nothing in the panel: the line under the search field says why (website#525).
     case "too_short":
-      return {
-        ...OFF,
-        visible: true,
-        status: OVERVIEW_MIN_WORDS_NOTE,
-        note: OVERVIEW_MIN_WORDS_NOTE,
-      };
+    case "refused":
+      return { ...OFF };
     case "error": {
       const message = overviewErrorMessage(state.error);
       return {
@@ -182,8 +178,8 @@ export interface OverviewControllerOptions {
 /**
  * The panel's transitions. Off: nothing shown, any request aborted, a kept answer remembered.
  * On: the kept answer again if there is one, else a request (a second "on" while one runs does
- * nothing); a search under three words makes no request and shows the three-words note. A 422
- * shows that note too, since a server may count words differently. A request's result counts only while it is the current one: a response for a request
+ * nothing); a search under three words makes no request and the panel stays hidden (the line under the
+ * field says why). A 422 does the same, since a server may count words differently. A request's result counts only while it is the current one: a response for a request
  * the reader switched off, or replaced, is dropped and never kept. Every failure is logged with
  * its kind (and status, for the service's), so a drifted contract or a bug is not only a message
  * in the panel.
@@ -255,7 +251,7 @@ export class OverviewController {
         console.warn("[ai-overview] unexpected failure:", err);
       }
       try {
-        this.show(error === "invalid" ? { kind: "too_short" } : { kind: "error", error });
+        this.show(error === "invalid" ? { kind: "refused" } : { kind: "error", error });
       } catch (renderErr) {
         console.warn("[ai-overview] the failure could not be shown:", renderErr);
       }

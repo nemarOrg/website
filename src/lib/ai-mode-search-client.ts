@@ -20,6 +20,7 @@
 import {
   FOLLOW_UP_FAILED,
   OverviewController,
+  type OverviewPanelState,
   type PanelView,
   followUpText,
   panelView,
@@ -28,6 +29,8 @@ import {
   type AiModeLoadTarget,
   type AiModePageWindow,
   type AiModeWindow,
+  aiHintAnnouncement,
+  aiHintShown,
   aiLinkHref,
   aiModeSearchAvailable,
   askFollowUp,
@@ -108,10 +111,6 @@ function renderBody(
     }
     return;
   }
-  if (view.note) {
-    body.append(element(doc, "p", "ai-overview__hint", view.note));
-    return;
-  }
   if (view.error) {
     body.append(element(doc, "p", "ai-overview__error", view.error.message));
     const retry = element(
@@ -178,7 +177,10 @@ class OverviewPanel {
       query: request.query,
       reading: request.results.length,
       fetchOverview: (signal) => requestOverview(endpoint, request, { signal }),
-      onState: (state) => this.render(panelView(state)),
+      onState: (state) => {
+        this.render(panelView(state));
+        onState(state);
+      },
     });
   }
 
@@ -242,6 +244,62 @@ class OverviewPanel {
     note.setAttribute("role", "status");
     note.setAttribute("data-ai-follow-up-failed", "");
     foot.append(note);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The line under the field
+// ---------------------------------------------------------------------------
+
+/**
+ * The one small line under the search field (website#525), for AI Mode on and a search of one or
+ * two words. What decides it is `aiHintShown`, from the field's live value, so it follows typing
+ * (Home and Discover alike) and, on Discover, starts from the submitted query the field holds.
+ * A 422 from the endpoint shows it too ({@link refuse}) until the reader edits the field.
+ *
+ * The line is a slot that is always in the page (`[data-ai-hint]`, drawn with `visibility`, never
+ * `hidden`), so showing it moves nothing. It is `aria-hidden`; the polite live region
+ * (`[data-ai-hint-status]`) says it once per appearance, set on the transition only.
+ */
+class UnderFieldHint {
+  private on = false;
+  private refused = false;
+  private shown = false;
+
+  constructor(
+    private readonly doc: Document,
+    private readonly input: HTMLInputElement | null,
+  ) {
+    input?.addEventListener("input", () => {
+      this.refused = false;
+      this.update();
+    });
+  }
+
+  setOn(on: boolean): void {
+    this.on = on;
+    // A refusal belongs to the request just made; a switch off and on asks again.
+    this.refused = false;
+    this.update();
+  }
+
+  /** The endpoint refused the search for its length: the line says why, for what is in the field. */
+  refuse(): void {
+    this.refused = true;
+    this.update();
+  }
+
+  private update(): void {
+    const shown = aiHintShown(this.on, this.input?.value ?? "", this.refused);
+    const announcement = aiHintAnnouncement(this.shown, shown);
+    this.shown = shown;
+    for (const line of this.doc.querySelectorAll<HTMLElement>("[data-ai-hint]")) {
+      line.toggleAttribute("data-ai-visible", shown);
+    }
+    if (announcement === null) return;
+    for (const live of this.doc.querySelectorAll<HTMLElement>("[data-ai-hint-status]")) {
+      live.textContent = announcement;
+    }
   }
 }
 
@@ -316,8 +374,16 @@ export function initAiModeSearch(win: Window, doc: Document): void {
         doc.querySelector("script[data-ai-overview-request]")?.textContent,
       );
       const endpoint = ready[0].dataset.aiEndpoint ?? "";
+      const hint = new UnderFieldHint(
+        doc,
+        fieldOf(ready[0])?.querySelector<HTMLInputElement>("input[type=search]") ?? null,
+      );
       const panel =
-        section && request ? new OverviewPanel(win, doc, section, request, endpoint) : null;
+        section && request
+          ? new OverviewPanel(win, doc, section, request, endpoint, (state) => {
+              if (state.kind === "refused") hint.refuse();
+            })
+          : null;
 
       const apply = (on: boolean) => {
         paint(ready, on);
@@ -325,6 +391,7 @@ export function initAiModeSearch(win: Window, doc: Document): void {
           syncAiInput(doc, toggle, on);
           if (toggle.hasAttribute("data-ai-links")) carryAiOnLinks(doc, on);
         }
+        hint.setOn(on);
         panel?.setOn(on);
       };
 

@@ -15,6 +15,7 @@ import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
 import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
 import { AI_MODE_SEARCH_DISCLOSURE } from "../src/lib/osa-ai-mode";
 import {
+  AI_MODE_HINT,
   OVERVIEW_ENDPOINTS,
   OVERVIEW_MIN_WORDS,
   countQueryWords,
@@ -224,14 +225,10 @@ describe("the panel", () => {
     expect(CLIENT).toMatch(/\[data-ai-note\][\s\S]{0,80}\.hidden = !on/);
   });
 
-  it("draws the three-words note as a quiet paragraph, not with the error styling", () => {
-    expect(CLIENT).toMatch(
-      /if \(view\.note\) \{\s*body\.append\(element\(doc, "p", "ai-overview__hint", view\.note\)\);\s*return;\s*\}/,
-    );
+  it("has no note of its own for a short search: the line under the field replaces it", () => {
+    expect(CLIENT).not.toMatch(/view\.note|ai-overview__hint/);
+    expect(PANEL).not.toContain("ai-overview__hint");
     expect(CLIENT).toContain("query: request.query,");
-    const hint = rule(PANEL, ".ai-overview__hint");
-    expect(hint).toMatch(/color:\s*var\(--ai-panel-muted\)/);
-    expect(hint).not.toMatch(HEX);
     // Its status goes to the polite region that is already there, not to a new one.
     expect(PANEL.match(/aria-live=/g)).toHaveLength(1);
   });
@@ -240,6 +237,55 @@ describe("the panel", () => {
     expect(CLIENT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|set:html/);
     expect(CLIENT).toContain("textContent");
     expect(CLIENT).toContain("createTextNode(segment.text)");
+  });
+});
+
+describe("the line under the field", () => {
+  const sources = [
+    [SEARCH_BAR, "SearchBar", ".searchbar__ai-hint", "--color-fg-muted"],
+    [HOME, "Home", ".hero__ai-hint", "--ai-try-label"],
+  ] as const;
+
+  it("is one paragraph with the maintainer's words, on Discover and on Home, never hidden", () => {
+    for (const [source, name] of sources) {
+      const tag = openingTag(source, "p", "data-ai-hint");
+      expect(tag, name).toMatch(/aria-hidden="true"/);
+      expect(tag, name).not.toMatch(/\bhidden\b(?!=)/);
+      expect(source, name).toMatch(/\{AI_MODE_HINT\}/);
+      expect(source.match(/data-ai-hint(?![-\w])/g), name).toHaveLength(1);
+    }
+    expect(AI_MODE_HINT).toBe("AI Mode is on. Use three or more words to see an AI response.");
+  });
+
+  it("is in the smallest helper size the site has, a muted token and no error colour", () => {
+    expect(TOKENS).toMatch(/--fs-xs:\s*0\.75rem/);
+    for (const [source, name, selector, colour] of sources) {
+      const style = styleOf(source);
+      const declarations = rule(style, selector);
+      expect(declarations, name).toMatch(/font-size:\s*var\(--fs-xs\)/);
+      expect(declarations, name).toContain(`color: var(${colour})`);
+      expect(declarations, name).not.toMatch(HEX);
+      expect(declarations, name).not.toMatch(/error|danger|warning|red/);
+      // Drawn with visibility, so it keeps its row: showing it moves nothing.
+      expect(rule(style, `${selector}:not([data-ai-visible])`), name).toMatch(
+        /visibility:\s*hidden/,
+      );
+    }
+  });
+
+  it("is announced by one polite live region per page, whose text the client sets on a change", () => {
+    for (const [source, name] of sources) {
+      const tag = openingTag(source, "span", "data-ai-hint-status");
+      expect(tag, name).toMatch(/role="status"/);
+      expect(tag, name).toMatch(/aria-live="polite"/);
+      expect(tag, name).toMatch(/visually-hidden/);
+    }
+    expect(CLIENT).toMatch(/if \(announcement === null\) return;/);
+    expect(CLIENT).toContain("aiHintAnnouncement(this.shown, shown)");
+    // It follows the field as the reader types, and shows for a 422 too.
+    expect(CLIENT).toMatch(/addEventListener\("input"/);
+    expect(CLIENT).toContain('state.kind === "refused"');
+    expect(CLIENT).toContain('line.toggleAttribute("data-ai-visible", shown)');
   });
 });
 

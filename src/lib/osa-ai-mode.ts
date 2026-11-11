@@ -27,7 +27,7 @@
  *    remembered in `localStorage`, with every read and write guarded, so a store that is blocked
  *    or full means "show once per page load" and never an error.
  *
- * Five things are decided for the search toggle, in the second half:
+ * Six things are decided for the search toggle, in the second half:
  *
  * 1. **Whether it is offered** ({@link aiModeSearchAvailable}): the widget can open and the overview
  *    endpoint is set.
@@ -37,10 +37,14 @@
  *    guarded.
  * 4. **How the page's own links carry it** ({@link withAiModeParam}, {@link aiLinkHref}).
  * 5. **How "Ask a follow-up" reaches the widget** ({@link askFollowUp}).
+ * 6. **The line under the field** for a search of one or two words ({@link aiHintShown},
+ *    {@link aiHintAnnouncement}).
  *
  * The overview panel's own states are in `./ai-overview-panel`, and its request and answer in
  * `./osa-overview`.
  */
+
+import { AI_MODE_HINT, OVERVIEW_MIN_WORDS, countQueryWords } from "./osa-overview";
 
 /** The `localStorage` key that remembers the hint was dismissed. Versioned so a reworded hint can
  *  be shown again by bumping it. */
@@ -406,4 +410,28 @@ export function askFollowUp(win: AiModeWindow, text: string): boolean {
     console.warn("[osa-ai-mode] widget's ask threw:", err);
     return false;
   }
+}
+
+/**
+ * Whether the line under the search field ({@link AI_MODE_HINT}) is shown: AI Mode is on and the
+ * search has one or two words (`countQueryWords`, the way OSA counts them). `query` is the field's
+ * live value, so it follows typing; an empty field has nothing to explain. `refused` is a 422 from
+ * the endpoint for the search just made: the server counted differently, so the line is shown for
+ * a field that has words at all.
+ */
+export function aiHintShown(on: boolean, query: string, refused = false): boolean {
+  if (!on) return false;
+  const words = countQueryWords(query);
+  return words >= 1 && (words < OVERVIEW_MIN_WORDS || refused);
+}
+
+/**
+ * What the polite live region is set to when the line's state changes, or `null` for no change.
+ * The region is set on the transition only, never per keystroke: the line's words when it appears
+ * (one announcement per appearance), an empty string when it goes (so the same words are announced
+ * again the next time).
+ */
+export function aiHintAnnouncement(wasShown: boolean, shown: boolean): string | null {
+  if (shown === wasShown) return null;
+  return shown ? AI_MODE_HINT : "";
 }

@@ -7,6 +7,8 @@ import {
   type AiModePageWindow,
   type AiModeStore,
   type AiModeWindow,
+  aiHintAnnouncement,
+  aiHintShown,
   aiLinkHref,
   aiModeAvailable,
   aiModeSearchAvailable,
@@ -24,6 +26,7 @@ import {
   withAiModeParam,
   writeAiModeSearch,
 } from "./osa-ai-mode";
+import { AI_MODE_HINT } from "./osa-overview";
 
 /**
  * Plain objects stand in for `window`, `document` and `Storage`: they are the real interfaces the
@@ -600,5 +603,64 @@ describe("aiLinkHref", () => {
     expect(aiLinkHref("/discover?q=x", BASE, ORIGIN, true)).toBeNull();
     expect(aiLinkHref("http://[bad", BASE, ORIGIN, false)).toBeNull();
     expect(aiLinkHref(null, BASE, ORIGIN, false)).toBeNull();
+  });
+});
+
+describe("the line under the field", () => {
+  it("reads exactly as the maintainer worded it", () => {
+    expect(AI_MODE_HINT).toBe("AI Mode is on. Use three or more words to see an AI response.");
+  });
+
+  it("is shown only while AI Mode is on and the search has one or two words", () => {
+    // 0 words: nothing to explain.
+    expect(aiHintShown(true, "")).toBe(false);
+    expect(aiHintShown(true, "   ")).toBe(false);
+    expect(aiHintShown(true, "-")).toBe(false);
+    // 1 and 2 words.
+    expect(aiHintShown(true, "EEG")).toBe(true);
+    expect(aiHintShown(true, "  P300 speller ")).toBe(true);
+    expect(aiHintShown(true, "EEG - MEG")).toBe(true);
+    // 3 words and more: an overview is possible, so no line.
+    expect(aiHintShown(true, "face recognition EEG")).toBe(false);
+    expect(aiHintShown(true, "sleep spindles in children")).toBe(false);
+    // Off: never.
+    for (const query of ["", "EEG", "P300 speller", "face recognition EEG"]) {
+      expect(aiHintShown(false, query), query).toBe(false);
+    }
+  });
+
+  it("is also shown for a 422, whatever the count here, when the field has words", () => {
+    expect(aiHintShown(true, "face recognition EEG", true)).toBe(true);
+    expect(aiHintShown(true, "EEG", true)).toBe(true);
+    expect(aiHintShown(true, "", true)).toBe(false);
+    expect(aiHintShown(false, "face recognition EEG", true)).toBe(false);
+  });
+
+  it("is announced once per appearance: set on the transition, never per keystroke", () => {
+    // Typing "EEG", then " data", " in", " children": the line appears once and goes once.
+    const typed = [
+      "E",
+      "EE",
+      "EEG",
+      "EEG d",
+      "EEG data",
+      "EEG data i",
+      "EEG data in",
+      "EEG data in x",
+    ];
+    let was = false;
+    const said: Array<string | null> = [];
+    for (const query of typed) {
+      const shown = aiHintShown(true, query);
+      said.push(aiHintAnnouncement(was, shown));
+      was = shown;
+    }
+    expect(said).toEqual([AI_MODE_HINT, null, null, null, null, "", null, null]);
+    expect(said.filter((text) => text === AI_MODE_HINT)).toHaveLength(1);
+    // Appearing again announces again; staying the same says nothing.
+    expect(aiHintAnnouncement(false, true)).toBe(AI_MODE_HINT);
+    expect(aiHintAnnouncement(true, true)).toBeNull();
+    expect(aiHintAnnouncement(false, false)).toBeNull();
+    expect(aiHintAnnouncement(true, false)).toBe("");
   });
 });

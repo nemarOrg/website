@@ -112,9 +112,10 @@ export function queryHasEnoughWords(query: string): boolean {
   return countQueryWords(query) >= OVERVIEW_MIN_WORDS;
 }
 
-/** Said in the panel, as a calm note, when a search is too short (or the endpoint says so). */
-export const OVERVIEW_MIN_WORDS_NOTE =
-  "AI Mode gives an overview for searches of three words or more.";
+/** The one line under the search field, while AI Mode is on and the search has one or two words,
+ *  and for a 422 from the endpoint (the panel itself shows nothing then). Very small, in a muted
+ *  site colour, never the error colour: it explains, it does not scold (website#525). */
+export const AI_MODE_HINT = "AI Mode is on. Use three or more words to see an AI response.";
 
 /** The shape OSA accepts for a row id. */
 export const OVERVIEW_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -331,8 +332,9 @@ const STATUS_KINDS: Record<number, OverviewErrorKind> = {
   502: "upstream",
 };
 
-/** What the panel says for each failure. Only 429 asks the reader to wait. A 422 reads as the
- *  three-words note (the panel shows it as a note, not as a failure). */
+/** What the panel says for each failure. Only 429 asks the reader to wait. A 422 is the
+ *  three-words rule, worded as the line under the field ({@link AI_MODE_HINT}); the panel shows
+ *  nothing for it, so this wording is for a caller that has none of its own. */
 export function overviewErrorMessage(kind: OverviewErrorKind): string {
   switch (kind) {
     case "forbidden":
@@ -340,7 +342,7 @@ export function overviewErrorMessage(kind: OverviewErrorKind): string {
     case "unavailable":
       return "The AI overview is not set up yet.";
     case "invalid":
-      return OVERVIEW_MIN_WORDS_NOTE;
+      return AI_MODE_HINT;
     case "rate_limited":
       return "Too many overviews were requested from this connection. Wait a few minutes, then try again.";
     case "server":

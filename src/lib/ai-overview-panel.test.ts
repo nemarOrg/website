@@ -14,7 +14,6 @@ import {
   summaryText,
 } from "./ai-overview-panel";
 import {
-  OVERVIEW_MIN_WORDS_NOTE,
   type OverviewAnswer,
   OverviewError,
   type OverviewRequest,
@@ -95,39 +94,26 @@ describe("panelView", () => {
     expect(RETRY_LABEL).toBe("Try again");
   });
 
-  it("shows the three-words note as a note, not a failure: no retry, no error, announced", () => {
-    const view = panelView({ kind: "too_short" });
-    expect(view.visible).toBe(true);
-    expect(view.busy).toBe(false);
-    expect(view.skeleton).toBe(false);
-    expect(view.note).toBe("AI Mode gives an overview for searches of three words or more.");
-    expect(view.note).toBe(OVERVIEW_MIN_WORDS_NOTE);
-    // The live region says it; the line beside the heading does not repeat it.
-    expect(view.status).toBe(view.note);
-    expect(view.statusVisible).toBe(false);
-    expect(view.error).toBeNull();
-    expect(view.badge).toBeNull();
-    expect(view.summary).toEqual([]);
-    expect(view.followUp).toBeNull();
-    expect(view.footnote).toBeNull();
-    for (const state of [
-      { kind: "loading", reading: 3 },
-      { kind: "answer", answer: ANSWER },
-      { kind: "error", error: "server" },
-    ] as const) {
-      expect(panelView(state).note).toBeNull();
+  it("shows nothing for a search under three words or a 422: the line under the field says why", () => {
+    for (const kind of ["too_short", "refused"] as const) {
+      const view = panelView({ kind });
+      // Not in the page at all: no heading, no note, nothing to announce or retry.
+      expect(view).toEqual(panelView({ kind: "off" }));
+      expect(view.visible).toBe(false);
+      expect(view.status).toBe("");
+      expect(view.error).toBeNull();
+      expect(view).not.toHaveProperty("note");
     }
   });
 
-  it("gives every state a distinct view", () => {
+  it("gives every state a distinct view, the hidden ones apart", () => {
     const states = [
-      panelView({ kind: "too_short" }),
       panelView({ kind: "off" }),
       panelView({ kind: "loading", reading: 10 }),
       panelView({ kind: "answer", answer: ANSWER }),
       panelView({ kind: "error", error: "server" }),
     ];
-    expect(new Set(states.map((s) => JSON.stringify(s))).size).toBe(5);
+    expect(new Set(states.map((s) => JSON.stringify(s))).size).toBe(4);
   });
 });
 
@@ -221,7 +207,7 @@ describe("OverviewController", () => {
     expect(kinds()).toEqual(["loading", "answer"]);
   });
 
-  it("sends no request under three words and shows the note, again after off and on", async () => {
+  it("sends no request under three words and keeps the panel hidden, again after off and on", async () => {
     const wire = manualFetch();
     for (const query of ["EEG", "P300 speller", "EEG - MEG", "α-band power", ""]) {
       const { controller, kinds } = build({ query });
@@ -236,7 +222,7 @@ describe("OverviewController", () => {
     expect(wire.calls()).toBe(0);
   });
 
-  it("shows the same note, not an error, when the endpoint answers 422", async () => {
+  it("keeps the panel hidden, not an error, when the endpoint answers 422", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ detail: "query too short" }), {
@@ -244,11 +230,12 @@ describe("OverviewController", () => {
       })) as unknown as typeof fetch;
     const { controller, kinds } = build();
     await controller.setOn(true);
-    expect(kinds()).toEqual(["loading", "too_short"]);
+    expect(kinds()).toEqual(["loading", "refused"]);
     expect(controller.answer).toBeNull();
-    // Still logged, so a server whose count disagrees is not only a quiet note.
+    // Still logged, so a server whose count disagrees is not only a quiet line.
     expect(String(warn.mock.calls[0].join(" "))).toMatch(/invalid.*422/);
     expect(panelView(controller.state).error).toBeNull();
+    expect(panelView(controller.state).visible).toBe(false);
   });
 
   it("loads on the first switch on and shows the answer", async () => {

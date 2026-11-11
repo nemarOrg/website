@@ -1,5 +1,6 @@
 ---
 import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
+import { AI_MODE_HINT } from "../lib/osa-overview";
 import AiModeToggle from "./AiModeToggle.astro";
 
 interface Props {
@@ -72,6 +73,19 @@ const wrapperProps = form ? {} : { action, method: "get" };
   </div>
   {aiEndpoint && !aiOn && <input type="hidden" name="ai" value="0" form={form} data-ai-input />}
   <button type="submit" class="searchbar__submit" form={form}>Search</button>
+  {
+    aiEndpoint && (
+      <>
+        {/* The one small line under the field for a search of one or two words. Always in the
+            page, drawn with visibility, so showing it moves nothing; the polite region says it once
+            per appearance (src/lib/ai-mode-search-client.ts). */}
+        <p class="searchbar__ai-hint" data-ai-hint aria-hidden="true">
+          {AI_MODE_HINT}
+        </p>
+        <span class="visually-hidden" role="status" aria-live="polite" data-ai-hint-status />
+      </>
+    )
+  }
   {
     aiEndpoint && (
       <p class="searchbar__ai-note" data-ai-disclosure hidden>
@@ -171,6 +185,20 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar__ai-note[hidden] {
     display: none;
+  }
+  /* The line under the field for a search of one or two words: the smallest helper size the site
+     has (--fs-xs), a muted site colour (dark values in tokens.css), never the error colour. It is
+     always laid out and drawn with visibility, so it takes its row whether it shows or not. */
+  .searchbar__ai-hint {
+    flex: 1 1 100%;
+    margin: 0;
+    padding-inline: var(--space-2);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--color-fg-muted);
+  }
+  .searchbar__ai-hint:not([data-ai-visible]) {
+    visibility: hidden;
   }
 
   /* AI Mode (board D2). Once the toggle is revealed the input leaves room for it. */
