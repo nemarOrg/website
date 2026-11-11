@@ -40,4 +40,10 @@ const { corrected, original, originalHref } = Astro.props;
     color: var(--color-fg);
     font-weight: var(--fw-semibold);
   }
+  /* The link sits in muted text and is close to it in color, so it needs a cue
+     that is not color alone (WCAG 1.4.1). */
+  .corrected-note a {
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
 </style>

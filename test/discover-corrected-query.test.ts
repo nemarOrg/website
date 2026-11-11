@@ -59,6 +59,11 @@ describe("CorrectedQueryNote.astro", () => {
     expect(NOTE).toContain("href={originalHref}");
   });
 
+  it("underlines the link, so it does not rely on color alone inside the muted line", () => {
+    const style = NOTE.slice(NOTE.indexOf("<style>"));
+    expect(style).toMatch(/\.corrected-note a \{[^}]*text-decoration: underline/);
+  });
+
   it("never injects markup: the texts come from a query string and the API", () => {
     expect(NOTE).not.toContain("set:html");
   });
@@ -76,5 +81,10 @@ describe("CorrectedQueryNote.astro", () => {
 describe("FilterSidebar.astro", () => {
   it("carries exact=1 on every filter change while the page is exact", () => {
     expect(SIDEBAR).toMatch(/\{state\.exact && <input type="hidden" name="exact" value="1"/);
+  });
+
+  it("drops a stale exact=1 in the formdata script when the search box holds other words", () => {
+    expect(SIDEBAR).toContain("isStaleExact(");
+    expect(SIDEBAR).toContain('event.formData.delete("exact")');
   });
 });
