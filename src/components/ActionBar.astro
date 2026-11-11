@@ -833,8 +833,9 @@ cd {datasetId} && nemar dataset get</code></pre>
     });
     window.addEventListener("resize", place);
     pill.addEventListener("click", () => {
-      dismiss();
-      openAiMode(widgetWindow);
+      // Dismiss only when the widget opened: if open() threw, the hint stays for another try
+      // rather than being lost for good on a click that did nothing.
+      if (openAiMode(widgetWindow)) dismiss();
     });
     hint?.querySelector("[data-ai-mode-dismiss]")?.addEventListener("click", dismiss);
     hint?.querySelector("[data-ai-mode-link]")?.addEventListener("click", dismiss);
