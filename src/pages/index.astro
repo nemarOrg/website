@@ -11,6 +11,7 @@ import { latestDatasets } from "../lib/highlights";
 import { appUrl } from "../lib/host";
 import { landingCacheControl } from "../lib/landing-cache";
 import { listNews } from "../lib/news-api";
+import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
 import { overviewEndpoint } from "../lib/osa-overview";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
@@ -160,6 +161,9 @@ Astro.response.headers.set(
               <button type="button" class="hero__try-item" data-ai-try-item>{example}</button>
             ))}
           </div>
+        )}
+        {aiEndpoint && (
+          <p class="hero__ai-note" data-ai-disclosure hidden>{AI_MODE_SEARCH_DISCLOSURE}</p>
         )}
       </form>
 
@@ -520,6 +524,17 @@ Astro.response.headers.set(
     margin: var(--space-4) 0 0 var(--space-1);
   }
   .hero__try[hidden] {
+    display: none;
+  }
+  /* The notice that goes with AI Mode, shown while it is on. */
+  .hero__ai-note {
+    max-inline-size: 44rem;
+    margin: var(--space-3) 0 0 var(--space-1);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--ai-try-label);
+  }
+  .hero__ai-note[hidden] {
     display: none;
   }
   .hero__try-label {

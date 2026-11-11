@@ -235,6 +235,15 @@ export const AI_MODE_SEARCH_STORAGE_KEY = "nemar:ai-mode-search:v1";
 /** The query parameter that carries AI Mode through the address: `ai=1` is on. */
 export const AI_MODE_URL_PARAM = "ai";
 
+/** What the reader is told at the point of use: with AI Mode on, the browser posts the search and
+ *  the top results' titles and descriptions to the Open Science Assistant service, which passes
+ *  them to a model provider. Shown as visible text under each search field while AI Mode is on
+ *  (a `title` tooltip alone does not reach touch, keyboard or most screen readers) and, as a
+ *  bonus, as the toggle's `title`. The privacy policy (docs.nemar.org) is the canonical statement
+ *  (nemarOrg/website#523). */
+export const AI_MODE_SEARCH_DISCLOSURE =
+  "AI Mode writes an overview of your search. When it is on, your search words and the titles and descriptions of the top results are sent to the Open Science Assistant service and an AI model provider.";
+
 const SEARCH_ON = "on";
 const SEARCH_OFF = "off";
 

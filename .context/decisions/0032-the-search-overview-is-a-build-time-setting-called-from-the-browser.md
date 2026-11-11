@@ -48,7 +48,7 @@ Four facts shape where that call is made and how it is switched on.
 - `ai=1` URLs will be shared and bookmarked, and the `localStorage` key is read by every future visit, so the parameter name and the key are hard to take back; a change of meaning bumps the key's version.
 - The panel's wording is the site's, not the model's: text segments are set as plain text and ids link to `/dataset/<id>`, and an answer that names an id outside the request is shown as an error.
 - With AI Mode on, the visitor's search words and the titles and descriptions of the top results leave the site for the Open Science Assistant service and, through it, an AI model provider.
-  The toggle's `title` says so at the point of use.
+  A visible line under each search field says so while AI Mode is on (a `title` tooltip alone does not reach touch, keyboard focus or most screen readers; the toggle keeps the `title` as a bonus).
   The privacy policy is the docs site's page (`/privacy` redirects there), so its wording must name this before the production line is added to `wrangler.toml` (nemarOrg/website#523).
 - Because the call is the browser's, a visitor who blocks the worker, or whose network refuses it, sees the panel's error state with Try again; the results below are unaffected.
 

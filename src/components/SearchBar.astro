@@ -1,4 +1,5 @@
 ---
+import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
 import AiModeToggle from "./AiModeToggle.astro";
 
 interface Props {
@@ -44,7 +45,7 @@ const Wrapper = form ? "div" : "form";
 const wrapperProps = form ? {} : { action, method: "get" };
 ---
 
-<Wrapper class:list={["searchbar", `searchbar--${size}`]} role="search" {...wrapperProps}>
+<Wrapper class:list={["searchbar", `searchbar--${size}`, aiEndpoint && "searchbar--ai"]} role="search" {...wrapperProps}>
   <label class="visually-hidden" for={inputId}>{label}</label>
   <div class="searchbar__field" data-ai-field={aiEndpoint ? "" : undefined}>
     <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -64,6 +65,13 @@ const wrapperProps = form ? {} : { action, method: "get" };
   </div>
   {aiEndpoint && aiOn && <input type="hidden" name="ai" value="1" form={form} data-ai-input />}
   <button type="submit" class="searchbar__submit" form={form}>Search</button>
+  {
+    aiEndpoint && (
+      <p class="searchbar__ai-note" data-ai-disclosure hidden>
+        {AI_MODE_SEARCH_DISCLOSURE}
+      </p>
+    )
+  }
 </Wrapper>
 
 <style>
@@ -139,6 +147,23 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar__submit:hover {
     background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+
+  /* The notice under the field while AI Mode is on: on its own row, wrapped under the field and
+     the Search button. */
+  .searchbar--ai {
+    flex-wrap: wrap;
+  }
+  .searchbar__ai-note {
+    flex: 1 1 100%;
+    margin: 0;
+    padding-inline: var(--space-2);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--color-fg-muted);
+  }
+  .searchbar__ai-note[hidden] {
+    display: none;
   }
 
   /* AI Mode (board D2). Once the toggle is revealed the input leaves room for it. */

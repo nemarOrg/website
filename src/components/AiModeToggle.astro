@@ -1,4 +1,5 @@
 ---
+import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
 /**
  * The AI Mode toggle inside a search field (boards D1 and D2, website#518 and #519): a pill
  * button with `aria-pressed`, hidden until the browser has seen that the widget can open and the
@@ -23,12 +24,9 @@ interface Props {
 
 const { endpoint, size = "md", form, carryLinks = false } = Astro.props;
 
-// What the reader is told before turning it on: the browser posts the search and the top results'
-// titles and descriptions to the Open Science Assistant service, which passes them to a model
-// provider. The privacy policy (docs.nemar.org) is the canonical statement; this is the notice
-// at the point of use.
-const disclosure =
-  "AI Mode writes an overview of your search. When it is on, your search words and the titles and descriptions of the top results are sent to the Open Science Assistant service and an AI model provider.";
+// The notice is shown as visible text under the field while AI Mode is on (SearchBar, Home); the
+// `title` repeats it for pointer users.
+const disclosure = AI_MODE_SEARCH_DISCLOSURE;
 ---
 
 <button

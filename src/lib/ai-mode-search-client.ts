@@ -296,6 +296,9 @@ export function initAiModeSearch(win: Window, doc: Document): void {
         }
         for (const row of doc.querySelectorAll<HTMLElement>("[data-ai-try]")) row.hidden = !on;
         for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
+        for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-disclosure]")) {
+          note.hidden = !on;
+        }
         panel?.setOn(on);
       };
 

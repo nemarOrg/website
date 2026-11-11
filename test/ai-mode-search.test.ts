@@ -13,6 +13,7 @@ import TOGGLE from "../src/components/AiModeToggle.astro?raw";
 import PANEL from "../src/components/AiOverviewPanel.astro?raw";
 import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
 import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
+import { AI_MODE_SEARCH_DISCLOSURE } from "../src/lib/osa-ai-mode";
 import { OVERVIEW_ENDPOINTS, resolveOverviewEndpoint } from "../src/lib/osa-overview";
 import DISCOVER from "../src/pages/discover.astro?raw";
 import HOME from "../src/pages/index.astro?raw";
@@ -72,13 +73,31 @@ describe("the toggle", () => {
     expect(rule(styleOf(TOGGLE), ".ai-toggle[hidden]")).toMatch(/display:\s*none/);
   });
 
-  it("tells the reader, before they turn it on, that the search and results leave the site", () => {
+  it("carries the notice as its title too", () => {
     expect(tag).toMatch(/title=\{disclosure\}/);
-    const text = TOGGLE.match(/const disclosure =\s*"([^"]+)"/)?.[1] ?? "";
+    expect(TOGGLE).toMatch(/const disclosure = AI_MODE_SEARCH_DISCLOSURE;/);
+  });
+
+  it("tells the reader in visible text, while AI Mode is on, what leaves the site", () => {
+    const text = AI_MODE_SEARCH_DISCLOSURE;
     expect(text).toMatch(/search words/);
     expect(text).toMatch(/titles and descriptions of the top results/);
     expect(text).toMatch(/Open Science Assistant/);
     expect(text).toMatch(/AI model provider/);
+    // Discover (the shared SearchBar) and Home each render the text as a paragraph that starts
+    // hidden and that the client shows only while AI Mode is on; a tooltip alone does not reach
+    // touch, keyboard or most screen readers.
+    for (const [source, name] of [
+      [SEARCH_BAR, "SearchBar"],
+      [HOME, "Home"],
+    ] as const) {
+      const note = openingTag(source, "p", "data-ai-disclosure");
+      expect(note, name).toMatch(/\bhidden\b/);
+      expect(source, name).toMatch(/\{AI_MODE_SEARCH_DISCLOSURE\}/);
+    }
+    expect(rule(styleOf(SEARCH_BAR), ".searchbar__ai-note[hidden]")).toMatch(/display:\s*none/);
+    expect(rule(styleOf(HOME), ".hero__ai-note[hidden]")).toMatch(/display:\s*none/);
+    expect(CLIENT).toMatch(/\[data-ai-disclosure\][\s\S]{0,80}\.hidden = !on/);
   });
 
   it("reads 'AI Mode' and draws one magnifier with a sparkle, hidden from assistive technology", () => {
