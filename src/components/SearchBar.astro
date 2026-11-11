@@ -88,7 +88,7 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   {
     aiEndpoint && (
-      <p class="searchbar__ai-note" data-ai-disclosure hidden>
+      <p class="searchbar__ai-note" data-ai-disclosure>
         {AI_MODE_SEARCH_DISCLOSURE}
       </p>
     )
@@ -171,7 +171,8 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
 
   /* The notice under the field while AI Mode is on: on its own row, wrapped under the field and
-     the Search button. */
+     the Search button. The row is always laid out and drawn with visibility, so turning AI Mode on
+     or off moves nothing. */
   .searchbar--ai {
     flex-wrap: wrap;
   }
@@ -183,8 +184,8 @@ const wrapperProps = form ? {} : { action, method: "get" };
     line-height: 1.5;
     color: var(--color-fg-muted);
   }
-  .searchbar__ai-note[hidden] {
-    display: none;
+  .searchbar__ai-note:not([data-ai-visible]) {
+    visibility: hidden;
   }
   /* The line under the field for a search of one or two words: the smallest helper size the site
      has (--fs-xs), a muted site colour (dark values in tokens.css), never the error colour. It is
@@ -213,8 +214,16 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar__field[data-ai="on"] input[type="search"] {
     border: 0;
-    min-block-size: calc(44px - 3px);
     box-shadow: none;
+  }
+  /* The field is 44 px in both states, set rather than left to the input's own line height (which
+     made it 46 px off and 47 px on): the ring is 1.5 px on each side, taken from the input. */
+  .searchbar--ai input[type="search"] {
+    block-size: 44px;
+  }
+  .searchbar--ai .searchbar__field[data-ai="on"] input[type="search"] {
+    block-size: calc(44px - 3px);
+    min-block-size: calc(44px - 3px);
   }
   .searchbar__field[data-ai="on"]:has(input:focus-visible) {
     outline: 2px solid var(--color-focus);

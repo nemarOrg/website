@@ -175,7 +175,7 @@ Astro.response.headers.set(
           </>
         )}
         {aiEndpoint && (
-          <div class="hero__try" hidden data-ai-try>
+          <div class="hero__try" data-ai-try>
             <span class="hero__try-label">Try</span>
             {AI_EXAMPLES.map((example) => (
               <button type="button" class="hero__try-item" data-ai-try-item>{example}</button>
@@ -183,7 +183,7 @@ Astro.response.headers.set(
           </div>
         )}
         {aiEndpoint && (
-          <p class="hero__ai-note" data-ai-disclosure hidden>{AI_MODE_SEARCH_DISCLOSURE}</p>
+          <p class="hero__ai-note" data-ai-disclosure>{AI_MODE_SEARCH_DISCLOSURE}</p>
         )}
       </form>
 
@@ -555,11 +555,15 @@ Astro.response.headers.set(
     align-items: center;
     gap: var(--space-2);
     margin: var(--space-4) 0 0 var(--space-1);
+    /* One example's height: the row keeps its place whether it shows or not. */
+    min-block-size: 36px;
   }
-  .hero__try[hidden] {
-    display: none;
+  /* A slot, never display: none: the server renders the row whenever the endpoint is set and the
+     browser only shows or hides it, so turning AI Mode on or off moves nothing. */
+  .hero__try:not([data-ai-visible]) {
+    visibility: hidden;
   }
-  /* The notice that goes with AI Mode, shown while it is on. */
+  /* The notice that goes with AI Mode, shown while it is on; always laid out, like the Try row. */
   .hero__ai-note {
     max-inline-size: 44rem;
     margin: var(--space-3) 0 0 var(--space-1);
@@ -567,8 +571,8 @@ Astro.response.headers.set(
     line-height: 1.5;
     color: var(--ai-try-label);
   }
-  .hero__ai-note[hidden] {
-    display: none;
+  .hero__ai-note:not([data-ai-visible]) {
+    visibility: hidden;
   }
   .hero__try-label {
     margin-inline-end: 2px;

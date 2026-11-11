@@ -9,6 +9,9 @@
 
 import { describe, expect, it } from "vitest";
 import DEPLOY_TEST from "../.github/workflows/deploy-test.yml?raw";
+import E2E from "../e2e/ai-mode-field.spec.ts?raw";
+import PACKAGE from "../package.json?raw";
+import PLAYWRIGHT_CONFIG from "../playwright.config.ts?raw";
 import TOGGLE from "../src/components/AiModeToggle.astro?raw";
 import PANEL from "../src/components/AiOverviewPanel.astro?raw";
 import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
@@ -91,20 +94,24 @@ describe("the toggle", () => {
     expect(text).toMatch(/titles and descriptions of the top results/);
     expect(text).toMatch(/Open Science Assistant/);
     expect(text).toMatch(/AI model provider/);
-    // Discover (the shared SearchBar) and Home each render the text as a paragraph that starts
-    // hidden and that the client shows only while AI Mode is on; a tooltip alone does not reach
-    // touch, keyboard or most screen readers.
-    for (const [source, name] of [
-      [SEARCH_BAR, "SearchBar"],
-      [HOME, "Home"],
+    // Discover (the shared SearchBar) and Home each render the text as a paragraph that is always
+    // in the page (a slot drawn with visibility, so showing it moves nothing) and that the client
+    // shows only while AI Mode is on; a tooltip alone does not reach touch, keyboard or most screen
+    // readers.
+    for (const [source, name, selector] of [
+      [SEARCH_BAR, "SearchBar", ".searchbar__ai-note"],
+      [HOME, "Home", ".hero__ai-note"],
     ] as const) {
       const note = openingTag(source, "p", "data-ai-disclosure");
-      expect(note, name).toMatch(/\bhidden\b/);
+      expect(note, name).not.toMatch(/\bhidden\b/);
       expect(source, name).toMatch(/\{AI_MODE_SEARCH_DISCLOSURE\}/);
+      expect(rule(styleOf(source), `${selector}:not([data-ai-visible])`), name).toMatch(
+        /visibility:\s*hidden/,
+      );
     }
-    expect(rule(styleOf(SEARCH_BAR), ".searchbar__ai-note[hidden]")).toMatch(/display:\s*none/);
-    expect(rule(styleOf(HOME), ".hero__ai-note[hidden]")).toMatch(/display:\s*none/);
-    expect(CLIENT).toMatch(/\[data-ai-disclosure\][\s\S]{0,80}\.hidden = !on/);
+    expect(CLIENT).toMatch(
+      /\[data-ai-disclosure\][\s\S]{0,200}toggleAttribute\("data-ai-visible", on\)/,
+    );
   });
 
   it("reads 'AI Mode' and draws one magnifier with a sparkle, hidden from assistive technology", () => {
@@ -237,6 +244,49 @@ describe("the panel", () => {
     expect(CLIENT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|set:html/);
     expect(CLIENT).toContain("textContent");
     expect(CLIENT).toContain("createTextNode(segment.text)");
+  });
+});
+
+describe("the field stays put", () => {
+  it("has no hidden attribute to toggle on the Try row, the disclosure or the line", () => {
+    for (const [source, name] of [
+      [SEARCH_BAR, "SearchBar"],
+      [HOME, "Home"],
+    ] as const) {
+      for (const marker of ["data-ai-try", "data-ai-disclosure", "data-ai-hint"]) {
+        if (!source.includes(marker)) continue;
+        const tag = source.match(new RegExp(`<[a-z]+\\b[^>]*${marker}(?![-\\w])[^>]*>`))?.[0] ?? "";
+        expect(tag, `${name} ${marker}`).not.toMatch(/(?<![-\w])hidden\b/);
+      }
+    }
+    // The client shows and hides them with an attribute that only the visibility rules read.
+    expect(CLIENT).not.toMatch(/(?:row|slot|line)\.hidden/);
+  });
+
+  it("renders every slot whenever the endpoint is set, so the server reserves the space", () => {
+    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" data-ai-try>/);
+    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<p class="hero__ai-note" data-ai-disclosure>/);
+    expect(SEARCH_BAR).toMatch(
+      /aiEndpoint && \(\s*<p class="searchbar__ai-note" data-ai-disclosure>/,
+    );
+  });
+
+  it("keeps the Discover field 44 px in both states, set rather than left to the line height", () => {
+    const style = styleOf(SEARCH_BAR);
+    expect(rule(style, '.searchbar--ai input[type="search"]')).toMatch(/block-size:\s*44px/);
+    expect(
+      rule(style, '.searchbar--ai .searchbar__field[data-ai="on"] input[type="search"]'),
+    ).toMatch(/block-size:\s*calc\(44px - 3px\)/);
+  });
+
+  it("is checked in a browser: the field's top before and after the toggle, light, dark, phone", () => {
+    expect(E2E).toContain("getBoundingClientRect");
+    expect(E2E).toContain("TOLERANCE = 0.5");
+    for (const width of ["1280", "390"]) expect(E2E).toContain(width);
+    for (const scheme of ['"light"', '"dark"']) expect(E2E).toContain(scheme);
+    expect(E2E).toContain("scrollWidth");
+    expect(PLAYWRIGHT_CONFIG).toContain('testDir: "./e2e"');
+    expect(PACKAGE).toMatch(/"test:e2e":\s*"playwright test"/);
   });
 });
 
@@ -402,9 +452,11 @@ describe("Home", () => {
 
   it("wraps the field and shows the Try row only when the endpoint is set", () => {
     expect(HOME).toContain('const FieldControl = aiEndpoint ? "div" : Fragment;');
-    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" hidden data-ai-try>/);
+    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" data-ai-try>/);
     expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in plain words";');
-    expect(rule(styleOf(HOME), ".hero__try[hidden]")).toMatch(/display:\s*none/);
+    expect(rule(styleOf(HOME), ".hero__try:not([data-ai-visible])")).toMatch(
+      /visibility:\s*hidden/,
+    );
   });
 
   it("offers only examples the overview accepts: every one has at least three words", () => {

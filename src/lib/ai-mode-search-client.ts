@@ -349,11 +349,12 @@ export function initAiModeSearch(win: Window, doc: Document): void {
         label.textContent = on ? label.dataset.aiLabel : (label.dataset.aiLabelOff ?? "");
       }
     }
-    for (const row of doc.querySelectorAll<HTMLElement>("[data-ai-try]")) row.hidden = !on;
-    for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
-    for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-disclosure]")) {
-      note.hidden = !on;
+    // The Try row and the disclosure are slots that are always laid out (the server renders them
+    // whenever the endpoint is set) and drawn with `visibility`, so a switch moves nothing.
+    for (const slot of doc.querySelectorAll<HTMLElement>("[data-ai-try], [data-ai-disclosure]")) {
+      slot.toggleAttribute("data-ai-visible", on);
     }
+    for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
   };
 
   whenDocumentReady(
