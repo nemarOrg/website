@@ -13,6 +13,15 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **Discover says when the search API fixed a typo** (nemarOrg/website#516, nemar-cli ADR 0116 item 5).
+  When `GET /datasets/search` answers with `corrected_query`, a line under the search box reads "Showing results for `corrected words`", with a link "Search for `your words` instead" that keeps the other filters and adds `exact=1`.
+  A correction that is the query again after trimming, collapsing spaces and folding case and accents shows nothing.
+  `exact=1` is a new filter state: paging and filter changes carry it, a new query drops it (with JavaScript off the form keeps it, so new words typed there are searched as typed), and the search call sends `correct=0` in that mode.
+  The API ignores `correct=0` until nemar-cli#2132 lands; until then an `exact` search whose answer still carries a correction shows the line without the link, so the page never claims words it did not search.
+  The correction only runs in a catalog of at least 100 datasets, so test.nemar.org (the exemplar fleet) never shows the line.
+
 ## [0.2.37] - 2026-11-11
 
 This release must reach production before the nemar-cli API 0.10.33.

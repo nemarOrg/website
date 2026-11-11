@@ -279,6 +279,10 @@ export async function searchDatasets(
     limit?: number;
     offset?: number;
     filters?: SearchFilters;
+    /** Search the words as typed: sends `correct=0`, which turns off the
+     *  endpoint's spelling correction (nemar-cli#2132). An API that predates the
+     *  parameter ignores it, and then still answers with `corrected_query`. */
+    exact?: boolean;
     signal?: AbortSignal;
     timeoutMs?: number;
   } = {},
@@ -288,6 +292,7 @@ export async function searchDatasets(
   // way the backend accepts them.
   const rest = buildQuery({ ...init.filters, limit: init.limit, offset: init.offset });
   for (const [key, value] of new URLSearchParams(rest)) sp.set(key, value);
+  if (init.exact) sp.set("correct", "0");
   const url = `${apiBase()}/datasets/search?${sp.toString()}`;
   return cachedJson<DatasetSearchResponse>(url, {
     signal: resolveSignal(init),

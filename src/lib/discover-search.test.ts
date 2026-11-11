@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SEARCH_WINDOW, pageSearch, planSearch } from "./discover-search";
+import fixture from "../../test/fixtures/search-corrected-query.json";
+import { SEARCH_WINDOW, correctionNotice, pageSearch, planSearch } from "./discover-search";
 import { filterStateFromURL } from "./filters";
 import type { DatasetSearchResponse, SearchResult } from "./types";
 
@@ -144,5 +145,107 @@ describe("pageSearch: client-only filters over the best window", () => {
     const state = url("q=eeg&density=high&p_min=1");
     const rows = [hit("a"), hit("b")];
     expect(pageSearch(planSearch(state), answer(rows, 2), state).slice).toHaveLength(2);
+  });
+});
+
+// A search answer recorded from api.nemar.org for "bilinugual" (test/fixtures).
+const typoAnswer = fixture as unknown as DatasetSearchResponse;
+
+describe("correctionNotice", () => {
+  it("reads the recorded fixture the way the API shapes it", () => {
+    expect(typoAnswer.corrected_query).toBe("bilingual");
+    expect(typoAnswer.results.length).toBeGreaterThan(0);
+    expect(typoAnswer.count).toBeGreaterThanOrEqual(typoAnswer.returned ?? 0);
+    expect(typeof typoAnswer.method).toBe("string");
+  });
+
+  it("gives the corrected words and a link to the original ones, keeping the filters and dropping the page", () => {
+    const state = url("q=bilinugual&modality=EEG&license=public&has_hed=1&page=3");
+    const notice = correctionNotice(state, typoAnswer);
+    expect(notice?.corrected).toBe("bilingual");
+    const href = new URL(notice?.originalHref ?? "", "https://nemar.org");
+    expect(href.pathname).toBe("/discover");
+    expect(href.searchParams.get("q")).toBe("bilinugual");
+    expect(href.searchParams.get("exact")).toBe("1");
+    expect(href.searchParams.get("modality")).toBe("EEG");
+    expect(href.searchParams.get("license")).toBe("public");
+    expect(href.searchParams.get("has_hed")).toBe("1");
+    expect(href.searchParams.has("page")).toBe(false);
+  });
+
+  it("links to a query whose address means the original words, not the corrected ones", () => {
+    const state = url("q=bilinugual%20eeg&page=2");
+    const href = correctionNotice(state, typoAnswer)?.originalHref ?? "";
+    const back = filterStateFromURL(new URL(href, "https://nemar.org").searchParams);
+    expect(back.q).toBe("bilinugual eeg");
+    expect(back.exact).toBe(true);
+    expect(back.page).toBe(1);
+  });
+
+  it("is null when the answer carries no correction", () => {
+    const { corrected_query: _drop, ...plain } = typoAnswer;
+    expect(correctionNotice(url("q=bilinugual"), plain as DatasetSearchResponse)).toBeNull();
+    expect(correctionNotice(url("q=eeg"), answer([hit("a")], 1))).toBeNull();
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace", "   \t "],
+    ["a number", 7],
+    ["null", null],
+    ["an object", { text: "bilingual" }],
+  ])("is null when corrected_query is %s", (_name, value) => {
+    const res = { ...typoAnswer, corrected_query: value } as unknown as DatasetSearchResponse;
+    expect(correctionNotice(url("q=bilinugual"), res)).toBeNull();
+  });
+
+  it.each([
+    ["trimmed", "q=sleep+spindles", "sleep spindles"],
+    ["spaces collapsed", "q=sleep+++spindles", "sleep spindles"],
+    ["case folded", "q=Sleep+SPINDLES", "sleep spindles"],
+    ["accents folded", "q=caf%C3%A9+r%C3%AAve", "cafe reve"],
+    ["all four at once", "q=++Caf%C3%A9+++R%C3%8AVE+", "cafe reve"],
+  ])("is null when the correction is the query once %s", (_name, qs, corrected) => {
+    const res = { ...typoAnswer, corrected_query: corrected } as DatasetSearchResponse;
+    expect(correctionNotice(url(qs), res)).toBeNull();
+  });
+
+  it("is not null when a word really changed", () => {
+    const res = { ...typoAnswer, corrected_query: "cafe reve" } as DatasetSearchResponse;
+    expect(correctionNotice(url("q=cafe+revee"), res)?.corrected).toBe("cafe reve");
+  });
+
+  it("in exact mode keeps the line but offers no link, because the API ignored correct=0", () => {
+    const notice = correctionNotice(url("q=bilinugual&exact=1&modality=EEG"), typoAnswer);
+    expect(notice).toEqual({ corrected: "bilingual", originalHref: null });
+  });
+
+  it("in exact mode says nothing when the API honored correct=0", () => {
+    const { corrected_query: _drop, ...plain } = typoAnswer;
+    expect(
+      correctionNotice(url("q=bilinugual&exact=1"), plain as DatasetSearchResponse),
+    ).toBeNull();
+  });
+});
+
+describe("pageSearch: correction", () => {
+  it("rides along when the endpoint pages", () => {
+    const state = url("q=bilinugual");
+    const r = pageSearch(planSearch(state), typoAnswer, state);
+    expect(r.correction?.corrected).toBe("bilingual");
+  });
+
+  it("rides along over the window", () => {
+    const state = url("q=bilinugual&p_min=1");
+    const plan = planSearch(state);
+    expect(plan.mode).toBe("window");
+    expect(pageSearch(plan, typoAnswer, state).correction?.corrected).toBe("bilingual");
+  });
+
+  it("is null when there is none", () => {
+    const state = url("q=eeg");
+    expect(pageSearch(planSearch(state), answer([hit("a")], 1), state).correction).toBeNull();
+    const w = url("q=eeg&p_min=1");
+    expect(pageSearch(planSearch(w), answer([hit("a")], 1), w).correction).toBeNull();
   });
 });
