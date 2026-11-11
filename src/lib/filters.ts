@@ -82,6 +82,10 @@ export interface FilterState {
    *  `has_zarr` predicate as {@link FilterState.hasZarr}; it is a separate
    *  control because it answers "can I look at it", not "which format". */
   hasViewer: boolean;
+  /** Search the words as typed (`exact=1`). The API corrects a word that matches
+   *  no dataset; this is the reader's "search for what I wrote" answer to that
+   *  correction, and it sends `correct=0` to the search endpoint. */
+  exact: boolean;
   sort: SortOption;
   page: number; // 1-based
   pageSize: number;
@@ -105,6 +109,7 @@ export function defaultFilterState(): FilterState {
     hasHed: false,
     hasZarr: false,
     hasViewer: false,
+    exact: false,
     sort: "newest",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
@@ -198,6 +203,8 @@ export function filterStateFromURL(params: URLSearchParams): FilterState {
   // filter that replaced it, and re-serializes as `has_viewer`.
   s.hasViewer = params.get("has_viewer") === "1" || params.get("has_zarr_verified") === "1";
 
+  s.exact = params.get("exact") === "1";
+
   s.sort = parseSort(params.get("sort"));
 
   const page = parseIntOrNull(params.get("page"));
@@ -233,6 +240,7 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.hasHed) sp.set("has_hed", "1");
   if (state.hasZarr) sp.set("has_zarr", "1");
   if (state.hasViewer) sp.set("has_viewer", "1");
+  if (state.exact) sp.set("exact", "1");
   if (state.sort !== "newest") sp.set("sort", state.sort);
   if (state.page > 1) sp.set("page", String(state.page));
   if (state.pageSize !== DEFAULT_PAGE_SIZE) sp.set("page_size", String(state.pageSize));
