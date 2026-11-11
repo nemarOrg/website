@@ -193,6 +193,43 @@
   --ai-hint-action-border: var(--brand-teal);
   --ai-hint-action-fg: #e6f6fb;
   --ai-hint-shadow: 0 12px 30px rgb(6 17 42 / 25%);
+
+  /* AI Mode in search (the toggle inside the search field, its teal-to-purple ring, the "Try"
+     row on Home and the AI overview panel above Discover's results; boards D1 and D2).
+     "On" is the site's AI Mode tint, #e3f4f9 with #0b4f63 text; the ring is the Download
+     headline's gradient. */
+  --ai-ring-gradient: linear-gradient(92deg, var(--brand-teal), var(--brand-purple));
+  --ai-ring-shadow: 0 10px 32px rgb(96 60 186 / 22%);
+  --ai-toggle-on-bg: #e3f4f9;
+  --ai-toggle-on-fg: #0b4f63;
+  --ai-toggle-on-border: #9fd6e6;
+  --ai-toggle-off-bg: #f1f5f9;
+  --ai-toggle-off-fg: #334155;
+  /* The hero's search field is white in both themes (--hero-search-bg), so the toggle inside it
+     keeps the light values whatever the theme; these have no dark counterpart on purpose. */
+  --ai-toggle-field-on-bg: #e3f4f9;
+  --ai-toggle-field-on-fg: #0b4f63;
+  --ai-toggle-field-on-border: #9fd6e6;
+  --ai-toggle-field-off-bg: #f1f5f9;
+  --ai-toggle-field-off-fg: #334155;
+  --ai-try-label: #475569;
+  --ai-try-bg: rgb(255 255 255 / 85%);
+  --ai-try-border: #cbd5e1;
+  --ai-try-fg: #0f172a;
+  --ai-panel-bg: #f5fbfd;
+  --ai-panel-border: #b9e0eb;
+  --ai-panel-fg: #1f2937;
+  --ai-panel-title: #0b1a3a;
+  --ai-panel-muted: #475569;
+  --ai-panel-accent: #0e7490;
+  --ai-panel-skeleton-a: #d9eef4;
+  --ai-panel-skeleton-b: #e4f3f7;
+  --ai-panel-chip-bg: #ffffff;
+  --ai-panel-chip-border: #cfe7ef;
+  --ai-panel-divider: #cfe7ef;
+  --ai-panel-badge: #0e5a70;
+  --ai-panel-action-bg: #0e7490;
+  --ai-panel-action-fg: #ffffff;
 }
 
 /* Dark theme: auto via prefers-color-scheme, overridden by explicit [data-theme]. */
@@ -274,6 +311,31 @@
     --ai-hint-bg: var(--color-bg-subtle);
     --ai-hint-border: color-mix(in srgb, var(--brand-teal) 45%, var(--color-bg-subtle));
     --ai-hint-shadow: 0 12px 30px rgb(0 0 0 / 45%);
+
+    --ai-ring-shadow: 0 10px 32px rgb(96 60 186 / 45%);
+    --ai-toggle-on-bg: #123b4b;
+    --ai-toggle-on-fg: #bfe9f5;
+    --ai-toggle-on-border: #2f7f98;
+    --ai-toggle-off-bg: #1e2a44;
+    --ai-toggle-off-fg: #cbd5e1;
+    --ai-try-label: rgb(226 232 240 / 82%);
+    --ai-try-bg: rgb(255 255 255 / 8%);
+    --ai-try-border: rgb(255 255 255 / 22%);
+    --ai-try-fg: #f1f5f9;
+    --ai-panel-bg: #0d2236;
+    --ai-panel-border: #1f4f66;
+    --ai-panel-fg: #e2e8f0;
+    --ai-panel-title: #f1f5f9;
+    --ai-panel-muted: #cbd5e1;
+    --ai-panel-accent: #7dd3e8;
+    --ai-panel-skeleton-a: #17394f;
+    --ai-panel-skeleton-b: #1d465f;
+    --ai-panel-chip-bg: #0a1a2b;
+    --ai-panel-chip-border: #245a73;
+    --ai-panel-divider: #1f4f66;
+    --ai-panel-badge: #9fd6e6;
+    --ai-panel-action-bg: #5bbad5;
+    --ai-panel-action-fg: #04121f;
   }
 }
 
@@ -356,4 +418,29 @@
   --ai-hint-bg: var(--color-bg-subtle);
   --ai-hint-border: color-mix(in srgb, var(--brand-teal) 45%, var(--color-bg-subtle));
   --ai-hint-shadow: 0 12px 30px rgb(0 0 0 / 45%);
+
+  --ai-ring-shadow: 0 10px 32px rgb(96 60 186 / 45%);
+  --ai-toggle-on-bg: #123b4b;
+  --ai-toggle-on-fg: #bfe9f5;
+  --ai-toggle-on-border: #2f7f98;
+  --ai-toggle-off-bg: #1e2a44;
+  --ai-toggle-off-fg: #cbd5e1;
+  --ai-try-label: rgb(226 232 240 / 82%);
+  --ai-try-bg: rgb(255 255 255 / 8%);
+  --ai-try-border: rgb(255 255 255 / 22%);
+  --ai-try-fg: #f1f5f9;
+  --ai-panel-bg: #0d2236;
+  --ai-panel-border: #1f4f66;
+  --ai-panel-fg: #e2e8f0;
+  --ai-panel-title: #f1f5f9;
+  --ai-panel-muted: #cbd5e1;
+  --ai-panel-accent: #7dd3e8;
+  --ai-panel-skeleton-a: #17394f;
+  --ai-panel-skeleton-b: #1d465f;
+  --ai-panel-chip-bg: #0a1a2b;
+  --ai-panel-chip-border: #245a73;
+  --ai-panel-divider: #1f4f66;
+  --ai-panel-badge: #9fd6e6;
+  --ai-panel-action-bg: #5bbad5;
+  --ai-panel-action-fg: #04121f;
 }

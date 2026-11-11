@@ -26,6 +26,23 @@ The release pull request from `staging` to `main` moves those entries under the 
   The pill shows only when the widget loaded and has an `open` method, so a build with no widget, a blocked script, and production's older pinned widget keep it hidden.
   A one-time hint under the pill says what it is, with a "How it works" link to docs.nemar.org and a "Got it" button; it is dismissed by either, by using the pill, and is remembered in the browser (`nemar:ai-mode-hint:v1`).
   The logic is in `src/lib/osa-ai-mode.ts`, with the hint's colours as tokens for both themes.
+- **An AI Mode toggle in Discover's search field and an AI overview above the results** (nemarOrg/website#518, board D2 of the NEMAR AI plan).
+  The toggle is a 36 px pill with `aria-pressed` inside the 44 px field; on, the field gets a teal-to-purple ring and a panel above the results reads the top ten matches and answers in about a hundred words, with each dataset id a link, up to three picks, "Ask a follow-up" into the assistant's centre-stage dialog, and "Written by AI from these search results".
+  The panel has loading, answer and error states (a rate limit is worded apart from other failures, and every error offers Try again); its text is set as plain text, and an answer that names a dataset the search did not return is shown as an error.
+  The choice is remembered in the browser (`nemar:ai-mode-search:v1`) and carried as `ai=1`, which survives searching, filtering, sorting and paging; `ai=1` in the address wins over the remembered choice.
+  Discover is cached at the edge for everyone, so the page embeds the request as a JSON data island, only for a successful search on page 1 with results, and the browser posts it to OSA's `/nemar/overview` when AI Mode is on.
+  The toggle shows only when the assistant widget loaded and can be opened, and the build sets `PUBLIC_OSA_OVERVIEW_URL`.
+  Staging (`deploy-test.yml`) sets it to the develop worker; `wrangler.toml` does not, so production shows no toggle until a release adds it (ADR 0032).
+- **The same toggle in the Home hero's search field** (nemarOrg/website#519, board D1).
+  A 44 px pill with a 15 px label and a 22 px icon; on, the field gets the ring of the "Download" headline, the placeholder reads "Describe the data you need, in plain words", and a "Try" row offers three example searches that fill the field and submit it.
+  Submitting while on goes to `/discover?q=...&ai=1`; off, or with no setting, the form submits exactly what it did.
+  The toggle's icon, a magnifier with a sparkle, is the only AI mark in the field.
+  New colours are tokens with dark values (`--ai-toggle-*`, `--ai-try-*`, `--ai-panel-*`, `--ai-ring-*`).
+
+### Fixed
+
+- **Discover no longer scrolls sideways at phone width.**
+  The single column of the layout below 880 px was `1fr`, whose minimum is the content's, so the filter chips pushed it past a 390 px viewport; it is now `minmax(0, 1fr)`.
 
 ## [0.2.37] - 2026-11-11
 

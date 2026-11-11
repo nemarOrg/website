@@ -220,6 +220,29 @@ describe("filterStateToURL", () => {
     expect(filterStateFromURL(new URLSearchParams("q=a&exact=0")).exact).toBe(false);
     expect(filterStateFromURL(new URLSearchParams("q=a&exact=true")).exact).toBe(false);
   });
+  it("roundtrips ai=1 through the URL beside the other params, and changes nothing the API is asked", () => {
+    const s = defaultFilterState();
+    expect(s.ai).toBe(false);
+    expect(filterStateToURL(s).has("ai")).toBe(false);
+    s.q = "faces";
+    s.modalities = ["EEG"];
+    s.page = 2;
+    s.ai = true;
+    const sp = filterStateToURL(s);
+    expect(sp.get("ai")).toBe("1");
+    const parsed = filterStateFromURL(sp);
+    expect(parsed.ai).toBe(true);
+    expect(parsed.page).toBe(2);
+    expect(filterStateToSearchFilters(parsed)).toEqual(
+      filterStateToSearchFilters({ ...parsed, ai: false }),
+    );
+    expect(filterStateToAPIQuery(parsed)).toEqual(filterStateToAPIQuery({ ...parsed, ai: false }));
+    parsed.ai = false;
+    expect(filterStateToURL(parsed).has("ai")).toBe(false);
+    // Only 1 means on, like the other flags.
+    expect(filterStateFromURL(new URLSearchParams("q=a&ai=0")).ai).toBe(false);
+    expect(filterStateFromURL(new URLSearchParams("q=a&ai=true")).ai).toBe(false);
+  });
   it("re-serializes a legacy has_zarr_verified link as has_viewer", () => {
     const sp = filterStateToURL(filterStateFromURL(new URLSearchParams("has_zarr_verified=1")));
     expect(sp.get("has_viewer")).toBe("1");
