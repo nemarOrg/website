@@ -173,8 +173,14 @@ class OverviewPanel {
     });
   }
 
+  /** Switching off renders synchronously, so a render bug would throw here and skip the rest of
+   *  the toggle's steps (the field, the address, the links); it is logged instead. */
   setOn(on: boolean): void {
-    void this.controller.setOn(on);
+    try {
+      void this.controller.setOn(on);
+    } catch (err) {
+      console.warn("[ai-overview] the panel could not be updated:", err);
+    }
   }
 
   private render(view: PanelView): void {

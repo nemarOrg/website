@@ -179,17 +179,27 @@ describe("the panel", () => {
     expect(tag).toMatch(/is:inline/);
   });
 
-  it("sits above the results on Discover, only when a request exists", () => {
+  it("sits above the results on Discover, only when a request exists, and above the filters on a phone", () => {
     expect(DISCOVER).toMatch(/<AiOverviewPanel request=\{aiRequest\} pageNote=\{aiPageNote\} \/>/);
-    expect(DISCOVER).toMatch(/\{\(aiRequest \|\| aiPageNote\) && /);
-    expect(DISCOVER.indexOf("<AiOverviewPanel")).toBeGreaterThan(
-      DISCOVER.indexOf('class="discover__results"'),
-    );
-    expect(DISCOVER.indexOf("<AiOverviewPanel")).toBeLessThan(
-      DISCOVER.indexOf('class="discover__toolbar"'),
-    );
+    expect(DISCOVER).toMatch(/\(aiRequest \|\| aiPageNote\) && \(/);
+    // Its own grid row beside the rail, between the rail and the results in the markup.
+    const panel = DISCOVER.indexOf("<AiOverviewPanel");
+    expect(panel).toBeGreaterThan(DISCOVER.indexOf('class="discover__rail"'));
+    expect(panel).toBeLessThan(DISCOVER.indexOf('class="discover__results"'));
+    const style = styleOf(DISCOVER);
+    expect(rule(style, ".discover__overview")).toMatch(/grid-area:\s*overview/);
+    expect(rule(style, ".discover__layout")).toMatch(/"rail overview"\s*"rail results"/);
+    // One column at 880 px and below: the overview first, then the filters, then the results.
+    const phone = style.slice(style.indexOf("@media (max-width: 880px)"));
+    expect(phone).toMatch(/"overview"\s*"rail"\s*"results"/);
     expect(DISCOVER).toContain("overviewRequestForPage({");
     expect(DISCOVER).toContain("failed: fetchError !== null");
+  });
+
+  it("guards the switch off like the switch on, so a render bug cannot skip the other toggle steps", () => {
+    expect(CLIENT).toMatch(
+      /setOn\(on: boolean\): void \{\s*try \{\s*void this\.controller\.setOn\(on\);\s*\} catch \(err\) \{\s*console\.warn\(/,
+    );
   });
 
   it("is built inside a try/catch that logs, so an odd catalog row cannot fail the page", () => {
