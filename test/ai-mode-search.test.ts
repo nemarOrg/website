@@ -72,6 +72,15 @@ describe("the toggle", () => {
     expect(rule(styleOf(TOGGLE), ".ai-toggle[hidden]")).toMatch(/display:\s*none/);
   });
 
+  it("tells the reader, before they turn it on, that the search and results leave the site", () => {
+    expect(tag).toMatch(/title=\{disclosure\}/);
+    const text = TOGGLE.match(/const disclosure =\s*"([^"]+)"/)?.[1] ?? "";
+    expect(text).toMatch(/search words/);
+    expect(text).toMatch(/titles and descriptions of the top results/);
+    expect(text).toMatch(/Open Science Assistant/);
+    expect(text).toMatch(/AI model provider/);
+  });
+
   it("reads 'AI Mode' and draws one magnifier with a sparkle, hidden from assistive technology", () => {
     expect(words(markup)).toBe("AI Mode");
     const svgs = markup.match(/<svg\b[^>]*>/g) ?? [];

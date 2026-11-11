@@ -22,12 +22,20 @@ interface Props {
 }
 
 const { endpoint, size = "md", form, carryLinks = false } = Astro.props;
+
+// What the reader is told before turning it on: the browser posts the search and the top results'
+// titles and descriptions to the Open Science Assistant service, which passes them to a model
+// provider. The privacy policy (docs.nemar.org) is the canonical statement; this is the notice
+// at the point of use.
+const disclosure =
+  "AI Mode writes an overview of your search. When it is on, your search words and the titles and descriptions of the top results are sent to the Open Science Assistant service and an AI model provider.";
 ---
 
 <button
   type="button"
   class:list={["ai-toggle", `ai-toggle--${size}`]}
   aria-pressed="false"
+  title={disclosure}
   hidden
   data-ai-toggle
   data-ai-endpoint={endpoint}
