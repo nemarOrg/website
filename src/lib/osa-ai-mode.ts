@@ -446,3 +446,48 @@ export function aiHintAnnouncement(wasShown: boolean, shown: boolean): string | 
   if (shown === wasShown) return null;
   return shown ? AI_MODE_HINT : "";
 }
+
+/** What {@link AiHintState} reports after a change: whether the line is drawn, and what the live
+ *  region is set to (`null` for no change). */
+export interface AiHintUpdate {
+  shown: boolean;
+  announcement: string | null;
+}
+
+/**
+ * The line under the field as a state machine with no DOM: whether AI Mode is on, whether the
+ * endpoint refused the search for its length, and whether the line is drawn now. Each change takes
+ * the field's current value and returns what to draw and announce. A refusal belongs to the
+ * request just made, so typing, and a switch off and on, clear it.
+ */
+export class AiHintState {
+  private on = false;
+  private refused = false;
+  private shown = false;
+
+  /** The reader edited the field. */
+  onInput(query: string): AiHintUpdate {
+    this.refused = false;
+    return this.update(query);
+  }
+
+  /** The reader switched AI Mode. */
+  setOn(on: boolean, query: string): AiHintUpdate {
+    this.on = on;
+    this.refused = false;
+    return this.update(query);
+  }
+
+  /** The endpoint refused the search for its length. */
+  refuse(query: string): AiHintUpdate {
+    this.refused = true;
+    return this.update(query);
+  }
+
+  private update(query: string): AiHintUpdate {
+    const shown = aiHintShown(this.on, query, this.refused);
+    const announcement = aiHintAnnouncement(this.shown, shown);
+    this.shown = shown;
+    return { shown, announcement };
+  }
+}

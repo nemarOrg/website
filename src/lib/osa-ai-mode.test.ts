@@ -3,6 +3,7 @@ import { FOLLOW_UP_LABEL, type OverviewPanelState, panelView } from "./ai-overvi
 import {
   AI_MODE_HINT_STORAGE_KEY,
   AI_MODE_SEARCH_STORAGE_KEY,
+  AiHintState,
   type AiModeDocument,
   type AiModeLoadTarget,
   type AiModePageWindow,
@@ -694,5 +695,54 @@ describe("the line under the field", () => {
     expect(aiHintAnnouncement(true, true)).toBeNull();
     expect(aiHintAnnouncement(false, false)).toBeNull();
     expect(aiHintAnnouncement(true, false)).toBe("");
+  });
+
+  describe("AiHintState, the machine behind it", () => {
+    it("shows and announces on a short search, and clears both when it gets longer", () => {
+      const state = new AiHintState();
+      expect(state.setOn(true, "EEG")).toEqual({ shown: true, announcement: AI_MODE_HINT });
+      expect(state.onInput("EEG d")).toEqual({ shown: true, announcement: null });
+      expect(state.onInput("EEG data in")).toEqual({ shown: false, announcement: "" });
+      expect(state.onInput("EEG data")).toEqual({ shown: true, announcement: AI_MODE_HINT });
+    });
+
+    it("is never shown while AI Mode is off, and a switch on reads the field as it is", () => {
+      const state = new AiHintState();
+      expect(state.onInput("EEG")).toEqual({ shown: false, announcement: null });
+      expect(state.setOn(true, "EEG")).toEqual({ shown: true, announcement: AI_MODE_HINT });
+      expect(state.setOn(false, "EEG")).toEqual({ shown: false, announcement: "" });
+      expect(state.setOn(true, "face recognition EEG")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+    });
+
+    it("shows a refusal for a long search, and typing resets it", () => {
+      const state = new AiHintState();
+      state.setOn(true, "face recognition EEG");
+      expect(state.refuse("face recognition EEG")).toEqual({
+        shown: true,
+        announcement: AI_MODE_HINT,
+      });
+      // The refusal belongs to the request just made: the next keystroke clears it.
+      expect(state.onInput("face recognition EEG x")).toEqual({ shown: false, announcement: "" });
+      // And it does not come back by itself.
+      expect(state.onInput("face recognition EEG xy")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+    });
+
+    it("clears a refusal on a switch off and on, and shows none for an empty field", () => {
+      const state = new AiHintState();
+      state.setOn(true, "face recognition EEG");
+      state.refuse("face recognition EEG");
+      state.setOn(false, "face recognition EEG");
+      expect(state.setOn(true, "face recognition EEG")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+      expect(state.refuse("")).toEqual({ shown: false, announcement: null });
+    });
   });
 });

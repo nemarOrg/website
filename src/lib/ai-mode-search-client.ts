@@ -26,11 +26,11 @@ import {
   seedText,
 } from "./ai-overview-panel";
 import {
+  AiHintState,
+  type AiHintUpdate,
   type AiModeLoadTarget,
   type AiModePageWindow,
   type AiModeWindow,
-  aiHintAnnouncement,
-  aiHintShown,
   aiLinkHref,
   aiModeSearchAvailable,
   aiModeSeedAvailable,
@@ -159,6 +159,14 @@ function renderBody(
   }
   if (view.footnote) foot.append(element(doc, "span", "ai-overview__note", view.footnote));
   body.append(foot);
+  // Empty until "Ask a follow-up" fails: a live region that already exists announces a change to
+  // its text, one inserted with its text does not.
+  if (view.followUp) {
+    const failed = element(doc, "p", "ai-overview__error ai-overview__failed");
+    failed.setAttribute("role", "status");
+    failed.setAttribute("data-ai-follow-up-failed", "");
+    body.append(failed);
+  }
 }
 
 /** The overview panel above the results: the DOM around an {@link OverviewController}, which
@@ -239,13 +247,9 @@ class OverviewPanel {
       this.win as unknown as AiModeWindow,
       seedText(this.request.query, state.answer, this.win.location.origin),
     );
-    const foot = button.parentElement;
-    foot?.querySelector("[data-ai-follow-up-failed]")?.remove();
-    if (took || !foot) return;
-    const note = element(this.doc, "p", "ai-overview__error", FOLLOW_UP_FAILED);
-    note.setAttribute("role", "status");
-    note.setAttribute("data-ai-follow-up-failed", "");
-    foot.append(note);
+    // The status element is in the page from the panel's draw, empty, so its text is announced.
+    const note = this.section.querySelector<HTMLElement>("[data-ai-follow-up-failed]");
+    if (note) note.textContent = took ? "" : FOLLOW_UP_FAILED;
   }
 }
 
@@ -255,7 +259,7 @@ class OverviewPanel {
 
 /**
  * The one small line under the search field (website#525), for AI Mode on and a search of one or
- * two words. What decides it is `aiHintShown`, from the field's live value, so it follows typing
+ * two words. What decides it is `AiHintState`, from the field's live value, so it follows typing
  * (Home and Discover alike) and, on Discover, starts from the submitted query the field holds.
  * A 422 from the endpoint shows it too ({@link refuse}) until the reader edits the field.
  *
@@ -264,37 +268,29 @@ class OverviewPanel {
  * (`[data-ai-hint-status]`) says it once per appearance, set on the transition only.
  */
 class UnderFieldHint {
-  private on = false;
-  private refused = false;
-  private shown = false;
+  private readonly state = new AiHintState();
 
   constructor(
     private readonly doc: Document,
     private readonly input: HTMLInputElement | null,
   ) {
-    input?.addEventListener("input", () => {
-      this.refused = false;
-      this.update();
-    });
+    input?.addEventListener("input", () => this.apply(this.state.onInput(this.query())));
   }
 
   setOn(on: boolean): void {
-    this.on = on;
-    // A refusal belongs to the request just made; a switch off and on asks again.
-    this.refused = false;
-    this.update();
+    this.apply(this.state.setOn(on, this.query()));
   }
 
   /** The endpoint refused the search for its length: the line says why, for what is in the field. */
   refuse(): void {
-    this.refused = true;
-    this.update();
+    this.apply(this.state.refuse(this.query()));
   }
 
-  private update(): void {
-    const shown = aiHintShown(this.on, this.input?.value ?? "", this.refused);
-    const announcement = aiHintAnnouncement(this.shown, shown);
-    this.shown = shown;
+  private query(): string {
+    return this.input?.value ?? "";
+  }
+
+  private apply({ shown, announcement }: AiHintUpdate): void {
     for (const line of this.doc.querySelectorAll<HTMLElement>("[data-ai-hint]")) {
       line.toggleAttribute("data-ai-visible", shown);
     }

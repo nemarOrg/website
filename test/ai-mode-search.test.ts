@@ -332,7 +332,8 @@ describe("the line under the field", () => {
       expect(tag, name).toMatch(/visually-hidden/);
     }
     expect(CLIENT).toMatch(/if \(announcement === null\) return;/);
-    expect(CLIENT).toContain("aiHintAnnouncement(this.shown, shown)");
+    // The state machine (unit-tested in osa-ai-mode.test.ts) decides; the client only draws it.
+    expect(CLIENT).toContain("new AiHintState()");
     // It follows the field as the reader types, and shows for a 422 too.
     expect(CLIENT).toMatch(/addEventListener\("input"/);
     expect(CLIENT).toContain('state.kind === "refused"');
