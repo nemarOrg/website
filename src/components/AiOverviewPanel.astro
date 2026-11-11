@@ -20,26 +20,38 @@ import { escapeJsonLdForScript } from "../lib/jsonld";
 import type { OverviewRequest } from "../lib/osa-overview";
 
 interface Props {
-  request: OverviewRequest;
+  /** The request the overview is written from; null on a page that has none. */
+  request: OverviewRequest | null;
+  /** Page 2 and later: no overview, and a note (shown while AI Mode is on) says why. */
+  pageNote?: boolean;
 }
 
-const { request } = Astro.props;
-const island = escapeJsonLdForScript(JSON.stringify(request));
+const { request, pageNote = false } = Astro.props;
+const island = request ? escapeJsonLdForScript(JSON.stringify(request)) : "";
 ---
 
-<div class="visually-hidden" role="status" aria-live="polite" data-ai-status></div>
-<section class="ai-overview" aria-label="AI overview" aria-busy="false" data-ai-overview hidden>
-  <div class="ai-overview__head">
-    <svg class="ai-overview__mark" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor"></path>
-    </svg>
-    <h2 class="ai-overview__title" tabindex="-1" data-ai-heading>AI overview</h2>
-    <span class="ai-overview__status ai-overview__status--quiet" aria-hidden="true" data-ai-status-text></span>
-    <span class="ai-overview__badge" data-ai-badge hidden>Experimental</span>
-  </div>
-  <div class="ai-overview__body" data-ai-body></div>
-</section>
-<script type="application/json" data-ai-overview-request set:html={island} is:inline />
+{request && (
+  <>
+    <div class="visually-hidden" role="status" aria-live="polite" data-ai-status></div>
+    <section class="ai-overview" aria-label="AI overview" aria-busy="false" data-ai-overview hidden>
+      <div class="ai-overview__head">
+        <svg class="ai-overview__mark" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor"></path>
+        </svg>
+        <h2 class="ai-overview__title" tabindex="-1" data-ai-heading>AI overview</h2>
+        <span class="ai-overview__status ai-overview__status--quiet" aria-hidden="true" data-ai-status-text></span>
+        <span class="ai-overview__badge" data-ai-badge hidden>Experimental</span>
+      </div>
+      <div class="ai-overview__body" data-ai-body></div>
+    </section>
+    <script type="application/json" data-ai-overview-request set:html={island} is:inline />
+  </>
+)}
+{pageNote && (
+  <p class="ai-overview-note" data-ai-note hidden>
+    The AI overview reads the first page of results. Go to page 1 to see it.
+  </p>
+)}
 
 <style is:global>
   /* Global on purpose: the body is built by script, and Astro's scoped styles would not reach
@@ -56,6 +68,14 @@ const island = escapeJsonLdForScript(JSON.stringify(request));
     margin-block-end: var(--space-4);
   }
   .ai-overview[hidden] {
+    display: none;
+  }
+  .ai-overview-note {
+    margin: 0 0 var(--space-4);
+    font-size: var(--fs-sm);
+    color: var(--ai-panel-muted);
+  }
+  .ai-overview-note[hidden] {
     display: none;
   }
   .ai-overview__head {

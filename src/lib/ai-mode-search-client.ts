@@ -295,6 +295,7 @@ export function initAiModeSearch(win: Window, doc: Document): void {
           if (toggle.hasAttribute("data-ai-links")) carryAiOnLinks(doc, on);
         }
         for (const row of doc.querySelectorAll<HTMLElement>("[data-ai-try]")) row.hidden = !on;
+        for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
         panel?.setOn(on);
       };
 

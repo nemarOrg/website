@@ -152,7 +152,8 @@ describe("the panel", () => {
   });
 
   it("sits above the results on Discover, only when a request exists", () => {
-    expect(DISCOVER).toMatch(/\{aiRequest && <AiOverviewPanel request=\{aiRequest\} \/>\}/);
+    expect(DISCOVER).toMatch(/<AiOverviewPanel request=\{aiRequest\} pageNote=\{aiPageNote\} \/>/);
+    expect(DISCOVER).toMatch(/\{\(aiRequest \|\| aiPageNote\) && /);
     expect(DISCOVER.indexOf("<AiOverviewPanel")).toBeGreaterThan(
       DISCOVER.indexOf('class="discover__results"'),
     );
@@ -161,6 +162,22 @@ describe("the panel", () => {
     );
     expect(DISCOVER).toContain("overviewRequestForPage({");
     expect(DISCOVER).toContain("failed: fetchError !== null");
+  });
+
+  it("is built inside a try/catch that logs, so an odd catalog row cannot fail the page", () => {
+    const start = DISCOVER.indexOf("let aiRequest");
+    const block = DISCOVER.slice(start, DISCOVER.indexOf("const aiPageNote"));
+    expect(block).toMatch(/try\s*\{[\s\S]*overviewRequestForPage\(/);
+    expect(block).toMatch(/catch \(err\)\s*\{\s*console\.error\("\[ai-overview\]/);
+    expect(block).not.toMatch(/state\.q\b[^,\n]*console|console[^\n]*state\.q\b/);
+  });
+
+  it("explains on page 2 and later, while AI Mode is on, why there is no overview", () => {
+    expect(DISCOVER).toMatch(/const aiPageNote =[\s\S]*?state\.page > 1/);
+    const note = openingTag(PANEL, "p", "data-ai-note");
+    expect(note).toMatch(/\bhidden\b/);
+    expect(rule(PANEL, ".ai-overview-note[hidden]")).toMatch(/display:\s*none/);
+    expect(CLIENT).toMatch(/\[data-ai-note\][\s\S]{0,80}\.hidden = !on/);
   });
 
   it("is written with textContent, never as markup", () => {

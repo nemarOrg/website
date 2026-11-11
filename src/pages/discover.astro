@@ -24,7 +24,12 @@ import {
   filterStateToURL,
   hasClientOnlyFilters,
 } from "../lib/filters";
-import { overviewEndpoint, overviewFilters, overviewRequestForPage } from "../lib/osa-overview";
+import {
+  type OverviewRequest,
+  overviewEndpoint,
+  overviewFilters,
+  overviewRequestForPage,
+} from "../lib/osa-overview";
 import { discoverCacheControl, discoverRetryAfter } from "../lib/response-cache-policy";
 import { type Dataset, SORT_OPTIONS } from "../lib/types";
 
@@ -193,8 +198,12 @@ if (!fetchError && totalReturned > 0 && state.page > pageCount) {
 // and the browser posts it only when the reader's preference is on. Unset or refused endpoint:
 // no toggle, no panel (src/lib/osa-overview.ts).
 const aiEndpoint = overviewEndpoint();
-const aiRequest = aiEndpoint
-  ? overviewRequestForPage({
+// The overview is optional, so nothing in it may take the page down: a catalog row with an odd
+// shape (AGENTS.md: null or unexpected fields) is logged and the page renders without the panel.
+let aiRequest: OverviewRequest | null = null;
+if (aiEndpoint) {
+  try {
+    aiRequest = overviewRequestForPage({
       isSearch,
       failed: fetchError !== null,
       page: state.page,
@@ -203,8 +212,15 @@ const aiRequest = aiEndpoint
       filters: overviewFilters(state),
       totalCount: totalReturned,
       cards,
-    })
-  : null;
+    });
+  } catch (err) {
+    console.error("[ai-overview] the request for this page could not be built:", err);
+  }
+}
+// On page 2 and later there is no overview (it reads the best matches); with AI Mode on, a short
+// note says why instead of leaving a switched-on toggle with nothing to show for it.
+const aiPageNote =
+  aiEndpoint !== null && isSearch && fetchError === null && state.page > 1 && cards.length > 0;
 
 // Cache keyed on the full URL (query params) so each filter+page+query combo
 // gets its own edge entry. On error, never cache: a brief upstream hiccup must
@@ -258,7 +274,7 @@ if (fetchError) {
         <FilterSidebar state={state} searchActive={isSearch} />
       </aside>
       <div class="discover__results">
-        {aiRequest && <AiOverviewPanel request={aiRequest} />}
+        {(aiRequest || aiPageNote) && <AiOverviewPanel request={aiRequest} pageNote={aiPageNote} />}
         {fetchError && (
           <div class="discover__error" role="alert">
             <strong>Could not load datasets.</strong>
