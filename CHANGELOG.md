@@ -13,6 +13,14 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.38] - 2026-11-11
+
+AI Mode reaches production in part.
+The pill on the dataset page and "Ask a follow-up" show only where the widget has an `open` or a `seed` method, and the widget production loads is pinned to OSA commit `0e966d6` of 2026-10-01, which has neither; they appear once the pin moves to the OSA 0.8.20 release.
+The search toggle in Discover and Home stays hidden in production, because `wrangler.toml` sets no `PUBLIC_OSA_OVERVIEW_URL` (ADR 0032).
+Turning it on is a later change, after OSA 0.8.20 serves the overview route and the privacy note names the search overview (nemarOrg/website#523).
+Visitors also get the corrected-query line on Discover and the narrow-screen fix.
+
 ### Added
 
 - **Discover says when the search API fixed a typo** (nemarOrg/website#516, nemar-cli ADR 0116 item 5).
