@@ -73,9 +73,9 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
       window.OSAChatWidget.open exists, so a build with no widget (no PUBLIC_OSA_*
       variables, an excluded path, jsDelivr or the CSP blocking it) and production's
       older pinned widget, which has no open(), never show a dead button. The wrapper
-      anchors the one-time hint under the pill at any wrap width; it hides with the
-      pill (see `.ai-mode:has(...)`) so it adds no gap to the row. */}
-  <span class="ai-mode">
+      anchors the one-time hint under the pill at any wrap width; it ships [hidden] and
+      the script reveals it with the pill, so it adds no gap to the row (no :has()). */}
+  <span class="ai-mode" data-ai-mode-wrap hidden>
     <button class="action action--ai" type="button" data-ai-mode aria-haspopup="dialog" hidden>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8z"/>
@@ -384,12 +384,12 @@ cd {datasetId} && nemar dataset get</code></pre>
     outline-offset: 2px;
   }
   /* Anchors the hint under the pill wherever the row wraps. A flex item with no content would
-     still take a gap, so the wrapper goes when its pill is hidden. */
+     still take a gap, so the wrapper is [hidden] until the pill is revealed. */
   .ai-mode {
     position: relative;
     display: inline-flex;
   }
-  .ai-mode:has(> .action[hidden]) {
+  .ai-mode[hidden] {
     display: none;
   }
   /* Absolute, so showing or dismissing it moves nothing. The script sets --ai-hint-shift and
@@ -809,6 +809,7 @@ cd {datasetId} && nemar dataset get</code></pre>
   (() => {
     const pill = document.querySelector<HTMLButtonElement>("[data-ai-mode]");
     const hint = document.querySelector<HTMLElement>("[data-ai-mode-hint]");
+    const wrap = document.querySelector<HTMLElement>("[data-ai-mode-wrap]");
     if (!pill) return;
     // The widget global is not in lib.dom, so it is read through the module's own view of window.
     const widgetWindow = window as unknown as AiModeWindow;
@@ -831,6 +832,7 @@ cd {datasetId} && nemar dataset get</code></pre>
       hint.style.setProperty("--ai-hint-caret", `${caretOffset}px`);
     };
     revealAiModePill(widgetWindow, document, pill, () => {
+      if (wrap) wrap.hidden = false;
       if (!hint || dismissed || !shouldShowAiModeHint(store)) return;
       hint.hidden = false;
       place();
@@ -843,6 +845,10 @@ cd {datasetId} && nemar dataset get</code></pre>
     });
     hint?.querySelector("[data-ai-mode-dismiss]")?.addEventListener("click", dismiss);
     hint?.querySelector("[data-ai-mode-link]")?.addEventListener("click", dismiss);
+    // Escape dismisses the hint from anywhere on the page while it is showing.
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && hint && !hint.hidden) dismiss();
+    });
   })();
 
   document.querySelectorAll<HTMLButtonElement>("[data-compute-stub]").forEach((btn) => {

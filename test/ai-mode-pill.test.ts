@@ -18,6 +18,24 @@ function openingTag(source: string, tag: string, marker: string): string {
   return found[0];
 }
 
+/**
+ * The whole element (opening tag to its matching closing tag) of the first `<tag>` whose
+ * attributes include `marker`. Nested elements of the same tag are counted, so the result does not
+ * depend on indentation or on what follows the element.
+ */
+function elementMarkup(source: string, tag: string, marker: string): string {
+  const open = openingTag(source, tag, marker);
+  const start = source.indexOf(open);
+  const tags = new RegExp(`<${tag}\\b[^>]*>|</${tag}>`, "g");
+  tags.lastIndex = start;
+  let depth = 0;
+  for (let t = tags.exec(source); t; t = tags.exec(source)) {
+    depth += t[0].startsWith("</") ? -1 : 1;
+    if (depth === 0) return source.slice(start, t.index + t[0].length);
+  }
+  throw new Error(`no closing </${tag}> for ${marker}`);
+}
+
 /** The declarations inside the first rule whose selector is exactly `selector`. */
 function rule(source: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -36,30 +54,32 @@ function words(markup: string): string {
 
 const markup = ACTION_BAR.slice(ACTION_BAR.indexOf('<div class="actions">'));
 const downloadAt = markup.indexOf("data-download-stub");
-const pillAt = markup.indexOf("data-ai-mode");
-const pillButton = markup.slice(
-  markup.indexOf("<button", pillAt - 200 > 0 ? pillAt - 200 : 0),
-  markup.indexOf("</button>", pillAt) + "</button>".length,
-);
+const wrapperAt = markup.indexOf("data-ai-mode-wrap");
+const pillButton = elementMarkup(markup, "button", "data-ai-mode\\b(?![-\\w])");
 
 describe("AI Mode pill markup", () => {
   it("sits directly after the Download button, before View data", () => {
-    const afterDownload = markup.slice(markup.indexOf("</button>", downloadAt));
-    const nextButton = afterDownload.slice(afterDownload.indexOf("</button>") + 9);
-    // The next element after Download's closing tag (comments aside) is the pill's wrapper, and
-    // the pill comes before the View data button.
-    expect(
-      nextButton
-        .replace(/\{\/\*[\s\S]*?\*\/\}/, "")
-        .trimStart()
-        .startsWith('<span class="ai-mode">'),
-    ).toBe(true);
-    expect(pillAt).toBeGreaterThan(downloadAt);
-    expect(pillAt).toBeLessThan(markup.indexOf("data-view-data-btn"));
+    const download = elementMarkup(markup, "button", "data-download-stub");
+    const afterDownload = markup
+      .slice(markup.indexOf(download) + download.length)
+      .replace(/\{\/\*[\s\S]*?\*\/\}/, "")
+      .trimStart();
+    // The next element after Download (comments aside) is the pill's wrapper, and the wrapper
+    // comes before the View data button.
+    expect(afterDownload.startsWith("<span")).toBe(true);
+    expect(afterDownload.slice(0, afterDownload.indexOf(">"))).toContain("data-ai-mode-wrap");
+    expect(wrapperAt).toBeGreaterThan(downloadAt);
+    expect(wrapperAt).toBeLessThan(markup.indexOf("data-view-data-btn"));
+  });
+
+  it("ships the wrapper hidden, so a pill that never shows leaves no gap in the row", () => {
+    expect(openingTag(markup, "span", "data-ai-mode-wrap")).toMatch(/class="ai-mode"[^>]*\bhidden\b/);
+    expect(rule(ACTION_BAR, ".ai-mode[hidden]")).toMatch(/display:\s*none/);
+    expect(ACTION_BAR).not.toMatch(/\.ai-mode:has\(/);
   });
 
   it("is a hidden .action button that opens a dialog", () => {
-    const tag = openingTag(markup, "button", "data-ai-mode");
+    const tag = openingTag(markup, "button", "data-ai-mode\\b(?![-\\w])");
     expect(tag).toMatch(/class="action action--ai"/);
     expect(tag).toMatch(/\bhidden\b/);
     expect(tag).toMatch(/type="button"/);
@@ -80,11 +100,7 @@ describe("AI Mode pill markup", () => {
   });
 
   it("has a role=note hint with a 'Got it' button and a 'How it works' link to the docs path", () => {
-    const hintAt = markup.indexOf("data-ai-mode-hint");
-    const hint = markup.slice(
-      markup.lastIndexOf("<div", hintAt),
-      markup.indexOf("</div>\n  </span>", hintAt),
-    );
+    const hint = elementMarkup(markup, "div", "data-ai-mode-hint");
     expect(hint).toMatch(/role="note"/);
     expect(hint).toMatch(/\bhidden\b/);
     expect(words(hint)).toContain(
@@ -96,10 +112,13 @@ describe("AI Mode pill markup", () => {
     expect(DOCS_ANALYZE_IN_BROWSER_PATH).toBe("/web/analyze-in-browser/");
   });
 
+  // Wiring only: that a click opens the widget and dismisses only on success, and what each
+  // dismissal stores, is behaviour tested on real inputs in src/lib/osa-ai-mode.test.ts.
   it("wires the pill through the lib module, on the click and on every way of dismissing", () => {
     expect(ACTION_BAR).toMatch(/from "\.\.\/lib\/osa-ai-mode"/);
     expect(ACTION_BAR).toContain("revealAiModePill(widgetWindow, document, pill");
-    expect(ACTION_BAR).toContain("openAiMode(widgetWindow)");
+    expect(ACTION_BAR).toMatch(/if \(openAiMode\(widgetWindow\)\) dismiss\(\)/);
+    expect(ACTION_BAR).toContain('e.key === "Escape"');
     expect(ACTION_BAR).toContain("[data-ai-mode-dismiss]");
     expect(ACTION_BAR).toContain("[data-ai-mode-link]");
   });
