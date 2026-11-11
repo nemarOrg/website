@@ -4,10 +4,16 @@
  * renderer in `./ai-mode-search-client.ts` turns a {@link PanelView} into elements with
  * `textContent`, never `innerHTML`: the overview's words come from a model reading dataset
  * descriptions, and a text segment is plain text whatever it contains.
+ *
+ * It also holds {@link OverviewController}, the state machine behind the panel: toggling off
+ * aborts a request, toggling on again reuses a kept answer, a response the reader no longer wants
+ * is dropped, and a failure is logged and classified. It has no DOM and takes the request as a
+ * function, so a unit test drives it with real `Response` fixtures.
  */
 
 import {
   type OverviewAnswer,
+  OverviewError,
   type OverviewErrorKind,
   type OverviewPick,
   type OverviewSegment,
@@ -135,4 +141,102 @@ export function followUpText(query: string, answer: OverviewAnswer): string {
           .trimEnd()}…`
       : overview.join("");
   return Array.from(`${head}${quoted}${tail}`).slice(0, FOLLOW_UP_MAX_CHARS).join("");
+}
+
+/** Said under "Ask a follow-up" when the assistant widget could not take the question. */
+export const FOLLOW_UP_FAILED =
+  "The assistant could not be opened from here. Reload the page and try again.";
+
+/** The kind a failure is shown as: the service's own for an {@link OverviewError}, `unexpected`
+ *  for anything else (a bug on this page, which "check your connection" would misdescribe). */
+export function overviewFailureKind(err: unknown): OverviewErrorKind {
+  return err instanceof OverviewError ? err.kind : "unexpected";
+}
+
+/** What the controller needs: how to ask for the overview, and where to show a state. */
+export interface OverviewControllerOptions {
+  /** The number of results the overview reads, for the loading line. */
+  reading: number;
+  /** Asks for the overview; rejects with the signal's own abort error when it is aborted. */
+  fetchOverview: (signal: AbortSignal) => Promise<OverviewAnswer>;
+  /** Shows a state; may throw, which the controller treats as a failure of the page. */
+  onState: (state: OverviewPanelState) => void;
+}
+
+/**
+ * The panel's transitions. Off: nothing shown, any request aborted, a kept answer remembered.
+ * On: the kept answer again if there is one, else a request (a second "on" while one runs does
+ * nothing). A request's result counts only while it is the current one: a response for a request
+ * the reader switched off, or replaced, is dropped and never kept. Every failure is logged with
+ * its kind (and status, for the service's), so a drifted contract or a bug is not only a message
+ * in the panel.
+ */
+export class OverviewController {
+  private current: OverviewPanelState = { kind: "off" };
+  private kept: OverviewAnswer | null = null;
+  private abort: AbortController | null = null;
+
+  constructor(private readonly options: OverviewControllerOptions) {}
+
+  get state(): OverviewPanelState {
+    return this.current;
+  }
+
+  /** The answer kept for a later switch back on, if there is one. */
+  get answer(): OverviewAnswer | null {
+    return this.kept;
+  }
+
+  /** Follows the reader's AI Mode choice; resolves when a request this call started has settled. */
+  setOn(on: boolean): Promise<void> {
+    if (!on) {
+      this.abort?.abort();
+      this.abort = null;
+      this.show({ kind: "off" });
+      return Promise.resolve();
+    }
+    if (this.current.kind === "loading") return Promise.resolve();
+    if (this.kept) {
+      this.show({ kind: "answer", answer: this.kept });
+      return Promise.resolve();
+    }
+    return this.load();
+  }
+
+  /** "Try again": asks again, replacing a request still running. */
+  retry(): Promise<void> {
+    return this.load();
+  }
+
+  private show(state: OverviewPanelState): void {
+    this.current = state;
+    this.options.onState(state);
+  }
+
+  private async load(): Promise<void> {
+    this.abort?.abort();
+    const controller = new AbortController();
+    this.abort = controller;
+    try {
+      this.show({ kind: "loading", reading: this.options.reading });
+      const answer = await this.options.fetchOverview(controller.signal);
+      if (controller.signal.aborted) return;
+      this.show({ kind: "answer", answer });
+      // Kept only once it was shown: an answer the page failed to draw is asked for again.
+      this.kept = answer;
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      const error = overviewFailureKind(err);
+      if (err instanceof OverviewError) {
+        console.warn("[ai-overview]", error, err.status ?? "", err.message);
+      } else {
+        console.warn("[ai-overview] unexpected failure:", err);
+      }
+      try {
+        this.show({ kind: "error", error });
+      } catch (renderErr) {
+        console.warn("[ai-overview] the failure could not be shown:", renderErr);
+      }
+    }
+  }
 }

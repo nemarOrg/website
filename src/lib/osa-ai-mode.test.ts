@@ -7,6 +7,7 @@ import {
   type AiModePageWindow,
   type AiModeStore,
   type AiModeWindow,
+  aiLinkHref,
   aiModeAvailable,
   aiModeSearchAvailable,
   askFollowUp,
@@ -525,5 +526,33 @@ describe("askFollowUp", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(askFollowUp({}, "x")).toBe(false);
     expect(askFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
+  });
+});
+
+describe("aiLinkHref", () => {
+  const BASE = "https://www.nemar.org/discover?q=face";
+  const ORIGIN = "https://www.nemar.org";
+
+  it("adds ai=1 to the page's own /discover links and takes it off again", () => {
+    expect(aiLinkHref("/discover?q=face&page=2", BASE, ORIGIN, true)).toBe(
+      "/discover?q=face&page=2&ai=1",
+    );
+    expect(aiLinkHref("/discover", BASE, ORIGIN, true)).toBe("/discover?ai=1");
+    expect(aiLinkHref("/discover?q=a#top", BASE, ORIGIN, true)).toBe("/discover?q=a&ai=1#top");
+    expect(aiLinkHref("/discover?q=face&ai=1", BASE, ORIGIN, false)).toBe("/discover?q=face");
+    expect(aiLinkHref("/discover?ai=1", BASE, ORIGIN, false)).toBe("/discover");
+    expect(aiLinkHref("https://www.nemar.org/discover?q=x", BASE, ORIGIN, true)).toBe(
+      "/discover?q=x&ai=1",
+    );
+  });
+
+  it("leaves everything else alone: other paths, other origins, links already right", () => {
+    expect(aiLinkHref("/dataset/on002718", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("/discoverable", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("https://other.example/discover?q=x", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("/discover?ai=1", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("/discover?q=x", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("http://[bad", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref(null, BASE, ORIGIN, true)).toBeNull();
   });
 });

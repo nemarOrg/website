@@ -275,6 +275,31 @@ export function withAiModeParam(search: string, on: boolean): string {
   return text ? `?${text}` : "";
 }
 
+/**
+ * The href a /discover link on the page gets for the reader's choice, or `null` to leave it alone:
+ * the link is not a link to this site's /discover, or already says what it should. `href` is the
+ * attribute as written, `base` the document's base URI, `origin` the page's own origin. The
+ * server-rendered hrefs are cached at the edge for every reader, so the browser adjusts them.
+ */
+export function aiLinkHref(
+  href: string | null,
+  base: string,
+  origin: string,
+  on: boolean,
+): string | null {
+  if (href === null) return null;
+  let url: URL;
+  try {
+    url = new URL(href, base);
+  } catch {
+    return null;
+  }
+  if (url.origin !== origin || url.pathname !== "/discover") return null;
+  const search = withAiModeParam(url.search, on);
+  if (search === url.search) return null;
+  return `${url.pathname}${search}${url.hash}`;
+}
+
 /** Puts the choice in the address bar without a new history entry. A browser that refuses
  *  (a sandboxed frame, a stubbed history) leaves the address as it is. */
 function replaceAiModeUrl(win: AiModePageWindow, on: boolean): void {
