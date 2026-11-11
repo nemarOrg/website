@@ -519,8 +519,9 @@ if (tier !== "unverified") {
             {/* A real form POST, never a link: the API arms a link only from a
                 POST that carries this site's Origin and a live session, and a
                 GET with `mode=link` starts a plain sign-in instead (nemar-cli
-                ADR 0119 rule 10, the relink rule of ADR 0022). Astro's
-                `checkOrigin` also refuses a cross-site form post here. */}
+                ADR 0119 rule 10, the relink rule of ADR 0022). The site's own
+                `crossSiteFormRefusal` in `src/middleware.ts` (ADR 0031; Astro's
+                built-in `checkOrigin` is off) also refuses a cross-site form post here. */}
             <form class="orcid__connect" method="post" action="/auth/orcid/start?mode=link&next=%2Fsettings">
               <button type="submit" class="btn btn--primary">Connect your ORCID</button>
             </form>
