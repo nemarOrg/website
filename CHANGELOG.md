@@ -28,7 +28,10 @@ If the API reaches production first, new ORCID sign-ups fail at the email step a
   The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
   It cannot be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), never enters the edge cache, sends no referrer (the consent screen sends one only to this site, so its form keeps its Origin), and carries no assistant widget.
   On the consent screen only, `form-action` also admits the one client origin the API returned, so the redirect after the form can reach it, and the screen names the host either answer goes to.
-  The general `/api/v1` proxy refuses the authorization routes, whose answers only the page's server code may read; it decides on the path it would actually fetch, and refuses any path that holds a control character or a backslash.
+  While the provider is off, the page answers 503 with its unavailable panel.
+  On `nemar.org` every `/oauth` path redirects to the app host (a `POST` with a 307, so its body survives), because the page needs the sign-in cookie that only the app host receives.
+  The general `/api/v1` proxy answers 404 for the authorization routes (`auth/oidc`), whose answers only the page's server code may read; it decides on the path it would actually fetch.
+  It also answers 400 for any path that holds a control character or a backslash.
   Needs the nemar-cli API with `POST /auth/oidc/authorize` and `POST /auth/oidc/consent`; until then, or while the provider is off (the API answers 404 until both `OIDC_SECRET` is set and `HOST_PREFIXED_SESSION_COOKIE` is `"1"`), the page shows its unavailable panel.
   Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
 
@@ -37,8 +40,10 @@ If the API reaches production first, new ORCID sign-ups fail at the email step a
 - **The site reads the session cookie under its host-prefixed name** (nemarOrg/website#499, nemar-cli ADR 0119 decision 10).
   The API is moving the session cookie from `nemar_session` to `__Host-nemar_session`, which no other `nemar.org` host can set.
   Every reader of the cookie on this site now asks for the new name first and falls back to the old one only when the new one is absent; a request with more than one `__Host-nemar_session` counts as signed out, as it does for the API.
-  Sign-out clears both names, so a browser that holds either is signed out.
+  Sign-out clears both names.
+  When the API cannot be reached or sends no cookie, the site clears them itself, and it also clears the legacy cookie set with a domain (the request's own host and `nemar.org`, on a `nemar.org` host only), which a clear without a domain never removes, so a browser that holds either cookie is signed out.
   The ORCID sign-up page accepts the pending cookie under either name (`__Host-nemar_orcid_pending` or `nemar_orcid_pending`), so a sign-up already under way does not bounce on the page; a sign-up in flight when the API deploys fails once at the email step and the person signs in with ORCID again.
+  Any ORCID sign-in, link or sign-up that is on ORCID's own screen when the API deploys also fails once, at the callback, because API 0.10.33 reads the flow's state cookie only under `__Host-nemar_oauth_state` while 0.10.32 sets `nemar_oauth_state`; the person starts again.
   Nothing changes for anyone until the API issues the new cookie (behind a flag, the owner's step after the API release).
 
 - **`/oauth/authorize` accepts an authorization request sent by POST from any site; every other form keeps its cross-site check** (nemarOrg/nemar-cli#2020, nemar-cli ADR 0119, website ADR 0031).
@@ -50,7 +55,8 @@ If the API reaches production first, new ORCID sign-ups fail at the email step a
 
 - **Settings' "Connect your ORCID" submits a form POST instead of following a link** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119 rule 10).
   The API now arms an ORCID link only from a POST that carries this site's Origin and a live session, as it already did for re-linking, and a GET start is always a plain sign-in.
-  The button, its copy and where it leads are unchanged.
+  The button's copy and where it leads are unchanged, but it is now a button in a form, so it can no longer be opened in a new tab.
+  Clicking it with an expired session lands on `/login?error=session_required` ("Sign in to continue.") instead of starting an ORCID sign-in.
 
 ## [0.2.36] - 2026-11-02
 
