@@ -21,6 +21,11 @@
  * 3. **The one-time hint** under the pill ({@link shouldShowAiModeHint}, {@link dismissAiModeHint}):
  *    remembered in `localStorage`, with every read and write guarded, so a store that is blocked
  *    or full means "show once per page load" and never an error.
+ *
+ * The same module decides the AI Mode toggle in the search fields of Home and Discover (website#518
+ * and #519): whether it is offered ({@link aiModeSearchAvailable}), whether it starts on
+ * ({@link initialAiModeSearch}: the URL's `ai=1`, else the remembered choice), how a change is kept
+ * ({@link setAiModeSearch}) and how "Ask a follow-up" reaches the widget ({@link askFollowUp}).
  */
 
 /** The `localStorage` key that remembers the hint was dismissed. Versioned so a reworded hint can
@@ -33,7 +38,7 @@ const HINT_DISMISSED = "dismissed";
 /** The part of `window` this module reads: the widget global, whose members are `unknown` because
  *  a widget older than OSA #701 has no `open`. */
 export interface AiModeWindow {
-  OSAChatWidget?: { open?: unknown } | null;
+  OSAChatWidget?: { open?: unknown; ask?: unknown } | null;
 }
 
 /** The part of `Storage` this module uses (the real interface, so a `Storage` fits). */
@@ -203,4 +208,143 @@ export function placeAiModeHint(input: {
   const caretCentre = -shift + pillWidth / 2;
   const caretOffset = Math.min(Math.max(caretCentre, caretInset), hintWidth - caretInset);
   return { shift, caretOffset };
+}
+
+// ---------------------------------------------------------------------------
+// The AI Mode toggle in the search fields (website#518, #519)
+// ---------------------------------------------------------------------------
+
+/** The `localStorage` key that remembers whether AI Mode is on in search. Versioned so a change
+ *  of meaning can start every reader from off by bumping it. */
+export const AI_MODE_SEARCH_STORAGE_KEY = "nemar:ai-mode-search:v1";
+
+/** The query parameter that carries AI Mode through the address: `ai=1` is on. */
+export const AI_MODE_URL_PARAM = "ai";
+
+const SEARCH_ON = "on";
+const SEARCH_OFF = "off";
+
+/**
+ * Whether the toggle is offered: the widget is on the page with an `open` method (so "Ask a
+ * follow-up" has somewhere to go) AND the overview endpoint is set. The server renders no toggle
+ * without the endpoint, so the second half is a guard against a page that has the markup but
+ * not the setting; the first can only be known in the browser.
+ */
+export function aiModeSearchAvailable(
+  win: AiModeWindow,
+  endpoint: string | null | undefined,
+): boolean {
+  return typeof endpoint === "string" && endpoint !== "" && aiModeAvailable(win);
+}
+
+/** The part of `window` the preference reads and writes. */
+export interface AiModePageWindow {
+  location: { pathname: string; search: string; hash: string };
+  history: {
+    state: unknown;
+    replaceState(data: unknown, unused: string, url?: string | URL | null): void;
+  };
+  localStorage?: AiModeStore;
+}
+
+/** The remembered choice. Off for a store that is absent, throws, or holds anything else. */
+export function readAiModeSearch(store: AiModeStore | null | undefined): boolean {
+  try {
+    return store?.getItem(AI_MODE_SEARCH_STORAGE_KEY) === SEARCH_ON;
+  } catch {
+    return false;
+  }
+}
+
+/** Remembers the choice. A store that throws is ignored: the choice then lasts for the page and,
+ *  through `ai=1`, for the links the reader follows. */
+export function writeAiModeSearch(store: AiModeStore | null | undefined, on: boolean): void {
+  try {
+    store?.setItem(AI_MODE_SEARCH_STORAGE_KEY, on ? SEARCH_ON : SEARCH_OFF);
+  } catch {
+    // Blocked or full storage.
+  }
+}
+
+/** `search` (a query string, with or without its `?`) with `ai=1` set or removed. */
+export function withAiModeParam(search: string, on: boolean): string {
+  const params = new URLSearchParams(search);
+  if (on) params.set(AI_MODE_URL_PARAM, "1");
+  else params.delete(AI_MODE_URL_PARAM);
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+/** Puts the choice in the address bar without a new history entry. A browser that refuses
+ *  (a sandboxed frame, a stubbed history) leaves the address as it is. */
+function replaceAiModeUrl(win: AiModePageWindow, on: boolean): void {
+  try {
+    const search = withAiModeParam(win.location.search, on);
+    if (search === win.location.search) return;
+    win.history.replaceState(
+      win.history.state,
+      "",
+      `${win.location.pathname}${search}${win.location.hash}`,
+    );
+  } catch {
+    // The address is left alone.
+  }
+}
+
+/**
+ * Whether AI Mode starts on for this page. An `ai=1` in the address wins over what is remembered
+ * (a shared link, a paged or filtered link) and is written back, so the next page without the
+ * parameter is still on. Otherwise the remembered choice applies, and the address gets `ai=1` so
+ * a copied link carries it.
+ */
+export function initialAiModeSearch(win: AiModePageWindow): boolean {
+  const store = browserStore(win);
+  let fromUrl = false;
+  try {
+    fromUrl = new URLSearchParams(win.location.search).get(AI_MODE_URL_PARAM) === "1";
+  } catch {
+    // An address that cannot be read is an address without the parameter.
+  }
+  if (fromUrl) {
+    writeAiModeSearch(store, true);
+    return true;
+  }
+  const remembered = readAiModeSearch(store);
+  if (remembered) replaceAiModeUrl(win, true);
+  return remembered;
+}
+
+/** Records a change the reader made: remembered, and in the address (`ai=1`, or removed). */
+export function setAiModeSearch(win: AiModePageWindow, on: boolean): void {
+  writeAiModeSearch(browserStore(win), on);
+  replaceAiModeUrl(win, on);
+}
+
+/**
+ * "Ask a follow-up": hands the question to the widget's centre-stage dialog. `ask(text,
+ * {mode: "center"})` where the widget has it; the widget of OSA #701 does, and an older one
+ * only `open`, which opens the dialog without the question. Returns whether the widget took it.
+ * A throw is caught and warned, as {@link openAiMode} does.
+ */
+export function askFollowUp(win: AiModeWindow, text: string): boolean {
+  const widget = win.OSAChatWidget;
+  if (!widget) return false;
+  if (typeof widget.ask !== "function") return openAiMode(win);
+  try {
+    const result = (widget.ask as (text: string, options: { mode: "center" }) => unknown).call(
+      widget,
+      text,
+      { mode: "center" },
+    );
+    // A widget that answers with a promise may reject it later; that is as much a warning as a throw.
+    if (result && typeof (result as Promise<unknown>).catch === "function") {
+      (result as Promise<unknown>).catch((err) => {
+        console.warn("[osa-ai-mode] widget's ask rejected:", err);
+      });
+    }
+    return true;
+  } catch (err) {
+    console.warn("[osa-ai-mode] widget's ask threw:", err);
+    return false;
+  }
 }

@@ -1,18 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AI_MODE_HINT_STORAGE_KEY,
+  AI_MODE_SEARCH_STORAGE_KEY,
   type AiModeDocument,
   type AiModeLoadTarget,
+  type AiModePageWindow,
   type AiModeStore,
   type AiModeWindow,
   aiModeAvailable,
+  aiModeSearchAvailable,
+  askFollowUp,
   browserStore,
   dismissAiModeHint,
+  initialAiModeSearch,
   openAiMode,
   placeAiModeHint,
+  readAiModeSearch,
   revealAiModePill,
+  setAiModeSearch,
   shouldShowAiModeHint,
   whenDocumentReady,
+  withAiModeParam,
+  writeAiModeSearch,
 } from "./osa-ai-mode";
 
 /**
@@ -333,5 +342,188 @@ describe("placeAiModeHint", () => {
   it("keeps the caret off the panel's corners", () => {
     const placed = placeAiModeHint({ pillLeft: 16, pillWidth: 8, hintWidth, viewportWidth: 1000 });
     expect(placed.caretOffset).toBe(16);
+  });
+});
+
+/** A page `window`: a real location string, a history that records `replaceState`, a store. */
+function pageWindow(
+  url: string,
+  store: AiModeStore | undefined,
+): AiModePageWindow & { replaced: string[]; replaceCalls: number } {
+  const parsed = new URL(url, "https://test.nemar.org");
+  const win = {
+    replaced: [] as string[],
+    replaceCalls: 0,
+    location: { pathname: parsed.pathname, search: parsed.search, hash: parsed.hash },
+    history: {
+      state: { kept: true } as unknown,
+      replaceState(state: unknown, _unused: string, target?: string | URL | null) {
+        win.replaceCalls++;
+        expect(state).toEqual({ kept: true });
+        const next = new URL(String(target), "https://test.nemar.org");
+        win.replaced.push(`${next.pathname}${next.search}${next.hash}`);
+        win.location.search = next.search;
+      },
+    },
+    localStorage: store,
+  };
+  return win;
+}
+
+describe("aiModeSearchAvailable", () => {
+  const ENDPOINT = "https://develop-widget.osc.earth/osa/nemar/overview";
+
+  it("needs the widget's open() AND the endpoint", () => {
+    expect(aiModeSearchAvailable({ OSAChatWidget: { open() {} } }, ENDPOINT)).toBe(true);
+    expect(aiModeSearchAvailable({ OSAChatWidget: { open() {} } }, null)).toBe(false);
+    expect(aiModeSearchAvailable({ OSAChatWidget: { open() {} } }, undefined)).toBe(false);
+    expect(aiModeSearchAvailable({ OSAChatWidget: { open() {} } }, "")).toBe(false);
+    expect(aiModeSearchAvailable({}, ENDPOINT)).toBe(false);
+    expect(aiModeSearchAvailable({ OSAChatWidget: {} }, ENDPOINT)).toBe(false);
+    expect(aiModeSearchAvailable({ OSAChatWidget: null }, ENDPOINT)).toBe(false);
+  });
+});
+
+describe("the AI Mode preference", () => {
+  it("reads and writes one versioned key", () => {
+    const store = memoryStore();
+    expect(AI_MODE_SEARCH_STORAGE_KEY).toBe("nemar:ai-mode-search:v1");
+    expect(readAiModeSearch(store)).toBe(false);
+    writeAiModeSearch(store, true);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
+    expect(readAiModeSearch(store)).toBe(true);
+    writeAiModeSearch(store, false);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("off");
+    expect(readAiModeSearch(store)).toBe(false);
+    expect([...store.data.keys()]).toEqual([AI_MODE_SEARCH_STORAGE_KEY]);
+  });
+
+  it("reads as off, and never throws, for a throwing, absent or odd store", () => {
+    expect(readAiModeSearch(blockedStore)).toBe(false);
+    expect(readAiModeSearch(null)).toBe(false);
+    expect(readAiModeSearch(undefined)).toBe(false);
+    expect(() => writeAiModeSearch(blockedStore, true)).not.toThrow();
+    expect(() => writeAiModeSearch(null, true)).not.toThrow();
+    const odd = memoryStore();
+    odd.data.set(AI_MODE_SEARCH_STORAGE_KEY, "1");
+    expect(readAiModeSearch(odd)).toBe(false);
+  });
+
+  it("starts off with nothing stored and leaves the address alone", () => {
+    const win = pageWindow("/discover?q=faces", memoryStore());
+    expect(initialAiModeSearch(win)).toBe(false);
+    expect(win.replaceCalls).toBe(0);
+  });
+
+  it("lets ai=1 in the address win over a stored off, and writes it back", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, false);
+    const win = pageWindow("/discover?q=faces&ai=1", store);
+    expect(initialAiModeSearch(win)).toBe(true);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
+    expect(win.replaceCalls).toBe(0);
+  });
+
+  it("is on from a stored on, and puts ai=1 in the address without a new history entry", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, true);
+    const win = pageWindow("/discover?q=faces#results", store);
+    expect(initialAiModeSearch(win)).toBe(true);
+    expect(win.replaced).toEqual(["/discover?q=faces&ai=1#results"]);
+  });
+
+  it("is off, and never throws, when the store throws and the address has no ai", () => {
+    const win = pageWindow("/discover?q=faces", blockedStore);
+    expect(initialAiModeSearch(win)).toBe(false);
+    const withUrl = pageWindow("/discover?ai=1", blockedStore);
+    expect(initialAiModeSearch(withUrl)).toBe(true);
+  });
+
+  it("works when reading localStorage itself throws", () => {
+    const win = pageWindow("/discover?ai=1", undefined);
+    Object.defineProperty(win, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    expect(initialAiModeSearch(win)).toBe(true);
+    expect(() => setAiModeSearch(win, false)).not.toThrow();
+  });
+
+  it("turning off removes ai from the address with replaceState and stores off", () => {
+    const store = memoryStore();
+    const win = pageWindow("/discover?q=faces&ai=1&page=2", store);
+    setAiModeSearch(win, false);
+    expect(win.replaced).toEqual(["/discover?q=faces&page=2"]);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("off");
+    expect(initialAiModeSearch(win)).toBe(false);
+  });
+
+  it("turning on adds ai=1 once and stores on", () => {
+    const store = memoryStore();
+    const win = pageWindow("/", store);
+    setAiModeSearch(win, true);
+    expect(win.replaced).toEqual(["/?ai=1"]);
+    setAiModeSearch(win, true);
+    expect(win.replaceCalls).toBe(1);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
+  });
+
+  it("leaves the address alone when replaceState throws", () => {
+    const win = pageWindow("/discover?ai=1", memoryStore());
+    win.history.replaceState = () => {
+      throw new DOMException("denied", "SecurityError");
+    };
+    expect(() => setAiModeSearch(win, false)).not.toThrow();
+  });
+
+  it("builds the query string with ai set or removed", () => {
+    expect(withAiModeParam("", true)).toBe("?ai=1");
+    expect(withAiModeParam("?q=a%20b", true)).toBe("?q=a+b&ai=1");
+    expect(withAiModeParam("?ai=1&q=a", false)).toBe("?q=a");
+    expect(withAiModeParam("?ai=1", false)).toBe("");
+    expect(withAiModeParam("?ai=1", true)).toBe("?ai=1");
+  });
+});
+
+describe("askFollowUp", () => {
+  it("calls ask(text, {mode: 'center'}) when the widget has it", () => {
+    const calls: unknown[][] = [];
+    const win: AiModeWindow = {
+      OSAChatWidget: { open() {}, ask: (...args: unknown[]) => void calls.push(args) },
+    };
+    expect(askFollowUp(win, "About faces")).toBe(true);
+    expect(calls).toEqual([["About faces", { mode: "center" }]]);
+  });
+
+  it("opens the centre-stage dialog when the widget has no ask", () => {
+    const opened: unknown[] = [];
+    const win: AiModeWindow = { OSAChatWidget: { open: (o: unknown) => void opened.push(o) } };
+    expect(askFollowUp(win, "About faces")).toBe(true);
+    expect(opened).toEqual([{ mode: "center" }]);
+  });
+
+  it("catches a throw, warns, and says it did not reach the widget", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const win: AiModeWindow = {
+      OSAChatWidget: {
+        ask() {
+          throw new Error("boom");
+        },
+      },
+    };
+    expect(askFollowUp(win, "x")).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("warns about a rejected promise and does nothing without a widget", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const win: AiModeWindow = { OSAChatWidget: { ask: () => Promise.reject(new Error("later")) } };
+    expect(askFollowUp(win, "x")).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(askFollowUp({}, "x")).toBe(false);
+    expect(askFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
   });
 });
