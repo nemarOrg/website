@@ -32,7 +32,8 @@ export type OverviewPanelState =
   | { kind: "too_short" }
   // The endpoint answered 422 for the search: its word count differs from ours. Same as above.
   | { kind: "refused" }
-  | { kind: "error"; error: OverviewErrorKind };
+  // `invalid` is the `refused` state above, never an error shown in the panel.
+  | { kind: "error"; error: Exclude<OverviewErrorKind, "invalid"> };
 
 /** What the panel shows for a state. Every field is data; none is markup. */
 export interface PanelView {
@@ -132,15 +133,22 @@ export function panelView(state: OverviewPanelState, canFollowUp = true): PanelV
 export const SEED_MAX_CHARS = 2000;
 
 /** What a Markdown renderer reads as markup in a search the reader typed: emphasis, code, links,
- *  images, HTML, headings, tables. Each becomes a space, so what is quoted is the words. */
+ *  images, HTML, headings, tables. Each becomes a space, so what is quoted is the words. A web
+ *  address is broken too (see {@link neutralise}). */
 const QUERY_MARKDOWN = /[\\`*_[\]()<>#~|!]/g;
 /** What turns written prose into a link, an image, emphasis or code in the widget's Markdown. The
  *  overview is a model's text about dataset descriptions, so a link in it would be a link the page
  *  made: each becomes a space, and a sentence stays a sentence. */
 const PROSE_MARKDOWN = /[\\`*[\]]/g;
+/** A web address: the widget turns any `http://` or `https://` run into a link on its own, with no
+ *  Markdown around it. */
+const WEB_SCHEME = /\b(https?):\/\//gi;
 
+/** `text` with `markdown` characters blanked and web addresses broken (`https://x` reads
+ *  `https x`), so the only links in the message are the page's own dataset links. Both are done
+ *  here, for the overview's prose and the typed search alike. */
 function neutralise(text: string, markdown: RegExp): string {
-  return text.replace(markdown, " ").replace(/\s+/g, " ");
+  return text.replace(markdown, " ").replace(WEB_SCHEME, "$1 ").replace(/\s+/g, " ");
 }
 
 /** `[id](<origin>/dataset/<id>)`: absolute, on the page's own origin, because the widget draws
@@ -215,15 +223,19 @@ function trimSummary(summary: { text: string; links: Array<[number, number]> }, 
  * 1. [id](<origin>/dataset/<id>): why
  * ```
  *
- * The search is quoted with its Markdown characters and newlines turned to spaces, and the
- * overview's prose cannot make a link of its own. At most {@link SEED_MAX_CHARS} characters
+ * The search is quoted with its Markdown characters and newlines turned to spaces, and neither it
+ * nor the overview's prose nor a pick's reason can make a link: a web address in them is broken
+ * (`https://x` reads `https x`), so the dataset links are the only ones. At most {@link SEED_MAX_CHARS} characters
  * (`OSAChatWidget.seed` refuses more). When it does not fit, the picks lose their reasons first,
  * then go, and then the summary is cut at a sentence.
  */
 export function seedText(query: string, answer: OverviewAnswer, origin: string): string {
   let words = neutralise(query, QUERY_MARKDOWN).trim();
   if (words.length > OVERVIEW_LIMITS.queryMax) {
-    words = `${words.slice(0, OVERVIEW_LIMITS.queryMax - 1).trimEnd()}…`;
+    let cut = OVERVIEW_LIMITS.queryMax - 1;
+    // Not between the two halves of a character outside the Basic Multilingual Plane.
+    if (/[\uD800-\uDBFF]/.test(words[cut - 1] ?? "")) cut -= 1;
+    words = `${words.slice(0, cut).trimEnd()}…`;
   }
   const head = words === "" ? "**AI overview**" : `**AI overview** for "${words}"`;
   const summary = summaryMarkdown(answer, origin);
@@ -273,11 +285,11 @@ export interface OverviewControllerOptions {
 /**
  * The panel's transitions. Off: nothing shown, any request aborted, a kept answer remembered.
  * On: the kept answer again if there is one, else a request (a second "on" while one runs does
- * nothing); a search under three words makes no request and the panel stays hidden (the line under the
- * field says why). A 422 does the same, since a server may count words differently. A request's result counts only while it is the current one: a response for a request
- * the reader switched off, or replaced, is dropped and never kept. Every failure is logged with
- * its kind (and status, for the service's), so a drifted contract or a bug is not only a message
- * in the panel.
+ * nothing); a search under three words makes no request and the panel stays hidden (the line under
+ * the field says why). A 422 does the same, since a server may count words differently. A
+ * request's result counts only while it is the current one: a response for a request the reader
+ * switched off, or replaced, is dropped and never kept. Every failure is logged with its kind (and
+ * status, for the service's), so a drifted contract or a bug is not only a message in the panel.
  */
 export class OverviewController {
   private current: OverviewPanelState = { kind: "off" };

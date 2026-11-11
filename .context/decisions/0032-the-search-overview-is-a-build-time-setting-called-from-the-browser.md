@@ -38,7 +38,8 @@ Four facts shape where that call is made and how it is switched on.
   The browser counts words as OSA does (`countQueryWords` in `osa-overview.ts`: split the trimmed query on whitespace, count tokens with a letter or digit) and sends no request under three; the panel stays hidden, and one very small line under the search field says why (see "On by default, a settled field and a follow-up that sends nothing" below), while the toggle, the preference and `ai` are unchanged.
   OSA answers 422 for a query under three words, and the panel shows nothing for it either; the same line shows, so a server whose count disagrees reads the same to the visitor.
   Every example search the site offers in AI Mode (Home's "Try" row) has three words or more, and a test reads them from the source.
-- The toggle appears only once the widget is on the page with an `open` method and the setting is set (`aiModeSearchAvailable`), so a build or a browser that cannot follow up never offers the mode.
+- The toggle appears only once the widget is on the page with an `open` method and the setting is set (`aiModeSearchAvailable`), so a widget that failed to load never offers the mode.
+  "Ask a follow-up" needs `seed` on top of that (`aiModeSeedAvailable`), checked each time the panel is drawn: a widget with `open` and no `seed` (develop today) shows the toggle and the overview, and no follow-up button.
 - AI Mode is on by default (website#525), and the reader's choice is remembered in `localStorage` (`nemar:ai-mode-search:v1`, `"on"` or `"off"`) and carried in the address, which overrides it.
   An absent, odd or unreadable stored value is on.
   `ai=1` is on and `ai=0` is off; either wins over what is stored and is written back to the store.
@@ -67,7 +68,7 @@ Website#525 changed three things after the first test on staging.
    "Ask a follow-up" calls `OSAChatWidget.seed(text, {mode: "center"})` (OSA #730), which opens the dialog with the text as the assistant's own first reply; the reader writes the next message.
    The button is drawn only where `seed` is a function, checked each time the panel is drawn; there is no fallback to opening the dialog empty or sending the text as a question.
    The text is built by the pure `seedText(query, answer, origin)`: **AI overview** for the quoted search, the summary with each dataset id as an absolute link on the page's own origin (the widget draws http and https links only), and the top picks.
-   The widget's Markdown has no backslash escapes, so the search's Markdown characters become spaces and the overview's prose cannot make a link, image, emphasis or code of its own; a model reading dataset descriptions must not be able to hand the page a link.
+   The widget's Markdown has no backslash escapes, so the search's Markdown characters become spaces and neither the overview's prose, a pick's reason nor the quoted search can make a link, image, emphasis or code of its own, and a web address in them is broken (`https://x` reads `https x`) because the widget links any `http://` or `https://` run without Markdown around it; a model reading dataset descriptions must not be able to hand the page a link.
    The limit is `RESEED_TURN_MAX_CHARS`, 2,000 UTF-16 code units, which `seed` enforces by refusing a longer text (the issue said 4,000, the first brief 8,000); the message is at most that, shortened by dropping the picks' reasons, then the picks, then cutting the summary at a sentence, and if OSA raises its bound nothing here breaks.
 
 ## Consequences

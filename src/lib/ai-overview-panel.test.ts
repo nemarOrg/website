@@ -163,7 +163,8 @@ describe("seedText", () => {
       ANSWER,
       ORIGIN,
     ).split("\n")[0];
-    expect(head).toBe('**AI overview** for "bold x https://e.example c u h b s a b"');
+    // The address in it is broken too (`https://` reads `https `), so the widget cannot link it.
+    expect(head).toBe('**AI overview** for "bold x https e.example c u h b s a b"');
     expect(head.slice('**AI overview** for "'.length)).not.toMatch(/[\\`*_[\]()<>#~|!]/);
     // Newlines and runs of white space are one space, so it stays one line.
     expect(seedText("face\nrecognition\r\n\t  EEG", ANSWER, ORIGIN).split("\n")[0]).toBe(
@@ -177,6 +178,15 @@ describe("seedText", () => {
     expect(seedText("x".repeat(500), ANSWER, ORIGIN).split("\n")[0]).toBe(
       `**AI overview** for "${"x".repeat(299)}…"`,
     );
+  });
+
+  it("does not cut a long search of astral characters between a pair's halves", () => {
+    // Each is two code units, and two letters in front put the cut at 299 units between a pair's halves.
+    const head = seedText(`ab${"\u{1F9E0}".repeat(400)}`, ANSWER, ORIGIN).split("\n")[0];
+    expect(head.endsWith('…"')).toBe(true);
+    expect(head).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(head).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    expect(head.length).toBeLessThanOrEqual(`**AI overview** for ""`.length + 300);
   });
 
   it("links each dataset id on the page's own origin with the site's dataset path", () => {
@@ -211,25 +221,49 @@ describe("seedText", () => {
     );
   });
 
-  it("lets the overview's prose make no link, image, emphasis or code of its own", () => {
+  it("lets neither the prose, a pick's reason nor the search make a link of its own", () => {
     const answer = parseOverviewResponse(
       {
         summary: [
           { text: "Read [this](https://evil.example/x) and ![img](https://evil.example/i.png), " },
+          {
+            text: "or <https://evil2.example> and http://evil3.example/p and HTTPS://EVIL4.example. ",
+          },
           { text: "**bold** `code` \\ and *italic* " },
           { dataset_id: "a1" },
         ],
-        picks: [{ id: "a1", reason: "see [here](https://evil.example/y) and *more*" }],
+        picks: [
+          {
+            id: "a1",
+            reason: "see [here](https://evil.example/y), https://evil5.example/z and *more*",
+          },
+        ],
       },
       ["a1"],
     );
-    const text = seedText("a b c", answer, ORIGIN);
-    // The only "](" left are the page's own dataset links (one in the summary, one in the picks).
-    expect(text.match(/\]\(/g)).toHaveLength(2);
-    expect(text.match(/\]\(([^)]*)\)/g)?.every((l) => l.includes("test.nemar.org/dataset/"))).toBe(
-      true,
+    const text = seedText(
+      "https://evil6.example/q [s](http://evil7.example) sleep",
+      answer,
+      ORIGIN,
     );
+    // The widget's own rules: a Markdown link or image, and a bare http(s) address.
+    const ownLinks = new RegExp(
+      `\\[[^\\]]*\\]\\(${ORIGIN.replace(/\./g, "\\.")}/dataset/a1\\)`,
+      "g",
+    );
+    expect(text.match(ownLinks)).toHaveLength(2);
+    const rest = text.replace(ownLinks, "");
+    expect(rest).not.toMatch(/https?:\/\//i);
+    expect(rest).not.toMatch(/\]\(|!\[/);
+    // The only http(s) addresses left in the message are the page's own dataset links.
+    const addresses = [...text.matchAll(/(?<!\]\()https?:\/\/[^\s)]+/gi)];
+    expect(addresses).toHaveLength(0);
+    for (const [, href] of text.matchAll(/\]\(([^)]*)\)/g)) {
+      expect(href).toMatch(/^https:\/\/test\.nemar\.org\/dataset\/a1$/);
+    }
     expect(text).not.toMatch(/`|\\|\*italic\*|\*\*bold\*\*/);
+    // The words are still there, so the sentences read.
+    expect(text).toContain("evil.example/x");
     expect(wholeLinks(text)).toBe(true);
   });
 
