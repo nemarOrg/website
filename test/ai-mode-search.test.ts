@@ -486,7 +486,18 @@ describe("Home", () => {
     expect(SEARCH_BAR).toContain('aiOn ? "on" : "off"');
     expect(SEARCH_BAR).toContain("on={aiOn}");
     // A widget that never loads leaves the server's on state with nothing behind it: it is undone.
-    expect(CLIENT).toMatch(/if \(ready\.length === 0\) \{[\s\S]{0,200}paint\(toggles, false\)/);
+    expect(CLIENT).toMatch(/if \(ready\.length === 0\) \{[\s\S]{0,600}paint\(toggles, false\)/);
+  });
+
+  it("takes the slots out of the layout where no toggle can be revealed", () => {
+    expect(CLIENT).toContain('"[data-ai-hint], [data-ai-try], [data-ai-disclosure]"');
+    expect(CLIENT).toContain('setAttribute("data-ai-unavailable", "")');
+    for (const selector of [".hero__ai-hint", ".hero__try", ".hero__ai-note"]) {
+      expect(HOME).toContain(`${selector}[data-ai-unavailable]`);
+    }
+    for (const selector of [".searchbar__ai-hint", ".searchbar__ai-note"]) {
+      expect(SEARCH_BAR).toContain(`${selector}[data-ai-unavailable]`);
+    }
   });
 
   it("fills the field from an example and submits the form", () => {

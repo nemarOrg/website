@@ -187,6 +187,11 @@ const wrapperProps = form ? {} : { action, method: "get" };
   .searchbar__ai-note:not([data-ai-visible]) {
     visibility: hidden;
   }
+  /* The widget is absent or too old to open: no toggle is revealed, so the slots leave the layout. */
+  .searchbar__ai-note[data-ai-unavailable],
+  .searchbar__ai-hint[data-ai-unavailable] {
+    display: none;
+  }
   /* The line under the field for a search of one or two words: the smallest helper size the site
      has (--fs-xs), a muted site colour (dark values in tokens.css), never the error colour. It is
      always laid out and drawn with visibility, so it takes its row whether it shows or not. */

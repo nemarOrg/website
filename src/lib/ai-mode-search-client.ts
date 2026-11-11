@@ -365,8 +365,16 @@ export function initAiModeSearch(win: Window, doc: Document): void {
       );
       if (ready.length === 0) {
         // The widget did not load (or is the older one without `open`): the server's on state has
-        // nothing behind it, so the fields read as plain search.
+        // nothing behind it, so the fields read as plain search. The slots under the field that
+        // were kept for a switch (the line, the Try row, the disclosure) have nothing to show and
+        // no toggle to switch them, so they leave the layout instead of staying as blank space;
+        // the field does not move, because no toggle is revealed (ADR 0032).
         paint(toggles, false);
+        for (const slot of doc.querySelectorAll<HTMLElement>(
+          "[data-ai-hint], [data-ai-try], [data-ai-disclosure]",
+        )) {
+          slot.setAttribute("data-ai-unavailable", "");
+        }
         return;
       }
 

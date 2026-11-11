@@ -548,6 +548,13 @@ Astro.response.headers.set(
   .hero__ai-hint:not([data-ai-visible]) {
     visibility: hidden;
   }
+  /* The widget is absent or too old to open: no toggle is revealed, so the three slots under the
+     field (the line, the Try row, the notice) leave the layout instead of staying as blank space. */
+  .hero__ai-hint[data-ai-unavailable],
+  .hero__try[data-ai-unavailable],
+  .hero__ai-note[data-ai-unavailable] {
+    display: none;
+  }
   /* The "Try" row: example searches that fill the field and submit it. */
   .hero__try {
     display: flex;
