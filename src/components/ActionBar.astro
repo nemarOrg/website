@@ -817,6 +817,8 @@ cd {datasetId} && nemar dataset get</code></pre>
     let dismissed = false;
     const dismiss = () => {
       dismissed = true;
+      // Hiding the focused control would drop focus to the body; keep it on the pill instead.
+      if (hint?.contains(document.activeElement)) pill.focus();
       if (hint) hint.hidden = true;
       dismissAiModeHint(store);
     };
@@ -845,9 +847,11 @@ cd {datasetId} && nemar dataset get</code></pre>
     });
     hint?.querySelector("[data-ai-mode-dismiss]")?.addEventListener("click", dismiss);
     hint?.querySelector("[data-ai-mode-link]")?.addEventListener("click", dismiss);
-    // Escape dismisses the hint from anywhere on the page while it is showing.
+    // Escape dismisses the hint only when it is meant for it: focus is on the pill or in the hint
+    // and nothing else (a dialog, the viewer, an annotation draft) has already consumed the key.
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && hint && !hint.hidden) dismiss();
+      if (e.key !== "Escape" || e.defaultPrevented || !hint || hint.hidden) return;
+      if (wrap?.contains(document.activeElement)) dismiss();
     });
   })();
 

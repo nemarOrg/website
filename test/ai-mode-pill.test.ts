@@ -118,7 +118,9 @@ describe("AI Mode pill markup", () => {
     expect(ACTION_BAR).toMatch(/from "\.\.\/lib\/osa-ai-mode"/);
     expect(ACTION_BAR).toContain("revealAiModePill(widgetWindow, document, pill");
     expect(ACTION_BAR).toMatch(/if \(openAiMode\(widgetWindow\)\) dismiss\(\)/);
-    expect(ACTION_BAR).toContain('e.key === "Escape"');
+    expect(ACTION_BAR).toContain('e.key !== "Escape" || e.defaultPrevented');
+    expect(ACTION_BAR).toContain("wrap?.contains(document.activeElement)");
+    expect(ACTION_BAR).toContain("if (hint?.contains(document.activeElement)) pill.focus();");
     expect(ACTION_BAR).toContain("[data-ai-mode-dismiss]");
     expect(ACTION_BAR).toContain("[data-ai-mode-link]");
   });
