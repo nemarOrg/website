@@ -1,5 +1,10 @@
 ---
-import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
+import {
+  AI_MODE_DISCLOSURE_AFTER,
+  AI_MODE_DISCLOSURE_BEFORE,
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_PRIVACY_NOTE_URL,
+} from "../lib/osa-ai-mode";
 import { AI_MODE_HINT } from "../lib/osa-overview";
 import AiModeToggle from "./AiModeToggle.astro";
 
@@ -89,7 +94,7 @@ const wrapperProps = form ? {} : { action, method: "get" };
   {
     aiEndpoint && (
       <p class="searchbar__ai-note" data-ai-disclosure>
-        {AI_MODE_SEARCH_DISCLOSURE}
+        {AI_MODE_DISCLOSURE_BEFORE}<a class="ai-note-link" href={AI_MODE_PRIVACY_NOTE_URL}>{AI_MODE_DISCLOSURE_LINK_TEXT}</a>{AI_MODE_DISCLOSURE_AFTER}
       </p>
     )
   }
@@ -183,6 +188,16 @@ const wrapperProps = form ? {} : { action, method: "get" };
     font-size: var(--fs-xs);
     line-height: 1.5;
     color: var(--color-fg-muted);
+  }
+  /* Only "OSA" is the link, to the privacy note: the note's muted colour, underlined so it still
+     reads as a link without a second colour. */
+  .searchbar__ai-note .ai-note-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .searchbar__ai-note .ai-note-link:hover {
+    color: var(--color-fg);
   }
   .searchbar__ai-note:not([data-ai-visible]) {
     visibility: hidden;

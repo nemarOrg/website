@@ -11,7 +11,12 @@ import { latestDatasets } from "../lib/highlights";
 import { appUrl } from "../lib/host";
 import { landingCacheControl } from "../lib/landing-cache";
 import { listNews } from "../lib/news-api";
-import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
+import {
+  AI_MODE_DISCLOSURE_AFTER,
+  AI_MODE_DISCLOSURE_BEFORE,
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_PRIVACY_NOTE_URL,
+} from "../lib/osa-ai-mode";
 import { AI_MODE_HINT, overviewEndpoint } from "../lib/osa-overview";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
@@ -183,7 +188,7 @@ Astro.response.headers.set(
           </div>
         )}
         {aiEndpoint && (
-          <p class="hero__ai-note" data-ai-disclosure>{AI_MODE_SEARCH_DISCLOSURE}</p>
+          <p class="hero__ai-note" data-ai-disclosure>{AI_MODE_DISCLOSURE_BEFORE}<a class="ai-note-link" href={AI_MODE_PRIVACY_NOTE_URL}>{AI_MODE_DISCLOSURE_LINK_TEXT}</a>{AI_MODE_DISCLOSURE_AFTER}</p>
         )}
       </form>
 
@@ -578,6 +583,14 @@ Astro.response.headers.set(
     font-size: var(--fs-xs);
     line-height: 1.5;
     color: var(--ai-try-label);
+  }
+  .hero__ai-note .ai-note-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .hero__ai-note .ai-note-link:hover {
+    color: var(--color-fg);
   }
   .hero__ai-note:not([data-ai-visible]) {
     visibility: hidden;

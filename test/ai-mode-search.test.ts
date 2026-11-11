@@ -17,7 +17,11 @@ import PANEL from "../src/components/AiOverviewPanel.astro?raw";
 import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
 import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
 import MODE_SOURCE from "../src/lib/osa-ai-mode.ts?raw";
-import { AI_MODE_SEARCH_DISCLOSURE } from "../src/lib/osa-ai-mode";
+import {
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_PRIVACY_NOTE_URL,
+  AI_MODE_SEARCH_DISCLOSURE,
+} from "../src/lib/osa-ai-mode";
 import {
   AI_MODE_HINT,
   OVERVIEW_ENDPOINTS,
@@ -90,11 +94,14 @@ describe("the toggle", () => {
   });
 
   it("tells the reader in visible text, while AI Mode is on, what leaves the site", () => {
-    const text = AI_MODE_SEARCH_DISCLOSURE;
-    expect(text).toMatch(/search words/);
-    expect(text).toMatch(/titles and descriptions of the top results/);
-    expect(text).toMatch(/Open Science Assistant/);
-    expect(text).toMatch(/AI model provider/);
+    // The maintainer's sentence (2026-11-11), short, with only "OSA" linked to the privacy note.
+    expect(AI_MODE_SEARCH_DISCLOSURE).toBe(
+      "When on, AI Mode provides an overview by sending the search results to the Open Science Assistant (OSA).",
+    );
+    expect(AI_MODE_DISCLOSURE_LINK_TEXT).toBe("OSA");
+    expect(AI_MODE_PRIVACY_NOTE_URL).toBe(
+      "https://docs.nemar.org/policies/privacy/#the-open-science-assistant",
+    );
     // Discover (the shared SearchBar) and Home each render the text as a paragraph that is always
     // in the page (a slot drawn with visibility, so showing it moves nothing) and that the client
     // shows only while AI Mode is on; a tooltip alone does not reach touch, keyboard or most screen
@@ -105,7 +112,15 @@ describe("the toggle", () => {
     ] as const) {
       const note = openingTag(source, "p", "data-ai-disclosure");
       expect(note, name).not.toMatch(/\bhidden\b/);
-      expect(source, name).toMatch(/\{AI_MODE_SEARCH_DISCLOSURE\}/);
+      // The sentence, with only "OSA" as the link (not the full name), to the privacy note.
+      expect(source, name).toMatch(
+        /\{AI_MODE_DISCLOSURE_BEFORE\}<a class="ai-note-link" href=\{AI_MODE_PRIVACY_NOTE_URL\}>\{AI_MODE_DISCLOSURE_LINK_TEXT\}<\/a>\{AI_MODE_DISCLOSURE_AFTER\}/,
+      );
+      // Muted like the note, and still visibly a link.
+      expect(rule(styleOf(source), `${selector} .ai-note-link`), name).toMatch(/color:\s*inherit/);
+      expect(rule(styleOf(source), `${selector} .ai-note-link`), name).toMatch(
+        /text-decoration:\s*underline/,
+      );
       expect(rule(styleOf(source), `${selector}:not([data-ai-visible])`), name).toMatch(
         /visibility:\s*hidden/,
       );
