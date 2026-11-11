@@ -210,7 +210,8 @@ export function buildOverviewRequest(input: {
 /** A card as Discover holds it: the hydrated dataset and the search snippet, when there is one. */
 export interface OverviewCard {
   dataset: {
-    id: string;
+    /** The dataset's public id ("on002718"); `id` on a hydrated row is a database key. */
+    dataset_id: string;
     name: string;
     description: string | null;
     modalities: string;
@@ -245,7 +246,7 @@ export function overviewRequestForPage(input: {
     filters: input.filters,
     totalCount: input.totalCount,
     rows: input.cards.map(({ dataset, snippet }) => ({
-      id: dataset.id,
+      id: dataset.dataset_id,
       title: dataset.name,
       description: dataset.description?.trim() ? dataset.description : snippetText(snippet),
       modalities: dataset.modalities,

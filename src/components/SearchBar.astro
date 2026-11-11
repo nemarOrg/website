@@ -1,4 +1,6 @@
 ---
+import AiModeToggle from "./AiModeToggle.astro";
+
 interface Props {
   value?: string;
   placeholder?: string;
@@ -15,6 +17,14 @@ interface Props {
    * filter carries the search, rather than each submit dropping the other.
    */
   form?: string;
+  /**
+   * The AI overview endpoint (src/lib/osa-overview.ts). Set, the field carries the AI Mode toggle
+   * (hidden until the widget can open) and its teal-to-purple ring while AI Mode is on (board D2,
+   * website#518); unset, there is no toggle at all.
+   */
+  aiEndpoint?: string | null;
+  /** AI Mode is on in the address (`ai=1`): keeps it across a search that runs without scripts. */
+  aiOn?: boolean;
 }
 
 const {
@@ -24,6 +34,8 @@ const {
   size = "md",
   label = "Search datasets",
   form,
+  aiEndpoint = null,
+  aiOn = false,
 } = Astro.props;
 const inputId = `search-${Math.random().toString(36).slice(2, 8)}`;
 // Standalone (the landing hero) it is a form; joined to another form it is just
@@ -34,19 +46,23 @@ const wrapperProps = form ? {} : { action, method: "get" };
 
 <Wrapper class:list={["searchbar", `searchbar--${size}`]} role="search" {...wrapperProps}>
   <label class="visually-hidden" for={inputId}>{label}</label>
-  <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
-    <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-  </svg>
-  <input
-    id={inputId}
-    name="q"
-    type="search"
-    value={value}
-    placeholder={placeholder}
-    autocomplete="off"
-    form={form}
-  />
+  <div class="searchbar__field" data-ai-field={aiEndpoint ? "" : undefined}>
+    <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+      <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+    </svg>
+    <input
+      id={inputId}
+      name="q"
+      type="search"
+      value={value}
+      placeholder={placeholder}
+      autocomplete="off"
+      form={form}
+    />
+    {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="md" form={form} carryLinks />}
+  </div>
+  {aiEndpoint && aiOn && <input type="hidden" name="ai" value="1" form={form} data-ai-input />}
   <button type="submit" class="searchbar__submit" form={form}>Search</button>
 </Wrapper>
 
@@ -62,6 +78,13 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar--lg {
     max-inline-size: 44rem;
+  }
+  /* The field: the input, its magnifier and (when AI Mode is offered) the toggle. */
+  .searchbar__field {
+    position: relative;
+    flex: 1;
+    min-inline-size: 0;
+    border-radius: var(--radius-pill);
   }
   .searchbar__icon {
     position: absolute;
@@ -79,7 +102,8 @@ const wrapperProps = form ? {} : { action, method: "get" };
     inset-inline-start: var(--space-5);
   }
   .searchbar input[type="search"] {
-    flex: 1;
+    inline-size: 100%;
+    box-sizing: border-box;
     padding: 10px var(--space-4) 10px calc(var(--space-4) + 24px);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
@@ -115,5 +139,41 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar__submit:hover {
     background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+
+  /* AI Mode (board D2). Once the toggle is revealed the input leaves room for it. */
+  .searchbar__field[data-ai-ready] input[type="search"] {
+    padding-inline-end: 120px;
+  }
+  /* On: a 1.5 px teal-to-purple ring around the field, drawn as the wrapper's padding. The input
+     gives up its 1 px border and 1.5 px of height, so the field stays 44 px. */
+  .searchbar__field[data-ai="on"] {
+    padding: 1.5px;
+    background: var(--ai-ring-gradient);
+  }
+  .searchbar__field[data-ai="on"] input[type="search"] {
+    border: 0;
+    min-block-size: calc(44px - 3px);
+    box-shadow: none;
+  }
+  .searchbar__field[data-ai="on"]:has(input:focus-visible) {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .searchbar__field[data-ai="on"] .searchbar__icon {
+    inset-inline-start: calc(var(--space-4) + 1px);
+  }
+  /* The toggle (and the field it sits in) would leave a narrow input with a few characters of
+     room at phone width; the Search button takes its own row instead. */
+  @media (max-width: 520px) {
+    .searchbar:has([data-ai-ready]) {
+      flex-wrap: wrap;
+    }
+    .searchbar:has([data-ai-ready]) .searchbar__field {
+      flex: 1 1 100%;
+    }
+    .searchbar:has([data-ai-ready]) .searchbar__submit {
+      flex: 1 1 100%;
+    }
   }
 </style>

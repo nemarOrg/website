@@ -278,8 +278,10 @@ describe("filters", () => {
 describe("overviewRequestForPage", () => {
   const cards = [
     {
+      // A hydrated row's `id` is a database key; the public id is `dataset_id`.
       dataset: {
-        id: "on002718",
+        id: "99387",
+        dataset_id: "on002718",
         name: "Faces",
         description: "Full description.",
         modalities: "eeg",
@@ -287,10 +289,10 @@ describe("overviewRequestForPage", () => {
       snippet: "ignored <mark>x</mark>",
     },
     {
-      dataset: { id: "ds000117", name: "Source", description: null, modalities: "meg" },
+      dataset: { dataset_id: "ds000117", name: "Source", description: null, modalities: "meg" },
       snippet: "…<mark>face</mark> study…",
     },
-    { dataset: { id: "nm000001", name: "Third", description: "  ", modalities: "eeg" } },
+    { dataset: { dataset_id: "nm000001", name: "Third", description: "  ", modalities: "eeg" } },
   ];
   const base = { isSearch: true, failed: false, page: 1, query: "face", totalCount: 37, cards };
 
