@@ -155,7 +155,7 @@ describe("correctionNotice", () => {
   it("reads the recorded fixture the way the API shapes it", () => {
     expect(typoAnswer.corrected_query).toBe("bilingual");
     expect(typoAnswer.results.length).toBeGreaterThan(0);
-    expect(typoAnswer.count).toBeGreaterThanOrEqual(typoAnswer.returned);
+    expect(typoAnswer.count).toBeGreaterThanOrEqual(typoAnswer.returned ?? 0);
     expect(typeof typoAnswer.method).toBe("string");
   });
 
