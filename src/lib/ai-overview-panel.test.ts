@@ -14,6 +14,7 @@ import {
   summaryText,
 } from "./ai-overview-panel";
 import {
+  OVERVIEW_MIN_WORDS_NOTE,
   type OverviewAnswer,
   OverviewError,
   type OverviewRequest,
@@ -94,14 +95,39 @@ describe("panelView", () => {
     expect(RETRY_LABEL).toBe("Try again");
   });
 
+  it("shows the three-words note as a note, not a failure: no retry, no error, announced", () => {
+    const view = panelView({ kind: "too_short" });
+    expect(view.visible).toBe(true);
+    expect(view.busy).toBe(false);
+    expect(view.skeleton).toBe(false);
+    expect(view.note).toBe("AI Mode gives an overview for searches of three words or more.");
+    expect(view.note).toBe(OVERVIEW_MIN_WORDS_NOTE);
+    // The live region says it; the line beside the heading does not repeat it.
+    expect(view.status).toBe(view.note);
+    expect(view.statusVisible).toBe(false);
+    expect(view.error).toBeNull();
+    expect(view.badge).toBeNull();
+    expect(view.summary).toEqual([]);
+    expect(view.followUp).toBeNull();
+    expect(view.footnote).toBeNull();
+    for (const state of [
+      { kind: "loading", reading: 3 },
+      { kind: "answer", answer: ANSWER },
+      { kind: "error", error: "server" },
+    ] as const) {
+      expect(panelView(state).note).toBeNull();
+    }
+  });
+
   it("gives every state a distinct view", () => {
     const states = [
+      panelView({ kind: "too_short" }),
       panelView({ kind: "off" }),
       panelView({ kind: "loading", reading: 10 }),
       panelView({ kind: "answer", answer: ANSWER }),
       panelView({ kind: "error", error: "server" }),
     ];
-    expect(new Set(states.map((s) => JSON.stringify(s))).size).toBe(4);
+    expect(new Set(states.map((s) => JSON.stringify(s))).size).toBe(5);
   });
 });
 
@@ -146,7 +172,7 @@ describe("overviewFailureKind", () => {
 describe("OverviewController", () => {
   const ENDPOINT = "https://develop-widget.osc.earth/osa/nemar/overview";
   const request: OverviewRequest = {
-    query: "face",
+    query: "face recognition EEG",
     filters: {},
     results: [{ id: "on002718", title: "Faces", description: "d", modalities: "eeg" }],
   };
@@ -171,9 +197,10 @@ describe("OverviewController", () => {
     };
   }
 
-  function build(over: { onState?: (s: OverviewPanelState) => void } = {}) {
+  function build(over: { onState?: (s: OverviewPanelState) => void; query?: string } = {}) {
     const states: OverviewPanelState[] = [];
     const controller = new OverviewController({
+      query: over.query ?? request.query,
       reading: request.results.length,
       fetchOverview: (signal) => requestOverview(ENDPOINT, request, { signal }),
       onState: (state) => {
@@ -183,6 +210,46 @@ describe("OverviewController", () => {
     });
     return { controller, states, kinds: () => states.map((s) => s.kind) };
   }
+
+  it("sends a request for a search of three words", async () => {
+    const wire = manualFetch();
+    const { controller, kinds } = build({ query: "face recognition EEG" });
+    const pending = controller.setOn(true);
+    expect(wire.calls()).toBe(1);
+    wire.answer(0);
+    await pending;
+    expect(kinds()).toEqual(["loading", "answer"]);
+  });
+
+  it("sends no request under three words and shows the note, again after off and on", async () => {
+    const wire = manualFetch();
+    for (const query of ["EEG", "P300 speller", "EEG - MEG", "α-band power", ""]) {
+      const { controller, kinds } = build({ query });
+      await controller.setOn(true);
+      expect(controller.state, query).toEqual({ kind: "too_short" });
+      expect(kinds()).toEqual(["too_short"]);
+      expect(controller.answer).toBeNull();
+      await controller.setOn(false);
+      await controller.setOn(true);
+      expect(kinds()).toEqual(["too_short", "off", "too_short"]);
+    }
+    expect(wire.calls()).toBe(0);
+  });
+
+  it("shows the same note, not an error, when the endpoint answers 422", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ detail: "query too short" }), {
+        status: 422,
+      })) as unknown as typeof fetch;
+    const { controller, kinds } = build();
+    await controller.setOn(true);
+    expect(kinds()).toEqual(["loading", "too_short"]);
+    expect(controller.answer).toBeNull();
+    // Still logged, so a server whose count disagrees is not only a quiet note.
+    expect(String(warn.mock.calls[0].join(" "))).toMatch(/invalid.*422/);
+    expect(panelView(controller.state).error).toBeNull();
+  });
 
   it("loads on the first switch on and shows the answer", async () => {
     globalThis.fetch = (async () =>
@@ -267,20 +334,20 @@ describe("OverviewController", () => {
 
   it("logs every kind of failure, with the status for the service's", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    for (const status of [403, 404, 422, 500, 502, 503]) {
+    for (const status of [403, 404, 500, 502, 503]) {
       globalThis.fetch = (async () => new Response("{}", { status })) as unknown as typeof fetch;
       const { controller } = build();
       await controller.setOn(true);
       expect(controller.state.kind).toBe("error");
     }
-    expect(warn).toHaveBeenCalledTimes(6);
+    expect(warn).toHaveBeenCalledTimes(5);
     // A 200 that is not an overview names its own kind.
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ summary: [] }), { status: 200 })) as unknown as typeof fetch;
     const { controller } = build();
     await controller.setOn(true);
     expect(controller.state).toEqual({ kind: "error", error: "bad_response" });
-    expect(warn).toHaveBeenCalledTimes(7);
+    expect(warn).toHaveBeenCalledTimes(6);
   });
 
   it("calls a failure of the page itself unexpected, not a network failure", async () => {

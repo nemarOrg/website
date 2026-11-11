@@ -104,6 +104,10 @@ function renderBody(
     }
     return;
   }
+  if (view.note) {
+    body.append(element(doc, "p", "ai-overview__hint", view.note));
+    return;
+  }
   if (view.error) {
     body.append(element(doc, "p", "ai-overview__error", view.error.message));
     const retry = element(
@@ -167,6 +171,7 @@ class OverviewPanel {
     endpoint: string,
   ) {
     this.controller = new OverviewController({
+      query: request.query,
       reading: request.results.length,
       fetchOverview: (signal) => requestOverview(endpoint, request, { signal }),
       onState: (state) => this.render(panelView(state)),

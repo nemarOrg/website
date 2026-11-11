@@ -12,18 +12,22 @@
  */
 
 import {
+  OVERVIEW_MIN_WORDS_NOTE,
   type OverviewAnswer,
   OverviewError,
   type OverviewErrorKind,
   type OverviewPick,
   type OverviewSegment,
   overviewErrorMessage,
+  queryHasEnoughWords,
 } from "./osa-overview";
 
 export type OverviewPanelState =
   | { kind: "off" }
   | { kind: "loading"; reading: number }
   | { kind: "answer"; answer: OverviewAnswer }
+  // The search has fewer than three words: no request was made, and this is not a failure.
+  | { kind: "too_short" }
   | { kind: "error"; error: OverviewErrorKind };
 
 /** What the panel shows for a state. Every field is data; none is markup. */
@@ -40,6 +44,8 @@ export interface PanelView {
   badge: string | null;
   /** Grey placeholder lines in place of the text. */
   skeleton: boolean;
+  /** A calm note in place of an overview, drawn without the error styling. */
+  note: string | null;
   summary: OverviewSegment[];
   picks: OverviewPick[];
   footnote: string | null;
@@ -60,6 +66,7 @@ const OFF: PanelView = {
   statusVisible: false,
   badge: null,
   skeleton: false,
+  note: null,
   summary: [],
   picks: [],
   footnote: null,
@@ -95,6 +102,13 @@ export function panelView(state: OverviewPanelState): PanelView {
         picks: state.answer.picks,
         footnote: PANEL_FOOTNOTE,
         followUp: FOLLOW_UP_LABEL,
+      };
+    case "too_short":
+      return {
+        ...OFF,
+        visible: true,
+        status: OVERVIEW_MIN_WORDS_NOTE,
+        note: OVERVIEW_MIN_WORDS_NOTE,
       };
     case "error": {
       const message = overviewErrorMessage(state.error);
@@ -155,6 +169,8 @@ export function overviewFailureKind(err: unknown): OverviewErrorKind {
 
 /** What the controller needs: how to ask for the overview, and where to show a state. */
 export interface OverviewControllerOptions {
+  /** The search the overview is written for; under three words, no request is ever made. */
+  query: string;
   /** The number of results the overview reads, for the loading line. */
   reading: number;
   /** Asks for the overview; rejects with the signal's own abort error when it is aborted. */
@@ -166,7 +182,8 @@ export interface OverviewControllerOptions {
 /**
  * The panel's transitions. Off: nothing shown, any request aborted, a kept answer remembered.
  * On: the kept answer again if there is one, else a request (a second "on" while one runs does
- * nothing). A request's result counts only while it is the current one: a response for a request
+ * nothing); a search under three words makes no request and shows the three-words note. A 422
+ * shows that note too, since a server may count words differently. A request's result counts only while it is the current one: a response for a request
  * the reader switched off, or replaced, is dropped and never kept. Every failure is logged with
  * its kind (and status, for the service's), so a drifted contract or a bug is not only a message
  * in the panel.
@@ -215,6 +232,11 @@ export class OverviewController {
 
   private async load(): Promise<void> {
     this.abort?.abort();
+    this.abort = null;
+    if (!queryHasEnoughWords(this.options.query)) {
+      this.show({ kind: "too_short" });
+      return;
+    }
     const controller = new AbortController();
     this.abort = controller;
     try {
@@ -233,7 +255,7 @@ export class OverviewController {
         console.warn("[ai-overview] unexpected failure:", err);
       }
       try {
-        this.show({ kind: "error", error });
+        this.show(error === "invalid" ? { kind: "too_short" } : { kind: "error", error });
       } catch (renderErr) {
         console.warn("[ai-overview] the failure could not be shown:", renderErr);
       }
