@@ -397,28 +397,24 @@ export function aiModeSeedAvailable(win: AiModeWindow): boolean {
 /**
  * "Ask a follow-up": opens the centre-stage dialog with `text` as the assistant's own first reply,
  * `seed(text, {mode: "center"})`. The widget sends nothing in the reader's name; the reader writes
- * the next message. Returns whether the widget took it: `false` for a widget without `seed` or one
- * that threw. A throw is caught and warned, as {@link openAiMode} does, because the widget is a
- * third party's code and a bug in it must not turn a click into an unhandled error.
+ * the next message. Resolves to whether the widget took it: `false` for a widget without `seed`,
+ * one that threw, and one whose `seed` returned a promise that rejected. `seed` may be synchronous
+ * or asynchronous, so the answer is awaited; the caller sets the failure note from it. Failures are
+ * caught and warned, as {@link openAiMode} does, because the widget is a third party's code and a
+ * bug in it must not turn a click into an unhandled error.
  */
-export function seedFollowUp(win: AiModeWindow, text: string): boolean {
+export async function seedFollowUp(win: AiModeWindow, text: string): Promise<boolean> {
   const widget = win.OSAChatWidget;
   if (!widget || typeof widget.seed !== "function") return false;
   try {
-    const result = (widget.seed as (text: string, options: { mode: "center" }) => unknown).call(
+    await (widget.seed as (text: string, options: { mode: "center" }) => unknown).call(
       widget,
       text,
       { mode: "center" },
     );
-    // A widget that answers with a promise may reject it later; that is as much a warning as a throw.
-    if (result && typeof (result as Promise<unknown>).catch === "function") {
-      (result as Promise<unknown>).catch((err) => {
-        console.warn("[osa-ai-mode] widget's seed rejected:", err);
-      });
-    }
     return true;
   } catch (err) {
-    console.warn("[osa-ai-mode] widget's seed threw:", err);
+    console.warn("[osa-ai-mode] widget's seed failed:", err);
     return false;
   }
 }
@@ -454,6 +450,11 @@ export interface AiHintUpdate {
   announcement: string | null;
 }
 
+/** A search as the field compares it: trimmed, runs of whitespace as one space. */
+function normaliseQuery(query: string): string {
+  return query.trim().replace(/\s+/g, " ");
+}
+
 /**
  * The line under the field as a state machine with no DOM: whether AI Mode is on, whether the
  * endpoint refused the search for its length, and whether the line is drawn now. Each change takes
@@ -478,10 +479,13 @@ export class AiHintState {
     return this.update(query);
   }
 
-  /** The endpoint refused the search for its length. */
-  refuse(query: string): AiHintUpdate {
+  /** The endpoint refused `requested`, the search it was sent, for its length. `current` is the
+   *  field's value now. A refusal belongs to the request just made, so one that arrives after the
+   *  reader changed the field is for a search no longer there and is ignored. */
+  refuse(requested: string, current: string): AiHintUpdate {
+    if (normaliseQuery(requested) !== normaliseQuery(current)) return this.update(current);
     this.refused = true;
-    return this.update(query);
+    return this.update(current);
   }
 
   private update(query: string): AiHintUpdate {

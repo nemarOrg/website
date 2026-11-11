@@ -580,32 +580,30 @@ describe("aiModeSeedAvailable", () => {
 });
 
 describe("seedFollowUp", () => {
-  it("calls seed(text, {mode: 'center'}) once, and nothing else on the widget", () => {
+  it("calls seed(text, {mode: 'center'}) once, and nothing else on the widget", async () => {
     const { calls, win } = recordingWidget({ seed: true, ask: true });
-    expect(seedFollowUp(win, "**AI overview** for faces")).toBe(true);
+    expect(await seedFollowUp(win, "**AI overview** for faces")).toBe(true);
     expect(calls).toEqual([["seed", "**AI overview** for faces", { mode: "center" }]]);
   });
 
-  it("does nothing, not even opening the dialog, for a widget without seed", () => {
+  it("does nothing, not even opening the dialog, for a widget without seed", async () => {
     for (const widget of [recordingWidget(), recordingWidget({ ask: true })]) {
-      expect(seedFollowUp(widget.win, "text")).toBe(false);
+      expect(await seedFollowUp(widget.win, "text")).toBe(false);
       expect(widget.calls).toEqual([]);
     }
-    expect(seedFollowUp({}, "x")).toBe(false);
-    expect(seedFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
+    expect(await seedFollowUp({}, "x")).toBe(false);
+    expect(await seedFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
   });
 
-  it("catches a throw, warns, and says it did not reach the widget", () => {
+  it("catches a throw, warns, and says it did not reach the widget", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(seedFollowUp(recordingWidget({ seed: "throws" }).win, "x")).toBe(false);
+    expect(await seedFollowUp(recordingWidget({ seed: "throws" }).win, "x")).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("warns about a rejected promise", async () => {
+  it("warns about a rejected promise and says it did not reach the widget", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(seedFollowUp(recordingWidget({ seed: "rejects" }).win, "x")).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(await seedFollowUp(recordingWidget({ seed: "rejects" }).win, "x")).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });
@@ -720,7 +718,7 @@ describe("the line under the field", () => {
     it("shows a refusal for a long search, and typing resets it", () => {
       const state = new AiHintState();
       state.setOn(true, "face recognition EEG");
-      expect(state.refuse("face recognition EEG")).toEqual({
+      expect(state.refuse("face recognition EEG", "face recognition EEG")).toEqual({
         shown: true,
         announcement: AI_MODE_HINT,
       });
@@ -733,16 +731,31 @@ describe("the line under the field", () => {
       });
     });
 
+    it("ignores a refusal that arrives after the reader edited the field", () => {
+      const state = new AiHintState();
+      state.setOn(true, "face recognition EEG");
+      // The search was sent as "face recognition EEG"; meanwhile the field became a valid search.
+      expect(state.refuse("face recognition EEG", "face recognition EEG data")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+      // Whitespace does not make it a different search.
+      expect(state.refuse("face  recognition EEG ", " face recognition EEG")).toEqual({
+        shown: true,
+        announcement: AI_MODE_HINT,
+      });
+    });
+
     it("clears a refusal on a switch off and on, and shows none for an empty field", () => {
       const state = new AiHintState();
       state.setOn(true, "face recognition EEG");
-      state.refuse("face recognition EEG");
+      state.refuse("face recognition EEG", "face recognition EEG");
       state.setOn(false, "face recognition EEG");
       expect(state.setOn(true, "face recognition EEG")).toEqual({
         shown: false,
         announcement: null,
       });
-      expect(state.refuse("")).toEqual({ shown: false, announcement: null });
+      expect(state.refuse("", "")).toEqual({ shown: false, announcement: null });
     });
   });
 });

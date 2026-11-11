@@ -228,7 +228,7 @@ class OverviewPanel {
         doc,
         body,
         view,
-        (button) => this.followUp(button),
+        (button) => void this.followUp(button),
         () => void this.controller.retry(),
       );
     }
@@ -239,11 +239,12 @@ class OverviewPanel {
   }
 
   /** Seeds the assistant's dialog with the overview, as its own first reply; when the widget cannot
-   *  take it, says so under the button. */
-  private followUp(button: HTMLElement): void {
+   *  take it (it threw, or its promise rejected), says so under the button. The note is looked up
+   *  after the wait, so it is the one in the page now. */
+  private async followUp(button: HTMLElement): Promise<void> {
     const state = this.controller.state;
     if (state.kind !== "answer") return;
-    const took = seedFollowUp(
+    const took = await seedFollowUp(
       this.win as unknown as AiModeWindow,
       seedText(this.request.query, state.answer, this.win.location.origin),
     );
@@ -281,9 +282,10 @@ class UnderFieldHint {
     this.apply(this.state.setOn(on, this.query()));
   }
 
-  /** The endpoint refused the search for its length: the line says why, for what is in the field. */
-  refuse(): void {
-    this.apply(this.state.refuse(this.query()));
+  /** The endpoint refused `requested` for its length: the line says why, if the field still holds
+   *  that search; a refusal that arrives after the reader edited the field is ignored. */
+  refuse(requested: string): void {
+    this.apply(this.state.refuse(requested, this.query()));
   }
 
   private query(): string {
@@ -380,7 +382,7 @@ export function initAiModeSearch(win: Window, doc: Document): void {
       const panel =
         section && request
           ? new OverviewPanel(win, doc, section, request, endpoint, (state) => {
-              if (state.kind === "refused") hint.refuse();
+              if (state.kind === "refused") hint.refuse(request.query);
             })
           : null;
 
