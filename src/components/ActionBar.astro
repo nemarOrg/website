@@ -1,5 +1,6 @@
 ---
 import { resolveDataBase } from "../lib/data-base";
+import { DOCS_ANALYZE_IN_BROWSER_PATH, resolveDocsBase } from "../lib/docs-base";
 import type { LandingArchive } from "../lib/neuroschema";
 import DialogCloseButton from "./DialogCloseButton.astro";
 
@@ -48,6 +49,9 @@ const ghCloneUrl = githubUrl;
 const dataBase = resolveDataBase();
 const dataHost = new URL(dataBase).host;
 
+// "How it works" under the AI Mode pill (website#517).
+const analyzeInBrowserUrl = `${resolveDocsBase()}${DOCS_ANALYZE_IN_BROWSER_PATH}`;
+
 // Per-method commands, each separately copyable in the modal.
 const cliCmd = `nemar dataset download ${ds}`;
 const dataladCmd = ghCloneUrl
@@ -64,6 +68,30 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
     </svg>
     Download
   </button>
+  {/* AI Mode (website#517): opens the OSA widget as its centre-stage dialog. Ships
+      [hidden]; the script below reveals it once the document is ready AND
+      window.OSAChatWidget.open exists, so a build with no widget (no PUBLIC_OSA_*
+      variables, an excluded path, jsDelivr or the CSP blocking it) and production's
+      older pinned widget, which has no open(), never show a dead button. The wrapper
+      anchors the one-time hint under the pill at any wrap width; it hides with the
+      pill (see `.ai-mode:has(...)`) so it adds no gap to the row. */}
+  <span class="ai-mode">
+    <button class="action action--ai" type="button" data-ai-mode aria-haspopup="dialog" hidden>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8z"/>
+        <path d="M18.5 14.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>
+      </svg>
+      AI Mode
+    </button>
+    <div class="ai-mode__hint" role="note" data-ai-mode-hint hidden>
+      <span class="ai-mode__caret" aria-hidden="true"></span>
+      <p class="ai-mode__text">New: ask about this dataset, or describe an analysis and run it in your browser.</p>
+      <div class="ai-mode__row">
+        <a class="ai-mode__link" href={analyzeInBrowserUrl} rel="external" data-ai-mode-link>How it works</a>
+        <button class="ai-mode__got-it" type="button" data-ai-mode-dismiss>Got it</button>
+      </div>
+    </div>
+  </span>
   {/* Hidden by default (website#260): whether this dataset has any viewable
       recording is only known once the client fetches the Zarr index, and
       that fetch (and the recording-nav state it needs to pick a "first"
@@ -337,6 +365,103 @@ cd {datasetId} && nemar dataset get</code></pre>
     background: color-mix(in srgb, var(--color-fg) 88%, var(--brand-teal));
     color: var(--color-bg);
     border-color: transparent;
+  }
+  /* AI Mode pill (website#517, board C1): the .action shape and 44px height, brand teal with
+     navy-black text. The fill is the brand colour in both themes, so it needs no dark pair. */
+  .action--ai {
+    background: var(--brand-teal);
+    border-color: var(--brand-teal);
+    color: var(--on-teal);
+    font-weight: var(--fw-semibold);
+  }
+  .action--ai:hover {
+    background: color-mix(in srgb, var(--brand-teal) 86%, var(--on-teal));
+    border-color: color-mix(in srgb, var(--brand-teal) 86%, var(--on-teal));
+    color: var(--on-teal);
+  }
+  .action--ai:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  /* Anchors the hint under the pill wherever the row wraps. A flex item with no content would
+     still take a gap, so the wrapper goes when its pill is hidden. */
+  .ai-mode {
+    position: relative;
+    display: inline-flex;
+  }
+  .ai-mode:has(> .action[hidden]) {
+    display: none;
+  }
+  /* Absolute, so showing or dismissing it moves nothing. The script sets --ai-hint-shift and
+     --ai-hint-caret to keep it inside the viewport; the fallbacks fit the unwrapped row. */
+  .ai-mode__hint {
+    position: absolute;
+    inset-block-start: calc(100% + 12px);
+    inset-inline-start: var(--ai-hint-shift, 0px);
+    z-index: 2;
+    inline-size: 300px;
+    max-inline-size: min(300px, calc(100vw - 32px));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) 14px;
+    border: 1px solid var(--ai-hint-border);
+    border-radius: var(--radius-lg);
+    background: var(--ai-hint-bg);
+    color: var(--ai-hint-fg);
+    box-shadow: var(--ai-hint-shadow);
+  }
+  .ai-mode__hint[hidden] {
+    display: none;
+  }
+  .ai-mode__caret {
+    position: absolute;
+    inset-block-start: -7px;
+    inset-inline-start: calc(var(--ai-hint-caret, 40px) - 6px);
+    inline-size: 12px;
+    block-size: 12px;
+    background: var(--ai-hint-bg);
+    border-inline-start: 1px solid var(--ai-hint-border);
+    border-block-start: 1px solid var(--ai-hint-border);
+    transform: rotate(45deg);
+  }
+  .ai-mode__text {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .ai-mode__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .ai-mode__link {
+    font-size: var(--fs-xs);
+    color: var(--ai-hint-link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .ai-mode__link:hover {
+    color: var(--ai-hint-fg);
+  }
+  .ai-mode__got-it {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--ai-hint-action-border);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--ai-hint-action-fg);
+    font-size: var(--fs-xs);
+    font-weight: var(--fw-medium);
+    cursor: pointer;
+  }
+  .ai-mode__got-it:hover {
+    background: color-mix(in srgb, var(--ai-hint-action-border) 22%, transparent);
+  }
+  .ai-mode__link:focus-visible,
+  .ai-mode__got-it:focus-visible {
+    outline: 2px solid var(--ai-hint-action-border);
+    outline-offset: 2px;
   }
   /* Copyable command row inside the download modal (one per method). */
   .dl-cmd {
@@ -664,6 +789,56 @@ cd {datasetId} && nemar dataset get</code></pre>
 
 <script>
   import { citeKindLabel, citedByLabel } from "../lib/citation-labels";
+  import {
+    type AiModeWindow,
+    browserStore,
+    dismissAiModeHint,
+    openAiMode,
+    placeAiModeHint,
+    revealAiModePill,
+    shouldShowAiModeHint,
+  } from "../lib/osa-ai-mode";
+
+  // AI Mode (website#517). This module script runs before the widget's deferred classic script,
+  // so the pill is revealed on DOMContentLoaded, when window.OSAChatWidget is or is not there.
+  // The decisions are in ../lib/osa-ai-mode.ts, where they are tested.
+  (() => {
+    const pill = document.querySelector<HTMLButtonElement>("[data-ai-mode]");
+    const hint = document.querySelector<HTMLElement>("[data-ai-mode-hint]");
+    if (!pill) return;
+    // The widget global is not in lib.dom, so it is read through the module's own view of window.
+    const widgetWindow = window as unknown as AiModeWindow;
+    const store = browserStore(window);
+    let dismissed = false;
+    const dismiss = () => {
+      dismissed = true;
+      if (hint) hint.hidden = true;
+      dismissAiModeHint(store);
+    };
+    const place = () => {
+      if (!hint || hint.hidden) return;
+      const { shift, caretOffset } = placeAiModeHint({
+        pillLeft: pill.getBoundingClientRect().left,
+        pillWidth: pill.offsetWidth,
+        hintWidth: hint.offsetWidth,
+        viewportWidth: document.documentElement.clientWidth,
+      });
+      hint.style.setProperty("--ai-hint-shift", `${shift}px`);
+      hint.style.setProperty("--ai-hint-caret", `${caretOffset}px`);
+    };
+    revealAiModePill(widgetWindow, document, pill, () => {
+      if (!hint || dismissed || !shouldShowAiModeHint(store)) return;
+      hint.hidden = false;
+      place();
+    });
+    window.addEventListener("resize", place);
+    pill.addEventListener("click", () => {
+      dismiss();
+      openAiMode(widgetWindow);
+    });
+    hint?.querySelector("[data-ai-mode-dismiss]")?.addEventListener("click", dismiss);
+    hint?.querySelector("[data-ai-mode-link]")?.addEventListener("click", dismiss);
+  })();
 
   document.querySelectorAll<HTMLButtonElement>("[data-compute-stub]").forEach((btn) => {
     btn.addEventListener("click", () => {

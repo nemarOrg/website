@@ -12,6 +12,8 @@
   --brand-gold-light: #f4d06b;
   --brand-gold-deep: #b8860b;
   --brand-accent: var(--brand-teal);
+  /* Text on a brand-teal fill (the AI Mode pill); the same in both themes. */
+  --on-teal: #04121f;
   /* Text on surfaces that stay navy in both themes (hero panels, the closing
      band). --color-fg-inverse flips to navy in dark mode, which is the right
      answer for the inverse of the page ground but invisible on a navy panel. */
@@ -180,6 +182,17 @@
   --admin-error-soft: rgb(208 59 59 / 10%);
   --admin-neutral-soft: rgb(100 116 139 / 10%);
   --admin-shadow-sm: 0 1px 2px rgb(15 23 42 / 5%);
+
+  /* AI Mode hint (the one-time note under the dataset page's AI Mode pill). A navy panel on
+     light; on dark the page ground is itself navy, so the panel lifts to the raised navy and
+     gains a teal edge instead of disappearing. */
+  --ai-hint-bg: var(--brand-navy);
+  --ai-hint-fg: var(--on-navy);
+  --ai-hint-link: #9fd6e6;
+  --ai-hint-border: var(--brand-navy);
+  --ai-hint-action-border: var(--brand-teal);
+  --ai-hint-action-fg: #e6f6fb;
+  --ai-hint-shadow: 0 12px 30px rgb(6 17 42 / 25%);
 }
 
 /* Dark theme: auto via prefers-color-scheme, overridden by explicit [data-theme]. */
@@ -256,6 +269,11 @@
     --admin-error-soft: rgb(229 83 75 / 16%);
     --admin-neutral-soft: rgb(148 163 184 / 14%);
     --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+
+    /* AI Mode hint, dark (see :root). */
+    --ai-hint-bg: var(--color-bg-subtle);
+    --ai-hint-border: color-mix(in srgb, var(--brand-teal) 45%, var(--color-bg-subtle));
+    --ai-hint-shadow: 0 12px 30px rgb(0 0 0 / 45%);
   }
 }
 
@@ -333,4 +351,9 @@
   --admin-error-soft: rgb(229 83 75 / 16%);
   --admin-neutral-soft: rgb(148 163 184 / 14%);
   --admin-shadow-sm: 0 1px 2px rgb(0 0 0 / 35%);
+
+  /* AI Mode hint, dark (see :root). */
+  --ai-hint-bg: var(--color-bg-subtle);
+  --ai-hint-border: color-mix(in srgb, var(--brand-teal) 45%, var(--color-bg-subtle));
+  --ai-hint-shadow: 0 12px 30px rgb(0 0 0 / 45%);
 }
