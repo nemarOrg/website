@@ -200,6 +200,26 @@ describe("searchDatasets", () => {
     expect(sent.get("has_hed")).toBe("true");
   });
 
+  it("sends correct=0 only in exact mode", async () => {
+    const captured: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      captured.push(typeof input === "string" ? input : input.toString());
+      return new Response(
+        JSON.stringify({ results: [], count: 0, method: "semantic", min_score: 0.6 }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    await searchDatasets("bilinugual", { limit: 10 });
+    await searchDatasets("bilinugual", { limit: 10, exact: false });
+    await searchDatasets("bilinugual", { limit: 10, exact: true });
+    const sent = captured.map((u) => new URL(u).searchParams);
+    expect(sent[0].has("correct")).toBe(false);
+    expect(sent[1].has("correct")).toBe(false);
+    expect(sent[2].get("correct")).toBe("0");
+    expect(sent[2].get("q")).toBe("bilinugual");
+    expect(sent[2].get("limit")).toBe("10");
+  });
+
   it("url-encodes the query", async () => {
     const captured: string[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {

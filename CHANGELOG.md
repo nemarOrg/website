@@ -15,6 +15,12 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Added
 
+- **Discover says when the search API fixed a typo** (nemarOrg/website#516, nemar-cli ADR 0116 item 5).
+  When `GET /datasets/search` answers with `corrected_query`, a line under the search box reads "Showing results for `corrected words`", with a link "Search for `your words` instead" that keeps the other filters and adds `exact=1`.
+  A correction that is the query again after trimming, collapsing spaces and folding case and accents shows nothing.
+  `exact=1` is a new filter state: paging and filter changes carry it, a new query drops it (with JavaScript off the form keeps it, so new words typed there are searched as typed), and the search call sends `correct=0` in that mode.
+  The API ignores `correct=0` until nemar-cli#2132 lands; until then an `exact` search whose answer still carries a correction shows the line without the link, so the page never claims words it did not search.
+  The correction only runs in a catalog of at least 100 datasets, so test.nemar.org (the exemplar fleet) never shows the line.
 - **An "AI Mode" pill on the dataset page** (nemarOrg/website#517, board C1 of the NEMAR AI plan).
   It sits after Download in the actions row, with the same shape and 44 px height as the other pills, in the brand teal with a sparkle, and opens the assistant as its centre-stage dialog (`OSAChatWidget.open({ mode: "center" })`).
   The pill shows only when the widget loaded and has an `open` method, so a build with no widget, a blocked script, and production's older pinned widget keep it hidden.

@@ -203,6 +203,23 @@ describe("filterStateToURL", () => {
     expect(parsed.hasZarr).toBe(true);
     expect(parsed.hasViewer).toBe(false);
   });
+  it("roundtrips exact=1 through the URL and drops it when unset", () => {
+    const s = defaultFilterState();
+    expect(s.exact).toBe(false);
+    expect(filterStateToURL(s).has("exact")).toBe(false);
+    s.q = "bilinugual";
+    s.exact = true;
+    const sp = filterStateToURL(s);
+    expect(sp.get("exact")).toBe("1");
+    const parsed = filterStateFromURL(sp);
+    expect(parsed.exact).toBe(true);
+    expect(parsed.q).toBe("bilinugual");
+    parsed.exact = false;
+    expect(filterStateToURL(parsed).has("exact")).toBe(false);
+    // Only 1 means exact, like the other flags.
+    expect(filterStateFromURL(new URLSearchParams("q=a&exact=0")).exact).toBe(false);
+    expect(filterStateFromURL(new URLSearchParams("q=a&exact=true")).exact).toBe(false);
+  });
   it("re-serializes a legacy has_zarr_verified link as has_viewer", () => {
     const sp = filterStateToURL(filterStateFromURL(new URLSearchParams("has_zarr_verified=1")));
     expect(sp.get("has_viewer")).toBe("1");
