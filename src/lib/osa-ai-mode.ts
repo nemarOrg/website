@@ -36,7 +36,8 @@
  * 3. **How a choice is kept** ({@link setAiModeSearch}): `localStorage` and the address, each
  *    guarded.
  * 4. **How the page's own links carry it** ({@link withAiModeParam}, {@link aiLinkHref}).
- * 5. **How "Ask a follow-up" reaches the widget** ({@link askFollowUp}).
+ * 5. **How "Ask a follow-up" reaches the widget** ({@link seedFollowUp}, and whether it is offered,
+ *    {@link aiModeSeedAvailable}).
  * 6. **The line under the field** for a search of one or two words ({@link aiHintShown},
  *    {@link aiHintAnnouncement}).
  *
@@ -56,7 +57,7 @@ const HINT_DISMISSED = "dismissed";
 /** The part of `window` this module reads: the widget global, whose members are `unknown` because
  *  a widget older than OSA #701 has no `open`. */
 export interface AiModeWindow {
-  OSAChatWidget?: { open?: unknown; ask?: unknown } | null;
+  OSAChatWidget?: { open?: unknown; seed?: unknown } | null;
 }
 
 /** The part of `Storage` this module uses (the real interface, so a `Storage` fits). */
@@ -383,18 +384,26 @@ export function setAiModeSearch(win: AiModePageWindow, on: boolean): void {
   replaceAiModeUrl(win, on);
 }
 
+/** Whether the widget can take a seeded message (OSA #730). A widget pinned before it, such as
+ *  production's, has no `seed`, and the follow-up button is then not drawn at all: nothing stands in
+ *  for it, since opening the dialog empty or sending the text as a question is not what the
+ *  reader asked for. Checked on the method, never on a version string. */
+export function aiModeSeedAvailable(win: AiModeWindow): boolean {
+  return typeof win.OSAChatWidget?.seed === "function";
+}
+
 /**
- * "Ask a follow-up": hands the question to the widget's centre-stage dialog. `ask(text,
- * {mode: "center"})` where the widget has it; the widget of OSA #701 does, and an older one
- * only `open`, which opens the dialog without the question. Returns whether the widget took it.
- * A throw is caught and warned, as {@link openAiMode} does.
+ * "Ask a follow-up": opens the centre-stage dialog with `text` as the assistant's own first reply,
+ * `seed(text, {mode: "center"})`. The widget sends nothing in the reader's name; the reader writes
+ * the next message. Returns whether the widget took it: `false` for a widget without `seed` or one
+ * that threw. A throw is caught and warned, as {@link openAiMode} does, because the widget is a
+ * third party's code and a bug in it must not turn a click into an unhandled error.
  */
-export function askFollowUp(win: AiModeWindow, text: string): boolean {
+export function seedFollowUp(win: AiModeWindow, text: string): boolean {
   const widget = win.OSAChatWidget;
-  if (!widget) return false;
-  if (typeof widget.ask !== "function") return openAiMode(win);
+  if (!widget || typeof widget.seed !== "function") return false;
   try {
-    const result = (widget.ask as (text: string, options: { mode: "center" }) => unknown).call(
+    const result = (widget.seed as (text: string, options: { mode: "center" }) => unknown).call(
       widget,
       text,
       { mode: "center" },
@@ -402,12 +411,12 @@ export function askFollowUp(win: AiModeWindow, text: string): boolean {
     // A widget that answers with a promise may reject it later; that is as much a warning as a throw.
     if (result && typeof (result as Promise<unknown>).catch === "function") {
       (result as Promise<unknown>).catch((err) => {
-        console.warn("[osa-ai-mode] widget's ask rejected:", err);
+        console.warn("[osa-ai-mode] widget's seed rejected:", err);
       });
     }
     return true;
   } catch (err) {
-    console.warn("[osa-ai-mode] widget's ask threw:", err);
+    console.warn("[osa-ai-mode] widget's seed threw:", err);
     return false;
   }
 }

@@ -16,6 +16,7 @@ import TOGGLE from "../src/components/AiModeToggle.astro?raw";
 import PANEL from "../src/components/AiOverviewPanel.astro?raw";
 import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
 import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
+import MODE_SOURCE from "../src/lib/osa-ai-mode.ts?raw";
 import { AI_MODE_SEARCH_DISCLOSURE } from "../src/lib/osa-ai-mode";
 import {
   AI_MODE_HINT,
@@ -508,6 +509,47 @@ describe("the setting", () => {
 
   it("is absent from wrangler.toml, so production shows no toggle", () => {
     expect(WRANGLER_PROD).not.toContain(key);
+  });
+});
+
+/** Every source file under src, as text. */
+const SOURCES = import.meta.glob("../src/**/*.{ts,astro}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+describe("the follow-up", () => {
+  it("seeds the dialog and sends nothing: no call to ask or to open on its path", () => {
+    for (const [name, source] of [
+      ["osa-ai-mode.ts", MODE_SOURCE],
+      ["ai-mode-search-client.ts", CLIENT],
+    ] as const) {
+      expect(source, name).not.toMatch(/\.ask\b/);
+      expect(source, name).not.toMatch(/\bask\(/);
+    }
+    expect(MODE_SOURCE).toMatch(/\.call\(\s*widget,\s*text,\s*\{ mode: "center" \}/);
+    // The click reaches the widget through the seed helper alone.
+    expect(CLIENT).toContain("seedFollowUp(");
+    expect(CLIENT).not.toMatch(/openAiMode/);
+  });
+
+  it("offers the button only where the widget has seed, checked each time the panel is drawn", () => {
+    expect(CLIENT).toContain("panelView(state, aiModeSeedAvailable(");
+  });
+
+  it("builds the message with the pure seedText and the page's own origin", () => {
+    expect(CLIENT).toContain(
+      "seedText(this.request.query, state.answer, this.win.location.origin)",
+    );
+  });
+
+  it("leaves nothing of the old first-person question anywhere in src", () => {
+    const names = Object.keys(SOURCES);
+    expect(names.length).toBeGreaterThan(100);
+    for (const [name, source] of Object.entries(SOURCES)) {
+      expect(source, name).not.toMatch(/I searched NEMAR for/);
+      expect(source, name).not.toMatch(/followUpText|FOLLOW_UP_MAX_CHARS|askFollowUp/);
+    }
   });
 });
 

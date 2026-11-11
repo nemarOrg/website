@@ -22,8 +22,8 @@ import {
   OverviewController,
   type OverviewPanelState,
   type PanelView,
-  followUpText,
   panelView,
+  seedText,
 } from "./ai-overview-panel";
 import {
   type AiModeLoadTarget,
@@ -33,8 +33,9 @@ import {
   aiHintShown,
   aiLinkHref,
   aiModeSearchAvailable,
-  askFollowUp,
+  aiModeSeedAvailable,
   initialAiModeSearch,
+  seedFollowUp,
   setAiModeSearch,
   whenDocumentReady,
   withAiModeParam,
@@ -178,7 +179,7 @@ class OverviewPanel {
       reading: request.results.length,
       fetchOverview: (signal) => requestOverview(endpoint, request, { signal }),
       onState: (state) => {
-        this.render(panelView(state));
+        this.render(panelView(state, aiModeSeedAvailable(win as unknown as AiModeWindow)));
         onState(state);
       },
     });
@@ -229,13 +230,14 @@ class OverviewPanel {
     }
   }
 
-  /** Hands the question to the widget; when it cannot take it, says so under the button. */
+  /** Seeds the assistant's dialog with the overview, as its own first reply; when the widget cannot
+   *  take it, says so under the button. */
   private followUp(button: HTMLElement): void {
     const state = this.controller.state;
     if (state.kind !== "answer") return;
-    const took = askFollowUp(
+    const took = seedFollowUp(
       this.win as unknown as AiModeWindow,
-      followUpText(this.request.query, state.answer),
+      seedText(this.request.query, state.answer, this.win.location.origin),
     );
     const foot = button.parentElement;
     foot?.querySelector("[data-ai-follow-up-failed]")?.remove();

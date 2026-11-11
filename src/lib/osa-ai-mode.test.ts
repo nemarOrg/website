@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FOLLOW_UP_LABEL, panelView } from "./ai-overview-panel";
 import {
   AI_MODE_HINT_STORAGE_KEY,
   AI_MODE_SEARCH_STORAGE_KEY,
@@ -12,7 +13,7 @@ import {
   aiLinkHref,
   aiModeAvailable,
   aiModeSearchAvailable,
-  askFollowUp,
+  aiModeSeedAvailable,
   browserStore,
   dismissAiModeHint,
   initialAiModeSearch,
@@ -20,6 +21,7 @@ import {
   placeAiModeHint,
   readAiModeSearch,
   revealAiModePill,
+  seedFollowUp,
   setAiModeSearch,
   shouldShowAiModeHint,
   whenDocumentReady,
@@ -535,45 +537,75 @@ describe("the AI Mode preference", () => {
   });
 });
 
-describe("askFollowUp", () => {
-  it("calls ask(text, {mode: 'center'}) when the widget has it", () => {
-    const calls: unknown[][] = [];
-    const win: AiModeWindow = {
-      OSAChatWidget: { open() {}, ask: (...args: unknown[]) => void calls.push(args) },
+/**
+ * A widget host object that only records what is called on it, as the browser's `OSAChatWidget`
+ * would be told: it stands in for a browser global, and decides nothing the code under test does.
+ */
+function recordingWidget(options: { seed?: boolean | "throws" | "rejects"; ask?: boolean } = {}) {
+  const calls: unknown[][] = [];
+  const widget: Record<string, unknown> = {
+    open: (...args: unknown[]) => void calls.push(["open", ...args]),
+  };
+  if (options.ask) widget.ask = (...args: unknown[]) => void calls.push(["ask", ...args]);
+  if (options.seed === true)
+    widget.seed = (...args: unknown[]) => void calls.push(["seed", ...args]);
+  if (options.seed === "throws") {
+    widget.seed = () => {
+      throw new Error("boom");
     };
-    expect(askFollowUp(win, "About faces")).toBe(true);
-    expect(calls).toEqual([["About faces", { mode: "center" }]]);
+  }
+  if (options.seed === "rejects") widget.seed = () => Promise.reject(new Error("later"));
+  return { calls, win: { OSAChatWidget: widget } as AiModeWindow };
+}
+
+describe("aiModeSeedAvailable", () => {
+  it("is true only for a widget with a seed function, whatever else it has", () => {
+    expect(aiModeSeedAvailable(recordingWidget({ seed: true }).win)).toBe(true);
+    // Production's older widget: open (maybe ask), no seed.
+    expect(aiModeSeedAvailable(recordingWidget().win)).toBe(false);
+    expect(aiModeSeedAvailable(recordingWidget({ ask: true }).win)).toBe(false);
+    expect(aiModeSeedAvailable({ OSAChatWidget: { seed: "yes" } })).toBe(false);
+    expect(aiModeSeedAvailable({ OSAChatWidget: null })).toBe(false);
+    expect(aiModeSeedAvailable({})).toBe(false);
   });
 
-  it("opens the centre-stage dialog when the widget has no ask", () => {
-    const opened: unknown[] = [];
-    const win: AiModeWindow = { OSAChatWidget: { open: (o: unknown) => void opened.push(o) } };
-    expect(askFollowUp(win, "About faces")).toBe(true);
-    expect(opened).toEqual([{ mode: "center" }]);
+  it("decides whether the panel offers the follow-up, with and without seed", () => {
+    const answer = { kind: "answer", answer: { segments: [], picks: [] } } as const;
+    const withSeed = recordingWidget({ seed: true }).win;
+    const without = recordingWidget({ ask: true }).win;
+    expect(panelView(answer, aiModeSeedAvailable(withSeed)).followUp).toBe(FOLLOW_UP_LABEL);
+    expect(panelView(answer, aiModeSeedAvailable(without)).followUp).toBeNull();
+  });
+});
+
+describe("seedFollowUp", () => {
+  it("calls seed(text, {mode: 'center'}) once, and nothing else on the widget", () => {
+    const { calls, win } = recordingWidget({ seed: true, ask: true });
+    expect(seedFollowUp(win, "**AI overview** for faces")).toBe(true);
+    expect(calls).toEqual([["seed", "**AI overview** for faces", { mode: "center" }]]);
+  });
+
+  it("does nothing, not even opening the dialog, for a widget without seed", () => {
+    for (const widget of [recordingWidget(), recordingWidget({ ask: true })]) {
+      expect(seedFollowUp(widget.win, "text")).toBe(false);
+      expect(widget.calls).toEqual([]);
+    }
+    expect(seedFollowUp({}, "x")).toBe(false);
+    expect(seedFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
   });
 
   it("catches a throw, warns, and says it did not reach the widget", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const win: AiModeWindow = {
-      OSAChatWidget: {
-        ask() {
-          throw new Error("boom");
-        },
-      },
-    };
-    expect(askFollowUp(win, "x")).toBe(false);
+    expect(seedFollowUp(recordingWidget({ seed: "throws" }).win, "x")).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("warns about a rejected promise and does nothing without a widget", async () => {
+  it("warns about a rejected promise", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const win: AiModeWindow = { OSAChatWidget: { ask: () => Promise.reject(new Error("later")) } };
-    expect(askFollowUp(win, "x")).toBe(true);
+    expect(seedFollowUp(recordingWidget({ seed: "rejects" }).win, "x")).toBe(true);
     await Promise.resolve();
     await Promise.resolve();
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(askFollowUp({}, "x")).toBe(false);
-    expect(askFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
   });
 });
 

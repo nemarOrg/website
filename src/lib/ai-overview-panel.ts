@@ -12,11 +12,13 @@
  */
 
 import {
+  OVERVIEW_LIMITS,
   type OverviewAnswer,
   OverviewError,
   type OverviewErrorKind,
   type OverviewPick,
   type OverviewSegment,
+  overviewDatasetHref,
   overviewErrorMessage,
   queryHasEnoughWords,
 } from "./osa-overview";
@@ -73,7 +75,12 @@ const OFF: PanelView = {
   error: null,
 };
 
-export function panelView(state: OverviewPanelState): PanelView {
+/**
+ * What the panel shows for a state. `canFollowUp` is whether the widget on the page has `seed`
+ * (`aiModeSeedAvailable`), checked each time the panel is drawn; without it there is no
+ * "Ask a follow-up", and nothing stands in for it.
+ */
+export function panelView(state: OverviewPanelState, canFollowUp = true): PanelView {
   switch (state.kind) {
     case "off":
       return { ...OFF };
@@ -100,7 +107,7 @@ export function panelView(state: OverviewPanelState): PanelView {
         summary: state.answer.segments,
         picks: state.answer.picks,
         footnote: PANEL_FOOTNOTE,
-        followUp: FOLLOW_UP_LABEL,
+        followUp: canFollowUp ? FOLLOW_UP_LABEL : null,
       };
     // Nothing in the panel: the line under the search field says why (website#525).
     case "too_short":
@@ -119,38 +126,126 @@ export function panelView(state: OverviewPanelState): PanelView {
   }
 }
 
-/** The overview as one line of plain text, ids spelled out. */
-export function summaryText(answer: OverviewAnswer): string {
-  return answer.segments
-    .map((s) => (s.kind === "text" ? s.text : s.id))
-    .join("")
-    .replace(/\s+/g, " ")
-    .trim();
+/** The most `OSAChatWidget.seed` takes: OSA's `RESEED_TURN_MAX_CHARS`, which it checks as the
+ *  text's `length` (UTF-16 code units) and refuses a longer text for. The message built here stays
+ *  within it, so it is never refused for its size. */
+export const SEED_MAX_CHARS = 2000;
+
+/** What a Markdown renderer reads as markup in a search the reader typed: emphasis, code, links,
+ *  images, HTML, headings, tables. Each becomes a space, so what is quoted is the words. */
+const QUERY_MARKDOWN = /[\\`*_[\]()<>#~|!]/g;
+/** What turns written prose into a link, an image, emphasis or code in the widget's Markdown. The
+ *  overview is a model's text about dataset descriptions, so a link in it would be a link the page
+ *  made: each becomes a space, and a sentence stays a sentence. */
+const PROSE_MARKDOWN = /[\\`*[\]]/g;
+
+function neutralise(text: string, markdown: RegExp): string {
+  return text.replace(markdown, " ").replace(/\s+/g, " ");
 }
 
-/** The most the follow-up message may hold; the widget sends it as a question. */
-export const FOLLOW_UP_MAX_CHARS = 1500;
+/** `[id](<origin>/dataset/<id>)`: absolute, on the page's own origin, because the widget draws
+ *  links to http and https addresses only and the dialog is not part of the page's address space.
+ *  An origin that is not one (`null` for a file, say) leaves the id as plain text. */
+function datasetLink(id: string, origin: string): string {
+  const base = origin.replace(/\/+$/, "");
+  return /^https?:\/\/[^\s/]+$/.test(base) ? `[${id}](${base}${overviewDatasetHref(id)})` : id;
+}
+
+/** The summary as Markdown with each dataset id a link, and where the links are (a cut never lands
+ *  inside one). */
+function summaryMarkdown(
+  answer: OverviewAnswer,
+  origin: string,
+): { text: string; links: Array<[number, number]> } {
+  let text = "";
+  const links: Array<[number, number]> = [];
+  const append = (piece: string) => {
+    const trimmed = text === "" || text.endsWith(" ") ? piece.replace(/^ /, "") : piece;
+    text += trimmed;
+  };
+  for (const segment of answer.segments) {
+    if (segment.kind === "text") {
+      append(neutralise(segment.text, PROSE_MARKDOWN));
+    } else {
+      const link = datasetLink(segment.id, origin);
+      const start = text.length;
+      text += link;
+      links.push([start, text.length]);
+    }
+  }
+  return { text: text.trimEnd(), links };
+}
+
+/** `text` cut to at most `room` characters: at the last sentence end that fits and is not inside a
+ *  link, else at the last space outside one, with an ellipsis. */
+function trimSummary(summary: { text: string; links: Array<[number, number]> }, room: number) {
+  const { text, links } = summary;
+  if (text.length <= room) return text;
+  if (room <= 0) return "";
+  const inLink = (index: number) => links.some(([from, to]) => index > from && index < to);
+  let cut = -1;
+  for (const end of text.matchAll(/[.!?](?=\s|$)/g)) {
+    const at = end.index + 1;
+    if (at <= room && !inLink(at)) cut = at;
+  }
+  if (cut > 0) return text.slice(0, cut).trimEnd();
+  const limit = room - 1;
+  let at = text.lastIndexOf(" ", limit);
+  while (at > 0 && inLink(at)) at = text.lastIndexOf(" ", at - 1);
+  if (at <= 0) {
+    // One unbroken run: cut it, and not inside a link.
+    const link = links.find(([from, to]) => limit > from && limit < to);
+    at = link ? link[0] : limit;
+    // Not between the two halves of a character outside the Basic Multilingual Plane.
+    if (!link && /[\uD800-\uDBFF]/.test(text[at - 1] ?? "")) at -= 1;
+  }
+  return `${text.slice(0, at).trimEnd()}…`;
+}
 
 /**
- * The message "Ask a follow-up" sends: it names the search and quotes the overview, so the
- * assistant knows what the reader is looking at, and asks for help choosing. At most
- * {@link FOLLOW_UP_MAX_CHARS} characters; the quoted overview is what gives way.
+ * The message "Ask a follow-up" seeds the assistant's dialog with, in Markdown. The widget shows it
+ * as the assistant's own first reply and sends nothing, so it has to read as a message on its own:
+ *
+ * ```
+ * **AI overview** for "<the search>"
+ *
+ * <the summary, each dataset id a link>
+ *
+ * **Top picks**
+ * 1. [id](<origin>/dataset/<id>): why
+ * ```
+ *
+ * The search is quoted with its Markdown characters and newlines turned to spaces, and the
+ * overview's prose cannot make a link of its own. At most {@link SEED_MAX_CHARS} characters
+ * (`OSAChatWidget.seed` refuses more). When it does not fit, the picks lose their reasons first,
+ * then go, and then the summary is cut at a sentence.
  */
-export function followUpText(query: string, answer: OverviewAnswer): string {
-  const q = query.replace(/\s+/g, " ").trim();
-  const head = `I searched NEMAR for "${q}" and was shown this AI overview of the top results: "`;
-  const tail =
-    '" Can you help me choose between these datasets, and tell me what to check before I use one?';
-  const room = Math.max(0, FOLLOW_UP_MAX_CHARS - head.length - tail.length);
-  const overview = Array.from(summaryText(answer));
-  const quoted =
-    overview.length > room
-      ? `${overview
-          .slice(0, Math.max(0, room - 1))
-          .join("")
-          .trimEnd()}…`
-      : overview.join("");
-  return Array.from(`${head}${quoted}${tail}`).slice(0, FOLLOW_UP_MAX_CHARS).join("");
+export function seedText(query: string, answer: OverviewAnswer, origin: string): string {
+  let words = neutralise(query, QUERY_MARKDOWN).trim();
+  if (words.length > OVERVIEW_LIMITS.queryMax) {
+    words = `${words.slice(0, OVERVIEW_LIMITS.queryMax - 1).trimEnd()}…`;
+  }
+  const head = words === "" ? "**AI overview**" : `**AI overview** for "${words}"`;
+  const summary = summaryMarkdown(answer, origin);
+
+  const picks = (reasons: boolean): string => {
+    if (answer.picks.length === 0) return "";
+    const lines = answer.picks.map((pick, index) => {
+      const reason = reasons ? neutralise(pick.reason, PROSE_MARKDOWN).trim() : "";
+      return `${index + 1}. ${datasetLink(pick.id, origin)}${reason ? `: ${reason}` : ""}`;
+    });
+    return `**Top picks**\n${lines.join("\n")}`;
+  };
+  const compose = (summaryPart: string, picksPart: string) =>
+    [head, summaryPart, picksPart].filter((part) => part !== "").join("\n\n");
+
+  for (const picksPart of [picks(true), picks(false)]) {
+    const whole = compose(summary.text, picksPart);
+    if (whole.length <= SEED_MAX_CHARS) return whole;
+  }
+  // The picks go; the summary is cut at a sentence to fit under the head and its blank line.
+  const room = SEED_MAX_CHARS - head.length - 2;
+  return compose(trimSummary(summary, room), "");
 }
 
 /** Said under "Ask a follow-up" when the assistant widget could not take the question. */
