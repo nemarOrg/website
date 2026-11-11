@@ -33,9 +33,16 @@ const CLEAR_FLAGS = "SameSite=Lax; Secure";
 /** The zone a sibling host can set a legacy session cookie for. */
 const PARENT_DOMAIN = "nemar.org";
 
+/** Lower-case dot-separated labels of letters, digits and inner hyphens: nothing a `Set-Cookie`
+ *  parser could read as an attribute separator (`;`, `,`), and no empty or hyphen-edged label. */
+const PLAIN_HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/;
+
 /** True for `nemar.org` and its subdomains. A browser rejects a `Domain` attribute for localhost,
- *  an IP address or any host outside the zone, so none is sent there. */
+ *  an IP address or any host outside the zone, so none is sent there. The hostname goes into the
+ *  header as written, and the URL parser keeps `;` and `,` in a host, so the whole name must be
+ *  plain before it is trusted. */
 function isNemarHost(hostname: string): boolean {
+  if (!PLAIN_HOSTNAME.test(hostname)) return false;
   return hostname === PARENT_DOMAIN || hostname.endsWith(`.${PARENT_DOMAIN}`);
 }
 

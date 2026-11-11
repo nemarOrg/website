@@ -121,6 +121,52 @@ describe("POST /api/auth/logout, the fallback clear by request host", () => {
   });
 });
 
+describe("POST /api/auth/logout, a hostname that is not plain", () => {
+  // The URL parser strips CR, LF, space, %-escapes and userinfo from a host but keeps `;` and `,`,
+  // so the hostname must never reach a `Domain=` attribute unless it is a plain name.
+  it.each([
+    "a;Domain=evil.com;x=.nemar.org",
+    "a;b.nemar.org",
+    "a,b.nemar.org",
+    "a%3Bb.nemar.org",
+    "-.nemar.org",
+    "a-.nemar.org",
+    "a_b.nemar.org",
+    "a..nemar.org",
+    ".nemar.org",
+  ])("sends no Domain to https://%s/", async (host) => {
+    globalThis.fetch = (async () => {
+      throw new Error("the API is unreachable");
+    }) as unknown as typeof fetch;
+    const res = await callRoute(POST, `https://${host}/api/auth/logout`, {}, init("text/html"));
+    const cookies = res.headers.getSetCookie();
+    expect(cookies).toEqual([NEW_CLEAR, LEGACY_CLEAR]);
+    for (const c of cookies) {
+      expect(c).not.toMatch(/Domain=/i);
+      // Only the four attribute separators every clear has, none brought in by the host.
+      expect(c.split(";")).toHaveLength(5);
+    }
+  });
+
+  it("still clears for a deeper subdomain", async () => {
+    globalThis.fetch = (async () => {
+      throw new Error("the API is unreachable");
+    }) as unknown as typeof fetch;
+    const res = await callRoute(
+      POST,
+      "https://a.b.nemar.org/api/auth/logout",
+      {},
+      init("text/html"),
+    );
+    expect(res.headers.getSetCookie()).toEqual([
+      NEW_CLEAR,
+      LEGACY_CLEAR,
+      "nemar_session=; Max-Age=0; Path=/; Domain=a.b.nemar.org; SameSite=Lax; Secure",
+      LEGACY_CLEAR_ZONE,
+    ]);
+  });
+});
+
 describe("POST /api/auth/logout, when the API clears the cookie itself", () => {
   it("mirrors the API's Set-Cookie headers unchanged and adds nothing", async () => {
     const fromApi = [
