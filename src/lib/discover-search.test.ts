@@ -154,6 +154,9 @@ const typoAnswer = fixture as unknown as DatasetSearchResponse;
 describe("correctionNotice", () => {
   it("reads the recorded fixture the way the API shapes it", () => {
     expect(typoAnswer.corrected_query).toBe("bilingual");
+    expect(typoAnswer.results.length).toBeGreaterThan(0);
+    expect(typoAnswer.count).toBeGreaterThanOrEqual(typoAnswer.returned);
+    expect(typeof typoAnswer.method).toBe("string");
   });
 
   it("gives the corrected words and a link to the original ones, keeping the filters and dropping the page", () => {
