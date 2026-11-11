@@ -30,6 +30,9 @@ export default defineConfig({
       // it came from. CI clones fresh and never has them, so the discrepancy
       // only ever shows up locally.
       "**/.claude/worktrees/**",
+      // Playwright's browser checks (bun run test:e2e) are not unit tests; vitest would pick up
+      // their `.spec.ts` names and fail on the Playwright import.
+      "e2e/**",
     ],
   },
 });

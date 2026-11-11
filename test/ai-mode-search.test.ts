@@ -9,12 +9,26 @@
 
 import { describe, expect, it } from "vitest";
 import DEPLOY_TEST from "../.github/workflows/deploy-test.yml?raw";
+import E2E from "../e2e/ai-mode-field.spec.ts?raw";
+import PACKAGE from "../package.json?raw";
+import PLAYWRIGHT_CONFIG from "../playwright.config.ts?raw";
 import TOGGLE from "../src/components/AiModeToggle.astro?raw";
 import PANEL from "../src/components/AiOverviewPanel.astro?raw";
 import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
 import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
-import { AI_MODE_SEARCH_DISCLOSURE } from "../src/lib/osa-ai-mode";
-import { OVERVIEW_ENDPOINTS, resolveOverviewEndpoint } from "../src/lib/osa-overview";
+import MODE_SOURCE from "../src/lib/osa-ai-mode.ts?raw";
+import {
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_PRIVACY_NOTE_URL,
+  AI_MODE_SEARCH_DISCLOSURE,
+} from "../src/lib/osa-ai-mode";
+import {
+  AI_MODE_HINT,
+  OVERVIEW_ENDPOINTS,
+  OVERVIEW_MIN_WORDS,
+  countQueryWords,
+  resolveOverviewEndpoint,
+} from "../src/lib/osa-overview";
 import DISCOVER from "../src/pages/discover.astro?raw";
 import HOME from "../src/pages/index.astro?raw";
 import TOKENS from "../src/styles/tokens.css?raw";
@@ -66,9 +80,10 @@ describe("the toggle", () => {
   const markup = TOGGLE.slice(TOGGLE.indexOf("<button"), TOGGLE.indexOf("</button>") + 9);
   const tag = openingTag(markup, "button", "data-ai-toggle");
 
-  it("is a button with aria-pressed, shipped hidden, that submits nothing", () => {
+  it("is a button with aria-pressed, shipped hidden and pressed (on is the default), that submits nothing", () => {
     expect(tag).toMatch(/type="button"/);
-    expect(tag).toMatch(/aria-pressed="false"/);
+    expect(tag).toMatch(/aria-pressed=\{on \? "true" : "false"\}/);
+    expect(TOGGLE).toMatch(/on = true \} = Astro\.props/);
     expect(tag).toMatch(/\bhidden\b/);
     expect(rule(styleOf(TOGGLE), ".ai-toggle[hidden]")).toMatch(/display:\s*none/);
   });
@@ -79,25 +94,40 @@ describe("the toggle", () => {
   });
 
   it("tells the reader in visible text, while AI Mode is on, what leaves the site", () => {
-    const text = AI_MODE_SEARCH_DISCLOSURE;
-    expect(text).toMatch(/search words/);
-    expect(text).toMatch(/titles and descriptions of the top results/);
-    expect(text).toMatch(/Open Science Assistant/);
-    expect(text).toMatch(/AI model provider/);
-    // Discover (the shared SearchBar) and Home each render the text as a paragraph that starts
-    // hidden and that the client shows only while AI Mode is on; a tooltip alone does not reach
-    // touch, keyboard or most screen readers.
-    for (const [source, name] of [
-      [SEARCH_BAR, "SearchBar"],
-      [HOME, "Home"],
+    // The maintainer's sentence (2026-11-11), short, with only "OSA" linked to the privacy note.
+    expect(AI_MODE_SEARCH_DISCLOSURE).toBe(
+      "When on, AI Mode provides an overview by sending the search results to the Open Science Assistant (OSA).",
+    );
+    expect(AI_MODE_DISCLOSURE_LINK_TEXT).toBe("OSA");
+    expect(AI_MODE_PRIVACY_NOTE_URL).toBe(
+      "https://docs.nemar.org/policies/privacy/#the-open-science-assistant",
+    );
+    // Discover (the shared SearchBar) and Home each render the text as a paragraph that is always
+    // in the page (a slot drawn with visibility, so showing it moves nothing) and that the client
+    // shows only while AI Mode is on; a tooltip alone does not reach touch, keyboard or most screen
+    // readers.
+    for (const [source, name, selector] of [
+      [SEARCH_BAR, "SearchBar", ".searchbar__ai-note"],
+      [HOME, "Home", ".hero__ai-note"],
     ] as const) {
       const note = openingTag(source, "p", "data-ai-disclosure");
-      expect(note, name).toMatch(/\bhidden\b/);
-      expect(source, name).toMatch(/\{AI_MODE_SEARCH_DISCLOSURE\}/);
+      expect(note, name).not.toMatch(/\bhidden\b/);
+      // The sentence, with only "OSA" as the link (not the full name), to the privacy note.
+      expect(source, name).toMatch(
+        /\{AI_MODE_DISCLOSURE_BEFORE\}<a class="ai-note-link" href=\{AI_MODE_PRIVACY_NOTE_URL\}>\{AI_MODE_DISCLOSURE_LINK_TEXT\}<\/a>\{AI_MODE_DISCLOSURE_AFTER\}/,
+      );
+      // Muted like the note, and still visibly a link.
+      expect(rule(styleOf(source), `${selector} .ai-note-link`), name).toMatch(/color:\s*inherit/);
+      expect(rule(styleOf(source), `${selector} .ai-note-link`), name).toMatch(
+        /text-decoration:\s*underline/,
+      );
+      expect(rule(styleOf(source), `${selector}:not([data-ai-visible])`), name).toMatch(
+        /visibility:\s*hidden/,
+      );
     }
-    expect(rule(styleOf(SEARCH_BAR), ".searchbar__ai-note[hidden]")).toMatch(/display:\s*none/);
-    expect(rule(styleOf(HOME), ".hero__ai-note[hidden]")).toMatch(/display:\s*none/);
-    expect(CLIENT).toMatch(/\[data-ai-disclosure\][\s\S]{0,80}\.hidden = !on/);
+    expect(CLIENT).toMatch(
+      /\[data-ai-disclosure\][\s\S]{0,200}toggleAttribute\("data-ai-visible", on\)/,
+    );
   });
 
   it("reads 'AI Mode' and draws one magnifier with a sparkle, hidden from assistive technology", () => {
@@ -218,10 +248,111 @@ describe("the panel", () => {
     expect(CLIENT).toMatch(/\[data-ai-note\][\s\S]{0,80}\.hidden = !on/);
   });
 
+  it("has no note of its own for a short search: the line under the field replaces it", () => {
+    expect(CLIENT).not.toMatch(/view\.note|ai-overview__hint/);
+    expect(PANEL).not.toContain("ai-overview__hint");
+    expect(CLIENT).toContain("query: request.query,");
+    // Its status goes to the polite region that is already there, not to a new one.
+    expect(PANEL.match(/aria-live=/g)).toHaveLength(1);
+  });
+
   it("is written with textContent, never as markup", () => {
     expect(CLIENT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|set:html/);
     expect(CLIENT).toContain("textContent");
     expect(CLIENT).toContain("createTextNode(segment.text)");
+  });
+});
+
+describe("the field stays put", () => {
+  it("has no hidden attribute to toggle on the Try row, the disclosure or the line", () => {
+    for (const [source, name] of [
+      [SEARCH_BAR, "SearchBar"],
+      [HOME, "Home"],
+    ] as const) {
+      for (const marker of ["data-ai-try", "data-ai-disclosure", "data-ai-hint"]) {
+        if (!source.includes(marker)) continue;
+        const tag = source.match(new RegExp(`<[a-z]+\\b[^>]*${marker}(?![-\\w])[^>]*>`))?.[0] ?? "";
+        expect(tag, `${name} ${marker}`).not.toMatch(/(?<![-\w])hidden\b/);
+      }
+    }
+    // The client shows and hides them with an attribute that only the visibility rules read.
+    expect(CLIENT).not.toMatch(/(?:row|slot|line)\.hidden/);
+  });
+
+  it("renders every slot whenever the endpoint is set, so the server reserves the space", () => {
+    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" data-ai-try>/);
+    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<p class="hero__ai-note" data-ai-disclosure>/);
+    expect(SEARCH_BAR).toMatch(
+      /aiEndpoint && \(\s*<p class="searchbar__ai-note" data-ai-disclosure>/,
+    );
+  });
+
+  it("keeps the Discover field 44 px in both states, set rather than left to the line height", () => {
+    const style = styleOf(SEARCH_BAR);
+    expect(rule(style, '.searchbar--ai input[type="search"]')).toMatch(/block-size:\s*44px/);
+    expect(
+      rule(style, '.searchbar--ai .searchbar__field[data-ai="on"] input[type="search"]'),
+    ).toMatch(/block-size:\s*calc\(44px - 3px\)/);
+  });
+
+  it("is checked in a browser: the field's top before and after the toggle, light, dark, phone", () => {
+    expect(E2E).toContain("getBoundingClientRect");
+    expect(E2E).toContain("TOLERANCE = 0.5");
+    for (const width of ["1280", "390"]) expect(E2E).toContain(width);
+    for (const scheme of ['"light"', '"dark"']) expect(E2E).toContain(scheme);
+    expect(E2E).toContain("scrollWidth");
+    expect(PLAYWRIGHT_CONFIG).toContain('testDir: "./e2e"');
+    expect(PACKAGE).toMatch(/"test:e2e":\s*"playwright test"/);
+  });
+});
+
+describe("the line under the field", () => {
+  const sources = [
+    [SEARCH_BAR, "SearchBar", ".searchbar__ai-hint", "--color-fg-muted"],
+    [HOME, "Home", ".hero__ai-hint", "--ai-try-label"],
+  ] as const;
+
+  it("is one paragraph with the maintainer's words, on Discover and on Home, never hidden", () => {
+    for (const [source, name] of sources) {
+      const tag = openingTag(source, "p", "data-ai-hint");
+      expect(tag, name).toMatch(/aria-hidden="true"/);
+      expect(tag, name).not.toMatch(/\bhidden\b(?!=)/);
+      expect(source, name).toMatch(/\{AI_MODE_HINT\}/);
+      expect(source.match(/data-ai-hint(?![-\w])/g), name).toHaveLength(1);
+    }
+    expect(AI_MODE_HINT).toBe("AI Mode is on. Use three or more words to see an AI response.");
+  });
+
+  it("is in the smallest helper size the site has, a muted token and no error colour", () => {
+    expect(TOKENS).toMatch(/--fs-xs:\s*0\.75rem/);
+    for (const [source, name, selector, colour] of sources) {
+      const style = styleOf(source);
+      const declarations = rule(style, selector);
+      expect(declarations, name).toMatch(/font-size:\s*var\(--fs-xs\)/);
+      expect(declarations, name).toContain(`color: var(${colour})`);
+      expect(declarations, name).not.toMatch(HEX);
+      expect(declarations, name).not.toMatch(/error|danger|warning|red/);
+      // Drawn with visibility, so it keeps its row: showing it moves nothing.
+      expect(rule(style, `${selector}:not([data-ai-visible])`), name).toMatch(
+        /visibility:\s*hidden/,
+      );
+    }
+  });
+
+  it("is announced by one polite live region per page, whose text the client sets on a change", () => {
+    for (const [source, name] of sources) {
+      const tag = openingTag(source, "span", "data-ai-hint-status");
+      expect(tag, name).toMatch(/role="status"/);
+      expect(tag, name).toMatch(/aria-live="polite"/);
+      expect(tag, name).toMatch(/visually-hidden/);
+    }
+    expect(CLIENT).toMatch(/if \(announcement === null\) return;/);
+    // The state machine (unit-tested in osa-ai-mode.test.ts) decides; the client only draws it.
+    expect(CLIENT).toContain("new AiHintState()");
+    // It follows the field as the reader types, and shows for a 422 too.
+    expect(CLIENT).toMatch(/addEventListener\("input"/);
+    expect(CLIENT).toContain('state.kind === "refused"');
+    expect(CLIENT).toContain('line.toggleAttribute("data-ai-visible", shown)');
   });
 });
 
@@ -313,6 +444,13 @@ describe("colours", () => {
   });
 });
 
+/** The "Try" row's example searches, read from the page's source. */
+function homeExamples(): string[] {
+  const list = HOME.match(/const AI_EXAMPLES = \[([\s\S]*?)\];/);
+  if (!list) throw new Error("no AI_EXAMPLES list in index.astro");
+  return [...list[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
 describe("Home", () => {
   const form = elementMarkup(HOME, "form", 'class="hero__search bracketed"');
 
@@ -320,31 +458,61 @@ describe("Home", () => {
     expect(openingTag(HOME, "form", 'class="hero__search bracketed"')).toBe(
       '<form class="hero__search bracketed" action="/discover" method="get" role="search">',
     );
-    expect(form).toMatch(/<input[^>]*name="q"[^>]*placeholder="Enter keyword or phrase"/s);
-    // Nothing in the markup submits `ai`: it is added by the client, only while AI Mode is on.
+    expect(form).toMatch(
+      /<input[^>]*name="q"[^>]*placeholder=\{aiEndpoint \? AI_PLACEHOLDER : PLAIN_PLACEHOLDER\}/s,
+    );
+    expect(HOME).toContain('const PLAIN_PLACEHOLDER = "Enter keyword or phrase";');
+    // Nothing in the markup submits `ai`: AI Mode is on by default, so no `ai` means on, and the
+    // client adds `ai=0` only while it is off.
     expect(form).not.toMatch(/name="ai"/);
   });
 
   it("wraps the field and shows the Try row only when the endpoint is set", () => {
     expect(HOME).toContain('const FieldControl = aiEndpoint ? "div" : Fragment;');
-    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" hidden data-ai-try>/);
-    expect(HOME).toContain("Describe the data you need, in plain words");
-    for (const example of [
-      "Resting-state EEG with over 100 participants",
-      "MEG with eye tracking",
-      "Datasets I can analyze in the browser",
-    ]) {
-      expect(HOME).toContain(example);
-    }
-    expect(rule(styleOf(HOME), ".hero__try[hidden]")).toMatch(/display:\s*none/);
+    expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" data-ai-try>/);
+    expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in plain words";');
+    expect(rule(styleOf(HOME), ".hero__try:not([data-ai-visible])")).toMatch(
+      /visibility:\s*hidden/,
+    );
   });
 
-  it("submits ai=1 to /discover only while on: the client adds the input, and removes it when off", () => {
-    expect(CLIENT).toMatch(/input\.name = "ai";\s*input\.value = "1";/);
-    expect(CLIENT).toMatch(/if \(!on\) \{\s*existing\?\.remove\(\);\s*return;\s*\}/);
+  it("offers only examples the overview accepts: every one has at least three words", () => {
+    const examples = homeExamples();
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) {
+      expect(countQueryWords(example), example).toBeGreaterThanOrEqual(OVERVIEW_MIN_WORDS);
+    }
+    // The row renders exactly this list.
+    expect(HOME).toContain("AI_EXAMPLES.map((example) =>");
+  });
+
+  it("submits ai=0 to /discover only while off: the client adds the input, and removes it when on", () => {
+    expect(CLIENT).toMatch(/input\.name = "ai";\s*input\.value = "0";/);
+    expect(CLIENT).toMatch(/if \(on\) \{\s*existing\?\.remove\(\);\s*return;\s*\}/);
     expect(CLIENT).toContain("syncAiInput(doc, toggle, on)");
-    // Discover's own form gets the same input from the server when the address has ai=1.
-    expect(SEARCH_BAR).toMatch(/\{aiEndpoint && aiOn && <input type="hidden" name="ai" value="1"/);
+    // Discover's own form gets the same input from the server when the address has ai=0, so a
+    // search submitted without scripts does not flip an off to the default on.
+    expect(SEARCH_BAR).toMatch(/\{aiEndpoint && !aiOn && <input type="hidden" name="ai" value="0"/);
+    expect(SEARCH_BAR).toMatch(/aiOn = true,/);
+  });
+
+  it("renders the on state for everyone and lets the client switch off, because the page is cached", () => {
+    expect(HOME).toMatch(/"data-ai": "on"/);
+    expect(SEARCH_BAR).toContain('aiOn ? "on" : "off"');
+    expect(SEARCH_BAR).toContain("on={aiOn}");
+    // A widget that never loads leaves the server's on state with nothing behind it: it is undone.
+    expect(CLIENT).toMatch(/if \(ready\.length === 0\) \{[\s\S]{0,600}paint\(toggles, false\)/);
+  });
+
+  it("takes the slots out of the layout where no toggle can be revealed", () => {
+    expect(CLIENT).toContain('"[data-ai-hint], [data-ai-try], [data-ai-disclosure]"');
+    expect(CLIENT).toContain('setAttribute("data-ai-unavailable", "")');
+    for (const selector of [".hero__ai-hint", ".hero__try", ".hero__ai-note"]) {
+      expect(HOME).toContain(`${selector}[data-ai-unavailable]`);
+    }
+    for (const selector of [".searchbar__ai-hint", ".searchbar__ai-note"]) {
+      expect(SEARCH_BAR).toContain(`${selector}[data-ai-unavailable]`);
+    }
   });
 
   it("fills the field from an example and submits the form", () => {
@@ -371,6 +539,47 @@ describe("the setting", () => {
   });
 });
 
+/** Every source file under src, as text. */
+const SOURCES = import.meta.glob("../src/**/*.{ts,astro}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+describe("the follow-up", () => {
+  it("seeds the dialog and sends nothing: no call to ask or to open on its path", () => {
+    for (const [name, source] of [
+      ["osa-ai-mode.ts", MODE_SOURCE],
+      ["ai-mode-search-client.ts", CLIENT],
+    ] as const) {
+      expect(source, name).not.toMatch(/\.ask\b/);
+      expect(source, name).not.toMatch(/\bask\(/);
+    }
+    expect(MODE_SOURCE).toMatch(/\.call\(\s*widget,\s*text,\s*\{ mode: "center" \}/);
+    // The click reaches the widget through the seed helper alone.
+    expect(CLIENT).toContain("seedFollowUp(");
+    expect(CLIENT).not.toMatch(/openAiMode/);
+  });
+
+  it("offers the button only where the widget has seed, checked each time the panel is drawn", () => {
+    expect(CLIENT).toContain("panelView(state, aiModeSeedAvailable(");
+  });
+
+  it("builds the message with the pure seedText and the page's own origin", () => {
+    expect(CLIENT).toContain(
+      "seedText(this.request.query, state.answer, this.win.location.origin)",
+    );
+  });
+
+  it("leaves nothing of the old first-person question anywhere in src", () => {
+    const names = Object.keys(SOURCES);
+    expect(names.length).toBeGreaterThan(100);
+    for (const [name, source] of Object.entries(SOURCES)) {
+      expect(source, name).not.toMatch(/I searched NEMAR for/);
+      expect(source, name).not.toMatch(/followUpText|FOLLOW_UP_MAX_CHARS|askFollowUp/);
+    }
+  });
+});
+
 describe("AI Mode on the page", () => {
   it("is reached by one script, once per page, from the toggle component", () => {
     expect(TOGGLE).toMatch(
@@ -380,7 +589,7 @@ describe("AI Mode on the page", () => {
     expect(CLIENT).toContain("aiModeSearchAvailable(widgetWindow, t.dataset.aiEndpoint)");
   });
 
-  it("carries ai=1 on Discover's own links and in its form, and Discover's paging reads it from the URL", () => {
+  it("carries ai=0 on Discover's own links and in its form, and Discover's paging reads it from the URL", () => {
     expect(openingTag(TOGGLE, "button", "data-ai-toggle")).toMatch(/data-ai-links=\{carryLinks/);
     expect(SEARCH_BAR).toContain("carryLinks");
     expect(DISCOVER).toContain("aiOn={state.ai}");

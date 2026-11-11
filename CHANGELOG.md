@@ -29,15 +29,42 @@ The release pull request from `staging` to `main` moves those entries under the 
 - **An AI Mode toggle in Discover's search field and an AI overview above the results** (nemarOrg/website#518, board D2 of the NEMAR AI plan).
   The toggle is a 36 px pill with `aria-pressed` inside the 44 px field; on, the field gets a teal-to-purple ring and a panel above the results reads the top ten matches and answers in about a hundred words, with each dataset id a link, up to three picks, "Ask a follow-up" into the assistant's centre-stage dialog, and "Written by AI from these search results".
   The panel has loading, answer and error states (a rate limit is worded apart from other failures, and every error offers Try again); its text is set as plain text, and an answer that names a dataset the search did not return is shown as an error.
-  The choice is remembered in the browser (`nemar:ai-mode-search:v1`) and carried as `ai=1`, which survives searching, filtering, sorting and paging; `ai=1` in the address wins over the remembered choice.
+  AI Mode is on by default; an explicit off is remembered in the browser (`nemar:ai-mode-search:v1`) and carried as `ai=0`, which survives searching, filtering, sorting and paging; `ai=1` or `ai=0` in the address wins over the remembered choice (nemarOrg/website#525).
   Discover is cached at the edge for everyone, so the page embeds the request as a JSON data island, only for a successful search on page 1 with results, and the browser posts it to OSA's `/nemar/overview` when AI Mode is on.
   The toggle shows only when the assistant widget loaded and can be opened, and the build sets `PUBLIC_OSA_OVERVIEW_URL`.
   Staging (`deploy-test.yml`) sets it to the develop worker; `wrangler.toml` does not, so production shows no toggle until a release adds it (ADR 0032).
 - **The same toggle in the Home hero's search field** (nemarOrg/website#519, board D1).
   A 44 px pill with a 15 px label and a 22 px icon; on, the field gets the ring of the "Download" headline, the placeholder reads "Describe the data you need, in plain words", and a "Try" row offers three example searches that fill the field and submit it.
-  Submitting while on goes to `/discover?q=...&ai=1`; off, or with no setting, the form submits exactly what it did.
+  AI Mode is on by default there too; submitting while on goes to `/discover?q=...`, and an off goes as `ai=0`; with no setting (production), the form submits exactly what it did.
   The toggle's icon, a magnifier with a sparkle, is the only AI mark in the field.
   New colours are tokens with dark values (`--ai-toggle-*`, `--ai-try-*`, `--ai-panel-*`, `--ai-ring-*`).
+
+### Changed
+
+- **AI Mode gives an overview only for a search of three words or more** (nemarOrg/website#518, OpenScience-Collective/osa#728; maintainer's rule of 2026-11-11).
+  A one-word search such as "EEG" made OSA's overview endpoint fail.
+  Under three words Discover sends no overview request and the panel stays hidden; the line under the search field says why (see below), the results show as usual, and the toggle, the remembered choice and `ai=0` are unchanged.
+  Words are counted as OSA counts them: the trimmed query split on whitespace, counting tokens that hold a letter or digit, so "P300", "naïve" and "α-band" count and a lone "-" or "&" does not (`countQueryWords`, `OVERVIEW_MIN_WORDS`).
+  If the endpoint still answers 422, the same line shows.
+  The three example searches in Home's "Try" row already have three words or more, and a test now keeps it so (ADR 0032).
+- **AI Mode is on by default** (nemarOrg/website#525).
+  A reader who never chose, with no `ai` in the address, is on; an explicit off is remembered and survives a reload; `ai=1` forces on, and `ai=0` forces off and is written back, so a copied link says what the page shows.
+  A page without `ai` therefore means on, and links the page writes carry only the off, as `ai=0`.
+  The page is cached at the edge for everyone, so the server renders the on state and the browser switches it off for a reader who chose off; a search submitted without scripts keeps an off the address had, through a hidden `ai=0`.
+  The stored value stays under `nemar:ai-mode-search:v1`; an absent or unreadable value (including blocked storage) is on.
+- **One very small line under the search field for a search of one or two words** (nemarOrg/website#525).
+  While AI Mode is on and the field holds one or two words, a line directly under it reads "AI Mode is on. Use three or more words to see an AI response.", in the smallest helper size the site has (`--fs-xs`) and a muted site colour (dark values included), never the error colour.
+  It follows the field as the reader types, on Home and on Discover, and shows for a 422 too; it replaces the note that was in the panel, and the panel shows nothing in that state.
+  A polite live region says it once each time it appears, set on the change and not on every keystroke (`aiHintShown`, `aiHintAnnouncement`).
+- **AI Mode no longer moves the search field** (nemarOrg/website#525).
+  The Try row, the disclosure and the new line were hidden and shown, which pushed the page around; each is now a slot the server renders whenever the overview endpoint is set, always laid out and drawn with `visibility`, so a switch moves nothing.
+  Discover's field is 44 px in both states (it was 46 px off and 47 px on).
+  `bun run test:e2e` loads Home and Discover at 1280 and 390 px, light and dark, and checks the field's top, its height and the content under it before and after each click, with the line shown and hidden, within 0.5 px, and that the page does not scroll sideways (`e2e/ai-mode-field.spec.ts`; run locally, not in CI).
+- **"Ask a follow-up" opens the assistant with the overview as its own first reply and sends nothing** (nemarOrg/website#525, OpenScience-Collective/osa#730).
+  It calls `OSAChatWidget.seed(text, {mode: "center"})`; the reader writes the next message.
+  The text is Markdown that stands alone: **AI overview** for the quoted search, the summary with each dataset id a link to its page on this site, and the top picks; it is at most 2,000 characters (the most `seed` takes), shortened by dropping the picks' reasons, then the picks, then cutting the summary at a sentence, and the search, the overview's prose and a pick's reason cannot make a link, image, emphasis or code of their own (a heading, quote or list marker that opens the summary is dropped), and a web address in them is broken (`https://x` reads `https x`) so the dataset links are the only links (`seedText`).
+  Where the widget has no `seed` (production's older widget, or one that did not load) the button is not drawn.
+  The old text, which phrased the overview as a question the reader had asked, is gone.
 
 ### Fixed
 

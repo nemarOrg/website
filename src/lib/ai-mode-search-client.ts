@@ -1,7 +1,7 @@
 /**
  * The browser half of the AI Mode toggle in search (website#518 on Discover, #519 on Home): it
  * finds the toggles `AiModeToggle.astro` renders hidden, reveals them once the widget can open,
- * keeps `ai=1` in the address, the form and the page's own links, and runs the AI overview panel
+ * keeps `ai=0` (the off) in the address, the form and the page's own links, and runs the AI overview panel
  * above Discover's results.
  *
  * What is decided in a tested module: the panel's transitions (`OverviewController` in
@@ -10,7 +10,7 @@
  * them `parseOverviewRequest`), the preference, the address parameter, the link rewrite
  * (`aiLinkHref`) and the follow-up call (`./osa-ai-mode`). What is not: this file's DOM glue,
  * which turns those results into elements, moves focus back to the panel's heading when a button
- * the reader used is replaced, and keeps the `ai=1` input in the form ({@link syncAiInput}). That
+ * the reader used is replaced, and keeps the `ai=0` input in the form ({@link syncAiInput}). That
  * part is checked in a browser and by the source guards in `test/ai-mode-search.test.ts`.
  *
  * Nothing here writes markup from a string: the overview's text is set with `textContent` and its
@@ -20,50 +20,57 @@
 import {
   FOLLOW_UP_FAILED,
   OverviewController,
+  type OverviewPanelState,
   type PanelView,
-  followUpText,
   panelView,
+  seedText,
 } from "./ai-overview-panel";
 import {
+  AiHintState,
+  type AiHintUpdate,
   type AiModeLoadTarget,
   type AiModePageWindow,
   type AiModeWindow,
   aiLinkHref,
   aiModeSearchAvailable,
-  askFollowUp,
+  aiModeSeedAvailable,
   initialAiModeSearch,
+  seedFollowUp,
   setAiModeSearch,
   whenDocumentReady,
-  withAiModeParam,
 } from "./osa-ai-mode";
 import { type OverviewRequest, parseOverviewRequest, requestOverview } from "./osa-overview";
 
 /** Names `ai` in a form the field submits with, so a search, a filter or a sort keeps AI Mode. */
 const AI_INPUT = "input[data-ai-input]";
 
-/** Adds or removes the hidden `ai=1` input of the form the toggle's field submits with. Off, the
- *  form is exactly what it was: no input, so nothing extra is submitted. */
+/** Keeps the hidden `ai=0` input of the form the toggle's field submits with. AI Mode is on by
+ *  default, so on the form carries nothing (a search then means on) and off carries `ai=0`, which
+ *  a search, a filter or a sort keeps, with or without scripts. */
 export function syncAiInput(doc: Document, toggle: HTMLElement, on: boolean): void {
   const formId = toggle.dataset.aiForm;
   const form = formId ? doc.getElementById(formId) : toggle.closest("form");
   if (!(form instanceof HTMLFormElement)) return;
   const existing = doc.querySelector<HTMLInputElement>(AI_INPUT);
-  if (!on) {
+  if (on) {
     existing?.remove();
     return;
   }
-  if (existing) return;
+  if (existing) {
+    existing.value = "0";
+    return;
+  }
   const input = doc.createElement("input");
   input.type = "hidden";
   input.name = "ai";
-  input.value = "1";
+  input.value = "0";
   input.setAttribute("data-ai-input", "");
   if (formId) input.setAttribute("form", formId);
   form.append(input);
 }
 
-/** Sets or removes `ai=1` on the page's own /discover links, whose server-rendered hrefs (cached
- *  at the edge for every reader) cannot know the preference. */
+/** Sets `ai=0` on, or takes it off, the page's own /discover links, whose server-rendered hrefs
+ *  (cached at the edge for every reader) cannot know the preference. */
 export function carryAiOnLinks(doc: Document, on: boolean): void {
   const root = doc.getElementById("main") ?? doc;
   for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
@@ -152,6 +159,14 @@ function renderBody(
   }
   if (view.footnote) foot.append(element(doc, "span", "ai-overview__note", view.footnote));
   body.append(foot);
+  // Empty until "Ask a follow-up" fails: a live region that already exists announces a change to
+  // its text, one inserted with its text does not.
+  if (view.followUp) {
+    const failed = element(doc, "p", "ai-overview__error ai-overview__failed");
+    failed.setAttribute("role", "status");
+    failed.setAttribute("data-ai-follow-up-failed", "");
+    body.append(failed);
+  }
 }
 
 /** The overview panel above the results: the DOM around an {@link OverviewController}, which
@@ -165,11 +180,16 @@ class OverviewPanel {
     private readonly section: HTMLElement,
     private readonly request: OverviewRequest,
     endpoint: string,
+    onState: (state: OverviewPanelState) => void,
   ) {
     this.controller = new OverviewController({
+      query: request.query,
       reading: request.results.length,
       fetchOverview: (signal) => requestOverview(endpoint, request, { signal }),
-      onState: (state) => this.render(panelView(state)),
+      onState: (state) => {
+        this.render(panelView(state, aiModeSeedAvailable(win as unknown as AiModeWindow)));
+        onState(state);
+      },
     });
   }
 
@@ -208,7 +228,7 @@ class OverviewPanel {
         doc,
         body,
         view,
-        (button) => this.followUp(button),
+        (button) => void this.followUp(button),
         () => void this.controller.retry(),
       );
     }
@@ -218,21 +238,68 @@ class OverviewPanel {
     }
   }
 
-  /** Hands the question to the widget; when it cannot take it, says so under the button. */
-  private followUp(button: HTMLElement): void {
+  /** Seeds the assistant's dialog with the overview, as its own first reply; when the widget cannot
+   *  take it (it threw, or its promise rejected), says so under the button. The note is looked up
+   *  after the wait, so it is the one in the page now. */
+  private async followUp(button: HTMLElement): Promise<void> {
     const state = this.controller.state;
     if (state.kind !== "answer") return;
-    const took = askFollowUp(
+    const took = await seedFollowUp(
       this.win as unknown as AiModeWindow,
-      followUpText(this.request.query, state.answer),
+      seedText(this.request.query, state.answer, this.win.location.origin),
     );
-    const foot = button.parentElement;
-    foot?.querySelector("[data-ai-follow-up-failed]")?.remove();
-    if (took || !foot) return;
-    const note = element(this.doc, "p", "ai-overview__error", FOLLOW_UP_FAILED);
-    note.setAttribute("role", "status");
-    note.setAttribute("data-ai-follow-up-failed", "");
-    foot.append(note);
+    // The status element is in the page from the panel's draw, empty, so its text is announced.
+    const note = this.section.querySelector<HTMLElement>("[data-ai-follow-up-failed]");
+    if (note) note.textContent = took ? "" : FOLLOW_UP_FAILED;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The line under the field
+// ---------------------------------------------------------------------------
+
+/**
+ * The one small line under the search field (website#525), for AI Mode on and a search of one or
+ * two words. What decides it is `AiHintState`, from the field's live value, so it follows typing
+ * (Home and Discover alike) and, on Discover, starts from the submitted query the field holds.
+ * A 422 from the endpoint shows it too ({@link refuse}) until the reader edits the field.
+ *
+ * The line is a slot that is always in the page (`[data-ai-hint]`, drawn with `visibility`, never
+ * `hidden`), so showing it moves nothing. It is `aria-hidden`; the polite live region
+ * (`[data-ai-hint-status]`) says it once per appearance, set on the transition only.
+ */
+class UnderFieldHint {
+  private readonly state = new AiHintState();
+
+  constructor(
+    private readonly doc: Document,
+    private readonly input: HTMLInputElement | null,
+  ) {
+    input?.addEventListener("input", () => this.apply(this.state.onInput(this.query())));
+  }
+
+  setOn(on: boolean): void {
+    this.apply(this.state.setOn(on, this.query()));
+  }
+
+  /** The endpoint refused `requested` for its length: the line says why, if the field still holds
+   *  that search; a refusal that arrives after the reader edited the field is ignored. */
+  refuse(requested: string): void {
+    this.apply(this.state.refuse(requested, this.query()));
+  }
+
+  private query(): string {
+    return this.input?.value ?? "";
+  }
+
+  private apply({ shown, announcement }: AiHintUpdate): void {
+    for (const line of this.doc.querySelectorAll<HTMLElement>("[data-ai-hint]")) {
+      line.toggleAttribute("data-ai-visible", shown);
+    }
+    if (announcement === null) return;
+    for (const live of this.doc.querySelectorAll<HTMLElement>("[data-ai-hint-status]")) {
+      live.textContent = announcement;
+    }
   }
 }
 
@@ -264,47 +331,76 @@ export function initAiModeSearch(win: Window, doc: Document): void {
   const pageWindow = win as unknown as AiModePageWindow;
   const widgetWindow = win as unknown as AiModeWindow;
 
+  /** What the fields, the Try row and the notes look like for a state. The server renders the on
+   *  state for everyone (the page is cached), so this is also what switches an off in. */
+  const paint = (all: HTMLButtonElement[], on: boolean) => {
+    for (const toggle of all) {
+      toggle.setAttribute("aria-pressed", String(on));
+      const field = fieldOf(toggle);
+      if (field) field.dataset.ai = on ? "on" : "off";
+      const input = field?.querySelector<HTMLInputElement>("input[type=search]");
+      if (input?.dataset.aiPlaceholder) {
+        input.placeholder = on
+          ? input.dataset.aiPlaceholder
+          : (input.dataset.aiPlaceholderOff ?? "");
+      }
+      const label = field?.querySelector<HTMLElement>("[data-ai-label]");
+      if (label?.dataset.aiLabel) {
+        label.textContent = on ? label.dataset.aiLabel : (label.dataset.aiLabelOff ?? "");
+      }
+    }
+    // The Try row and the disclosure are slots that are always laid out (the server renders them
+    // whenever the endpoint is set) and drawn with `visibility`, so a switch moves nothing.
+    for (const slot of doc.querySelectorAll<HTMLElement>("[data-ai-try], [data-ai-disclosure]")) {
+      slot.toggleAttribute("data-ai-visible", on);
+    }
+    for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
+  };
+
   whenDocumentReady(
     doc,
     () => {
       const ready = toggles.filter((t) =>
         aiModeSearchAvailable(widgetWindow, t.dataset.aiEndpoint),
       );
-      if (ready.length === 0) return;
+      if (ready.length === 0) {
+        // The widget did not load (or is the older one without `open`): the server's on state has
+        // nothing behind it, so the fields read as plain search. The slots under the field that
+        // were kept for a switch (the line, the Try row, the disclosure) have nothing to show and
+        // no toggle to switch them, so they leave the layout instead of staying as blank space;
+        // the field does not move, because no toggle is revealed (ADR 0032).
+        paint(toggles, false);
+        for (const slot of doc.querySelectorAll<HTMLElement>(
+          "[data-ai-hint], [data-ai-try], [data-ai-disclosure]",
+        )) {
+          slot.setAttribute("data-ai-unavailable", "");
+        }
+        return;
+      }
 
       const section = doc.querySelector<HTMLElement>("[data-ai-overview]");
       const request = parseOverviewRequest(
         doc.querySelector("script[data-ai-overview-request]")?.textContent,
       );
       const endpoint = ready[0].dataset.aiEndpoint ?? "";
+      const hint = new UnderFieldHint(
+        doc,
+        fieldOf(ready[0])?.querySelector<HTMLInputElement>("input[type=search]") ?? null,
+      );
       const panel =
-        section && request ? new OverviewPanel(win, doc, section, request, endpoint) : null;
+        section && request
+          ? new OverviewPanel(win, doc, section, request, endpoint, (state) => {
+              if (state.kind === "refused") hint.refuse(request.query);
+            })
+          : null;
 
       const apply = (on: boolean) => {
+        paint(ready, on);
         for (const toggle of ready) {
-          toggle.setAttribute("aria-pressed", String(on));
-          const field = fieldOf(toggle);
-          if (field) field.dataset.ai = on ? "on" : "off";
-          const input = field?.querySelector<HTMLInputElement>("input[type=search]");
-          if (input?.dataset.aiPlaceholder) {
-            input.dataset.aiPlaceholderOff ??= input.placeholder;
-            input.placeholder = on
-              ? input.dataset.aiPlaceholder
-              : (input.dataset.aiPlaceholderOff ?? "");
-          }
-          const label = field?.querySelector<HTMLElement>("[data-ai-label]");
-          if (label?.dataset.aiLabel) {
-            label.dataset.aiLabelOff ??= label.textContent ?? "";
-            label.textContent = on ? label.dataset.aiLabel : (label.dataset.aiLabelOff ?? "");
-          }
           syncAiInput(doc, toggle, on);
           if (toggle.hasAttribute("data-ai-links")) carryAiOnLinks(doc, on);
         }
-        for (const row of doc.querySelectorAll<HTMLElement>("[data-ai-try]")) row.hidden = !on;
-        for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
-        for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-disclosure]")) {
-          note.hidden = !on;
-        }
+        hint.setOn(on);
         panel?.setOn(on);
       };
 

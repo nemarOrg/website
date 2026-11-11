@@ -11,8 +11,13 @@ import { latestDatasets } from "../lib/highlights";
 import { appUrl } from "../lib/host";
 import { landingCacheControl } from "../lib/landing-cache";
 import { listNews } from "../lib/news-api";
-import { AI_MODE_SEARCH_DISCLOSURE } from "../lib/osa-ai-mode";
-import { overviewEndpoint } from "../lib/osa-overview";
+import {
+  AI_MODE_DISCLOSURE_AFTER,
+  AI_MODE_DISCLOSURE_BEFORE,
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_PRIVACY_NOTE_URL,
+} from "../lib/osa-ai-mode";
+import { AI_MODE_HINT, overviewEndpoint } from "../lib/osa-overview";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
 
@@ -26,7 +31,16 @@ const HIGHLIGHT_ROWS = 10;
 const aiEndpoint = overviewEndpoint();
 // With the toggle, the input and its toggle share a positioned wrapper that carries the ring.
 const FieldControl = aiEndpoint ? "div" : Fragment;
-const fieldControlProps = aiEndpoint ? { class: "hero__search-control", "data-ai-field": "" } : {};
+const AI_LABEL = "Describe the data you need";
+const PLAIN_LABEL = "Search datasets";
+const AI_PLACEHOLDER = "Describe the data you need, in plain words";
+const PLAIN_PLACEHOLDER = "Enter keyword or phrase";
+// The page is cached for everyone and AI Mode is on by default, so the server renders the on state
+// (the ring, the pressed toggle, the AI placeholder and label) and the browser switches off a reader
+// who chose off (src/lib/ai-mode-search-client.ts, ADR 0032).
+const fieldControlProps = aiEndpoint
+  ? { class: "hero__search-control", "data-ai-field": "", "data-ai": "on" }
+  : {};
 const AI_EXAMPLES = [
   "Resting-state EEG with over 100 participants",
   "MEG with eye tracking",
@@ -141,13 +155,15 @@ Astro.response.headers.set(
             <label
               class="visually-hidden"
               for="hero-search"
-              data-ai-label={aiEndpoint ? "Describe the data you need" : undefined}>Search datasets</label>
+              data-ai-label={aiEndpoint ? AI_LABEL : undefined}
+              data-ai-label-off={aiEndpoint ? PLAIN_LABEL : undefined}>{aiEndpoint ? AI_LABEL : PLAIN_LABEL}</label>
             <input
               id="hero-search"
               name="q"
               type="search"
-              placeholder="Enter keyword or phrase"
-              data-ai-placeholder={aiEndpoint ? "Describe the data you need, in plain words" : undefined}
+              placeholder={aiEndpoint ? AI_PLACEHOLDER : PLAIN_PLACEHOLDER}
+              data-ai-placeholder={aiEndpoint ? AI_PLACEHOLDER : undefined}
+              data-ai-placeholder-off={aiEndpoint ? PLAIN_PLACEHOLDER : undefined}
               autocomplete="off"
             />
             {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="lg" />}
@@ -155,7 +171,16 @@ Astro.response.headers.set(
           <button type="submit">Search</button>
         </div>
         {aiEndpoint && (
-          <div class="hero__try" hidden data-ai-try>
+          <>
+            {/* The one small line under the field for a search of one or two words: always in the
+                page and drawn with visibility, so showing it moves nothing; the polite region says
+                it once per appearance (src/lib/ai-mode-search-client.ts). */}
+            <p class="hero__ai-hint" data-ai-hint aria-hidden="true">{AI_MODE_HINT}</p>
+            <span class="visually-hidden" role="status" aria-live="polite" data-ai-hint-status></span>
+          </>
+        )}
+        {aiEndpoint && (
+          <div class="hero__try" data-ai-try>
             <span class="hero__try-label">Try</span>
             {AI_EXAMPLES.map((example) => (
               <button type="button" class="hero__try-item" data-ai-try-item>{example}</button>
@@ -163,7 +188,7 @@ Astro.response.headers.set(
           </div>
         )}
         {aiEndpoint && (
-          <p class="hero__ai-note" data-ai-disclosure hidden>{AI_MODE_SEARCH_DISCLOSURE}</p>
+          <p class="hero__ai-note" data-ai-disclosure>{AI_MODE_DISCLOSURE_BEFORE}<a class="ai-note-link" href={AI_MODE_PRIVACY_NOTE_URL}>{AI_MODE_DISCLOSURE_LINK_TEXT}</a>{AI_MODE_DISCLOSURE_AFTER}</p>
         )}
       </form>
 
@@ -515,6 +540,26 @@ Astro.response.headers.set(
   .hero__search-control[data-ai="on"] .hero__search-icon {
     inset-inline-start: calc(var(--space-5) + 2px);
   }
+  /* The line under the field for a search of one or two words: the smallest helper size the site
+     has (--fs-xs), the hero's muted AI Mode colour (dark value in tokens.css), never the error
+     colour. Always laid out and drawn with visibility, so it takes its row whether it shows or not. */
+  .hero__ai-hint {
+    max-inline-size: 44rem;
+    margin: var(--space-2) 0 0 var(--space-1);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--ai-try-label);
+  }
+  .hero__ai-hint:not([data-ai-visible]) {
+    visibility: hidden;
+  }
+  /* The widget is absent or too old to open: no toggle is revealed, so the three slots under the
+     field (the line, the Try row, the notice) leave the layout instead of staying as blank space. */
+  .hero__ai-hint[data-ai-unavailable],
+  .hero__try[data-ai-unavailable],
+  .hero__ai-note[data-ai-unavailable] {
+    display: none;
+  }
   /* The "Try" row: example searches that fill the field and submit it. */
   .hero__try {
     display: flex;
@@ -522,20 +567,33 @@ Astro.response.headers.set(
     align-items: center;
     gap: var(--space-2);
     margin: var(--space-4) 0 0 var(--space-1);
+    /* One example's height: the row keeps its place whether it shows or not. */
+    min-block-size: 36px;
   }
-  .hero__try[hidden] {
-    display: none;
+  /* A slot, never display: none: the server renders the row whenever the endpoint is set and the
+     browser only shows or hides it, so turning AI Mode on or off moves nothing. */
+  .hero__try:not([data-ai-visible]) {
+    visibility: hidden;
   }
-  /* The notice that goes with AI Mode, shown while it is on. */
+  /* The notice that goes with AI Mode, shown while it is on; always laid out, like the Try row. */
   .hero__ai-note {
     max-inline-size: 44rem;
     margin: var(--space-3) 0 0 var(--space-1);
-    font-size: 13px;
+    /* The same size as the line under the search field, which sits just above it (as on Discover). */
+    font-size: var(--fs-xs);
     line-height: 1.5;
     color: var(--ai-try-label);
   }
-  .hero__ai-note[hidden] {
-    display: none;
+  .hero__ai-note .ai-note-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .hero__ai-note .ai-note-link:hover {
+    color: var(--color-fg);
+  }
+  .hero__ai-note:not([data-ai-visible]) {
+    visibility: hidden;
   }
   .hero__try-label {
     margin-inline-end: 2px;

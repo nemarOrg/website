@@ -3,18 +3,22 @@ import RESPONSE from "../../test/fixtures/osa-overview-response.json";
 import SEARCH from "../../test/fixtures/search-corrected-query.json";
 import { type FilterState, defaultFilterState } from "./filters";
 import {
+  AI_MODE_HINT,
   OVERVIEW_ENDPOINTS,
   OVERVIEW_LIMITS,
+  OVERVIEW_MIN_WORDS,
   OVERVIEW_TIMEOUT_MS,
   OverviewError,
   type OverviewRequest,
   buildOverviewRequest,
+  countQueryWords,
   overviewEndpoint,
   overviewErrorMessage,
   overviewFilters,
   overviewRequestForPage,
   parseOverviewRequest,
   parseOverviewResponse,
+  queryHasEnoughWords,
   requestOverview,
   resolveOverviewEndpoint,
   sanitizeOverviewFilters,
@@ -29,6 +33,44 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("countQueryWords", () => {
+  it("is three words at least, as OSA requires", () => {
+    expect(OVERVIEW_MIN_WORDS).toBe(3);
+  });
+
+  it.each([
+    ["EEG", 1],
+    ["P300 speller", 2],
+    ["face recognition EEG", 3],
+    ["  sleep   spindles  in children ", 4],
+    ["EEG - MEG", 2],
+    ["α-band power", 2],
+    ["naïve listeners", 2],
+    ["EEG & MEG", 2],
+    ["", 0],
+    ["   ", 0],
+    ["- & --", 0],
+  ])("counts %j as %i", (query, count) => {
+    expect(countQueryWords(query)).toBe(count);
+  });
+
+  it("splits on any whitespace, tabs and newlines included", () => {
+    expect(countQueryWords("resting\tstate\nEEG")).toBe(3);
+  });
+
+  it("lets a search through from three words, not under", () => {
+    expect(queryHasEnoughWords("P300 speller")).toBe(false);
+    expect(queryHasEnoughWords("face recognition EEG")).toBe(true);
+    expect(queryHasEnoughWords("EEG - MEG")).toBe(false);
+    expect(queryHasEnoughWords("EEG - MEG data")).toBe(true);
+  });
+
+  it("words the rule once, for a short search and for a 422", () => {
+    expect(AI_MODE_HINT).toBe("AI Mode is on. Use three or more words to see an AI response.");
+    expect(overviewErrorMessage("invalid")).toBe(AI_MODE_HINT);
+  });
 });
 
 describe("the endpoint setting", () => {

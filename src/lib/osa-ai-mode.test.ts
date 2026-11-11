@@ -1,16 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { FOLLOW_UP_LABEL, type OverviewPanelState, panelView } from "./ai-overview-panel";
 import {
   AI_MODE_HINT_STORAGE_KEY,
   AI_MODE_SEARCH_STORAGE_KEY,
+  AiHintState,
   type AiModeDocument,
   type AiModeLoadTarget,
   type AiModePageWindow,
   type AiModeStore,
   type AiModeWindow,
+  aiHintAnnouncement,
+  aiHintShown,
   aiLinkHref,
   aiModeAvailable,
   aiModeSearchAvailable,
-  askFollowUp,
+  aiModeSeedAvailable,
   browserStore,
   dismissAiModeHint,
   initialAiModeSearch,
@@ -18,12 +22,14 @@ import {
   placeAiModeHint,
   readAiModeSearch,
   revealAiModePill,
+  seedFollowUp,
   setAiModeSearch,
   shouldShowAiModeHint,
   whenDocumentReady,
   withAiModeParam,
   writeAiModeSearch,
 } from "./osa-ai-mode";
+import { AI_MODE_HINT } from "./osa-overview";
 
 /**
  * Plain objects stand in for `window`, `document` and `Storage`: they are the real interfaces the
@@ -389,7 +395,6 @@ describe("the AI Mode preference", () => {
   it("reads and writes one versioned key", () => {
     const store = memoryStore();
     expect(AI_MODE_SEARCH_STORAGE_KEY).toBe("nemar:ai-mode-search:v1");
-    expect(readAiModeSearch(store)).toBe(false);
     writeAiModeSearch(store, true);
     expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
     expect(readAiModeSearch(store)).toBe(true);
@@ -399,20 +404,46 @@ describe("the AI Mode preference", () => {
     expect([...store.data.keys()]).toEqual([AI_MODE_SEARCH_STORAGE_KEY]);
   });
 
-  it("reads as off, and never throws, for a throwing, absent or odd store", () => {
-    expect(readAiModeSearch(blockedStore)).toBe(false);
-    expect(readAiModeSearch(null)).toBe(false);
-    expect(readAiModeSearch(undefined)).toBe(false);
-    expect(() => writeAiModeSearch(blockedStore, true)).not.toThrow();
-    expect(() => writeAiModeSearch(null, true)).not.toThrow();
+  it("reads as on, the default, for nothing stored, an odd value, an absent or a throwing store", () => {
+    expect(readAiModeSearch(memoryStore())).toBe(true);
+    expect(readAiModeSearch(blockedStore)).toBe(true);
+    expect(readAiModeSearch(null)).toBe(true);
+    expect(readAiModeSearch(undefined)).toBe(true);
     const odd = memoryStore();
     odd.data.set(AI_MODE_SEARCH_STORAGE_KEY, "1");
+    expect(readAiModeSearch(odd)).toBe(true);
+    // Only the explicit off is off.
+    odd.data.set(AI_MODE_SEARCH_STORAGE_KEY, "off");
     expect(readAiModeSearch(odd)).toBe(false);
   });
 
-  it("starts off with nothing stored and leaves the address alone", () => {
-    const win = pageWindow("/discover?q=faces", memoryStore());
+  it("never throws writing to a blocked or absent store", () => {
+    expect(() => writeAiModeSearch(blockedStore, true)).not.toThrow();
+    expect(() => writeAiModeSearch(blockedStore, false)).not.toThrow();
+    expect(() => writeAiModeSearch(null, true)).not.toThrow();
+  });
+
+  it("starts on with nothing stored and no ai in the address, and leaves the address alone", () => {
+    const store = memoryStore();
+    const win = pageWindow("/discover?q=faces", store);
+    expect(initialAiModeSearch(win)).toBe(true);
+    expect(win.replaceCalls).toBe(0);
+    expect(store.data.size).toBe(0);
+  });
+
+  it("is off from a stored off, and puts ai=0 in the address without a new history entry", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, false);
+    const win = pageWindow("/discover?q=faces#results", store);
     expect(initialAiModeSearch(win)).toBe(false);
+    expect(win.replaced).toEqual(["/discover?q=faces&ai=0#results"]);
+  });
+
+  it("is on from a stored on and leaves the address alone", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, true);
+    const win = pageWindow("/discover?q=faces", store);
+    expect(initialAiModeSearch(win)).toBe(true);
     expect(win.replaceCalls).toBe(0);
   });
 
@@ -425,49 +456,67 @@ describe("the AI Mode preference", () => {
     expect(win.replaceCalls).toBe(0);
   });
 
-  it("is on from a stored on, and puts ai=1 in the address without a new history entry", () => {
+  it("lets ai=0 in the address force off, writes it back, and keeps the address as it is", () => {
     const store = memoryStore();
     writeAiModeSearch(store, true);
-    const win = pageWindow("/discover?q=faces#results", store);
-    expect(initialAiModeSearch(win)).toBe(true);
-    expect(win.replaced).toEqual(["/discover?q=faces&ai=1#results"]);
+    const win = pageWindow("/discover?q=faces&ai=0", store);
+    expect(initialAiModeSearch(win)).toBe(false);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("off");
+    expect(win.replaceCalls).toBe(0);
+    // The next page, without the parameter, keeps the choice.
+    expect(initialAiModeSearch(pageWindow("/discover?q=faces", store))).toBe(false);
   });
 
-  it("is off, and never throws, when the store throws and the address has no ai", () => {
-    const win = pageWindow("/discover?q=faces", blockedStore);
-    expect(initialAiModeSearch(win)).toBe(false);
-    const withUrl = pageWindow("/discover?ai=1", blockedStore);
-    expect(initialAiModeSearch(withUrl)).toBe(true);
+  it("treats an ai value other than 1 or 0 as no choice", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, false);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=maybe", store))).toBe(false);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=maybe", memoryStore()))).toBe(true);
+  });
+
+  it("is on, and never throws, when the store throws; the address still decides", () => {
+    expect(initialAiModeSearch(pageWindow("/discover?q=faces", blockedStore))).toBe(true);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=1", blockedStore))).toBe(true);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=0", blockedStore))).toBe(false);
   });
 
   it("works when reading localStorage itself throws", () => {
-    const win = pageWindow("/discover?ai=1", undefined);
+    const win = pageWindow("/discover?ai=0", undefined);
     Object.defineProperty(win, "localStorage", {
       get() {
         throw new DOMException("blocked", "SecurityError");
       },
     });
-    expect(initialAiModeSearch(win)).toBe(true);
-    expect(() => setAiModeSearch(win, false)).not.toThrow();
+    expect(initialAiModeSearch(win)).toBe(false);
+    expect(() => setAiModeSearch(win, true)).not.toThrow();
+    const fresh = pageWindow("/discover", undefined);
+    Object.defineProperty(fresh, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    expect(initialAiModeSearch(fresh)).toBe(true);
   });
 
-  it("turning off removes ai from the address with replaceState and stores off", () => {
+  it("turning off puts ai=0 in the address with replaceState and stores off", () => {
     const store = memoryStore();
-    const win = pageWindow("/discover?q=faces&ai=1&page=2", store);
+    const win = pageWindow("/discover?q=faces&page=2", store);
     setAiModeSearch(win, false);
-    expect(win.replaced).toEqual(["/discover?q=faces&page=2"]);
+    expect(win.replaced).toEqual(["/discover?q=faces&page=2&ai=0"]);
     expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("off");
     expect(initialAiModeSearch(win)).toBe(false);
+    setAiModeSearch(win, false);
+    expect(win.replaceCalls).toBe(1);
   });
 
-  it("turning on adds ai=1 once and stores on", () => {
+  it("turning on takes ai out of the address and stores on", () => {
     const store = memoryStore();
-    const win = pageWindow("/", store);
+    const win = pageWindow("/discover?q=faces&ai=0&page=2", store);
     setAiModeSearch(win, true);
-    expect(win.replaced).toEqual(["/?ai=1"]);
+    expect(win.replaced).toEqual(["/discover?q=faces&page=2"]);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
     setAiModeSearch(win, true);
     expect(win.replaceCalls).toBe(1);
-    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
   });
 
   it("leaves the address alone when replaceState throws", () => {
@@ -478,54 +527,84 @@ describe("the AI Mode preference", () => {
     expect(() => setAiModeSearch(win, false)).not.toThrow();
   });
 
-  it("builds the query string with ai set or removed", () => {
-    expect(withAiModeParam("", true)).toBe("?ai=1");
-    expect(withAiModeParam("?q=a%20b", true)).toBe("?q=a+b&ai=1");
-    expect(withAiModeParam("?ai=1&q=a", false)).toBe("?q=a");
-    expect(withAiModeParam("?ai=1", false)).toBe("");
-    expect(withAiModeParam("?ai=1", true)).toBe("?ai=1");
+  it("builds the query string with ai=0 for off and no ai for on", () => {
+    expect(withAiModeParam("", false)).toBe("?ai=0");
+    expect(withAiModeParam("?q=a%20b", false)).toBe("?q=a+b&ai=0");
+    expect(withAiModeParam("?ai=1&q=a", false)).toBe("?ai=0&q=a");
+    expect(withAiModeParam("?ai=0&q=a", true)).toBe("?q=a");
+    expect(withAiModeParam("?ai=1&q=a", true)).toBe("?q=a");
+    expect(withAiModeParam("?ai=0", true)).toBe("");
+    expect(withAiModeParam("?q=a", true)).toBe("?q=a");
   });
 });
 
-describe("askFollowUp", () => {
-  it("calls ask(text, {mode: 'center'}) when the widget has it", () => {
-    const calls: unknown[][] = [];
-    const win: AiModeWindow = {
-      OSAChatWidget: { open() {}, ask: (...args: unknown[]) => void calls.push(args) },
+/**
+ * A widget host object that only records what is called on it, as the browser's `OSAChatWidget`
+ * would be told: it stands in for a browser global, and decides nothing the code under test does.
+ */
+function recordingWidget(options: { seed?: boolean | "throws" | "rejects"; ask?: boolean } = {}) {
+  const calls: unknown[][] = [];
+  const widget: Record<string, unknown> = {
+    open: (...args: unknown[]) => void calls.push(["open", ...args]),
+  };
+  if (options.ask) widget.ask = (...args: unknown[]) => void calls.push(["ask", ...args]);
+  if (options.seed === true)
+    widget.seed = (...args: unknown[]) => void calls.push(["seed", ...args]);
+  if (options.seed === "throws") {
+    widget.seed = () => {
+      throw new Error("boom");
     };
-    expect(askFollowUp(win, "About faces")).toBe(true);
-    expect(calls).toEqual([["About faces", { mode: "center" }]]);
+  }
+  if (options.seed === "rejects") widget.seed = () => Promise.reject(new Error("later"));
+  return { calls, win: { OSAChatWidget: widget } as AiModeWindow };
+}
+
+describe("aiModeSeedAvailable", () => {
+  it("is true only for a widget with a seed function, whatever else it has", () => {
+    expect(aiModeSeedAvailable(recordingWidget({ seed: true }).win)).toBe(true);
+    // Production's older widget: open (maybe ask), no seed.
+    expect(aiModeSeedAvailable(recordingWidget().win)).toBe(false);
+    expect(aiModeSeedAvailable(recordingWidget({ ask: true }).win)).toBe(false);
+    expect(aiModeSeedAvailable({ OSAChatWidget: { seed: "yes" } })).toBe(false);
+    expect(aiModeSeedAvailable({ OSAChatWidget: null })).toBe(false);
+    expect(aiModeSeedAvailable({})).toBe(false);
   });
 
-  it("opens the centre-stage dialog when the widget has no ask", () => {
-    const opened: unknown[] = [];
-    const win: AiModeWindow = { OSAChatWidget: { open: (o: unknown) => void opened.push(o) } };
-    expect(askFollowUp(win, "About faces")).toBe(true);
-    expect(opened).toEqual([{ mode: "center" }]);
+  it("decides whether the panel offers the follow-up, with and without seed", () => {
+    const answer: OverviewPanelState = { kind: "answer", answer: { segments: [], picks: [] } };
+    const withSeed = recordingWidget({ seed: true }).win;
+    const without = recordingWidget({ ask: true }).win;
+    expect(panelView(answer, aiModeSeedAvailable(withSeed)).followUp).toBe(FOLLOW_UP_LABEL);
+    expect(panelView(answer, aiModeSeedAvailable(without)).followUp).toBeNull();
+  });
+});
+
+describe("seedFollowUp", () => {
+  it("calls seed(text, {mode: 'center'}) once, and nothing else on the widget", async () => {
+    const { calls, win } = recordingWidget({ seed: true, ask: true });
+    expect(await seedFollowUp(win, "**AI overview** for faces")).toBe(true);
+    expect(calls).toEqual([["seed", "**AI overview** for faces", { mode: "center" }]]);
   });
 
-  it("catches a throw, warns, and says it did not reach the widget", () => {
+  it("does nothing, not even opening the dialog, for a widget without seed", async () => {
+    for (const widget of [recordingWidget(), recordingWidget({ ask: true })]) {
+      expect(await seedFollowUp(widget.win, "text")).toBe(false);
+      expect(widget.calls).toEqual([]);
+    }
+    expect(await seedFollowUp({}, "x")).toBe(false);
+    expect(await seedFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
+  });
+
+  it("catches a throw, warns, and says it did not reach the widget", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const win: AiModeWindow = {
-      OSAChatWidget: {
-        ask() {
-          throw new Error("boom");
-        },
-      },
-    };
-    expect(askFollowUp(win, "x")).toBe(false);
+    expect(await seedFollowUp(recordingWidget({ seed: "throws" }).win, "x")).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it("warns about a rejected promise and does nothing without a widget", async () => {
+  it("warns about a rejected promise and says it did not reach the widget", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const win: AiModeWindow = { OSAChatWidget: { ask: () => Promise.reject(new Error("later")) } };
-    expect(askFollowUp(win, "x")).toBe(true);
-    await Promise.resolve();
-    await Promise.resolve();
+    expect(await seedFollowUp(recordingWidget({ seed: "rejects" }).win, "x")).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(askFollowUp({}, "x")).toBe(false);
-    expect(askFollowUp({ OSAChatWidget: null }, "x")).toBe(false);
   });
 });
 
@@ -533,26 +612,150 @@ describe("aiLinkHref", () => {
   const BASE = "https://www.nemar.org/discover?q=face";
   const ORIGIN = "https://www.nemar.org";
 
-  it("adds ai=1 to the page's own /discover links and takes it off again", () => {
-    expect(aiLinkHref("/discover?q=face&page=2", BASE, ORIGIN, true)).toBe(
-      "/discover?q=face&page=2&ai=1",
+  it("adds ai=0 to the page's own /discover links while off and takes it out when on", () => {
+    expect(aiLinkHref("/discover?q=face&page=2", BASE, ORIGIN, false)).toBe(
+      "/discover?q=face&page=2&ai=0",
     );
-    expect(aiLinkHref("/discover", BASE, ORIGIN, true)).toBe("/discover?ai=1");
-    expect(aiLinkHref("/discover?q=a#top", BASE, ORIGIN, true)).toBe("/discover?q=a&ai=1#top");
-    expect(aiLinkHref("/discover?q=face&ai=1", BASE, ORIGIN, false)).toBe("/discover?q=face");
-    expect(aiLinkHref("/discover?ai=1", BASE, ORIGIN, false)).toBe("/discover");
-    expect(aiLinkHref("https://www.nemar.org/discover?q=x", BASE, ORIGIN, true)).toBe(
-      "/discover?q=x&ai=1",
+    expect(aiLinkHref("/discover", BASE, ORIGIN, false)).toBe("/discover?ai=0");
+    expect(aiLinkHref("/discover?q=a#top", BASE, ORIGIN, false)).toBe("/discover?q=a&ai=0#top");
+    expect(aiLinkHref("/discover?q=face&ai=0", BASE, ORIGIN, true)).toBe("/discover?q=face");
+    expect(aiLinkHref("/discover?ai=0", BASE, ORIGIN, true)).toBe("/discover");
+    expect(aiLinkHref("/discover?q=face&ai=1", BASE, ORIGIN, true)).toBe("/discover?q=face");
+    expect(aiLinkHref("https://www.nemar.org/discover?q=x", BASE, ORIGIN, false)).toBe(
+      "/discover?q=x&ai=0",
     );
   });
 
   it("leaves everything else alone: other paths, other origins, links already right", () => {
-    expect(aiLinkHref("/dataset/on002718", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("/discoverable", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("https://other.example/discover?q=x", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("/discover?ai=1", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("/discover?q=x", BASE, ORIGIN, false)).toBeNull();
-    expect(aiLinkHref("http://[bad", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref(null, BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("/dataset/on002718", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("/discoverable", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("https://other.example/discover?q=x", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("/discover?ai=0", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("/discover?q=x", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("http://[bad", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref(null, BASE, ORIGIN, false)).toBeNull();
+  });
+});
+
+describe("the line under the field", () => {
+  it("reads exactly as the maintainer worded it", () => {
+    expect(AI_MODE_HINT).toBe("AI Mode is on. Use three or more words to see an AI response.");
+  });
+
+  it("is shown only while AI Mode is on and the search has one or two words", () => {
+    // 0 words: nothing to explain.
+    expect(aiHintShown(true, "")).toBe(false);
+    expect(aiHintShown(true, "   ")).toBe(false);
+    expect(aiHintShown(true, "-")).toBe(false);
+    // 1 and 2 words.
+    expect(aiHintShown(true, "EEG")).toBe(true);
+    expect(aiHintShown(true, "  P300 speller ")).toBe(true);
+    expect(aiHintShown(true, "EEG - MEG")).toBe(true);
+    // 3 words and more: an overview is possible, so no line.
+    expect(aiHintShown(true, "face recognition EEG")).toBe(false);
+    expect(aiHintShown(true, "sleep spindles in children")).toBe(false);
+    // Off: never.
+    for (const query of ["", "EEG", "P300 speller", "face recognition EEG"]) {
+      expect(aiHintShown(false, query), query).toBe(false);
+    }
+  });
+
+  it("is also shown for a 422, whatever the count here, when the field has words", () => {
+    expect(aiHintShown(true, "face recognition EEG", true)).toBe(true);
+    expect(aiHintShown(true, "EEG", true)).toBe(true);
+    expect(aiHintShown(true, "", true)).toBe(false);
+    expect(aiHintShown(false, "face recognition EEG", true)).toBe(false);
+  });
+
+  it("is announced once per appearance: set on the transition, never per keystroke", () => {
+    // Typing "EEG", then " data", " in", " children": the line appears once and goes once.
+    const typed = [
+      "E",
+      "EE",
+      "EEG",
+      "EEG d",
+      "EEG data",
+      "EEG data i",
+      "EEG data in",
+      "EEG data in x",
+    ];
+    let was = false;
+    const said: Array<string | null> = [];
+    for (const query of typed) {
+      const shown = aiHintShown(true, query);
+      said.push(aiHintAnnouncement(was, shown));
+      was = shown;
+    }
+    expect(said).toEqual([AI_MODE_HINT, null, null, null, null, "", null, null]);
+    expect(said.filter((text) => text === AI_MODE_HINT)).toHaveLength(1);
+    // Appearing again announces again; staying the same says nothing.
+    expect(aiHintAnnouncement(false, true)).toBe(AI_MODE_HINT);
+    expect(aiHintAnnouncement(true, true)).toBeNull();
+    expect(aiHintAnnouncement(false, false)).toBeNull();
+    expect(aiHintAnnouncement(true, false)).toBe("");
+  });
+
+  describe("AiHintState, the machine behind it", () => {
+    it("shows and announces on a short search, and clears both when it gets longer", () => {
+      const state = new AiHintState();
+      expect(state.setOn(true, "EEG")).toEqual({ shown: true, announcement: AI_MODE_HINT });
+      expect(state.onInput("EEG d")).toEqual({ shown: true, announcement: null });
+      expect(state.onInput("EEG data in")).toEqual({ shown: false, announcement: "" });
+      expect(state.onInput("EEG data")).toEqual({ shown: true, announcement: AI_MODE_HINT });
+    });
+
+    it("is never shown while AI Mode is off, and a switch on reads the field as it is", () => {
+      const state = new AiHintState();
+      expect(state.onInput("EEG")).toEqual({ shown: false, announcement: null });
+      expect(state.setOn(true, "EEG")).toEqual({ shown: true, announcement: AI_MODE_HINT });
+      expect(state.setOn(false, "EEG")).toEqual({ shown: false, announcement: "" });
+      expect(state.setOn(true, "face recognition EEG")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+    });
+
+    it("shows a refusal for a long search, and typing resets it", () => {
+      const state = new AiHintState();
+      state.setOn(true, "face recognition EEG");
+      expect(state.refuse("face recognition EEG", "face recognition EEG")).toEqual({
+        shown: true,
+        announcement: AI_MODE_HINT,
+      });
+      // The refusal belongs to the request just made: the next keystroke clears it.
+      expect(state.onInput("face recognition EEG x")).toEqual({ shown: false, announcement: "" });
+      // And it does not come back by itself.
+      expect(state.onInput("face recognition EEG xy")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+    });
+
+    it("ignores a refusal that arrives after the reader edited the field", () => {
+      const state = new AiHintState();
+      state.setOn(true, "face recognition EEG");
+      // The search was sent as "face recognition EEG"; meanwhile the field became a valid search.
+      expect(state.refuse("face recognition EEG", "face recognition EEG data")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+      // Whitespace does not make it a different search.
+      expect(state.refuse("face  recognition EEG ", " face recognition EEG")).toEqual({
+        shown: true,
+        announcement: AI_MODE_HINT,
+      });
+    });
+
+    it("clears a refusal on a switch off and on, and shows none for an empty field", () => {
+      const state = new AiHintState();
+      state.setOn(true, "face recognition EEG");
+      state.refuse("face recognition EEG", "face recognition EEG");
+      state.setOn(false, "face recognition EEG");
+      expect(state.setOn(true, "face recognition EEG")).toEqual({
+        shown: false,
+        announcement: null,
+      });
+      expect(state.refuse("", "")).toEqual({ shown: false, announcement: null });
+    });
   });
 });

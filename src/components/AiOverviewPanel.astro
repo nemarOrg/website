@@ -235,4 +235,12 @@ const island = request ? escapeJsonLdForScript(JSON.stringify(request)) : "";
     font-size: var(--fs-sm);
     color: var(--ai-panel-fg);
   }
+  /* The follow-up's failure note is a live region that is in the page empty, so it takes no room
+     until it has words. */
+  .ai-overview__failed {
+    margin: var(--space-3) 0 0;
+  }
+  .ai-overview__failed:empty {
+    margin: 0;
+  }
 </style>
