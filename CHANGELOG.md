@@ -13,6 +13,14 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Added
+
+- **An "AI Mode" pill on the dataset page** (nemarOrg/website#517, board C1 of the NEMAR AI plan).
+  It sits after Download in the actions row, with the same shape and 44 px height as the other pills, in the brand teal with a sparkle, and opens the assistant as its centre-stage dialog (`OSAChatWidget.open({ mode: "center" })`).
+  The pill shows only when the widget loaded and has an `open` method, so a build with no widget, a blocked script, and production's older pinned widget keep it hidden.
+  A one-time hint under the pill says what it is, with a "How it works" link to docs.nemar.org and a "Got it" button; it is dismissed by either, by using the pill, and is remembered in the browser (`nemar:ai-mode-hint:v1`).
+  The logic is in `src/lib/osa-ai-mode.ts`, with the hint's colours as tokens for both themes.
+
 ## [0.2.37] - 2026-11-11
 
 This release must reach production before the nemar-cli API 0.10.33.
