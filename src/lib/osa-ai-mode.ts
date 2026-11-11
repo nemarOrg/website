@@ -255,10 +255,12 @@ const SEARCH_ON = "on";
 const SEARCH_OFF = "off";
 
 /**
- * Whether the toggle is offered: the widget is on the page with an `open` method (so "Ask a
- * follow-up" has somewhere to go) AND the overview endpoint is set. The server renders no toggle
- * without the endpoint, so the second half is a guard against a page that has the markup but
- * not the setting; the first can only be known in the browser.
+ * Whether the toggle is offered: the widget is on the page with an `open` method AND the overview
+ * endpoint is set. The server renders no toggle without the endpoint, so the second half is a
+ * guard against a page that has the markup but not the setting; the first can only be known in the
+ * browser. "Ask a follow-up" needs more: the widget's `seed` ({@link aiModeSeedAvailable}), checked
+ * on its own, so a widget with `open` and no `seed` offers the toggle and the overview, and no
+ * follow-up button.
  */
 export function aiModeSearchAvailable(
   win: AiModeWindow,
