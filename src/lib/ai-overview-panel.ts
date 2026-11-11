@@ -136,10 +136,15 @@ export const SEED_MAX_CHARS = 2000;
  *  images, HTML, headings, tables. Each becomes a space, so what is quoted is the words. A web
  *  address is broken too (see {@link neutralise}). */
 const QUERY_MARKDOWN = /[\\`*_[\]()<>#~|!]/g;
-/** What turns written prose into a link, an image, emphasis or code in the widget's Markdown. The
+/** What turns written prose into a link, an image, emphasis (`*`, `_`, `~`) or code in the widget's Markdown. The
  *  overview is a model's text about dataset descriptions, so a link in it would be a link the page
  *  made: each becomes a space, and a sentence stays a sentence. */
-const PROSE_MARKDOWN = /[\\`*[\]]/g;
+const PROSE_MARKDOWN = /[\\`*_~[\]]/g;
+/** What opens a block in Markdown when it starts a line: a heading, quote or list marker (`#`, `>`,
+ *  `+`, `-`, or `1.`/`1)`). The summary is one line right under the head, so a model's summary that
+ *  began with one would turn into a heading, quote or list; the marker is dropped. A pick's reason
+ *  follows `N. [id]:` on the same line, where it opens nothing. */
+const LEADING_BLOCK_MARKER = /^\s*(?:[#>+-]+\s*|\d{1,9}[.)]\s+)+/;
 /** A web address: the widget turns any `http://` or `https://` run into a link on its own, with no
  *  Markdown around it. */
 const WEB_SCHEME = /\b(https?):\/\//gi;
@@ -173,7 +178,9 @@ function summaryMarkdown(
   };
   for (const segment of answer.segments) {
     if (segment.kind === "text") {
-      append(neutralise(segment.text, PROSE_MARKDOWN));
+      const prose = neutralise(segment.text, PROSE_MARKDOWN);
+      // Only the start of the summary can open a block; a link before it means it is not the start.
+      append(text === "" ? prose.replace(LEADING_BLOCK_MARKER, "") : prose);
     } else {
       const link = datasetLink(segment.id, origin);
       const start = text.length;

@@ -221,6 +221,26 @@ describe("seedText", () => {
     );
   });
 
+  it("neutralises emphasis and a block marker that opens the summary", () => {
+    for (const lead of ["# ", "> ", "- ", "+ ", "1. ", "12) ", "## > "]) {
+      const answer = parseOverviewResponse(
+        {
+          summary: [
+            { text: `${lead}Big heading and _emph_ and ~~gone~~ text ` },
+            { dataset_id: "a1" },
+          ],
+          picks: [{ id: "a1", reason: "a _b_ ~c~" }],
+        },
+        ["a1"],
+      );
+      const lines = seedText("faces", answer, ORIGIN).split("\n");
+      // The summary is the third line (head, blank, summary) and starts with a word.
+      expect(lines[2]).toMatch(/^Big heading and emph and gone text /);
+      expect(lines[2]).not.toMatch(/[_~]/);
+      expect(lines[5]).toBe(`1. ${link("a1")}: a b c`);
+    }
+  });
+
   it("lets neither the prose, a pick's reason nor the search make a link of its own", () => {
     const answer = parseOverviewResponse(
       {
