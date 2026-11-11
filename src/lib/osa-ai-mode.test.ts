@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FOLLOW_UP_LABEL, panelView } from "./ai-overview-panel";
+import { FOLLOW_UP_LABEL, type OverviewPanelState, panelView } from "./ai-overview-panel";
 import {
   AI_MODE_HINT_STORAGE_KEY,
   AI_MODE_SEARCH_STORAGE_KEY,
@@ -570,7 +570,7 @@ describe("aiModeSeedAvailable", () => {
   });
 
   it("decides whether the panel offers the follow-up, with and without seed", () => {
-    const answer = { kind: "answer", answer: { segments: [], picks: [] } } as const;
+    const answer: OverviewPanelState = { kind: "answer", answer: { segments: [], picks: [] } };
     const withSeed = recordingWidget({ seed: true }).win;
     const without = recordingWidget({ ask: true }).win;
     expect(panelView(answer, aiModeSeedAvailable(withSeed)).followUp).toBe(FOLLOW_UP_LABEL);

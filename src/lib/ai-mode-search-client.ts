@@ -38,7 +38,6 @@ import {
   seedFollowUp,
   setAiModeSearch,
   whenDocumentReady,
-  withAiModeParam,
 } from "./osa-ai-mode";
 import { type OverviewRequest, parseOverviewRequest, requestOverview } from "./osa-overview";
 
@@ -173,6 +172,7 @@ class OverviewPanel {
     private readonly section: HTMLElement,
     private readonly request: OverviewRequest,
     endpoint: string,
+    onState: (state: OverviewPanelState) => void,
   ) {
     this.controller = new OverviewController({
       query: request.query,
