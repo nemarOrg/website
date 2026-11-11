@@ -71,6 +71,7 @@ src/
     login.astro login/*.astro signup.astro welcome.astro    sign-in (ORCID + email code) + onboarding
     auth/orcid/{start.ts,callback.ts,complete.astro}        ORCID OAuth proxy flow
     cli/authorize.astro               device-auth grant confirm/deny page (epic #1272 phase 2; app host)
+    oauth/authorize.astro             sign-in page of NEMAR's OpenID Connect provider: forwards the request and the cookie to the API, then redirects, asks consent or explains a refusal (app host, never cached, not framable; ADR 0031 exempts its POST from the cross-site check)
     api/auth/**                       session-backed proxies: code, email change, profile, unlink, logout, keys
     api/v1/[...path].ts               generic authenticated API proxy
     dashboard.astro                   my-datasets list + publish status (app host)
@@ -95,6 +96,9 @@ src/
     device-auth-api.ts                device-authorization grant client: lookup/confirm/deny, list keys
     device-authorize.ts               pure view model for /cli/authorize (no mirrored refusal vocabulary)
     device-authorize-dev.ts           astro-dev stand-in for the device-auth + keys backend (epic #1272 phase 2)
+    oidc-authorize.ts                 pure view model and decision logic for /oauth/authorize (request parsing, outcomes, redirect and panel status, wording keys)
+    oidc-authorize-api.ts             server client for the API's POST /auth/oidc/authorize and /auth/oidc/consent; its answers are read only by the page's server code
+    origin-check.ts                   `crossSiteFormRefusal`: the site's own cross-site form check, run first by middleware.ts (Astro's `checkOrigin` is off; ADR 0031)
     bids-precheck.ts                  hand-rolled client-side BIDS structural pre-check (upload); the instant check that runs before the validator
     bids-validation/                  full BIDS validation on /upload (#161, ADR 0028): worker client, gate (the repository check's rule), report, panel, wording; protocol.ts is shared with the worker bundle and imports nothing
     flags.ts                          feature flags (ORCID_SIGNIN_ENABLED, WEB_SIGNIN_ENABLED, ...)
@@ -269,6 +273,9 @@ Remember: this is a frontend over established backends. The interesting decision
 - Never commit `.env` or credentials. The `CLOUDFLARE_API_TOKEN` is read from the environment by `cfman`, never write it to a file in this repo.
 - Never replace the manifest's stable `url` with a direct storage URL or redirected origin — preserve its `data.nemar.org/<id>/<v>/<path>` route.
 - Never use emojis in commits, PRs, or code
+- Never rely on Astro's built-in origin check for a form.
+  `security.checkOrigin` is off, and `crossSiteFormRefusal` in `src/middleware.ts` is now the only cross-site request forgery defense for every cookie-authenticated form;
+  a new form must keep it working (`test/origin-check-middleware.test.ts` pins it, [ADR 0031](.context/decisions/0031-cross-site-form-check-is-the-sites-own-with-one-exemption.md))
 - Never carry forward review findings as "deferred"; file an issue and link it
 
 ## Project-Specific Guidelines

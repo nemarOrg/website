@@ -1,9 +1,12 @@
 import type { APIContext } from "astro";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// Astro's own cookie jar, imported by path (the package does not export it).
+import { AstroCookies } from "../node_modules/astro/dist/core/cookies/cookies.js";
 import { type BodyStore, FRESH_MS, cachedJson, resetApiCacheStateForTests } from "./lib/api-cache";
 import { apiFetch, resetApiFetchWarningsForTests } from "./lib/api-fetch";
 import { BUILD_ID } from "./lib/build-info";
 import { APP_HOST, MARKETING_BASE_URL, MARKETING_HOST } from "./lib/host";
+import { OIDC_FORM_ACTION_ORIGIN_HEADER } from "./lib/oidc-authorize";
 import { OSA_NOTEBOOK_ORIGINS } from "./lib/osa-widget";
 import {
   type ApiBinding,
@@ -15,6 +18,7 @@ import {
   SECURITY_HEADERS,
   applySecurityHeaders,
   contentSecurityPolicy,
+  isOidcAuthorizeRoute,
   isPublicCacheable,
   onRequest,
   parseAuthMeResponse,
@@ -22,6 +26,7 @@ import {
   resetEmbedCountWarnings,
   resetPageCacheWarningsForTests,
   routeAllowsFraming,
+  routeBypassesEdgeCache,
   routeNeedsUnsafeEval,
 } from "./middleware";
 
@@ -123,7 +128,10 @@ describe("embed call counting", () => {
     return {
       request: new Request(url, { method: opts.method ?? "GET", headers: opts.headers }),
       locals: opts.runtime === undefined ? {} : { runtime: opts.runtime },
-      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+      cookies: {
+        has: () => Boolean(opts.cookie),
+        get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined),
+      },
     } as unknown as APIContext;
   }
 
@@ -747,6 +755,14 @@ describe("parseAuthMeResponse", () => {
   });
 });
 
+/**
+ * The headers of a browser form post from the page itself: its own Origin on anything but a GET.
+ * The site's cross-site form check (`onRequest`, ADR 0031) refuses a non-safe request without it.
+ */
+function sameOrigin(url: string, method: string): Record<string, string> | undefined {
+  return method === "GET" ? undefined : { Origin: new URL(url).origin };
+}
+
 describe("onRequest host dispatch", () => {
   // Minimal APIContext shim. `locals` is observable from the outside so we
   // can verify the marketing-host fast-path sets `session = null` without
@@ -754,11 +770,11 @@ describe("onRequest host dispatch", () => {
   // path must ignore it.
   type TestCtx = APIContext & { locals: { session?: unknown } };
   function ctx(url: string, method = "GET"): TestCtx {
-    const request = new Request(url, { method });
+    const request = new Request(url, { method, headers: sameOrigin(url, method) });
     return {
       request,
       locals: {},
-      cookies: { get: () => ({ value: "stale-cookie-from-other-host" }) },
+      cookies: { has: () => true, get: () => ({ value: "stale-cookie-from-other-host" }) },
     } as unknown as TestCtx;
   }
 
@@ -769,11 +785,11 @@ describe("onRequest host dispatch", () => {
    * `ctx` above (which always supplies one) can no longer express both.
    */
   function anonCtx(url: string, method = "GET"): TestCtx {
-    const request = new Request(url, { method });
+    const request = new Request(url, { method, headers: sameOrigin(url, method) });
     return {
       request,
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as TestCtx;
   }
   const passthrough = async () => new Response("ok", { status: 200 });
@@ -908,11 +924,11 @@ describe("onRequest host dispatch", () => {
 describe("security headers", () => {
   type TestCtx = APIContext & { locals: { session?: unknown } };
   function ctx(url: string, method = "GET"): TestCtx {
-    const request = new Request(url, { method });
+    const request = new Request(url, { method, headers: sameOrigin(url, method) });
     return {
       request,
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as TestCtx;
   }
   const passthrough = async () => new Response("ok", { status: 200 });
@@ -1231,9 +1247,9 @@ describe("framing", () => {
 
   function anonCtx(url: string, method = "GET"): APIContext {
     return {
-      request: new Request(url, { method }),
+      request: new Request(url, { method, headers: sameOrigin(url, method) }),
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
   }
   const passthrough = async () => new Response("ok", { status: 200 });
@@ -1340,6 +1356,7 @@ describe("framing", () => {
 
   it("makes exactly one page frameable: the embed route", async () => {
     const frameable: string[] = [];
+    const unframeable: string[] = [];
     for (const file of pageFiles) {
       const path = representativePath(file);
       for (const variant of path === "/" ? [path] : [path, `${path}/`]) {
@@ -1351,6 +1368,11 @@ describe("framing", () => {
           frameable.push(file);
           expect(ancestors, variant).toBe("*");
           expect(xfo, variant).toBeNull();
+        } else if (isOidcAuthorizeRoute(variant)) {
+          // The authorization page may not be framed even by this site (nemar-cli ADR 0119).
+          unframeable.push(file);
+          expect(ancestors, variant).toBe("'none'");
+          expect(xfo, variant).toBe("DENY");
         } else {
           expect(ancestors, variant).toBe("'self'");
           expect(xfo, variant).toBe("SAMEORIGIN");
@@ -1358,11 +1380,16 @@ describe("framing", () => {
         // And through the middleware's passthrough serve path.
         const res = await onRequest(anonCtx(`http://localhost:4321${variant}`), passthrough);
         expect(res?.headers.get("X-Frame-Options") ?? null, variant).toBe(
-          routeAllowsFraming(variant) ? null : "SAMEORIGIN",
+          routeAllowsFraming(variant)
+            ? null
+            : isOidcAuthorizeRoute(variant)
+              ? "DENY"
+              : "SAMEORIGIN",
         );
       }
     }
     expect([...new Set(frameable)]).toEqual(["./pages/dataset/[id]/embed.astro"]);
+    expect([...new Set(unframeable)]).toEqual(["./pages/oauth/authorize.astro"]);
   });
 });
 
@@ -1379,7 +1406,7 @@ describe("request context for background work", () => {
     return {
       request: new Request(`https://${MARKETING_HOST}/discover`),
       locals: runtime === undefined ? {} : { runtime },
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
   }
 
@@ -1517,13 +1544,13 @@ describe("signed-in pages are not public", () => {
     ({
       request: new Request(`https://${host}/discover`),
       locals: {},
-      cookies: { get: () => ({ value: "a-session-cookie" }) },
+      cookies: { has: () => true, get: () => ({ value: "a-session-cookie" }) },
     }) as unknown as APIContext;
   const anon = (): APIContext =>
     ({
       request: new Request(`https://${MARKETING_HOST}/discover`),
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     }) as unknown as APIContext;
   const PUBLIC = "public, max-age=60, s-maxage=3600, stale-while-revalidate=600";
 
@@ -1588,7 +1615,7 @@ describe("the page cache: MISS, HIT, and what is stored", () => {
     ({
       request: new Request(`https://${MARKETING_HOST}${path}`),
       locals: { runtime },
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     }) as unknown as APIContext;
 
   const PAGE = "public, max-age=60, s-maxage=3600";
@@ -1692,7 +1719,7 @@ describe("the stale flag is read once, and a late mark is not silent", () => {
     const ctx = {
       request: new Request(`https://${MARKETING_HOST}/discover`),
       locals: {},
-      cookies: { get: () => undefined },
+      cookies: { has: () => false, get: () => undefined },
     } as unknown as APIContext;
     const res = (await onRequest(ctx, async () => {
       // A catalog read made after the response exists (a component while it streams).
@@ -1754,7 +1781,10 @@ describe("the API service binding", () => {
     return {
       request: new Request(url, { headers }),
       locals: opts.api === undefined ? {} : { runtime: { env: { API: opts.api } } },
-      cookies: { get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined) },
+      cookies: {
+        has: () => Boolean(opts.cookie),
+        get: () => (opts.cookie ? { value: "a-session-cookie" } : undefined),
+      },
     } as unknown as APIContext;
   }
 
@@ -1966,5 +1996,394 @@ describe("the API service binding", () => {
       );
       expect(warn.mock.calls.filter((c) => String(c[0]).includes(missing))).toHaveLength(0);
     });
+  });
+});
+
+describe("the session cookie's name (nemar-cli ADR 0119)", () => {
+  // The API moves the session cookie to `__Host-nemar_session` behind a flag and keeps reading
+  // the legacy `nemar_session`, so for the whole window this site has to recognise BOTH: a
+  // reader that knew only the new name would sign out everyone who still holds the old one, and
+  // one that knew only the old name would sign out everyone the moment the flag turns on.
+  const API_URL = "https://api.nemar.org";
+  const NEW = "__Host-nemar_session";
+  const LEGACY = "nemar_session";
+
+  /**
+   * A request's cookies the way Astro exposes them: `has` is true for every name present, an empty
+   * value included, and `get` answers undefined for an empty value (`AstroCookies`, in
+   * astro/dist/core/cookies/cookies.js). The tests under "the real jar" below use the real class.
+   */
+  function jar(values: Record<string, string>) {
+    return {
+      has: (name: string) => name in values,
+      get: (name: string) => (values[name] ? { value: values[name] } : undefined),
+    };
+  }
+
+  /** A context whose cookies are Astro's own, built from the raw header, as in the Worker. */
+  function realCtx(url: string, header: string): APIContext {
+    const request = new Request(url, { headers: { cookie: header } });
+    return { request, locals: {}, cookies: new AstroCookies(request) } as unknown as APIContext;
+  }
+
+  function ctx(url: string, cookies: Record<string, string>, header?: string): APIContext {
+    const headers = new Headers();
+    if (header !== undefined) headers.set("Cookie", header);
+    return {
+      request: new Request(url, { headers }),
+      locals: {},
+      cookies: jar(cookies),
+    } as unknown as APIContext;
+  }
+
+  /** Stand in for the API's `/auth/me`, recording the Cookie header each call carried. */
+  function recordAuthMe(): string[] {
+    const sent: string[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${API_URL}/auth/me`) {
+        sent.push(new Headers(init?.headers).get("cookie") ?? "");
+        return new Response('{"error":"Unauthorized"}', {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected network call in a middleware test: ${url}`);
+    }) as unknown as typeof fetch;
+    return sent;
+  }
+
+  const passthrough = async () => new Response("ok", { status: 200 });
+
+  beforeEach(() => {
+    // Not `astro dev`: the dev fast path would verify the cookie locally and never ask the API.
+    vi.stubEnv("DEV", false);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  describe("presence, before the cross-host redirect", () => {
+    // A marketing path on the app host is kept (not bounced to the marketing host, where the
+    // session does not travel) only for a request that carries a session cookie.
+    const URL_ = `https://${APP_HOST}/discover?modality=eeg`;
+
+    it("treats the new name as a session", async () => {
+      recordAuthMe();
+      const res = await onRequest(ctx(URL_, { [NEW]: "abc" }), passthrough);
+      expect(res?.status).toBe(200);
+      expect(res?.headers.get("Location")).toBeNull();
+    });
+
+    it("treats the legacy name as a session", async () => {
+      recordAuthMe();
+      const res = await onRequest(ctx(URL_, { [LEGACY]: "abc" }), passthrough);
+      expect(res?.status).toBe(200);
+      expect(res?.headers.get("Location")).toBeNull();
+    });
+
+    it("still redirects a request with neither name, or with only an unrelated cookie", async () => {
+      for (const cookies of [{}, { analytics: "reject" }] as Array<Record<string, string>>) {
+        const res = await onRequest(ctx(URL_, cookies), passthrough);
+        expect(res?.status).toBe(301);
+        expect(res?.headers.get("Location")).toBe(`${MARKETING_BASE_URL}/discover?modality=eeg`);
+      }
+    });
+
+    it("does not count an empty new cookie as a session, even beside a legacy one", async () => {
+      // The API reads a present-but-empty new cookie as no session and does not fall back to the
+      // legacy one, so this site must not keep a marketing route for a visitor the API refuses.
+      const res = await onRequest(ctx(URL_, { [NEW]: "", [LEGACY]: "abc" }), passthrough);
+      expect(res?.status).toBe(301);
+    });
+  });
+
+  describe("asking the API who the visitor is", () => {
+    const APP_URL = `https://${APP_HOST}/dashboard`;
+
+    it("forwards the Cookie header exactly as the browser sent it, whichever name it carries", async () => {
+      for (const header of [`${NEW}=abc`, `${LEGACY}=abc`, `${LEGACY}=old; ${NEW}=new; a=b`]) {
+        const sent = recordAuthMe();
+        const names: Record<string, string> = header.includes(NEW)
+          ? { [NEW]: "x" }
+          : { [LEGACY]: "x" };
+        await onRequest(ctx(APP_URL, names, header), passthrough);
+        expect(sent).toEqual([header]);
+      }
+    });
+
+    it("builds the forwarded cookie with the name it read when the request carries no Cookie header", async () => {
+      // The fallback: Astro parsed a cookie the raw header does not have (a runtime that hands
+      // cookies over separately). It must forward the cookie under the name it found, not under
+      // a hardcoded one, or the API would not see a session at all.
+      const cases: Array<[Record<string, string>, string]> = [
+        [{ [NEW]: "abc" }, `${NEW}=abc`],
+        [{ [LEGACY]: "abc" }, `${LEGACY}=abc`],
+        // New first, as the API reads it.
+        [{ [LEGACY]: "old", [NEW]: "new" }, `${NEW}=new`],
+      ];
+      for (const [cookies, expected] of cases) {
+        const sent = recordAuthMe();
+        await onRequest(ctx(APP_URL, cookies), passthrough);
+        expect(sent).toEqual([expected]);
+      }
+    });
+
+    it("asks the API nothing for a visitor with no session cookie, or an empty new one", async () => {
+      for (const cookies of [{}, { [NEW]: "", [LEGACY]: "abc" }] as Array<Record<string, string>>) {
+        const sent = recordAuthMe();
+        await onRequest(ctx(APP_URL, cookies), passthrough);
+        expect(sent).toEqual([]);
+      }
+    });
+  });
+
+  describe("the real jar (Astro's own AstroCookies)", () => {
+    const APP_URL = `https://${APP_HOST}/dashboard`;
+    const MARKETING_PATH = `https://${APP_HOST}/discover?modality=eeg`;
+
+    it("an empty new cookie beside a valid legacy one is not a session, as for the API", async () => {
+      // Astro answers undefined for the empty value, so a reader that asked `get` alone would
+      // fall through to the legacy cookie and keep a marketing route for a visitor the API
+      // refuses. The reader asks `has`.
+      const sent = recordAuthMe();
+      const redirected = await onRequest(
+        realCtx(MARKETING_PATH, `${NEW}=; ${LEGACY}=abc`),
+        passthrough,
+      );
+      expect(redirected?.status).toBe(301);
+      await onRequest(realCtx(APP_URL, `${NEW}=; ${LEGACY}=abc`), passthrough);
+      expect(sent).toEqual([]);
+    });
+
+    it("a valid new cookie beside any legacy one is a session, and the header goes to the API as sent", async () => {
+      for (const header of [
+        `${NEW}=new; ${LEGACY}=old`,
+        `${LEGACY}=old; ${NEW}=new`,
+        `${NEW}=new`,
+      ]) {
+        const sent = recordAuthMe();
+        // A marketing route on the app host is kept (not redirected) only for a session, and the
+        // render of it asks the API who the visitor is.
+        const res = await onRequest(realCtx(MARKETING_PATH, header), passthrough);
+        expect(res?.status).toBe(200);
+        expect(sent).toEqual([header]);
+      }
+    });
+
+    it("a header with more than one __Host- cookie is no session, even beside a legacy one", async () => {
+      // The API treats it as no session; a cookie jar keeps only the first value of a repeated
+      // name, so the middleware has to read the raw header to agree.
+      for (const header of [
+        `${NEW}=a; ${NEW}=b`,
+        `${NEW}=a; ${LEGACY}=old; ${NEW}=a`,
+        `${LEGACY}=old; ${NEW}=a; ${NEW}=b`,
+      ]) {
+        const sent = recordAuthMe();
+        const redirected = await onRequest(realCtx(MARKETING_PATH, header), passthrough);
+        expect(redirected?.status, header).toBe(301);
+        await onRequest(realCtx(APP_URL, header), passthrough);
+        expect(sent, header).toEqual([]);
+      }
+    });
+
+    it("a legacy cookie alone is still a session", async () => {
+      const sent = recordAuthMe();
+      const res = await onRequest(realCtx(MARKETING_PATH, `${LEGACY}=abc`), passthrough);
+      expect(res?.status).toBe(200);
+      expect(sent).toEqual([`${LEGACY}=abc`]);
+    });
+  });
+});
+
+/**
+ * The OpenID Connect authorization page, `/oauth/authorize` (nemar-cli ADR 0119): never framed, never
+ * cached, and its `form-action` widened to the client's one origin on that path only, when the page
+ * names a valid one, and never anywhere else.
+ */
+describe("the authorization page's headers", () => {
+  const AUTHORIZE = "/oauth/authorize";
+  const CLIENT = "https://client.example.org";
+  const directive = (csp: string | null, name: string) =>
+    csp
+      ?.split("; ")
+      .find((d) => d.startsWith(`${name} `))
+      ?.slice(name.length + 1);
+  const named = (origin: string) => new Headers({ [OIDC_FORM_ACTION_ORIGIN_HEADER]: origin });
+
+  it("is matched exactly, with or without a trailing slash", () => {
+    expect(isOidcAuthorizeRoute(AUTHORIZE)).toBe(true);
+    expect(isOidcAuthorizeRoute(`${AUTHORIZE}/`)).toBe(true);
+    for (const path of [
+      "/oauth",
+      "/oauth/authorizex",
+      "/oauth/authorize/x",
+      "/auth/private/authorize",
+    ]) {
+      expect(isOidcAuthorizeRoute(path), path).toBe(false);
+    }
+  });
+
+  it("cannot be framed, even by this site", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, AUTHORIZE);
+    expect(headers.get("X-Frame-Options")).toBe("DENY");
+    expect(directive(headers.get("Content-Security-Policy"), "frame-ancestors")).toBe("'none'");
+    // Everything else about the policy is the site's.
+    expect(headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(
+      contentSecurityPolicy(AUTHORIZE).replace("frame-ancestors 'none'", "frame-ancestors 'self'"),
+    ).toBe(contentSecurityPolicy("/discover"));
+  });
+
+  it("a page that sets X-Frame-Options DENY keeps it, with frame-ancestors 'none', on any path", () => {
+    // An encoded spelling of the path renders the page without matching it here.
+    for (const path of ["/oauth/%61uthorize", "/dashboard"]) {
+      const headers = new Headers({ "X-Frame-Options": "DENY" });
+      applySecurityHeaders(headers, path);
+      expect(headers.get("X-Frame-Options"), path).toBe("DENY");
+      expect(directive(headers.get("Content-Security-Policy"), "frame-ancestors"), path).toBe(
+        "'none'",
+      );
+    }
+    // A page can tighten, never loosen: anything else is the site's SAMEORIGIN.
+    const loosened = new Headers({ "X-Frame-Options": "ALLOW-FROM https://evil.example" });
+    applySecurityHeaders(loosened, "/dashboard");
+    expect(loosened.get("X-Frame-Options")).toBe("SAMEORIGIN");
+    // The embed route stays the only framable one, whatever a page says.
+    const embed = new Headers({ "X-Frame-Options": "DENY" });
+    applySecurityHeaders(embed, "/dataset/on007753/embed");
+    expect(embed.get("X-Frame-Options")).toBeNull();
+    expect(directive(embed.get("Content-Security-Policy"), "frame-ancestors")).toBe("*");
+  });
+
+  it("keeps a page's same-origin referrer policy, which a consent form needs to keep its Origin", () => {
+    // Under no-referrer a same-origin form post carries `Origin: null`, and the site's own
+    // cross-site form check then refuses it; same-origin keeps the Origin and still sends no
+    // referrer to another site. A page may tighten the policy, never loosen it.
+    for (const kept of ["same-origin", "no-referrer"]) {
+      const headers = new Headers({ "Referrer-Policy": kept });
+      applySecurityHeaders(headers, AUTHORIZE);
+      expect(headers.get("Referrer-Policy"), kept).toBe(kept);
+    }
+    for (const loosened of ["unsafe-url", "origin", "no-referrer-when-downgrade"]) {
+      const headers = new Headers({ "Referrer-Policy": loosened });
+      applySecurityHeaders(headers, AUTHORIZE);
+      expect(headers.get("Referrer-Policy"), loosened).toBe("strict-origin-when-cross-origin");
+    }
+  });
+
+  it("widens form-action to the one origin the page names, and removes the header", () => {
+    const headers = named(CLIENT);
+    applySecurityHeaders(headers, AUTHORIZE);
+    expect(directive(headers.get("Content-Security-Policy"), "form-action")).toBe(
+      `'self' ${CLIENT}`,
+    );
+    expect(headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER)).toBeNull();
+  });
+
+  it("without a named origin the form may reach only this site", () => {
+    const headers = new Headers();
+    applySecurityHeaders(headers, AUTHORIZE);
+    expect(directive(headers.get("Content-Security-Policy"), "form-action")).toBe("'self'");
+  });
+
+  it("widens nothing on any other path, and still removes the header", () => {
+    for (const path of ["/dashboard", "/oauth/%61uthorize", "/auth/private/authorize", "/"]) {
+      const headers = named(CLIENT);
+      applySecurityHeaders(headers, path);
+      expect(directive(headers.get("Content-Security-Policy"), "form-action"), path).toBe("'self'");
+      expect(headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER), path).toBeNull();
+    }
+  });
+
+  it("ignores a named value that is not a strict origin, so nothing can be added to the policy", () => {
+    for (const value of [
+      `${CLIENT}; script-src *`,
+      // A host the URL parser keeps as an origin, character for character.
+      `${CLIENT};script-src`,
+      "https://evil.example,https",
+      "https://a'b.example",
+      `${CLIENT} https://evil.example`,
+      `${CLIENT}/callback`,
+      "'unsafe-inline'",
+      "*",
+      "https:",
+      "http://client.example.org",
+      "javascript:alert(1)",
+    ]) {
+      const headers = named(value);
+      applySecurityHeaders(headers, AUTHORIZE);
+      const csp = headers.get("Content-Security-Policy") ?? "";
+      expect(directive(csp, "form-action"), value).toBe("'self'");
+      for (const fragment of ["evil.example", "a'b.example", ";script-src", "client.example.org"]) {
+        expect(csp, value).not.toContain(fragment);
+      }
+      const scriptSrc = csp.split(";").filter((d) => d.trim().startsWith("script-src"));
+      expect(scriptSrc, value).toHaveLength(1);
+      expect(headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER)).toBeNull();
+    }
+  });
+
+  it("carries the widened policy through the whole middleware, and the header never leaves", async () => {
+    const page = async () =>
+      new Response("consent", {
+        status: 200,
+        headers: {
+          [OIDC_FORM_ACTION_ORIGIN_HEADER]: CLIENT,
+          "Cache-Control": "no-store",
+          "X-Frame-Options": "DENY",
+        },
+      });
+    const ctx = {
+      request: new Request(`https://${APP_HOST}${AUTHORIZE}?client_id=x`, {
+        method: "POST",
+        headers: sameOrigin(`https://${APP_HOST}`, "POST"),
+      }),
+      locals: {},
+      cookies: { has: () => false, get: () => undefined },
+    } as unknown as APIContext;
+    const res = (await onRequest(ctx, page)) as Response;
+    expect(directive(res.headers.get("Content-Security-Policy"), "form-action")).toBe(
+      `'self' ${CLIENT}`,
+    );
+    expect(directive(res.headers.get("Content-Security-Policy"), "frame-ancestors")).toBe("'none'");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get(OIDC_FORM_ACTION_ORIGIN_HEADER)).toBeNull();
+  });
+
+  it("never enters the edge cache: the cache is not even opened for /oauth", async () => {
+    expect(routeBypassesEdgeCache(AUTHORIZE)).toBe(true);
+    expect(routeBypassesEdgeCache("/oauth")).toBe(true);
+    expect(routeBypassesEdgeCache("/oauthx")).toBe(false);
+    const opened: string[] = [];
+    const storage = {
+      open: async (name: string) => {
+        opened.push(name);
+        return { match: async () => undefined, put: async () => {} };
+      },
+    } as unknown as CacheStorage;
+    const anon = (url: string) =>
+      ({
+        request: new Request(url),
+        locals: { runtime: { caches: storage } },
+        cookies: { has: () => false, get: () => undefined },
+      }) as unknown as APIContext;
+    // Even a page that (wrongly) said it was public would not be stored or served from the cache.
+    const publicPage = async () =>
+      new Response("x", { headers: { "Cache-Control": "public, max-age=60" } });
+    for (const origin of [`https://${APP_HOST}`, "http://localhost:4321"]) {
+      const res = (await onRequest(
+        anon(`${origin}${AUTHORIZE}?client_id=x`),
+        publicPage,
+      )) as Response;
+      expect(res.status, origin).toBe(200);
+      expect(res.headers.get("x-nemar-cache"), origin).toBeNull();
+    }
+    expect(opened).toEqual([]);
+    // The control: an anonymous page elsewhere does open it.
+    await onRequest(anon("http://localhost:4321/discover"), publicPage);
+    expect(opened.length).toBe(1);
   });
 });

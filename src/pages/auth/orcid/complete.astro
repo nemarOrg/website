@@ -1,17 +1,21 @@
 ---
 import Base from "../../../layouts/Base.astro";
 import { safeRedirectPath } from "../../../lib/auth";
+import { hasOrcidPendingCookie } from "../../../lib/auth";
 
 // Brand-new ORCID signup, step 2: ORCID verified the iD but returns no email,
 // and users.email is required, so we collect it here. The verified iD rides in
-// the HttpOnly `nemar_orcid_pending` cookie (set by the api Worker on the
+// the HttpOnly `__Host-nemar_orcid_pending` cookie (set by the api Worker on the
 // callback) and is never exposed to this page; the form POSTs the email to
 // /api/v1/auth/orcid/finalize, which reads + verifies that cookie server-side.
 //
 // Fail fast when there's no pending cookie (direct hit, restored tab, or a
 // cookie already consumed by a prior finalize): render nothing useful, bounce
 // back to sign-in instead of showing a form whose submit can only 401.
-if (!Astro.cookies.has("nemar_orcid_pending")) {
+// Either name counts, so the page does not bounce a signup that was in flight when the API moved
+// the cookie (nemar-cli ADR 0119). That signup still fails once at finalize, which reads only the
+// new name; the person signs in with ORCID again.
+if (!hasOrcidPendingCookie(Astro.cookies)) {
   return Astro.redirect("/login?error=orcid_pending_expired");
 }
 

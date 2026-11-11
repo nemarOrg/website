@@ -111,7 +111,94 @@ export interface AuthSession {
   readonly user: AuthUser;
 }
 
-export const SESSION_COOKIE_NAME = "nemar_session";
+/**
+ * The session cookie's name once the API issues it host-prefixed (nemar-cli ADR 0119, decision
+ * 10). A `__Host-` cookie has no `Domain` and no other host can set one for this one, which a
+ * sibling `nemar.org` subdomain can for the legacy name below.
+ *
+ * The API issues it behind a flag and keeps reading the legacy name, so a browser can hold either
+ * for as long as the window lasts. Every reader of the cookie here goes through
+ * {@link readSessionCookie}, never a bare `cookies.get(...)`.
+ */
+export const SESSION_COOKIE_NAME = "__Host-nemar_session";
+
+/** The name every session cookie had before the move. Read as a fallback, and cleared on sign-out. */
+export const LEGACY_SESSION_COOKIE_NAME = "nemar_session";
+
+/**
+ * The part of Astro's `cookies` this needs. As Astro really behaves (`AstroCookies`):
+ * `has` is true for a cookie that is present, an empty one included, and `get` answers undefined
+ * for an empty value. Both are needed to see an empty cookie at all.
+ */
+export interface CookieJar {
+  has(name: string): boolean;
+  get(name: string): { value: string } | undefined;
+}
+
+/**
+ * The session cookie a request carries, with the name it was read under, or null for none.
+ *
+ * The new name wins. The legacy one is used only when the new one is ABSENT: a new cookie that is
+ * present but empty is returned with an empty value and is not replaced by a legacy one, the same
+ * reading the API gives the raw header (`readSessionCookie` in nemar-cli
+ * `services/web-session.ts`). It asks `has`, not `get`, because Astro's `get` answers undefined
+ * for an empty value, which would otherwise fall through to the legacy cookie, and a legacy
+ * cookie is the one a sibling host can set for the parent domain.
+ *
+ * A header that carries MORE THAN ONE `__Host-nemar_session` is no session, as for the API. A
+ * cookie jar keeps only the first value of a repeated name, so a caller that has the raw `Cookie`
+ * header passes it as `rawCookieHeader` and the repeat is counted there. Without it the jar alone
+ * decides.
+ *
+ * The API is the authority, not this function: the middleware forwards the whole `Cookie` header
+ * to `/auth/me` and the API decides what it means. This only has to agree with the API about which
+ * cookie it will look at, so that the site does not keep a signed-in page for a request the API
+ * will refuse. Every caller here treats an empty `value` as no session.
+ */
+export function readSessionCookie(
+  cookies: CookieJar,
+  rawCookieHeader?: string | null,
+): { name: string; value: string } | null {
+  if (rawCookieHeader && countCookies(rawCookieHeader, SESSION_COOKIE_NAME) > 1) return null;
+  if (cookies.has(SESSION_COOKIE_NAME)) {
+    return { name: SESSION_COOKIE_NAME, value: cookies.get(SESSION_COOKIE_NAME)?.value ?? "" };
+  }
+  const legacy = cookies.get(LEGACY_SESSION_COOKIE_NAME);
+  if (legacy) return { name: LEGACY_SESSION_COOKIE_NAME, value: legacy.value };
+  return null;
+}
+
+/** How many cookies of this exact name a raw `Cookie` header carries. */
+function countCookies(header: string, name: string): number {
+  let n = 0;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq >= 0 && part.slice(0, eq).trim() === name) n += 1;
+  }
+  return n;
+}
+
+/**
+ * The pending-signup cookie the API sets between ORCID's callback and the email step. Host-only
+ * and `__Host-` prefixed like the session cookie: every cookie the API trusts to authenticate or
+ * link a session is one a sibling host cannot set (nemar-cli ADR 0119, decision 10).
+ */
+export const ORCID_PENDING_COOKIE_NAME = "__Host-nemar_orcid_pending";
+
+/** The pending cookie's name before the move. A signup that was in flight when the API changed
+ *  still holds it, so the page accepts either and does not bounce. That is all it buys: the API
+ *  reads the pending cookie only under the new name, so such a signup fails once at finalize with
+ *  `orcid_pending_expired` after the API deploys, and the person signs in with ORCID again. */
+export const LEGACY_ORCID_PENDING_COOKIE_NAME = "nemar_orcid_pending";
+
+/**
+ * Whether the request carries a pending-signup cookie, under either name. PRESENCE only: the page
+ * never reads the value (it is HttpOnly to the API's form post, which reads and verifies it
+ * server-side), so this asks `has`, which is true for any value.
+ */
+export function hasOrcidPendingCookie(cookies: { has(name: string): boolean }): boolean {
+  return cookies.has(ORCID_PENDING_COOKIE_NAME) || cookies.has(LEGACY_ORCID_PENDING_COOKIE_NAME);
+}
 
 /**
  * Where a browser form POST to `/api/auth/logout` lands afterwards.

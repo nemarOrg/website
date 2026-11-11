@@ -11,6 +11,10 @@ bun run build
 bun run preview
 ```
 
+The sign-in page of NEMAR's OpenID Connect provider (`/oauth/authorize`) accepts only a session cookie named `__Host-nemar_session`.
+The development login (`bun run dev`, the code `123456`) keeps the legacy name `nemar_session`, so under `bun run dev` that page always sends you to sign in again, in a loop.
+To try it locally, sign in against an API that issues the `__Host-` name (its `HOST_PREFIXED_SESSION_COOKIE` set to `"1"`), or set that cookie for `localhost` yourself.
+
 ## Test
 
 ```bash

@@ -19,9 +19,10 @@ function forwardStart(request: Request): Promise<Response> {
 
 export const GET: APIRoute = ({ request }) => forwardStart(request);
 
-// The Settings relink confirm submits a real form POST: the backend only
-// mints mode=relink on a POST carrying a valid Origin + session (nemar-cli
-// ADR 0022), so this route must accept and forward the verb. The proxy
+// Settings' Connect button and its relink confirm submit a real form POST:
+// the backend only mints mode=link or mode=relink on a POST carrying a valid
+// Origin + session (nemar-cli ADR 0022, ADR 0119 rule 10), so this route must
+// accept and forward the verb. The proxy
 // forwards the browser's Origin header — it must never pin its own, or a
 // cross-site form post would be laundered into a same-origin one.
 export const POST: APIRoute = ({ request }) => forwardStart(request);

@@ -34,8 +34,9 @@ export async function proxyOrcidRedirect(
   let upstream: Response;
   try {
     upstream = await apiFetch(`${apiBase()}${upstreamPath}${url.search}`, {
-      // Forward the verb: the relink confirm is a form POST, and the backend
-      // only mints relink intent on POST (nemar-cli ADR 0022). The browser's
+      // Forward the verb: Connect and the relink confirm are form POSTs, and
+      // the backend only mints link or relink intent on POST (nemar-cli ADR
+      // 0022, ADR 0119 rule 10). The browser's
       // Origin header rides along via FORWARD_HEADERS for that check.
       method: request.method,
       headers,

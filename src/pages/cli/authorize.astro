@@ -11,10 +11,11 @@
  * post-redirect-get so a refresh of the confirm/deny result never
  * re-submits the form.
  *
- * Astro 6's `security.checkOrigin` (on by default for `output: "server"`)
- * already 403s a cross-origin form POST before this file's code runs; the
- * explicit Origin + content-type checks below are this page's own second
- * gate, so a malformed or forged POST never reaches the decide call.
+ * Astro's built-in `security.checkOrigin` is switched off (ADR 0031); the site's own
+ * `crossSiteFormRefusal` (`src/lib/origin-check.ts`, run first by `src/middleware.ts`) 403s a
+ * cross-site form POST to this page before this file's code runs. The explicit Origin +
+ * content-type checks below are this page's own second gate, so a malformed or forged POST
+ * never reaches the decide call.
  */
 import Base from "../../layouts/Base.astro";
 import { getSession } from "../../lib/auth";

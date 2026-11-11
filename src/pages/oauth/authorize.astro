@@ -1,0 +1,260 @@
+---
+/**
+ * The authorization endpoint of NEMAR's OpenID Connect provider (nemar-cli ADR 0119): a site that
+ * signs people in with their NEMAR account sends them here, and gets them back with a one-time code.
+ *
+ * It lives on the app host because the sign-in cookie does, and it decides nothing. GET and POST
+ * both carry an authorization request; this page forwards it, with the visitor's `Cookie` header, to
+ * the API's check route and follows or renders the answer. The consent form posts back here, and the
+ * visitor's answer goes to the API's consent route the same way. Every rule is the API's
+ * (nemar-cli `backend/src/services/oidc-authorize.ts`); the helpers are `../../lib/oidc-authorize.ts`.
+ *
+ * The API answers 404 while its provider is off: until `OIDC_SECRET` is set AND
+ * `HOST_PREFIXED_SESSION_COOKIE` is "1" there, this page shows its unavailable panel.
+ *
+ * Server-rendered with no client script. Every response carries `OIDC_AUTHORIZE_HEADERS` (no-store,
+ * no-referrer, noindex, X-Frame-Options DENY; the consent screen alone uses `same-origin`, so its
+ * form keeps its Origin); the middleware adds `frame-ancestors 'none'`, keeps
+ * the page out of the edge cache, and, on the consent screen only, lets the form's redirect reach
+ * the one origin this page names in `OIDC_FORM_ACTION_ORIGIN_HEADER`.
+ *
+ * A POST from ANY site may reach this page as an authorization request (OpenID Connect Core 3.1.2.1;
+ * the middleware exempts exactly that, `src/lib/origin-check.ts`), and then does what the same
+ * request in a GET does: it is checked and renders or redirects. The consent form posts to this same
+ * path, so `readAuthorizeInput` refuses (403) any POST that names a consent field unless it is
+ * same-origin; a consent decision can only come from this site's own screen. Nothing here logs the
+ * request, a code or a consent token. `/oauth` is an app-host route and the assistant widget is
+ * never mounted here.
+ */
+import Base from "../../layouts/Base.astro";
+import {
+  OIDC_AUTHORIZE_HEADERS,
+  OIDC_AUTHORIZE_PAGE_PATH,
+  OIDC_CONSENT_REFERRER_POLICY,
+  OIDC_FORM_ACTION_ORIGIN_HEADER,
+  OIDC_FORM_CONSENT_TOKEN,
+  OIDC_FORM_DECISION,
+  OIDC_FORM_REQUEST,
+  type OidcAuthorizeOutcome,
+  consentView,
+  errorPanelView,
+  oidcAnswerOutcome,
+  oidcAuthorizeMethodRefusal,
+  oidcCrossSiteRefusal,
+  oidcLoginRedirect,
+  oidcNavigate,
+  oidcPanelStatus,
+  readAuthorizeInput,
+  rulePanelView,
+} from "../../lib/oidc-authorize";
+import { requestOidcCheck, requestOidcConsent } from "../../lib/oidc-authorize-api";
+
+for (const [name, value] of Object.entries(OIDC_AUTHORIZE_HEADERS)) {
+  Astro.response.headers.set(name, value);
+}
+
+// GET and POST only, refused before anything is read or sent. HEAD would otherwise reach the API.
+const methodRefusal = oidcAuthorizeMethodRefusal(Astro.request.method);
+if (methodRefusal !== null) return methodRefusal;
+
+const method = Astro.request.method;
+const input = await readAuthorizeInput(Astro.request, Astro.url.origin);
+// The middleware lets an authorization-request POST in from any site (`src/lib/origin-check.ts`).
+// A POST that names a consent field and is not this site's own is the one thing that must not go on:
+// the same 403 Astro's built-in check gave, before any API call.
+if (input.kind === "forbidden") return oidcCrossSiteRefusal(method);
+const call = {
+  cookieHeader: Astro.request.headers.get("cookie") ?? undefined,
+  origin: Astro.url.origin,
+};
+
+let outcome: OidcAuthorizeOutcome;
+if (input.kind === "invalid") {
+  outcome = { kind: "error", code: "invalid_request" };
+} else if (input.kind === "consent") {
+  outcome = oidcAnswerOutcome(
+    await requestOidcConsent({
+      ...call,
+      request: input.request,
+      consentToken: input.consentToken,
+      decision: input.decision,
+    }),
+  );
+} else {
+  outcome = oidcAnswerOutcome(await requestOidcCheck({ ...call, request: input.request }));
+}
+
+if (outcome.kind === "redirect") {
+  return oidcNavigate(outcome.location, method);
+}
+if (outcome.kind === "login" || outcome.kind === "reauth") {
+  return oidcNavigate(oidcLoginRedirect(outcome.request, outcome.kind === "reauth"), method);
+}
+
+// Everything below renders a panel.
+const consent = outcome.kind === "consent" ? consentView(outcome) : null;
+const panel =
+  outcome.kind === "rule_refused"
+    ? rulePanelView(outcome)
+    : outcome.kind === "error"
+      ? errorPanelView(outcome.code)
+      : null;
+// The request the consent form carries back: the one the check just read, unchanged.
+const formRequest = input.kind === "check" ? input.request : "";
+const consentToken = outcome.kind === "consent" ? outcome.consentToken : "";
+if (outcome.kind === "consent") {
+  // The one origin the consent form's redirect may reach, for the middleware to add to
+  // `form-action` on this path. Validated by `oidcAnswerOutcome`; the middleware checks it again
+  // and removes the header.
+  Astro.response.headers.set(OIDC_FORM_ACTION_ORIGIN_HEADER, outcome.redirectOrigin);
+  // Under no-referrer the consent form's same-origin post would carry `Origin: null` and the
+  // site's cross-site form check would refuse Allow and Deny alike; same-origin keeps the Origin
+  // and still sends no referrer to another site. Redirects and the other panels keep no-referrer.
+  Astro.response.headers.set("Referrer-Policy", OIDC_CONSENT_REFERRER_POLICY);
+}
+Astro.response.status = oidcPanelStatus(outcome);
+---
+
+<Base title="Sign in with NEMAR" description="Sign in to another site with your NEMAR account.">
+  <section class="authorize">
+    <article class="authorize__panel">
+      <div class="authorize__rail" aria-hidden="true"></div>
+      {
+        consent !== null && (
+          <>
+            <h1 class="authorize__title">{consent.title}</h1>
+            <p class="authorize__lede">{consent.actsAsYou}</p>
+            {consent.computeSpend !== null && (
+              <p class="authorize__warning">{consent.computeSpend}</p>
+            )}
+            <h2 class="authorize__subtitle">{consent.scopesTitle}</h2>
+            <ul class="authorize__scopes">
+              {consent.scopeLines.map((line) => (
+                <li>{line}</li>
+              ))}
+            </ul>
+            <p class="authorize__note">{consent.redirectHost}</p>
+            <form class="authorize__form" method="post" action={OIDC_AUTHORIZE_PAGE_PATH}>
+              <input type="hidden" name={OIDC_FORM_REQUEST} value={formRequest} />
+              <input type="hidden" name={OIDC_FORM_CONSENT_TOKEN} value={consentToken} />
+              <button class="authorize__deny" type="submit" name={OIDC_FORM_DECISION} value="deny">
+                {consent.deny}
+              </button>
+              <button class="authorize__allow" type="submit" name={OIDC_FORM_DECISION} value="allow">
+                {consent.allow}
+              </button>
+            </form>
+          </>
+        )
+      }
+      {
+        panel !== null && (
+          <>
+            <h1 class="authorize__title">{panel.title}</h1>
+            <p class="authorize__lede">{panel.body}</p>
+            {panel.link !== null && (
+              <p class="authorize__note">
+                <a href={panel.link.href} rel="noreferrer">{panel.link.label}</a>
+              </p>
+            )}
+          </>
+        )
+      }
+    </article>
+  </section>
+</Base>
+
+<style>
+  /* The panel shape of `.handoff` in `src/pages/auth/private/authorize.astro`, plus the form. */
+  .authorize {
+    min-block-size: calc(100dvh - var(--header-height));
+    display: grid;
+    place-items: center;
+    padding: var(--space-12) var(--space-4);
+  }
+  .authorize__panel {
+    position: relative;
+    inline-size: 100%;
+    max-inline-size: 32rem;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-10) var(--space-8) var(--space-8);
+    overflow: hidden;
+    box-shadow: 0 24px 64px -32px rgb(15 23 42 / 25%);
+  }
+  .authorize__rail {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline: 0;
+    block-size: 3px;
+    background: linear-gradient(90deg, var(--brand-teal), var(--brand-purple));
+  }
+  .authorize__title {
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-display);
+    font-size: var(--fs-2xl);
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-tight);
+    overflow-wrap: anywhere;
+  }
+  .authorize__subtitle {
+    margin: var(--space-6) 0 var(--space-2);
+    font-size: var(--fs-base);
+    font-weight: var(--fw-semibold);
+  }
+  .authorize__lede {
+    margin: 0;
+    color: var(--color-fg-muted);
+    line-height: var(--lh-normal);
+    overflow-wrap: anywhere;
+  }
+  .authorize__warning {
+    margin: var(--space-3) 0 0;
+    font-weight: var(--fw-semibold);
+    line-height: var(--lh-normal);
+  }
+  .authorize__scopes {
+    margin: 0;
+    padding-inline-start: var(--space-5);
+    line-height: var(--lh-normal);
+    overflow-wrap: anywhere;
+  }
+  .authorize__form {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-block-start: var(--space-8);
+  }
+  /* The two buttons of `src/pages/cli/authorize.astro` (`.finish__submit`, `.authorize__deny`). */
+  .authorize__form button {
+    min-block-size: 48px;
+    padding: 0 var(--space-6);
+    border-radius: var(--radius-pill);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+  .authorize__deny {
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-fg);
+    font-weight: var(--fw-medium);
+  }
+  .authorize__deny:hover {
+    background: var(--color-bg-subtle);
+  }
+  .authorize__allow {
+    border: none;
+    background: var(--brand-navy);
+    color: #f8fafc;
+    font-weight: var(--fw-semibold);
+  }
+  .authorize__note {
+    margin: var(--space-4) 0 0;
+    font-size: var(--fs-sm);
+  }
+  .authorize__note a {
+    color: var(--color-link);
+  }
+</style>

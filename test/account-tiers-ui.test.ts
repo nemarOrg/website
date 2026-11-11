@@ -363,12 +363,14 @@ describe("Settings", () => {
     expect(SETTINGS).toMatch(
       /data-name-orcid-stuck[\s\S]{0,2000}method="post" action="\/auth\/orcid\/start\?mode=relink/,
     );
-    // The unlinked card's first link is the documented GET entry point for
-    // linking an iD to this session (nemar-cli auth-orcid.ts: mode=link);
-    // a GET can never mint relink intent, so this stays a plain anchor.
+    // The unlinked card's Connect button is a real form POST too: the API
+    // arms a link only from a POST carrying this site's Origin and a session,
+    // and a GET with mode=link starts a plain sign-in (nemar-cli ADR 0119
+    // rule 10). No anchor may point at the link start.
     expect(SETTINGS).toMatch(
-      /orcid orcid--empty[\s\S]{0,800}href="\/auth\/orcid\/start\?mode=link&next=%2Fsettings"/,
+      /orcid orcid--empty[\s\S]{0,800}<form class="orcid__connect" method="post" action="\/auth\/orcid\/start\?mode=link&next=%2Fsettings">\s*<button type="submit" class="btn btn--primary">Connect your ORCID<\/button>/,
     );
+    expect(SETTINGS).not.toMatch(/href="\/auth\/orcid\/start\?mode=(re)?link/);
     // Exit two: unlink, which needs the ORCID card's handler. The button is
     // NOT duplicated — the page's `$()` is querySelector, so a second
     // `[data-orcid-unlink]` would silently never be wired — so the block

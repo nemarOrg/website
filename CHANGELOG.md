@@ -13,6 +13,53 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.37] - 2026-11-11
+
+This release must reach production before the nemar-cli API 0.10.33.
+The API starts to write the `__Host-` ORCID flow cookies at that release, and this site reads the session cookie under its new name and accepts either name for the ORCID pending cookie.
+It also sends the form POST that the API's account linking now needs.
+The released API (0.10.32) accepts everything this site sends, so releasing the site first leaves no gap.
+If the API reaches production first, new ORCID sign-ups fail at the email step and "Connect your ORCID" starts a sign-up instead of a link.
+
+### Added
+
+- **`/oauth/authorize`, the sign-in page of NEMAR's OpenID Connect provider** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119).
+  A site registered with NEMAR sends a person here to sign in with their NEMAR account.
+  The page forwards the request and the person's cookie to the API, which decides everything, and then redirects back to the site, asks for consent, or explains a refusal.
+  It cannot be framed (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), never enters the edge cache, sends no referrer (the consent screen sends one only to this site, so its form keeps its Origin), and carries no assistant widget.
+  On the consent screen only, `form-action` also admits the one client origin the API returned, so the redirect after the form can reach it, and the screen names the host either answer goes to.
+  While the provider is off, the page answers 503 with its unavailable panel.
+  On `nemar.org` every `/oauth` path redirects to the app host (a `POST` with a 307, so its body survives), because the page needs the sign-in cookie that only the app host receives.
+  The general `/api/v1` proxy answers 404 for the authorization routes (`auth/oidc`), whose answers only the page's server code may read; it decides on the path it would actually fetch.
+  It also answers 400 for any path that holds a control character or a backslash.
+  Needs the nemar-cli API with `POST /auth/oidc/authorize` and `POST /auth/oidc/consent`; until then, or while the provider is off (the API answers 404 until both `OIDC_SECRET` is set and `HOST_PREFIXED_SESSION_COOKIE` is `"1"`), the page shows its unavailable panel.
+  Under `bun run dev` the page loops on sign-in, because the development login keeps the legacy cookie name (see the README).
+
+### Changed
+
+- **The site reads the session cookie under its host-prefixed name** (nemarOrg/website#499, nemar-cli ADR 0119 decision 10).
+  The API is moving the session cookie from `nemar_session` to `__Host-nemar_session`, which no other `nemar.org` host can set.
+  Every reader of the cookie on this site now asks for the new name first and falls back to the old one only when the new one is absent; a request with more than one `__Host-nemar_session` counts as signed out, as it does for the API.
+  Sign-out clears both names.
+  When the API cannot be reached or sends no cookie, the site clears them itself, and it also clears the legacy cookie set with a domain (the request's own host and `nemar.org`, on a `nemar.org` host only), which a clear without a domain never removes, so a browser that holds either cookie is signed out.
+  The ORCID sign-up page accepts the pending cookie under either name (`__Host-nemar_orcid_pending` or `nemar_orcid_pending`), so a sign-up already under way does not bounce on the page; a sign-up in flight when the API deploys fails once at the email step and the person signs in with ORCID again.
+  Any ORCID sign-in, link or sign-up that is on ORCID's own screen when the API deploys also fails once, at the callback, because API 0.10.33 reads the flow's state cookie only under `__Host-nemar_oauth_state` while 0.10.32 sets `nemar_oauth_state`; the person starts again.
+  Nothing changes for anyone until the API issues the new cookie (behind a flag, the owner's step after the API release).
+
+- **`/oauth/authorize` accepts an authorization request sent by POST from any site; every other form keeps its cross-site check** (nemarOrg/nemar-cli#2020, nemar-cli ADR 0119, website ADR 0031).
+  OpenID Connect Core 3.1.2.1 requires the authorization endpoint to take a form POST, and Astro's built-in origin check refuses one from another site.
+  That check is switched off (`security.checkOrigin: false`) and the middleware runs the site's own, which is the same rule with one exemption: a `POST` to exactly `/oauth/authorize` with `application/x-www-form-urlencoded`.
+  The consent form posts to the same path, so the page refuses (403, as before) any POST that names a consent field unless its Origin is the site's own, and an authorization-request POST can only do what the same request in a GET does.
+  A trailing slash, another case, an encoded path, `multipart/form-data`, `text/plain`, a missing content type and every other method or route are refused cross-site exactly as before.
+  A visitor who is not signed in is sent to sign-in and returns by GET with the same request.
+
+- **Settings' "Connect your ORCID" submits a form POST instead of following a link** (nemarOrg/nemar-cli#2017, nemar-cli ADR 0119 rule 10).
+  The API now arms an ORCID link only from a POST that carries this site's Origin and a live session, as it already did for re-linking, and a GET start is always a plain sign-in.
+  The button's copy and where it leads are unchanged, but it is now a button in a form, so it can no longer be opened in a new tab.
+  Clicking it with an expired session lands on `/login?error=session_required` ("Sign in to continue.") instead of starting an ORCID sign-in.
+
+## [0.2.36] - 2026-11-02
+
 ### Changed
 
 - **The mirror chip follows the API's `mirror` flag, not the version number** (#478).

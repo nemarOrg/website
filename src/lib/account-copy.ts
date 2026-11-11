@@ -215,6 +215,51 @@ export const ACCOUNT_COPY = {
   "welcome.upload_access.title": "Ask for upload access when you’re ready to contribute",
   "welcome.upload_access.body":
     "Reading is open to every verified account. Uploading and compute need one extra grant, because an admin has to check your GitHub handle and location against export-control and local-jurisdiction rules first. You ask once, from Settings.",
+
+  // -------------------------------------------------------------------------
+  // Signing in to another site with a NEMAR account (nemar-cli ADR 0119): the
+  // page at /oauth/authorize (`src/lib/oidc-authorize.ts`). `{client}` is the
+  // client's registered name.
+  // -------------------------------------------------------------------------
+  "oidc.consent.title": "{client} wants to use your NEMAR account",
+  "oidc.consent.acts_as_you":
+    "If you allow it, {client} can act as you on NEMAR in the ways listed below.",
+  "oidc.consent.compute_spend":
+    "If you sign in and run compute with this app, it counts against your NEMAR compute allocation.",
+  "oidc.consent.scopes_title": "It is asking to:",
+  // One line per scope a person can grant, keyed by the scope's name.
+  "oidc.consent.scope.openid": "Know which NEMAR account is yours",
+  "oidc.consent.scope.profile": "See your name",
+  "oidc.consent.scope.email": "See your email address",
+  "oidc.consent.scope.orcid":
+    "See your ORCID iD, and whether you proved it by signing in with ORCID",
+  "oidc.consent.scope.nemar.account": "See your account type, status and access level",
+  "oidc.consent.scope.offline_access": "Keep this access when you are not using it",
+  "oidc.consent.scope.compute.read": "See your compute access, balances, usage and jobs",
+  "oidc.consent.scope.compute.reserve":
+    "Reserve compute time, report jobs and release reservations for you",
+  "oidc.consent.scope.compute.submit": "Submit compute jobs that NEMAR runs for you",
+  "oidc.consent.redirect_host": "Either answer sends you to {redirect_host}.",
+  "oidc.consent.allow": "Allow",
+  "oidc.consent.deny": "Deny",
+  "oidc.rule.title": "You can’t sign in to {client} with this account",
+  "oidc.rule.account_inactive": "Your NEMAR account is not active.",
+  "oidc.rule.account_not_person":
+    "{client} is only for personal accounts, and this account is not one.",
+  "oidc.rule.orcid_not_proven":
+    "{client} needs an ORCID iD you proved by signing in to NEMAR with ORCID. Link your ORCID iD in Settings, then try again.",
+  "oidc.rule.return": "Return to {client}",
+  "oidc.error.title": "This sign-in can’t continue",
+  "oidc.error.invalid_client": "The site that sent you here is not one NEMAR signs people in to.",
+  "oidc.error.invalid_redirect_uri":
+    "The site that sent you here asked NEMAR to send you to an address it has not registered, so NEMAR will not send you there.",
+  "oidc.error.invalid_request":
+    "The sign-in request is incomplete or malformed. Go back to the site you came from and start again.",
+  "oidc.error.consent_invalid":
+    "This page has expired. Go back to the site you came from and start again.",
+  "oidc.error.unavailable":
+    "NEMAR could not complete this sign-in right now. Try again in a moment.",
+  "oidc.error.rate_limited": "Too many sign-in attempts. Try again in a minute.",
 } as const;
 
 export type AccountCopyKey = keyof typeof ACCOUNT_COPY;
