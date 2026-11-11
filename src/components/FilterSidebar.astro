@@ -41,6 +41,10 @@ const { state, searchActive = false } = Astro.props;
   autocomplete="off"
   aria-label="Dataset filters"
 >
+  {/* "Search for the words I typed" (exact=1) rides along with every filter
+      change, so the page does not slip back to the corrected words. The script
+      below drops it when the search box holds other words. */}
+  {state.exact && <input type="hidden" name="exact" value="1" data-exact-q={state.q} />}
   <div class="filters__group">
     <h3>Modality</h3>
     <div class="filters__op">
@@ -207,7 +211,7 @@ const { state, searchActive = false } = Astro.props;
 </form>
 
 <script>
-  import { isRedundantField } from "../lib/filter-form";
+  import { isRedundantField, isStaleExact } from "../lib/filter-form";
 
   // Apply filters as they are selected, instead of making people hit Apply.
   // Without this script the form still works: Apply submits it.
@@ -229,6 +233,10 @@ const { state, searchActive = false } = Astro.props;
     // untouched comes from the server's own defaults (lib/filter-form.ts), so a
     // changed default cannot make this strip a choice.
     form.addEventListener("formdata", (event) => {
+      const exact = form.querySelector<HTMLInputElement>("input[name=exact][data-exact-q]");
+      if (exact && isStaleExact(event.formData.get("q"), exact.dataset.exactQ ?? "")) {
+        event.formData.delete("exact");
+      }
       for (const [name, value] of [...event.formData.entries()]) {
         if (isRedundantField(name, value)) event.formData.delete(name);
       }
