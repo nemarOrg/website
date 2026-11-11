@@ -12,8 +12,9 @@
  * 2. **The request** ({@link buildOverviewRequest}). The server renders it as a JSON data island on
  *    the Discover page, because that page is edge-cached for 30 minutes and cannot know who has AI
  *    Mode on; the browser posts it when the reader's preference is on. Every limit OSA enforces
- *    with a 422 is applied here first, so a long description or an odd id cuts a row down or drops
- *    it instead of failing the whole overview.
+ *    with a 422 is applied here first (`OVERVIEW_LIMITS`: query, rows, id, title, description,
+ *    modalities, and the filters' count, key, value and list length), so a long description or an
+ *    odd id cuts a row down or drops it instead of failing the whole overview.
  * 3. **The call** ({@link requestOverview}): a POST with a timeout, and an error class whose
  *    `kind` the panel turns into words.
  * 4. **The answer** ({@link parseOverviewResponse}). A segment list, never markup: text segments
@@ -83,6 +84,10 @@ export const OVERVIEW_LIMITS = {
   idMax: 64,
   titleMax: 200,
   descriptionMax: 500,
+  modalitiesMax: 200,
+  filterKeyMax: 100,
+  filterValueMax: 200,
+  filterListMax: 20,
 } as const;
 
 /** The shape OSA accepts for a row id. */
@@ -123,17 +128,26 @@ function isStringList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-/** Keeps string, boolean, integer and string-list values, at most 20 keys; drops the rest. */
+/**
+ * Keeps string, boolean, integer and string-list values, within OSA's bounds: at most 20 keys, a
+ * key of at most 100 characters (a longer one is dropped), a string of at most 200 characters (cut)
+ * and a list of at most 20 items (the rest dropped), so the filters can never fail the request.
+ */
 export function sanitizeOverviewFilters(
   raw: Record<string, unknown>,
 ): Record<string, OverviewFilterValue> {
   const out: Record<string, OverviewFilterValue> = {};
+  const { filterKeysMax, filterKeyMax, filterValueMax, filterListMax } = OVERVIEW_LIMITS;
   for (const [key, value] of Object.entries(raw)) {
-    if (Object.keys(out).length >= OVERVIEW_LIMITS.filterKeysMax) break;
+    if (Object.keys(out).length >= filterKeysMax) break;
     if (value === undefined || value === null) continue;
-    if (typeof value === "string" || typeof value === "boolean") out[key] = value;
+    if (Array.from(key).length > filterKeyMax) continue;
+    if (typeof value === "string") out[key] = clip(value, filterValueMax);
+    else if (typeof value === "boolean") out[key] = value;
     else if (typeof value === "number" && Number.isInteger(value)) out[key] = value;
-    else if (isStringList(value)) out[key] = [...value];
+    else if (isStringList(value)) {
+      out[key] = value.slice(0, filterListMax).map((item) => clip(item, filterValueMax));
+    }
   }
   return out;
 }
@@ -190,7 +204,7 @@ export function buildOverviewRequest(input: {
       description: clip(row.description ?? "", OVERVIEW_LIMITS.descriptionMax),
     };
     const modalities = joinModalities(row.modalities);
-    if (modalities !== undefined) out.modalities = modalities;
+    if (modalities !== undefined) out.modalities = clip(modalities, OVERVIEW_LIMITS.modalitiesMax);
     results.push(out);
   }
   if (results.length === 0) return null;
@@ -219,9 +233,10 @@ export interface OverviewCard {
   snippet?: string;
 }
 
-/** A snippet carries the search's `<mark>` highlights; the overview reads it as plain words. */
-function snippetText(snippet: string | undefined): string {
-  return (snippet ?? "").replace(/<[^>]*>/g, "");
+/** A snippet carries the search's `<mark>` highlights and nothing else is markup (the rest is raw
+ *  README text, `src/lib/format.ts`), so only those two tags go: "p<0.05" and "a < b" stay. */
+export function snippetText(snippet: string | undefined): string {
+  return (snippet ?? "").replace(/<\/?mark>/gi, "");
 }
 
 /**
@@ -268,7 +283,8 @@ export type OverviewErrorKind =
   | "http" // any other status
   | "network"
   | "timeout"
-  | "bad_response"; // a 200 that is not an overview of the request's results
+  | "bad_response" // a 200 that is not an overview of the request's results
+  | "unexpected"; // a bug on this page, not a failure of the service
 
 export class OverviewError extends Error {
   constructor(
@@ -310,6 +326,8 @@ export function overviewErrorMessage(kind: OverviewErrorKind): string {
       return "The AI overview took too long. Try again.";
     case "bad_response":
       return "The AI overview came back in a form that cannot be shown. Try again.";
+    case "unexpected":
+      return "The AI overview could not be shown because of an error on this page. Try again.";
     default:
       return "The AI overview is unavailable right now. Try again in a moment.";
   }
@@ -328,9 +346,6 @@ export interface OverviewPick {
 export interface OverviewAnswer {
   segments: OverviewSegment[];
   picks: OverviewPick[];
-  citedIds: string[];
-  shown: number | null;
-  cached: boolean;
 }
 
 /** Where a dataset's page is. */
@@ -345,9 +360,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const PICKS_MAX = 3;
 
 /**
- * Reads a 200 body. Every id it names (in the summary, the picks and `cited_ids`) must be one of
- * `requestIds`: the server promises that, and a page that links whatever id it is handed would
- * not hold if the promise broke. Anything else that is off in shape is an error too, so the panel
+ * Reads a 200 body. Every id it names that the page links or shows (in the summary and the picks)
+ * must be one of `requestIds`: the server promises that, and a page that links whatever id it is
+ * handed would not hold if the promise broke. `cited_ids`, `shown` and `cached` are not read: the
+ * panel draws nothing from them, so a stray id there cannot turn a displayable overview into an
+ * error. Anything else that is off in shape is an error too, so the panel
  * shows the failure, never half an answer.
  */
 export function parseOverviewResponse(body: unknown, requestIds: Iterable<string>): OverviewAnswer {
@@ -383,21 +400,33 @@ export function parseOverviewResponse(body: unknown, requestIds: Iterable<string
     }
   }
 
-  const citedIds: string[] = [];
-  if (body.cited_ids !== undefined) {
-    if (!isStringList(body.cited_ids)) throw bad();
-    for (const id of body.cited_ids) {
-      if (!allowed.has(id)) throw bad();
-      citedIds.push(id);
-    }
-  }
+  return { segments, picks };
+}
 
+/** Reads the request Discover embeds in the page (the text of its JSON data island); `null` when
+ *  it is missing, is not JSON or is not shaped like a request, so the panel stays out of the page. */
+export function parseOverviewRequest(text: string | null | undefined): OverviewRequest | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text ?? "");
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || typeof parsed.query !== "string" || parsed.query.trim() === "") {
+    return null;
+  }
+  if (!Array.isArray(parsed.results) || parsed.results.length === 0) return null;
+  const rowsOk = parsed.results.every(
+    (row) =>
+      isRecord(row) &&
+      typeof row.id === "string" &&
+      typeof row.title === "string" &&
+      typeof row.description === "string",
+  );
+  if (!rowsOk) return null;
   return {
-    segments,
-    picks,
-    citedIds,
-    shown: typeof body.shown === "number" && Number.isInteger(body.shown) ? body.shown : null,
-    cached: body.cached === true,
+    ...(parsed as unknown as OverviewRequest),
+    filters: isRecord(parsed.filters) ? (parsed.filters as OverviewRequest["filters"]) : {},
   };
 }
 

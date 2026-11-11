@@ -5,6 +5,7 @@ import { type FilterState, defaultFilterState } from "./filters";
 import {
   OVERVIEW_ENDPOINTS,
   OVERVIEW_LIMITS,
+  OVERVIEW_TIMEOUT_MS,
   OverviewError,
   type OverviewRequest,
   buildOverviewRequest,
@@ -12,10 +13,12 @@ import {
   overviewErrorMessage,
   overviewFilters,
   overviewRequestForPage,
+  parseOverviewRequest,
   parseOverviewResponse,
   requestOverview,
   resolveOverviewEndpoint,
   sanitizeOverviewFilters,
+  snippetText,
 } from "./osa-overview";
 
 const DEV = "https://develop-widget.osc.earth/osa/nemar/overview";
@@ -37,6 +40,12 @@ describe("the endpoint setting", () => {
     expect(overviewEndpoint()).toBeNull();
     expect(resolveOverviewEndpoint(undefined)).toEqual({ kind: "disabled" });
     expect(resolveOverviewEndpoint(null)).toEqual({ kind: "disabled" });
+  });
+
+  it("is off when PUBLIC_OSA_OVERVIEW_URL is not set at all", () => {
+    vi.stubEnv("PUBLIC_OSA_OVERVIEW_URL", undefined);
+    expect(overviewEndpoint()).toBeNull();
+    expect(resolveOverviewEndpoint()).toEqual({ kind: "disabled" });
   });
 
   it("accepts exactly the develop and production worker URLs, read from the environment", () => {
@@ -117,6 +126,14 @@ describe("buildOverviewRequest limits", () => {
     description: "words",
     modalities: "eeg",
     ...over,
+  });
+
+  it("cuts the joined modalities to OSA's 200 characters", () => {
+    const many = Array.from({ length: 60 }, (_, i) => `modality${i}`);
+    const request = buildOverviewRequest({ query: "q", rows: [row({ modalities: many })] });
+    expect(Array.from(request?.results[0].modalities ?? "")).toHaveLength(
+      OVERVIEW_LIMITS.modalitiesMax,
+    );
   });
 
   it("joins a list of modalities with ', ' and omits null, undefined and blank ones", () => {
@@ -246,6 +263,22 @@ describe("filters", () => {
     ).toEqual({ s: "x", b: false, i: 3, zero: 0, list: ["a", "b"] });
   });
 
+  it("holds every bound OSA answers 422 for: key 100, string 200, list 20 items", () => {
+    const kept = sanitizeOverviewFilters({
+      ["k".repeat(100)]: "kept key",
+      ["k".repeat(101)]: "dropped key",
+      long: "x".repeat(250),
+      emoji: "😀".repeat(201),
+      list: Array.from({ length: 30 }, (_, i) => `item${i}`),
+      longList: ["y".repeat(250)],
+    });
+    expect(Object.keys(kept)).toEqual(["k".repeat(100), "long", "emoji", "list", "longList"]);
+    expect(Array.from(kept.long as string)).toHaveLength(OVERVIEW_LIMITS.filterValueMax);
+    expect(Array.from(kept.emoji as string)).toHaveLength(OVERVIEW_LIMITS.filterValueMax);
+    expect(kept.list).toEqual(Array.from({ length: 20 }, (_, i) => `item${i}`));
+    expect(Array.from((kept.longList as string[])[0])).toHaveLength(OVERVIEW_LIMITS.filterValueMax);
+  });
+
   it("keeps at most 20 keys", () => {
     const raw = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, i]));
     const kept = sanitizeOverviewFilters(raw);
@@ -306,6 +339,25 @@ describe("overviewRequestForPage", () => {
     expect(request?.total_count).toBe(37);
   });
 
+  it("removes only the highlight tags from a snippet, never other text shaped like a tag", () => {
+    expect(snippetText("a <mark>b</mark> <MARK>c</MARK>")).toBe("a b c");
+    expect(snippetText("a < b and c > d")).toBe("a < b and c > d");
+    expect(snippetText("p<0.05 in <div>x</div> and <mark>y</mark>")).toBe(
+      "p<0.05 in <div>x</div> and y",
+    );
+    expect(snippetText(undefined)).toBe("");
+    const request = overviewRequestForPage({
+      ...base,
+      cards: [
+        {
+          dataset: { dataset_id: "ds000117", name: "S", description: null, modalities: "meg" },
+          snippet: "effect p<0.05 when a < b and c > d, see <mark>face</mark>",
+        },
+      ],
+    });
+    expect(request?.results[0].description).toBe("effect p<0.05 when a < b and c > d, see face");
+  });
+
   it("is null unless a search ran, nothing failed, it is page 1 and cards exist", () => {
     expect(overviewRequestForPage({ ...base, isSearch: false })).toBeNull();
     expect(overviewRequestForPage({ ...base, failed: true })).toBeNull();
@@ -328,9 +380,6 @@ describe("parseOverviewResponse over the documented example", () => {
     expect(answer.picks).toEqual([
       { id: "on002718", href: "/dataset/on002718", reason: "Face conditions, HED events." },
     ]);
-    expect(answer.citedIds).toEqual(["on002718"]);
-    expect(answer.shown).toBe(10);
-    expect(answer.cached).toBe(false);
   });
 
   it("keeps text that looks like markup or a link as text, never as HTML", () => {
@@ -348,12 +397,18 @@ describe("parseOverviewResponse over the documented example", () => {
     });
   });
 
-  it("treats a cited id the request did not carry as an error, in the summary, picks or cited_ids", () => {
+  it("does not read cited_ids, shown or cached: a stray cited id cannot spoil an overview", () => {
+    const body = { ...RESPONSE, cited_ids: ["on002718", "ds999999"], shown: "ten", cached: 1 };
+    const answer = parseOverviewResponse(body, ["on002718"]);
+    expect(answer.segments.length).toBeGreaterThan(0);
+    expect(Object.keys(answer).sort()).toEqual(["picks", "segments"]);
+  });
+
+  it("treats a cited id the request did not carry as an error, in the summary or picks", () => {
     const stranger = { dataset_id: "ds999999" };
     const cases: unknown[] = [
       { ...RESPONSE, summary: [{ text: "See " }, stranger] },
       { ...RESPONSE, picks: [{ id: "ds999999", reason: "r" }] },
-      { ...RESPONSE, cited_ids: ["on002718", "ds999999"] },
     ];
     for (const body of cases) {
       expect(() => parseOverviewResponse(body, ["on002718"])).toThrowError(OverviewError);
@@ -419,6 +474,46 @@ describe("requestOverview", () => {
     expect(seen[0].init.signal).toBeInstanceOf(AbortSignal);
   });
 
+  it("gives the call the 30 second default timeout, or the caller's", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    globalThis.fetch = (async () => json(RESPONSE)) as unknown as typeof fetch;
+    await requestOverview(DEV, request);
+    expect(spy).toHaveBeenLastCalledWith(OVERVIEW_TIMEOUT_MS);
+    expect(OVERVIEW_TIMEOUT_MS).toBe(30_000);
+    await requestOverview(DEV, request, { timeoutMs: 1234 });
+    expect(spy).toHaveBeenLastCalledWith(1234);
+  });
+
+  it("still cancels on the caller's signal where AbortSignal.any does not exist", async () => {
+    const any = AbortSignal.any;
+    // A browser older than AbortSignal.any: the module combines the two signals by hand.
+    Object.defineProperty(AbortSignal, "any", { value: undefined, configurable: true });
+    try {
+      globalThis.fetch = ((_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          // Like fetch: a signal that is already aborted rejects at once.
+          if (init.signal?.aborted) reject(init.signal.reason);
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        })) as unknown as typeof fetch;
+      const controller = new AbortController();
+      const pending = requestOverview(DEV, request, { signal: controller.signal });
+      controller.abort(new Error("reader left"));
+      await expect(pending).rejects.toThrow("reader left");
+      // An already-aborted caller signal aborts the request at once.
+      const done = new AbortController();
+      done.abort(new Error("already gone"));
+      await expect(requestOverview(DEV, request, { signal: done.signal })).rejects.toThrow(
+        "already gone",
+      );
+      // The deadline still applies.
+      await expect(
+        requestOverview(DEV, request, { timeoutMs: 10, signal: new AbortController().signal }),
+      ).rejects.toMatchObject({ kind: "timeout" });
+    } finally {
+      Object.defineProperty(AbortSignal, "any", { value: any, configurable: true });
+    }
+  });
+
   it("gives an error kind for each documented failure status", async () => {
     const expected: Record<number, string> = {
       403: "forbidden",
@@ -452,6 +547,7 @@ describe("requestOverview", () => {
       "network",
       "timeout",
       "bad_response",
+      "unexpected",
     ] as const;
     const messages = kinds.map((k) => overviewErrorMessage(k));
     expect(new Set(messages).size).toBe(kinds.length);
@@ -501,5 +597,40 @@ describe("requestOverview", () => {
     globalThis.fetch = (async () =>
       new Response("<html>", { status: 200 })) as unknown as typeof fetch;
     await expect(requestOverview(DEV, request)).rejects.toMatchObject({ kind: "bad_response" });
+  });
+});
+
+describe("parseOverviewRequest", () => {
+  const good = {
+    query: "face",
+    filters: { modality: ["eeg"] },
+    total_count: 3,
+    results: [{ id: "on002718", title: "Faces", description: "d", modalities: "eeg" }],
+  };
+
+  it("reads the island Discover embeds", () => {
+    expect(parseOverviewRequest(JSON.stringify(good))).toEqual(good);
+    expect(parseOverviewRequest(JSON.stringify({ ...good, filters: undefined }))?.filters).toEqual(
+      {},
+    );
+  });
+
+  it("is null for a missing island, text that is not JSON, or a shape that is not a request", () => {
+    const bad: Array<string | null | undefined> = [
+      null,
+      undefined,
+      "",
+      "{not json",
+      "null",
+      "[]",
+      JSON.stringify({ ...good, query: 3 }),
+      JSON.stringify({ ...good, query: "  " }),
+      JSON.stringify({ ...good, results: [] }),
+      JSON.stringify({ ...good, results: "x" }),
+      JSON.stringify({ ...good, results: [{ id: 1, title: "t", description: "d" }] }),
+      JSON.stringify({ ...good, results: [{ id: "a", title: "t" }] }),
+      JSON.stringify({ ...good, results: [null] }),
+    ];
+    for (const text of bad) expect(parseOverviewRequest(text), String(text)).toBeNull();
   });
 });
