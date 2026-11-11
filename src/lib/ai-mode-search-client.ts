@@ -2,16 +2,24 @@
  * The browser half of the AI Mode toggle in search (website#518 on Discover, #519 on Home): it
  * finds the toggles `AiModeToggle.astro` renders hidden, reveals them once the widget can open,
  * keeps `ai=1` in the address, the form and the page's own links, and runs the AI overview panel
- * above Discover's results. Every decision it makes is in a tested module (`./osa-ai-mode`,
- * `./osa-overview`, `./ai-overview-panel`); this file is the DOM glue around them, so it is
- * checked in a browser, not by a unit test.
+ * above Discover's results.
+ *
+ * What is decided in a tested module: the panel's transitions (`OverviewController` in
+ * `./ai-overview-panel`: off, on, a kept answer, abort, stale responses, retry, failure kinds), what
+ * each state shows (`panelView`), the request, its limits and the answer (`./osa-overview`, among
+ * them `parseOverviewRequest`), the preference, the address parameter, the link rewrite
+ * (`aiLinkHref`) and the follow-up call (`./osa-ai-mode`). What is not: this file's DOM glue,
+ * which turns those results into elements, moves focus back to the panel's heading when a button
+ * the reader used is replaced, and keeps the `ai=1` input in the form ({@link syncAiInput}). That
+ * part is checked in a browser and by the source guards in `test/ai-mode-search.test.ts`.
  *
  * Nothing here writes markup from a string: the overview's text is set with `textContent` and its
  * ids become anchors whose `href` is built from the tested `/dataset/<id>` helper.
  */
 
 import {
-  type OverviewPanelState,
+  FOLLOW_UP_FAILED,
+  OverviewController,
   type PanelView,
   followUpText,
   panelView,
@@ -20,6 +28,7 @@ import {
   type AiModeLoadTarget,
   type AiModePageWindow,
   type AiModeWindow,
+  aiLinkHref,
   aiModeSearchAvailable,
   askFollowUp,
   initialAiModeSearch,
@@ -27,12 +36,7 @@ import {
   whenDocumentReady,
   withAiModeParam,
 } from "./osa-ai-mode";
-import {
-  type OverviewAnswer,
-  OverviewError,
-  type OverviewRequest,
-  requestOverview,
-} from "./osa-overview";
+import { type OverviewRequest, parseOverviewRequest, requestOverview } from "./osa-overview";
 
 /** Names `ai` in a form the field submits with, so a search, a filter or a sort keeps AI Mode. */
 const AI_INPUT = "input[data-ai-input]";
@@ -63,16 +67,8 @@ export function syncAiInput(doc: Document, toggle: HTMLElement, on: boolean): vo
 export function carryAiOnLinks(doc: Document, on: boolean): void {
   const root = doc.getElementById("main") ?? doc;
   for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
-    let url: URL;
-    try {
-      url = new URL(anchor.getAttribute("href") ?? "", doc.baseURI);
-    } catch {
-      continue;
-    }
-    if (url.origin !== doc.location.origin || url.pathname !== "/discover") continue;
-    const search = withAiModeParam(url.search, on);
-    if (search === url.search) continue;
-    anchor.setAttribute("href", `${url.pathname}${search}${url.hash}`);
+    const href = aiLinkHref(anchor.getAttribute("href"), doc.baseURI, doc.location.origin, on);
+    if (href !== null) anchor.setAttribute("href", href);
   }
 }
 
@@ -96,7 +92,7 @@ function renderBody(
   doc: Document,
   body: HTMLElement,
   view: PanelView,
-  onFollowUp: () => void,
+  onFollowUp: (button: HTMLElement) => void,
   onRetry: () => void,
 ) {
   body.replaceChildren();
@@ -151,80 +147,34 @@ function renderBody(
   if (view.followUp) {
     const ask = element(doc, "button", "ai-overview__button", view.followUp);
     ask.type = "button";
-    ask.addEventListener("click", onFollowUp);
+    ask.addEventListener("click", () => onFollowUp(ask));
     foot.append(ask);
   }
   if (view.footnote) foot.append(element(doc, "span", "ai-overview__note", view.footnote));
   body.append(foot);
 }
 
-/** Reads the request Discover embedded; null when it is missing or not shaped like one. */
-function readRequest(island: Element | null): OverviewRequest | null {
-  try {
-    const parsed: unknown = JSON.parse(island?.textContent ?? "");
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as OverviewRequest).query === "string" &&
-      Array.isArray((parsed as OverviewRequest).results) &&
-      (parsed as OverviewRequest).results.length > 0
-    ) {
-      return parsed as OverviewRequest;
-    }
-  } catch {
-    // No usable request: the panel stays out of the page.
-  }
-  return null;
-}
-
-/** The overview panel above the results. Asks for the overview when AI Mode is on, keeps what it
- *  got while the reader switches it off and on, and drops a request the reader no longer wants. */
+/** The overview panel above the results: the DOM around an {@link OverviewController}, which
+ *  decides when to ask, what to keep and what a failure is. */
 class OverviewPanel {
-  private state: OverviewPanelState = { kind: "off" };
-  private answer: OverviewAnswer | null = null;
-  private controller: AbortController | null = null;
+  private readonly controller: OverviewController;
 
   constructor(
     private readonly win: Window,
     private readonly doc: Document,
     private readonly section: HTMLElement,
     private readonly request: OverviewRequest,
-    private readonly endpoint: string,
-  ) {}
+    endpoint: string,
+  ) {
+    this.controller = new OverviewController({
+      reading: request.results.length,
+      fetchOverview: (signal) => requestOverview(endpoint, request, { signal }),
+      onState: (state) => this.render(panelView(state)),
+    });
+  }
 
   setOn(on: boolean): void {
-    if (!on) {
-      this.controller?.abort();
-      this.controller = null;
-      this.set({ kind: "off" });
-      return;
-    }
-    if (this.state.kind === "loading") return;
-    if (this.answer) this.set({ kind: "answer", answer: this.answer });
-    else void this.load();
-  }
-
-  private async load(): Promise<void> {
-    this.controller?.abort();
-    const controller = new AbortController();
-    this.controller = controller;
-    this.set({ kind: "loading", reading: this.request.results.length });
-    try {
-      const answer = await requestOverview(this.endpoint, this.request, {
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      this.answer = answer;
-      this.set({ kind: "answer", answer });
-    } catch (err) {
-      if (controller.signal.aborted) return;
-      this.set({ kind: "error", error: err instanceof OverviewError ? err.kind : "network" });
-    }
-  }
-
-  private set(state: OverviewPanelState): void {
-    this.state = state;
-    this.render(panelView(state));
+    void this.controller.setOn(on);
   }
 
   private render(view: PanelView): void {
@@ -232,7 +182,11 @@ class OverviewPanel {
     const hadFocus = section.contains(doc.activeElement) && doc.activeElement !== section;
     section.hidden = !view.visible;
     section.setAttribute("aria-busy", String(view.busy));
-    const status = section.querySelector<HTMLElement>("[data-ai-status]");
+    // The live region is a sibling of the section (hidden, it is out of the accessibility tree);
+    // the line beside the heading is the drawn copy.
+    const live = doc.querySelector<HTMLElement>("[data-ai-status]");
+    if (live) live.textContent = view.status;
+    const status = section.querySelector<HTMLElement>("[data-ai-status-text]");
     if (status) {
       status.textContent = view.status;
       status.classList.toggle("ai-overview__status--quiet", !view.statusVisible);
@@ -248,8 +202,8 @@ class OverviewPanel {
         doc,
         body,
         view,
-        () => this.followUp(),
-        () => void this.load(),
+        (button) => this.followUp(button),
+        () => void this.controller.retry(),
       );
     }
     // A button the reader used was replaced; keep their place at the panel's heading.
@@ -258,12 +212,21 @@ class OverviewPanel {
     }
   }
 
-  private followUp(): void {
-    if (this.state.kind !== "answer") return;
-    askFollowUp(
+  /** Hands the question to the widget; when it cannot take it, says so under the button. */
+  private followUp(button: HTMLElement): void {
+    const state = this.controller.state;
+    if (state.kind !== "answer") return;
+    const took = askFollowUp(
       this.win as unknown as AiModeWindow,
-      followUpText(this.request.query, this.state.answer),
+      followUpText(this.request.query, state.answer),
     );
+    const foot = button.parentElement;
+    foot?.querySelector("[data-ai-follow-up-failed]")?.remove();
+    if (took || !foot) return;
+    const note = element(this.doc, "p", "ai-overview__error", FOLLOW_UP_FAILED);
+    note.setAttribute("role", "status");
+    note.setAttribute("data-ai-follow-up-failed", "");
+    foot.append(note);
   }
 }
 
@@ -304,7 +267,9 @@ export function initAiModeSearch(win: Window, doc: Document): void {
       if (ready.length === 0) return;
 
       const section = doc.querySelector<HTMLElement>("[data-ai-overview]");
-      const request = readRequest(doc.querySelector("script[data-ai-overview-request]"));
+      const request = parseOverviewRequest(
+        doc.querySelector("script[data-ai-overview-request]")?.textContent,
+      );
       const endpoint = ready[0].dataset.aiEndpoint ?? "";
       const panel =
         section && request ? new OverviewPanel(win, doc, section, request, endpoint) : null;

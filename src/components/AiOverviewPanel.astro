@@ -8,8 +8,14 @@ import { escapeJsonLdForScript } from "../lib/jsonld";
  * The island is rendered only when a search ran, nothing failed, the page is the first and cards
  * exist (`overviewRequestForPage`), so a page without it has no panel.
  *
- * `aria-live="polite"` is on the status line, which exists from the first paint so a change to it
- * is announced. The body is filled by the client with `textContent`, never HTML.
+ * The polite live region, `[data-ai-status]`, is a visually hidden sibling of the section, never
+ * inside it: the section is `hidden` (display: none, so out of the accessibility tree) until the
+ * client shows it and carries `aria-busy` while the overview is written, and a status set in the
+ * same tick the section appears would not be announced from there. The sibling is in the page from
+ * the first paint, so a change to it is announced, and it is emptied when the panel is off so the
+ * same words are announced again on the next switch on. The line beside the heading is a drawn
+ * copy for sighted readers, `aria-hidden` so nothing is read twice. The body is filled by the
+ * client with `textContent`, never HTML.
  */
 import type { OverviewRequest } from "../lib/osa-overview";
 
@@ -21,13 +27,14 @@ const { request } = Astro.props;
 const island = escapeJsonLdForScript(JSON.stringify(request));
 ---
 
+<div class="visually-hidden" role="status" aria-live="polite" data-ai-status></div>
 <section class="ai-overview" aria-label="AI overview" aria-busy="false" data-ai-overview hidden>
   <div class="ai-overview__head">
     <svg class="ai-overview__mark" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor"></path>
     </svg>
     <h2 class="ai-overview__title" tabindex="-1" data-ai-heading>AI overview</h2>
-    <span class="ai-overview__status ai-overview__status--quiet" aria-live="polite" data-ai-status></span>
+    <span class="ai-overview__status ai-overview__status--quiet" aria-hidden="true" data-ai-status-text></span>
     <span class="ai-overview__badge" data-ai-badge hidden>Experimental</span>
   </div>
   <div class="ai-overview__body" data-ai-body></div>
@@ -80,15 +87,9 @@ const island = escapeJsonLdForScript(JSON.stringify(request));
     font-size: var(--fs-sm);
     color: var(--ai-panel-muted);
   }
-  /* An answer announces itself to a screen reader and draws nothing beside the heading. */
+  /* An answer is announced by the live region and draws nothing beside the heading. */
   .ai-overview__status--quiet {
-    position: absolute;
-    inline-size: 1px;
-    block-size: 1px;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
+    display: none;
   }
   .ai-overview__badge {
     margin-inline-start: auto;

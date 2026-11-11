@@ -128,9 +128,19 @@ describe("the panel", () => {
     expect(rule(PANEL, ".ai-overview[hidden]")).toMatch(/display:\s*none/);
   });
 
-  it("has a polite live region that is in the page from the first paint", () => {
-    const tag = openingTag(PANEL, "span", "data-ai-status");
+  it("has a polite live region outside the hidden section, so a status is announced", () => {
+    const tag = openingTag(PANEL, "div", "data-ai-status");
     expect(tag).toMatch(/aria-live="polite"/);
+    expect(tag).toMatch(/role="status"/);
+    // Neither hidden itself nor inside an element that is (display: none leaves the
+    // accessibility tree, so nothing set there is announced).
+    expect(tag).not.toMatch(/(?<![-\w])hidden(?![-\w])/);
+    const section = elementMarkup(PANEL, "section", "data-ai-overview");
+    expect(section).not.toMatch(/data-ai-status(?![-\w])/);
+    expect(section).not.toMatch(/aria-live/);
+    expect(PANEL.indexOf(tag)).toBeLessThan(PANEL.indexOf("<section"));
+    // The drawn copy beside the heading is not read a second time.
+    expect(openingTag(section, "span", "data-ai-status-text")).toMatch(/aria-hidden="true"/);
   });
 
   it("embeds the request as an escaped JSON data island, not as script", () => {
