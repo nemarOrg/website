@@ -39,6 +39,15 @@ The release pull request from `staging` to `main` moves those entries under the 
   The toggle's icon, a magnifier with a sparkle, is the only AI mark in the field.
   New colours are tokens with dark values (`--ai-toggle-*`, `--ai-try-*`, `--ai-panel-*`, `--ai-ring-*`).
 
+### Changed
+
+- **AI Mode gives an overview only for a search of three words or more** (nemarOrg/website#518, OpenScience-Collective/osa#728; maintainer's rule of 2026-11-11).
+  A one-word search such as "EEG" made OSA's overview endpoint fail.
+  Under three words Discover sends no overview request and the panel says "AI Mode gives an overview for searches of three words or more." as a calm note in the panel's own style, announced in its live region; the results show as usual, and the toggle, the remembered choice and `ai=1` are unchanged.
+  Words are counted as OSA counts them: the trimmed query split on whitespace, counting tokens that hold a letter or digit, so "P300", "naïve" and "α-band" count and a lone "-" or "&" does not (`countQueryWords`, `OVERVIEW_MIN_WORDS`).
+  If the endpoint still answers 422, the panel shows the same note instead of the generic error.
+  The three example searches in Home's "Try" row already have three words or more, and a test now keeps it so (ADR 0032).
+
 ### Fixed
 
 - **Discover no longer scrolls sideways at phone width.**

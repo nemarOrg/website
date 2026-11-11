@@ -34,6 +34,10 @@ Four facts shape where that call is made and how it is switched on.
 - Discover embeds the request (query, filters, count, up to ten rows with the dataset's own description or the search snippet) as a JSON data island, only when a search ran, nothing failed, the page is the first and cards exist.
   The browser reads it and posts it when AI Mode is on.
   The server never calls the overview.
+- An overview needs a search of at least three words (the maintainer's rule of 2026-11-11; a one-word search such as "EEG" made the endpoint fail, OpenScience-Collective/osa#728).
+  The browser counts words as OSA does (`countQueryWords` in `osa-overview.ts`: split the trimmed query on whitespace, count tokens with a letter or digit) and sends no request under three; the panel shows a calm note instead, and the toggle, the preference and `ai=1` are unchanged.
+  OSA answers 422 for a query under three words, and the panel shows the same note for any 422, so a server whose count disagrees reads the same to the visitor.
+  Every example search the site offers in AI Mode (Home's "Try" row) has three words or more, and a test reads them from the source.
 - The toggle appears only once the widget is on the page with an `open` method and the setting is set (`aiModeSearchAvailable`), so a build or a browser that cannot follow up never offers the mode.
 - The reader's choice is remembered in `localStorage` (`nemar:ai-mode-search:v1`) and carried as `ai=1`, which `ai=1` in the address overrides.
   `ai` is a `FilterState` field that survives paging and filter links, like `exact`, and never changes what is searched.
@@ -65,6 +69,7 @@ Four facts shape where that call is made and how it is switched on.
 
 ## Receipts
 
+- OpenScience-Collective/osa#728 (the three-words rule).
 - nemarOrg/website#518 and #519, parent OpenScience-Collective/osa#652 (plan item E6.4 and E6.5).
 - OSA `docs/search-overview.md` (request limits, response, errors, caching, rate limits) and `docs/community-widget.md` (the host API the follow-up uses, `ask(text, {mode: "center"})`).
 - ADR 0017 (the CSP allowances for the OSA hosts), ADR 0018 (the build-time `PUBLIC_OSA_*` values).
