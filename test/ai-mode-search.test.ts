@@ -14,7 +14,12 @@ import PANEL from "../src/components/AiOverviewPanel.astro?raw";
 import SEARCH_BAR from "../src/components/SearchBar.astro?raw";
 import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
 import { AI_MODE_SEARCH_DISCLOSURE } from "../src/lib/osa-ai-mode";
-import { OVERVIEW_ENDPOINTS, resolveOverviewEndpoint } from "../src/lib/osa-overview";
+import {
+  OVERVIEW_ENDPOINTS,
+  OVERVIEW_MIN_WORDS,
+  countQueryWords,
+  resolveOverviewEndpoint,
+} from "../src/lib/osa-overview";
 import DISCOVER from "../src/pages/discover.astro?raw";
 import HOME from "../src/pages/index.astro?raw";
 import TOKENS from "../src/styles/tokens.css?raw";
@@ -218,6 +223,18 @@ describe("the panel", () => {
     expect(CLIENT).toMatch(/\[data-ai-note\][\s\S]{0,80}\.hidden = !on/);
   });
 
+  it("draws the three-words note as a quiet paragraph, not with the error styling", () => {
+    expect(CLIENT).toMatch(
+      /if \(view\.note\) \{\s*body\.append\(element\(doc, "p", "ai-overview__hint", view\.note\)\);\s*return;\s*\}/,
+    );
+    expect(CLIENT).toContain("query: request.query,");
+    const hint = rule(PANEL, ".ai-overview__hint");
+    expect(hint).toMatch(/color:\s*var\(--ai-panel-muted\)/);
+    expect(hint).not.toMatch(HEX);
+    // Its status goes to the polite region that is already there, not to a new one.
+    expect(PANEL.match(/aria-live=/g)).toHaveLength(1);
+  });
+
   it("is written with textContent, never as markup", () => {
     expect(CLIENT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write|set:html/);
     expect(CLIENT).toContain("textContent");
@@ -313,6 +330,13 @@ describe("colours", () => {
   });
 });
 
+/** The "Try" row's example searches, read from the page's source. */
+function homeExamples(): string[] {
+  const list = HOME.match(/const AI_EXAMPLES = \[([\s\S]*?)\];/);
+  if (!list) throw new Error("no AI_EXAMPLES list in index.astro");
+  return [...list[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+}
+
 describe("Home", () => {
   const form = elementMarkup(HOME, "form", 'class="hero__search bracketed"');
 
@@ -329,14 +353,17 @@ describe("Home", () => {
     expect(HOME).toContain('const FieldControl = aiEndpoint ? "div" : Fragment;');
     expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" hidden data-ai-try>/);
     expect(HOME).toContain("Describe the data you need, in plain words");
-    for (const example of [
-      "Resting-state EEG with over 100 participants",
-      "MEG with eye tracking",
-      "Datasets I can analyze in the browser",
-    ]) {
-      expect(HOME).toContain(example);
-    }
     expect(rule(styleOf(HOME), ".hero__try[hidden]")).toMatch(/display:\s*none/);
+  });
+
+  it("offers only examples the overview accepts: every one has at least three words", () => {
+    const examples = homeExamples();
+    expect(examples.length).toBeGreaterThan(0);
+    for (const example of examples) {
+      expect(countQueryWords(example), example).toBeGreaterThanOrEqual(OVERVIEW_MIN_WORDS);
+    }
+    // The row renders exactly this list.
+    expect(HOME).toContain("AI_EXAMPLES.map((example) =>");
   });
 
   it("submits ai=1 to /discover only while on: the client adds the input, and removes it when off", () => {
