@@ -6,7 +6,12 @@
  * pure and with no Astro import, so a unit test can drive it with plain objects standing in for
  * `window`, `document` and `Storage`: Astro files have no render harness in this repo.
  *
- * Three things are decided here.
+ * This module serves two features, in two halves. The first half is the dataset-page pill
+ * (website#517). The second, below the "AI Mode toggle in the search fields" banner, is the AI Mode
+ * toggle in the search fields of Home and Discover (website#518 and #519). They share the widget
+ * check and {@link whenDocumentReady}.
+ *
+ * Three things are decided for the pill.
  *
  * 1. **Whether the pill shows at all.** Only when the widget is on the page AND has an `open`
  *    function. Production pins an older widget that has none, so the check is on the method, never
@@ -22,10 +27,19 @@
  *    remembered in `localStorage`, with every read and write guarded, so a store that is blocked
  *    or full means "show once per page load" and never an error.
  *
- * The same module decides the AI Mode toggle in the search fields of Home and Discover (website#518
- * and #519): whether it is offered ({@link aiModeSearchAvailable}), whether it starts on
- * ({@link initialAiModeSearch}: the URL's `ai=1`, else the remembered choice), how a change is kept
- * ({@link setAiModeSearch}) and how "Ask a follow-up" reaches the widget ({@link askFollowUp}).
+ * Five things are decided for the search toggle, in the second half:
+ *
+ * 1. **Whether it is offered** ({@link aiModeSearchAvailable}): the widget can open and the overview
+ *    endpoint is set.
+ * 2. **Whether it starts on** ({@link initialAiModeSearch}): the address's `ai=1`, else the remembered
+ *    choice.
+ * 3. **How a choice is kept** ({@link setAiModeSearch}): `localStorage` and the address, each
+ *    guarded.
+ * 4. **How the page's own links carry it** ({@link withAiModeParam}, {@link aiLinkHref}).
+ * 5. **How "Ask a follow-up" reaches the widget** ({@link askFollowUp}).
+ *
+ * The overview panel's own states are in `./ai-overview-panel`, and its request and answer in
+ * `./osa-overview`.
  */
 
 /** The `localStorage` key that remembers the hint was dismissed. Versioned so a reworded hint can
