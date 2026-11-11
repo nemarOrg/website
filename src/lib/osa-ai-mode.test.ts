@@ -389,7 +389,6 @@ describe("the AI Mode preference", () => {
   it("reads and writes one versioned key", () => {
     const store = memoryStore();
     expect(AI_MODE_SEARCH_STORAGE_KEY).toBe("nemar:ai-mode-search:v1");
-    expect(readAiModeSearch(store)).toBe(false);
     writeAiModeSearch(store, true);
     expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
     expect(readAiModeSearch(store)).toBe(true);
@@ -399,20 +398,46 @@ describe("the AI Mode preference", () => {
     expect([...store.data.keys()]).toEqual([AI_MODE_SEARCH_STORAGE_KEY]);
   });
 
-  it("reads as off, and never throws, for a throwing, absent or odd store", () => {
-    expect(readAiModeSearch(blockedStore)).toBe(false);
-    expect(readAiModeSearch(null)).toBe(false);
-    expect(readAiModeSearch(undefined)).toBe(false);
-    expect(() => writeAiModeSearch(blockedStore, true)).not.toThrow();
-    expect(() => writeAiModeSearch(null, true)).not.toThrow();
+  it("reads as on, the default, for nothing stored, an odd value, an absent or a throwing store", () => {
+    expect(readAiModeSearch(memoryStore())).toBe(true);
+    expect(readAiModeSearch(blockedStore)).toBe(true);
+    expect(readAiModeSearch(null)).toBe(true);
+    expect(readAiModeSearch(undefined)).toBe(true);
     const odd = memoryStore();
     odd.data.set(AI_MODE_SEARCH_STORAGE_KEY, "1");
+    expect(readAiModeSearch(odd)).toBe(true);
+    // Only the explicit off is off.
+    odd.data.set(AI_MODE_SEARCH_STORAGE_KEY, "off");
     expect(readAiModeSearch(odd)).toBe(false);
   });
 
-  it("starts off with nothing stored and leaves the address alone", () => {
-    const win = pageWindow("/discover?q=faces", memoryStore());
+  it("never throws writing to a blocked or absent store", () => {
+    expect(() => writeAiModeSearch(blockedStore, true)).not.toThrow();
+    expect(() => writeAiModeSearch(blockedStore, false)).not.toThrow();
+    expect(() => writeAiModeSearch(null, true)).not.toThrow();
+  });
+
+  it("starts on with nothing stored and no ai in the address, and leaves the address alone", () => {
+    const store = memoryStore();
+    const win = pageWindow("/discover?q=faces", store);
+    expect(initialAiModeSearch(win)).toBe(true);
+    expect(win.replaceCalls).toBe(0);
+    expect(store.data.size).toBe(0);
+  });
+
+  it("is off from a stored off, and puts ai=0 in the address without a new history entry", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, false);
+    const win = pageWindow("/discover?q=faces#results", store);
     expect(initialAiModeSearch(win)).toBe(false);
+    expect(win.replaced).toEqual(["/discover?q=faces&ai=0#results"]);
+  });
+
+  it("is on from a stored on and leaves the address alone", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, true);
+    const win = pageWindow("/discover?q=faces", store);
+    expect(initialAiModeSearch(win)).toBe(true);
     expect(win.replaceCalls).toBe(0);
   });
 
@@ -425,49 +450,67 @@ describe("the AI Mode preference", () => {
     expect(win.replaceCalls).toBe(0);
   });
 
-  it("is on from a stored on, and puts ai=1 in the address without a new history entry", () => {
+  it("lets ai=0 in the address force off, writes it back, and keeps the address as it is", () => {
     const store = memoryStore();
     writeAiModeSearch(store, true);
-    const win = pageWindow("/discover?q=faces#results", store);
-    expect(initialAiModeSearch(win)).toBe(true);
-    expect(win.replaced).toEqual(["/discover?q=faces&ai=1#results"]);
+    const win = pageWindow("/discover?q=faces&ai=0", store);
+    expect(initialAiModeSearch(win)).toBe(false);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("off");
+    expect(win.replaceCalls).toBe(0);
+    // The next page, without the parameter, keeps the choice.
+    expect(initialAiModeSearch(pageWindow("/discover?q=faces", store))).toBe(false);
   });
 
-  it("is off, and never throws, when the store throws and the address has no ai", () => {
-    const win = pageWindow("/discover?q=faces", blockedStore);
-    expect(initialAiModeSearch(win)).toBe(false);
-    const withUrl = pageWindow("/discover?ai=1", blockedStore);
-    expect(initialAiModeSearch(withUrl)).toBe(true);
+  it("treats an ai value other than 1 or 0 as no choice", () => {
+    const store = memoryStore();
+    writeAiModeSearch(store, false);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=maybe", store))).toBe(false);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=maybe", memoryStore()))).toBe(true);
+  });
+
+  it("is on, and never throws, when the store throws; the address still decides", () => {
+    expect(initialAiModeSearch(pageWindow("/discover?q=faces", blockedStore))).toBe(true);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=1", blockedStore))).toBe(true);
+    expect(initialAiModeSearch(pageWindow("/discover?ai=0", blockedStore))).toBe(false);
   });
 
   it("works when reading localStorage itself throws", () => {
-    const win = pageWindow("/discover?ai=1", undefined);
+    const win = pageWindow("/discover?ai=0", undefined);
     Object.defineProperty(win, "localStorage", {
       get() {
         throw new DOMException("blocked", "SecurityError");
       },
     });
-    expect(initialAiModeSearch(win)).toBe(true);
-    expect(() => setAiModeSearch(win, false)).not.toThrow();
+    expect(initialAiModeSearch(win)).toBe(false);
+    expect(() => setAiModeSearch(win, true)).not.toThrow();
+    const fresh = pageWindow("/discover", undefined);
+    Object.defineProperty(fresh, "localStorage", {
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+    expect(initialAiModeSearch(fresh)).toBe(true);
   });
 
-  it("turning off removes ai from the address with replaceState and stores off", () => {
+  it("turning off puts ai=0 in the address with replaceState and stores off", () => {
     const store = memoryStore();
-    const win = pageWindow("/discover?q=faces&ai=1&page=2", store);
+    const win = pageWindow("/discover?q=faces&page=2", store);
     setAiModeSearch(win, false);
-    expect(win.replaced).toEqual(["/discover?q=faces&page=2"]);
+    expect(win.replaced).toEqual(["/discover?q=faces&page=2&ai=0"]);
     expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("off");
     expect(initialAiModeSearch(win)).toBe(false);
+    setAiModeSearch(win, false);
+    expect(win.replaceCalls).toBe(1);
   });
 
-  it("turning on adds ai=1 once and stores on", () => {
+  it("turning on takes ai out of the address and stores on", () => {
     const store = memoryStore();
-    const win = pageWindow("/", store);
+    const win = pageWindow("/discover?q=faces&ai=0&page=2", store);
     setAiModeSearch(win, true);
-    expect(win.replaced).toEqual(["/?ai=1"]);
+    expect(win.replaced).toEqual(["/discover?q=faces&page=2"]);
+    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
     setAiModeSearch(win, true);
     expect(win.replaceCalls).toBe(1);
-    expect(store.data.get(AI_MODE_SEARCH_STORAGE_KEY)).toBe("on");
   });
 
   it("leaves the address alone when replaceState throws", () => {
@@ -478,12 +521,14 @@ describe("the AI Mode preference", () => {
     expect(() => setAiModeSearch(win, false)).not.toThrow();
   });
 
-  it("builds the query string with ai set or removed", () => {
-    expect(withAiModeParam("", true)).toBe("?ai=1");
-    expect(withAiModeParam("?q=a%20b", true)).toBe("?q=a+b&ai=1");
-    expect(withAiModeParam("?ai=1&q=a", false)).toBe("?q=a");
-    expect(withAiModeParam("?ai=1", false)).toBe("");
-    expect(withAiModeParam("?ai=1", true)).toBe("?ai=1");
+  it("builds the query string with ai=0 for off and no ai for on", () => {
+    expect(withAiModeParam("", false)).toBe("?ai=0");
+    expect(withAiModeParam("?q=a%20b", false)).toBe("?q=a+b&ai=0");
+    expect(withAiModeParam("?ai=1&q=a", false)).toBe("?ai=0&q=a");
+    expect(withAiModeParam("?ai=0&q=a", true)).toBe("?q=a");
+    expect(withAiModeParam("?ai=1&q=a", true)).toBe("?q=a");
+    expect(withAiModeParam("?ai=0", true)).toBe("");
+    expect(withAiModeParam("?q=a", true)).toBe("?q=a");
   });
 });
 
@@ -533,26 +578,27 @@ describe("aiLinkHref", () => {
   const BASE = "https://www.nemar.org/discover?q=face";
   const ORIGIN = "https://www.nemar.org";
 
-  it("adds ai=1 to the page's own /discover links and takes it off again", () => {
-    expect(aiLinkHref("/discover?q=face&page=2", BASE, ORIGIN, true)).toBe(
-      "/discover?q=face&page=2&ai=1",
+  it("adds ai=0 to the page's own /discover links while off and takes it out when on", () => {
+    expect(aiLinkHref("/discover?q=face&page=2", BASE, ORIGIN, false)).toBe(
+      "/discover?q=face&page=2&ai=0",
     );
-    expect(aiLinkHref("/discover", BASE, ORIGIN, true)).toBe("/discover?ai=1");
-    expect(aiLinkHref("/discover?q=a#top", BASE, ORIGIN, true)).toBe("/discover?q=a&ai=1#top");
-    expect(aiLinkHref("/discover?q=face&ai=1", BASE, ORIGIN, false)).toBe("/discover?q=face");
-    expect(aiLinkHref("/discover?ai=1", BASE, ORIGIN, false)).toBe("/discover");
-    expect(aiLinkHref("https://www.nemar.org/discover?q=x", BASE, ORIGIN, true)).toBe(
-      "/discover?q=x&ai=1",
+    expect(aiLinkHref("/discover", BASE, ORIGIN, false)).toBe("/discover?ai=0");
+    expect(aiLinkHref("/discover?q=a#top", BASE, ORIGIN, false)).toBe("/discover?q=a&ai=0#top");
+    expect(aiLinkHref("/discover?q=face&ai=0", BASE, ORIGIN, true)).toBe("/discover?q=face");
+    expect(aiLinkHref("/discover?ai=0", BASE, ORIGIN, true)).toBe("/discover");
+    expect(aiLinkHref("/discover?q=face&ai=1", BASE, ORIGIN, true)).toBe("/discover?q=face");
+    expect(aiLinkHref("https://www.nemar.org/discover?q=x", BASE, ORIGIN, false)).toBe(
+      "/discover?q=x&ai=0",
     );
   });
 
   it("leaves everything else alone: other paths, other origins, links already right", () => {
-    expect(aiLinkHref("/dataset/on002718", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("/discoverable", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("https://other.example/discover?q=x", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("/discover?ai=1", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref("/discover?q=x", BASE, ORIGIN, false)).toBeNull();
-    expect(aiLinkHref("http://[bad", BASE, ORIGIN, true)).toBeNull();
-    expect(aiLinkHref(null, BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("/dataset/on002718", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("/discoverable", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("https://other.example/discover?q=x", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("/discover?ai=0", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref("/discover?q=x", BASE, ORIGIN, true)).toBeNull();
+    expect(aiLinkHref("http://[bad", BASE, ORIGIN, false)).toBeNull();
+    expect(aiLinkHref(null, BASE, ORIGIN, false)).toBeNull();
   });
 });

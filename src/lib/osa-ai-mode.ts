@@ -31,8 +31,8 @@
  *
  * 1. **Whether it is offered** ({@link aiModeSearchAvailable}): the widget can open and the overview
  *    endpoint is set.
- * 2. **Whether it starts on** ({@link initialAiModeSearch}): the address's `ai=1`, else the remembered
- *    choice.
+ * 2. **Whether it starts on** ({@link initialAiModeSearch}): on by default. The address's `ai=1` or
+ *    `ai=0` wins, else the remembered choice, and a reader who never chose is on.
  * 3. **How a choice is kept** ({@link setAiModeSearch}): `localStorage` and the address, each
  *    guarded.
  * 4. **How the page's own links carry it** ({@link withAiModeParam}, {@link aiLinkHref}).
@@ -229,10 +229,12 @@ export function placeAiModeHint(input: {
 // ---------------------------------------------------------------------------
 
 /** The `localStorage` key that remembers whether AI Mode is on in search. Versioned so a change
- *  of meaning can start every reader from off by bumping it. */
+ *  of meaning can start every reader from the default (on) by bumping it. */
 export const AI_MODE_SEARCH_STORAGE_KEY = "nemar:ai-mode-search:v1";
 
-/** The query parameter that carries AI Mode through the address: `ai=1` is on. */
+/** The query parameter that carries AI Mode through the address. AI Mode is on by default, so a
+ *  page without it is on: `ai=0` is the explicit off, `ai=1` the explicit on (it overrides a
+ *  remembered off), and a link the page writes for an on state carries no parameter at all. */
 export const AI_MODE_URL_PARAM = "ai";
 
 /** What the reader is told at the point of use: with AI Mode on, the browser posts the search and
@@ -270,17 +272,18 @@ export interface AiModePageWindow {
   localStorage?: AiModeStore;
 }
 
-/** The remembered choice. Off for a store that is absent, throws, or holds anything else. */
+/** The remembered choice. On unless the store holds an explicit off: AI Mode is on by default, so
+ *  a store that is absent, throws, or holds anything else leaves the reader on. */
 export function readAiModeSearch(store: AiModeStore | null | undefined): boolean {
   try {
-    return store?.getItem(AI_MODE_SEARCH_STORAGE_KEY) === SEARCH_ON;
+    return store?.getItem(AI_MODE_SEARCH_STORAGE_KEY) !== SEARCH_OFF;
   } catch {
-    return false;
+    return true;
   }
 }
 
-/** Remembers the choice. A store that throws is ignored: the choice then lasts for the page and,
- *  through `ai=1`, for the links the reader follows. */
+/** Remembers the choice. A store that throws is ignored: an off then lasts for the page and,
+ *  through `ai=0`, for the links the reader follows. */
 export function writeAiModeSearch(store: AiModeStore | null | undefined, on: boolean): void {
   try {
     store?.setItem(AI_MODE_SEARCH_STORAGE_KEY, on ? SEARCH_ON : SEARCH_OFF);
@@ -289,11 +292,13 @@ export function writeAiModeSearch(store: AiModeStore | null | undefined, on: boo
   }
 }
 
-/** `search` (a query string, with or without its `?`) with `ai=1` set or removed. */
+/** `search` (a query string, with or without its `?`) with the choice in it. On is the default, so
+ *  it is the parameter taken out; off is written as `ai=0`, so that a link, a reload or a search
+ *  submitted from the page stays off. */
 export function withAiModeParam(search: string, on: boolean): string {
   const params = new URLSearchParams(search);
-  if (on) params.set(AI_MODE_URL_PARAM, "1");
-  else params.delete(AI_MODE_URL_PARAM);
+  if (on) params.delete(AI_MODE_URL_PARAM);
+  else params.set(AI_MODE_URL_PARAM, "0");
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -340,29 +345,35 @@ function replaceAiModeUrl(win: AiModePageWindow, on: boolean): void {
 }
 
 /**
- * Whether AI Mode starts on for this page. An `ai=1` in the address wins over what is remembered
- * (a shared link, a paged or filtered link) and is written back, so the next page without the
- * parameter is still on. Otherwise the remembered choice applies, and the address gets `ai=1` so
- * a copied link carries it.
+ * Whether AI Mode starts on for this page. It is on by default: the server renders every page, which
+ * is cached at the edge for everyone, in the on state, and this lets the reader switch it off.
+ *
+ * 1. `ai=1` in the address is on and `ai=0` is off. Either wins over what is remembered (a shared
+ *    link, a paged or filtered link) and is written back to the store, so the next page without
+ *    the parameter keeps the choice.
+ * 2. Otherwise the remembered choice applies. Nothing remembered is on and leaves the address
+ *    alone. A remembered off puts `ai=0` in the address, so a copied link says what the page
+ *    shows (a link without `ai` is on for whoever opens it).
  */
 export function initialAiModeSearch(win: AiModePageWindow): boolean {
   const store = browserStore(win);
-  let fromUrl = false;
+  let fromUrl: string | null = null;
   try {
-    fromUrl = new URLSearchParams(win.location.search).get(AI_MODE_URL_PARAM) === "1";
+    fromUrl = new URLSearchParams(win.location.search).get(AI_MODE_URL_PARAM);
   } catch {
     // An address that cannot be read is an address without the parameter.
   }
-  if (fromUrl) {
-    writeAiModeSearch(store, true);
-    return true;
+  if (fromUrl === "1" || fromUrl === "0") {
+    const on = fromUrl === "1";
+    writeAiModeSearch(store, on);
+    return on;
   }
   const remembered = readAiModeSearch(store);
-  if (remembered) replaceAiModeUrl(win, true);
+  if (!remembered) replaceAiModeUrl(win, false);
   return remembered;
 }
 
-/** Records a change the reader made: remembered, and in the address (`ai=1`, or removed). */
+/** Records a change the reader made: remembered, and in the address (`ai=0` for off, removed for on). */
 export function setAiModeSearch(win: AiModePageWindow, on: boolean): void {
   writeAiModeSearch(browserStore(win), on);
   replaceAiModeUrl(win, on);
