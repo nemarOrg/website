@@ -22,7 +22,7 @@
     "test:e2e": "playwright test",
     "deploy:og-cron": "bun wrangler deploy -c wrangler.og-cron.toml",
     "bump": "./scripts/bump-version.sh",
-    "lint": "biome check src",
+    "lint": "biome check src e2e playwright.config.ts",
     "format": "biome format --write src",
     "typecheck": "astro check"
   },
