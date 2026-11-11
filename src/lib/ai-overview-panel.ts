@@ -58,7 +58,7 @@ export interface PanelView {
 
 export const PANEL_HEADING = "AI overview";
 export const PANEL_FOOTNOTE =
-  "Written by AI from these search results. Check a dataset before you rely on it.";
+  "Written by AI from these search results. Check the dataset before relying on it.";
 export const FOLLOW_UP_LABEL = "Ask a follow-up";
 export const RETRY_LABEL = "Try again";
 

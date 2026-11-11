@@ -60,7 +60,9 @@ describe("panelView", () => {
       { id: "on002718", href: "/dataset/on002718", reason: "Face conditions, HED events." },
     ]);
     expect(view.footnote).toBe(PANEL_FOOTNOTE);
-    expect(view.footnote).toContain("Written by AI from these search results");
+    expect(view.footnote).toBe(
+      "Written by AI from these search results. Check the dataset before relying on it.",
+    );
     expect(view.followUp).toBe(FOLLOW_UP_LABEL);
     expect(view.error).toBeNull();
   });
