@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AI_MODE_HINT_STORAGE_KEY,
   type AiModeDocument,
+  type AiModeLoadTarget,
   type AiModeStore,
   type AiModeWindow,
   aiModeAvailable,
@@ -54,6 +55,19 @@ function fakeDocument(readyState: string): AiModeDocument & { fire(): void; list
     },
     get listeners() {
       return pending.length;
+    },
+  };
+}
+
+/** A `window` that records its `load` listeners and fires them on demand. */
+function fakeLoadTarget(): AiModeLoadTarget & { fire(): void } {
+  const pending: Array<() => void> = [];
+  return {
+    addEventListener(_type, listener) {
+      pending.push(listener);
+    },
+    fire() {
+      for (const listener of pending.splice(0)) listener();
     },
   };
 }
@@ -118,21 +132,47 @@ describe("whenDocumentReady", () => {
       ran += 1;
     });
     expect(ran).toBe(0);
-    expect(doc.listeners).toBe(1);
     doc.fire();
     expect(ran).toBe(1);
   });
 
-  it("runs at once when the document is already interactive or complete", () => {
-    for (const readyState of ["interactive", "complete"]) {
-      const doc = fakeDocument(readyState);
-      let ran = 0;
-      whenDocumentReady(doc, () => {
+  it("still waits when readyState is interactive: a module script runs there, before the widget's", () => {
+    const doc = fakeDocument("interactive");
+    let ran = 0;
+    whenDocumentReady(doc, () => {
+      ran += 1;
+    });
+    expect(ran).toBe(0);
+    doc.fire();
+    expect(ran).toBe(1);
+  });
+
+  it("runs at once only when the document is complete", () => {
+    const doc = fakeDocument("complete");
+    let ran = 0;
+    whenDocumentReady(doc, () => {
+      ran += 1;
+    });
+    expect(ran).toBe(1);
+    expect(doc.listeners).toBe(0);
+  });
+
+  it("falls back to load when DOMContentLoaded has already fired, and runs once whichever comes first", () => {
+    const doc = fakeDocument("interactive");
+    const win = fakeLoadTarget();
+    let ran = 0;
+    whenDocumentReady(
+      doc,
+      () => {
         ran += 1;
-      });
-      expect(ran).toBe(1);
-      expect(doc.listeners).toBe(0);
-    }
+      },
+      win,
+    );
+    win.fire();
+    expect(ran).toBe(1);
+    doc.fire();
+    win.fire();
+    expect(ran).toBe(1);
   });
 });
 
@@ -172,9 +212,35 @@ describe("revealAiModePill", () => {
     expect(pill.hidden).toBe(true);
   });
 
-  it("reveals at once when the document is no longer loading", () => {
+  it("does not reveal while the document is interactive and the widget's script is still to run", () => {
+    // The real ordering: the module script runs at `interactive`, the widget arrives after it.
+    const win: AiModeWindow & AiModeLoadTarget & { fire(): void } = {
+      ...fakeLoadTarget(),
+    };
+    const doc = fakeDocument("interactive");
     const pill = { hidden: true };
-    revealAiModePill({ OSAChatWidget: { open() {} } }, fakeDocument("interactive"), pill);
+    revealAiModePill(win, doc, pill);
+    expect(pill.hidden).toBe(true);
+    win.OSAChatWidget = { open() {} };
+    doc.fire();
+    expect(pill.hidden).toBe(false);
+  });
+
+  it("reveals at once when the document is complete", () => {
+    const pill = { hidden: true };
+    revealAiModePill({ OSAChatWidget: { open() {} } }, fakeDocument("complete"), pill);
+    expect(pill.hidden).toBe(false);
+  });
+
+  it("falls back to the window's load when DOMContentLoaded already passed", () => {
+    const win: AiModeWindow & AiModeLoadTarget & { fire(): void } = {
+      ...fakeLoadTarget(),
+      OSAChatWidget: { open() {} },
+    };
+    const pill = { hidden: true };
+    revealAiModePill(win, fakeDocument("interactive"), pill);
+    expect(pill.hidden).toBe(true);
+    win.fire();
     expect(pill.hidden).toBe(false);
   });
 });

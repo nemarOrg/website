@@ -14,9 +14,9 @@
  *    or the integrity check blocked it) leaves `window.OSAChatWidget` undefined, and the pill
  *    stays hidden.
  * 2. **When that is decided.** The ActionBar's script is a deferred module script that sits before
- *    the widget's deferred classic script in the document, so it runs first and sees no widget
- *    yet. Deferred scripts all run before `DOMContentLoaded`, so the pill is revealed then, or at
- *    once when the document is no longer loading ({@link whenDocumentReady},
+ *    the widget's deferred classic script in the document, so it runs first, with `readyState`
+ *    already `interactive`, and sees no widget yet. Deferred scripts all run before
+ *    `DOMContentLoaded`, so the pill is revealed then ({@link whenDocumentReady},
  *    {@link revealAiModePill}).
  * 3. **The one-time hint** under the pill ({@link shouldShowAiModeHint}, {@link dismissAiModeHint}):
  *    remembered in `localStorage`, with every read and write guarded, so a store that is blocked
@@ -76,14 +76,40 @@ export function openAiMode(win: AiModeWindow): boolean {
   }
 }
 
-/** Runs `callback` once the document has been parsed and its deferred scripts have run: at once
- *  when `readyState` is not `loading`, else on `DOMContentLoaded`. */
-export function whenDocumentReady(doc: AiModeDocument, callback: () => void): void {
-  if (doc.readyState !== "loading") {
+/** The part of `window` the fallback needs: the `load` event. */
+export interface AiModeLoadTarget {
+  addEventListener(type: "load", listener: () => void, options?: { once: boolean }): void;
+}
+
+/**
+ * Runs `callback` once, after the document's deferred scripts have run.
+ *
+ * `readyState` alone cannot say that. A module script (the ActionBar's) runs while `readyState`
+ * is already `interactive` but BEFORE the widget's deferred classic script, later in the
+ * document, and before `DOMContentLoaded`; the widget exists only after it. So only `complete`
+ * means "now". In every other state the callback waits for `DOMContentLoaded`, which follows all
+ * deferred scripts (a failed or blocked one included), and for `loadTarget`'s `load` as the
+ * fallback for a script that runs after `DOMContentLoaded` has already fired, when `readyState` is
+ * still `interactive` and that event will not come again. Whichever is first runs the callback,
+ * and the other is ignored.
+ */
+export function whenDocumentReady(
+  doc: AiModeDocument,
+  callback: () => void,
+  loadTarget?: AiModeLoadTarget,
+): void {
+  if (doc.readyState === "complete") {
     callback();
     return;
   }
-  doc.addEventListener("DOMContentLoaded", callback, { once: true });
+  let done = false;
+  const once = () => {
+    if (done) return;
+    done = true;
+    callback();
+  };
+  doc.addEventListener("DOMContentLoaded", once, { once: true });
+  loadTarget?.addEventListener("load", once, { once: true });
 }
 
 /** The part of an element the reveal toggles (`hidden` is wider than a boolean in lib.dom). */
@@ -97,16 +123,20 @@ export interface Hideable {
  * ship `hidden`; it is never hidden again here.
  */
 export function revealAiModePill(
-  win: AiModeWindow,
+  win: AiModeWindow & Partial<AiModeLoadTarget>,
   doc: AiModeDocument,
   pill: Hideable,
   onRevealed?: () => void,
 ): void {
-  whenDocumentReady(doc, () => {
-    if (!aiModeAvailable(win)) return;
-    pill.hidden = false;
-    onRevealed?.();
-  });
+  whenDocumentReady(
+    doc,
+    () => {
+      if (!aiModeAvailable(win)) return;
+      pill.hidden = false;
+      onRevealed?.();
+    },
+    typeof win.addEventListener === "function" ? (win as AiModeLoadTarget) : undefined,
+  );
 }
 
 /** Whether the hint is still to be shown: nothing stored says it was dismissed. A store that
