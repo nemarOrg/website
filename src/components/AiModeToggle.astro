@@ -17,12 +17,15 @@ interface Props {
   size?: "md" | "lg";
   /** `id` of the form the field submits with, when it is not an ancestor of the toggle. */
   form?: string;
-  /** Carry `ai=1` onto the page's own /discover links (paging, filters, the corrected-query
+  /** Carry the choice onto the page's own /discover links (paging, filters, the corrected-query
    *  line), whose server-rendered hrefs cannot know the preference. */
   carryLinks?: boolean;
+  /** AI Mode is on, as the server renders it: the default, so the page that is cached for
+   *  everyone is right for most readers and the browser only switches off a reader who chose off. */
+  on?: boolean;
 }
 
-const { endpoint, size = "md", form, carryLinks = false } = Astro.props;
+const { endpoint, size = "md", form, carryLinks = false, on = true } = Astro.props;
 
 // The notice is shown as visible text under the field while AI Mode is on (SearchBar, Home); the
 // `title` repeats it for pointer users.
@@ -32,7 +35,7 @@ const disclosure = AI_MODE_SEARCH_DISCLOSURE;
 <button
   type="button"
   class:list={["ai-toggle", `ai-toggle--${size}`]}
-  aria-pressed="false"
+  aria-pressed={on ? "true" : "false"}
   title={disclosure}
   hidden
   data-ai-toggle

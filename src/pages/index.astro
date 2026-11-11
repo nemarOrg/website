@@ -26,7 +26,16 @@ const HIGHLIGHT_ROWS = 10;
 const aiEndpoint = overviewEndpoint();
 // With the toggle, the input and its toggle share a positioned wrapper that carries the ring.
 const FieldControl = aiEndpoint ? "div" : Fragment;
-const fieldControlProps = aiEndpoint ? { class: "hero__search-control", "data-ai-field": "" } : {};
+const AI_LABEL = "Describe the data you need";
+const PLAIN_LABEL = "Search datasets";
+const AI_PLACEHOLDER = "Describe the data you need, in plain words";
+const PLAIN_PLACEHOLDER = "Enter keyword or phrase";
+// The page is cached for everyone and AI Mode is on by default, so the server renders the on state
+// (the ring, the pressed toggle, the AI placeholder and label) and the browser switches off a reader
+// who chose off (src/lib/ai-mode-search-client.ts, ADR 0032).
+const fieldControlProps = aiEndpoint
+  ? { class: "hero__search-control", "data-ai-field": "", "data-ai": "on" }
+  : {};
 const AI_EXAMPLES = [
   "Resting-state EEG with over 100 participants",
   "MEG with eye tracking",
@@ -141,13 +150,15 @@ Astro.response.headers.set(
             <label
               class="visually-hidden"
               for="hero-search"
-              data-ai-label={aiEndpoint ? "Describe the data you need" : undefined}>Search datasets</label>
+              data-ai-label={aiEndpoint ? AI_LABEL : undefined}
+              data-ai-label-off={aiEndpoint ? PLAIN_LABEL : undefined}>{aiEndpoint ? AI_LABEL : PLAIN_LABEL}</label>
             <input
               id="hero-search"
               name="q"
               type="search"
-              placeholder="Enter keyword or phrase"
-              data-ai-placeholder={aiEndpoint ? "Describe the data you need, in plain words" : undefined}
+              placeholder={aiEndpoint ? AI_PLACEHOLDER : PLAIN_PLACEHOLDER}
+              data-ai-placeholder={aiEndpoint ? AI_PLACEHOLDER : undefined}
+              data-ai-placeholder-off={aiEndpoint ? PLAIN_PLACEHOLDER : undefined}
               autocomplete="off"
             />
             {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="lg" />}

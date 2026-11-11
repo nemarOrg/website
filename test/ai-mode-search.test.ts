@@ -71,9 +71,10 @@ describe("the toggle", () => {
   const markup = TOGGLE.slice(TOGGLE.indexOf("<button"), TOGGLE.indexOf("</button>") + 9);
   const tag = openingTag(markup, "button", "data-ai-toggle");
 
-  it("is a button with aria-pressed, shipped hidden, that submits nothing", () => {
+  it("is a button with aria-pressed, shipped hidden and pressed (on is the default), that submits nothing", () => {
     expect(tag).toMatch(/type="button"/);
-    expect(tag).toMatch(/aria-pressed="false"/);
+    expect(tag).toMatch(/aria-pressed=\{on \? "true" : "false"\}/);
+    expect(TOGGLE).toMatch(/on = true \} = Astro\.props/);
     expect(tag).toMatch(/\bhidden\b/);
     expect(rule(styleOf(TOGGLE), ".ai-toggle[hidden]")).toMatch(/display:\s*none/);
   });
@@ -344,15 +345,19 @@ describe("Home", () => {
     expect(openingTag(HOME, "form", 'class="hero__search bracketed"')).toBe(
       '<form class="hero__search bracketed" action="/discover" method="get" role="search">',
     );
-    expect(form).toMatch(/<input[^>]*name="q"[^>]*placeholder="Enter keyword or phrase"/s);
-    // Nothing in the markup submits `ai`: it is added by the client, only while AI Mode is on.
+    expect(form).toMatch(
+      /<input[^>]*name="q"[^>]*placeholder=\{aiEndpoint \? AI_PLACEHOLDER : PLAIN_PLACEHOLDER\}/s,
+    );
+    expect(HOME).toContain('const PLAIN_PLACEHOLDER = "Enter keyword or phrase";');
+    // Nothing in the markup submits `ai`: AI Mode is on by default, so no `ai` means on, and the
+    // client adds `ai=0` only while it is off.
     expect(form).not.toMatch(/name="ai"/);
   });
 
   it("wraps the field and shows the Try row only when the endpoint is set", () => {
     expect(HOME).toContain('const FieldControl = aiEndpoint ? "div" : Fragment;');
     expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" hidden data-ai-try>/);
-    expect(HOME).toContain("Describe the data you need, in plain words");
+    expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in plain words";');
     expect(rule(styleOf(HOME), ".hero__try[hidden]")).toMatch(/display:\s*none/);
   });
 
@@ -366,12 +371,22 @@ describe("Home", () => {
     expect(HOME).toContain("AI_EXAMPLES.map((example) =>");
   });
 
-  it("submits ai=1 to /discover only while on: the client adds the input, and removes it when off", () => {
-    expect(CLIENT).toMatch(/input\.name = "ai";\s*input\.value = "1";/);
-    expect(CLIENT).toMatch(/if \(!on\) \{\s*existing\?\.remove\(\);\s*return;\s*\}/);
+  it("submits ai=0 to /discover only while off: the client adds the input, and removes it when on", () => {
+    expect(CLIENT).toMatch(/input\.name = "ai";\s*input\.value = "0";/);
+    expect(CLIENT).toMatch(/if \(on\) \{\s*existing\?\.remove\(\);\s*return;\s*\}/);
     expect(CLIENT).toContain("syncAiInput(doc, toggle, on)");
-    // Discover's own form gets the same input from the server when the address has ai=1.
-    expect(SEARCH_BAR).toMatch(/\{aiEndpoint && aiOn && <input type="hidden" name="ai" value="1"/);
+    // Discover's own form gets the same input from the server when the address has ai=0, so a
+    // search submitted without scripts does not flip an off to the default on.
+    expect(SEARCH_BAR).toMatch(/\{aiEndpoint && !aiOn && <input type="hidden" name="ai" value="0"/);
+    expect(SEARCH_BAR).toMatch(/aiOn = true,/);
+  });
+
+  it("renders the on state for everyone and lets the client switch off, because the page is cached", () => {
+    expect(HOME).toMatch(/"data-ai": "on"/);
+    expect(SEARCH_BAR).toContain('aiOn ? "on" : "off"');
+    expect(SEARCH_BAR).toContain("on={aiOn}");
+    // A widget that never loads leaves the server's on state with nothing behind it: it is undone.
+    expect(CLIENT).toMatch(/if \(ready\.length === 0\) \{[\s\S]{0,200}paint\(toggles, false\)/);
   });
 
   it("fills the field from an example and submits the form", () => {
@@ -407,7 +422,7 @@ describe("AI Mode on the page", () => {
     expect(CLIENT).toContain("aiModeSearchAvailable(widgetWindow, t.dataset.aiEndpoint)");
   });
 
-  it("carries ai=1 on Discover's own links and in its form, and Discover's paging reads it from the URL", () => {
+  it("carries ai=0 on Discover's own links and in its form, and Discover's paging reads it from the URL", () => {
     expect(openingTag(TOGGLE, "button", "data-ai-toggle")).toMatch(/data-ai-links=\{carryLinks/);
     expect(SEARCH_BAR).toContain("carryLinks");
     expect(DISCOVER).toContain("aiOn={state.ai}");

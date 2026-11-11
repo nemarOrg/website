@@ -24,7 +24,11 @@ interface Props {
    * website#518); unset, there is no toggle at all.
    */
   aiEndpoint?: string | null;
-  /** AI Mode is on in the address (`ai=1`): keeps it across a search that runs without scripts. */
+  /**
+   * AI Mode is on. It is on by default, and the page is cached at the edge for everyone, so the
+   * server renders on unless the address says `ai=0`; the browser then applies what the reader
+   * chose. Off, the form carries `ai=0`, so a search that runs without scripts keeps the off.
+   */
   aiOn?: boolean;
 }
 
@@ -36,7 +40,7 @@ const {
   label = "Search datasets",
   form,
   aiEndpoint = null,
-  aiOn = false,
+  aiOn = true,
 } = Astro.props;
 const inputId = `search-${Math.random().toString(36).slice(2, 8)}`;
 // Standalone (the landing hero) it is a form; joined to another form it is just
@@ -47,7 +51,10 @@ const wrapperProps = form ? {} : { action, method: "get" };
 
 <Wrapper class:list={["searchbar", `searchbar--${size}`, aiEndpoint && "searchbar--ai"]} role="search" {...wrapperProps}>
   <label class="visually-hidden" for={inputId}>{label}</label>
-  <div class="searchbar__field" data-ai-field={aiEndpoint ? "" : undefined}>
+  <div
+    class="searchbar__field"
+    data-ai-field={aiEndpoint ? "" : undefined}
+    data-ai={aiEndpoint ? (aiOn ? "on" : "off") : undefined}>
     <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
       <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
@@ -61,9 +68,9 @@ const wrapperProps = form ? {} : { action, method: "get" };
       autocomplete="off"
       form={form}
     />
-    {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="md" form={form} carryLinks />}
+    {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="md" form={form} on={aiOn} carryLinks />}
   </div>
-  {aiEndpoint && aiOn && <input type="hidden" name="ai" value="1" form={form} data-ai-input />}
+  {aiEndpoint && !aiOn && <input type="hidden" name="ai" value="0" form={form} data-ai-input />}
   <button type="submit" class="searchbar__submit" form={form}>Search</button>
   {
     aiEndpoint && (

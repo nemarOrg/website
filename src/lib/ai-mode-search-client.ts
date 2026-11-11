@@ -1,7 +1,7 @@
 /**
  * The browser half of the AI Mode toggle in search (website#518 on Discover, #519 on Home): it
  * finds the toggles `AiModeToggle.astro` renders hidden, reveals them once the widget can open,
- * keeps `ai=1` in the address, the form and the page's own links, and runs the AI overview panel
+ * keeps `ai=0` (the off) in the address, the form and the page's own links, and runs the AI overview panel
  * above Discover's results.
  *
  * What is decided in a tested module: the panel's transitions (`OverviewController` in
@@ -10,7 +10,7 @@
  * them `parseOverviewRequest`), the preference, the address parameter, the link rewrite
  * (`aiLinkHref`) and the follow-up call (`./osa-ai-mode`). What is not: this file's DOM glue,
  * which turns those results into elements, moves focus back to the panel's heading when a button
- * the reader used is replaced, and keeps the `ai=1` input in the form ({@link syncAiInput}). That
+ * the reader used is replaced, and keeps the `ai=0` input in the form ({@link syncAiInput}). That
  * part is checked in a browser and by the source guards in `test/ai-mode-search.test.ts`.
  *
  * Nothing here writes markup from a string: the overview's text is set with `textContent` and its
@@ -41,29 +41,33 @@ import { type OverviewRequest, parseOverviewRequest, requestOverview } from "./o
 /** Names `ai` in a form the field submits with, so a search, a filter or a sort keeps AI Mode. */
 const AI_INPUT = "input[data-ai-input]";
 
-/** Adds or removes the hidden `ai=1` input of the form the toggle's field submits with. Off, the
- *  form is exactly what it was: no input, so nothing extra is submitted. */
+/** Keeps the hidden `ai=0` input of the form the toggle's field submits with. AI Mode is on by
+ *  default, so on the form carries nothing (a search then means on) and off carries `ai=0`, which
+ *  a search, a filter or a sort keeps, with or without scripts. */
 export function syncAiInput(doc: Document, toggle: HTMLElement, on: boolean): void {
   const formId = toggle.dataset.aiForm;
   const form = formId ? doc.getElementById(formId) : toggle.closest("form");
   if (!(form instanceof HTMLFormElement)) return;
   const existing = doc.querySelector<HTMLInputElement>(AI_INPUT);
-  if (!on) {
+  if (on) {
     existing?.remove();
     return;
   }
-  if (existing) return;
+  if (existing) {
+    existing.value = "0";
+    return;
+  }
   const input = doc.createElement("input");
   input.type = "hidden";
   input.name = "ai";
-  input.value = "1";
+  input.value = "0";
   input.setAttribute("data-ai-input", "");
   if (formId) input.setAttribute("form", formId);
   form.append(input);
 }
 
-/** Sets or removes `ai=1` on the page's own /discover links, whose server-rendered hrefs (cached
- *  at the edge for every reader) cannot know the preference. */
+/** Sets `ai=0` on, or takes it off, the page's own /discover links, whose server-rendered hrefs
+ *  (cached at the edge for every reader) cannot know the preference. */
 export function carryAiOnLinks(doc: Document, on: boolean): void {
   const root = doc.getElementById("main") ?? doc;
   for (const anchor of root.querySelectorAll<HTMLAnchorElement>("a[href]")) {
@@ -269,13 +273,43 @@ export function initAiModeSearch(win: Window, doc: Document): void {
   const pageWindow = win as unknown as AiModePageWindow;
   const widgetWindow = win as unknown as AiModeWindow;
 
+  /** What the fields, the Try row and the notes look like for a state. The server renders the on
+   *  state for everyone (the page is cached), so this is also what switches an off in. */
+  const paint = (all: HTMLButtonElement[], on: boolean) => {
+    for (const toggle of all) {
+      toggle.setAttribute("aria-pressed", String(on));
+      const field = fieldOf(toggle);
+      if (field) field.dataset.ai = on ? "on" : "off";
+      const input = field?.querySelector<HTMLInputElement>("input[type=search]");
+      if (input?.dataset.aiPlaceholder) {
+        input.placeholder = on
+          ? input.dataset.aiPlaceholder
+          : (input.dataset.aiPlaceholderOff ?? "");
+      }
+      const label = field?.querySelector<HTMLElement>("[data-ai-label]");
+      if (label?.dataset.aiLabel) {
+        label.textContent = on ? label.dataset.aiLabel : (label.dataset.aiLabelOff ?? "");
+      }
+    }
+    for (const row of doc.querySelectorAll<HTMLElement>("[data-ai-try]")) row.hidden = !on;
+    for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
+    for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-disclosure]")) {
+      note.hidden = !on;
+    }
+  };
+
   whenDocumentReady(
     doc,
     () => {
       const ready = toggles.filter((t) =>
         aiModeSearchAvailable(widgetWindow, t.dataset.aiEndpoint),
       );
-      if (ready.length === 0) return;
+      if (ready.length === 0) {
+        // The widget did not load (or is the older one without `open`): the server's on state has
+        // nothing behind it, so the fields read as plain search.
+        paint(toggles, false);
+        return;
+      }
 
       const section = doc.querySelector<HTMLElement>("[data-ai-overview]");
       const request = parseOverviewRequest(
@@ -286,29 +320,10 @@ export function initAiModeSearch(win: Window, doc: Document): void {
         section && request ? new OverviewPanel(win, doc, section, request, endpoint) : null;
 
       const apply = (on: boolean) => {
+        paint(ready, on);
         for (const toggle of ready) {
-          toggle.setAttribute("aria-pressed", String(on));
-          const field = fieldOf(toggle);
-          if (field) field.dataset.ai = on ? "on" : "off";
-          const input = field?.querySelector<HTMLInputElement>("input[type=search]");
-          if (input?.dataset.aiPlaceholder) {
-            input.dataset.aiPlaceholderOff ??= input.placeholder;
-            input.placeholder = on
-              ? input.dataset.aiPlaceholder
-              : (input.dataset.aiPlaceholderOff ?? "");
-          }
-          const label = field?.querySelector<HTMLElement>("[data-ai-label]");
-          if (label?.dataset.aiLabel) {
-            label.dataset.aiLabelOff ??= label.textContent ?? "";
-            label.textContent = on ? label.dataset.aiLabel : (label.dataset.aiLabelOff ?? "");
-          }
           syncAiInput(doc, toggle, on);
           if (toggle.hasAttribute("data-ai-links")) carryAiOnLinks(doc, on);
-        }
-        for (const row of doc.querySelectorAll<HTMLElement>("[data-ai-try]")) row.hidden = !on;
-        for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-note]")) note.hidden = !on;
-        for (const note of doc.querySelectorAll<HTMLElement>("[data-ai-disclosure]")) {
-          note.hidden = !on;
         }
         panel?.setOn(on);
       };
