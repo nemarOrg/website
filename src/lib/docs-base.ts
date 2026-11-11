@@ -16,13 +16,13 @@
 const PROD_DOCS_BASE = "https://docs.nemar.org";
 
 /**
- * Doc pages the account surfaces link to (website#301). Named constants
- * rather than inline strings because each is referenced from more than one
- * page — Settings, `/upload`, `/onboarding` and the verify step all point at
- * one of the two — and a slug typo in one of them is invisible until someone
- * clicks it.
+ * Doc pages the site links to by path. Named constants rather than inline
+ * strings because each is referenced from more than one place, and a slug typo
+ * in one of them is invisible until someone clicks it. The account ones
+ * (website#301) are used by Settings, `/upload`, `/onboarding` and the verify
+ * step; the analyze-in-browser one by the dataset page's AI Mode pill.
  *
- * Both live under `/web/`, the section of docs.nemar.org that covers the
+ * All live under `/web/`, the section of docs.nemar.org that covers the
  * browser surface (as `/web/uploading/` and `/web/publication-review/`
  * already do).
  */
