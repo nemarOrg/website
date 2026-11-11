@@ -6,7 +6,10 @@
  * The API clears the session cookie itself and the proxy mirrors that. When the API cannot be
  * reached, or answers without a Set-Cookie, the proxy clears the cookie on its own so the browser
  * does not keep a session the API will refuse. While the API's cookie moves from `nemar_session`
- * to `__Host-nemar_session` a browser can hold either, so the fallback clears both.
+ * to `__Host-nemar_session` a browser can hold either, so the fallback clears both. A browser
+ * treats a cookie set with a `Domain` as a different cookie from one set without, and production
+ * issues the legacy name with `Domain=app.nemar.org`, so on a `nemar.org` host the legacy name is
+ * cleared three ways (no domain, the request's host, `nemar.org`), as the API's own sign-out does.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +19,11 @@ import { callRoute } from "./harness";
 const URL_ = "https://app.nemar.org/api/auth/logout";
 const NEW_CLEAR = "__Host-nemar_session=; Max-Age=0; Path=/; SameSite=Lax; Secure";
 const LEGACY_CLEAR = "nemar_session=; Max-Age=0; Path=/; SameSite=Lax; Secure";
+const LEGACY_CLEAR_HOST =
+  "nemar_session=; Max-Age=0; Path=/; Domain=app.nemar.org; SameSite=Lax; Secure";
+const LEGACY_CLEAR_ZONE =
+  "nemar_session=; Max-Age=0; Path=/; Domain=nemar.org; SameSite=Lax; Secure";
+const ALL_CLEARS_APP = [NEW_CLEAR, LEGACY_CLEAR, LEGACY_CLEAR_HOST, LEGACY_CLEAR_ZONE];
 
 const originalFetch = globalThis.fetch;
 
@@ -35,31 +43,80 @@ afterEach(() => {
 });
 
 describe("POST /api/auth/logout, when the API sends no cookie", () => {
-  it("clears both names after an unreachable API (an HTML sign-out form)", async () => {
+  it("clears every scope of both names after an unreachable API (an HTML sign-out form)", async () => {
     globalThis.fetch = (async () => {
       throw new Error("the API is unreachable");
     }) as unknown as typeof fetch;
     const res = await callRoute(POST, URL_, {}, init("text/html"));
     expect(res.status).toBe(303);
-    expect(res.headers.getSetCookie()).toEqual([NEW_CLEAR, LEGACY_CLEAR]);
+    expect(res.headers.getSetCookie()).toEqual(ALL_CLEARS_APP);
   });
 
-  it("clears both names after an unreachable API (a fetch caller)", async () => {
+  it("clears every scope of both names after an unreachable API (a fetch caller)", async () => {
     globalThis.fetch = (async () => {
       throw new Error("the API is unreachable");
     }) as unknown as typeof fetch;
     const res = await callRoute(POST, URL_, {}, init("application/json"));
     expect(res.status).toBe(502);
-    expect(res.headers.getSetCookie()).toEqual([NEW_CLEAR, LEGACY_CLEAR]);
+    expect(res.headers.getSetCookie()).toEqual(ALL_CLEARS_APP);
   });
 
-  it("clears both names when the API answers without a Set-Cookie", async () => {
+  it("clears every scope of both names when the API answers without a Set-Cookie", async () => {
     globalThis.fetch = (async () =>
       new Response('{"ok":true}', {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })) as unknown as typeof fetch;
     const res = await callRoute(POST, URL_, {}, init("text/html"));
+    expect(res.headers.getSetCookie()).toEqual(ALL_CLEARS_APP);
+  });
+});
+
+describe("POST /api/auth/logout, the fallback clear by request host", () => {
+  const unreachable = () => {
+    globalThis.fetch = (async () => {
+      throw new Error("the API is unreachable");
+    }) as unknown as typeof fetch;
+  };
+
+  it("sends no Domain on the host-prefixed clear", async () => {
+    unreachable();
+    const res = await callRoute(POST, URL_, {}, init("text/html"));
+    const hostPrefixed = res.headers.getSetCookie().filter((c) => c.startsWith("__Host-"));
+    expect(hostPrefixed).toEqual([NEW_CLEAR]);
+    expect(hostPrefixed[0]).not.toMatch(/Domain=/i);
+  });
+
+  it("clears the legacy name once for the zone when the host is nemar.org itself", async () => {
+    unreachable();
+    const res = await callRoute(POST, "https://nemar.org/api/auth/logout", {}, init("text/html"));
+    expect(res.headers.getSetCookie()).toEqual([NEW_CLEAR, LEGACY_CLEAR, LEGACY_CLEAR_ZONE]);
+  });
+
+  it("clears the legacy name with the request's own subdomain", async () => {
+    unreachable();
+    const res = await callRoute(
+      POST,
+      "https://staging.nemar.org/api/auth/logout",
+      {},
+      init("text/html"),
+    );
+    expect(res.headers.getSetCookie()).toEqual([
+      NEW_CLEAR,
+      LEGACY_CLEAR,
+      "nemar_session=; Max-Age=0; Path=/; Domain=staging.nemar.org; SameSite=Lax; Secure",
+      LEGACY_CLEAR_ZONE,
+    ]);
+  });
+
+  it.each([
+    "http://localhost:4321/api/auth/logout",
+    "http://127.0.0.1:4321/api/auth/logout",
+    "https://nemar-website.pages.dev/api/auth/logout",
+    "https://evilnemar.org/api/auth/logout",
+  ])("sends no Domain at all to %s", async (url) => {
+    unreachable();
+    const res = await callRoute(POST, url, {}, init("text/html"));
     expect(res.headers.getSetCookie()).toEqual([NEW_CLEAR, LEGACY_CLEAR]);
   });
 });
