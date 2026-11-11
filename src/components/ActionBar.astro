@@ -75,7 +75,7 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
       older pinned widget, which has no open(), never show a dead button. The wrapper
       anchors the one-time hint under the pill at any wrap width; it ships [hidden] and
       the script reveals it with the pill, so it adds no gap to the row (no :has()). */}
-  <span class="ai-mode" data-ai-mode-wrap hidden>
+  <div class="ai-mode" data-ai-mode-wrap hidden>
     <button class="action action--ai" type="button" data-ai-mode aria-haspopup="dialog" hidden>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M11 3l1.8 5.2L18 10l-5.2 1.8L11 17l-1.8-5.2L4 10l5.2-1.8z"/>
@@ -91,7 +91,7 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
         <button class="ai-mode__got-it" type="button" data-ai-mode-dismiss>Got it</button>
       </div>
     </div>
-  </span>
+  </div>
   {/* Hidden by default (website#260): whether this dataset has any viewable
       recording is only known once the client fetches the Zarr index, and
       that fetch (and the recording-nav state it needs to pick a "first"

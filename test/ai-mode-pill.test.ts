@@ -66,14 +66,14 @@ describe("AI Mode pill markup", () => {
       .trimStart();
     // The next element after Download (comments aside) is the pill's wrapper, and the wrapper
     // comes before the View data button.
-    expect(afterDownload.startsWith("<span")).toBe(true);
+    expect(afterDownload.startsWith("<div")).toBe(true);
     expect(afterDownload.slice(0, afterDownload.indexOf(">"))).toContain("data-ai-mode-wrap");
     expect(wrapperAt).toBeGreaterThan(downloadAt);
     expect(wrapperAt).toBeLessThan(markup.indexOf("data-view-data-btn"));
   });
 
   it("ships the wrapper hidden, so a pill that never shows leaves no gap in the row", () => {
-    expect(openingTag(markup, "span", "data-ai-mode-wrap")).toMatch(/class="ai-mode"[^>]*\bhidden\b/);
+    expect(openingTag(markup, "div", "data-ai-mode-wrap")).toMatch(/class="ai-mode"[^>]*\bhidden\b/);
     expect(rule(ACTION_BAR, ".ai-mode[hidden]")).toMatch(/display:\s*none/);
     expect(ACTION_BAR).not.toMatch(/\.ai-mode:has\(/);
   });
