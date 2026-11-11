@@ -1,0 +1,43 @@
+---
+/**
+ * The line under the search box that says the API searched other words than the
+ * reader typed ("bilinugual" -> "bilingual"), and where to find the typed ones.
+ * Board D2 of the NEMAR AI UX designs. Astro escapes both texts, and
+ * they must stay plain text interpolations: they come from the query string and
+ * the API, so never raw HTML.
+ */
+interface Props {
+  /** The words that were searched (the API's `corrected_query`). */
+  corrected: string;
+  /** The words the reader typed. */
+  original: string;
+  /** A /discover link that searches `original`; null when none can work, and the
+   *  line then stands alone. */
+  originalHref: string | null;
+}
+
+const { corrected, original, originalHref } = Astro.props;
+---
+
+<p class="corrected-note">
+  Showing results for <strong>{corrected}</strong>.
+  {originalHref && (
+    <>
+      {" "}
+      <a href={originalHref}>Search for {original} instead</a>
+    </>
+  )}
+</p>
+
+<style>
+  .corrected-note {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--color-fg-muted);
+    overflow-wrap: anywhere;
+  }
+  .corrected-note strong {
+    color: var(--color-fg);
+    font-weight: var(--fw-semibold);
+  }
+</style>

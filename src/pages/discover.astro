@@ -1,4 +1,5 @@
 ---
+import CorrectedQueryNote from "../components/CorrectedQueryNote.astro";
 import DatasetCard from "../components/DatasetCard.astro";
 import FilterSidebar from "../components/FilterSidebar.astro";
 import Pagination from "../components/Pagination.astro";
@@ -14,7 +15,7 @@ import {
   searchResultToDataset,
 } from "../lib/api";
 import { isRateLimited } from "../lib/api-cache";
-import { pageSearch, planSearch } from "../lib/discover-search";
+import { type CorrectionNotice, pageSearch, planSearch } from "../lib/discover-search";
 import {
   applyClientFilters,
   filterStateFromURL,
@@ -40,6 +41,8 @@ let totalReturned = 0;
 let pageableTotal = 0;
 // Appended to the result count when the list is a window onto more matches.
 let countNote = "";
+// Set when the API searched other words than the reader typed (a typo it fixed).
+let correction: CorrectionNotice | null = null;
 let fetchError: string | null = null;
 // The API answered 429: its anonymous budget is shared by every visitor this
 // site serves, so "busy, try again in a minute" is more useful than a generic
@@ -59,11 +62,12 @@ try {
     // window the page filters and pages) and what its answer means for the count
     // and the pager are decided in lib/discover-search.ts, where they are tested.
     const plan = planSearch(state);
-    const res = await searchDatasets(state.q, { ...plan.params, signal });
+    const res = await searchDatasets(state.q, { ...plan.params, exact: state.exact, signal });
     const result = pageSearch(plan, res, state);
     totalReturned = result.totalReturned;
     pageableTotal = result.pageableTotal;
     countNote = result.countNote;
+    correction = result.correction;
     const slice = result.slice;
     // Hydrate the visible page to full rows (parallel) for the richer card.
     // Only managed ids (nm*/on*/xx*) are addressable at /datasets/:id; ds* legacy
@@ -219,6 +223,13 @@ if (fetchError) {
         form="discover-filters"
         placeholder="Search by dataset name, ID, or description..."
       />
+      {!fetchError && isSearch && correction && (
+        <CorrectedQueryNote
+          corrected={correction.corrected}
+          original={state.q}
+          originalHref={correction.originalHref}
+        />
+      )}
     </header>
     <div class="discover__layout">
       <aside class="discover__rail" aria-label="Filters">
