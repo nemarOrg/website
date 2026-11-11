@@ -43,7 +43,9 @@ const { state, searchActive = false } = Astro.props;
 >
   {/* "Search for the words I typed" (exact=1) rides along with every filter
       change, so the page does not slip back to the corrected words. The script
-      below drops it when the search box holds other words. */}
+      below drops it when the search box holds other words. Without the script
+      (JS off) it is submitted as is, so new words typed there are searched as
+      typed, without typo correction; accepted, since the form stays usable. */}
   {state.exact && <input type="hidden" name="exact" value="1" data-exact-q={state.q} />}
   <div class="filters__group">
     <h3>Modality</h3>
