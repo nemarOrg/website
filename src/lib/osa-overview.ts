@@ -90,6 +90,32 @@ export const OVERVIEW_LIMITS = {
   filterListMax: 20,
 } as const;
 
+/** An overview needs a search of at least this many words (maintainer's rule, 2026-11-11;
+ *  OpenScience-Collective/osa#728: a one-word search such as "EEG" made the endpoint fail). OSA
+ *  answers 422 for a query under it. */
+export const OVERVIEW_MIN_WORDS = 3;
+
+/**
+ * The number of words in a search, counted the way OSA counts them: the trimmed query is split on
+ * whitespace and a token counts when it holds at least one letter or digit (Unicode-aware, so
+ * "P300", "naïve" and "α-band" count, while a lone "-" or "&" does not).
+ */
+export function countQueryWords(query: string): number {
+  return query
+    .trim()
+    .split(/\s+/)
+    .filter((token) => /[\p{L}\p{N}]/u.test(token)).length;
+}
+
+/** Whether a search has enough words for an overview ({@link OVERVIEW_MIN_WORDS}). */
+export function queryHasEnoughWords(query: string): boolean {
+  return countQueryWords(query) >= OVERVIEW_MIN_WORDS;
+}
+
+/** Said in the panel, as a calm note, when a search is too short (or the endpoint says so). */
+export const OVERVIEW_MIN_WORDS_NOTE =
+  "AI Mode gives an overview for searches of three words or more.";
+
 /** The shape OSA accepts for a row id. */
 export const OVERVIEW_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -276,7 +302,7 @@ export function overviewRequestForPage(input: {
 export type OverviewErrorKind =
   | "forbidden" // 403: the origin is not allowed
   | "unavailable" // 404: the community has no quick model
-  | "invalid" // 422: a field was out of bounds
+  | "invalid" // 422: a field was out of bounds, or the query is under three words
   | "rate_limited" // 429
   | "server" // 500
   | "upstream" // 502: no overview could be written
@@ -305,7 +331,8 @@ const STATUS_KINDS: Record<number, OverviewErrorKind> = {
   502: "upstream",
 };
 
-/** What the panel says for each failure. Only 429 asks the reader to wait. */
+/** What the panel says for each failure. Only 429 asks the reader to wait. A 422 reads as the
+ *  three-words note (the panel shows it as a note, not as a failure). */
 export function overviewErrorMessage(kind: OverviewErrorKind): string {
   switch (kind) {
     case "forbidden":
@@ -313,7 +340,7 @@ export function overviewErrorMessage(kind: OverviewErrorKind): string {
     case "unavailable":
       return "The AI overview is not set up yet.";
     case "invalid":
-      return "The AI overview could not read this search. Try other words.";
+      return OVERVIEW_MIN_WORDS_NOTE;
     case "rate_limited":
       return "Too many overviews were requested from this connection. Wait a few minutes, then try again.";
     case "server":
