@@ -273,8 +273,14 @@ if (fetchError) {
       <aside class="discover__rail" aria-label="Filters">
         <FilterSidebar state={state} searchActive={isSearch} />
       </aside>
+      {
+        (aiRequest || aiPageNote) && (
+          <div class="discover__overview">
+            <AiOverviewPanel request={aiRequest} pageNote={aiPageNote} />
+          </div>
+        )
+      }
       <div class="discover__results">
-        {(aiRequest || aiPageNote) && <AiOverviewPanel request={aiRequest} pageNote={aiPageNote} />}
         {fetchError && (
           <div class="discover__error" role="alert">
             <strong>Could not load datasets.</strong>
@@ -428,11 +434,34 @@ if (fetchError) {
   .discover__layout {
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
-    gap: var(--space-8);
+    column-gap: var(--space-8);
     align-items: flex-start;
+    /* The AI overview is its own row above the results, beside the filter rail (website#518). The
+       rows have no gap of their own, so an overview that is hidden or absent adds no space. */
+    grid-template-areas:
+      "rail overview"
+      "rail results";
+    grid-template-rows: auto 1fr;
+  }
+  .discover__rail {
+    grid-area: rail;
+  }
+  .discover__overview {
+    grid-area: overview;
+  }
+  .discover__results {
+    grid-area: results;
+    min-inline-size: 0;
   }
   @media (max-width: 880px) {
     .discover__layout {
+      /* One column: the overview first, so a reader who turns AI Mode on sees it change without
+         scrolling past the filters. */
+      grid-template-areas:
+        "overview"
+        "rail"
+        "results";
+      grid-template-rows: auto;
       /* minmax(0, ...) and not 1fr: a bare 1fr is minmax(auto, 1fr), so the filter chips'
          min-content width pushed the column past a 390 px viewport and the page scrolled
          sideways. */
@@ -440,6 +469,7 @@ if (fetchError) {
     }
     .discover__rail {
       position: static !important;
+      margin-block-end: var(--space-8);
     }
   }
   .discover__list {
