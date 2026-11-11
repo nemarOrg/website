@@ -28,6 +28,8 @@ const PROD_DOCS_BASE = "https://docs.nemar.org";
  */
 export const DOCS_ACCOUNT_SETTINGS_PATH = "/web/account-settings/";
 export const DOCS_UPLOAD_ACCESS_PATH = "/web/upload-access/";
+/** The "How it works" link under the dataset page's AI Mode pill (website#517). */
+export const DOCS_ANALYZE_IN_BROWSER_PATH = "/web/analyze-in-browser/";
 
 export function resolveDocsBase(envOverride?: string): string {
   if (envOverride) return envOverride.replace(/\/$/, "");
