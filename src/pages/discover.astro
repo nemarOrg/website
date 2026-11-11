@@ -417,7 +417,10 @@ if (fetchError) {
   }
   @media (max-width: 880px) {
     .discover__layout {
-      grid-template-columns: 1fr;
+      /* minmax(0, ...) and not 1fr: a bare 1fr is minmax(auto, 1fr), so the filter chips'
+         min-content width pushed the column past a 390 px viewport and the page scrolled
+         sideways. */
+      grid-template-columns: minmax(0, 1fr);
     }
     .discover__rail {
       position: static !important;
