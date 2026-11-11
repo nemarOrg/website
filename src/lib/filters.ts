@@ -86,6 +86,10 @@ export interface FilterState {
    *  no dataset; this is the reader's "search for what I wrote" answer to that
    *  correction, and it sends `correct=0` to the search endpoint. */
   exact: boolean;
+  /** AI Mode is on (`ai=1`): the reader's mode, not a filter. It rides along with search,
+   *  filters, sort and paging like `exact`, so the page the reader lands on is still in AI Mode;
+   *  the page never uses it to change what is searched (website#518). */
+  ai: boolean;
   sort: SortOption;
   page: number; // 1-based
   pageSize: number;
@@ -110,6 +114,7 @@ export function defaultFilterState(): FilterState {
     hasZarr: false,
     hasViewer: false,
     exact: false,
+    ai: false,
     sort: "newest",
     page: 1,
     pageSize: DEFAULT_PAGE_SIZE,
@@ -204,6 +209,7 @@ export function filterStateFromURL(params: URLSearchParams): FilterState {
   s.hasViewer = params.get("has_viewer") === "1" || params.get("has_zarr_verified") === "1";
 
   s.exact = params.get("exact") === "1";
+  s.ai = params.get("ai") === "1";
 
   s.sort = parseSort(params.get("sort"));
 
@@ -241,6 +247,7 @@ export function filterStateToURL(state: FilterState): URLSearchParams {
   if (state.hasZarr) sp.set("has_zarr", "1");
   if (state.hasViewer) sp.set("has_viewer", "1");
   if (state.exact) sp.set("exact", "1");
+  if (state.ai) sp.set("ai", "1");
   if (state.sort !== "newest") sp.set("sort", state.sort);
   if (state.page > 1) sp.set("page", String(state.page));
   if (state.pageSize !== DEFAULT_PAGE_SIZE) sp.set("page_size", String(state.pageSize));
