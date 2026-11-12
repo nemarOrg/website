@@ -13,7 +13,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
-## [0.2.38] - 2026-11-11
+## [0.2.38] - 2026-11-12
 
 AI Mode ships in production.
 That is the pill on the dataset page, the search toggle in Discover and Home (on by default, for a search of three words or more), the AI overview above Discover's results and "Ask a follow-up" into the assistant's dialog.

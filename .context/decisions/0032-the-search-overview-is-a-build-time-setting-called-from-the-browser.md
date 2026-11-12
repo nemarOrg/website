@@ -16,7 +16,7 @@ Four facts shape where that call is made and how it is switched on.
 2. The overview endpoint is on the OSA worker hosts that `connect-src` in `src/middleware.ts` already allows for the widget (`widget.osc.earth`, `develop-widget.osc.earth`).
    A fetch to any other host is blocked in the browser without a message.
    OSA's docs show `edge.osc.earth`, whose worker route is not deployed and which the policy does not list.
-3. Production pins an older widget release (`wrangler.toml`), and the worker route answers only after a maintainer has deployed the worker.
+3. When this was decided, production pinned an older widget release (`wrangler.toml`; it pins OSA 0.8.20 since 2026-11-12), and the worker route answers only after a maintainer has deployed the worker.
    Production already sets `PUBLIC_OSA_API_ENDPOINT`, so deriving the overview URL from it would turn the feature on in production the day this merges.
 4. A `PUBLIC_*` value is inlined by Vite when the site is built (ADR 0018), so a build knows its setting and a running page cannot change it.
 

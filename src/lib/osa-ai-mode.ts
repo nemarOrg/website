@@ -393,9 +393,10 @@ export function setAiModeSearch(win: AiModePageWindow, on: boolean): void {
   replaceAiModeUrl(win, on);
 }
 
-/** Whether the widget can take a seeded message (OSA #730). A widget from before it has no `seed`, and the follow-up button is then not drawn at
- *  all: nothing stands in for it, since opening the dialog empty or sending the text as a question
- *  is not what the reader asked for. Checked on the method, never on a version string. */
+/** Whether the widget can take a seeded message (OSA #730). A widget from before it has no `seed`,
+ *  and the follow-up button is then not drawn at all: nothing stands in for it, since opening the
+ *  dialog empty or sending the text as a question is not what the reader asked for. Checked on the
+ *  method, never on a version string. */
 export function aiModeSeedAvailable(win: AiModeWindow): boolean {
   return typeof win.OSAChatWidget?.seed === "function";
 }
