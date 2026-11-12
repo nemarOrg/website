@@ -1,4 +1,13 @@
 ---
+import {
+  AI_MODE_DISCLOSURE_AFTER,
+  AI_MODE_DISCLOSURE_BEFORE,
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_OSA_URL,
+} from "../lib/osa-ai-mode";
+import { AI_MODE_HINT } from "../lib/osa-overview";
+import AiModeToggle from "./AiModeToggle.astro";
+
 interface Props {
   value?: string;
   placeholder?: string;
@@ -15,6 +24,18 @@ interface Props {
    * filter carries the search, rather than each submit dropping the other.
    */
   form?: string;
+  /**
+   * The AI overview endpoint (src/lib/osa-overview.ts). Set, the field carries the AI Mode toggle
+   * (hidden until the widget can open) and its teal-to-purple ring while AI Mode is on (board D2,
+   * website#518); unset, there is no toggle at all.
+   */
+  aiEndpoint?: string | null;
+  /**
+   * AI Mode is on. It is on by default, and the page is cached at the edge for everyone, so the
+   * server renders on unless the address says `ai=0`; the browser then applies what the reader
+   * chose. Off, the form carries `ai=0`, so a search that runs without scripts keeps the off.
+   */
+  aiOn?: boolean;
 }
 
 const {
@@ -24,6 +45,8 @@ const {
   size = "md",
   label = "Search datasets",
   form,
+  aiEndpoint = null,
+  aiOn = true,
 } = Astro.props;
 const inputId = `search-${Math.random().toString(36).slice(2, 8)}`;
 // Standalone (the landing hero) it is a form; joined to another form it is just
@@ -32,22 +55,49 @@ const Wrapper = form ? "div" : "form";
 const wrapperProps = form ? {} : { action, method: "get" };
 ---
 
-<Wrapper class:list={["searchbar", `searchbar--${size}`]} role="search" {...wrapperProps}>
+<Wrapper class:list={["searchbar", `searchbar--${size}`, aiEndpoint && "searchbar--ai"]} role="search" {...wrapperProps}>
   <label class="visually-hidden" for={inputId}>{label}</label>
-  <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
-    <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-  </svg>
-  <input
-    id={inputId}
-    name="q"
-    type="search"
-    value={value}
-    placeholder={placeholder}
-    autocomplete="off"
-    form={form}
-  />
+  <div
+    class="searchbar__field"
+    data-ai-field={aiEndpoint ? "" : undefined}
+    data-ai={aiEndpoint ? (aiOn ? "on" : "off") : undefined}>
+    <svg class="searchbar__icon" viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+      <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+    </svg>
+    <input
+      id={inputId}
+      name="q"
+      type="search"
+      value={value}
+      placeholder={placeholder}
+      autocomplete="off"
+      form={form}
+    />
+    {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="md" form={form} on={aiOn} carryLinks />}
+  </div>
+  {aiEndpoint && !aiOn && <input type="hidden" name="ai" value="0" form={form} data-ai-input />}
   <button type="submit" class="searchbar__submit" form={form}>Search</button>
+  {
+    aiEndpoint && (
+      <>
+        {/* The one small line under the field for a search of one or two words. Always in the
+            page, drawn with visibility, so showing it moves nothing; the polite region says it once
+            per appearance (src/lib/ai-mode-search-client.ts). */}
+        <p class="searchbar__ai-hint" data-ai-hint aria-hidden="true">
+          {AI_MODE_HINT}
+        </p>
+        <span class="visually-hidden" role="status" aria-live="polite" data-ai-hint-status />
+      </>
+    )
+  }
+  {
+    aiEndpoint && (
+      <p class="searchbar__ai-note" data-ai-disclosure>
+        {AI_MODE_DISCLOSURE_BEFORE}<a class="ai-note-link" href={AI_MODE_OSA_URL}>{AI_MODE_DISCLOSURE_LINK_TEXT}</a>{AI_MODE_DISCLOSURE_AFTER}
+      </p>
+    )
+  }
 </Wrapper>
 
 <style>
@@ -62,6 +112,13 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar--lg {
     max-inline-size: 44rem;
+  }
+  /* The field: the input, its magnifier and (when AI Mode is offered) the toggle. */
+  .searchbar__field {
+    position: relative;
+    flex: 1;
+    min-inline-size: 0;
+    border-radius: var(--radius-pill);
   }
   .searchbar__icon {
     position: absolute;
@@ -79,7 +136,8 @@ const wrapperProps = form ? {} : { action, method: "get" };
     inset-inline-start: var(--space-5);
   }
   .searchbar input[type="search"] {
-    flex: 1;
+    inline-size: 100%;
+    box-sizing: border-box;
     padding: 10px var(--space-4) 10px calc(var(--space-4) + 24px);
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-pill);
@@ -115,5 +173,96 @@ const wrapperProps = form ? {} : { action, method: "get" };
   }
   .searchbar__submit:hover {
     background: color-mix(in srgb, var(--color-fg) 82%, var(--brand-teal));
+  }
+
+  /* The notice under the field while AI Mode is on: on its own row, wrapped under the field and
+     the Search button. The row is always laid out and drawn with visibility, so turning AI Mode on
+     or off moves nothing. */
+  .searchbar--ai {
+    flex-wrap: wrap;
+  }
+  .searchbar__ai-note {
+    flex: 1 1 100%;
+    margin: 0;
+    padding-inline: var(--space-2);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--color-fg-muted);
+  }
+  /* Only "OSA" is the link, to the assistant's page: the note's muted colour, underlined so it still
+     reads as a link without a second colour. */
+  .searchbar__ai-note .ai-note-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .searchbar__ai-note .ai-note-link:hover {
+    color: var(--color-fg);
+  }
+  .searchbar__ai-note:not([data-ai-visible]) {
+    visibility: hidden;
+  }
+  /* The widget is absent or too old to open: no toggle is revealed, so the slots leave the layout. */
+  .searchbar__ai-note[data-ai-unavailable],
+  .searchbar__ai-hint[data-ai-unavailable] {
+    display: none;
+  }
+  /* The line under the field for a search of one or two words: the smallest helper size the site
+     has (--fs-xs), a muted site colour (dark values in tokens.css), never the error colour. It is
+     always laid out and drawn with visibility, so it takes its row whether it shows or not. */
+  .searchbar__ai-hint {
+    flex: 1 1 100%;
+    margin: 0;
+    padding-inline: var(--space-2);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--color-fg-muted);
+  }
+  .searchbar__ai-hint:not([data-ai-visible]) {
+    visibility: hidden;
+  }
+
+  /* AI Mode (board D2). Once the toggle is revealed the input leaves room for it. */
+  .searchbar__field[data-ai-ready] input[type="search"] {
+    padding-inline-end: 120px;
+  }
+  /* On: a 1.5 px teal-to-purple ring around the field, drawn as the wrapper's padding. The input
+     gives up its 1 px border and 1.5 px of height, so the field stays 44 px. */
+  .searchbar__field[data-ai="on"] {
+    padding: 1.5px;
+    background: var(--ai-ring-gradient);
+  }
+  .searchbar__field[data-ai="on"] input[type="search"] {
+    border: 0;
+    box-shadow: none;
+  }
+  /* The field is 44 px in both states, set rather than left to the input's own line height (which
+     made it 46 px off and 47 px on): the ring is 1.5 px on each side, taken from the input. */
+  .searchbar--ai input[type="search"] {
+    block-size: 44px;
+  }
+  .searchbar--ai .searchbar__field[data-ai="on"] input[type="search"] {
+    block-size: calc(44px - 3px);
+    min-block-size: calc(44px - 3px);
+  }
+  .searchbar__field[data-ai="on"]:has(input:focus-visible) {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .searchbar__field[data-ai="on"] .searchbar__icon {
+    inset-inline-start: calc(var(--space-4) + 1px);
+  }
+  /* The toggle (and the field it sits in) would leave a narrow input with a few characters of
+     room at phone width; the Search button takes its own row instead. */
+  @media (max-width: 520px) {
+    .searchbar:has([data-ai-ready]) {
+      flex-wrap: wrap;
+    }
+    .searchbar:has([data-ai-ready]) .searchbar__field {
+      flex: 1 1 100%;
+    }
+    .searchbar:has([data-ai-ready]) .searchbar__submit {
+      flex: 1 1 100%;
+    }
   }
 </style>

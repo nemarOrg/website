@@ -22,6 +22,11 @@ PUBLIC_ZARR_BASE_URL = "https://zarr-test.nemar.org"
 # Follows OSA's `develop`, so there is no integrity hash (ADR 0018, 2026-09-29 update).
 PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@develop/frontend/osa-chat-widget.js"
 PUBLIC_OSA_API_ENDPOINT = "https://develop-widget.osc.earth/osa"
+# AI overview above Discover's results and the AI Mode toggle in the search fields (website#518,
+# #519, ADR 0032), reference only, same caveat as above: the real value lives in deploy-test.yml's
+# build step. It must be exactly one of the two URLs src/lib/osa-overview.ts names, on the hosts
+# this site's connect-src allows. wrangler.toml (production) sets the production worker's URL.
+PUBLIC_OSA_OVERVIEW_URL = "https://develop-widget.osc.earth/osa/nemar/overview"
 # Notebook button (OSA issue #436), reference only, same caveat as above: the real value lives in
 # deploy-test.yml's build step. It must be on one of OSA_NOTEBOOK_ORIGINS (src/lib/osa-widget.ts),
 # the two hosts this site's frame-src allows, because the widget frames the notebook (OSA #470).

@@ -1,4 +1,5 @@
 ---
+import AiModeToggle from "../components/AiModeToggle.astro";
 import Highlights from "../components/Highlights.astro";
 import StatTile from "../components/StatTile.astro";
 import Base from "../layouts/Base.astro";
@@ -10,6 +11,13 @@ import { latestDatasets } from "../lib/highlights";
 import { appUrl } from "../lib/host";
 import { landingCacheControl } from "../lib/landing-cache";
 import { listNews } from "../lib/news-api";
+import {
+  AI_MODE_DISCLOSURE_AFTER,
+  AI_MODE_DISCLOSURE_BEFORE,
+  AI_MODE_DISCLOSURE_LINK_TEXT,
+  AI_MODE_OSA_URL,
+} from "../lib/osa-ai-mode";
+import { AI_MODE_HINT, overviewEndpoint } from "../lib/osa-overview";
 import { DECORATIVE_TIMEOUT_MS } from "../lib/request-deadline";
 import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
 
@@ -17,6 +25,27 @@ import { aggregateHostedStats, fetchHostedRows } from "../lib/stats";
 // columns by height, not by count (Highlights.astro): the lists show as many
 // whole rows as the row is tall, so this only has to be more than fit.
 const HIGHLIGHT_ROWS = 10;
+
+// AI Mode in the search field (board D1, website#519): the toggle exists only when the overview
+// endpoint is set and valid. Without it the hero is what it was, element for element.
+const aiEndpoint = overviewEndpoint();
+// With the toggle, the input and its toggle share a positioned wrapper that carries the ring.
+const FieldControl = aiEndpoint ? "div" : Fragment;
+const AI_LABEL = "Describe the data you need";
+const PLAIN_LABEL = "Search datasets";
+const AI_PLACEHOLDER = "Describe the data you need, in plain words";
+const PLAIN_PLACEHOLDER = "Enter keyword or phrase";
+// The page is cached for everyone and AI Mode is on by default, so the server renders the on state
+// (the ring, the pressed toggle, the AI placeholder and label) and the browser switches off a reader
+// who chose off (src/lib/ai-mode-search-client.ts, ADR 0032).
+const fieldControlProps = aiEndpoint
+  ? { class: "hero__search-control", "data-ai-field": "", "data-ai": "on" }
+  : {};
+const AI_EXAMPLES = [
+  "Resting-state EEG with over 100 participants",
+  "MEG with eye tracking",
+  "Datasets I can analyze in the browser",
+];
 
 const uploadHref = appUrl("/upload", new URL(Astro.request.url).hostname);
 
@@ -118,20 +147,49 @@ Astro.response.headers.set(
       <form class="hero__search bracketed" action="/discover" method="get" role="search">
         <span class="hero__search-label">Search for data</span>
         <div class="hero__search-field">
-          <svg class="hero__search-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
-            <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
-          </svg>
-          <label class="visually-hidden" for="hero-search">Search datasets</label>
-          <input
-            id="hero-search"
-            name="q"
-            type="search"
-            placeholder="Enter keyword or phrase"
-            autocomplete="off"
-          />
+          <FieldControl {...fieldControlProps}>
+            <svg class="hero__search-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"></circle>
+              <path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            </svg>
+            <label
+              class="visually-hidden"
+              for="hero-search"
+              data-ai-label={aiEndpoint ? AI_LABEL : undefined}
+              data-ai-label-off={aiEndpoint ? PLAIN_LABEL : undefined}>{aiEndpoint ? AI_LABEL : PLAIN_LABEL}</label>
+            <input
+              id="hero-search"
+              name="q"
+              type="search"
+              placeholder={aiEndpoint ? AI_PLACEHOLDER : PLAIN_PLACEHOLDER}
+              data-ai-placeholder={aiEndpoint ? AI_PLACEHOLDER : undefined}
+              data-ai-placeholder-off={aiEndpoint ? PLAIN_PLACEHOLDER : undefined}
+              autocomplete="off"
+            />
+            {aiEndpoint && <AiModeToggle endpoint={aiEndpoint} size="lg" />}
+          </FieldControl>
           <button type="submit">Search</button>
         </div>
+        {aiEndpoint && (
+          <>
+            {/* The one small line under the field for a search of one or two words: always in the
+                page and drawn with visibility, so showing it moves nothing; the polite region says
+                it once per appearance (src/lib/ai-mode-search-client.ts). */}
+            <p class="hero__ai-hint" data-ai-hint aria-hidden="true">{AI_MODE_HINT}</p>
+            <span class="visually-hidden" role="status" aria-live="polite" data-ai-hint-status></span>
+          </>
+        )}
+        {aiEndpoint && (
+          <div class="hero__try" data-ai-try>
+            <span class="hero__try-label">Try</span>
+            {AI_EXAMPLES.map((example) => (
+              <button type="button" class="hero__try-item" data-ai-try-item>{example}</button>
+            ))}
+          </div>
+        )}
+        {aiEndpoint && (
+          <p class="hero__ai-note" data-ai-disclosure>{AI_MODE_DISCLOSURE_BEFORE}<a class="ai-note-link" href={AI_MODE_OSA_URL}>{AI_MODE_DISCLOSURE_LINK_TEXT}</a>{AI_MODE_DISCLOSURE_AFTER}</p>
+        )}
       </form>
 
       <div class="hero__body">
@@ -428,7 +486,7 @@ Astro.response.headers.set(
   .hero__search input[type="search"]::placeholder {
     color: rgb(71 85 105 / 65%);
   }
-  .hero__search button {
+  .hero__search button[type="submit"] {
     flex-shrink: 0;
     padding: var(--space-4) var(--space-8);
     background: var(--brand-teal);
@@ -439,8 +497,141 @@ Astro.response.headers.set(
     box-shadow: 0 8px 24px rgb(91 186 213 / 30%);
     transition: background 0.15s ease;
   }
-  .hero__search button:hover {
+  .hero__search button[type="submit"]:hover {
     background: color-mix(in srgb, var(--brand-teal) 85%, #ffffff);
+  }
+
+  /* AI Mode (board D1). The field is white in both themes, so the toggle inside it keeps the
+     light tint whatever the theme. */
+  .hero__search {
+    --ai-toggle-on-bg: var(--ai-toggle-field-on-bg);
+    --ai-toggle-on-fg: var(--ai-toggle-field-on-fg);
+    --ai-toggle-on-border: var(--ai-toggle-field-on-border);
+    --ai-toggle-off-bg: var(--ai-toggle-field-off-bg);
+    --ai-toggle-off-fg: var(--ai-toggle-field-off-fg);
+  }
+  .hero__search-control {
+    position: relative;
+    flex: 1;
+    min-inline-size: 0;
+    border-radius: var(--radius-pill);
+  }
+  .hero__search-control input[type="search"] {
+    inline-size: 100%;
+    box-sizing: border-box;
+  }
+  /* Once the toggle is revealed the input leaves room for it. */
+  .hero__search-control[data-ai-ready] input[type="search"] {
+    padding-inline-end: 140px;
+  }
+  /* On: the Download headline's gradient as a 2 px ring. The input gives up its 1 px border and
+     1 px of padding on each side, so the field stays the height and the text where they were. */
+  .hero__search-control[data-ai="on"] {
+    padding: 2px;
+    background: var(--ai-ring-gradient);
+    box-shadow: var(--ai-ring-shadow);
+  }
+  .hero__search-control[data-ai="on"] input[type="search"] {
+    border: 0;
+    box-shadow: none;
+    padding-block: calc(var(--space-4) - 1px);
+    padding-inline-start: calc(var(--space-5) + 28px - 1px);
+  }
+  .hero__search-control[data-ai="on"] .hero__search-icon {
+    inset-inline-start: calc(var(--space-5) + 2px);
+  }
+  /* The line under the field for a search of one or two words: the smallest helper size the site
+     has (--fs-xs), the hero's muted AI Mode colour (dark value in tokens.css), never the error
+     colour. Always laid out and drawn with visibility, so it takes its row whether it shows or not. */
+  .hero__ai-hint {
+    max-inline-size: 44rem;
+    margin: var(--space-2) 0 0 var(--space-1);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--ai-try-label);
+  }
+  .hero__ai-hint:not([data-ai-visible]) {
+    visibility: hidden;
+  }
+  /* The widget is absent or too old to open: no toggle is revealed, so the three slots under the
+     field (the line, the Try row, the notice) leave the layout instead of staying as blank space. */
+  .hero__ai-hint[data-ai-unavailable],
+  .hero__try[data-ai-unavailable],
+  .hero__ai-note[data-ai-unavailable] {
+    display: none;
+  }
+  /* The "Try" row: example searches that fill the field and submit it. */
+  .hero__try {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: var(--space-4) 0 0 var(--space-1);
+    /* One example's height: the row keeps its place whether it shows or not. */
+    min-block-size: 36px;
+  }
+  /* A slot, never display: none: the server renders the row whenever the endpoint is set and the
+     browser only shows or hides it, so turning AI Mode on or off moves nothing. */
+  .hero__try:not([data-ai-visible]) {
+    visibility: hidden;
+  }
+  /* The notice that goes with AI Mode, shown while it is on; always laid out, like the Try row. */
+  .hero__ai-note {
+    max-inline-size: 44rem;
+    margin: var(--space-3) 0 0 var(--space-1);
+    /* The same size as the line under the search field, which sits just above it (as on Discover). */
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--ai-try-label);
+  }
+  .hero__ai-note .ai-note-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .hero__ai-note .ai-note-link:hover {
+    color: var(--color-fg);
+  }
+  .hero__ai-note:not([data-ai-visible]) {
+    visibility: hidden;
+  }
+  .hero__try-label {
+    margin-inline-end: 2px;
+    font-size: 13px;
+    font-weight: var(--fw-semibold);
+    color: var(--ai-try-label);
+  }
+  .hero__try-item {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 36px;
+    padding-inline: 14px;
+    border: 1px solid var(--ai-try-border);
+    border-radius: var(--radius-pill);
+    background: var(--ai-try-bg);
+    color: var(--ai-try-fg);
+    font-size: 13px;
+    font-weight: var(--fw-medium);
+    text-align: start;
+    cursor: pointer;
+  }
+  .hero__try-item:hover {
+    border-color: var(--brand-teal);
+  }
+  .hero__try-item:focus-visible {
+    outline: 2px solid var(--brand-teal);
+    outline-offset: 2px;
+  }
+  /* The toggle and a field that is only a few characters wide at phone width do not go together:
+     the Search button takes its own row. */
+  @media (max-width: 520px) {
+    .hero__search-field:has([data-ai-ready]) {
+      flex-wrap: wrap;
+    }
+    .hero__search-field:has([data-ai-ready]) .hero__search-control,
+    .hero__search-field:has([data-ai-ready]) button[type="submit"] {
+      flex: 1 1 100%;
+    }
   }
 
   /* Body: bracketed verb stack on the left, intro + CTAs on the right. */

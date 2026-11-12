@@ -55,6 +55,11 @@ jobs:
           # nothing rather than a broken tag.
           PUBLIC_OSA_WIDGET_SRC: https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@develop/frontend/osa-chat-widget.js
           PUBLIC_OSA_API_ENDPOINT: https://develop-widget.osc.earth/osa
+          # AI overview above Discover's results and the AI Mode toggle in the search fields
+          # (website#518, #519, ADR 0032): OSA's search overview on the dev worker. Exactly one of
+          # the two URLs src/lib/osa-overview.ts accepts; unset, or anything else, shows no toggle.
+          # Staging's value: `wrangler.toml` sets the production worker's URL for production.
+          PUBLIC_OSA_OVERVIEW_URL: https://develop-widget.osc.earth/osa/nemar/overview
           # Notebook button (OSA issue #436, the three-icon launcher), staging only: the dev
           # JupyterLite host, which the widget frames as a tab of its panel (OSA issue #470).
           # Genuinely optional (src/lib/osa-widget.ts); left unset the widget falls back to its

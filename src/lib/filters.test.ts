@@ -203,6 +203,58 @@ describe("filterStateToURL", () => {
     expect(parsed.hasZarr).toBe(true);
     expect(parsed.hasViewer).toBe(false);
   });
+  it("roundtrips exact=1 through the URL and drops it when unset", () => {
+    const s = defaultFilterState();
+    expect(s.exact).toBe(false);
+    expect(filterStateToURL(s).has("exact")).toBe(false);
+    s.q = "bilinugual";
+    s.exact = true;
+    const sp = filterStateToURL(s);
+    expect(sp.get("exact")).toBe("1");
+    const parsed = filterStateFromURL(sp);
+    expect(parsed.exact).toBe(true);
+    expect(parsed.q).toBe("bilinugual");
+    parsed.exact = false;
+    expect(filterStateToURL(parsed).has("exact")).toBe(false);
+    // Only 1 means exact, like the other flags.
+    expect(filterStateFromURL(new URLSearchParams("q=a&exact=0")).exact).toBe(false);
+    expect(filterStateFromURL(new URLSearchParams("q=a&exact=true")).exact).toBe(false);
+  });
+  it("is on by default: only ai=0 is written, and ai=0 survives the other params and paging", () => {
+    const s = defaultFilterState();
+    expect(s.ai).toBe(true);
+    expect(filterStateToURL(s).has("ai")).toBe(false);
+    s.q = "faces";
+    s.modalities = ["EEG"];
+    s.page = 2;
+    s.ai = false;
+    const sp = filterStateToURL(s);
+    expect(sp.get("ai")).toBe("0");
+    const parsed = filterStateFromURL(sp);
+    expect(parsed.ai).toBe(false);
+    expect(parsed.page).toBe(2);
+    expect(parsed.q).toBe("faces");
+    // A filter or a page link built from the parsed state keeps the off.
+    parsed.page = 3;
+    parsed.hasHed = true;
+    expect(filterStateToURL(parsed).get("ai")).toBe("0");
+    parsed.ai = true;
+    expect(filterStateToURL(parsed).has("ai")).toBe(false);
+  });
+  it("reads ai=1 and an absent or odd ai as on, and never lets the mode change what is asked", () => {
+    expect(filterStateFromURL(new URLSearchParams("q=a&ai=1")).ai).toBe(true);
+    expect(filterStateFromURL(new URLSearchParams("q=a")).ai).toBe(true);
+    expect(filterStateFromURL(new URLSearchParams("q=a&ai=true")).ai).toBe(true);
+    // ai=1 re-serializes without the parameter: on is the default.
+    expect(filterStateToURL(filterStateFromURL(new URLSearchParams("q=a&ai=1"))).has("ai")).toBe(
+      false,
+    );
+    const parsed = filterStateFromURL(new URLSearchParams("q=faces&modality=EEG&ai=0"));
+    expect(filterStateToSearchFilters(parsed)).toEqual(
+      filterStateToSearchFilters({ ...parsed, ai: true }),
+    );
+    expect(filterStateToAPIQuery(parsed)).toEqual(filterStateToAPIQuery({ ...parsed, ai: true }));
+  });
   it("re-serializes a legacy has_zarr_verified link as has_viewer", () => {
     const sp = filterStateToURL(filterStateFromURL(new URLSearchParams("has_zarr_verified=1")));
     expect(sp.get("has_viewer")).toBe("1");

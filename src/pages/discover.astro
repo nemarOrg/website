@@ -1,4 +1,6 @@
 ---
+import AiOverviewPanel from "../components/AiOverviewPanel.astro";
+import CorrectedQueryNote from "../components/CorrectedQueryNote.astro";
 import DatasetCard from "../components/DatasetCard.astro";
 import FilterSidebar from "../components/FilterSidebar.astro";
 import Pagination from "../components/Pagination.astro";
@@ -14,7 +16,7 @@ import {
   searchResultToDataset,
 } from "../lib/api";
 import { isRateLimited } from "../lib/api-cache";
-import { pageSearch, planSearch } from "../lib/discover-search";
+import { type CorrectionNotice, pageSearch, planSearch } from "../lib/discover-search";
 import {
   applyClientFilters,
   filterStateFromURL,
@@ -22,6 +24,12 @@ import {
   filterStateToURL,
   hasClientOnlyFilters,
 } from "../lib/filters";
+import {
+  type OverviewRequest,
+  overviewEndpoint,
+  overviewFilters,
+  overviewRequestForPage,
+} from "../lib/osa-overview";
 import { discoverCacheControl, discoverRetryAfter } from "../lib/response-cache-policy";
 import { type Dataset, SORT_OPTIONS } from "../lib/types";
 
@@ -40,6 +48,8 @@ let totalReturned = 0;
 let pageableTotal = 0;
 // Appended to the result count when the list is a window onto more matches.
 let countNote = "";
+// Set when the API searched other words than the reader typed (a typo it fixed).
+let correction: CorrectionNotice | null = null;
 let fetchError: string | null = null;
 // The API answered 429: its anonymous budget is shared by every visitor this
 // site serves, so "busy, try again in a minute" is more useful than a generic
@@ -59,11 +69,12 @@ try {
     // window the page filters and pages) and what its answer means for the count
     // and the pager are decided in lib/discover-search.ts, where they are tested.
     const plan = planSearch(state);
-    const res = await searchDatasets(state.q, { ...plan.params, signal });
+    const res = await searchDatasets(state.q, { ...plan.params, exact: state.exact, signal });
     const result = pageSearch(plan, res, state);
     totalReturned = result.totalReturned;
     pageableTotal = result.pageableTotal;
     countNote = result.countNote;
+    correction = result.correction;
     const slice = result.slice;
     // Hydrate the visible page to full rows (parallel) for the richer card.
     // Only managed ids (nm*/on*/xx*) are addressable at /datasets/:id; ds* legacy
@@ -182,6 +193,35 @@ if (!fetchError && totalReturned > 0 && state.page > pageCount) {
   });
 }
 
+// AI Mode (website#518). This page is edge-cached for everyone, so it cannot know who has AI
+// Mode on: it embeds the request the overview is written from, whenever the page could have one,
+// and the browser posts it only when the reader's preference is on. Unset or refused endpoint:
+// no toggle, no panel (src/lib/osa-overview.ts).
+const aiEndpoint = overviewEndpoint();
+// The overview is optional, so nothing in it may take the page down: a catalog row with an odd
+// shape (AGENTS.md: null or unexpected fields) is logged and the page renders without the panel.
+let aiRequest: OverviewRequest | null = null;
+if (aiEndpoint) {
+  try {
+    aiRequest = overviewRequestForPage({
+      isSearch,
+      failed: fetchError !== null,
+      page: state.page,
+      query: state.q,
+      correctedQuery: correction?.corrected,
+      filters: overviewFilters(state),
+      totalCount: totalReturned,
+      cards,
+    });
+  } catch (err) {
+    console.error("[ai-overview] the request for this page could not be built:", err);
+  }
+}
+// On page 2 and later there is no overview (it reads the best matches); with AI Mode on, a short
+// note says why instead of leaving a switched-on toggle with nothing to show for it.
+const aiPageNote =
+  aiEndpoint !== null && isSearch && fetchError === null && state.page > 1 && cards.length > 0;
+
 // Cache keyed on the full URL (query params) so each filter+page+query combo
 // gets its own edge entry. On error, never cache: a brief upstream hiccup must
 // not pin an error page at the edge. The catalog changes slowly and robots and
@@ -218,12 +258,28 @@ if (fetchError) {
         size="md"
         form="discover-filters"
         placeholder="Search by dataset name, ID, or description..."
+        aiEndpoint={aiEndpoint}
+        aiOn={state.ai}
       />
+      {!fetchError && isSearch && correction && (
+        <CorrectedQueryNote
+          corrected={correction.corrected}
+          original={state.q}
+          originalHref={correction.originalHref}
+        />
+      )}
     </header>
     <div class="discover__layout">
       <aside class="discover__rail" aria-label="Filters">
         <FilterSidebar state={state} searchActive={isSearch} />
       </aside>
+      {
+        (aiRequest || aiPageNote) && (
+          <div class="discover__overview">
+            <AiOverviewPanel request={aiRequest} pageNote={aiPageNote} />
+          </div>
+        )
+      }
       <div class="discover__results">
         {fetchError && (
           <div class="discover__error" role="alert">
@@ -378,15 +434,42 @@ if (fetchError) {
   .discover__layout {
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
-    gap: var(--space-8);
+    column-gap: var(--space-8);
     align-items: flex-start;
+    /* The AI overview is its own row above the results, beside the filter rail (website#518). The
+       rows have no gap of their own, so an overview that is hidden or absent adds no space. */
+    grid-template-areas:
+      "rail overview"
+      "rail results";
+    grid-template-rows: auto 1fr;
+  }
+  .discover__rail {
+    grid-area: rail;
+  }
+  .discover__overview {
+    grid-area: overview;
+  }
+  .discover__results {
+    grid-area: results;
+    min-inline-size: 0;
   }
   @media (max-width: 880px) {
     .discover__layout {
-      grid-template-columns: 1fr;
+      /* One column: the overview first, so a reader who turns AI Mode on sees it change without
+         scrolling past the filters. */
+      grid-template-areas:
+        "overview"
+        "rail"
+        "results";
+      grid-template-rows: auto;
+      /* minmax(0, ...) and not 1fr: a bare 1fr is minmax(auto, 1fr), so the filter chips'
+         min-content width pushed the column past a 390 px viewport and the page scrolled
+         sideways. */
+      grid-template-columns: minmax(0, 1fr);
     }
     .discover__rail {
       position: static !important;
+      margin-block-end: var(--space-8);
     }
   }
   .discover__list {
