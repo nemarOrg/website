@@ -13,17 +13,11 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
-### Changed
-
-- **"OSA" in the AI Mode search disclosure links to the assistant's page, `osc.earth/osa/`**, not to the Privacy Policy's section on it, so the linked name goes to what it names; the policy stays one click away in the footer (maintainer's review, 2026-11-11).
-- **The AI Mode pill's sparkle is 20 px, up from 16 px**, so it reads at the weight of its semibold label (maintainer's review on staging, 2026-11-11).
-
 ## [0.2.38] - 2026-11-11
 
-AI Mode reaches production in part.
-The pill on the dataset page and "Ask a follow-up" show only where the widget has an `open` or a `seed` method, and the widget production loads is pinned to OSA commit `0e966d6` of 2026-10-01, which has neither; they appear once the pin moves to the OSA 0.8.20 release.
-The search toggle in Discover and Home stays hidden in production, because `wrangler.toml` sets no `PUBLIC_OSA_OVERVIEW_URL` (ADR 0032).
-Turning it on is a later change, after OSA 0.8.20 serves the overview route and the privacy note names the search overview (nemarOrg/website#523).
+AI Mode ships in production.
+That is the pill on the dataset page, the search toggle in Discover and Home (on by default, for a search of three words or more), the AI overview above Discover's results and "Ask a follow-up" into the assistant's dialog.
+Production's `wrangler.toml` now sets `PUBLIC_OSA_OVERVIEW_URL` and pins the widget to the OSA 0.8.20 release (ADR 0032).
 Visitors also get the corrected-query line on Discover and the narrow-screen fix.
 
 ### Added
@@ -34,27 +28,34 @@ Visitors also get the corrected-query line on Discover and the narrow-screen fix
   `exact=1` is a new filter state: paging and filter changes carry it, a new query drops it (with JavaScript off the form keeps it, so new words typed there are searched as typed), and the search call sends `correct=0` in that mode.
   The API ignores `correct=0` until nemar-cli#2132 lands; until then an `exact` search whose answer still carries a correction shows the line without the link, so the page never claims words it did not search.
   The correction only runs in a catalog of at least 100 datasets, so test.nemar.org (the exemplar fleet) never shows the line.
-- **An "AI Mode" pill on the dataset page** (nemarOrg/website#517, board C1 of the NEMAR AI plan).
+- **An "AI Mode" pill on the dataset page** (nemarOrg/website#517).
   It sits after Download in the actions row, with the same shape and 44 px height as the other pills, in the brand teal with a sparkle, and opens the assistant as its centre-stage dialog (`OSAChatWidget.open({ mode: "center" })`).
-  The pill shows only when the widget loaded and has an `open` method, so a build with no widget, a blocked script, and production's older pinned widget keep it hidden.
+  The pill shows only when the widget loaded and has an `open` method, so a build with no widget, a blocked script, and a widget without `open` keep it hidden.
   A one-time hint under the pill says what it is, with a "How it works" link to docs.nemar.org and a "Got it" button; it is dismissed by either, by using the pill, and is remembered in the browser (`nemar:ai-mode-hint:v1`).
   The logic is in `src/lib/osa-ai-mode.ts`, with the hint's colours as tokens for both themes.
-- **An AI Mode toggle in Discover's search field and an AI overview above the results** (nemarOrg/website#518, board D2 of the NEMAR AI plan).
+- **An AI Mode toggle in Discover's search field and an AI overview above the results** (nemarOrg/website#518).
   The toggle is a 36 px pill with `aria-pressed` inside the 44 px field; on, the field gets a teal-to-purple ring and a panel above the results reads the top ten matches and answers in about a hundred words, with each dataset id a link, up to three picks, "Ask a follow-up" into the assistant's centre-stage dialog, and "Written by AI from these search results".
   The panel has loading, answer and error states (a rate limit is worded apart from other failures, and every error offers Try again); its text is set as plain text, and an answer that names a dataset the search did not return is shown as an error.
   AI Mode is on by default; an explicit off is remembered in the browser (`nemar:ai-mode-search:v1`) and carried as `ai=0`, which survives searching, filtering, sorting and paging; `ai=1` or `ai=0` in the address wins over the remembered choice (nemarOrg/website#525).
   Discover is cached at the edge for everyone, so the page embeds the request as a JSON data island, only for a successful search on page 1 with results, and the browser posts it to OSA's `/nemar/overview` when AI Mode is on.
   The toggle shows only when the assistant widget loaded and can be opened, and the build sets `PUBLIC_OSA_OVERVIEW_URL`.
-  Staging (`deploy-test.yml`) sets it to the develop worker; `wrangler.toml` does not, so production shows no toggle until a release adds it (ADR 0032).
-- **The same toggle in the Home hero's search field** (nemarOrg/website#519, board D1).
+  Staging (`deploy-test.yml`) sets it to the develop worker and production (`wrangler.toml`) to the production worker (ADR 0032).
+- **The same toggle in the Home hero's search field** (nemarOrg/website#519).
   A 44 px pill with a 15 px label and a 22 px icon; on, the field gets the ring of the "Download" headline, the placeholder reads "Describe the data you need, in plain words", and a "Try" row offers three example searches that fill the field and submit it.
-  AI Mode is on by default there too; submitting while on goes to `/discover?q=...`, and an off goes as `ai=0`; with no setting (production), the form submits exactly what it did.
+  AI Mode is on by default there too; submitting while on goes to `/discover?q=...`, and an off goes as `ai=0`; with no setting (a build without it), the form submits exactly what it did.
   The toggle's icon, a magnifier with a sparkle, is the only AI mark in the field.
   New colours are tokens with dark values (`--ai-toggle-*`, `--ai-try-*`, `--ai-panel-*`, `--ai-ring-*`).
 
 ### Changed
 
-- **AI Mode gives an overview only for a search of three words or more** (nemarOrg/website#518, OpenScience-Collective/osa#728; maintainer's rule of 2026-11-11).
+- **AI Mode search is on in production** (ADR 0032).
+  `wrangler.toml` sets `PUBLIC_OSA_OVERVIEW_URL` to `https://widget.osc.earth/osa/nemar/overview`, so production shows the toggle in Discover and Home, the overview above Discover's results and "Ask a follow-up".
+  The Privacy Policy already names the search overview (nemarOrg/docs#117, nemarOrg/website#523).
+- **Production's assistant widget pin moves to the OSA 0.8.20 release, commit `COMMIT_SHA`** (`PUBLIC_OSA_WIDGET_SRC` and `PUBLIC_OSA_WIDGET_INTEGRITY` in `wrangler.toml`, integrity `sha384-HASH`), from commit `0e966d6` of 2026-10-01.
+  The new widget has `open` and `seed`, so the AI Mode pill and "Ask a follow-up" show in production.
+- **"OSA" in the AI Mode search disclosure links to the assistant's page, `osc.earth/osa/`** (nemarOrg/website#528), not to the Privacy Policy's section on it, so the linked name goes to what it names; the policy stays one click away in the footer.
+- **The AI Mode pill's sparkle is 20 px, up from 16 px** (nemarOrg/website#528), so it reads at the weight of its semibold label.
+- **AI Mode gives an overview only for a search of three words or more** (nemarOrg/website#518, OpenScience-Collective/osa#728).
   A one-word search such as "EEG" made OSA's overview endpoint fail.
   Under three words Discover sends no overview request and the panel stays hidden; the line under the search field says why (see below), the results show as usual, and the toggle, the remembered choice and `ai=0` are unchanged.
   Words are counted as OSA counts them: the trimmed query split on whitespace, counting tokens that hold a letter or digit, so "P300", "naïve" and "α-band" count and a lone "-" or "&" does not (`countQueryWords`, `OVERVIEW_MIN_WORDS`).
@@ -76,7 +77,7 @@ Visitors also get the corrected-query line on Discover and the narrow-screen fix
 - **"Ask a follow-up" opens the assistant with the overview as its own first reply and sends nothing** (nemarOrg/website#525, OpenScience-Collective/osa#730).
   It calls `OSAChatWidget.seed(text, {mode: "center"})`; the reader writes the next message.
   The text is Markdown that stands alone: **AI overview** for the quoted search, the summary with each dataset id a link to its page on this site, and the top picks; it is at most 2,000 characters (the most `seed` takes), shortened by dropping the picks' reasons, then the picks, then cutting the summary at a sentence, and the search, the overview's prose and a pick's reason cannot make a link, image, emphasis or code of their own (a heading, quote or list marker that opens the summary is dropped), and a web address in them is broken (`https://x` reads `https x`) so the dataset links are the only links (`seedText`).
-  Where the widget has no `seed` (production's older widget, or one that did not load) the button is not drawn.
+  Where the widget has no `seed` (an older widget, or one that did not load) the button is not drawn.
   The old text, which phrased the overview as a question the reader had asked, is gone.
 
 ### Fixed
