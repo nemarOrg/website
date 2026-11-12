@@ -86,12 +86,12 @@ describe("AI Mode pill markup", () => {
     expect(tag).toMatch(/aria-haspopup="dialog"/);
   });
 
-  it("reads 'AI Mode' with one 16 px sparkle that is hidden from assistive technology", () => {
+  it("reads 'AI Mode' with one 20 px sparkle that is hidden from assistive technology", () => {
     expect(words(pillButton)).toBe("AI Mode");
     const svgs = pillButton.match(/<svg\b[^>]*>/g) ?? [];
     expect(svgs).toHaveLength(1);
-    expect(svgs[0]).toMatch(/width="16"/);
-    expect(svgs[0]).toMatch(/height="16"/);
+    expect(svgs[0]).toMatch(/width="20"/);
+    expect(svgs[0]).toMatch(/height="20"/);
     expect(svgs[0]).toMatch(/viewBox="0 0 24 24"/);
     expect(svgs[0]).toMatch(/fill="currentColor"/);
     expect(svgs[0]).toMatch(/aria-hidden="true"/);

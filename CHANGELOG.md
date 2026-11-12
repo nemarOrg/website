@@ -13,6 +13,10 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Changed
+
+- **The AI Mode pill's sparkle is 20 px, up from 16 px**, so it reads at the weight of its semibold label (maintainer's review on staging, 2026-11-11).
+
 ## [0.2.38] - 2026-11-11
 
 AI Mode reaches production in part.
