@@ -18,6 +18,10 @@ PUBLIC_UMAMI_WEBSITE_ID = "b4b5f61c-56b2-4b8c-9023-6a29ed3904ac"
 PUBLIC_OSA_WIDGET_SRC = "https://cdn.jsdelivr.net/gh/OpenScience-Collective/osa@0e966d60821dfc007928e46f80098ec9daf86b67/frontend/osa-chat-widget.js"
 PUBLIC_OSA_WIDGET_INTEGRITY = "sha384-+eweaUHPTuzDVWdLIvO+EsdQEJxJ/4bVi5xK2rtXMwojX3u0yHHwTlJZNr9Ufvwk"
 PUBLIC_OSA_API_ENDPOINT = "https://widget.osc.earth/osa"
+# AI Mode search: the AI overview above Discover's results and the toggle in the search fields
+# (ADR 0032). It must be one of `OVERVIEW_ENDPOINTS` in `src/lib/osa-overview.ts`; unset, there is
+# no toggle and no overview.
+PUBLIC_OSA_OVERVIEW_URL = "https://widget.osc.earth/osa/nemar/overview"
 # The notebook tab frames this host; it must be on OSA_NOTEBOOK_ORIGINS, the hosts this
 # site's frame-src allows. It is also the widget's own default, set here so the value
 # production uses is written down.
