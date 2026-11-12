@@ -15,6 +15,7 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ### Changed
 
+- **"OSA" in the AI Mode search disclosure links to the assistant's page, `osc.earth/osa/`**, not to the Privacy Policy's section on it, so the linked name goes to what it names; the policy stays one click away in the footer (maintainer's review, 2026-11-11).
 - **The AI Mode pill's sparkle is 20 px, up from 16 px**, so it reads at the weight of its semibold label (maintainer's review on staging, 2026-11-11).
 
 ## [0.2.38] - 2026-11-11

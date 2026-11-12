@@ -19,7 +19,7 @@ import CLIENT from "../src/lib/ai-mode-search-client.ts?raw";
 import MODE_SOURCE from "../src/lib/osa-ai-mode.ts?raw";
 import {
   AI_MODE_DISCLOSURE_LINK_TEXT,
-  AI_MODE_PRIVACY_NOTE_URL,
+  AI_MODE_OSA_URL,
   AI_MODE_SEARCH_DISCLOSURE,
 } from "../src/lib/osa-ai-mode";
 import {
@@ -94,14 +94,12 @@ describe("the toggle", () => {
   });
 
   it("tells the reader in visible text, while AI Mode is on, what leaves the site", () => {
-    // The maintainer's sentence (2026-11-11), short, with only "OSA" linked to the privacy note.
+    // The maintainer's sentence (2026-11-11), short, with only "OSA" linked to the assistant's page.
     expect(AI_MODE_SEARCH_DISCLOSURE).toBe(
       "When on, AI Mode provides an overview by sending the search results to the Open Science Assistant (OSA).",
     );
     expect(AI_MODE_DISCLOSURE_LINK_TEXT).toBe("OSA");
-    expect(AI_MODE_PRIVACY_NOTE_URL).toBe(
-      "https://docs.nemar.org/policies/privacy/#the-open-science-assistant",
-    );
+    expect(AI_MODE_OSA_URL).toBe("https://osc.earth/osa/");
     // Discover (the shared SearchBar) and Home each render the text as a paragraph that is always
     // in the page (a slot drawn with visibility, so showing it moves nothing) and that the client
     // shows only while AI Mode is on; a tooltip alone does not reach touch, keyboard or most screen
@@ -112,9 +110,9 @@ describe("the toggle", () => {
     ] as const) {
       const note = openingTag(source, "p", "data-ai-disclosure");
       expect(note, name).not.toMatch(/\bhidden\b/);
-      // The sentence, with only "OSA" as the link (not the full name), to the privacy note.
+      // The sentence, with only "OSA" as the link (not the full name), to the assistant's page.
       expect(source, name).toMatch(
-        /\{AI_MODE_DISCLOSURE_BEFORE\}<a class="ai-note-link" href=\{AI_MODE_PRIVACY_NOTE_URL\}>\{AI_MODE_DISCLOSURE_LINK_TEXT\}<\/a>\{AI_MODE_DISCLOSURE_AFTER\}/,
+        /\{AI_MODE_DISCLOSURE_BEFORE\}<a class="ai-note-link" href=\{AI_MODE_OSA_URL\}>\{AI_MODE_DISCLOSURE_LINK_TEXT\}<\/a>\{AI_MODE_DISCLOSURE_AFTER\}/,
       );
       // Muted like the note, and still visibly a link.
       expect(rule(styleOf(source), `${selector} .ai-note-link`), name).toMatch(/color:\s*inherit/);
