@@ -532,8 +532,14 @@ describe("the setting", () => {
     expect(resolveOverviewEndpoint(fromToml).kind).toBe("enabled");
   });
 
-  it("is absent from wrangler.toml, so production shows no toggle", () => {
-    expect(WRANGLER_PROD).not.toContain(key);
+  it("is the production worker's URL in wrangler.toml, on the origin of the production widget API", () => {
+    const fromProd = value(WRANGLER_PROD, new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, "m"));
+    const apiEndpoint = value(WRANGLER_PROD, /^PUBLIC_OSA_API_ENDPOINT\s*=\s*"([^"]*)"/m);
+    expect(fromProd).toBe("https://widget.osc.earth/osa/nemar/overview");
+    expect(OVERVIEW_ENDPOINTS).toContain(fromProd as (typeof OVERVIEW_ENDPOINTS)[number]);
+    expect(resolveOverviewEndpoint(fromProd).kind).toBe("enabled");
+    expect(apiEndpoint).toBeTruthy();
+    expect(new URL(fromProd as string).origin).toBe(new URL(apiEndpoint as string).origin);
   });
 });
 

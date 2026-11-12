@@ -71,8 +71,8 @@ const directCmd = `curl -s ${dataBase}/${ds}/${versionSuffix}/manifest.json | jq
   {/* AI Mode (website#517): opens the OSA widget as its centre-stage dialog. Ships
       [hidden]; the script below reveals it once the document is ready AND
       window.OSAChatWidget.open exists, so a build with no widget (no PUBLIC_OSA_*
-      variables, an excluded path, jsDelivr or the CSP blocking it) and production's
-      older pinned widget, which has no open(), never show a dead button. The wrapper
+      variables, an excluded path, jsDelivr or the CSP blocking it) and an older
+      cached widget, which has no open(), never show a dead button. The wrapper
       anchors the one-time hint under the pill at any wrap width; it ships [hidden] and
       the script reveals it with the pill, so it adds no gap to the row (no :has()). */}
   <div class="ai-mode" data-ai-mode-wrap hidden>

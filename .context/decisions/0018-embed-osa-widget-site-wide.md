@@ -432,3 +432,31 @@ The site's CSP needs no change: the set of hosts named in the widget's source is
 - osa tag `v0.8.16` resolves to commit `0e966d6`; the release notes list OSA #555 among the widget changes.
 - `src/lib/osa-widget.test.ts`, "the production pin in wrangler.toml": the values in `wrangler.toml` resolve to a ready widget, with a commit-pinned src and a hash.
   Before this test the check was manual, and a malformed production pin degrades to no widget and a console warning, with nothing failing in CI.
+
+## Update 2026-11-12: production's pin moves to OSA 0.8.20
+
+The decision stands; only the pinned commit and its hash moved.
+
+OSA 0.8.20 is released (OSA PR #735, <https://github.com/OpenScience-Collective/osa/releases/tag/v0.8.20>), tagged `v0.8.20` at `ffdf7e335e33b19c7af163b6139ef47d8da4e8e3`.
+Production (`wrangler.toml` `[vars]`) now pins that commit, with
+`sha384-axZ+AmhWnYfIH2NaXqfef9J0TYbpt86O6Gq+3r04i4Ly+Q8RErT4VsLFejPSFcGG`.
+The same value was computed from git's file at the commit, from jsDelivr's copy at the commit (805,701 bytes) and from jsDelivr's `@v0.8.20` alias,
+and OSA's release notes publish the same hash.
+
+Staging is not touched: it follows `develop` and carries no hash (update 2026-09-29).
+
+The release brings the widget's host API (`open`, `close`, `ask`, `seed`, `setMode`, `on`), which the AI Mode pill and Ask a follow-up call (ADR 0032),
+the center-stage AI Mode dialog with its Chat and Notebook tabs,
+and the search overview route this site's AI Mode search calls (`PUBLIC_OSA_OVERVIEW_URL`, set in the same change).
+
+The site's CSP needs no change.
+The widget's source names one host that 0.8.16 did not, `https://docs.osc.earth`,
+as the default privacy link (`DEFAULT_PRIVACY_URL`), which NEMAR's community config replaces with NEMAR's policy;
+a link is a navigation, which `connect-src` and `frame-src` do not govern.
+The runtime bundle `osa-runtime.bundle.js` grew from 93,685 to 111,388 bytes and still names only `https://cdn.jsdelivr.net`, which `script-src` already allows.
+
+### Receipts (update, 0.8.20)
+
+- osa tag `v0.8.20` resolves to commit `ffdf7e3`, the stable-version commit after the release merge `2cc8634`; its widget file is identical to the one reviewed at `a8d1d31`.
+- The widget at the pinned commit defines `open`, `seed`, `setMode` and `setDataset` on `window.OSAChatWidget`.
+- `src/lib/osa-widget.test.ts`, "the production pin in wrangler.toml", checks that the new values resolve to a ready widget.

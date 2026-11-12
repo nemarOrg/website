@@ -55,7 +55,7 @@ function envValue(): string | undefined {
 
 /**
  * Decide from `PUBLIC_OSA_OVERVIEW_URL` (or `raw`, for tests) whether the overview is on. Unset
- * or blank is `disabled`, an expected state (production, a local build); a value that is not in
+ * or blank is `disabled`, an expected state (a local build, a preview); a value that is not in
  * {@link OVERVIEW_ENDPOINTS} is `misconfigured` with the reason, and the page renders no toggle.
  */
 export function resolveOverviewEndpoint(raw?: string | null): OverviewResolution {
