@@ -51,7 +51,7 @@ Visitors also get the corrected-query line on Discover and the narrow-screen fix
 - **AI Mode search is on in production** (ADR 0032).
   `wrangler.toml` sets `PUBLIC_OSA_OVERVIEW_URL` to `https://widget.osc.earth/osa/nemar/overview`, so production shows the toggle in Discover and Home, the overview above Discover's results and "Ask a follow-up".
   The Privacy Policy already names the search overview (nemarOrg/docs#117, nemarOrg/website#523).
-- **Production's assistant widget pin moves to the OSA 0.8.20 release, commit `COMMIT_SHA`** (`PUBLIC_OSA_WIDGET_SRC` and `PUBLIC_OSA_WIDGET_INTEGRITY` in `wrangler.toml`, integrity `sha384-HASH`), from commit `0e966d6` of 2026-10-01.
+- **Production's assistant widget pin moves to the OSA 0.8.20 release, commit `ffdf7e33`** (`v0.8.20`; `PUBLIC_OSA_WIDGET_SRC` and `PUBLIC_OSA_WIDGET_INTEGRITY` in `wrangler.toml`, integrity `sha384-axZ+AmhWnYfIH2NaXqfef9J0TYbpt86O6Gq+3r04i4Ly+Q8RErT4VsLFejPSFcGG`, which matches the release notes and jsDelivr's bytes), from commit `0e966d6` (OSA 0.8.16) of 2026-10-01.
   The new widget has `open` and `seed`, so the AI Mode pill and "Ask a follow-up" show in production.
 - **"OSA" in the AI Mode search disclosure links to the assistant's page, `osc.earth/osa/`** (nemarOrg/website#528), not to the Privacy Policy's section on it, so the linked name goes to what it names; the policy stays one click away in the footer.
 - **The AI Mode pill's sparkle is 20 px, up from 16 px** (nemarOrg/website#528), so it reads at the weight of its semibold label.
