@@ -29,8 +29,8 @@ Four facts shape where that call is made and how it is switched on.
   Anything else is refused with a reason and a `console.warn`, and also means off.
   `edge.osc.earth` stays refused until a release adds it to the policy.
 - `deploy-test.yml` sets it to the develop URL (staging only); `wrangler.test.toml` mirrors it for reference.
-  `wrangler.toml` does not mention it, so production has no toggle until a release adds the production URL there.
-  A test pins both.
+  `wrangler.toml` sets the production URL (`https://widget.osc.earth/osa/nemar/overview`), which production's build reads.
+  A test pins all three.
 - Discover embeds the request (query, filters, count, up to ten rows with the dataset's own description or the search snippet) as a JSON data island, only when a search ran, nothing failed, the page is the first and cards exist.
   The browser reads it and posts it when AI Mode is on.
   The server never calls the overview.
@@ -74,7 +74,7 @@ Website#525 changed three things after the first test on staging.
 
 ## Consequences
 
-- Turning the feature on in production is a one-line change in `wrangler.toml` in a release, and needs the production worker to serve the route first.
+- Turning the feature on in production was a one-line change in `wrangler.toml` in a release, and needed the production worker to serve the route first.
   Turning it off anywhere is removing the line.
 - The page code has no key, no token and no cost: the overview is paid under OSA's per-address limits (hourly, and the per-minute limit shared with chat) and cached by OSA for 24 hours per normalized query, filters and results.
   A visitor behind a shared address shares those limits; a 429 is shown with its own wording.
@@ -84,8 +84,8 @@ Website#525 changed three things after the first test on staging.
 - With AI Mode on, the visitor's search words and the titles and descriptions of the top results leave the site for the Open Science Assistant service and, through it, an AI model provider.
   At the point of use the page says it in one short sentence, in the maintainer's words: "When on, AI Mode provides an overview by sending the search results to the Open Science Assistant (OSA)." Only "OSA" is a link, to the assistant's own page (`https://osc.earth/osa/`, since 2026-11-11, so the linked name goes to what it names); the full statement is NEMAR's Privacy Policy, linked from every page's footer (#523, nemarOrg/docs#117).
   A visible line under each search field says so while AI Mode is on (a `title` tooltip alone does not reach touch, keyboard focus or most screen readers; the toggle keeps the `title` as a bonus).
-  The privacy policy is the docs site's page (`/privacy` redirects there), so its wording must name this before the production line is added to `wrangler.toml` (nemarOrg/website#523).
-- Where the widget has no `seed`, there is no follow-up button; production's older pinned widget has none, and the end-to-end check of the dialog (the overview as the reply, nothing sent until the reader writes) needs the OSA change deployed to develop.
+  The privacy policy is the docs site's page (`/privacy` redirects there), and it names this (nemarOrg/docs#117, the AI Mode paragraph at https://docs.nemar.org/policies/privacy/; nemarOrg/website#523), which was the condition for adding the production line to `wrangler.toml`.
+- Where the widget has no `seed`, there is no follow-up button (an older cached widget has none; production pins the OSA 0.8.20 release, which does), and the end-to-end check of the dialog (the overview as the reply, nothing sent until the reader writes) needs the OSA change deployed to develop.
 - Because the call is the browser's, a visitor who blocks the worker, or whose network refuses it, sees the panel's error state with Try again; the results below are unaffected.
 
 ## Alternatives considered

@@ -98,7 +98,7 @@ describe("aiModeAvailable", () => {
     expect(aiModeAvailable({ OSAChatWidget: null })).toBe(false);
   });
 
-  it("is false for a widget without open(), as production's older pinned widget", () => {
+  it("is false for a widget without open(), as an older cached widget", () => {
     expect(aiModeAvailable({ OSAChatWidget: {} })).toBe(false);
     expect(aiModeAvailable({ OSAChatWidget: { open: "not a function" } })).toBe(false);
   });
@@ -562,7 +562,7 @@ function recordingWidget(options: { seed?: boolean | "throws" | "rejects"; ask?:
 describe("aiModeSeedAvailable", () => {
   it("is true only for a widget with a seed function, whatever else it has", () => {
     expect(aiModeSeedAvailable(recordingWidget({ seed: true }).win)).toBe(true);
-    // Production's older widget: open (maybe ask), no seed.
+    // An older widget: open (maybe ask), no seed.
     expect(aiModeSeedAvailable(recordingWidget().win)).toBe(false);
     expect(aiModeSeedAvailable(recordingWidget({ ask: true }).win)).toBe(false);
     expect(aiModeSeedAvailable({ OSAChatWidget: { seed: "yes" } })).toBe(false);

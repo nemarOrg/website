@@ -14,8 +14,8 @@
  * Three things are decided for the pill.
  *
  * 1. **Whether the pill shows at all.** Only when the widget is on the page AND has an `open`
- *    function. Production pins an older widget that has none, so the check is on the method, never
- *    on a version string ({@link aiModeAvailable}). A widget that did not load (jsDelivr, the CSP
+ *    function. An older cached widget has none, so the check is on the method, never on a version
+ *    string ({@link aiModeAvailable}). A widget that did not load (jsDelivr, the CSP
  *    or the integrity check blocked it) leaves `window.OSAChatWidget` undefined, and the pill
  *    stays hidden.
  * 2. **When that is decided.** The ActionBar's script is a deferred module script that sits before
@@ -76,8 +76,8 @@ export interface AiModeDocument {
   ): void;
 }
 
-/** Whether the widget is on the page and can be opened from the host. A widget pinned before OSA
- *  #701 (production, today) has no `open`, so the pill stays hidden there. */
+/** Whether the widget is on the page and can be opened from the host. A widget from before OSA
+ *  #701 has no `open`, so the pill stays hidden there. */
 export function aiModeAvailable(win: AiModeWindow): boolean {
   return typeof win.OSAChatWidget?.open === "function";
 }
@@ -393,10 +393,9 @@ export function setAiModeSearch(win: AiModePageWindow, on: boolean): void {
   replaceAiModeUrl(win, on);
 }
 
-/** Whether the widget can take a seeded message (OSA #730). A widget pinned before it, such as
- *  production's, has no `seed`, and the follow-up button is then not drawn at all: nothing stands in
- *  for it, since opening the dialog empty or sending the text as a question is not what the
- *  reader asked for. Checked on the method, never on a version string. */
+/** Whether the widget can take a seeded message (OSA #730). A widget from before it has no `seed`, and the follow-up button is then not drawn at
+ *  all: nothing stands in for it, since opening the dialog empty or sending the text as a question
+ *  is not what the reader asked for. Checked on the method, never on a version string. */
 export function aiModeSeedAvailable(win: AiModeWindow): boolean {
   return typeof win.OSAChatWidget?.seed === "function";
 }
