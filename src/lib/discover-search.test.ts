@@ -38,6 +38,7 @@ describe("planSearch", () => {
         offset: 20,
         filters: { modality: "MEG", license: "public", has_hed: true, has_zarr: undefined },
       },
+      overviewRows: 0,
     });
   });
 
@@ -74,6 +75,89 @@ describe("planSearch", () => {
       limit: 25,
       offset: 25,
     });
+  });
+});
+
+describe("planSearch: the AI overview's rows (website#531)", () => {
+  it("asks the endpoint for the overview's 20 on page 1 though the page shows 10", () => {
+    const plan = planSearch(url("q=face+recognition+eeg"), { overviewRows: 20 });
+    expect(plan.mode).toBe("server");
+    expect(plan.params).toMatchObject({ limit: 20, offset: 0 });
+    expect(plan.overviewRows).toBe(20);
+  });
+
+  it("keeps a larger page size as the limit", () => {
+    const plan = planSearch(url("q=eeg&page_size=25"), { overviewRows: 20 });
+    expect(plan.params).toMatchObject({ limit: 25, offset: 0 });
+    expect(plan.overviewRows).toBe(20);
+  });
+
+  it("asks for nothing extra past page 1, where there is no overview", () => {
+    const plan = planSearch(url("q=eeg&page=2"), { overviewRows: 20 });
+    expect(plan.params).toMatchObject({ limit: 10, offset: 10 });
+    expect(plan.overviewRows).toBe(0);
+  });
+
+  it("asks for nothing extra by default", () => {
+    expect(planSearch(url("q=eeg")).overviewRows).toBe(0);
+    expect(planSearch(url("q=eeg")).params).toMatchObject({ limit: 10 });
+  });
+
+  it("keeps the window at 100 and reads the overview from it", () => {
+    const plan = planSearch(url("q=eeg&p_min=5"), { overviewRows: 20 });
+    expect(plan.mode).toBe("window");
+    expect(plan.params.limit).toBe(SEARCH_WINDOW);
+    expect(plan.overviewRows).toBe(20);
+  });
+
+  it("never asks for more than the endpoint returns, nor for a negative count", () => {
+    expect(planSearch(url("q=eeg"), { overviewRows: 500 }).params).toMatchObject({ limit: 100 });
+    expect(planSearch(url("q=eeg"), { overviewRows: -3 }).overviewRows).toBe(0);
+    for (const odd of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const plan = planSearch(url("q=eeg"), { overviewRows: odd });
+      expect(plan.overviewRows).toBe(0);
+      expect(plan.params).toMatchObject({ limit: 10 });
+    }
+  });
+});
+
+describe("pageSearch: the AI overview's rows (website#531)", () => {
+  const rows = Array.from({ length: 20 }, (_, i) => hit(`on${String(i).padStart(6, "0")}`));
+
+  it("shows the page's 10 and hands the overview all 20, in ranking order", () => {
+    const state = url("q=face+recognition+eeg");
+    const r = pageSearch(planSearch(state, { overviewRows: 20 }), answer(rows, 240), state);
+    expect(r.slice.map((x) => x.id)).toEqual(rows.slice(0, 10).map((x) => x.id));
+    expect(r.overviewHits.map((x) => x.id)).toEqual(rows.map((x) => x.id));
+    // The count and the pager are the endpoint's, not the length of what it returned.
+    expect(r).toMatchObject({ totalReturned: 240, pageableTotal: 240 });
+  });
+
+  it("hands over fewer when the search matched fewer", () => {
+    const state = url("q=face+recognition+eeg");
+    const r = pageSearch(
+      planSearch(state, { overviewRows: 20 }),
+      answer(rows.slice(0, 7), 7),
+      state,
+    );
+    expect(r.slice).toHaveLength(7);
+    expect(r.overviewHits).toHaveLength(7);
+  });
+
+  it("hands over nothing when the plan asked for none", () => {
+    const state = url("q=eeg");
+    expect(
+      pageSearch(planSearch(state), answer(rows.slice(0, 10), 10), state).overviewHits,
+    ).toEqual([]);
+  });
+
+  it("takes the overview's rows from the filtered window, not the raw one", () => {
+    const state = url("q=eeg&p_min=10");
+    const window = rows.map((row, i) => ({ ...row, participants: i % 2 === 0 ? 20 : 5 }));
+    const r = pageSearch(planSearch(state, { overviewRows: 20 }), answer(window, 400), state);
+    expect(r.overviewHits).toHaveLength(10);
+    expect(r.overviewHits.every((x) => x.participants >= 10)).toBe(true);
+    expect(r.slice.map((x) => x.id)).toEqual(r.overviewHits.map((x) => x.id));
   });
 });
 

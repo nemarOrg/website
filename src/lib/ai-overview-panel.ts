@@ -49,8 +49,12 @@ export interface PanelView {
   badge: string | null;
   /** Grey placeholder lines in place of the text. */
   skeleton: boolean;
+  /** The lead-in, shown first. */
   summary: OverviewSegment[];
+  /** The list, right under the lead-in (website#531). */
   picks: OverviewPick[];
+  /** Where to start, under the list; empty when there is none. */
+  suggestion: OverviewSegment[];
   footnote: string | null;
   followUp: string | null;
   error: { message: string; retry: string } | null;
@@ -60,6 +64,8 @@ export const PANEL_HEADING = "AI overview";
 export const PANEL_FOOTNOTE =
   "Written by AI from these search results. Check the dataset before relying on it.";
 export const FOLLOW_UP_LABEL = "Ask a follow-up";
+/** The name of the picks list, in the panel and in the "Ask a follow-up" message. */
+export const PICKS_LABEL = "Top picks";
 export const RETRY_LABEL = "Try again";
 
 const OFF: PanelView = {
@@ -71,6 +77,7 @@ const OFF: PanelView = {
   skeleton: false,
   summary: [],
   picks: [],
+  suggestion: [],
   footnote: null,
   followUp: null,
   error: null,
@@ -107,6 +114,7 @@ export function panelView(state: OverviewPanelState, canFollowUp = true): PanelV
         badge: "Experimental",
         summary: state.answer.segments,
         picks: state.answer.picks,
+        suggestion: state.answer.suggestion,
         footnote: PANEL_FOOTNOTE,
         followUp: canFollowUp ? FOLLOW_UP_LABEL : null,
       };
@@ -136,18 +144,20 @@ export const SEED_MAX_CHARS = 2000;
  *  images, HTML, headings, tables. Each becomes a space, so what is quoted is the words. A web
  *  address is broken too (see {@link neutralise}). */
 const QUERY_MARKDOWN = /[\\`*_[\]()<>#~|!]/g;
-/** What turns written prose into a link, an image, emphasis (`*`, `_`, `~`) or code in the widget's Markdown. The
- *  overview is a model's text about dataset descriptions, so a link in it would be a link the page
- *  made: each becomes a space, and a sentence stays a sentence. */
-const PROSE_MARKDOWN = /[\\`*_~[\]]/g;
+/** What turns written prose into a link, an image, emphasis (`*`, `_`, `~`), code or a table row
+ *  (`|`: the widget reads a line with two of them as one) in the widget's Markdown. The overview is
+ *  a model's text about dataset descriptions, so a link in it would be a link the page made: each
+ *  becomes a space, and a sentence stays a sentence. */
+const PROSE_MARKDOWN = /[\\`*_~[\]|]/g;
 /** What opens a block in Markdown when it starts a line: a heading, quote or list marker (`#`, `>`,
  *  `+`, `-`, or `1.`/`1)`). The summary is one line right under the head, so a model's summary that
  *  began with one would turn into a heading, quote or list; the marker is dropped. A pick's reason
  *  follows `N. [id]:` on the same line, where it opens nothing. */
 const LEADING_BLOCK_MARKER = /^\s*(?:[#>+-]+\s*|\d{1,9}[.)]\s+)+/;
 /** A web address: the widget turns any `http://` or `https://` run into a link on its own, with no
- *  Markdown around it. */
-const WEB_SCHEME = /\b(https?):\/\//gi;
+ *  Markdown around it and no word boundary before it, so a scheme glued to a word
+ *  (`see2https://x`) is broken too. */
+const WEB_SCHEME = /(https?):\/\//gi;
 
 /** `text` with `markdown` characters blanked and web addresses broken (`https://x` reads
  *  `https x`), so the only links in the message are the page's own dataset links. Both are done
@@ -164,10 +174,10 @@ function datasetLink(id: string, origin: string): string {
   return /^https?:\/\/[^\s/]+$/.test(base) ? `[${id}](${base}${overviewDatasetHref(id)})` : id;
 }
 
-/** The summary as Markdown with each dataset id a link, and where the links are (a cut never lands
- *  inside one). */
-function summaryMarkdown(
-  answer: OverviewAnswer,
+/** A paragraph of segments (the lead-in or the suggestion) as Markdown with each dataset id a link,
+ *  and where the links are (a cut never lands inside one). */
+function segmentsMarkdown(
+  segments: readonly OverviewSegment[],
   origin: string,
 ): { text: string; links: Array<[number, number]> } {
   let text = "";
@@ -176,18 +186,30 @@ function summaryMarkdown(
     const trimmed = text === "" || text.endsWith(" ") ? piece.replace(/^ /, "") : piece;
     text += trimmed;
   };
-  for (const segment of answer.segments) {
+  // Adjacent text segments are neutralised as one run, so a web address split across two
+  // ("see https:" then "//x") is broken like one written whole.
+  let run = "";
+  const flush = () => {
+    if (run === "") return;
+    const prose = neutralise(run, PROSE_MARKDOWN);
+    // Only the start of a paragraph can open a block; a link before it means it is not the start.
+    append(text === "" ? prose.replace(LEADING_BLOCK_MARKER, "") : prose);
+    run = "";
+  };
+  for (const segment of segments) {
     if (segment.kind === "text") {
-      const prose = neutralise(segment.text, PROSE_MARKDOWN);
-      // Only the start of the summary can open a block; a link before it means it is not the start.
-      append(text === "" ? prose.replace(LEADING_BLOCK_MARKER, "") : prose);
-    } else {
-      const link = datasetLink(segment.id, origin);
-      const start = text.length;
-      text += link;
-      links.push([start, text.length]);
+      run += segment.text;
+      continue;
     }
+    flush();
+    // A "!" right before "[id](...)" would turn the page's own link into an image.
+    if (text.endsWith("!")) text += " ";
+    const link = datasetLink(segment.id, origin);
+    const start = text.length;
+    text += link;
+    links.push([start, text.length]);
   }
+  flush();
   return { text: text.trimEnd(), links };
 }
 
@@ -224,18 +246,30 @@ function trimSummary(summary: { text: string; links: Array<[number, number]> }, 
  * ```
  * **AI overview** for "<the search>"
  *
- * <the summary, each dataset id a link>
+ * <the lead-in, each dataset id a link>
  *
  * **Top picks**
  * 1. [id](<origin>/dataset/<id>): why
+ *
+ * <where to start, each dataset id a link>
  * ```
  *
  * The search is quoted with its Markdown characters and newlines turned to spaces, and neither it
  * nor the overview's prose nor a pick's reason can make a link: a web address in them is broken
- * (`https://x` reads `https x`), so the dataset links are the only ones. At most {@link SEED_MAX_CHARS} characters
- * (`OSAChatWidget.seed` refuses more). When it does not fit, the picks lose their reasons first,
- * then go, and then the summary is cut at a sentence.
+ * (`https://x` reads `https x`), so the dataset links are the only ones. The picks carry no title:
+ * up to ten of them share the room, and each id links to its dataset's page.
+ *
+ * At most {@link SEED_MAX_CHARS} characters (`OSAChatWidget.seed` refuses more). When it does not
+ * fit, the picks go from the end, each kept one with its reason; then all of them are tried again
+ * without reasons, again dropping from the end; then the picks go. The suggestion is kept through
+ * all of that: when the lead-in and it still do not fit, the lead-in is cut at a sentence to leave
+ * the suggestion its room, as long as the lead-in keeps at least {@link SEED_MIN_LEAD_IN_CHARS}
+ * characters (or all of itself, when it is shorter). Only a suggestion too long for that goes, and
+ * then the lead-in is cut to fit under the head, as it always was.
  */
+/** The least of the lead-in "Ask a follow-up" keeps when it is cut to leave the suggestion room. */
+export const SEED_MIN_LEAD_IN_CHARS = 120;
+
 export function seedText(query: string, answer: OverviewAnswer, origin: string): string {
   let words = neutralise(query, QUERY_MARKDOWN).trim();
   if (words.length > OVERVIEW_LIMITS.queryMax) {
@@ -245,26 +279,41 @@ export function seedText(query: string, answer: OverviewAnswer, origin: string):
     words = `${words.slice(0, cut).trimEnd()}…`;
   }
   const head = words === "" ? "**AI overview**" : `**AI overview** for "${words}"`;
-  const summary = summaryMarkdown(answer, origin);
+  const summary = segmentsMarkdown(answer.segments, origin);
+  const suggestion = segmentsMarkdown(answer.suggestion, origin).text;
 
-  const picks = (reasons: boolean): string => {
-    if (answer.picks.length === 0) return "";
-    const lines = answer.picks.map((pick, index) => {
+  const picks = (count: number, reasons: boolean): string => {
+    if (count === 0) return "";
+    const lines = answer.picks.slice(0, count).map((pick, index) => {
       const reason = reasons ? neutralise(pick.reason, PROSE_MARKDOWN).trim() : "";
       return `${index + 1}. ${datasetLink(pick.id, origin)}${reason ? `: ${reason}` : ""}`;
     });
-    return `**Top picks**\n${lines.join("\n")}`;
+    return `**${PICKS_LABEL}**\n${lines.join("\n")}`;
   };
-  const compose = (summaryPart: string, picksPart: string) =>
-    [head, summaryPart, picksPart].filter((part) => part !== "").join("\n\n");
+  const compose = (summaryPart: string, picksPart: string, suggestionPart: string) =>
+    [head, summaryPart, picksPart, suggestionPart].filter((part) => part !== "").join("\n\n");
 
-  for (const picksPart of [picks(true), picks(false)]) {
-    const whole = compose(summary.text, picksPart);
-    if (whole.length <= SEED_MAX_CHARS) return whole;
+  const total = answer.picks.length;
+  for (const reasons of [true, false]) {
+    for (let count = total; count >= 1; count -= 1) {
+      const whole = compose(summary.text, picks(count, reasons), suggestion);
+      if (whole.length <= SEED_MAX_CHARS) return whole;
+    }
   }
-  // The picks go; the summary is cut at a sentence to fit under the head and its blank line.
+  const withoutPicks = compose(summary.text, "", suggestion);
+  if (withoutPicks.length <= SEED_MAX_CHARS) return withoutPicks;
+  if (suggestion !== "") {
+    // The lead-in is cut to leave the whole suggestion its room: the head, the lead-in and the
+    // suggestion, with a blank line between each.
+    const leadRoom = SEED_MAX_CHARS - head.length - 2 - suggestion.length - 2;
+    if (leadRoom >= Math.min(SEED_MIN_LEAD_IN_CHARS, summary.text.length)) {
+      return compose(trimSummary(summary, leadRoom), "", suggestion);
+    }
+  }
+  // The picks and the suggestion go; the lead-in is cut at a sentence to fit under the head and its
+  // blank line.
   const room = SEED_MAX_CHARS - head.length - 2;
-  return compose(trimSummary(summary, room), "");
+  return compose(trimSummary(summary, room), "", "");
 }
 
 /** Said under "Ask a follow-up" when the assistant widget could not take the question. */

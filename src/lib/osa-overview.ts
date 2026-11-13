@@ -17,12 +17,15 @@
  *    odd id cuts a row down or drops it instead of failing the whole overview.
  * 3. **The call** ({@link requestOverview}): a POST with a timeout, and an error class whose
  *    `kind` the panel turns into words.
- * 4. **The answer** ({@link parseOverviewResponse}). A segment list, never markup: text segments
- *    stay plain text and `dataset_id` segments become links to `/dataset/<id>`. An answer that
- *    names an id the request did not carry is an error, not a link, whatever the server said.
+ * 4. **The answer** ({@link parseOverviewResponse}). A short lead-in, up to ten picks and a
+ *    suggestion of where to start (website#531), the lead-in and the suggestion as segment lists,
+ *    never markup: text segments stay plain text and `dataset_id` segments become links to
+ *    `/dataset/<id>`. An answer that names an id the request did not carry is an error, not a
+ *    link, whatever the server said.
  */
 
 import type { FilterState } from "./filters";
+import type { SearchResult } from "./types";
 
 /**
  * The only two URLs `PUBLIC_OSA_OVERVIEW_URL` may be: the dev worker (staging) and the production
@@ -80,7 +83,7 @@ export function overviewEndpoint(raw?: string | null): OverviewEndpoint | null {
 export const OVERVIEW_LIMITS = {
   queryMax: 300,
   filterKeysMax: 20,
-  rowsMax: 10,
+  rowsMax: 20,
   idMax: 64,
   titleMax: 200,
   descriptionMax: 500,
@@ -194,16 +197,28 @@ export function overviewFilters(state: FilterState): Record<string, unknown> {
   };
 }
 
-function joinModalities(value: OverviewSourceRow["modalities"]): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  const text = typeof value === "string" ? value : value.join(", ");
+/** The modalities as one string, or `undefined`. A row from the catalog can hold anything (AGENTS.md:
+ *  null or unexpected fields), so a value that is neither a string nor a list of strings counts as
+ *  none, and a list keeps only its strings. */
+function joinModalities(value: unknown): string | undefined {
+  let text: string;
+  if (typeof value === "string") text = value;
+  else if (Array.isArray(value)) {
+    text = value.filter((item): item is string => typeof item === "string").join(", ");
+  } else return undefined;
   return text.trim() === "" ? undefined : text;
+}
+
+/** `value` when it is a string, else the empty string: a field of a catalog row that is not text
+ *  (null, a number) is read as empty instead of failing the request. */
+function textOf(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 /**
  * The request for a search, or `null` when there is nothing to read: a blank query, or no row
- * with an acceptable id. Rows keep the search's ranking order; the first ten acceptable ones are
- * sent. `correctedQuery` replaces the query when the API searched other words (the results are
+ * with an acceptable id. Rows keep the search's ranking order; the first twenty acceptable ones
+ * are sent. `correctedQuery` replaces the query when the API searched other words (the results are
  * for those words). `totalCount` is the number of matches in all.
  */
 export function buildOverviewRequest(input: {
@@ -219,16 +234,19 @@ export function buildOverviewRequest(input: {
 
   const seen = new Set<string>();
   const results: OverviewRequestRow[] = [];
-  for (const row of input.rows) {
+  for (const row of input.rows as readonly unknown[]) {
     if (results.length >= OVERVIEW_LIMITS.rowsMax) break;
+    // A row that is not an object (null, a string) is skipped, never read (AGENTS.md: the catalog
+    // may hold null or unexpected fields).
+    if (!isRecord(row)) continue;
     const id = row.id;
     if (typeof id !== "string" || id.length > OVERVIEW_LIMITS.idMax) continue;
     if (!OVERVIEW_ID_PATTERN.test(id) || seen.has(id)) continue;
     seen.add(id);
     const out: OverviewRequestRow = {
       id,
-      title: clip((row.title ?? "").trim() || id, OVERVIEW_LIMITS.titleMax),
-      description: clip(row.description ?? "", OVERVIEW_LIMITS.descriptionMax),
+      title: clip(textOf(row.title).trim() || id, OVERVIEW_LIMITS.titleMax),
+      description: clip(textOf(row.description), OVERVIEW_LIMITS.descriptionMax),
     };
     const modalities = joinModalities(row.modalities);
     if (modalities !== undefined) out.modalities = clip(modalities, OVERVIEW_LIMITS.modalitiesMax);
@@ -266,10 +284,35 @@ export function snippetText(snippet: string | undefined): string {
   return (snippet ?? "").replace(/<\/?mark>/gi, "");
 }
 
+/** A search hit as the endpoint returns it, before hydration: what the overview reads of the best
+ *  matches past the page's own cards. */
+export type OverviewHit = Pick<SearchResult, "id" | "name" | "modalities" | "snippet" | "tasks">;
+
+/** What the overview reads of a hit the page did not hydrate: the snippet without its highlight
+ *  tags, else the task names, else nothing. A search row carries no description of its own, and a
+ *  field that is not a string (an unhydrated row may hold null) counts as empty. */
+export function hitDescription(hit: OverviewHit): string {
+  const snippet = typeof hit.snippet === "string" ? snippetText(hit.snippet).trim() : "";
+  if (snippet) return snippet;
+  const tasks = (typeof hit.tasks === "string" ? hit.tasks : "")
+    .split(",")
+    .map((task) => task.trim())
+    .filter((task) => task !== "");
+  return tasks.length > 0 ? `Tasks: ${tasks.join(", ")}` : "";
+}
+
 /**
  * The request Discover embeds, or `null` when there is nothing to embed: no search ran, it
- * failed, the page is not the first (an overview reads the best matches), or no card is left. The
- * description is the dataset's own, falling back to the search snippet when it has none.
+ * failed, the page is not the first (an overview reads the best matches), or no card is left.
+ *
+ * The rows follow the best matches (`hits`, website#531) in their ranking order: the page shows
+ * ten cards, and the overview reads twenty. A hit that has a card is read as the card, whose
+ * description is the dataset's own, falling back to the search snippet when it has none; a hit
+ * past the cards was never hydrated, so its description is {@link hitDescription}. Cards no hit
+ * names follow (none, normally: the cards are the first hits), and with no hits the cards alone
+ * are read, as before. Walking the hits, not the cards, keeps the ranking even when a card's
+ * hydrated id is unusable: its hit then stays in its own place instead of falling behind the
+ * other cards. A hit or card that is not an object is skipped.
  */
 export function overviewRequestForPage(input: {
   isSearch: boolean;
@@ -280,19 +323,51 @@ export function overviewRequestForPage(input: {
   filters?: Record<string, unknown>;
   totalCount: number;
   cards: readonly OverviewCard[];
+  hits?: readonly OverviewHit[];
 }): OverviewRequest | null {
   if (!input.isSearch || input.failed || input.page !== 1 || input.cards.length === 0) return null;
+  const cardRow = ({ dataset, snippet }: OverviewCard): OverviewSourceRow => {
+    const description = textOf(dataset.description);
+    return {
+      id: dataset.dataset_id,
+      title: dataset.name,
+      description: description.trim()
+        ? description
+        : snippetText(typeof snippet === "string" ? snippet : undefined),
+      modalities: dataset.modalities,
+    };
+  };
+  const cards = (input.cards as readonly unknown[]).filter(
+    (card): card is OverviewCard => isRecord(card) && isRecord(card.dataset),
+  );
+  const cardRows = new Map<string, OverviewSourceRow>();
+  for (const card of cards) {
+    const id = card.dataset.dataset_id;
+    if (typeof id === "string" && !cardRows.has(id)) cardRows.set(id, cardRow(card));
+  }
+  const hits = ((input.hits ?? []) as readonly unknown[]).filter((hit): hit is OverviewHit =>
+    isRecord(hit),
+  );
+  const rows: OverviewSourceRow[] = hits.map((hit) => {
+    const card = typeof hit.id === "string" ? cardRows.get(hit.id) : undefined;
+    return (
+      card ?? {
+        id: hit.id,
+        title: textOf(hit.name),
+        description: hitDescription(hit),
+        modalities: hit.modalities,
+      }
+    );
+  });
+  // Cards no hit named, after the hits; the cards alone when there are no hits. buildOverviewRequest
+  // keeps the first row of an id, so a card already read through its hit is not read twice.
+  rows.push(...cards.map(cardRow));
   return buildOverviewRequest({
     query: input.query,
     correctedQuery: input.correctedQuery,
     filters: input.filters,
     totalCount: input.totalCount,
-    rows: input.cards.map(({ dataset, snippet }) => ({
-      id: dataset.dataset_id,
-      title: dataset.name,
-      description: dataset.description?.trim() ? dataset.description : snippetText(snippet),
-      modalities: dataset.modalities,
-    })),
+    rows,
   });
 }
 
@@ -370,11 +445,17 @@ export interface OverviewPick {
   id: string;
   href: string;
   reason: string;
+  /** The dataset's title as the request carried it, cut to {@link PICK_TITLE_MAX} characters; absent
+   *  when the caller gave ids only. */
+  title?: string;
 }
 
 export interface OverviewAnswer {
+  /** The lead-in: what the search seems to be after. It may name no dataset. */
   segments: OverviewSegment[];
   picks: OverviewPick[];
+  /** Where to start, and why; empty when the server wrote none or predates it (website#531). */
+  suggestion: OverviewSegment[];
 }
 
 /** Where a dataset's page is. */
@@ -386,50 +467,105 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const PICKS_MAX = 3;
+/** The most picks the panel lists; OSA writes at most this many (website#531, was three). */
+export const PICKS_MAX = 10;
+
+/** The most characters of a dataset's title a pick shows. */
+export const PICK_TITLE_MAX = 90;
+
+/** A row of the request, as {@link parseOverviewResponse} reads it: its id, and its title when
+ *  the caller has one. */
+export type OverviewRowRef = string | { id: string; title?: string };
+
+function pickTitle(title: string | undefined): string | undefined {
+  const text = (title ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const chars = Array.from(text);
+  if (chars.length <= PICK_TITLE_MAX) return text;
+  return `${chars
+    .slice(0, PICK_TITLE_MAX - 1)
+    .join("")
+    .trimEnd()}…`;
+}
 
 /**
- * Reads a 200 body. Every id it names that the page links or shows (in the summary and the picks)
- * must be one of `requestIds`: the server promises that, and a page that links whatever id it is
- * handed would not hold if the promise broke. `cited_ids`, `shown` and `cached` are not read: the
- * panel draws nothing from them, so a stray id there cannot turn a displayable overview into an
- * error. Anything else that is off in shape is an error too, so the panel
- * shows the failure, never half an answer.
+ * Reads a 200 body. Every id it names that the page links or shows (in the lead-in, the picks and
+ * the suggestion) must be one of the request's rows: the server promises that, and a page that
+ * links whatever id it is handed would not hold if the promise broke. `cited_ids`, `shown` and
+ * `cached` are not read: the panel draws nothing from them, so a stray id there cannot turn a
+ * displayable overview into an error. Anything else that is off in shape is an error too, so the
+ * panel shows the failure, never half an answer.
+ *
+ * `suggestion` is new (website#531): an older server sends none, which reads as an empty one (as
+ * does `null`), and a suggestion with no words in it is shown as none rather than failing the
+ * overview. A pick named twice is listed once, where it first appears, and at most
+ * {@link PICKS_MAX} are listed.
  */
-export function parseOverviewResponse(body: unknown, requestIds: Iterable<string>): OverviewAnswer {
-  const allowed = new Set(requestIds);
+export function parseOverviewResponse(
+  body: unknown,
+  requestRows: Iterable<OverviewRowRef>,
+): OverviewAnswer {
+  const titles = new Map<string, string | undefined>();
+  for (const row of requestRows) {
+    if (typeof row === "string") titles.set(row, undefined);
+    else titles.set(row.id, row.title);
+  }
   const bad = () => new OverviewError("bad_response", 200);
   if (!isRecord(body) || !Array.isArray(body.summary) || body.summary.length === 0) throw bad();
 
-  const segments: OverviewSegment[] = [];
-  for (const raw of body.summary) {
-    if (!isRecord(raw)) throw bad();
-    if (typeof raw.dataset_id === "string") {
-      if (!allowed.has(raw.dataset_id)) throw bad();
-      segments.push({
-        kind: "dataset",
-        id: raw.dataset_id,
-        href: overviewDatasetHref(raw.dataset_id),
-      });
-    } else if (typeof raw.text === "string") {
-      segments.push({ kind: "text", text: raw.text });
-    } else {
-      throw bad();
+  const readSegments = (list: unknown[]): OverviewSegment[] => {
+    const segments: OverviewSegment[] = [];
+    for (const raw of list) {
+      if (!isRecord(raw)) throw bad();
+      if (typeof raw.dataset_id === "string") {
+        if (!titles.has(raw.dataset_id)) throw bad();
+        segments.push({
+          kind: "dataset",
+          id: raw.dataset_id,
+          href: overviewDatasetHref(raw.dataset_id),
+        });
+      } else if (typeof raw.text === "string") {
+        segments.push({ kind: "text", text: raw.text });
+      } else {
+        throw bad();
+      }
     }
-  }
-  if (!segments.some((s) => s.kind === "text" && s.text.trim() !== "")) throw bad();
+    return segments;
+  };
+  const hasWords = (segments: OverviewSegment[]) =>
+    segments.some((s) => s.kind === "text" && s.text.trim() !== "");
+
+  const segments = readSegments(body.summary);
+  if (!hasWords(segments)) throw bad();
 
   const picks: OverviewPick[] = [];
   if (body.picks !== undefined) {
     if (!Array.isArray(body.picks)) throw bad();
-    for (const raw of body.picks.slice(0, PICKS_MAX)) {
-      if (!isRecord(raw) || typeof raw.id !== "string" || !allowed.has(raw.id)) throw bad();
+    const seen = new Set<string>();
+    for (const raw of body.picks) {
+      if (picks.length >= PICKS_MAX) break;
+      if (!isRecord(raw) || typeof raw.id !== "string" || !titles.has(raw.id)) throw bad();
+      // A repeated pick is shown once, where it first appears.
+      if (seen.has(raw.id)) continue;
+      seen.add(raw.id);
       const reason = typeof raw.reason === "string" ? raw.reason : "";
-      picks.push({ id: raw.id, href: overviewDatasetHref(raw.id), reason });
+      const pick: OverviewPick = { id: raw.id, href: overviewDatasetHref(raw.id), reason };
+      const title = pickTitle(titles.get(raw.id));
+      // A row with no name is sent with its id as the title; the chip already shows the id.
+      if (title !== undefined && title !== raw.id) pick.title = title;
+      picks.push(pick);
     }
   }
 
-  return { segments, picks };
+  let suggestion: OverviewSegment[] = [];
+  // Absent (an older server) and null both read as none.
+  if (body.suggestion !== undefined && body.suggestion !== null) {
+    if (!Array.isArray(body.suggestion)) throw bad();
+    suggestion = readSegments(body.suggestion);
+    if (!hasWords(suggestion)) suggestion = [];
+  }
+
+  return { segments, picks, suggestion };
 }
 
 /** Reads the request Discover embeds in the page (the text of its JSON data island); `null` when
@@ -512,8 +648,5 @@ export async function requestOverview(
     if (options.signal?.aborted) throw err;
     throw new OverviewError(timeout.aborted ? "timeout" : "bad_response", response.status);
   }
-  return parseOverviewResponse(
-    body,
-    request.results.map((row) => row.id),
-  );
+  return parseOverviewResponse(body, request.results);
 }
