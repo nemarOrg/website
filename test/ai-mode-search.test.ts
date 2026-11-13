@@ -259,6 +259,39 @@ describe("the panel", () => {
     expect(CLIENT).toContain("textContent");
     expect(CLIENT).toContain("createTextNode(segment.text)");
   });
+
+  it("draws the lead-in, then the picks with their titles, then where to start (website#531)", () => {
+    const lead = CLIENT.indexOf('paragraph(doc, "ai-overview__summary", view.summary)');
+    const picks = CLIENT.indexOf('"ol", "ai-overview__picks"');
+    const suggestion = CLIENT.indexOf('"ai-overview__summary ai-overview__suggestion"');
+    const foot = CLIENT.indexOf('"div", "ai-overview__foot"');
+    expect(lead).toBeGreaterThan(-1);
+    expect(picks).toBeGreaterThan(lead);
+    expect(suggestion).toBeGreaterThan(picks);
+    expect(foot).toBeGreaterThan(suggestion);
+    // A pick's title and reason are text, each in its own span.
+    expect(CLIENT).toContain('element(doc, "span", "ai-overview__pick-title", pick.title)');
+    expect(CLIENT).toContain('element(doc, "span", "ai-overview__pick-reason", pick.reason)');
+    expect(rule(PANEL, ".ai-overview__pick-title")).toMatch(/font-weight:\s*var\(--fw-semibold\)/);
+  });
+
+  it("keeps the picks a named list for screen readers, and keeps a title apart from its reason", () => {
+    // `list-style: none` makes Safari drop the list's semantics; the role restores them.
+    expect(rule(PANEL, ".ai-overview__picks")).toMatch(/list-style:\s*none/);
+    expect(CLIENT).toContain('list.setAttribute("role", "list")');
+    expect(CLIENT).toContain('list.setAttribute("aria-label", PICKS_LABEL)');
+    // The id chip's accessible name says which dataset it is.
+    expect(CLIENT).toContain('id.setAttribute("aria-label", `${pick.id}, ${pick.title}`)');
+    // A separator heard, not seen, between the title and the reason, with the site's own class.
+    expect(CLIENT).toContain('element(doc, "span", "visually-hidden", ": ")');
+    const title = CLIENT.indexOf('"ai-overview__pick-title", pick.title');
+    const separator = CLIENT.indexOf('"visually-hidden", ": "');
+    const reason = CLIENT.indexOf('"ai-overview__pick-reason", pick.reason');
+    expect(separator).toBeGreaterThan(title);
+    expect(reason).toBeGreaterThan(separator);
+    // Text only: nothing in the list is set as markup.
+    expect(CLIENT).not.toMatch(/innerHTML|insertAdjacentHTML|outerHTML/);
+  });
 });
 
 describe("the field stays put", () => {
@@ -468,7 +501,7 @@ describe("Home", () => {
   it("wraps the field and shows the Try row only when the endpoint is set", () => {
     expect(HOME).toContain('const FieldControl = aiEndpoint ? "div" : Fragment;');
     expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" data-ai-try>/);
-    expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in plain words";');
+    expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in natural language";');
     expect(rule(styleOf(HOME), ".hero__try:not([data-ai-visible])")).toMatch(
       /visibility:\s*hidden/,
     );

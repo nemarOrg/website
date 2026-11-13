@@ -13,6 +13,19 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+### Changed
+
+- **The AI overview reads the top 20 matches and lists up to ten picks** (nemarOrg/website#531, OpenScience-Collective/osa#748).
+  On page 1 of a search, Discover asks the search endpoint for 20 hits though it still shows 10 cards; the overview reads the hydrated cards, then the hits after them (their snippet, or else their task names), with no extra dataset fetches.
+  The panel now reads as a conversation: a short lead-in on what the search seems to be after, then up to ten picks, each with its dataset title and how it relates to the search, then a suggestion of where to start.
+  The overview's rows follow the ranking, a match with a card read as the card, and a search row that is null or holds a field that is not text is skipped or read as empty instead of dropping the panel.
+  The picks list keeps its list semantics in Safari (`role="list"`), is named "Top picks", names each dataset chip by id and title, and separates a title from its reason for screen readers.
+  "Ask a follow-up" carries the same three parts; when they do not fit in the 2000 characters the assistant takes, picks go from the end before any loses its reason, and then the lead-in is cut at a sentence (keeping at least 120 characters) so the suggestion stays whole.
+  In that message a web address glued to a word (`see2https://...`) is broken like any other, and a `|` becomes a space, so no line turns into a link or a table row.
+  A pick named twice is listed once, and a `null` suggestion reads as none.
+  An older OSA that sends no suggestion still works; OSA must accept 20 rows before this deploys, or the overview is refused with a 422.
+- **The Home search field says "natural language"**: its AI Mode placeholder reads "Describe the data you need, in natural language".
+
 ## [0.2.38] - 2026-11-12
 
 AI Mode ships in production.

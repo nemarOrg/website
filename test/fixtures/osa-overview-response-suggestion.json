@@ -1,0 +1,20 @@
+{
+  "summary": [
+    {"text": "Your search seems to focus on how the brain responds to faces. I had a look at the top 20 matches, and three look especially promising."}
+  ],
+  "picks": [
+    {"id": "on002718", "reason": "Famous, unfamiliar and scrambled faces with EEG and HED-annotated events."},
+    {"id": "ds000117", "reason": "The same face paradigm recorded with MEG and EEG together, if you want both."},
+    {"id": "nm000001", "reason": "Face and house images in a visual oddball, useful as a contrast."}
+  ],
+  "suggestion": [
+    {"text": "I'd start with "},
+    {"dataset_id": "on002718"},
+    {"text": ": its events are already annotated, so face trials are easy to pull out."}
+  ],
+  "cited_ids": ["on002718", "ds000117", "nm000001"],
+  "shown": 20,
+  "cached": false,
+  "model": "claude-haiku-5-5",
+  "generated_at": "2026-11-13T18:30:00.123456Z"
+}

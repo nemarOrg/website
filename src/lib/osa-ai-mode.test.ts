@@ -571,7 +571,10 @@ describe("aiModeSeedAvailable", () => {
   });
 
   it("decides whether the panel offers the follow-up, with and without seed", () => {
-    const answer: OverviewPanelState = { kind: "answer", answer: { segments: [], picks: [] } };
+    const answer: OverviewPanelState = {
+      kind: "answer",
+      answer: { segments: [], picks: [], suggestion: [] },
+    };
     const withSeed = recordingWidget({ seed: true }).win;
     const without = recordingWidget({ ask: true }).win;
     expect(panelView(answer, aiModeSeedAvailable(withSeed)).followUp).toBe(FOLLOW_UP_LABEL);
