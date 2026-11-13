@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import SUGGESTION from "../../test/fixtures/osa-overview-response-suggestion.json";
 import RESPONSE from "../../test/fixtures/osa-overview-response.json";
 import SEARCH from "../../test/fixtures/search-corrected-query.json";
 import { type FilterState, defaultFilterState } from "./filters";
@@ -10,6 +11,8 @@ import {
   OVERVIEW_TIMEOUT_MS,
   OverviewError,
   type OverviewRequest,
+  PICKS_MAX,
+  PICK_TITLE_MAX,
   buildOverviewRequest,
   countQueryWords,
   hitDescription,
@@ -481,9 +484,11 @@ describe("overviewRequestForPage: the best matches past the page's cards (websit
   });
 });
 
-describe("parseOverviewResponse over the documented example", () => {
+describe("parseOverviewResponse over an older server's example (no suggestion)", () => {
   it("links dataset ids and keeps text as plain text", () => {
     const answer = parseOverviewResponse(RESPONSE, ["on002718", "ds000117"]);
+    // An older server sends no suggestion: the panel shows none, and nothing fails.
+    expect(answer.suggestion).toEqual([]);
     expect(answer.segments).toEqual([
       { kind: "text", text: "For event-related potentials to faces, " },
       { kind: "dataset", id: "on002718", href: "/dataset/on002718" },
@@ -516,14 +521,15 @@ describe("parseOverviewResponse over the documented example", () => {
     const body = { ...RESPONSE, cited_ids: ["on002718", "ds999999"], shown: "ten", cached: 1 };
     const answer = parseOverviewResponse(body, ["on002718"]);
     expect(answer.segments.length).toBeGreaterThan(0);
-    expect(Object.keys(answer).sort()).toEqual(["picks", "segments"]);
+    expect(Object.keys(answer).sort()).toEqual(["picks", "segments", "suggestion"]);
   });
 
-  it("treats a cited id the request did not carry as an error, in the summary or picks", () => {
+  it("treats a cited id the request did not carry as an error, in the summary, picks or suggestion", () => {
     const stranger = { dataset_id: "ds999999" };
     const cases: unknown[] = [
       { ...RESPONSE, summary: [{ text: "See " }, stranger] },
       { ...RESPONSE, picks: [{ id: "ds999999", reason: "r" }] },
+      { ...RESPONSE, suggestion: [{ text: "Start with " }, stranger] },
     ];
     for (const body of cases) {
       expect(() => parseOverviewResponse(body, ["on002718"])).toThrowError(OverviewError);
@@ -545,6 +551,9 @@ describe("parseOverviewResponse over the documented example", () => {
       { summary: [{ nothing: 1 }] },
       { summary: [{ dataset_id: "on002718" }] },
       { ...RESPONSE, picks: "x" },
+      { ...RESPONSE, suggestion: "Start with on002718." },
+      { ...RESPONSE, suggestion: null },
+      { ...RESPONSE, suggestion: [{ nothing: 1 }] },
     ]) {
       expect(() => parseOverviewResponse(body, ["on002718"]), JSON.stringify(body)).toThrowError(
         OverviewError,
@@ -552,13 +561,85 @@ describe("parseOverviewResponse over the documented example", () => {
     }
   });
 
-  it("keeps at most three picks", () => {
-    const ids = ["a1", "a2", "a3", "a4"];
+  it("keeps at most ten picks", () => {
+    expect(PICKS_MAX).toBe(10);
+    const ids = Array.from({ length: 12 }, (_, i) => `a${i + 1}`);
     const body = {
       summary: [{ text: "x " }, { dataset_id: "a1" }],
       picks: ids.map((id) => ({ id, reason: "r" })),
     };
-    expect(parseOverviewResponse(body, ids).picks).toHaveLength(3);
+    expect(parseOverviewResponse(body, ids).picks.map((p) => p.id)).toEqual(ids.slice(0, 10));
+  });
+});
+
+describe("parseOverviewResponse over the documented example (website#531)", () => {
+  const rows = [
+    { id: "on002718", title: "Famous faces EEG" },
+    { id: "ds000117", title: "Multisubject, multimodal face processing" },
+    { id: "nm000001", title: `Visual oddball: ${"faces and houses ".repeat(10)}` },
+  ];
+
+  it("reads a lead-in that names no dataset, the picks with their titles, and the suggestion", () => {
+    const answer = parseOverviewResponse(SUGGESTION, rows);
+    expect(answer.segments).toEqual([
+      {
+        kind: "text",
+        text: "Your search seems to focus on how the brain responds to faces. I had a look at the top 20 matches, and three look especially promising.",
+      },
+    ]);
+    expect(answer.picks.map((p) => [p.id, p.href, p.title])).toEqual([
+      ["on002718", "/dataset/on002718", "Famous faces EEG"],
+      ["ds000117", "/dataset/ds000117", "Multisubject, multimodal face processing"],
+      ["nm000001", "/dataset/nm000001", expect.stringMatching(/^Visual oddball: faces.*…$/)],
+    ]);
+    expect(answer.picks[0].reason).toBe(
+      "Famous, unfamiliar and scrambled faces with EEG and HED-annotated events.",
+    );
+    expect(answer.suggestion).toEqual([
+      { kind: "text", text: "I'd start with " },
+      { kind: "dataset", id: "on002718", href: "/dataset/on002718" },
+      {
+        kind: "text",
+        text: ": its events are already annotated, so face trials are easy to pull out.",
+      },
+    ]);
+  });
+
+  it("cuts a long title to 90 characters with an ellipsis, counting code points", () => {
+    const answer = parseOverviewResponse(SUGGESTION, rows);
+    const long = answer.picks[2].title ?? "";
+    expect(PICK_TITLE_MAX).toBe(90);
+    expect(Array.from(long)).toHaveLength(PICK_TITLE_MAX);
+    const emoji = parseOverviewResponse(SUGGESTION, [
+      { id: "on002718", title: "\u{1F9E0}".repeat(120) },
+      "ds000117",
+      "nm000001",
+    ]);
+    expect(Array.from(emoji.picks[0].title ?? "")).toHaveLength(PICK_TITLE_MAX);
+    expect(emoji.picks[0].title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
+  it("leaves the title out when the caller gave ids only, or a blank title", () => {
+    const answer = parseOverviewResponse(SUGGESTION, [
+      "on002718",
+      { id: "ds000117", title: "   " },
+      { id: "nm000001" },
+    ]);
+    expect(answer.picks.map((p) => "title" in p)).toEqual([false, false, false]);
+  });
+
+  it("shows a suggestion with no words in it as none, rather than failing the overview", () => {
+    for (const suggestion of [[], [{ text: "  " }], [{ dataset_id: "on002718" }]]) {
+      const answer = parseOverviewResponse({ ...SUGGESTION, suggestion }, rows);
+      expect(answer.suggestion, JSON.stringify(suggestion)).toEqual([]);
+      expect(answer.picks).toHaveLength(3);
+    }
+  });
+
+  it("still refuses a lead-in with no words", () => {
+    expect(() =>
+      parseOverviewResponse({ ...SUGGESTION, summary: [{ dataset_id: "on002718" }] }, rows),
+    ).toThrowError(OverviewError);
   });
 });
 
@@ -587,6 +668,26 @@ describe("requestOverview", () => {
     expect(new Headers(seen[0].init.headers).get("Content-Type")).toBe("application/json");
     expect(JSON.parse(String(seen[0].init.body))).toEqual(request);
     expect(seen[0].init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("gives each pick the title the request carried for it", async () => {
+    const titled: OverviewRequest = {
+      query: "faces in the brain",
+      filters: {},
+      results: [
+        { id: "on002718", title: "Famous faces EEG", description: "d" },
+        { id: "ds000117", title: "Multimodal faces", description: "d" },
+        { id: "nm000001", title: "Faces and houses", description: "d" },
+      ],
+    };
+    globalThis.fetch = (async () => json(SUGGESTION)) as unknown as typeof fetch;
+    const answer = await requestOverview(DEV, titled);
+    expect(answer.picks.map((p) => p.title)).toEqual([
+      "Famous faces EEG",
+      "Multimodal faces",
+      "Faces and houses",
+    ]);
+    expect(answer.suggestion.some((s) => s.kind === "dataset" && s.id === "on002718")).toBe(true);
   });
 
   it("gives the call the 30 second default timeout, or the caller's", async () => {

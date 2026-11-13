@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import SUGGESTION from "../../test/fixtures/osa-overview-response-suggestion.json";
 import RESPONSE from "../../test/fixtures/osa-overview-response.json";
 import {
   FOLLOW_UP_FAILED,
@@ -77,8 +78,8 @@ describe("panelView", () => {
     expect(without.footnote).toBe(PANEL_FOOTNOTE);
   });
 
-  it("shows at most three picks, each a link to /dataset/<id>", () => {
-    const ids = ["a1", "a2", "a3", "a4"];
+  it("shows at most ten picks, each a link to /dataset/<id>", () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `a${i + 1}`);
     const answer = parseOverviewResponse(
       {
         summary: [{ text: "x " }, { dataset_id: "a1" }],
@@ -87,7 +88,32 @@ describe("panelView", () => {
       ids,
     );
     const view = panelView({ kind: "answer", answer });
-    expect(view.picks.map((p) => p.href)).toEqual(["/dataset/a1", "/dataset/a2", "/dataset/a3"]);
+    expect(view.picks.map((p) => p.href)).toEqual(ids.slice(0, 10).map((id) => `/dataset/${id}`));
+  });
+
+  it("shows the lead-in, then the picks with their titles, then where to start (website#531)", () => {
+    const answer = parseOverviewResponse(SUGGESTION, [
+      { id: "on002718", title: "Famous faces EEG" },
+      { id: "ds000117", title: "Multimodal faces" },
+      "nm000001",
+    ]);
+    const view = panelView({ kind: "answer", answer });
+    expect(view.summary).toEqual(answer.segments);
+    expect(view.summary.every((s) => s.kind === "text")).toBe(true);
+    expect(view.picks.map((p) => [p.id, p.title])).toEqual([
+      ["on002718", "Famous faces EEG"],
+      ["ds000117", "Multimodal faces"],
+      ["nm000001", undefined],
+    ]);
+    expect(view.suggestion).toEqual(answer.suggestion);
+    expect(view.suggestion.filter((s) => s.kind === "dataset")).toEqual([
+      { kind: "dataset", id: "on002718", href: "/dataset/on002718" },
+    ]);
+    // The old server's answer has none, and the rest of its view is unchanged.
+    expect(panelView({ kind: "answer", answer: ANSWER }).suggestion).toEqual([]);
+    // Nothing but an answer has one.
+    expect(panelView({ kind: "off" }).suggestion).toEqual([]);
+    expect(panelView({ kind: "error", error: "server" }).suggestion).toEqual([]);
   });
 
   it("shows the error's words and Try again for a failure, and none of the answer", () => {
@@ -131,12 +157,23 @@ describe("panelView", () => {
 describe("seedText", () => {
   const ORIGIN = "https://test.nemar.org";
   const link = (id: string, origin = ORIGIN) => `[${id}](${origin}/dataset/${id})`;
-  /** An overview whose summary is `sentences` and whose picks carry `reason`. */
-  function answerOf(sentences: string[], picks = 3, reason = "r", ids = ["a1", "a2", "a3"]) {
+  const TEN = Array.from({ length: 10 }, (_, i) => `a${i + 1}`);
+  /** An overview whose summary is `sentences`, whose picks carry `reason`, and whose suggestion
+   *  (when given) names the first id. */
+  function answerOf(
+    sentences: string[],
+    picks = 3,
+    reason = "r",
+    ids = TEN,
+    suggestion: string | null = null,
+  ) {
     return parseOverviewResponse(
       {
         summary: [...sentences.map((text) => ({ text: `${text} ` })), { dataset_id: ids[0] }],
         picks: ids.slice(0, picks).map((id) => ({ id, reason })),
+        ...(suggestion === null
+          ? {}
+          : { suggestion: [{ text: `${suggestion} ` }, { dataset_id: ids[0] }, { text: "." }] }),
       },
       ids,
     );
@@ -302,21 +339,129 @@ describe("seedText", () => {
   it("is at most 2000 characters, the most OSA's seed takes", () => {
     expect(SEED_MAX_CHARS).toBe(2000);
     for (const size of [0, 5, 50, 100, 150, 400, 1000, 1900, 1990, 2500, 8000]) {
-      for (const picks of [0, 1, 3]) {
+      for (const picks of [0, 1, 3, 10]) {
         for (const reason of ["", "short", "reason ".repeat(60)]) {
-          const answer = answerOf(
-            ["Some words here."].concat(
-              Array(size ? Math.ceil(size / 17) : 0).fill("Some words here."),
-            ),
-            picks,
-            reason,
-          );
-          const text = seedText("q ".repeat(150), answer, ORIGIN);
-          expect(text.length, `${size}/${picks}/${reason.length}`).toBeLessThanOrEqual(2000);
-          expect(wholeLinks(text), `${size}/${picks}/${reason.length}`).toBe(true);
+          for (const suggestion of [null, "Start with", "Start here. ".repeat(40)]) {
+            const answer = answerOf(
+              ["Some words here."].concat(
+                Array(size ? Math.ceil(size / 17) : 0).fill("Some words here."),
+              ),
+              picks,
+              reason,
+              TEN,
+              suggestion,
+            );
+            const label = `${size}/${picks}/${reason.length}/${suggestion?.length ?? "none"}`;
+            const text = seedText("q ".repeat(150), answer, ORIGIN);
+            expect(text.length, label).toBeLessThanOrEqual(2000);
+            expect(wholeLinks(text), label).toBe(true);
+          }
         }
       }
     }
+  });
+
+  it("ends with where to start, after the picks (website#531)", () => {
+    const answer = parseOverviewResponse(SUGGESTION, ["on002718", "ds000117", "nm000001"]);
+    const text = seedText("faces in the brain", answer, ORIGIN);
+    expect(text).toBe(
+      [
+        '**AI overview** for "faces in the brain"',
+        "Your search seems to focus on how the brain responds to faces. I had a look at the top 20 matches, and three look especially promising.",
+        [
+          "**Top picks**",
+          `1. ${link("on002718")}: Famous, unfamiliar and scrambled faces with EEG and HED-annotated events.`,
+          `2. ${link("ds000117")}: The same face paradigm recorded with MEG and EEG together, if you want both.`,
+          `3. ${link("nm000001")}: Face and house images in a visual oddball, useful as a contrast.`,
+        ].join("\n"),
+        `I'd start with ${link("on002718")}: its events are already annotated, so face trials are easy to pull out.`,
+      ].join("\n\n"),
+    );
+  });
+
+  it("neutralises the suggestion like the lead-in: no block, no emphasis, no link of its own", () => {
+    const answer = parseOverviewResponse(
+      {
+        summary: [{ text: "Lead-in." }],
+        picks: [{ id: "a1", reason: "r" }],
+        suggestion: [
+          { text: "# > Start _here_ with " },
+          { dataset_id: "a1" },
+          { text: ", see [x](https://evil.example/s)." },
+        ],
+      },
+      ["a1"],
+    );
+    const last = seedText("a b c", answer, ORIGIN).split("\n\n").at(-1) ?? "";
+    // The brackets go and the address is broken, so "(https evil...)" is words, not a link.
+    expect(last).toBe(`Start here with ${link("a1")}, see x (https evil.example/s).`);
+  });
+
+  it("shortens in order: picks from the end with their reasons, then the reasons, then the picks, then the summary", () => {
+    const sentence = "A sentence of the overview.";
+    const reason = "Because it has the conditions and events you asked about. ".repeat(6);
+    // 1. With room for four picks and their reasons, the fifth to the tenth go and the reasons stay.
+    const many = seedText("a b c", answerOf(Array(5).fill(sentence), 10, reason), ORIGIN);
+    expect(many.length).toBeLessThanOrEqual(2000);
+    expect(many).toContain(`4. ${link("a4")}: Because it has`);
+    expect(many).not.toContain(link("a5"));
+    // With short reasons, all ten fit and nothing is dropped.
+    const ten = seedText("a b c", answerOf([sentence], 10, "why"), ORIGIN);
+    expect(ten).toContain(`10. ${link("a10")}: why`);
+    // 2. When not even one pick fits with its reason, the picks are listed without reasons, as
+    //    many as fit, from the top.
+    const bare = seedText("a b c", answerOf(Array(57).fill(sentence), 10, reason), ORIGIN);
+    expect(bare.length).toBeLessThanOrEqual(2000);
+    expect(bare).toContain(`**Top picks**\n1. ${link("a1")}\n2. ${link("a2")}`);
+    expect(bare).not.toContain("Because it has");
+    expect(bare).not.toContain(`10. ${link("a10")}`);
+    // 3. The picks go when the summary alone nearly fills the message; the whole summary stays.
+    const long = answerOf(Array(68).fill(sentence), 3, "why");
+    const noPicks = seedText("a b c", long, ORIGIN);
+    expect(noPicks).not.toContain("Top picks");
+    expect(noPicks.length).toBeLessThanOrEqual(2000);
+    expect(noPicks.split(sentence).length - 1).toBe(68);
+    // 4. A summary too long even alone is cut at a sentence, never in a word, with no ellipsis.
+    const huge = answerOf(Array(200).fill(sentence), 3, "why");
+    const cut = seedText("a b c", huge, ORIGIN);
+    expect(cut.length).toBeLessThanOrEqual(2000);
+    expect(cut).not.toContain("Top picks");
+    expect(cut.endsWith(sentence)).toBe(true);
+    expect(cut).not.toContain("…");
+    expect(cut.length).toBeGreaterThan(2000 - 40);
+  });
+
+  it("keeps the suggestion while the picks shorten, and lets it go only with the summary's room", () => {
+    const sentence = "A sentence of the overview.";
+    const reason = "Because it has the conditions and events you asked about. ".repeat(6);
+    const start = "I'd start with";
+    // Picks drop from the end; the suggestion is still the last paragraph.
+    const shortened = seedText(
+      "a b c",
+      answerOf(Array(5).fill(sentence), 10, reason, TEN, start),
+      ORIGIN,
+    );
+    expect(shortened.length).toBeLessThanOrEqual(2000);
+    expect(shortened).not.toContain(`10. ${link("a10")}`);
+    expect(shortened.endsWith(`${start} ${link("a1")}.`)).toBe(true);
+    // No pick fits beside the summary and the suggestion: the picks go, the suggestion stays.
+    const noPicks = seedText(
+      "a b c",
+      answerOf(Array(66).fill(sentence), 3, "why", TEN, start),
+      ORIGIN,
+    );
+    expect(noPicks.length).toBeLessThanOrEqual(2000);
+    expect(noPicks).not.toContain("Top picks");
+    expect(noPicks.endsWith(`${start} ${link("a1")}.`)).toBe(true);
+    // The summary and the suggestion cannot fit together: the suggestion goes, the summary is whole.
+    const crowded = seedText(
+      "a b c",
+      answerOf(Array(68).fill(sentence), 3, "why", TEN, start),
+      ORIGIN,
+    );
+    expect(crowded.length).toBeLessThanOrEqual(2000);
+    expect(crowded).not.toContain(start);
+    expect(crowded.split(sentence).length - 1).toBe(68);
   });
 
   it("counts characters the way the widget does, in UTF-16 code units", () => {
@@ -330,35 +475,6 @@ describe("seedText", () => {
     // No half of a pair is left at the cut.
     expect(text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
     expect(text).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
-  });
-
-  it("shortens in order: the picks' reasons first, then the picks, then the summary at a sentence", () => {
-    const reason = "Because it has the conditions and events you asked about. ".repeat(6);
-    // 1. Everything fits only without the reasons.
-    const middle = answerOf(Array(40).fill("A sentence of the overview."), 3, reason);
-    const full = seedText("a b c", middle, ORIGIN);
-    expect(full).toContain("**Top picks**");
-    expect(full).not.toContain("Because it has");
-    expect(full).toContain(`1. ${link("a1")}\n2. ${link("a2")}\n3. ${link("a3")}`);
-    expect(full.length).toBeLessThanOrEqual(2000);
-    // With a short reason, nothing is dropped.
-    const kept = seedText("a b c", answerOf(["A sentence of the overview."], 3, "why"), ORIGIN);
-    expect(kept).toContain(`1. ${link("a1")}: why`);
-    // 2. The picks go when the summary alone nearly fills the message.
-    const long = answerOf(Array(66).fill("A sentence of the overview."), 3, "why");
-    const noPicks = seedText("a b c", long, ORIGIN);
-    expect(noPicks).not.toContain("Top picks");
-    expect(noPicks.length).toBeLessThanOrEqual(2000);
-    // The whole summary is still there.
-    expect(noPicks.split("A sentence of the overview.").length - 1).toBe(66);
-    // 3. A summary too long even alone is cut at a sentence, never in a word, with no ellipsis.
-    const huge = answerOf(Array(200).fill("A sentence of the overview."), 3, "why");
-    const cut = seedText("a b c", huge, ORIGIN);
-    expect(cut.length).toBeLessThanOrEqual(2000);
-    expect(cut).not.toContain("Top picks");
-    expect(cut.endsWith("A sentence of the overview.")).toBe(true);
-    expect(cut).not.toContain("…");
-    expect(cut.length).toBeGreaterThan(2000 - 40);
   });
 
   it("cuts one unbroken run at a character with an ellipsis, and never inside a link", () => {

@@ -49,8 +49,12 @@ export interface PanelView {
   badge: string | null;
   /** Grey placeholder lines in place of the text. */
   skeleton: boolean;
+  /** The lead-in, shown first. */
   summary: OverviewSegment[];
+  /** The list, right under the lead-in (website#531). */
   picks: OverviewPick[];
+  /** Where to start, under the list; empty when there is none. */
+  suggestion: OverviewSegment[];
   footnote: string | null;
   followUp: string | null;
   error: { message: string; retry: string } | null;
@@ -71,6 +75,7 @@ const OFF: PanelView = {
   skeleton: false,
   summary: [],
   picks: [],
+  suggestion: [],
   footnote: null,
   followUp: null,
   error: null,
@@ -107,6 +112,7 @@ export function panelView(state: OverviewPanelState, canFollowUp = true): PanelV
         badge: "Experimental",
         summary: state.answer.segments,
         picks: state.answer.picks,
+        suggestion: state.answer.suggestion,
         footnote: PANEL_FOOTNOTE,
         followUp: canFollowUp ? FOLLOW_UP_LABEL : null,
       };
@@ -164,10 +170,10 @@ function datasetLink(id: string, origin: string): string {
   return /^https?:\/\/[^\s/]+$/.test(base) ? `[${id}](${base}${overviewDatasetHref(id)})` : id;
 }
 
-/** The summary as Markdown with each dataset id a link, and where the links are (a cut never lands
- *  inside one). */
-function summaryMarkdown(
-  answer: OverviewAnswer,
+/** A paragraph of segments (the lead-in or the suggestion) as Markdown with each dataset id a link,
+ *  and where the links are (a cut never lands inside one). */
+function segmentsMarkdown(
+  segments: readonly OverviewSegment[],
   origin: string,
 ): { text: string; links: Array<[number, number]> } {
   let text = "";
@@ -176,10 +182,10 @@ function summaryMarkdown(
     const trimmed = text === "" || text.endsWith(" ") ? piece.replace(/^ /, "") : piece;
     text += trimmed;
   };
-  for (const segment of answer.segments) {
+  for (const segment of segments) {
     if (segment.kind === "text") {
       const prose = neutralise(segment.text, PROSE_MARKDOWN);
-      // Only the start of the summary can open a block; a link before it means it is not the start.
+      // Only the start of a paragraph can open a block; a link before it means it is not the start.
       append(text === "" ? prose.replace(LEADING_BLOCK_MARKER, "") : prose);
     } else {
       const link = datasetLink(segment.id, origin);
@@ -224,17 +230,24 @@ function trimSummary(summary: { text: string; links: Array<[number, number]> }, 
  * ```
  * **AI overview** for "<the search>"
  *
- * <the summary, each dataset id a link>
+ * <the lead-in, each dataset id a link>
  *
  * **Top picks**
  * 1. [id](<origin>/dataset/<id>): why
+ *
+ * <where to start, each dataset id a link>
  * ```
  *
  * The search is quoted with its Markdown characters and newlines turned to spaces, and neither it
  * nor the overview's prose nor a pick's reason can make a link: a web address in them is broken
- * (`https://x` reads `https x`), so the dataset links are the only ones. At most {@link SEED_MAX_CHARS} characters
- * (`OSAChatWidget.seed` refuses more). When it does not fit, the picks lose their reasons first,
- * then go, and then the summary is cut at a sentence.
+ * (`https://x` reads `https x`), so the dataset links are the only ones. The picks carry no title:
+ * up to ten of them share the room, and each id links to its dataset's page.
+ *
+ * At most {@link SEED_MAX_CHARS} characters (`OSAChatWidget.seed` refuses more). When it does not
+ * fit, the picks go from the end, each kept one with its reason; then all of them are tried again
+ * without reasons, again dropping from the end; then the picks go. The suggestion is kept through
+ * all of that, and goes only when the lead-in and it cannot fit together: then the lead-in is cut
+ * at a sentence, as it always was.
  */
 export function seedText(query: string, answer: OverviewAnswer, origin: string): string {
   let words = neutralise(query, QUERY_MARKDOWN).trim();
@@ -245,26 +258,33 @@ export function seedText(query: string, answer: OverviewAnswer, origin: string):
     words = `${words.slice(0, cut).trimEnd()}…`;
   }
   const head = words === "" ? "**AI overview**" : `**AI overview** for "${words}"`;
-  const summary = summaryMarkdown(answer, origin);
+  const summary = segmentsMarkdown(answer.segments, origin);
+  const suggestion = segmentsMarkdown(answer.suggestion, origin).text;
 
-  const picks = (reasons: boolean): string => {
-    if (answer.picks.length === 0) return "";
-    const lines = answer.picks.map((pick, index) => {
+  const picks = (count: number, reasons: boolean): string => {
+    if (count === 0) return "";
+    const lines = answer.picks.slice(0, count).map((pick, index) => {
       const reason = reasons ? neutralise(pick.reason, PROSE_MARKDOWN).trim() : "";
       return `${index + 1}. ${datasetLink(pick.id, origin)}${reason ? `: ${reason}` : ""}`;
     });
     return `**Top picks**\n${lines.join("\n")}`;
   };
-  const compose = (summaryPart: string, picksPart: string) =>
-    [head, summaryPart, picksPart].filter((part) => part !== "").join("\n\n");
+  const compose = (summaryPart: string, picksPart: string, suggestionPart: string) =>
+    [head, summaryPart, picksPart, suggestionPart].filter((part) => part !== "").join("\n\n");
 
-  for (const picksPart of [picks(true), picks(false)]) {
-    const whole = compose(summary.text, picksPart);
-    if (whole.length <= SEED_MAX_CHARS) return whole;
+  const total = answer.picks.length;
+  for (const reasons of [true, false]) {
+    for (let count = total; count >= 1; count -= 1) {
+      const whole = compose(summary.text, picks(count, reasons), suggestion);
+      if (whole.length <= SEED_MAX_CHARS) return whole;
+    }
   }
-  // The picks go; the summary is cut at a sentence to fit under the head and its blank line.
+  const withoutPicks = compose(summary.text, "", suggestion);
+  if (withoutPicks.length <= SEED_MAX_CHARS) return withoutPicks;
+  // The picks and the suggestion go; the lead-in is cut at a sentence to fit under the head and its
+  // blank line.
   const room = SEED_MAX_CHARS - head.length - 2;
-  return compose(trimSummary(summary, room), "");
+  return compose(trimSummary(summary, room), "", "");
 }
 
 /** Said under "Ask a follow-up" when the assistant widget could not take the question. */

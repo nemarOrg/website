@@ -183,6 +183,17 @@ const island = request ? escapeJsonLdForScript(JSON.stringify(request)) : "";
     min-inline-size: 0;
     overflow-wrap: anywhere;
   }
+  /* A pick reads as its title, then how it relates to the search, beside the id chip; the chip
+     lines up with the title. */
+  .ai-overview__pick {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .ai-overview__pick-title {
+    font-weight: var(--fw-semibold);
+    color: var(--ai-panel-title);
+  }
   .ai-overview__id {
     flex: none;
     padding: 1px 6px;

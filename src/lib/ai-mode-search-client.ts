@@ -39,7 +39,12 @@ import {
   setAiModeSearch,
   whenDocumentReady,
 } from "./osa-ai-mode";
-import { type OverviewRequest, parseOverviewRequest, requestOverview } from "./osa-overview";
+import {
+  type OverviewRequest,
+  type OverviewSegment,
+  parseOverviewRequest,
+  requestOverview,
+} from "./osa-overview";
 
 /** Names `ai` in a form the field submits with, so a search, a filter or a sort keeps AI Mode. */
 const AI_INPUT = "input[data-ai-input]";
@@ -95,6 +100,25 @@ function element<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/** A paragraph of the overview's segments: text as text nodes, each dataset id a link. */
+function paragraph(
+  doc: Document,
+  className: string,
+  segments: readonly OverviewSegment[],
+): HTMLParagraphElement {
+  const p = element(doc, "p", className);
+  for (const segment of segments) {
+    if (segment.kind === "text") {
+      p.append(doc.createTextNode(segment.text));
+    } else {
+      const link = element(doc, "a", "ai-overview__link", segment.id);
+      link.href = segment.href;
+      p.append(link);
+    }
+  }
+  return p;
+}
+
 function renderBody(
   doc: Document,
   body: HTMLElement,
@@ -126,17 +150,8 @@ function renderBody(
   }
   if (view.summary.length === 0) return;
 
-  const summary = element(doc, "p", "ai-overview__summary");
-  for (const segment of view.summary) {
-    if (segment.kind === "text") {
-      summary.append(doc.createTextNode(segment.text));
-    } else {
-      const link = element(doc, "a", "ai-overview__link", segment.id);
-      link.href = segment.href;
-      summary.append(link);
-    }
-  }
-  body.append(summary);
+  // The lead-in, then the list, then where to start (website#531).
+  body.append(paragraph(doc, "ai-overview__summary", view.summary));
 
   if (view.picks.length > 0) {
     const list = element(doc, "ol", "ai-overview__picks");
@@ -144,10 +159,17 @@ function renderBody(
       const item = doc.createElement("li");
       const id = element(doc, "a", "ai-overview__id", pick.id);
       id.href = pick.href;
-      item.append(id, element(doc, "span", "", pick.reason));
+      const text = element(doc, "span", "ai-overview__pick");
+      if (pick.title) text.append(element(doc, "span", "ai-overview__pick-title", pick.title));
+      if (pick.reason) text.append(element(doc, "span", "ai-overview__pick-reason", pick.reason));
+      item.append(id, text);
       list.append(item);
     }
     body.append(list);
+  }
+
+  if (view.suggestion.length > 0) {
+    body.append(paragraph(doc, "ai-overview__summary ai-overview__suggestion", view.suggestion));
   }
 
   const foot = element(doc, "div", "ai-overview__foot");

@@ -259,6 +259,21 @@ describe("the panel", () => {
     expect(CLIENT).toContain("textContent");
     expect(CLIENT).toContain("createTextNode(segment.text)");
   });
+
+  it("draws the lead-in, then the picks with their titles, then where to start (website#531)", () => {
+    const lead = CLIENT.indexOf('paragraph(doc, "ai-overview__summary", view.summary)');
+    const picks = CLIENT.indexOf('"ol", "ai-overview__picks"');
+    const suggestion = CLIENT.indexOf('"ai-overview__summary ai-overview__suggestion"');
+    const foot = CLIENT.indexOf('"div", "ai-overview__foot"');
+    expect(lead).toBeGreaterThan(-1);
+    expect(picks).toBeGreaterThan(lead);
+    expect(suggestion).toBeGreaterThan(picks);
+    expect(foot).toBeGreaterThan(suggestion);
+    // A pick's title and reason are text, each in its own span.
+    expect(CLIENT).toContain('element(doc, "span", "ai-overview__pick-title", pick.title)');
+    expect(CLIENT).toContain('element(doc, "span", "ai-overview__pick-reason", pick.reason)');
+    expect(rule(PANEL, ".ai-overview__pick-title")).toMatch(/font-weight:\s*var\(--fw-semibold\)/);
+  });
 });
 
 describe("the field stays put", () => {

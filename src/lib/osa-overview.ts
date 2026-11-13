@@ -17,9 +17,11 @@
  *    odd id cuts a row down or drops it instead of failing the whole overview.
  * 3. **The call** ({@link requestOverview}): a POST with a timeout, and an error class whose
  *    `kind` the panel turns into words.
- * 4. **The answer** ({@link parseOverviewResponse}). A segment list, never markup: text segments
- *    stay plain text and `dataset_id` segments become links to `/dataset/<id>`. An answer that
- *    names an id the request did not carry is an error, not a link, whatever the server said.
+ * 4. **The answer** ({@link parseOverviewResponse}). A short lead-in, up to ten picks and a
+ *    suggestion of where to start (website#531), the lead-in and the suggestion as segment lists,
+ *    never markup: text segments stay plain text and `dataset_id` segments become links to
+ *    `/dataset/<id>`. An answer that names an id the request did not carry is an error, not a
+ *    link, whatever the server said.
  */
 
 import type { FilterState } from "./filters";
@@ -400,11 +402,17 @@ export interface OverviewPick {
   id: string;
   href: string;
   reason: string;
+  /** The dataset's title as the request carried it, cut to {@link PICK_TITLE_MAX} characters; absent
+   *  when the caller gave ids only. */
+  title?: string;
 }
 
 export interface OverviewAnswer {
+  /** The lead-in: what the search seems to be after. It may name no dataset. */
   segments: OverviewSegment[];
   picks: OverviewPick[];
+  /** Where to start, and why; empty when the server wrote none or predates it (website#531). */
+  suggestion: OverviewSegment[];
 }
 
 /** Where a dataset's page is. */
@@ -416,50 +424,96 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const PICKS_MAX = 3;
+/** The most picks the panel lists; OSA writes at most this many (website#531, was three). */
+export const PICKS_MAX = 10;
+
+/** The most characters of a dataset's title a pick shows. */
+export const PICK_TITLE_MAX = 90;
+
+/** A row of the request, as {@link parseOverviewResponse} reads it: its id, and its title when
+ *  the caller has one. */
+export type OverviewRowRef = string | { id: string; title?: string };
+
+function pickTitle(title: string | undefined): string | undefined {
+  const text = (title ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const chars = Array.from(text);
+  if (chars.length <= PICK_TITLE_MAX) return text;
+  return `${chars
+    .slice(0, PICK_TITLE_MAX - 1)
+    .join("")
+    .trimEnd()}…`;
+}
 
 /**
- * Reads a 200 body. Every id it names that the page links or shows (in the summary and the picks)
- * must be one of `requestIds`: the server promises that, and a page that links whatever id it is
- * handed would not hold if the promise broke. `cited_ids`, `shown` and `cached` are not read: the
- * panel draws nothing from them, so a stray id there cannot turn a displayable overview into an
- * error. Anything else that is off in shape is an error too, so the panel
- * shows the failure, never half an answer.
+ * Reads a 200 body. Every id it names that the page links or shows (in the lead-in, the picks and
+ * the suggestion) must be one of the request's rows: the server promises that, and a page that
+ * links whatever id it is handed would not hold if the promise broke. `cited_ids`, `shown` and
+ * `cached` are not read: the panel draws nothing from them, so a stray id there cannot turn a
+ * displayable overview into an error. Anything else that is off in shape is an error too, so the
+ * panel shows the failure, never half an answer.
+ *
+ * `suggestion` is new (website#531): an older server sends none, which reads as an empty one, and
+ * a suggestion with no words in it is shown as none rather than failing the overview.
  */
-export function parseOverviewResponse(body: unknown, requestIds: Iterable<string>): OverviewAnswer {
-  const allowed = new Set(requestIds);
+export function parseOverviewResponse(
+  body: unknown,
+  requestRows: Iterable<OverviewRowRef>,
+): OverviewAnswer {
+  const titles = new Map<string, string | undefined>();
+  for (const row of requestRows) {
+    if (typeof row === "string") titles.set(row, undefined);
+    else titles.set(row.id, row.title);
+  }
   const bad = () => new OverviewError("bad_response", 200);
   if (!isRecord(body) || !Array.isArray(body.summary) || body.summary.length === 0) throw bad();
 
-  const segments: OverviewSegment[] = [];
-  for (const raw of body.summary) {
-    if (!isRecord(raw)) throw bad();
-    if (typeof raw.dataset_id === "string") {
-      if (!allowed.has(raw.dataset_id)) throw bad();
-      segments.push({
-        kind: "dataset",
-        id: raw.dataset_id,
-        href: overviewDatasetHref(raw.dataset_id),
-      });
-    } else if (typeof raw.text === "string") {
-      segments.push({ kind: "text", text: raw.text });
-    } else {
-      throw bad();
+  const readSegments = (list: unknown[]): OverviewSegment[] => {
+    const segments: OverviewSegment[] = [];
+    for (const raw of list) {
+      if (!isRecord(raw)) throw bad();
+      if (typeof raw.dataset_id === "string") {
+        if (!titles.has(raw.dataset_id)) throw bad();
+        segments.push({
+          kind: "dataset",
+          id: raw.dataset_id,
+          href: overviewDatasetHref(raw.dataset_id),
+        });
+      } else if (typeof raw.text === "string") {
+        segments.push({ kind: "text", text: raw.text });
+      } else {
+        throw bad();
+      }
     }
-  }
-  if (!segments.some((s) => s.kind === "text" && s.text.trim() !== "")) throw bad();
+    return segments;
+  };
+  const hasWords = (segments: OverviewSegment[]) =>
+    segments.some((s) => s.kind === "text" && s.text.trim() !== "");
+
+  const segments = readSegments(body.summary);
+  if (!hasWords(segments)) throw bad();
 
   const picks: OverviewPick[] = [];
   if (body.picks !== undefined) {
     if (!Array.isArray(body.picks)) throw bad();
     for (const raw of body.picks.slice(0, PICKS_MAX)) {
-      if (!isRecord(raw) || typeof raw.id !== "string" || !allowed.has(raw.id)) throw bad();
+      if (!isRecord(raw) || typeof raw.id !== "string" || !titles.has(raw.id)) throw bad();
       const reason = typeof raw.reason === "string" ? raw.reason : "";
-      picks.push({ id: raw.id, href: overviewDatasetHref(raw.id), reason });
+      const pick: OverviewPick = { id: raw.id, href: overviewDatasetHref(raw.id), reason };
+      const title = pickTitle(titles.get(raw.id));
+      if (title !== undefined) pick.title = title;
+      picks.push(pick);
     }
   }
 
-  return { segments, picks };
+  let suggestion: OverviewSegment[] = [];
+  if (body.suggestion !== undefined) {
+    if (!Array.isArray(body.suggestion)) throw bad();
+    suggestion = readSegments(body.suggestion);
+    if (!hasWords(suggestion)) suggestion = [];
+  }
+
+  return { segments, picks, suggestion };
 }
 
 /** Reads the request Discover embeds in the page (the text of its JSON data island); `null` when
@@ -542,8 +596,5 @@ export async function requestOverview(
     if (options.signal?.aborted) throw err;
     throw new OverviewError(timeout.aborted ? "timeout" : "bad_response", response.status);
   }
-  return parseOverviewResponse(
-    body,
-    request.results.map((row) => row.id),
-  );
+  return parseOverviewResponse(body, request.results);
 }
