@@ -468,7 +468,7 @@ describe("Home", () => {
   it("wraps the field and shows the Try row only when the endpoint is set", () => {
     expect(HOME).toContain('const FieldControl = aiEndpoint ? "div" : Fragment;');
     expect(HOME).toMatch(/\{aiEndpoint && \(\s*<div class="hero__try" data-ai-try>/);
-    expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in plain words";');
+    expect(HOME).toContain('const AI_PLACEHOLDER = "Describe the data you need, in natural language";');
     expect(rule(styleOf(HOME), ".hero__try:not([data-ai-visible])")).toMatch(
       /visibility:\s*hidden/,
     );
