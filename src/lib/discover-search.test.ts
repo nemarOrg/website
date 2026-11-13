@@ -113,6 +113,11 @@ describe("planSearch: the AI overview's rows (website#531)", () => {
   it("never asks for more than the endpoint returns, nor for a negative count", () => {
     expect(planSearch(url("q=eeg"), { overviewRows: 500 }).params).toMatchObject({ limit: 100 });
     expect(planSearch(url("q=eeg"), { overviewRows: -3 }).overviewRows).toBe(0);
+    for (const odd of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const plan = planSearch(url("q=eeg"), { overviewRows: odd });
+      expect(plan.overviewRows).toBe(0);
+      expect(plan.params).toMatchObject({ limit: 10 });
+    }
   });
 });
 

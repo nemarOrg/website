@@ -274,11 +274,12 @@ export function snippetText(snippet: string | undefined): string {
 export type OverviewHit = Pick<SearchResult, "id" | "name" | "modalities" | "snippet" | "tasks">;
 
 /** What the overview reads of a hit the page did not hydrate: the snippet without its highlight
- *  tags, else the task names, else nothing. A search row carries no description of its own. */
+ *  tags, else the task names, else nothing. A search row carries no description of its own, and a
+ *  field that is not a string (an unhydrated row may hold null) counts as empty. */
 export function hitDescription(hit: OverviewHit): string {
-  const snippet = snippetText(hit.snippet).trim();
+  const snippet = typeof hit.snippet === "string" ? snippetText(hit.snippet).trim() : "";
   if (snippet) return snippet;
-  const tasks = (hit.tasks ?? "")
+  const tasks = (typeof hit.tasks === "string" ? hit.tasks : "")
     .split(",")
     .map((task) => task.trim())
     .filter((task) => task !== "");
@@ -501,7 +502,8 @@ export function parseOverviewResponse(
       const reason = typeof raw.reason === "string" ? raw.reason : "";
       const pick: OverviewPick = { id: raw.id, href: overviewDatasetHref(raw.id), reason };
       const title = pickTitle(titles.get(raw.id));
-      if (title !== undefined) pick.title = title;
+      // A row with no name is sent with its id as the title; the chip already shows the id.
+      if (title !== undefined && title !== raw.id) pick.title = title;
       picks.push(pick);
     }
   }

@@ -46,7 +46,10 @@ export interface SearchPlanOptions {
  */
 export function planSearch(state: FilterState, options: SearchPlanOptions = {}): SearchPlan {
   const filters = filterStateToSearchFilters(state);
-  const wanted = Math.min(SEARCH_WINDOW, Math.max(0, Math.floor(options.overviewRows ?? 0)));
+  const asked = options.overviewRows ?? 0;
+  const wanted = Number.isFinite(asked)
+    ? Math.min(SEARCH_WINDOW, Math.max(0, Math.floor(asked)))
+    : 0;
   const overviewRows = state.page === 1 ? wanted : 0;
   if (hasClientOnlyFilters(state, { searching: true })) {
     return { mode: "window", params: { limit: SEARCH_WINDOW, filters }, overviewRows };

@@ -471,6 +471,16 @@ describe("overviewRequestForPage: the best matches past the page's cards (websit
     expect(hitDescription({ ...more[0], snippet: "a <mark>b</mark>" })).toBe("a b");
   });
 
+  it("reads a hit whose snippet or tasks are not strings as having none, never throwing", () => {
+    // An unhydrated catalog row may hold null where the type says string.
+    const odd = { ...more[0], snippet: null, tasks: null } as unknown as (typeof more)[number];
+    expect(hitDescription(odd)).toBe("");
+    const listTasks = { ...more[0], snippet: "", tasks: ["rest"] } as unknown as (typeof more)[0];
+    expect(hitDescription(listTasks)).toBe("");
+    const request = overviewRequestForPage({ ...base, cards: [card(hits[0])], hits: [odd] });
+    expect(request?.results.at(-1)?.description).toBe("");
+  });
+
   it("reads a hit that is also a card once, as the card", () => {
     const request = overviewRequestForPage({ ...base, cards: hits.slice(0, 3).map(card), hits });
     const ids = request?.results.map((r) => r.id) ?? [];
@@ -619,13 +629,25 @@ describe("parseOverviewResponse over the documented example (website#531)", () =
     expect(emoji.picks[0].title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
   });
 
-  it("leaves the title out when the caller gave ids only, or a blank title", () => {
+  it("leaves the title out when the caller gave ids only, a blank title, or the id itself", () => {
     const answer = parseOverviewResponse(SUGGESTION, [
       "on002718",
       { id: "ds000117", title: "   " },
       { id: "nm000001" },
     ]);
     expect(answer.picks.map((p) => "title" in p)).toEqual([false, false, false]);
+    // buildOverviewRequest sends a row with no name under its id as the title; the chip shows it.
+    const request = buildOverviewRequest({
+      query: "faces in the brain",
+      rows: [
+        { id: "on002718", title: null, description: "" },
+        { id: "ds000117", title: "Multimodal faces", description: "" },
+        { id: "nm000001", title: "", description: "" },
+      ],
+    });
+    expect(request?.results[0].title).toBe("on002718");
+    const named = parseOverviewResponse(SUGGESTION, request?.results ?? []);
+    expect(named.picks.map((p) => p.title)).toEqual([undefined, "Multimodal faces", undefined]);
   });
 
   it("shows a suggestion with no words in it as none, rather than failing the overview", () => {
