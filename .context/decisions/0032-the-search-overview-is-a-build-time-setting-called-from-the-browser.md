@@ -99,10 +99,21 @@ Website#525 changed three things after the first test on staging.
 - **Accept any `https:` URL.**
   Rejected: a host the policy does not list fails with no message in the browser, which is the worst way to learn of a typo.
 
+## Amendment, 2026-11-13 (website#531)
+
+The decision stands; what the overview reads and writes changed with OpenScience-Collective/osa#748.
+
+- On page 1 of a search, Discover asks the search endpoint for the top 20 matches while still showing its page of cards, and the data island carries up to 20 rows, not ten.
+  The rows follow the ranking: a match that has a card is read as the hydrated card, and the matches past the cards are read from the search row (name, modalities, snippet or tasks), with no extra hydration.
+- The answer is a short lead-in on what the search seems to focus on, which may name no dataset; up to ten picks, each with its dataset's title and how it relates to the search; and a suggestion of where to start.
+  The panel draws them in that order, and "Ask a follow-up" carries all three.
+- An older OSA refuses more than ten rows with a 422, so OSA#748 deploys first, to dev before this reaches staging and to production before it reaches `main`.
+
 ## Receipts
 
 - OpenScience-Collective/osa#728 (the three-words rule).
 - nemarOrg/website#525 and OpenScience-Collective/osa#730 (default on, the line under the field, the settled field, the seeded follow-up).
 - nemarOrg/website#518 and #519, parent OpenScience-Collective/osa#652 (plan item E6.4 and E6.5).
+- nemarOrg/website#531 and OpenScience-Collective/osa#748 (the top 20, up to ten picks, the suggestion).
 - OSA `docs/search-overview.md` (request limits, response, errors, caching, rate limits) and `docs/community-widget.md` (the host API the follow-up uses, `seed(text, {mode: "center"})`).
 - ADR 0017 (the CSP allowances for the OSA hosts), ADR 0018 (the build-time `PUBLIC_OSA_*` values).
