@@ -428,6 +428,41 @@ describe("seedText", () => {
     expect(text).toContain("glued2https evil.example/e");
   });
 
+  it("breaks a web address split across two text segments", () => {
+    const widgetLink = /(?<!\]\()(https?:\/\/[^\s)]+)/i;
+    const answer = parseOverviewResponse(
+      {
+        summary: [
+          { text: "Lead see https:" },
+          { text: "//evil.example/x now. " },
+          { dataset_id: "a1" },
+        ],
+        picks: [{ id: "a1", reason: "Why." }],
+        suggestion: [{ text: "Try http:/" }, { text: "/evil.example/y or " }, { dataset_id: "a1" }],
+      },
+      ["a1"],
+    );
+    const text = seedText("three words here", answer, ORIGIN);
+    const rest = text.replace(/\[[^\]]*\]\(https:\/\/test\.nemar\.org\/dataset\/a1\)/g, "");
+    expect(rest).not.toMatch(widgetLink);
+    expect(text).toContain("see https evil.example/x");
+  });
+
+  it("keeps a dataset link a link after an exclamation mark", () => {
+    const answer = parseOverviewResponse(
+      {
+        summary: [{ text: "This one is great!" }, { dataset_id: "a1" }],
+        picks: [],
+        suggestion: [{ text: "Start here!" }, { dataset_id: "a1" }],
+      },
+      ["a1"],
+    );
+    const text = seedText("three words here", answer, ORIGIN);
+    expect(text).not.toContain("![");
+    expect(text).toContain(`great! ${link("a1")}`);
+    expect(text).toContain(`here! ${link("a1")}`);
+  });
+
   it("lets no pipe turn a line into a table row", () => {
     const answer = parseOverviewResponse(
       {

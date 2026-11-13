@@ -186,18 +186,30 @@ function segmentsMarkdown(
     const trimmed = text === "" || text.endsWith(" ") ? piece.replace(/^ /, "") : piece;
     text += trimmed;
   };
+  // Adjacent text segments are neutralised as one run, so a web address split across two
+  // ("see https:" then "//x") is broken like one written whole.
+  let run = "";
+  const flush = () => {
+    if (run === "") return;
+    const prose = neutralise(run, PROSE_MARKDOWN);
+    // Only the start of a paragraph can open a block; a link before it means it is not the start.
+    append(text === "" ? prose.replace(LEADING_BLOCK_MARKER, "") : prose);
+    run = "";
+  };
   for (const segment of segments) {
     if (segment.kind === "text") {
-      const prose = neutralise(segment.text, PROSE_MARKDOWN);
-      // Only the start of a paragraph can open a block; a link before it means it is not the start.
-      append(text === "" ? prose.replace(LEADING_BLOCK_MARKER, "") : prose);
-    } else {
-      const link = datasetLink(segment.id, origin);
-      const start = text.length;
-      text += link;
-      links.push([start, text.length]);
+      run += segment.text;
+      continue;
     }
+    flush();
+    // A "!" right before "[id](...)" would turn the page's own link into an image.
+    if (text.endsWith("!")) text += " ";
+    const link = datasetLink(segment.id, origin);
+    const start = text.length;
+    text += link;
+    links.push([start, text.length]);
   }
+  flush();
   return { text: text.trimEnd(), links };
 }
 
