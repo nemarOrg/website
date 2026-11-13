@@ -21,6 +21,7 @@ import {
   FOLLOW_UP_FAILED,
   OverviewController,
   type OverviewPanelState,
+  PICKS_LABEL,
   type PanelView,
   panelView,
   seedText,
@@ -155,12 +156,23 @@ function renderBody(
 
   if (view.picks.length > 0) {
     const list = element(doc, "ol", "ai-overview__picks");
+    // `list-style: none` makes Safari drop the list's semantics; the role puts them back, and the
+    // name says what the list is.
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", PICKS_LABEL);
     for (const pick of view.picks) {
       const item = doc.createElement("li");
       const id = element(doc, "a", "ai-overview__id", pick.id);
       id.href = pick.href;
+      // The chip shows the id; its accessible name carries the title too, so a link list read on
+      // its own says which dataset each one is.
+      if (pick.title) id.setAttribute("aria-label", `${pick.id}, ${pick.title}`);
       const text = element(doc, "span", "ai-overview__pick");
       if (pick.title) text.append(element(doc, "span", "ai-overview__pick-title", pick.title));
+      if (pick.title && pick.reason) {
+        // Heard, not seen: without it a screen reader runs the title into the reason.
+        text.append(element(doc, "span", "visually-hidden", ": "));
+      }
       if (pick.reason) text.append(element(doc, "span", "ai-overview__pick-reason", pick.reason));
       item.append(id, text);
       list.append(item);

@@ -64,6 +64,8 @@ export const PANEL_HEADING = "AI overview";
 export const PANEL_FOOTNOTE =
   "Written by AI from these search results. Check the dataset before relying on it.";
 export const FOLLOW_UP_LABEL = "Ask a follow-up";
+/** The name of the picks list, in the panel and in the "Ask a follow-up" message. */
+export const PICKS_LABEL = "Top picks";
 export const RETRY_LABEL = "Try again";
 
 const OFF: PanelView = {
@@ -267,7 +269,7 @@ export function seedText(query: string, answer: OverviewAnswer, origin: string):
       const reason = reasons ? neutralise(pick.reason, PROSE_MARKDOWN).trim() : "";
       return `${index + 1}. ${datasetLink(pick.id, origin)}${reason ? `: ${reason}` : ""}`;
     });
-    return `**Top picks**\n${lines.join("\n")}`;
+    return `**${PICKS_LABEL}**\n${lines.join("\n")}`;
   };
   const compose = (summaryPart: string, picksPart: string, suggestionPart: string) =>
     [head, summaryPart, picksPart, suggestionPart].filter((part) => part !== "").join("\n\n");

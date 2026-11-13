@@ -274,6 +274,24 @@ describe("the panel", () => {
     expect(CLIENT).toContain('element(doc, "span", "ai-overview__pick-reason", pick.reason)');
     expect(rule(PANEL, ".ai-overview__pick-title")).toMatch(/font-weight:\s*var\(--fw-semibold\)/);
   });
+
+  it("keeps the picks a named list for screen readers, and keeps a title apart from its reason", () => {
+    // `list-style: none` makes Safari drop the list's semantics; the role restores them.
+    expect(rule(PANEL, ".ai-overview__picks")).toMatch(/list-style:\s*none/);
+    expect(CLIENT).toContain('list.setAttribute("role", "list")');
+    expect(CLIENT).toContain('list.setAttribute("aria-label", PICKS_LABEL)');
+    // The id chip's accessible name says which dataset it is.
+    expect(CLIENT).toContain('id.setAttribute("aria-label", `${pick.id}, ${pick.title}`)');
+    // A separator heard, not seen, between the title and the reason, with the site's own class.
+    expect(CLIENT).toContain('element(doc, "span", "visually-hidden", ": ")');
+    const title = CLIENT.indexOf('"ai-overview__pick-title", pick.title');
+    const separator = CLIENT.indexOf('"visually-hidden", ": "');
+    const reason = CLIENT.indexOf('"ai-overview__pick-reason", pick.reason');
+    expect(separator).toBeGreaterThan(title);
+    expect(reason).toBeGreaterThan(separator);
+    // Text only: nothing in the list is set as markup.
+    expect(CLIENT).not.toMatch(/innerHTML|insertAdjacentHTML|outerHTML/);
+  });
 });
 
 describe("the field stays put", () => {
