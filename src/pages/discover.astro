@@ -25,13 +25,14 @@ import {
   hasClientOnlyFilters,
 } from "../lib/filters";
 import {
+  OVERVIEW_LIMITS,
   type OverviewRequest,
   overviewEndpoint,
   overviewFilters,
   overviewRequestForPage,
 } from "../lib/osa-overview";
 import { discoverCacheControl, discoverRetryAfter } from "../lib/response-cache-policy";
-import { type Dataset, SORT_OPTIONS } from "../lib/types";
+import { type Dataset, SORT_OPTIONS, type SearchResult } from "../lib/types";
 
 const url = new URL(Astro.request.url);
 const state = filterStateFromURL(url.searchParams);
@@ -58,6 +59,14 @@ let rateLimited = false;
 // Cards that fell back to the reduced search projection because their dataset
 // could not be fetched. A page with any is degraded and must not be cached long.
 let hydrationFailures = 0;
+// AI Mode (website#518). Unset or refused endpoint: no toggle, no panel
+// (src/lib/osa-overview.ts). Read here because the search asks for the
+// overview's rows too.
+const aiEndpoint = overviewEndpoint();
+// The best matches the AI overview reads on page 1 (website#531): the page
+// shows `PAGE_SIZE` cards, and the overview reads up to twenty from the search
+// projection, with no hydration of the ones past the cards.
+let overviewHits: SearchResult[] = [];
 
 // Cap every backend hop so a stalled upstream fails fast (and falls back)
 // instead of holding the SSR response until the Worker CPU limit kills it.
@@ -68,9 +77,12 @@ try {
     // Which way to read the search (the endpoint's own paging, or one best-100
     // window the page filters and pages) and what its answer means for the count
     // and the pager are decided in lib/discover-search.ts, where they are tested.
-    const plan = planSearch(state);
+    const plan = planSearch(state, {
+      overviewRows: aiEndpoint ? OVERVIEW_LIMITS.rowsMax : 0,
+    });
     const res = await searchDatasets(state.q, { ...plan.params, exact: state.exact, signal });
     const result = pageSearch(plan, res, state);
+    overviewHits = result.overviewHits;
     totalReturned = result.totalReturned;
     pageableTotal = result.pageableTotal;
     countNote = result.countNote;
@@ -195,9 +207,7 @@ if (!fetchError && totalReturned > 0 && state.page > pageCount) {
 
 // AI Mode (website#518). This page is edge-cached for everyone, so it cannot know who has AI
 // Mode on: it embeds the request the overview is written from, whenever the page could have one,
-// and the browser posts it only when the reader's preference is on. Unset or refused endpoint:
-// no toggle, no panel (src/lib/osa-overview.ts).
-const aiEndpoint = overviewEndpoint();
+// and the browser posts it only when the reader's preference is on (`aiEndpoint` is read above).
 // The overview is optional, so nothing in it may take the page down: a catalog row with an odd
 // shape (AGENTS.md: null or unexpected fields) is logged and the page renders without the panel.
 let aiRequest: OverviewRequest | null = null;
@@ -212,6 +222,7 @@ if (aiEndpoint) {
       filters: overviewFilters(state),
       totalCount: totalReturned,
       cards,
+      hits: overviewHits,
     });
   } catch (err) {
     console.error("[ai-overview] the request for this page could not be built:", err);

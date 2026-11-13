@@ -23,6 +23,7 @@
  */
 
 import type { FilterState } from "./filters";
+import type { SearchResult } from "./types";
 
 /**
  * The only two URLs `PUBLIC_OSA_OVERVIEW_URL` may be: the dev worker (staging) and the production
@@ -80,7 +81,7 @@ export function overviewEndpoint(raw?: string | null): OverviewEndpoint | null {
 export const OVERVIEW_LIMITS = {
   queryMax: 300,
   filterKeysMax: 20,
-  rowsMax: 10,
+  rowsMax: 20,
   idMax: 64,
   titleMax: 200,
   descriptionMax: 500,
@@ -202,8 +203,8 @@ function joinModalities(value: OverviewSourceRow["modalities"]): string | undefi
 
 /**
  * The request for a search, or `null` when there is nothing to read: a blank query, or no row
- * with an acceptable id. Rows keep the search's ranking order; the first ten acceptable ones are
- * sent. `correctedQuery` replaces the query when the API searched other words (the results are
+ * with an acceptable id. Rows keep the search's ranking order; the first twenty acceptable ones
+ * are sent. `correctedQuery` replaces the query when the API searched other words (the results are
  * for those words). `totalCount` is the number of matches in all.
  */
 export function buildOverviewRequest(input: {
@@ -266,10 +267,30 @@ export function snippetText(snippet: string | undefined): string {
   return (snippet ?? "").replace(/<\/?mark>/gi, "");
 }
 
+/** A search hit as the endpoint returns it, before hydration: what the overview reads of the best
+ *  matches past the page's own cards. */
+export type OverviewHit = Pick<SearchResult, "id" | "name" | "modalities" | "snippet" | "tasks">;
+
+/** What the overview reads of a hit the page did not hydrate: the snippet without its highlight
+ *  tags, else the task names, else nothing. A search row carries no description of its own. */
+export function hitDescription(hit: OverviewHit): string {
+  const snippet = snippetText(hit.snippet).trim();
+  if (snippet) return snippet;
+  const tasks = (hit.tasks ?? "")
+    .split(",")
+    .map((task) => task.trim())
+    .filter((task) => task !== "");
+  return tasks.length > 0 ? `Tasks: ${tasks.join(", ")}` : "";
+}
+
 /**
  * The request Discover embeds, or `null` when there is nothing to embed: no search ran, it
- * failed, the page is not the first (an overview reads the best matches), or no card is left. The
- * description is the dataset's own, falling back to the search snippet when it has none.
+ * failed, the page is not the first (an overview reads the best matches), or no card is left.
+ *
+ * The rows are the page's cards, then the rest of the best matches (`hits`, website#531): the
+ * page shows ten cards, and the overview reads twenty. A card's description is the dataset's own,
+ * falling back to the search snippet when it has none; a hit past the cards was never hydrated,
+ * so its description is {@link hitDescription}. A hit that is also a card is read once, as the card.
  */
 export function overviewRequestForPage(input: {
   isSearch: boolean;
@@ -280,19 +301,28 @@ export function overviewRequestForPage(input: {
   filters?: Record<string, unknown>;
   totalCount: number;
   cards: readonly OverviewCard[];
+  hits?: readonly OverviewHit[];
 }): OverviewRequest | null {
   if (!input.isSearch || input.failed || input.page !== 1 || input.cards.length === 0) return null;
+  const cardRows: OverviewSourceRow[] = input.cards.map(({ dataset, snippet }) => ({
+    id: dataset.dataset_id,
+    title: dataset.name,
+    description: dataset.description?.trim() ? dataset.description : snippetText(snippet),
+    modalities: dataset.modalities,
+  }));
+  const hitRows: OverviewSourceRow[] = (input.hits ?? []).map((hit) => ({
+    id: hit.id,
+    title: hit.name,
+    description: hitDescription(hit),
+    modalities: hit.modalities,
+  }));
   return buildOverviewRequest({
     query: input.query,
     correctedQuery: input.correctedQuery,
     filters: input.filters,
     totalCount: input.totalCount,
-    rows: input.cards.map(({ dataset, snippet }) => ({
-      id: dataset.dataset_id,
-      title: dataset.name,
-      description: dataset.description?.trim() ? dataset.description : snippetText(snippet),
-      modalities: dataset.modalities,
-    })),
+    // buildOverviewRequest keeps the first row of an id, so a hit that is a card is read as the card.
+    rows: [...cardRows, ...hitRows],
   });
 }
 

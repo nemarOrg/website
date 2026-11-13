@@ -12,6 +12,7 @@ import {
   type OverviewRequest,
   buildOverviewRequest,
   countQueryWords,
+  hitDescription,
   overviewEndpoint,
   overviewErrorMessage,
   overviewFilters,
@@ -226,13 +227,14 @@ describe("buildOverviewRequest limits", () => {
     ).toBe("");
   });
 
-  it("sends at most 10 rows, the first acceptable ones, in ranking order", () => {
-    const many = Array.from({ length: 14 }, (_, i) =>
+  it("sends at most 20 rows, the first acceptable ones, in ranking order", () => {
+    expect(OVERVIEW_LIMITS.rowsMax).toBe(20);
+    const many = Array.from({ length: 26 }, (_, i) =>
       row({ id: `on${String(i).padStart(6, "0")}` }),
     );
     const request = buildOverviewRequest({ query: "q", rows: many });
-    expect(request?.results).toHaveLength(10);
-    expect(request?.results.map((r) => r.id)).toEqual(many.slice(0, 10).map((r) => r.id));
+    expect(request?.results).toHaveLength(20);
+    expect(request?.results.map((r) => r.id)).toEqual(many.slice(0, 20).map((r) => r.id));
   });
 
   it("drops rows whose id OSA would refuse, and repeated ids", () => {
@@ -405,6 +407,77 @@ describe("overviewRequestForPage", () => {
     expect(overviewRequestForPage({ ...base, failed: true })).toBeNull();
     expect(overviewRequestForPage({ ...base, page: 2 })).toBeNull();
     expect(overviewRequestForPage({ ...base, cards: [] })).toBeNull();
+  });
+});
+
+describe("overviewRequestForPage: the best matches past the page's cards (website#531)", () => {
+  // The hits as the search endpoint returns them (the recorded fixture), then more past them.
+  const recorded = SEARCH.results.map((r) => ({
+    id: r.id,
+    name: r.name,
+    modalities: r.modalities,
+    snippet: r.snippet,
+    tasks: r.tasks,
+  }));
+  const more = Array.from({ length: 22 }, (_, i) => ({
+    id: `on${String(900000 + i)}`,
+    name: `Dataset ${i}`,
+    modalities: "EEG",
+    snippet: "",
+    tasks: i % 2 === 0 ? "rest,oddball" : "",
+  }));
+  const hits = [...recorded, ...more];
+  const card = (hit: (typeof hits)[number]) => ({
+    dataset: {
+      dataset_id: hit.id,
+      name: hit.name,
+      description: `Hydrated description of ${hit.id}.`,
+      modalities: hit.modalities,
+    },
+    snippet: hit.snippet,
+  });
+  const base = {
+    isSearch: true,
+    failed: false,
+    page: 1,
+    query: "bilingual speech eeg",
+    totalCount: 240,
+  };
+
+  it("reads the cards, then the hits after them, up to 20 in ranking order", () => {
+    const request = overviewRequestForPage({ ...base, cards: hits.slice(0, 10).map(card), hits });
+    expect(request?.results.map((r) => r.id)).toEqual(hits.slice(0, 20).map((h) => h.id));
+    // The cards keep their hydrated description; a hit past them was never hydrated.
+    expect(request?.results[0].description).toBe(`Hydrated description of ${hits[0].id}.`);
+    expect(request?.results[9].description).toBe(`Hydrated description of ${hits[9].id}.`);
+    expect(request?.results[10].title).toBe(hits[10].name);
+  });
+
+  it("describes a hit by its snippet without highlights, else its tasks, else nothing", () => {
+    const request = overviewRequestForPage({ ...base, cards: [card(hits[0])], hits });
+    const byId = new Map(request?.results.map((r) => [r.id, r]));
+    // A recorded hit with a snippet: the README words, without the <mark> tags.
+    const withSnippet = recorded.find((h, i) => i > 0 && (h.snippet ?? "").includes("<mark>"));
+    expect(withSnippet).toBeDefined();
+    const described = byId.get(withSnippet?.id ?? "")?.description ?? "";
+    expect(described).not.toMatch(/<\/?mark>/i);
+    expect(described.length).toBeGreaterThan(0);
+    expect(hitDescription({ ...more[0], snippet: "" })).toBe("Tasks: rest, oddball");
+    expect(hitDescription({ ...more[1], snippet: undefined })).toBe("");
+    expect(hitDescription({ ...more[1], tasks: " , ," })).toBe("");
+    expect(hitDescription({ ...more[0], snippet: "a <mark>b</mark>" })).toBe("a b");
+  });
+
+  it("reads a hit that is also a card once, as the card", () => {
+    const request = overviewRequestForPage({ ...base, cards: hits.slice(0, 3).map(card), hits });
+    const ids = request?.results.map((r) => r.id) ?? [];
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(request?.results[2].description).toBe(`Hydrated description of ${hits[2].id}.`);
+  });
+
+  it("is the cards alone when the page has no hits to add", () => {
+    const request = overviewRequestForPage({ ...base, cards: hits.slice(0, 3).map(card) });
+    expect(request?.results).toHaveLength(3);
   });
 });
 
