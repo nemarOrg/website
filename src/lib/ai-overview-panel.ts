@@ -144,18 +144,20 @@ export const SEED_MAX_CHARS = 2000;
  *  images, HTML, headings, tables. Each becomes a space, so what is quoted is the words. A web
  *  address is broken too (see {@link neutralise}). */
 const QUERY_MARKDOWN = /[\\`*_[\]()<>#~|!]/g;
-/** What turns written prose into a link, an image, emphasis (`*`, `_`, `~`) or code in the widget's Markdown. The
- *  overview is a model's text about dataset descriptions, so a link in it would be a link the page
- *  made: each becomes a space, and a sentence stays a sentence. */
-const PROSE_MARKDOWN = /[\\`*_~[\]]/g;
+/** What turns written prose into a link, an image, emphasis (`*`, `_`, `~`), code or a table row
+ *  (`|`: the widget reads a line with two of them as one) in the widget's Markdown. The overview is
+ *  a model's text about dataset descriptions, so a link in it would be a link the page made: each
+ *  becomes a space, and a sentence stays a sentence. */
+const PROSE_MARKDOWN = /[\\`*_~[\]|]/g;
 /** What opens a block in Markdown when it starts a line: a heading, quote or list marker (`#`, `>`,
  *  `+`, `-`, or `1.`/`1)`). The summary is one line right under the head, so a model's summary that
  *  began with one would turn into a heading, quote or list; the marker is dropped. A pick's reason
  *  follows `N. [id]:` on the same line, where it opens nothing. */
 const LEADING_BLOCK_MARKER = /^\s*(?:[#>+-]+\s*|\d{1,9}[.)]\s+)+/;
 /** A web address: the widget turns any `http://` or `https://` run into a link on its own, with no
- *  Markdown around it. */
-const WEB_SCHEME = /\b(https?):\/\//gi;
+ *  Markdown around it and no word boundary before it, so a scheme glued to a word
+ *  (`see2https://x`) is broken too. */
+const WEB_SCHEME = /(https?):\/\//gi;
 
 /** `text` with `markdown` characters blanked and web addresses broken (`https://x` reads
  *  `https x`), so the only links in the message are the page's own dataset links. Both are done
@@ -248,9 +250,14 @@ function trimSummary(summary: { text: string; links: Array<[number, number]> }, 
  * At most {@link SEED_MAX_CHARS} characters (`OSAChatWidget.seed` refuses more). When it does not
  * fit, the picks go from the end, each kept one with its reason; then all of them are tried again
  * without reasons, again dropping from the end; then the picks go. The suggestion is kept through
- * all of that, and goes only when the lead-in and it cannot fit together: then the lead-in is cut
- * at a sentence, as it always was.
+ * all of that: when the lead-in and it still do not fit, the lead-in is cut at a sentence to leave
+ * the suggestion its room, as long as the lead-in keeps at least {@link SEED_MIN_LEAD_IN_CHARS}
+ * characters (or all of itself, when it is shorter). Only a suggestion too long for that goes, and
+ * then the lead-in is cut to fit under the head, as it always was.
  */
+/** The least of the lead-in "Ask a follow-up" keeps when it is cut to leave the suggestion room. */
+export const SEED_MIN_LEAD_IN_CHARS = 120;
+
 export function seedText(query: string, answer: OverviewAnswer, origin: string): string {
   let words = neutralise(query, QUERY_MARKDOWN).trim();
   if (words.length > OVERVIEW_LIMITS.queryMax) {
@@ -283,6 +290,14 @@ export function seedText(query: string, answer: OverviewAnswer, origin: string):
   }
   const withoutPicks = compose(summary.text, "", suggestion);
   if (withoutPicks.length <= SEED_MAX_CHARS) return withoutPicks;
+  if (suggestion !== "") {
+    // The lead-in is cut to leave the whole suggestion its room: the head, the lead-in and the
+    // suggestion, with a blank line between each.
+    const leadRoom = SEED_MAX_CHARS - head.length - 2 - suggestion.length - 2;
+    if (leadRoom >= Math.min(SEED_MIN_LEAD_IN_CHARS, summary.text.length)) {
+      return compose(trimSummary(summary, leadRoom), "", suggestion);
+    }
+  }
   // The picks and the suggestion go; the lead-in is cut at a sentence to fit under the head and its
   // blank line.
   const room = SEED_MAX_CHARS - head.length - 2;

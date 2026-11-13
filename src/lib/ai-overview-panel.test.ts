@@ -7,8 +7,10 @@ import {
   OverviewController,
   type OverviewPanelState,
   PANEL_FOOTNOTE,
+  PICKS_LABEL,
   RETRY_LABEL,
   SEED_MAX_CHARS,
+  SEED_MIN_LEAD_IN_CHARS,
   overviewFailureKind,
   panelView,
   seedText,
@@ -397,6 +399,54 @@ describe("seedText", () => {
     expect(last).toBe(`Start here with ${link("a1")}, see x (https evil.example/s).`);
   });
 
+  it("breaks a web address glued to a word, which the widget would still link", () => {
+    // The widget links any `https?://` run, with no word boundary before it.
+    const widgetLink = /(?<!\]\()(https?:\/\/[^\s)]+)/i;
+    const answer = parseOverviewResponse(
+      {
+        summary: [{ text: "Lead-in see2https://evil.example/a now. " }, { dataset_id: "a1" }],
+        picks: [{ id: "a1", reason: "wwwhttps://evil.example/b and xhttp://evil.example/c" }],
+        suggestion: [
+          { text: "Start with " },
+          { dataset_id: "a1" },
+          { text: " or 1https://evil.example/d." },
+        ],
+      },
+      ["a1"],
+    );
+    const text = seedText("glued2https://evil.example/e words here", answer, ORIGIN);
+    const rest = text.replace(/\[[^\]]*\]\(https:\/\/test\.nemar\.org\/dataset\/a1\)/g, "");
+    expect(rest).not.toMatch(widgetLink);
+    for (const piece of [
+      "see2https evil.example/a",
+      "wwwhttps evil.example/b",
+      "xhttp evil.example/c",
+    ]) {
+      expect(text).toContain(piece);
+    }
+    expect(text).toContain("1https evil.example/d.");
+    expect(text).toContain("glued2https evil.example/e");
+  });
+
+  it("lets no pipe turn a line into a table row", () => {
+    const answer = parseOverviewResponse(
+      {
+        summary: [{ text: "Lead-in | with | pipes. " }, { dataset_id: "a1" }],
+        picks: [{ id: "a1", reason: "EEG | MEG | fMRI" }],
+        suggestion: [{ text: "Start | here | with " }, { dataset_id: "a1" }, { text: "." }],
+      },
+      ["a1"],
+    );
+    const text = seedText("a | b | c", answer, ORIGIN);
+    expect(text).not.toContain("|");
+    expect(text).toContain(`1. ${link("a1")}: EEG MEG fMRI`);
+  });
+
+  it("names the list the way the panel does", () => {
+    expect(PICKS_LABEL).toBe("Top picks");
+    expect(seedText("face recognition", ANSWER, ORIGIN)).toContain(`**${PICKS_LABEL}**\n`);
+  });
+
   it("shortens in order: picks from the end with their reasons, then the reasons, then the picks, then the summary", () => {
     const sentence = "A sentence of the overview.";
     const reason = "Because it has the conditions and events you asked about. ".repeat(6);
@@ -453,15 +503,44 @@ describe("seedText", () => {
     expect(noPicks.length).toBeLessThanOrEqual(2000);
     expect(noPicks).not.toContain("Top picks");
     expect(noPicks.endsWith(`${start} ${link("a1")}.`)).toBe(true);
-    // The summary and the suggestion cannot fit together: the suggestion goes, the summary is whole.
+    // The summary and the suggestion cannot fit together: the summary is cut at a sentence to
+    // leave the suggestion its room, and the suggestion stays whole.
     const crowded = seedText(
       "a b c",
       answerOf(Array(68).fill(sentence), 3, "why", TEN, start),
       ORIGIN,
     );
     expect(crowded.length).toBeLessThanOrEqual(2000);
-    expect(crowded).not.toContain(start);
-    expect(crowded.split(sentence).length - 1).toBe(68);
+    expect(crowded.endsWith(`${start} ${link("a1")}.`)).toBe(true);
+    const lead = crowded.split("\n\n")[1] ?? "";
+    expect(lead.endsWith(sentence)).toBe(true);
+    expect(lead).not.toContain("…");
+    expect(lead.length).toBeGreaterThanOrEqual(SEED_MIN_LEAD_IN_CHARS);
+    // The full lead-in ends with its dataset link; the cut one ends at a sentence before it.
+    expect(lead).not.toContain(link("a1"));
+    expect(wholeLinks(crowded)).toBe(true);
+  });
+
+  it("drops a suggestion too long to fit beside the lead-in, and keeps the lead-in whole", () => {
+    const huge = "Start here because it is the best. ".repeat(70);
+    expect(huge.length).toBeGreaterThan(2000);
+    const answer = answerOf(["A short lead-in."], 3, "why", TEN, huge);
+    const text = seedText("a b c", answer, ORIGIN);
+    expect(text.length).toBeLessThanOrEqual(2000);
+    expect(text).not.toContain("Start here because");
+    expect(text).toContain(`A short lead-in. ${link("a1")}`);
+  });
+
+  it("drops the suggestion when the lead-in would have to shrink below its minimum", () => {
+    const sentence = "A sentence of the overview.";
+    // A suggestion that leaves the lead-in less than SEED_MIN_LEAD_IN_CHARS: it goes, and the
+    // lead-in is cut to fit under the head, as before.
+    const almost = "Start here because it is the best. ".repeat(53);
+    const answer = answerOf(Array(68).fill(sentence), 3, "why", TEN, almost);
+    const text = seedText("a b c", answer, ORIGIN);
+    expect(text.length).toBeLessThanOrEqual(2000);
+    expect(text).not.toContain("Start here because");
+    expect(text.split(sentence).length - 1).toBe(68);
   });
 
   it("counts characters the way the widget does, in UTF-16 code units", () => {
