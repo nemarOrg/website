@@ -197,10 +197,22 @@ export function overviewFilters(state: FilterState): Record<string, unknown> {
   };
 }
 
-function joinModalities(value: OverviewSourceRow["modalities"]): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  const text = typeof value === "string" ? value : value.join(", ");
+/** The modalities as one string, or `undefined`. A row from the catalog can hold anything (AGENTS.md:
+ *  null or unexpected fields), so a value that is neither a string nor a list of strings counts as
+ *  none, and a list keeps only its strings. */
+function joinModalities(value: unknown): string | undefined {
+  let text: string;
+  if (typeof value === "string") text = value;
+  else if (Array.isArray(value)) {
+    text = value.filter((item): item is string => typeof item === "string").join(", ");
+  } else return undefined;
   return text.trim() === "" ? undefined : text;
+}
+
+/** `value` when it is a string, else the empty string: a field of a catalog row that is not text
+ *  (null, a number) is read as empty instead of failing the request. */
+function textOf(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
 
 /**
@@ -222,16 +234,19 @@ export function buildOverviewRequest(input: {
 
   const seen = new Set<string>();
   const results: OverviewRequestRow[] = [];
-  for (const row of input.rows) {
+  for (const row of input.rows as readonly unknown[]) {
     if (results.length >= OVERVIEW_LIMITS.rowsMax) break;
+    // A row that is not an object (null, a string) is skipped, never read (AGENTS.md: the catalog
+    // may hold null or unexpected fields).
+    if (!isRecord(row)) continue;
     const id = row.id;
     if (typeof id !== "string" || id.length > OVERVIEW_LIMITS.idMax) continue;
     if (!OVERVIEW_ID_PATTERN.test(id) || seen.has(id)) continue;
     seen.add(id);
     const out: OverviewRequestRow = {
       id,
-      title: clip((row.title ?? "").trim() || id, OVERVIEW_LIMITS.titleMax),
-      description: clip(row.description ?? "", OVERVIEW_LIMITS.descriptionMax),
+      title: clip(textOf(row.title).trim() || id, OVERVIEW_LIMITS.titleMax),
+      description: clip(textOf(row.description), OVERVIEW_LIMITS.descriptionMax),
     };
     const modalities = joinModalities(row.modalities);
     if (modalities !== undefined) out.modalities = clip(modalities, OVERVIEW_LIMITS.modalitiesMax);
@@ -290,10 +305,14 @@ export function hitDescription(hit: OverviewHit): string {
  * The request Discover embeds, or `null` when there is nothing to embed: no search ran, it
  * failed, the page is not the first (an overview reads the best matches), or no card is left.
  *
- * The rows are the page's cards, then the rest of the best matches (`hits`, website#531): the
- * page shows ten cards, and the overview reads twenty. A card's description is the dataset's own,
- * falling back to the search snippet when it has none; a hit past the cards was never hydrated,
- * so its description is {@link hitDescription}. A hit that is also a card is read once, as the card.
+ * The rows follow the best matches (`hits`, website#531) in their ranking order: the page shows
+ * ten cards, and the overview reads twenty. A hit that has a card is read as the card, whose
+ * description is the dataset's own, falling back to the search snippet when it has none; a hit
+ * past the cards was never hydrated, so its description is {@link hitDescription}. Cards no hit
+ * names follow (none, normally: the cards are the first hits), and with no hits the cards alone
+ * are read, as before. Walking the hits, not the cards, keeps the ranking even when a card's
+ * hydrated id is unusable: its hit then stays in its own place instead of falling behind the
+ * other cards. A hit or card that is not an object is skipped.
  */
 export function overviewRequestForPage(input: {
   isSearch: boolean;
@@ -307,25 +326,48 @@ export function overviewRequestForPage(input: {
   hits?: readonly OverviewHit[];
 }): OverviewRequest | null {
   if (!input.isSearch || input.failed || input.page !== 1 || input.cards.length === 0) return null;
-  const cardRows: OverviewSourceRow[] = input.cards.map(({ dataset, snippet }) => ({
-    id: dataset.dataset_id,
-    title: dataset.name,
-    description: dataset.description?.trim() ? dataset.description : snippetText(snippet),
-    modalities: dataset.modalities,
-  }));
-  const hitRows: OverviewSourceRow[] = (input.hits ?? []).map((hit) => ({
-    id: hit.id,
-    title: hit.name,
-    description: hitDescription(hit),
-    modalities: hit.modalities,
-  }));
+  const cardRow = ({ dataset, snippet }: OverviewCard): OverviewSourceRow => {
+    const description = textOf(dataset.description);
+    return {
+      id: dataset.dataset_id,
+      title: dataset.name,
+      description: description.trim()
+        ? description
+        : snippetText(typeof snippet === "string" ? snippet : undefined),
+      modalities: dataset.modalities,
+    };
+  };
+  const cards = (input.cards as readonly unknown[]).filter(
+    (card): card is OverviewCard => isRecord(card) && isRecord(card.dataset),
+  );
+  const cardRows = new Map<string, OverviewSourceRow>();
+  for (const card of cards) {
+    const id = card.dataset.dataset_id;
+    if (typeof id === "string" && !cardRows.has(id)) cardRows.set(id, cardRow(card));
+  }
+  const hits = ((input.hits ?? []) as readonly unknown[]).filter((hit): hit is OverviewHit =>
+    isRecord(hit),
+  );
+  const rows: OverviewSourceRow[] = hits.map((hit) => {
+    const card = typeof hit.id === "string" ? cardRows.get(hit.id) : undefined;
+    return (
+      card ?? {
+        id: hit.id,
+        title: textOf(hit.name),
+        description: hitDescription(hit),
+        modalities: hit.modalities,
+      }
+    );
+  });
+  // Cards no hit named, after the hits; the cards alone when there are no hits. buildOverviewRequest
+  // keeps the first row of an id, so a card already read through its hit is not read twice.
+  rows.push(...cards.map(cardRow));
   return buildOverviewRequest({
     query: input.query,
     correctedQuery: input.correctedQuery,
     filters: input.filters,
     totalCount: input.totalCount,
-    // buildOverviewRequest keeps the first row of an id, so a hit that is a card is read as the card.
-    rows: [...cardRows, ...hitRows],
+    rows,
   });
 }
 
@@ -454,8 +496,10 @@ function pickTitle(title: string | undefined): string | undefined {
  * displayable overview into an error. Anything else that is off in shape is an error too, so the
  * panel shows the failure, never half an answer.
  *
- * `suggestion` is new (website#531): an older server sends none, which reads as an empty one, and
- * a suggestion with no words in it is shown as none rather than failing the overview.
+ * `suggestion` is new (website#531): an older server sends none, which reads as an empty one (as
+ * does `null`), and a suggestion with no words in it is shown as none rather than failing the
+ * overview. A pick named twice is listed once, where it first appears, and at most
+ * {@link PICKS_MAX} are listed.
  */
 export function parseOverviewResponse(
   body: unknown,
@@ -497,8 +541,13 @@ export function parseOverviewResponse(
   const picks: OverviewPick[] = [];
   if (body.picks !== undefined) {
     if (!Array.isArray(body.picks)) throw bad();
-    for (const raw of body.picks.slice(0, PICKS_MAX)) {
+    const seen = new Set<string>();
+    for (const raw of body.picks) {
+      if (picks.length >= PICKS_MAX) break;
       if (!isRecord(raw) || typeof raw.id !== "string" || !titles.has(raw.id)) throw bad();
+      // A repeated pick is shown once, where it first appears.
+      if (seen.has(raw.id)) continue;
+      seen.add(raw.id);
       const reason = typeof raw.reason === "string" ? raw.reason : "";
       const pick: OverviewPick = { id: raw.id, href: overviewDatasetHref(raw.id), reason };
       const title = pickTitle(titles.get(raw.id));
@@ -509,7 +558,8 @@ export function parseOverviewResponse(
   }
 
   let suggestion: OverviewSegment[] = [];
-  if (body.suggestion !== undefined) {
+  // Absent (an older server) and null both read as none.
+  if (body.suggestion !== undefined && body.suggestion !== null) {
     if (!Array.isArray(body.suggestion)) throw bad();
     suggestion = readSegments(body.suggestion);
     if (!hasWords(suggestion)) suggestion = [];

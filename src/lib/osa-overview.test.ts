@@ -478,7 +478,7 @@ describe("overviewRequestForPage: the best matches past the page's cards (websit
     const listTasks = { ...more[0], snippet: "", tasks: ["rest"] } as unknown as (typeof more)[0];
     expect(hitDescription(listTasks)).toBe("");
     const request = overviewRequestForPage({ ...base, cards: [card(hits[0])], hits: [odd] });
-    expect(request?.results.at(-1)?.description).toBe("");
+    expect(request?.results.find((r) => r.id === odd.id)?.description).toBe("");
   });
 
   it("reads a hit that is also a card once, as the card", () => {
@@ -491,6 +491,54 @@ describe("overviewRequestForPage: the best matches past the page's cards (websit
   it("is the cards alone when the page has no hits to add", () => {
     const request = overviewRequestForPage({ ...base, cards: hits.slice(0, 3).map(card) });
     expect(request?.results).toHaveLength(3);
+  });
+
+  it("skips a hit that is not an object and reads a non-string field as empty, never throwing", () => {
+    // The catalog may hold null or unexpected fields (AGENTS.md); ranks 11 to 20 are read raw.
+    const odd = [
+      ...hits.slice(0, 12),
+      null,
+      "on999999",
+      { ...hits[12], name: 42, modalities: 7 },
+      { ...hits[13], name: null, modalities: ["EEG", 3, "MEG"] },
+      ...hits.slice(14, 30),
+    ] as unknown as typeof hits;
+    const request = overviewRequestForPage({
+      ...base,
+      cards: hits.slice(0, 10).map(card),
+      hits: odd,
+    });
+    expect(request).not.toBeNull();
+    const ids = request?.results.map((r) => r.id) ?? [];
+    expect(ids).toEqual(hits.slice(0, 20).map((h) => h.id));
+    const numeric = request?.results.find((r) => r.id === hits[12].id);
+    // A name that is not text falls back to the id, and a modality that is not text is left out.
+    expect(numeric?.title).toBe(hits[12].id);
+    expect(numeric).not.toHaveProperty("modalities");
+    expect(request?.results.find((r) => r.id === hits[13].id)?.modalities).toBe("EEG, MEG");
+    for (const row of request?.results ?? []) {
+      expect(typeof row.title).toBe("string");
+      expect(typeof row.description).toBe("string");
+    }
+  });
+
+  it("skips a card that is not an object or has no dataset", () => {
+    const cards = [null, { snippet: "x" }, card(hits[0])] as unknown as ReturnType<typeof card>[];
+    const request = overviewRequestForPage({ ...base, cards, hits: hits.slice(0, 2) });
+    expect(request?.results.map((r) => r.id)).toEqual([hits[0].id, hits[1].id]);
+    expect(request?.results[0].description).toBe(`Hydrated description of ${hits[0].id}.`);
+  });
+
+  it("keeps the ranking when a card's hydrated id is unusable", () => {
+    // The first card came back with no usable id: its hit keeps its own place, ahead of the
+    // hits it outranked, instead of falling in behind the other cards.
+    const cards = hits.slice(0, 10).map(card);
+    cards[0] = { ...cards[0], dataset: { ...cards[0].dataset, dataset_id: "" } };
+    const request = overviewRequestForPage({ ...base, cards, hits });
+    expect(request?.results.map((r) => r.id)).toEqual(hits.slice(0, 20).map((h) => h.id));
+    // It is read from the search row, since no card stands for it.
+    expect(request?.results[0].title).toBe(hits[0].name);
+    expect(request?.results[1].description).toBe(`Hydrated description of ${hits[1].id}.`);
   });
 });
 
@@ -562,7 +610,6 @@ describe("parseOverviewResponse over an older server's example (no suggestion)",
       { summary: [{ dataset_id: "on002718" }] },
       { ...RESPONSE, picks: "x" },
       { ...RESPONSE, suggestion: "Start with on002718." },
-      { ...RESPONSE, suggestion: null },
       { ...RESPONSE, suggestion: [{ nothing: 1 }] },
     ]) {
       expect(() => parseOverviewResponse(body, ["on002718"]), JSON.stringify(body)).toThrowError(
@@ -662,6 +709,44 @@ describe("parseOverviewResponse over the documented example (website#531)", () =
     expect(() =>
       parseOverviewResponse({ ...SUGGESTION, summary: [{ dataset_id: "on002718" }] }, rows),
     ).toThrowError(OverviewError);
+  });
+
+  it("reads a null suggestion as none, like an absent one", () => {
+    const answer = parseOverviewResponse({ ...SUGGESTION, suggestion: null }, rows);
+    expect(answer.suggestion).toEqual([]);
+    expect(answer.picks).toHaveLength(3);
+    // Anything else that is not a list is still a broken answer.
+    for (const suggestion of ["Start here.", 5, { text: "x" }]) {
+      expect(() => parseOverviewResponse({ ...SUGGESTION, suggestion }, rows)).toThrowError(
+        OverviewError,
+      );
+    }
+  });
+
+  it("lists a pick named twice once, where it first appears, and at most ten", () => {
+    const repeated = {
+      ...SUGGESTION,
+      picks: [
+        { id: "ds000117", reason: "First." },
+        { id: "on002718", reason: "Second." },
+        { id: "ds000117", reason: "Again." },
+      ],
+    };
+    const answer = parseOverviewResponse(repeated, rows);
+    expect(answer.picks.map((p) => [p.id, p.reason])).toEqual([
+      ["ds000117", "First."],
+      ["on002718", "Second."],
+    ]);
+    const ids = Array.from({ length: 12 }, (_, i) => `on${String(800000 + i)}`);
+    const many = parseOverviewResponse(
+      {
+        summary: [{ text: "Lead-in." }],
+        // Repeats first, so the cap counts distinct picks, not entries.
+        picks: [ids[0], ids[0], ...ids].map((id) => ({ id, reason: "r" })),
+      },
+      ids,
+    );
+    expect(many.picks.map((p) => p.id)).toEqual(ids.slice(0, PICKS_MAX));
   });
 });
 
