@@ -460,3 +460,23 @@ The runtime bundle `osa-runtime.bundle.js` grew from 93,685 to 111,388 bytes and
 - osa tag `v0.8.20` resolves to commit `ffdf7e3`, the stable-version commit after the release merge `2cc8634`; its widget file is identical to the one reviewed at `a8d1d31`.
 - The widget at the pinned commit defines `open`, `seed`, `setMode` and `setDataset` on `window.OSAChatWidget`.
 - `src/lib/osa-widget.test.ts`, "the production pin in wrangler.toml", checks that the new values resolve to a ready widget.
+
+## Update 2026-11-13: production's pin moves to OSA 0.8.22
+
+The decision stands; only the pinned commit and its hash moved.
+
+OSA 0.8.22 is released (OpenScience-Collective/osa PR #764, <https://github.com/OpenScience-Collective/osa/releases/tag/v0.8.22>), tagged `v0.8.22` at `4957bfdca346ebb652fa93f61e7b33f422ce3da4`, the stable-version commit after the release merge `44503db`.
+Production (`wrangler.toml` `[vars]`) now pins that commit, with
+`sha384-ZFb0z4j2RGD3SL2vEcbUOQLQPuevL5x6uAh+hyf183hxZo5eDTUXiB2AX+27neyS`.
+The same value was computed from git's file at the commit and from jsDelivr's copy (814,399 bytes), and jsDelivr's `@v0.8.22` alias serves the same bytes.
+
+The widget brings the header's **Expand** button, which opens the AI Mode dialog in place of the pop-out window (OSA's NEMAR config sets `widget.expand: center`), and the dialog's **New chat** button.
+It names no host that the 0.8.20 build did not, so the site's CSP needs no change.
+
+Staging is not touched: it follows `develop` and carries no hash (update 2026-09-29).
+
+### Receipts (update, 0.8.22)
+
+- osa tag `v0.8.22` resolves to commit `4957bfd`, and its widget file is byte-identical on GitHub and jsDelivr (814,399 bytes).
+- Production's health reports `0.8.22` at that commit, and `https://widget.osc.earth/osa/nemar` sends `widget.expand: 'center'`.
+- `src/lib/osa-widget.test.ts`, "the production pin in wrangler.toml", checks that the new values resolve to a ready widget.
