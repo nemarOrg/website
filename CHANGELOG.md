@@ -13,10 +13,17 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.40] - 2026-11-13
+
 ### Changed
 
 - **Production's assistant widget pins OSA 0.8.22 (commit `4957bfd`)**: the widget on nemar.org is the 0.8.22 build, so the header's **Expand** button opens the AI Mode dialog in place of the pop-out window (OSA's NEMAR config sets `widget.expand: center`), and the dialog's header has a **New chat** button (OpenScience-Collective/osa#756, #759; release OpenScience-Collective/osa#764).
   `wrangler.toml` carries that commit and its integrity hash, computed from git's file and checked against jsDelivr's copy. Staging is not changed: it follows OSA's `develop`.
+
+## [0.2.39] - 2026-11-13
+
+### Changed
+
 - **The AI overview reads the top 20 matches and lists up to ten picks** (nemarOrg/website#531, OpenScience-Collective/osa#748).
   On page 1 of a search, Discover asks the search endpoint for 20 hits though it still shows 10 cards; the overview reads the hydrated cards, then the hits after them (their snippet, or else their task names), with no extra dataset fetches.
   The panel now reads as a conversation: a short lead-in on what the search seems to be after, then up to ten picks, each with its dataset title and how it relates to the search, then a suggestion of where to start.
