@@ -2260,22 +2260,23 @@ function buildDom(
   const topoBtn = document.createElement("button");
   topoBtn.type = "button";
   topoBtn.className = "eegv__btn eegv__topo-btn";
-  topoBtn.title = "Scalp topomap (split panel)";
+  topoBtn.title = TOPO_TITLE_BASE;
   topoBtn.setAttribute("aria-pressed", "false");
   topoBtn.innerHTML = topoGlyph();
   // Scalp topomap is only meaningful for EEG/MEG. iEEG (intracranial), EMG, fNIRS,
   // or unrecognized modalities get the toggle disabled, so we never draw a
   // misleading scalp map for non-scalp electrodes. An estimated (standard-montage)
   // layout still enables the toggle, but its tooltip flags that it is not the
-  // dataset's own positions.
+  // dataset's own positions; positions from the store say where the converter
+  // found them (topoToggleTitle).
   const scalp = resolveScalpPositions(store);
   if (!scalp) {
     topoBtn.disabled = true;
     topoBtn.title = isScalpModality(store.groups[0]?.modality)
       ? "no locatable channels for a scalp topomap"
       : "scalp topomap is EEG/MEG only";
-  } else if (scalp.estimated) {
-    topoBtn.title = "Scalp topomap - standard 10-20 layout (dataset ships no electrodes.tsv)";
+  } else {
+    topoBtn.title = topoToggleTitle(scalp, store);
   }
   bar.append(grouped("Topo", topoBtn));
 
@@ -2649,6 +2650,35 @@ function gearGlyph(): string {
 const SCALP_MODALITIES = new Set(["EEG", "MEG"]);
 function isScalpModality(modality: string | undefined): boolean {
   return SCALP_MODALITIES.has((modality || "").toUpperCase());
+}
+
+const TOPO_TITLE_BASE = "Scalp topomap (split panel)";
+const TOPO_TITLE_MONTAGE =
+  "Scalp topomap - standard 10-20 layout (dataset ships no electrodes.tsv)";
+const TOPO_TITLE_SUBJECT =
+  "Scalp topomap - electrode positions from this subject's electrodes file";
+const TOPO_TITLE_DATASET =
+  "Scalp topomap - electrode positions from one electrodes file shared by every subject";
+
+/**
+ * The topomap toggle's tooltip for a scalp resolution. The standard-montage fallback
+ * keeps its own sentence. Positions the store carries say where the converter found
+ * them: the subject's own electrodes file (`subject`) or one file shared by every
+ * subject (`dataset`), with the file named when the store states it. A store that
+ * states no source (converted before the converter wrote one) keeps the base title.
+ * No sentence calls the positions measured, digitized or template: a per-subject file
+ * can hold template coordinates and the store cannot say which.
+ */
+export function topoToggleTitle(
+  scalp: { estimated: boolean },
+  provenance: Pick<RecordingStore, "electrodePositionsSource" | "electrodePositionsFile">,
+): string {
+  if (scalp.estimated) return TOPO_TITLE_MONTAGE;
+  const source = provenance.electrodePositionsSource;
+  if (source === null) return TOPO_TITLE_BASE;
+  const sentence = source === "subject" ? TOPO_TITLE_SUBJECT : TOPO_TITLE_DATASET;
+  const file = provenance.electrodePositionsFile;
+  return file === null ? sentence : `${sentence} (${file})`;
 }
 
 /**
