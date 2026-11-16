@@ -72,6 +72,31 @@ export interface EventTable {
   valueDescriptions: Record<string, string>;
 }
 
+/** The two words the converter writes for where a store's electrode positions came from. */
+export type ElectrodePositionsSource = "subject" | "dataset";
+
+/**
+ * Read the provenance attributes of a store's electrode positions from its root
+ * attributes: `electrode_positions_source` (only `subject` or `dataset`, in that
+ * exact case; anything else or absent is null), `electrode_positions_file` and
+ * `electrode_coordsystem_file` (a non-empty string, else null). A store converted
+ * before these attributes existed gives all three as null.
+ */
+export function parseElectrodeProvenance(attrs: Record<string, unknown>): {
+  electrodePositionsSource: ElectrodePositionsSource | null;
+  electrodePositionsFile: string | null;
+  electrodeCoordsystemFile: string | null;
+} {
+  const source = attrs.electrode_positions_source;
+  const path = (value: unknown): string | null =>
+    typeof value === "string" && value.length > 0 ? value : null;
+  return {
+    electrodePositionsSource: source === "subject" || source === "dataset" ? source : null,
+    electrodePositionsFile: path(attrs.electrode_positions_file),
+    electrodeCoordsystemFile: path(attrs.electrode_coordsystem_file),
+  };
+}
+
 export interface RecordingStore {
   url: string;
   format: string;
@@ -85,6 +110,16 @@ export interface RecordingStore {
   electrodePositions: Record<string, [number, number, number]>;
   electrodeCoordinateSystem: string;
   electrodeCoordinateUnits: string;
+  /** Where the converter found `electrodePositions`: `subject` (an electrodes file
+   * named for the subject) or `dataset` (one file for every subject). Null for a
+   * store converted before the converter wrote it, or for any other value. It
+   * never means the positions were measured: a per-subject file can hold template
+   * coordinates. */
+  electrodePositionsSource: ElectrodePositionsSource | null;
+  /** The repository-relative path of that electrodes file; null when not stated. */
+  electrodePositionsFile: string | null;
+  /** The repository-relative path of the coordsystem file, when one resolved. */
+  electrodeCoordsystemFile: string | null;
   groups: GroupHandle[];
   events: EventTable | null;
   /** Events are loaded after the first signal frame so startup is not gated on
@@ -430,6 +465,7 @@ export async function openRecording(url: string, signal?: AbortSignal): Promise<
     electrodePositions,
     electrodeCoordinateSystem,
     electrodeCoordinateUnits,
+    ...parseElectrodeProvenance(attrs),
     groups,
     events: null,
     eventsReady,

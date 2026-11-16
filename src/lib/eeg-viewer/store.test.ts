@@ -7,6 +7,7 @@ import {
   isMissingStoreError,
   openRecording,
   parseChannels,
+  parseElectrodeProvenance,
   predictedViewLevelCount,
   readLevel0,
   readOverview,
@@ -551,6 +552,8 @@ function fakeZarrV3Store(opts: {
    *  the sibling declaration shape `declaredViewLevels` also reads. 0
    *  declares a zero-level pyramid, same as an empty `declaredLevels`. */
   declaredCount?: number;
+  /** Extra root attributes, beside `format` and `channel_groups`. */
+  rootAttrs?: Record<string, unknown>;
 }) {
   const requests: string[] = [];
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
@@ -573,7 +576,9 @@ function fakeZarrV3Store(opts: {
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const path = new URL(url).pathname.replace(/^\/store\//, "");
     requests.push(path);
-    if (path === "zarr.json") return group({ format: "test", channel_groups: ["eeg"] });
+    if (path === "zarr.json") {
+      return group({ format: "test", channel_groups: ["eeg"], ...opts.rootAttrs });
+    }
     if (path === "eeg/zarr.json") {
       return group({
         rate: 250,
@@ -956,5 +961,131 @@ describe("isMissingStoreError", () => {
     expect(isMissingStoreError(new Error("HTTP 503"))).toBe(false);
     expect(isMissingStoreError(new Error("store has no channel groups"))).toBe(false);
     expect(isMissingStoreError(undefined)).toBe(false);
+  });
+});
+
+/**
+ * The provenance of a store's electrode positions, as the converter writes it
+ * (`electrode_positions_source`, `electrode_positions_file`,
+ * `electrode_coordsystem_file`). Neither word means "measured": a per-subject
+ * file can hold template coordinates, so the parser keeps the two words the
+ * converter writes and nothing else.
+ */
+describe("parseElectrodeProvenance", () => {
+  const source = (value: unknown) =>
+    parseElectrodeProvenance({ electrode_positions_source: value }).electrodePositionsSource;
+
+  it("keeps the two source words the converter writes", () => {
+    expect(source("subject")).toBe("subject");
+    expect(source("dataset")).toBe("dataset");
+  });
+
+  it("gives null for any other word, any other case, any other type, and absence", () => {
+    for (const value of [
+      "Subject",
+      "DATASET",
+      " subject",
+      "measured",
+      "template",
+      "template:standard_1005@1",
+      "",
+      1,
+      true,
+      null,
+      ["subject"],
+      { source: "subject" },
+    ]) {
+      expect(source(value)).toBeNull();
+    }
+    expect(parseElectrodeProvenance({}).electrodePositionsSource).toBeNull();
+  });
+
+  it("keeps a non-empty file path and gives null for an empty or non-string one", () => {
+    const attrs = {
+      electrode_positions_file: "sub-01/eeg/sub-01_electrodes.tsv",
+      electrode_coordsystem_file: "sub-01/eeg/sub-01_coordsystem.json",
+    };
+    expect(parseElectrodeProvenance(attrs)).toMatchObject({
+      electrodePositionsFile: "sub-01/eeg/sub-01_electrodes.tsv",
+      electrodeCoordsystemFile: "sub-01/eeg/sub-01_coordsystem.json",
+    });
+    for (const value of ["", 7, null, false, ["a.tsv"], {}, undefined]) {
+      const parsed = parseElectrodeProvenance({
+        electrode_positions_file: value,
+        electrode_coordsystem_file: value,
+      });
+      expect(parsed.electrodePositionsFile).toBeNull();
+      expect(parsed.electrodeCoordsystemFile).toBeNull();
+    }
+  });
+
+  it("reads a store converted before the attributes existed as all null", () => {
+    expect(
+      parseElectrodeProvenance({
+        electrode_positions: { Cz: [0, 0, 1] },
+        electrode_coordinate_system: "EEGLAB",
+        electrode_coordinate_units: "mm",
+      }),
+    ).toEqual({
+      electrodePositionsSource: null,
+      electrodePositionsFile: null,
+      electrodeCoordsystemFile: null,
+    });
+  });
+
+  it("reads each of the three attributes independently of the others", () => {
+    expect(parseElectrodeProvenance({ electrode_positions_file: "electrodes.tsv" })).toEqual({
+      electrodePositionsSource: null,
+      electrodePositionsFile: "electrodes.tsv",
+      electrodeCoordsystemFile: null,
+    });
+  });
+});
+
+describe("openRecording carries the provenance of a store's electrode positions", () => {
+  const positions = { Cz: [0, 0, 1], Fz: [1, 0, 0], Pz: [-1, 0, 0] };
+
+  it("reads the source, the electrodes file and the coordsystem file from the root", async () => {
+    const { handler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      rootAttrs: {
+        electrode_positions: positions,
+        electrode_coordinate_system: "CapTrak",
+        electrode_coordinate_units: "mm",
+        electrode_positions_source: "dataset",
+        electrode_positions_file: "electrodes.tsv",
+        electrode_coordsystem_file: "coordsystem.json",
+      },
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      await store.eventsReady;
+      expect(store.electrodePositionsSource).toBe("dataset");
+      expect(store.electrodePositionsFile).toBe("electrodes.tsv");
+      expect(store.electrodeCoordsystemFile).toBe("coordsystem.json");
+      expect(Object.keys(store.electrodePositions)).toEqual(["Cz", "Fz", "Pz"]);
+    });
+  });
+
+  it("leaves all three null for a store converted before the attributes existed", async () => {
+    const { handler } = fakeZarrV3Store({
+      nSamples: 8000,
+      viewLevels: [2000, 500, 125],
+      rootAttrs: {
+        electrode_positions: positions,
+        electrode_coordinate_system: "CapTrak",
+        electrode_coordinate_units: "mm",
+      },
+    });
+    await withFetch(handler, async () => {
+      const store = await openRecording("https://example.test/store/");
+      await store.eventsReady;
+      expect(store.electrodePositionsSource).toBeNull();
+      expect(store.electrodePositionsFile).toBeNull();
+      expect(store.electrodeCoordsystemFile).toBeNull();
+      expect(Object.keys(store.electrodePositions)).toEqual(["Cz", "Fz", "Pz"]);
+      expect(store.electrodeCoordinateSystem).toBe("CapTrak");
+    });
   });
 });
