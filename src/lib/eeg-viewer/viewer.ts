@@ -2266,7 +2266,8 @@ function buildDom(
   // Scalp topomap is only meaningful for EEG/MEG. iEEG (intracranial), EMG, fNIRS,
   // or unrecognized modalities get the toggle disabled, so we never draw a
   // misleading scalp map for non-scalp electrodes. An estimated (standard-montage)
-  // layout still enables the toggle, but its tooltip flags that it is not measured.
+  // layout still enables the toggle, but its tooltip flags that it is not the
+  // dataset's own positions.
   const scalp = resolveScalpPositions(store);
   if (!scalp) {
     topoBtn.disabled = true;
@@ -2656,7 +2657,8 @@ function isScalpModality(modality: string | undefined): boolean {
  * store win; when the store carries none, fall back to a standard 10-20/10-10 montage
  * matched to the EEG channel labels (the EEGLAB/MNE "apply a named montage" behaviour),
  * keyed by each channel's own label spelling so the render lookup matches. `estimated`
- * is true for the montage fallback so the UI can flag that the layout is not measured.
+ * is true for the montage fallback so the UI can flag that the layout is not the
+ * dataset's own positions.
  * Requires >=3 locatable channels either way, so non-standard label sets (EGI "E1",
  * BioSemi "A1..", numeric) resolve nothing and get no topomap rather than a wrong one.
  */
@@ -2664,9 +2666,9 @@ function resolveScalpPositions(
   store: RecordingStore,
 ): { positions: Record<string, Vec3>; system: string; estimated: boolean } | null {
   if (!isScalpModality(store.groups[0]?.modality)) return null;
-  const measured = store.electrodePositions;
-  if (Object.keys(measured).length >= 3) {
-    return { positions: measured, system: store.electrodeCoordinateSystem, estimated: false };
+  const declared = store.electrodePositions;
+  if (Object.keys(declared).length >= 3) {
+    return { positions: declared, system: store.electrodeCoordinateSystem, estimated: false };
   }
   const labels: string[] = [];
   for (const g of store.groups) {
