@@ -2683,8 +2683,8 @@ export function topoToggleTitle(
 
 /**
  * Effective electrode positions for the scalp topomap. Returns null (no topomap) unless
- * the recording is a scalp modality. Real `electrodes.tsv` coordinates embedded in the
- * store win; when the store carries none, fall back to a standard 10-20/10-10 montage
+ * the recording is a scalp modality. The coordinates the store carries from its electrodes
+ * file win; when the store carries none, fall back to a standard 10-20/10-10 montage
  * matched to the EEG channel labels (the EEGLAB/MNE "apply a named montage" behaviour),
  * keyed by each channel's own label spelling so the render lookup matches. `estimated`
  * is true for the montage fallback so the UI can flag that the layout is not the
