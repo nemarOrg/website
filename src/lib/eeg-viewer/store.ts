@@ -75,12 +75,34 @@ export interface EventTable {
 /** The two words the converter writes for where a store's electrode positions came from. */
 export type ElectrodePositionsSource = "subject" | "dataset";
 
+/** The longest file path the viewer will show for where a store's positions came from. */
+const MAX_PROVENANCE_PATH_LENGTH = 200;
+
+/**
+ * A store is data from outside the page and a path reaches the topomap toggle's
+ * tooltip, so a path is accepted only as a trimmed, single-line string of at most
+ * 200 characters, with no control, format (invisible or direction-changing),
+ * line-separator or paragraph-separator character, and repository-relative: no
+ * leading `/`, no backslash anywhere, and no `scheme:` prefix (`http:`, `file:`,
+ * a drive letter). Anything else is unknown (null), never shown.
+ */
+function provenancePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (value.length === 0 || value.length > MAX_PROVENANCE_PATH_LENGTH) return null;
+  if (value !== value.trim()) return null;
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) return null;
+  if (value.startsWith("/") || value.includes("\\")) return null;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return null;
+  return value;
+}
+
 /**
  * Read the provenance attributes of a store's electrode positions from its root
  * attributes: `electrode_positions_source` (only `subject` or `dataset`, in that
  * exact case; anything else or absent is null), `electrode_positions_file` and
- * `electrode_coordsystem_file` (a non-empty string, else null). A store converted
- * before these attributes existed gives all three as null.
+ * `electrode_coordsystem_file` (a path that passes `provenancePath`, else null; a
+ * refused path leaves the source word alone). A store converted before these
+ * attributes existed gives all three as null.
  */
 export function parseElectrodeProvenance(attrs: Record<string, unknown>): {
   electrodePositionsSource: ElectrodePositionsSource | null;
@@ -88,12 +110,10 @@ export function parseElectrodeProvenance(attrs: Record<string, unknown>): {
   electrodeCoordsystemFile: string | null;
 } {
   const source = attrs.electrode_positions_source;
-  const path = (value: unknown): string | null =>
-    typeof value === "string" && value.length > 0 ? value : null;
   return {
     electrodePositionsSource: source === "subject" || source === "dataset" ? source : null,
-    electrodePositionsFile: path(attrs.electrode_positions_file),
-    electrodeCoordsystemFile: path(attrs.electrode_coordsystem_file),
+    electrodePositionsFile: provenancePath(attrs.electrode_positions_file),
+    electrodeCoordsystemFile: provenancePath(attrs.electrode_coordsystem_file),
   };
 }
 

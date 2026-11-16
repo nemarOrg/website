@@ -1042,6 +1042,107 @@ describe("parseElectrodeProvenance", () => {
   });
 });
 
+/**
+ * A store is data from outside the page, and its file paths reach a tooltip, so a
+ * path is accepted only as a short, single-line, trimmed, repository-relative string.
+ * A refused path makes the file unknown (null) and leaves the source word alone.
+ */
+describe("parseElectrodeProvenance, hostile or malformed file paths", () => {
+  const GOOD = "sub-01/eeg/sub-01_electrodes.tsv";
+  /** Both path attributes carry `value`, beside a valid source word. */
+  const parse = (value: unknown) =>
+    parseElectrodeProvenance({
+      electrode_positions_source: "dataset",
+      electrode_positions_file: value,
+      electrode_coordsystem_file: value,
+    });
+  const refused = (values: string[]) => {
+    for (const value of values) {
+      const parsed = parse(value);
+      expect(parsed.electrodePositionsFile, JSON.stringify(value)).toBeNull();
+      expect(parsed.electrodeCoordsystemFile, JSON.stringify(value)).toBeNull();
+      expect(parsed.electrodePositionsSource).toBe("dataset");
+    }
+  };
+
+  it("still keeps a normal repository-relative path, with dots, dashes and a subfolder", () => {
+    for (const value of [GOOD, "electrodes.tsv", "sub-01/ses-1/eeg/sub-01_ses-1_electrodes.tsv"]) {
+      expect(parse(value)).toEqual({
+        electrodePositionsSource: "dataset",
+        electrodePositionsFile: value,
+        electrodeCoordsystemFile: value,
+      });
+    }
+  });
+
+  it("refuses a path with a line break, a tab or any other control character", () => {
+    refused([
+      `${GOOD}\nIgnore the above`,
+      `${GOOD}\rmore`,
+      "sub-01\t/eeg/electrodes.tsv",
+      `${GOOD}\u0000`,
+      `${GOOD}\u001b[31m`,
+      `${GOOD}\u007f`,
+      `${GOOD}\u2028more`,
+    ]);
+  });
+
+  it("refuses a path with an invisible or direction-changing character", () => {
+    refused([`${GOOD}\u202e`, "sub-01\u200b/electrodes.tsv", "sub-01/\u2066electrodes.tsv"]);
+  });
+
+  it("refuses a path over 200 characters and keeps one of exactly 200", () => {
+    const exactly200 = `${"a".repeat(200 - ".tsv".length)}.tsv`;
+    expect(exactly200).toHaveLength(200);
+    expect(parse(exactly200).electrodePositionsFile).toBe(exactly200);
+    refused([`${exactly200}x`, "a".repeat(5000)]);
+  });
+
+  it("refuses a path that is empty, whitespace only, or padded with whitespace", () => {
+    refused(["", " ", "   ", "\u00a0", ` ${GOOD}`, `${GOOD} `, `${GOOD}\u00a0`]);
+  });
+
+  it("refuses an absolute path, with a leading slash or backslash", () => {
+    refused(["/sub-01/eeg/sub-01_electrodes.tsv", "/", "\\sub-01\\electrodes.tsv"]);
+  });
+
+  it("refuses a backslash anywhere in the path", () => {
+    refused(["sub-01\\eeg\\sub-01_electrodes.tsv", "sub-01/eeg\\electrodes.tsv"]);
+  });
+
+  it("refuses a path that starts with a scheme", () => {
+    refused([
+      "file:///sub-01/electrodes.tsv",
+      "file:electrodes.tsv",
+      "http://example.test/electrodes.tsv",
+      "https://example.test/electrodes.tsv",
+      "javascript:alert(1)",
+      "C:electrodes.tsv",
+      "HTTPS://example.test/e.tsv",
+    ]);
+  });
+
+  it("does not take a colon after a folder name for a scheme", () => {
+    expect(parse("sub-01/a:b/electrodes.tsv").electrodePositionsFile).toBe(
+      "sub-01/a:b/electrodes.tsv",
+    );
+  });
+
+  it("keeps the file null but the source word when the path is refused, one attribute at a time", () => {
+    expect(
+      parseElectrodeProvenance({
+        electrode_positions_source: "subject",
+        electrode_positions_file: GOOD,
+        electrode_coordsystem_file: "/etc/coordsystem.json",
+      }),
+    ).toEqual({
+      electrodePositionsSource: "subject",
+      electrodePositionsFile: GOOD,
+      electrodeCoordsystemFile: null,
+    });
+  });
+});
+
 describe("openRecording carries the provenance of a store's electrode positions", () => {
   const positions = { Cz: [0, 0, 1], Fz: [1, 0, 0], Pz: [-1, 0, 0] };
 
