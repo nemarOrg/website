@@ -183,7 +183,7 @@ describe("pickNearest", () => {
     const farMm = mmPerPixel(cam, 450, H);
     const spheres = packContacts([
       { position: [50, 3 * nearMm, 0], size: 0.01 }, // nearer in depth, 3 px away
-      { position: [-50, farMm, 0], size: 0.01 }, // farther in depth, 1 px away
+      { position: [-50, 2 * farMm, 0], size: 0.01 }, // farther in depth, 2 px away (its disc is 1.2 px)
     ]);
     expect(pickNearest(cam, cx, cy, W, H, spheres)).toBe(1);
   });
