@@ -18,6 +18,21 @@ describe("alsToRas", () => {
     expect(alsToRas("RAS", [1, 2, 3])).toEqual([1, 2, 3]);
     expect(alsToRas("", [1, 2, 3])).toEqual([1, 2, 3]);
   });
+  it("turns BIDS's three ALS names like EEGLAB, in any letter case", () => {
+    for (const name of ["EEGLAB-HJ", "4DBti", "KitYokogawa", "eeglab-hj", "4dbti", "KITYOKOGAWA"]) {
+      expect(alsToRas(name, [1, 2, 3])).toEqual([-2, 1, 3]);
+    }
+  });
+  it("keeps the ALS names it already turned", () => {
+    for (const name of ["EEGLAB", "ALS", "CTF", "4D", "KIT"]) {
+      expect(alsToRas(name, [1, 2, 3])).toEqual([-2, 1, 3]);
+    }
+  });
+  it("passes BIDS's RAS names through, among them CapTrak", () => {
+    for (const name of ["CapTrak", "NeuromagElektaMEGIN", "MNI305", "fsaverage"]) {
+      expect(alsToRas(name, [1, 2, 3])).toEqual([1, 2, 3]);
+    }
+  });
 });
 
 describe("fitSphere", () => {
@@ -87,6 +102,27 @@ describe("projectPositions (EEGLAB cardinal electrodes)", () => {
     near("T7", -0.98, 0); // left -> left
     near("T8", 0.98, 0); // right -> right
   });
+});
+
+describe("projectPositions (BIDS's ALS names)", () => {
+  // The same synthetic ALS cardinal set as above, declared in each of BIDS's ALS frames.
+  const R = 85;
+  const pos: Record<string, Vec3> = {
+    Cz: [0, 0, R],
+    Fpz: [R, 0, 0],
+    Oz: [-R, 0, 0],
+    T7: [0, R, 0],
+    T8: [0, -R, 0],
+  };
+  for (const system of ["EEGLAB-HJ", "4DBti", "KitYokogawa"]) {
+    it(`${system} draws the nose at the top and the left ear on the left`, () => {
+      const m = projectPositions(pos, system);
+      expect(m.get("Fpz")?.[1]).toBeCloseTo(-0.98, 2);
+      expect(m.get("Oz")?.[1]).toBeCloseTo(0.98, 2);
+      expect(m.get("T7")?.[0]).toBeCloseTo(-0.98, 2);
+      expect(m.get("T8")?.[0]).toBeCloseTo(0.98, 2);
+    });
+  }
 });
 
 describe("thin-plate spline", () => {

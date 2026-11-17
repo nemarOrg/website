@@ -72,6 +72,51 @@ export interface EventTable {
   valueDescriptions: Record<string, string>;
 }
 
+/** The two words the converter writes for where a store's electrode positions came from. */
+export type ElectrodePositionsSource = "subject" | "dataset";
+
+/** The longest file path the viewer will show for where a store's positions came from. */
+const MAX_PROVENANCE_PATH_LENGTH = 200;
+
+/**
+ * A store is data from outside the page and a path reaches the topomap toggle's
+ * tooltip, so a path is accepted only as a trimmed, single-line string of at most
+ * 200 characters, with no control, format (invisible or direction-changing),
+ * line-separator or paragraph-separator character, and repository-relative: no
+ * leading `/`, no backslash anywhere, and no `scheme:` prefix (`http:`, `file:`,
+ * a drive letter). Anything else is unknown (null), never shown.
+ */
+function provenancePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (value.length === 0 || value.length > MAX_PROVENANCE_PATH_LENGTH) return null;
+  if (value !== value.trim()) return null;
+  if (/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value)) return null;
+  if (value.startsWith("/") || value.includes("\\")) return null;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) return null;
+  return value;
+}
+
+/**
+ * Read the provenance attributes of a store's electrode positions from its root
+ * attributes: `electrode_positions_source` (only `subject` or `dataset`, in that
+ * exact case; anything else or absent is null), `electrode_positions_file` and
+ * `electrode_coordsystem_file` (a path that passes `provenancePath`, else null; a
+ * refused path leaves the source word alone). A store converted before these
+ * attributes existed gives all three as null.
+ */
+export function parseElectrodeProvenance(attrs: Record<string, unknown>): {
+  electrodePositionsSource: ElectrodePositionsSource | null;
+  electrodePositionsFile: string | null;
+  electrodeCoordsystemFile: string | null;
+} {
+  const source = attrs.electrode_positions_source;
+  return {
+    electrodePositionsSource: source === "subject" || source === "dataset" ? source : null,
+    electrodePositionsFile: provenancePath(attrs.electrode_positions_file),
+    electrodeCoordsystemFile: provenancePath(attrs.electrode_coordsystem_file),
+  };
+}
+
 export interface RecordingStore {
   url: string;
   format: string;
@@ -85,6 +130,16 @@ export interface RecordingStore {
   electrodePositions: Record<string, [number, number, number]>;
   electrodeCoordinateSystem: string;
   electrodeCoordinateUnits: string;
+  /** Where the converter found `electrodePositions`: `subject` (an electrodes file
+   * named for the subject) or `dataset` (one file for every subject). Null for a
+   * store converted before the converter wrote it, or for any other value. It
+   * never means the positions were measured: a per-subject file can hold template
+   * coordinates. */
+  electrodePositionsSource: ElectrodePositionsSource | null;
+  /** The repository-relative path of that electrodes file; null when not stated. */
+  electrodePositionsFile: string | null;
+  /** The repository-relative path of the coordsystem file, when one resolved. */
+  electrodeCoordsystemFile: string | null;
   groups: GroupHandle[];
   events: EventTable | null;
   /** Events are loaded after the first signal frame so startup is not gated on
@@ -430,6 +485,7 @@ export async function openRecording(url: string, signal?: AbortSignal): Promise<
     electrodePositions,
     electrodeCoordinateSystem,
     electrodeCoordinateUnits,
+    ...parseElectrodeProvenance(attrs),
     groups,
     events: null,
     eventsReady,
