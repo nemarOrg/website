@@ -10,6 +10,7 @@ import {
   orbitBy,
   project,
   projectionMatrix,
+  rescaleForAspect,
   screenRay,
   setPreset,
   transformPoint,
@@ -252,5 +253,65 @@ describe("fitCamera", () => {
         expect(y).toBeLessThanOrEqual(h);
       }
     }
+  });
+});
+
+describe("rescaleForAspect", () => {
+  const center = [5, -10, 20] as const;
+  const radius = 90;
+  const onScreen = (cam: Camera, w: number, h: number) => {
+    setPreset(cam, "front");
+    return [
+      [radius, 0, 0],
+      [-radius, 0, 0],
+      [0, 0, radius],
+      [0, 0, -radius],
+    ].every((d) => {
+      const [x, y] = project(cam, [center[0] + d[0], center[1] + d[1], center[2] + d[2]], w, h);
+      return x >= 0 && x <= w && y >= 0 && y <= h;
+    });
+  };
+
+  it("keeps the sphere on screen when a landscape fit meets a portrait canvas", () => {
+    // The data arrived while the canvas was square (or 0 x 0, which counts as aspect 1).
+    const cam = createCamera();
+    fitCamera(cam, center, radius, 1);
+    expect(onScreen(cam, 300, 600)).toBe(false); // clipped before the rescale: the bug
+    rescaleForAspect(cam, 1, 300 / 600);
+    expect(onScreen(cam, 300, 600)).toBe(true);
+  });
+
+  it("keeps the user's zoom and the zoom bounds in proportion", () => {
+    const cam = createCamera();
+    fitCamera(cam, center, radius, 4 / 3);
+    const fitted = cam.distance;
+    zoomBy(cam, 0.5);
+    const [min, max] = [cam.minDistance, cam.maxDistance];
+    rescaleForAspect(cam, 4 / 3, 1 / 2);
+    const k = cam.maxDistance / max;
+    expect(k).toBeGreaterThan(1);
+    expect(cam.distance).toBeCloseTo(fitted * 0.5 * k, 9);
+    expect(cam.minDistance).toBeCloseTo(min * k, 9);
+    expect(cam.distance / cam.maxDistance).toBeCloseTo((fitted * 0.5) / max, 9);
+  });
+
+  it("does nothing while the canvas stays at least as wide as it is tall", () => {
+    const cam = createCamera();
+    fitCamera(cam, center, radius, 1);
+    const before = [cam.distance, cam.minDistance, cam.maxDistance];
+    rescaleForAspect(cam, 1, 2.5);
+    expect([cam.distance, cam.minDistance, cam.maxDistance]).toEqual(before);
+  });
+
+  it("is undone by the opposite change, and agrees with a fresh fit", () => {
+    const cam = createCamera();
+    fitCamera(cam, center, radius, 4 / 3);
+    const fitted = cam.distance;
+    rescaleForAspect(cam, 4 / 3, 1 / 3);
+    const fresh = createCamera();
+    fitCamera(fresh, center, radius, 1 / 3);
+    expect(cam.distance).toBeCloseTo(fresh.distance, 9);
+    rescaleForAspect(cam, 1 / 3, 4 / 3);
+    expect(cam.distance).toBeCloseTo(fitted, 9);
   });
 });

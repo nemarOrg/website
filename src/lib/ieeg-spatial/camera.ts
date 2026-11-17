@@ -72,16 +72,33 @@ export function zoomBy(cam: Camera, factor: number): void {
   cam.distance = Math.max(cam.minDistance, Math.min(cam.maxDistance, cam.distance * factor));
 }
 
+/** Half of the narrower field-of-view angle: the vertical one, or the horizontal one on a portrait canvas. */
+function fitHalfAngle(cam: Camera, aspect: number): number {
+  return Math.atan(Math.tan(cam.fov / 2) * Math.min(1, aspect));
+}
+
 /**
  * Center the camera on a bounding sphere and back off until all of it is in view, for the
  * narrower of the two field-of-view angles. Sets the zoom bounds from that distance.
  */
 export function fitCamera(cam: Camera, center: Vec3, radius: number, aspect: number): void {
-  const half = Math.atan(Math.tan(cam.fov / 2) * Math.min(1, aspect));
   cam.target = center;
-  cam.distance = (radius * 1.1) / Math.sin(half);
+  cam.distance = (radius * 1.1) / Math.sin(fitHalfAngle(cam, aspect));
   cam.minDistance = cam.distance * 0.05;
   cam.maxDistance = cam.distance * 4;
+}
+
+/**
+ * The canvas changed shape after a fit (data arrived while it was 0 x 0, or the layout turned
+ * portrait): move the camera by the ratio that a fresh fit would, keeping the user's zoom. It
+ * changes nothing while the canvas stays at least as wide as it is tall, because the fit then
+ * depends on the vertical angle alone.
+ */
+export function rescaleForAspect(cam: Camera, from: number, to: number): void {
+  const k = Math.sin(fitHalfAngle(cam, from)) / Math.sin(fitHalfAngle(cam, to));
+  cam.distance *= k;
+  cam.minDistance *= k;
+  cam.maxDistance *= k;
 }
 
 /** Near and far planes for a scene of the given radius around the target. */
