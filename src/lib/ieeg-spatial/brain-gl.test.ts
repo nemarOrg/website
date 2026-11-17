@@ -6,8 +6,18 @@ import {
   packContacts,
   parseColor,
   pickNearest,
+  translucentOrder,
 } from "./brain-gl";
-import { type Camera, createCamera, fitCamera, project, setPreset } from "./camera";
+import {
+  type Camera,
+  type Vec3,
+  createCamera,
+  fitCamera,
+  mmPerPixel,
+  project,
+  setPreset,
+  viewMatrix,
+} from "./camera";
 import { icosphere } from "./mesh-format";
 
 const W = 800;
@@ -56,8 +66,13 @@ describe("packContacts", () => {
     expect(() => packContacts(make(MAX_CONTACTS + 1))).toThrow(RangeError);
   });
 
-  it("refuses a contact without a finite position", () => {
+  it("refuses a contact without a finite position, null included", () => {
+    expect(() => packContacts([{ position: [0, Number.NaN, 0] }])).toThrow(RangeError);
     expect(() => packContacts([{ position: [0, Number.NaN, 0] }])).toThrow(/finite/);
+    // Unlocated contacts (a null position upstream) are the caller's to filter out.
+    const unlocated = { position: null as unknown as Vec3 };
+    expect(() => packContacts([unlocated])).toThrow(RangeError);
+    expect(() => packContacts([unlocated])).toThrow(/contact 0 has no finite position/);
   });
 });
 
@@ -147,5 +162,74 @@ describe("pickNearest", () => {
     expect(pickNearest(cam, cx, cy, W, H, behind)).toBeNull();
     const ahead = packContacts(contactsAt([0, 0, 0]));
     expect(pickNearest(cam, 5, 5, W, H, ahead)).toBeNull();
+  });
+
+  it("prefers a contact under the pointer over a nearer one that only the pick floor reaches", () => {
+    const cam = view("right"); // eye on +x; screen right is +y
+    const [cx, cy] = project(cam, [0, 0, 0], W, H);
+    const nearMm = mmPerPixel(cam, 350, H);
+    // Far contact dead center; near tiny contact 3 px to the side (floor-only, exact radius 1.4 px).
+    const spheres = packContacts([
+      { position: [50, 3 * nearMm, 0], size: 0.01 },
+      { position: [-50, 0, 0] },
+    ]);
+    expect(pickNearest(cam, cx, cy, W, H, spheres)).toBe(1);
+  });
+
+  it("among floor-only hits, takes the one whose center is closest to the pointer", () => {
+    const cam = view("right");
+    const [cx, cy] = project(cam, [0, 0, 0], W, H);
+    const nearMm = mmPerPixel(cam, 350, H);
+    const farMm = mmPerPixel(cam, 450, H);
+    const spheres = packContacts([
+      { position: [50, 3 * nearMm, 0], size: 0.01 }, // nearer in depth, 3 px away
+      { position: [-50, farMm, 0], size: 0.01 }, // farther in depth, 1 px away
+    ]);
+    expect(pickNearest(cam, cx, cy, W, H, spheres)).toBe(1);
+  });
+
+  it("takes a larger pick floor for coarse pointers", () => {
+    const cam = view("right");
+    const spheres = packContacts(contactsAt([0, 0, 0], 0.01));
+    const [cx, cy] = project(cam, [0, 0, 0], W, H);
+    expect(pickNearest(cam, cx + 9, cy, W, H, spheres)).toBeNull();
+    expect(pickNearest(cam, cx + 9, cy, W, H, spheres, undefined, 12)).toBe(0);
+  });
+});
+
+describe("translucentOrder", () => {
+  it("lists only contacts with 0 < alpha < 1, farthest first, so blending composes back to front", () => {
+    const cam = view("right"); // eye on +x, so larger x is nearer
+    const spheres = packContacts(contactsAt([0, 0, 0, 50, 0, 0, -50, 0, 0, 20, 0, 0, -20, 0, 0]));
+    const colors = new Uint8Array([
+      0,
+      0,
+      0,
+      128, // translucent, depth 400
+      0,
+      0,
+      0,
+      128, // translucent, nearest
+      0,
+      0,
+      0,
+      128, // translucent, farthest
+      0,
+      0,
+      0,
+      255, // opaque: not in the second pass
+      0,
+      0,
+      0,
+      0, // hidden: not drawn at all
+    ]);
+    expect(translucentOrder(spheres, colors, viewMatrix(cam))).toEqual([2, 0, 1]);
+  });
+
+  it("is empty when every contact is opaque", () => {
+    const cam = view("right");
+    const spheres = packContacts(contactsAt([0, 0, 0, 10, 0, 0]));
+    const colors = new Uint8Array([1, 2, 3, 255, 4, 5, 6, 255]);
+    expect(translucentOrder(spheres, colors, viewMatrix(cam))).toEqual([]);
   });
 });

@@ -14,6 +14,7 @@
 
 import {
   type Camera,
+  type Mat4,
   type Vec3,
   type ViewPreset,
   createCamera,
@@ -23,6 +24,7 @@ import {
   nearFar,
   orbitBy,
   projectionMatrix,
+  rescaleForAspect,
   screenRay,
   setPreset,
   viewMatrix,
@@ -35,7 +37,11 @@ export type { BrainMesh } from "./mesh-format";
 
 /** The most contacts one view draws; a caller with more refuses before it reaches the renderer. */
 export const MAX_CONTACTS = 2000;
-/** A contact is pickable within at least this many CSS pixels of its center, however small. */
+/**
+ * A contact is pickable within at least this many CSS pixels of its center, however small. It is
+ * the default of `pick`'s `minPx`, exported so the panel can pass a larger one for a coarse
+ * pointer (a finger needs more than a mouse).
+ */
 export const MIN_PICK_PX = 4;
 
 const DEFAULT_RADIUS_MM = 1.5;
@@ -45,7 +51,11 @@ const MAX_DPR = 2;
 const RING_PX = 3;
 
 export interface BrainContact {
-  /** Millimeters, RAS. */
+  /**
+   * Millimeters, RAS. The caller filters out contacts that have no position (an unlocated
+   * contact upstream has a null one) and keeps its own map from this array's indices to its
+   * contacts; a null or non-finite position makes `setContacts` throw a `RangeError`.
+   */
   position: Vec3;
   /** BIDS `size`, square millimeters; null, missing or not positive means n/a. */
   size?: number | null;
@@ -68,23 +78,39 @@ export interface BrainRenderer {
   setMesh(mesh: BrainMesh | null, alpha?: number): void;
   /** Replace the contacts. Resets colors and selection and re-fits the camera. */
   setContacts(contacts: readonly BrainContact[]): void;
-  /** Four values in 0..1 (r, g, b, a) per contact; alpha 0 hides a contact and its pick area. */
+  /**
+   * Four values in 0..1 (r, g, b, a) per contact. Alpha 0 hides a contact and its pick area;
+   * alpha between 0 and 1 draws it translucent, in a second pass sorted back to front with depth
+   * writes off, so overlapping translucent contacts compose in any index order.
+   */
   setColors(rgba: ArrayLike<number>): void;
   /** Ring one contact (drawn on top, even when hidden behind others), or null for none. */
   setSelected(index: number | null): void;
   /** Re-fit the camera to the content and look from a preset direction. */
   setView(preset: ViewPreset): void;
-  /** The contact under a point in CSS pixels from the canvas's top-left corner, or null. */
-  pick(x: number, y: number): number | null;
+  /**
+   * The contact under a point in CSS pixels from the canvas's top-left corner, or null. Exact
+   * sphere hits win, nearest first; failing that, the contact whose center is closest within
+   * `minPx` pixels (default MIN_PICK_PX).
+   */
+  pick(x: number, y: number, minPx?: number): number | null;
   /** Recolor the background, rim and default contact. */
   setTheme(theme: BrainTheme): void;
   /** Draw now. Called for you after any input or state change; rarely needed directly. */
   render(): void;
-  /** Match the drawing buffer to the canvas's CSS size (device pixel ratio capped at 2). */
+  /**
+   * Match the drawing buffer to the canvas's CSS size (device pixel ratio capped at 2) and, if
+   * the canvas changed shape since the camera was fitted, rescale the camera to still fit, keeping
+   * the user's zoom.
+   */
   resize(): void;
   /** The current frame, top row first. Throws while the context is lost. */
   snapshot(): ImageData;
-  /** Free every GPU resource and listener. Safe to call twice. */
+  /**
+   * Free every GPU resource and listener. Safe to call twice. The canvas is left holding a
+   * deliberately lost context (so the browser's context cap is not used up), as it is after a
+   * failed `createBrainRenderer`: use a fresh canvas element for each renderer.
+   */
   dispose(): void;
 }
 
@@ -101,7 +127,7 @@ export function packContacts(contacts: readonly BrainContact[]): Float32Array {
   }
   const out = new Float32Array(contacts.length * 4);
   contacts.forEach((c, i) => {
-    if (!c.position.every(Number.isFinite)) {
+    if (!c.position || !c.position.every(Number.isFinite)) {
       throw new RangeError(`brain-gl: contact ${i} has no finite position`);
     }
     out.set(c.position, i * 4);
@@ -130,10 +156,12 @@ export function parseColor(css: string): [number, number, number] {
 }
 
 /**
- * The nearest contact along the ray through a canvas point (CSS pixels), or null. Spheres are
- * exact, with a floor of MIN_PICK_PX on screen so a 1 mm contact is still tappable. A contact
- * whose alpha byte is 0 is hidden and skipped; one behind the eye is never hit, because its
- * closest approach to the ray lies behind the ray's origin.
+ * The contact under a canvas point (CSS pixels), or null. Exact sphere hits win, nearest to the
+ * eye first. Spheres smaller than `minPx` pixels (default MIN_PICK_PX) also count within that
+ * floor, but only when no exact sphere is under the point, and then the contact whose center
+ * is closest to the point wins, not the nearest in depth. A contact whose alpha byte is 0 is
+ * hidden and skipped; one behind the eye is never hit, because its closest approach to the ray
+ * lies behind the ray's origin.
  */
 export function pickNearest(
   cam: Camera,
@@ -143,28 +171,60 @@ export function pickNearest(
   height: number,
   spheres: Float32Array,
   colors?: Uint8Array,
+  minPx: number = MIN_PICK_PX,
 ): number | null {
   const { origin: o, dir: d } = screenRay(cam, x, y, width, height);
   const fwd = screenRay(cam, width / 2, height / 2, width, height).dir;
-  let best: number | null = null;
-  let bestT = Number.POSITIVE_INFINITY;
+  let exact: number | null = null;
+  let exactT = Number.POSITIVE_INFINITY;
+  let floor: number | null = null;
+  let floorPx = Number.POSITIVE_INFINITY;
   for (let i = 0; i < spheres.length / 4; i++) {
     if (colors && colors[i * 4 + 3] === 0) continue;
     const mx = spheres[i * 4] - o[0];
     const my = spheres[i * 4 + 1] - o[1];
     const mz = spheres[i * 4 + 2] - o[2];
     const depth = mx * fwd[0] + my * fwd[1] + mz * fwd[2];
-    const r = Math.max(spheres[i * 4 + 3], MIN_PICK_PX * mmPerPixel(cam, depth, height));
+    const mm = mmPerPixel(cam, depth, height);
+    const r = spheres[i * 4 + 3];
     const tca = mx * d[0] + my * d[1] + mz * d[2];
     const miss2 = mx * mx + my * my + mz * mz - tca * tca;
-    if (tca < 0 || miss2 > r * r) continue;
-    const t = tca - Math.sqrt(r * r - miss2);
-    if (t < bestT) {
-      bestT = t;
-      best = i;
+    if (tca < 0 || miss2 > Math.max(r, minPx * mm) ** 2) continue;
+    if (miss2 <= r * r) {
+      const t = tca - Math.sqrt(r * r - miss2);
+      if (t < exactT) {
+        exactT = t;
+        exact = i;
+      }
+    } else if (Math.sqrt(miss2) / mm < floorPx) {
+      floorPx = Math.sqrt(miss2) / mm;
+      floor = i;
     }
   }
-  return best;
+  return exact ?? floor;
+}
+
+/**
+ * The contacts to draw in the translucent pass (alpha byte 1 to 254), farthest from the eye
+ * first, given the view matrix. Opaque contacts (255) are drawn in the first pass and hidden
+ * ones (0) not at all.
+ */
+export function translucentOrder(spheres: Float32Array, colors: Uint8Array, view: Mat4): number[] {
+  const order: number[] = [];
+  const depth: number[] = [];
+  for (let i = 0; i < colors.length / 4; i++) {
+    const a = colors[i * 4 + 3];
+    if (a > 0 && a < 255) {
+      order.push(i);
+      depth[i] = -(
+        view[2] * spheres[i * 4] +
+        view[6] * spheres[i * 4 + 1] +
+        view[10] * spheres[i * 4 + 2] +
+        view[14]
+      );
+    }
+  }
+  return order.sort((p, q) => depth[q] - depth[p]);
 }
 
 // --- shaders ---------------------------------------------------------------
@@ -194,9 +254,10 @@ void main(){
   o = vec4(mix(c, u_o, rim * .5), u_a * (1. + 1.5 * rim));
 }`;
 
-// u_mode 0 draws every contact, 1 the ring (the selected instance, grown), 2 the selected
-// instance alone. Other instances are pushed outside the clip volume instead of drawn, which
-// keeps the selection passes on the same buffers and the same VAO.
+// u_mode 0 draws the opaque contacts, 3 the translucent ones (from their own sorted buffers),
+// 1 the ring (the selected instance, grown), 2 the selected instance alone at its own alpha.
+// For 1 and 2 other instances are pushed outside the clip volume instead of drawn, which keeps
+// the selection passes on the main buffers and VAO.
 const CONTACT_VS = `#version 300 es
 layout(location=0) in vec3 a_p;
 layout(location=1) in vec4 a_c;
@@ -207,7 +268,7 @@ uniform float u_ring;
 out vec3 v_n;
 flat out vec4 v_k;
 void main(){
-  if (u_mode > 0 && gl_InstanceID != u_sel) { gl_Position = vec4(2, 2, 2, 1); return; }
+  if ((u_mode == 1 || u_mode == 2) && gl_InstanceID != u_sel) { gl_Position = vec4(2, 2, 2, 1); return; }
   float r = a_c.w;
   if (u_mode == 1) r += max(.35 * r, u_ring * (u_vp * vec4(a_c.xyz, 1)).w);
   v_n = mat3(u_v) * a_p;
@@ -224,7 +285,7 @@ uniform vec3 u_o;
 uniform int u_mode;
 out vec4 o;
 void main(){
-  if (v_k.a < .002) discard;
+  if (v_k.a < .002 || (u_mode == 0 && v_k.a < .998)) discard;
   if (u_mode == 1) { o = vec4(u_o, 1); return; }
   float d = max(dot(normalize(v_n), vec3(.3, .5, .8)), 0.);
   o = vec4(v_k.rgb * (.45 + .55 * d), v_k.a);
@@ -241,7 +302,8 @@ interface Program {
  * A renderer on `canvas`, or null when WebGL2 or shader compilation is unavailable (the caller
  * then uses the 2D views). The canvas's CSS size is the panel's to set; call `resize()` after it
  * changes. Pointer drag orbits, wheel and pinch zoom; a click that ends a drag is swallowed so
- * the panel's own click handler sees only taps.
+ * the panel's own click handler sees only taps. After a failed call or after `dispose()` the
+ * canvas holds a deliberately lost context, so use a fresh canvas element per renderer.
  */
 export function createBrainRenderer(
   canvas: HTMLCanvasElement,
@@ -273,6 +335,8 @@ export function createBrainRenderer(
   let center: Vec3 = [0, 0, 0];
   let radius = 100;
   let dpr = 1;
+  // The aspect ratio the camera was last fitted or rescaled for (a 0 x 0 canvas counts as 1).
+  let fitAspect = 1;
   let lost = false;
   let disposed = false;
   let frame = 0;
@@ -355,9 +419,16 @@ export function createBrainRenderer(
   let meshProg: Program;
   let contactProg: Program;
   let sphereVao: WebGLVertexArrayObject;
+  // The translucent pass reads its own VAO over the same sphere geometry, and instance buffers
+  // refilled each frame in back-to-front order.
+  let softVao: WebGLVertexArrayObject;
   let sphereIndexCount = 0;
   let instanceBuf: WebGLBuffer | null = null;
   let colorBuf: WebGLBuffer | null = null;
+  let softInstanceBuf: WebGLBuffer | null = null;
+  let softColorBuf: WebGLBuffer | null = null;
+  let softSpheres = new Float32Array(0);
+  let softColors = new Uint8Array(0);
   let meshVao: WebGLVertexArrayObject | null = null;
   let meshBufs: WebGLBuffer[] = [];
   let meshIndexCount = 0;
@@ -367,12 +438,25 @@ export function createBrainRenderer(
   function uploadContacts(): void {
     dropBuffer(instanceBuf);
     dropBuffer(colorBuf);
+    dropBuffer(softInstanceBuf);
+    dropBuffer(softColorBuf);
     gl.bindVertexArray(sphereVao);
     instanceBuf = makeBuffer(gl.ARRAY_BUFFER, spheres);
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
     gl.vertexAttribDivisor(1, 1);
     colorBuf = makeBuffer(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
+    gl.vertexAttribDivisor(2, 1);
+    softSpheres = new Float32Array(spheres.length);
+    softColors = new Uint8Array(colors.length);
+    gl.bindVertexArray(softVao);
+    softInstanceBuf = makeBuffer(gl.ARRAY_BUFFER, softSpheres, gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
+    gl.vertexAttribDivisor(1, 1);
+    softColorBuf = makeBuffer(gl.ARRAY_BUFFER, softColors, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
     gl.vertexAttribDivisor(2, 1);
@@ -411,17 +495,22 @@ export function createBrainRenderer(
 
   /** Build every GPU object from the CPU copies. */
   function build(): void {
-    instanceBuf = colorBuf = meshVao = null;
+    instanceBuf = colorBuf = softInstanceBuf = softColorBuf = meshVao = null;
     meshBufs = [];
     meshProg = link(MESH_VS, MESH_FS, ["u_vp", "u_v", "u_c", "u_o", "u_a"]);
     contactProg = link(CONTACT_VS, CONTACT_FS, ["u_vp", "u_v", "u_o", "u_sel", "u_mode", "u_ring"]);
     const s = icosphere(1);
     sphereVao = makeVao();
-    makeBuffer(gl.ARRAY_BUFFER, s.positions);
+    const vertices = makeBuffer(gl.ARRAY_BUFFER, s.positions);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    makeBuffer(gl.ELEMENT_ARRAY_BUFFER, s.indices);
+    const triangles = makeBuffer(gl.ELEMENT_ARRAY_BUFFER, s.indices);
     sphereIndexCount = s.indices.length;
+    softVao = makeVao();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangles);
     gl.bindVertexArray(null);
     uploadContacts();
     uploadMesh();
@@ -477,7 +566,8 @@ export function createBrainRenderer(
       center = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
       radius = Math.max(10, Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2);
     }
-    fitCamera(cam, center, radius, aspect());
+    fitAspect = aspect();
+    fitCamera(cam, center, radius, fitAspect);
   }
 
   /** The context is gone: the event has fired, or the browser says so before it does. */
@@ -523,6 +613,25 @@ export function createBrainRenderer(
       gl.enable(gl.CULL_FACE);
       gl.uniform1i(u.u_mode, 0);
       gl.drawElementsInstanced(gl.TRIANGLES, sphereIndexCount, gl.UNSIGNED_SHORT, 0, n);
+
+      // Translucent contacts: depth-tested against the opaque ones, never depth-writing, drawn
+      // farthest first from buffers refilled in that order, so they compose in any index order.
+      const soft = translucentOrder(spheres, colors, v);
+      if (soft.length && softInstanceBuf && softColorBuf) {
+        soft.forEach((i, k) => {
+          softSpheres.set(spheres.subarray(i * 4, i * 4 + 4), k * 4);
+          softColors.set(colors.subarray(i * 4, i * 4 + 4), k * 4);
+        });
+        gl.bindBuffer(gl.ARRAY_BUFFER, softInstanceBuf);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, softSpheres, 0, soft.length * 4);
+        gl.bindBuffer(gl.ARRAY_BUFFER, softColorBuf);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, softColors, 0, soft.length * 4);
+        gl.bindVertexArray(softVao);
+        gl.depthMask(false);
+        gl.uniform1i(u.u_mode, 3);
+        gl.drawElementsInstanced(gl.TRIANGLES, sphereIndexCount, gl.UNSIGNED_SHORT, 0, soft.length);
+        gl.depthMask(true);
+      }
     }
 
     // The translucent mesh over them: depth-tested, never depth-writing, both faces.
@@ -560,7 +669,7 @@ export function createBrainRenderer(
 
   const pointers = new Map<number, [number, number]>();
   let pinchGap = 0;
-  let travelled = 0;
+  let traveled = 0;
   let swallowClick = false;
   const gap = (): number => {
     const [a, b] = [...pointers.values()];
@@ -575,7 +684,7 @@ export function createBrainRenderer(
       // after the pointer leaves the canvas, so the gesture still works without it.
     }
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
-    if (pointers.size === 1) travelled = 0;
+    if (pointers.size === 1) traveled = 0;
     if (pointers.size === 2) pinchGap = gap();
   };
   const onMove = (e: PointerEvent): void => {
@@ -585,20 +694,20 @@ export function createBrainRenderer(
     const dy = e.clientY - prev[1];
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
     if (pointers.size === 1) {
-      travelled += Math.abs(dx) + Math.abs(dy);
+      traveled += Math.abs(dx) + Math.abs(dy);
       orbitBy(cam, dx, dy);
     } else if (pointers.size === 2) {
       const g = gap();
       if (pinchGap > 0 && g > 0) zoomBy(cam, pinchGap / g);
       pinchGap = g;
-      travelled = Number.POSITIVE_INFINITY;
+      traveled = Number.POSITIVE_INFINITY;
     }
     schedule();
   };
   const onUp = (e: PointerEvent): void => {
     if (!pointers.delete(e.pointerId)) return;
     pinchGap = 0;
-    if (travelled > 4) {
+    if (traveled > 4) {
       swallowClick = true;
       setTimeout(() => {
         swallowClick = false;
@@ -711,11 +820,11 @@ export function createBrainRenderer(
       refit();
       schedule();
     },
-    pick(x, y) {
+    pick(x, y, minPx = MIN_PICK_PX) {
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       if (disposed || !w || !h) return null;
-      return pickNearest(cam, x, y, w, h, spheres, colors);
+      return pickNearest(cam, x, y, w, h, spheres, colors, minPx);
     },
     setTheme(t) {
       if (disposed) return;
@@ -740,6 +849,11 @@ export function createBrainRenderer(
         canvas.width = w;
         canvas.height = h;
       }
+      // Data may have been fitted while the canvas was 0 x 0 or a different shape: keep the
+      // user's zoom, but back off (or in) as a fresh fit would for this shape.
+      const next = aspect();
+      rescaleForAspect(cam, fitAspect, next);
+      fitAspect = next;
       schedule();
     },
     snapshot() {
