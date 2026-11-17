@@ -110,7 +110,7 @@ export function packContacts(contacts: readonly BrainContact[]): Float32Array {
   return out;
 }
 
-/** "#rgb", "#rrggbb", "rgb(r, g, b)" or "rgba(r g b / a)" to 0..1; mid-grey (with a warning) otherwise. */
+/** "#rgb", "#rrggbb", "rgb(r, g, b)" or "rgba(r g b / a)" to 0..1; mid-gray (with a warning) otherwise. */
 export function parseColor(css: string): [number, number, number] {
   const s = css.trim().toLowerCase();
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/.exec(s);
@@ -125,7 +125,7 @@ export function parseColor(css: string): [number, number, number] {
   const fn = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(s);
   if (fn)
     return [1, 2, 3].map((i) => Math.min(255, Number(fn[i])) / 255) as [number, number, number];
-  console.warn(`[ieeg-spatial] unreadable color "${css}", using grey`);
+  console.warn(`[ieeg-spatial] unreadable color "${css}", using gray`);
   return [0.5, 0.5, 0.5];
 }
 
@@ -562,7 +562,12 @@ export function createBrainRenderer(
   };
   const onDown = (e: PointerEvent): void => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    canvas.setPointerCapture(e.pointerId);
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // The pointer is already gone (a synthetic or late event). Capture only keeps a drag alive
+      // after the pointer leaves the canvas, so the gesture still works without it.
+    }
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
     if (pointers.size === 1) travelled = 0;
     if (pointers.size === 2) pinchGap = gap();

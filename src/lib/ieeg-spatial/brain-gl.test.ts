@@ -69,7 +69,7 @@ describe("parseColor", () => {
     expect(parseColor("rgba(0 0 255 / 0.5)")).toEqual([0, 0, 1]);
   });
 
-  it("falls back to mid-grey for a value it cannot read", () => {
+  it("falls back to mid-gray for a value it cannot read", () => {
     expect(parseColor("color-mix(in srgb, red, blue)")).toEqual([0.5, 0.5, 0.5]);
   });
 });
