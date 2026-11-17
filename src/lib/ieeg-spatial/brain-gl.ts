@@ -286,11 +286,15 @@ export function createBrainRenderer(
     if (!o) throw new Error("brain-gl: GPU allocation failed");
     return o;
   };
-  const makeBuffer = (target: number, data: ArrayBufferView): WebGLBuffer => {
+  const makeBuffer = (
+    target: number,
+    data: ArrayBufferView,
+    usage: number = gl.STATIC_DRAW,
+  ): WebGLBuffer => {
     const b = need(gl.createBuffer());
     buffers.add(b);
     gl.bindBuffer(target, b);
-    gl.bufferData(target, data, gl.STATIC_DRAW);
+    gl.bufferData(target, data, usage);
     return b;
   };
   const makeVao = (): WebGLVertexArrayObject => {
@@ -368,22 +372,21 @@ export function createBrainRenderer(
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0);
     gl.vertexAttribDivisor(1, 1);
-    colorBuf = makeBuffer(gl.ARRAY_BUFFER, colors);
+    colorBuf = makeBuffer(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
     gl.vertexAttribDivisor(2, 1);
     gl.bindVertexArray(null);
   }
 
-  /** Upload only the colors (the instance buffer is untouched). */
+  /**
+   * Rewrite the colors in place. The buffer always holds one RGBA entry per contact, and the
+   * contact count only changes through `setContacts`, which rebuilds it.
+   */
   function uploadColors(): void {
-    gl.bindVertexArray(sphereVao);
-    dropBuffer(colorBuf);
-    colorBuf = makeBuffer(gl.ARRAY_BUFFER, colors);
-    gl.enableVertexAttribArray(2);
-    gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, 0, 0);
-    gl.vertexAttribDivisor(2, 1);
-    gl.bindVertexArray(null);
+    if (!colorBuf) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, colors);
   }
 
   function uploadMesh(): void {
@@ -477,8 +480,11 @@ export function createBrainRenderer(
     fitCamera(cam, center, radius, aspect());
   }
 
+  /** The context is gone: the event has fired, or the browser says so before it does. */
+  const isLost = (): boolean => lost || gl.isContextLost();
+
   function schedule(): void {
-    if (frame || disposed || lost) return;
+    if (frame || disposed || isLost()) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       draw();
@@ -486,7 +492,7 @@ export function createBrainRenderer(
   }
 
   function draw(): void {
-    if (disposed || lost) return;
+    if (disposed || isLost()) return;
     const w = canvas.width;
     const h = canvas.height;
     if (!w || !h) return;
@@ -657,7 +663,7 @@ export function createBrainRenderer(
       mesh = next;
       meshNormals = next ? vertexNormals(next) : null;
       meshAlpha = Math.min(1, Math.max(0, alpha));
-      if (!lost) uploadMesh();
+      if (!isLost()) uploadMesh();
       refit();
       schedule();
     },
@@ -668,7 +674,7 @@ export function createBrainRenderer(
       ownColors = false;
       defaultColors();
       selected = null;
-      if (!lost) uploadContacts();
+      if (!isLost()) uploadContacts();
       refit();
       schedule();
     },
@@ -685,7 +691,7 @@ export function createBrainRenderer(
       }
       colors = next;
       ownColors = true;
-      if (!lost) uploadColors();
+      if (!isLost()) uploadColors();
       schedule();
     },
     setSelected(index) {
@@ -716,7 +722,7 @@ export function createBrainRenderer(
       theme = readTheme(t);
       if (!ownColors) {
         defaultColors();
-        if (!lost) uploadColors();
+        if (!isLost()) uploadColors();
       }
       schedule();
     },
@@ -737,11 +743,13 @@ export function createBrainRenderer(
       schedule();
     },
     snapshot() {
-      if (disposed || lost)
+      if (disposed || isLost()) {
         throw new Error("brain-gl: no frame to read, the renderer is unavailable");
+      }
       draw();
       const w = gl.drawingBufferWidth;
       const h = gl.drawingBufferHeight;
+      if (!w || !h) throw new Error("brain-gl: no frame to read, the canvas has no size");
       const raw = new Uint8Array(w * h * 4);
       gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, raw);
       // GL's rows run bottom to top; ImageData's run top to bottom.
