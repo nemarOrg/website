@@ -76,14 +76,27 @@ describe("brain-mesh v1 decoding", () => {
 describe("brain-mesh v1 round trip", () => {
   it("reproduces positions within one quantization step and the indices exactly", () => {
     const src = offCenterSphere();
-    const out = decodeBrainMesh(encodeBrainMesh(src));
+    const buf = encodeBrainMesh(src);
+    const out = decodeBrainMesh(buf);
     expect(out.positions.length).toBe(src.positions.length);
-    // The step is the sphere's 140 mm extent over 65534 levels, about 0.002 mm.
+    // The sphere spans 140 mm, which the file spreads over the full int16 range (65534 levels),
+    // so one step is about 0.002 mm and rounding keeps the error within half of it. The 1e-4
+    // allows for the float32 positions the source itself is stored in.
     const step = 140 / 65534;
     for (let i = 0; i < src.positions.length; i++) {
-      expect(Math.abs(out.positions[i] - src.positions[i])).toBeLessThanOrEqual(step);
+      expect(Math.abs(out.positions[i] - src.positions[i])).toBeLessThanOrEqual(step / 2 + 1e-4);
     }
     expect([...out.indices]).toEqual([...src.indices]);
+  });
+
+  it("uses the whole int16 range, so the file is as precise as its width allows", () => {
+    const src = offCenterSphere();
+    const v = new DataView(encodeBrainMesh(src));
+    let largest = 0;
+    for (let i = 0; i < src.positions.length; i++) {
+      largest = Math.max(largest, Math.abs(v.getInt16(40 + 2 * i, true)));
+    }
+    expect(largest).toBe(32767);
   });
 
   it("keeps 32-bit indices when the mesh is given with them", () => {

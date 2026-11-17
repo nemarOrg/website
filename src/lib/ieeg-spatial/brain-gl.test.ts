@@ -121,7 +121,15 @@ describe("pickNearest", () => {
     const [cx, cy] = project(cam, [0, 0, 0], W, H);
     expect(MIN_PICK_PX).toBe(4);
     expect(pickNearest(cam, cx + 3, cy, W, H, spheres)).toBe(0);
-    expect(pickNearest(cam, cx + 9, cy, W, H, spheres)).toBeNull();
+    expect(pickNearest(cam, cx + 5, cy, W, H, spheres)).toBeNull();
+  });
+
+  it("hits a contact bigger than the floor exactly to its edge", () => {
+    const cam = view("right");
+    const spheres = packContacts(contactsAt([0, 0, 0], 100)); // clamped to 3 mm, about 8.4 px
+    const [cx, cy] = project(cam, [0, 0, 0], W, H);
+    expect(pickNearest(cam, cx + 7, cy, W, H, spheres)).toBe(0);
+    expect(pickNearest(cam, cx + 10, cy, W, H, spheres)).toBeNull();
   });
 
   it("skips a contact whose alpha is zero and takes the one behind it", () => {
