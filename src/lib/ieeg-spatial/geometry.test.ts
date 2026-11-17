@@ -191,36 +191,112 @@ describe("spaces: inheritance, entities and pairing", () => {
     expect(g.spaces[0].coordsystemPath).toBe("sub-P1/ieeg/sub-P1_coordsystem.json");
     expect(g.spaces[0].frame).toMatchObject({ kind: "template", identifier: "MNI152Lin" });
   });
+});
+
+/**
+ * Known-answer inputs, names only. The precedence rules (deepest directory, then most entities,
+ * then a tie) have no case in the public data: no recording there is matched by two files of one
+ * space. So each listing here is the file NAMES of a directory and nothing else; a read answers
+ * null, which leaves the chosen path visible on an `unreadable` space.
+ */
+describe("precedence of inherited files (names-only listings)", () => {
+  const namesOnly = (listings: Record<string, string[]>): Reader => ({
+    listDir: async (p) => ({
+      children: (listings[p] ?? []).map((name) => ({ kind: "file" as const, name, size: 1 })),
+    }),
+    readText: async () => null,
+  });
+  const REC = "sub-01/ses-1/ieeg/sub-01_ses-1_task-A_ieeg.edf";
+  const chosen = async (listings: Record<string, string[]>, recording = REC) =>
+    (await resolve("none", "v0", recording, namesOnly(listings))).spaces.map(
+      (s) => s.electrodesPath,
+    );
+
+  it("the deepest directory wins, even over a file with more entities", async () => {
+    expect(
+      await chosen({
+        "": ["task-A_space-X_electrodes.tsv"],
+        "sub-01": ["sub-01_task-A_space-X_electrodes.tsv"],
+        "sub-01/ses-1/ieeg": ["sub-01_space-X_electrodes.tsv"],
+      }),
+    ).toEqual(["sub-01/ses-1/ieeg/sub-01_space-X_electrodes.tsv"]);
+  });
+
+  it("within one directory, the file with more entities wins", async () => {
+    expect(
+      await chosen({
+        "sub-01/ses-1/ieeg": [
+          "sub-01_space-X_electrodes.tsv",
+          "sub-01_task-A_space-X_electrodes.tsv",
+        ],
+      }),
+    ).toEqual(["sub-01/ses-1/ieeg/sub-01_task-A_space-X_electrodes.tsv"]);
+  });
+
+  it("the dataset root is walked, and a file there applies when its entities match", async () => {
+    expect(await chosen({ "": ["task-A_space-X_electrodes.tsv"] })).toEqual([
+      "task-A_space-X_electrodes.tsv",
+    ]);
+    expect(await chosen({ "": ["task-B_space-X_electrodes.tsv"] })).toEqual([]);
+  });
+
+  it("each space is chosen on its own: a deeper file of one space does not hide another's", async () => {
+    expect(
+      await chosen({
+        "sub-01": ["sub-01_space-Y_electrodes.tsv"],
+        "sub-01/ses-1/ieeg": ["sub-01_space-X_electrodes.tsv"],
+      }),
+    ).toEqual([
+      "sub-01/ses-1/ieeg/sub-01_space-X_electrodes.tsv",
+      "sub-01/sub-01_space-Y_electrodes.tsv",
+    ]);
+  });
 
   it("two files of the same specificity and space give ambiguous, never a pick", async () => {
-    // Known-answer input, names only (no public recording is matched by two equally specific
-    // files): a recording with task-A and acq-B, and one electrodes file for each entity.
-    const file = (name: string) => ({ kind: "file" as const, name, size: 1 });
-    const listings: Record<string, string[]> = {
-      "": [],
-      "sub-01": [],
+    // A recording with task-A and acq-B, and one electrodes file for each entity.
+    const reader = namesOnly({
       "sub-01/ieeg": [
         "sub-01_task-A_space-X_electrodes.tsv",
         "sub-01_acq-B_space-X_electrodes.tsv",
       ],
-    };
+    });
     let reads = 0;
     const g = await resolve("none", "v0", "sub-01/ieeg/sub-01_task-A_acq-B_ieeg.edf", {
-      listDir: async (p) => ({ children: (listings[p] ?? []).map(file) }),
-      readText: async () => {
+      listDir: reader.listDir,
+      readText: async (p) => {
         reads += 1;
-        return null;
+        return reader.readText(p);
       },
     });
     expect(g.reason).toBe("ambiguous");
     expect(g.spaces).toHaveLength(1);
     expect(g.spaces[0].space).toBe("X");
+    expect(g.spaces[0].electrodesPath).toBeNull();
     expect(g.spaces[0].tiedPaths).toEqual([
       "sub-01/ieeg/sub-01_acq-B_space-X_electrodes.tsv",
       "sub-01/ieeg/sub-01_task-A_space-X_electrodes.tsv",
     ]);
     expect(g.spaces[0].contacts).toEqual([]);
     expect(reads).toBe(0);
+  });
+
+  it("a tie in one space leaves the other spaces offered", async () => {
+    const g = await resolve(
+      "none",
+      "v0",
+      "sub-01/ieeg/sub-01_task-A_acq-B_ieeg.edf",
+      namesOnly({
+        "sub-01/ieeg": [
+          "sub-01_task-A_space-X_electrodes.tsv",
+          "sub-01_acq-B_space-X_electrodes.tsv",
+          "sub-01_space-Y_electrodes.tsv",
+        ],
+      }),
+    );
+    expect(g.spaces.map((s) => [s.space, s.reason])).toEqual([
+      ["X", "ambiguous"],
+      ["Y", "unreadable"],
+    ]);
   });
 });
 
