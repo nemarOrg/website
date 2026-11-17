@@ -33,7 +33,14 @@ import { type DirListing, fetchDirListing, fileDownloadUrl } from "../dir-listin
 // Vocabulary
 // ---------------------------------------------------------------------------
 
-/** Why a space (or a whole recording) cannot be shown. A closed set. */
+/**
+ * Why a space (or a whole recording) cannot be shown. A closed set.
+ *
+ * `no_coordsystem` never withholds contacts: a space with an electrodes file and no
+ * paired coordsystem file is shown in its own frame with undeclared units, and the word
+ * is carried as that frame's `why` (the plan counts these datasets among the ones with
+ * usable coordinates). It is a member of the set so one vocabulary words every label.
+ */
 export type GeometryReason =
   | "no_electrodes_file"
   | "no_coordinates"
