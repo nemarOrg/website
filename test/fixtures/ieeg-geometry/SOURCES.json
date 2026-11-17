@@ -1,0 +1,1206 @@
+{
+  "note": "Real public files stored byte for byte: NEMAR data-plane files and directory listings (a listing is the response body of the directory's ?format=json request, stored as __listing.json), and one pinned file of the BIDS specification.",
+  "fetched": "2026-11-17",
+  "files": [
+    {
+      "dataset": "bids-specification",
+      "version": "074ae6ffcdcfa27f07e131f42a545574f20675c8",
+      "kind": "file",
+      "path": "src/appendices/coordinate-systems.md",
+      "url": "https://github.com/bids-standard/bids-specification/blob/074ae6ffcdcfa27f07e131f42a545574f20675c8/src/appendices/coordinate-systems.md",
+      "stored_as": "bids-specification/074ae6ffcdcfa27f07e131f42a545574f20675c8/src/appendices/coordinate-systems.md",
+      "bytes": 29597,
+      "sha256": "b63c11182f3036be1e4fd5bc4872fdc0d2c33e09ab9f2a89bd17b26240215953"
+    },
+    {
+      "dataset": "nm000373",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-01/ieeg/sub-01_space-MNI152NLin6Asym_coordsystem.json",
+      "url": "https://data.nemar.org/nm000373/v1.0.2/sub-01/ieeg/sub-01_space-MNI152NLin6Asym_coordsystem.json",
+      "stored_as": "nm000373/v1.0.2/sub-01/ieeg/sub-01_space-MNI152NLin6Asym_coordsystem.json",
+      "bytes": 1304,
+      "sha256": "5730f910f82ffe394e24b3ab955c231f8c56a046f6bca24a70971f71c56a2334"
+    },
+    {
+      "dataset": "nm000373",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-01/ieeg/sub-01_space-MNI152NLin6Asym_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000373/v1.0.2/sub-01/ieeg/sub-01_space-MNI152NLin6Asym_electrodes.tsv",
+      "stored_as": "nm000373/v1.0.2/sub-01/ieeg/sub-01_space-MNI152NLin6Asym_electrodes.tsv",
+      "bytes": 10851,
+      "sha256": "44b74fbbefb0f3c572460600890b79a6fa85f03161b094b895a2a5294d749b3b"
+    },
+    {
+      "dataset": "nm000373",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000373/v1.0.2/?format=json",
+      "stored_as": "nm000373/v1.0.2/__listing.json",
+      "bytes": 1074,
+      "sha256": "9cea3a2a023c50e2e1f9024a1d62b82f98016d5395f11f76700c4088ee77468c"
+    },
+    {
+      "dataset": "nm000373",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-01",
+      "url": "https://data.nemar.org/nm000373/v1.0.2/sub-01/?format=json",
+      "stored_as": "nm000373/v1.0.2/sub-01/__listing.json",
+      "bytes": 174,
+      "sha256": "1bc1544b2e05829fb8e8f15b7d2fa247cd283c59792f565ce7d2b415bf655944"
+    },
+    {
+      "dataset": "nm000373",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-01/ieeg",
+      "url": "https://data.nemar.org/nm000373/v1.0.2/sub-01/ieeg/?format=json",
+      "stored_as": "nm000373/v1.0.2/sub-01/ieeg/__listing.json",
+      "bytes": 1188,
+      "sha256": "bcbe1657a6dcba7429c5d10c48af583a677246d27cfa2bf62ea7d23de5a2661a"
+    },
+    {
+      "dataset": "nm000376",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P1/ieeg/sub-P1_space-IXI549Space_coordsystem.json",
+      "url": "https://data.nemar.org/nm000376/v1.0.2/sub-P1/ieeg/sub-P1_space-IXI549Space_coordsystem.json",
+      "stored_as": "nm000376/v1.0.2/sub-P1/ieeg/sub-P1_space-IXI549Space_coordsystem.json",
+      "bytes": 653,
+      "sha256": "437e0ee73d910f68dd1b82e94a9c4eff973ab7de95d585d3104ae8a84ebd8977"
+    },
+    {
+      "dataset": "nm000376",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P1/ieeg/sub-P1_space-IXI549Space_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000376/v1.0.2/sub-P1/ieeg/sub-P1_space-IXI549Space_electrodes.tsv",
+      "stored_as": "nm000376/v1.0.2/sub-P1/ieeg/sub-P1_space-IXI549Space_electrodes.tsv",
+      "bytes": 11222,
+      "sha256": "2a719a4e06c26d51524a20487fd5b2b8c6d28ea29e22fc258dac5a5d0a2aef01"
+    },
+    {
+      "dataset": "nm000376",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P1/ieeg/sub-P1_task-memact_channels.tsv",
+      "url": "https://data.nemar.org/nm000376/v1.0.2/sub-P1/ieeg/sub-P1_task-memact_channels.tsv",
+      "stored_as": "nm000376/v1.0.2/sub-P1/ieeg/sub-P1_task-memact_channels.tsv",
+      "bytes": 26015,
+      "sha256": "a7453d5362ffacc06d4f8bf82a7d6f2d1d36d872487ea9d0d4a2495914017786"
+    },
+    {
+      "dataset": "nm000376",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000376/v1.0.2/?format=json",
+      "stored_as": "nm000376/v1.0.2/__listing.json",
+      "bytes": 846,
+      "sha256": "40891fc142edf5fb85e5d61919a643726e58e76f43a89774e87f580bf580739c"
+    },
+    {
+      "dataset": "nm000376",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-P1",
+      "url": "https://data.nemar.org/nm000376/v1.0.2/sub-P1/?format=json",
+      "stored_as": "nm000376/v1.0.2/sub-P1/__listing.json",
+      "bytes": 121,
+      "sha256": "3633dadbbeebc9ced0114187ee4056ae6f73a33ef69b99bf2e2c2633696aeed3"
+    },
+    {
+      "dataset": "nm000376",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-P1/ieeg",
+      "url": "https://data.nemar.org/nm000376/v1.0.2/sub-P1/ieeg/?format=json",
+      "stored_as": "nm000376/v1.0.2/sub-P1/ieeg/__listing.json",
+      "bytes": 729,
+      "sha256": "287bc16680fbb0728af509ea03ba72ec5cde174efd721642801c52d2179ba157"
+    },
+    {
+      "dataset": "nm000377",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-EC192/ieeg/sub-EC192_space-Other_coordsystem.json",
+      "url": "https://data.nemar.org/nm000377/v1.0.2/sub-EC192/ieeg/sub-EC192_space-Other_coordsystem.json",
+      "stored_as": "nm000377/v1.0.2/sub-EC192/ieeg/sub-EC192_space-Other_coordsystem.json",
+      "bytes": 497,
+      "sha256": "dbc73520f5efcbd4486b4bacdb3ca8f938d70e2e03335268661a5e84aa186c8a"
+    },
+    {
+      "dataset": "nm000377",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-EC192/ieeg/sub-EC192_space-Other_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000377/v1.0.2/sub-EC192/ieeg/sub-EC192_space-Other_electrodes.tsv",
+      "stored_as": "nm000377/v1.0.2/sub-EC192/ieeg/sub-EC192_space-Other_electrodes.tsv",
+      "bytes": 9487,
+      "sha256": "cabff1b69150f74aca005a40ddc88d2470489aed3b6a6dfe10be7925959dd9a5"
+    },
+    {
+      "dataset": "nm000377",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000377/v1.0.2/?format=json",
+      "stored_as": "nm000377/v1.0.2/__listing.json",
+      "bytes": 607,
+      "sha256": "b32af4bc3c1bfd81bc24889677514746599d0fddac79b983fed4876fd2c55ec2"
+    },
+    {
+      "dataset": "nm000377",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-EC192",
+      "url": "https://data.nemar.org/nm000377/v1.0.2/sub-EC192/?format=json",
+      "stored_as": "nm000377/v1.0.2/sub-EC192/__listing.json",
+      "bytes": 124,
+      "sha256": "fafefacb1113244b1a0849ea0c588001cf32c1b6d6811c807e8c0de733532c80"
+    },
+    {
+      "dataset": "nm000377",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-EC192/ieeg",
+      "url": "https://data.nemar.org/nm000377/v1.0.2/sub-EC192/ieeg/?format=json",
+      "stored_as": "nm000377/v1.0.2/sub-EC192/ieeg/__listing.json",
+      "bytes": 1399,
+      "sha256": "ec60136faae96388b5499521bdc0968545ab5164c315d2e9be70d64a6933ce96"
+    },
+    {
+      "dataset": "nm000405",
+      "version": "v1.0.3",
+      "kind": "file",
+      "path": "sub-000/ses-right/ieeg/sub-000_ses-right_space-mni_coordsystem.json",
+      "url": "https://data.nemar.org/nm000405/v1.0.3/sub-000/ses-right/ieeg/sub-000_ses-right_space-mni_coordsystem.json",
+      "stored_as": "nm000405/v1.0.3/sub-000/ses-right/ieeg/sub-000_ses-right_space-mni_coordsystem.json",
+      "bytes": 273,
+      "sha256": "5593866cbe259b3139e952bd90ab80a4d657501ff9312fa3450c670cd6da272a"
+    },
+    {
+      "dataset": "nm000405",
+      "version": "v1.0.3",
+      "kind": "file",
+      "path": "sub-000/ses-right/ieeg/sub-000_ses-right_space-mni_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000405/v1.0.3/sub-000/ses-right/ieeg/sub-000_ses-right_space-mni_electrodes.tsv",
+      "stored_as": "nm000405/v1.0.3/sub-000/ses-right/ieeg/sub-000_ses-right_space-mni_electrodes.tsv",
+      "bytes": 869,
+      "sha256": "ae7b8b1cab6200537ead1d9043aaa9ca5a35554e6f8079da8fdc129ff67af1de"
+    },
+    {
+      "dataset": "nm000405",
+      "version": "v1.0.3",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000405/v1.0.3/?format=json",
+      "stored_as": "nm000405/v1.0.3/__listing.json",
+      "bytes": 1018,
+      "sha256": "9700a3fb9a23084bf63d43d13eecf326cb4885f51ac074d68175c01ef6359b9b"
+    },
+    {
+      "dataset": "nm000405",
+      "version": "v1.0.3",
+      "kind": "listing",
+      "path": "sub-000",
+      "url": "https://data.nemar.org/nm000405/v1.0.3/sub-000/?format=json",
+      "stored_as": "nm000405/v1.0.3/sub-000/__listing.json",
+      "bytes": 127,
+      "sha256": "8dc9031c0bfc266378afb64c779db3161623e96eb2a87cb5b6372c20cf9fce66"
+    },
+    {
+      "dataset": "nm000405",
+      "version": "v1.0.3",
+      "kind": "listing",
+      "path": "sub-000/ses-right",
+      "url": "https://data.nemar.org/nm000405/v1.0.3/sub-000/ses-right/?format=json",
+      "stored_as": "nm000405/v1.0.3/sub-000/ses-right/__listing.json",
+      "bytes": 196,
+      "sha256": "1db3939f36d9361b0477df40ec6dd2e7174d773e7642f5dc986e62c783a0741e"
+    },
+    {
+      "dataset": "nm000405",
+      "version": "v1.0.3",
+      "kind": "listing",
+      "path": "sub-000/ses-right/ieeg",
+      "url": "https://data.nemar.org/nm000405/v1.0.3/sub-000/ses-right/ieeg/?format=json",
+      "stored_as": "nm000405/v1.0.3/sub-000/ses-right/ieeg/__listing.json",
+      "bytes": 2159,
+      "sha256": "057b6804912d33d16358c8d1d857af26582b1ec6e9182876019bf9e0ca372315"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-02/ieeg/sub-02_acq-left_space-Other_coordsystem.json",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-left_space-Other_coordsystem.json",
+      "stored_as": "nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-left_space-Other_coordsystem.json",
+      "bytes": 455,
+      "sha256": "74b54850a4751d47f1045eb4c09df8d59c6df7301464dc108e54b372d63d6398"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-02/ieeg/sub-02_acq-left_space-Other_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-left_space-Other_electrodes.tsv",
+      "stored_as": "nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-left_space-Other_electrodes.tsv",
+      "bytes": 151,
+      "sha256": "127be32bdc2c4399cdefc855da562c6297e171bcafaeb1fac111d15e855def8d"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-02/ieeg/sub-02_acq-right_space-Other_coordsystem.json",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-right_space-Other_coordsystem.json",
+      "stored_as": "nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-right_space-Other_coordsystem.json",
+      "bytes": 455,
+      "sha256": "74b54850a4751d47f1045eb4c09df8d59c6df7301464dc108e54b372d63d6398"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-02/ieeg/sub-02_acq-right_space-Other_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-right_space-Other_electrodes.tsv",
+      "stored_as": "nm000406/v1.0.2/sub-02/ieeg/sub-02_acq-right_space-Other_electrodes.tsv",
+      "bytes": 154,
+      "sha256": "cc9cff0b97bd98e368fb34eb2c86aa683d42a16277dd446f2b7121c35ba68b68"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/?format=json",
+      "stored_as": "nm000406/v1.0.2/__listing.json",
+      "bytes": 996,
+      "sha256": "7e895388d6a2b55973dd1057627d4ca29a877cdf9f79fb2ffa48cffce3f78849"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-02",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/sub-02/?format=json",
+      "stored_as": "nm000406/v1.0.2/sub-02/__listing.json",
+      "bytes": 229,
+      "sha256": "d0cc3bace23f4006bced4e69897647fca67232f6b895de349ee0ac2646f16d6d"
+    },
+    {
+      "dataset": "nm000406",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-02/ieeg",
+      "url": "https://data.nemar.org/nm000406/v1.0.2/sub-02/ieeg/?format=json",
+      "stored_as": "nm000406/v1.0.2/sub-02/ieeg/__listing.json",
+      "bytes": 26806,
+      "sha256": "9d49e6ba3b128013b5bd4d5e3278d99963eece73a339775877e7e8725d65385b"
+    },
+    {
+      "dataset": "nm000454",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_space-MNI152NLin2009cAsym_coordsystem.json",
+      "url": "https://data.nemar.org/nm000454/v1.0.2/sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_space-MNI152NLin2009cAsym_coordsystem.json",
+      "stored_as": "nm000454/v1.0.2/sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_space-MNI152NLin2009cAsym_coordsystem.json",
+      "bytes": 748,
+      "sha256": "4298d9274d47bf80b4814f796329d1a0c8a2210ea8d7f2b08c696e1ca05e57fa"
+    },
+    {
+      "dataset": "nm000454",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_space-MNI152NLin2009cAsym_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000454/v1.0.2/sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_space-MNI152NLin2009cAsym_electrodes.tsv",
+      "stored_as": "nm000454/v1.0.2/sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_space-MNI152NLin2009cAsym_electrodes.tsv",
+      "bytes": 10944,
+      "sha256": "d04f500ac8a2f5264e0c93d6272727af2fa89d569e7c98207523642aa747dbe0"
+    },
+    {
+      "dataset": "nm000454",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000454/v1.0.2/?format=json",
+      "stored_as": "nm000454/v1.0.2/__listing.json",
+      "bytes": 1617,
+      "sha256": "1643f8befa2ec9b9715b1d650cb65ca0bf76ea85681da6473658f96cb3e735fd"
+    },
+    {
+      "dataset": "nm000454",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-PID02",
+      "url": "https://data.nemar.org/nm000454/v1.0.2/sub-PID02/?format=json",
+      "stored_as": "nm000454/v1.0.2/sub-PID02/__listing.json",
+      "bytes": 212,
+      "sha256": "ae2b1f9c0dab35f2412ea3782294e9ad216ccfe91c0ba302d593215d920116f3"
+    },
+    {
+      "dataset": "nm000454",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-PID02/ses-clinical01",
+      "url": "https://data.nemar.org/nm000454/v1.0.2/sub-PID02/ses-clinical01/?format=json",
+      "stored_as": "nm000454/v1.0.2/sub-PID02/ses-clinical01/__listing.json",
+      "bytes": 284,
+      "sha256": "50b4cb32cbcb9ea7e06e01a8faab6b30eed94acde5ff6d66d838b8f098ddada2"
+    },
+    {
+      "dataset": "nm000454",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-PID02/ses-clinical01/ieeg",
+      "url": "https://data.nemar.org/nm000454/v1.0.2/sub-PID02/ses-clinical01/ieeg/?format=json",
+      "stored_as": "nm000454/v1.0.2/sub-PID02/ses-clinical01/ieeg/__listing.json",
+      "bytes": 51794,
+      "sha256": "37dd1f539e08c311a402264a7414c6c3091740c8176d3bd46b55deec785ba87c"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P001/ieeg/sub-P001_space-Other_coordsystem.json",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Other_coordsystem.json",
+      "stored_as": "nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Other_coordsystem.json",
+      "bytes": 527,
+      "sha256": "01815e621ec3f0b6c5eae83d22e23434d4ce3ecb0be4c61f1877c4b9344e6896"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P001/ieeg/sub-P001_space-Other_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Other_electrodes.tsv",
+      "stored_as": "nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Other_electrodes.tsv",
+      "bytes": 4534,
+      "sha256": "039f0d9014bd40019d7a76b5812a0cdde8cc51015370dd1b27461cc0f6476203"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P001/ieeg/sub-P001_space-Talairach_coordsystem.json",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Talairach_coordsystem.json",
+      "stored_as": "nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Talairach_coordsystem.json",
+      "bytes": 446,
+      "sha256": "4a10ac64944bc4c198a8281d25432ceae0f30798784c72f7678df8ebff6f28e5"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-P001/ieeg/sub-P001_space-Talairach_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Talairach_electrodes.tsv",
+      "stored_as": "nm000485/v1.0.2/sub-P001/ieeg/sub-P001_space-Talairach_electrodes.tsv",
+      "bytes": 4538,
+      "sha256": "608b01a04242f686376bd0effe82574461d259da2f135a1d4cb66b16b37df0f2"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/?format=json",
+      "stored_as": "nm000485/v1.0.2/__listing.json",
+      "bytes": 1990,
+      "sha256": "5fa4376a9317c30f4ab441a134fb012b6d00e7491b898bcdafc7faff9dc794b1"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-P001",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/sub-P001/?format=json",
+      "stored_as": "nm000485/v1.0.2/sub-P001/__listing.json",
+      "bytes": 178,
+      "sha256": "ffb8108ddc0b0d093a7daefdb22d345cfda94f454f486af3d6fff2d7db711c8f"
+    },
+    {
+      "dataset": "nm000485",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-P001/ieeg",
+      "url": "https://data.nemar.org/nm000485/v1.0.2/sub-P001/ieeg/?format=json",
+      "stored_as": "nm000485/v1.0.2/sub-P001/ieeg/__listing.json",
+      "bytes": 1971,
+      "sha256": "71b186f9fa32999f62be6058195fb2a7d3e4fbedb8f3f6d1b691037e22ed8898"
+    },
+    {
+      "dataset": "nm000537",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-369/ieeg/sub-369_space-Other_coordsystem.json",
+      "url": "https://data.nemar.org/nm000537/v1.0.2/sub-369/ieeg/sub-369_space-Other_coordsystem.json",
+      "stored_as": "nm000537/v1.0.2/sub-369/ieeg/sub-369_space-Other_coordsystem.json",
+      "bytes": 220,
+      "sha256": "92dd30515540a3e3375a4d2644994bd07fa35f966814b7aab8e20f7f07fc8f7a"
+    },
+    {
+      "dataset": "nm000537",
+      "version": "v1.0.2",
+      "kind": "file",
+      "path": "sub-369/ieeg/sub-369_space-Other_electrodes.tsv",
+      "url": "https://data.nemar.org/nm000537/v1.0.2/sub-369/ieeg/sub-369_space-Other_electrodes.tsv",
+      "stored_as": "nm000537/v1.0.2/sub-369/ieeg/sub-369_space-Other_electrodes.tsv",
+      "bytes": 6678,
+      "sha256": "64b4a33870c209c03cac3a9fb3ff137cd92c9b7e5a583a141ac0fcb51a279428"
+    },
+    {
+      "dataset": "nm000537",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/nm000537/v1.0.2/?format=json",
+      "stored_as": "nm000537/v1.0.2/__listing.json",
+      "bytes": 952,
+      "sha256": "f2f11122016a40f9d7aa36cf94dbc61fbd4abdff0280ee727b8e153fea50d9e5"
+    },
+    {
+      "dataset": "nm000537",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-369",
+      "url": "https://data.nemar.org/nm000537/v1.0.2/sub-369/?format=json",
+      "stored_as": "nm000537/v1.0.2/sub-369/__listing.json",
+      "bytes": 122,
+      "sha256": "aa11b9b552aafa6aa859538edbdf0d2517a795aeba0772315fca2234cb7b62a1"
+    },
+    {
+      "dataset": "nm000537",
+      "version": "v1.0.2",
+      "kind": "listing",
+      "path": "sub-369/ieeg",
+      "url": "https://data.nemar.org/nm000537/v1.0.2/sub-369/ieeg/?format=json",
+      "stored_as": "nm000537/v1.0.2/sub-369/ieeg/__listing.json",
+      "bytes": 1713,
+      "sha256": "c75f90f611e0baf0f22513ffff27a9f483bfe19f22f818c392df8ead75c613e5"
+    },
+    {
+      "dataset": "on001785",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-patient/ses-01/ieeg/sub-patient_ses-01_space-postimplant_coordsystem.json",
+      "url": "https://data.nemar.org/on001785/v1.0.0/sub-patient/ses-01/ieeg/sub-patient_ses-01_space-postimplant_coordsystem.json",
+      "stored_as": "on001785/v1.0.0/sub-patient/ses-01/ieeg/sub-patient_ses-01_space-postimplant_coordsystem.json",
+      "bytes": 463,
+      "sha256": "a0dd3f3db82632be31e3b346bde15239d9a3467d5dd97f2ce389b412d22a61a2"
+    },
+    {
+      "dataset": "on001785",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-patient/ses-01/ieeg/sub-patient_ses-01_space-postimplant_electrodes.tsv",
+      "url": "https://data.nemar.org/on001785/v1.0.0/sub-patient/ses-01/ieeg/sub-patient_ses-01_space-postimplant_electrodes.tsv",
+      "stored_as": "on001785/v1.0.0/sub-patient/ses-01/ieeg/sub-patient_ses-01_space-postimplant_electrodes.tsv",
+      "bytes": 1864,
+      "sha256": "f93e9884f51bd00ad6684a71d63d061784c73613636e86911233bcf852228cde"
+    },
+    {
+      "dataset": "on001785",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on001785/v1.0.0/?format=json",
+      "stored_as": "on001785/v1.0.0/__listing.json",
+      "bytes": 1316,
+      "sha256": "3e22f5d07aee71e2bc41d13ff7ac791df8e1d8e18151b726ded8ca8463f595a6"
+    },
+    {
+      "dataset": "on001785",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-patient",
+      "url": "https://data.nemar.org/on001785/v1.0.0/sub-patient/?format=json",
+      "stored_as": "on001785/v1.0.0/sub-patient/__listing.json",
+      "bytes": 128,
+      "sha256": "5c1c4a81b68cbd0d210d11512a34ac5f1690560a2f1df987fc42f38580e3c64c"
+    },
+    {
+      "dataset": "on001785",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-patient/ses-01",
+      "url": "https://data.nemar.org/on001785/v1.0.0/sub-patient/ses-01/?format=json",
+      "stored_as": "on001785/v1.0.0/sub-patient/ses-01/__listing.json",
+      "bytes": 181,
+      "sha256": "98662b89d43752aeeb441158fa12ab4958db3a212315a48b5cf029978ad613c7"
+    },
+    {
+      "dataset": "on001785",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-patient/ses-01/ieeg",
+      "url": "https://data.nemar.org/on001785/v1.0.0/sub-patient/ses-01/ieeg/?format=json",
+      "stored_as": "on001785/v1.0.0/sub-patient/ses-01/ieeg/__listing.json",
+      "bytes": 956,
+      "sha256": "34be6cf00e154f4ae94e727edd224f5f4942ab390cf4cb65a16bc128068abb44"
+    },
+    {
+      "dataset": "on003844",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-RESP0059/ses-SITUATION1A/ieeg/sub-RESP0059_ses-SITUATION1A_coordsystem.json",
+      "url": "https://data.nemar.org/on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/ieeg/sub-RESP0059_ses-SITUATION1A_coordsystem.json",
+      "stored_as": "on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/ieeg/sub-RESP0059_ses-SITUATION1A_coordsystem.json",
+      "bytes": 453,
+      "sha256": "9d4f3a8d7003c589923c619fd34cc3bcb7c861fec6ef847f1de74981595a9896"
+    },
+    {
+      "dataset": "on003844",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-RESP0059/ses-SITUATION1A/ieeg/sub-RESP0059_ses-SITUATION1A_electrodes.tsv",
+      "url": "https://data.nemar.org/on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/ieeg/sub-RESP0059_ses-SITUATION1A_electrodes.tsv",
+      "stored_as": "on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/ieeg/sub-RESP0059_ses-SITUATION1A_electrodes.tsv",
+      "bytes": 1747,
+      "sha256": "c43ac2b4a9694fb40656931be6d2d6aa569a3c885e5e621ebebec921fb3d0ea4"
+    },
+    {
+      "dataset": "on003844",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on003844/v1.0.0/?format=json",
+      "stored_as": "on003844/v1.0.0/__listing.json",
+      "bytes": 694,
+      "sha256": "4b6708f0927308364dbeb7a4ad254285a9f1090634ed1acdb4b0b2aaa39f9e90"
+    },
+    {
+      "dataset": "on003844",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-RESP0059",
+      "url": "https://data.nemar.org/on003844/v1.0.0/sub-RESP0059/?format=json",
+      "stored_as": "on003844/v1.0.0/sub-RESP0059/__listing.json",
+      "bytes": 417,
+      "sha256": "b7ae8253b078c6243ff4782b7887a52b96d3a111b23fe41dbfc7350b5cd33b63"
+    },
+    {
+      "dataset": "on003844",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-RESP0059/ses-SITUATION1A",
+      "url": "https://data.nemar.org/on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/?format=json",
+      "stored_as": "on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/__listing.json",
+      "bytes": 143,
+      "sha256": "44da53d8a95526b7105782f931b9c258a5ca8e0c55f2fd252d898e5737926f75"
+    },
+    {
+      "dataset": "on003844",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-RESP0059/ses-SITUATION1A/ieeg",
+      "url": "https://data.nemar.org/on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/ieeg/?format=json",
+      "stored_as": "on003844/v1.0.0/sub-RESP0059/ses-SITUATION1A/ieeg/__listing.json",
+      "bytes": 1046,
+      "sha256": "03ea9d76c87f61876a4c99eb043819f1e2369cbc43d4292f5909fdd37fbfe4e3"
+    },
+    {
+      "dataset": "on004100",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_coordsystem.json",
+      "url": "https://data.nemar.org/on004100/v1.0.0/sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_coordsystem.json",
+      "stored_as": "on004100/v1.0.0/sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_coordsystem.json",
+      "bytes": 278,
+      "sha256": "8daf203e979fc907f1b0057782ce3ee225b8732360de34d2ac43b0486f99743a"
+    },
+    {
+      "dataset": "on004100",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_electrodes.tsv",
+      "url": "https://data.nemar.org/on004100/v1.0.0/sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_electrodes.tsv",
+      "stored_as": "on004100/v1.0.0/sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_acq-seeg_space-fsaverage_electrodes.tsv",
+      "bytes": 1855,
+      "sha256": "7c45f12deb0369671b02cc6592d89af2305fa2deafcff0b455b54b423dd5a128"
+    },
+    {
+      "dataset": "on004100",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on004100/v1.0.0/?format=json",
+      "stored_as": "on004100/v1.0.0/__listing.json",
+      "bytes": 2503,
+      "sha256": "14de791dbe70e623bd180f27c3cc73c1cabd0916ca0a953ca40784b39f6cef99"
+    },
+    {
+      "dataset": "on004100",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-HUP060",
+      "url": "https://data.nemar.org/on004100/v1.0.0/sub-HUP060/?format=json",
+      "stored_as": "on004100/v1.0.0/sub-HUP060/__listing.json",
+      "bytes": 135,
+      "sha256": "ffbe93df1af0bd747a02fc9b7ce4e76420aa32a348f46e297d893e36036fa027"
+    },
+    {
+      "dataset": "on004100",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-HUP060/ses-presurgery",
+      "url": "https://data.nemar.org/on004100/v1.0.0/sub-HUP060/ses-presurgery/?format=json",
+      "stored_as": "on004100/v1.0.0/sub-HUP060/ses-presurgery/__listing.json",
+      "bytes": 212,
+      "sha256": "3fed653f94339b49cc6d47a32d86401b04987fba5e5945abc318ec99fff382a4"
+    },
+    {
+      "dataset": "on004100",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-HUP060/ses-presurgery/ieeg",
+      "url": "https://data.nemar.org/on004100/v1.0.0/sub-HUP060/ses-presurgery/ieeg/?format=json",
+      "stored_as": "on004100/v1.0.0/sub-HUP060/ses-presurgery/ieeg/__listing.json",
+      "bytes": 2175,
+      "sha256": "17b537786755ad2b2061ebdd698fad487b95dc68c8d3f27021ab5a684cfce5ad"
+    },
+    {
+      "dataset": "on004370",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-PRIOS01/ses-1/ieeg/sub-PRIOS01_ses-1_electrodes.tsv",
+      "url": "https://data.nemar.org/on004370/v1.0.0/sub-PRIOS01/ses-1/ieeg/sub-PRIOS01_ses-1_electrodes.tsv",
+      "stored_as": "on004370/v1.0.0/sub-PRIOS01/ses-1/ieeg/sub-PRIOS01_ses-1_electrodes.tsv",
+      "bytes": 5085,
+      "sha256": "747e8a4c7c853e683f2d6ad0fe23a3d7afdbd9f29e188aa92b6db87baa26b48b"
+    },
+    {
+      "dataset": "on004370",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on004370/v1.0.0/?format=json",
+      "stored_as": "on004370/v1.0.0/__listing.json",
+      "bytes": 794,
+      "sha256": "3d006f11cbc659afa54156b52db4e280bb37767d9cac9293c4913ffb56bc30c4"
+    },
+    {
+      "dataset": "on004370",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-PRIOS01",
+      "url": "https://data.nemar.org/on004370/v1.0.0/sub-PRIOS01/?format=json",
+      "stored_as": "on004370/v1.0.0/sub-PRIOS01/__listing.json",
+      "bytes": 127,
+      "sha256": "4d7ca64e5d02a6c067e8bb5a3a64a5ff40fb299c515adb7ef76904c6c99de82a"
+    },
+    {
+      "dataset": "on004370",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-PRIOS01/ses-1",
+      "url": "https://data.nemar.org/on004370/v1.0.0/sub-PRIOS01/ses-1/?format=json",
+      "stored_as": "on004370/v1.0.0/sub-PRIOS01/ses-1/__listing.json",
+      "bytes": 261,
+      "sha256": "9456ffaa8819f4ca28694fe1d7b872ee4aae86f955d4389b130331eae5127fe9"
+    },
+    {
+      "dataset": "on004370",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-PRIOS01/ses-1/ieeg",
+      "url": "https://data.nemar.org/on004370/v1.0.0/sub-PRIOS01/ses-1/ieeg/?format=json",
+      "stored_as": "on004370/v1.0.0/sub-PRIOS01/ses-1/ieeg/__listing.json",
+      "bytes": 1413,
+      "sha256": "132e41d6519b38c95fd342c45ec5f525fb5511848a72c8df319c769339c43e6e"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_coordsystem.json",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_coordsystem.json",
+      "stored_as": "on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_coordsystem.json",
+      "bytes": 409,
+      "sha256": "41d70efde984e6660c8611515aec895711abe6e28e422135a566b9af22530139"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_electrodes.tsv",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_electrodes.tsv",
+      "stored_as": "on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_electrodes.tsv",
+      "bytes": 13469,
+      "sha256": "64b0da054d1d6614cc08d8890abca84ff77edf283ba6a539e2ac90eb06641642"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_space-ACPC_coordsystem.json",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_space-ACPC_coordsystem.json",
+      "stored_as": "on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_space-ACPC_coordsystem.json",
+      "bytes": 639,
+      "sha256": "b93bfeea86e666b9842ba197a6bf84a423eb639f276c5a314377b3f2bb0c9410"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_space-ACPC_electrodes.tsv",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_space-ACPC_electrodes.tsv",
+      "stored_as": "on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/sub-2_ses-ieeg01_space-ACPC_electrodes.tsv",
+      "bytes": 16081,
+      "sha256": "7d2e7699fdb4151c62843a59f7e98a362e5d06f96f822b49fef5af01119c177e"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on004457/v1.0.0/?format=json",
+      "stored_as": "on004457/v1.0.0/__listing.json",
+      "bytes": 697,
+      "sha256": "cb6002a2bb28a487fc888c4910c1fc24772b18d7e741411540d670a0cfb6863b"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-2",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/?format=json",
+      "stored_as": "on004457/v1.0.0/sub-2/__listing.json",
+      "bytes": 126,
+      "sha256": "1170612b99522a1f4b19ec78324bfdb89491104aaf03d7f72689484196c6d144"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-2/ses-ieeg01",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/ses-ieeg01/?format=json",
+      "stored_as": "on004457/v1.0.0/sub-2/ses-ieeg01/__listing.json",
+      "bytes": 131,
+      "sha256": "f70c6c5f700c9a9496dd951b4533fae37fd57b273656129c13decfb199063eec"
+    },
+    {
+      "dataset": "on004457",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-2/ses-ieeg01/ieeg",
+      "url": "https://data.nemar.org/on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/?format=json",
+      "stored_as": "on004457/v1.0.0/sub-2/ses-ieeg01/ieeg/__listing.json",
+      "bytes": 725,
+      "sha256": "433e1a6dc4342f59631e72358f6271ba2583e3cfca1d7e120276057a98121a91"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-1/ieeg/sub-1_space-ACPC_coordsystem.json",
+      "url": "https://data.nemar.org/on004473/v1.0.0/sub-1/ieeg/sub-1_space-ACPC_coordsystem.json",
+      "stored_as": "on004473/v1.0.0/sub-1/ieeg/sub-1_space-ACPC_coordsystem.json",
+      "bytes": 406,
+      "sha256": "5ef948220d8bc6dc8dad7b82ef00d3743262f7232b8f3caa6802a1b12e693408"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv",
+      "url": "https://data.nemar.org/on004473/v1.0.0/sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv",
+      "stored_as": "on004473/v1.0.0/sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv",
+      "bytes": 8178,
+      "sha256": "83c1bf07c10d34694433a4e3de83424beb5c4750e9c0d55b1ee1244bb14f69a1"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-1/ieeg/sub-1_space-ScanRAS_coordsystem.json",
+      "url": "https://data.nemar.org/on004473/v1.0.0/sub-1/ieeg/sub-1_space-ScanRAS_coordsystem.json",
+      "stored_as": "on004473/v1.0.0/sub-1/ieeg/sub-1_space-ScanRAS_coordsystem.json",
+      "bytes": 124,
+      "sha256": "aecb51b78742e744de21a3de4d9527ce85b9f23a44fedc6d80736f2a8f790620"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-1/ieeg/sub-1_space-ScanRAS_electrodes.tsv",
+      "url": "https://data.nemar.org/on004473/v1.0.0/sub-1/ieeg/sub-1_space-ScanRAS_electrodes.tsv",
+      "stored_as": "on004473/v1.0.0/sub-1/ieeg/sub-1_space-ScanRAS_electrodes.tsv",
+      "bytes": 8083,
+      "sha256": "36cdd9e32e821a98ad108facbec6024c0562e2fe55511986dd71de28f36b5483"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on004473/v1.0.0/?format=json",
+      "stored_as": "on004473/v1.0.0/__listing.json",
+      "bytes": 846,
+      "sha256": "1506030b051a44f6ee56996e9ed496dcce2922d53709b59243e8faf9f8c0ac87"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-1",
+      "url": "https://data.nemar.org/on004473/v1.0.0/sub-1/?format=json",
+      "stored_as": "on004473/v1.0.0/sub-1/__listing.json",
+      "bytes": 228,
+      "sha256": "b56b1f2c43c11f67d04757b221e7777c291a0bd15ffd9ae5b42f346781763b39"
+    },
+    {
+      "dataset": "on004473",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-1/ieeg",
+      "url": "https://data.nemar.org/on004473/v1.0.0/sub-1/ieeg/?format=json",
+      "stored_as": "on004473/v1.0.0/sub-1/ieeg/__listing.json",
+      "bytes": 656,
+      "sha256": "6b89dcb4d5e8a0181ffbbd96a8a87fda21d1e3cca8ed69c3e224e0a59343007b"
+    },
+    {
+      "dataset": "on004642",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on004642/v1.0.0/?format=json",
+      "stored_as": "on004642/v1.0.0/__listing.json",
+      "bytes": 845,
+      "sha256": "605ec8824ba224e57edd0cf71a5b23dbb59611d70a52cb03fe32376f9bb59412"
+    },
+    {
+      "dataset": "on004642",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-01",
+      "url": "https://data.nemar.org/on004642/v1.0.0/sub-01/?format=json",
+      "stored_as": "on004642/v1.0.0/sub-01/__listing.json",
+      "bytes": 178,
+      "sha256": "0c158be7ea3b6ec25b379256a47227defbf2c21ebe1fe1d90e4186440160a61c"
+    },
+    {
+      "dataset": "on004642",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-01/ses-01",
+      "url": "https://data.nemar.org/on004642/v1.0.0/sub-01/ses-01/?format=json",
+      "stored_as": "on004642/v1.0.0/sub-01/ses-01/__listing.json",
+      "bytes": 188,
+      "sha256": "2d423418a00b32ed45abc9405c3434c1adca0eaf5a8bd3918fcff538b6551dc6"
+    },
+    {
+      "dataset": "on004642",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-01/ses-01/ieeg",
+      "url": "https://data.nemar.org/on004642/v1.0.0/sub-01/ses-01/ieeg/?format=json",
+      "stored_as": "on004642/v1.0.0/sub-01/ses-01/ieeg/__listing.json",
+      "bytes": 350,
+      "sha256": "9432a09b1b659b2bcf22382bd1f38c7ec2bd8a580af4010edde69a30439c2c05"
+    },
+    {
+      "dataset": "on005415",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-72/ieeg/sub-72_space-ACPC_coordsystem.json",
+      "url": "https://data.nemar.org/on005415/v1.0.0/sub-72/ieeg/sub-72_space-ACPC_coordsystem.json",
+      "stored_as": "on005415/v1.0.0/sub-72/ieeg/sub-72_space-ACPC_coordsystem.json",
+      "bytes": 338,
+      "sha256": "b90844d4ea0cab9046a4462d59682ea04845a9410d3c7cd526168b351b1c59da"
+    },
+    {
+      "dataset": "on005415",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-72/ieeg/sub-72_space-ACPC_electrodes.tsv",
+      "url": "https://data.nemar.org/on005415/v1.0.0/sub-72/ieeg/sub-72_space-ACPC_electrodes.tsv",
+      "stored_as": "on005415/v1.0.0/sub-72/ieeg/sub-72_space-ACPC_electrodes.tsv",
+      "bytes": 12920,
+      "sha256": "9c3c5ecef22ca23e06863461740e4564b4b6172eff3ac87ec33427e58f17b209"
+    },
+    {
+      "dataset": "on005415",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on005415/v1.0.0/?format=json",
+      "stored_as": "on005415/v1.0.0/__listing.json",
+      "bytes": 837,
+      "sha256": "bd7f3584b8a0dce40343aad116b10fe740960b2e34cdebe90dfa8dd70777478d"
+    },
+    {
+      "dataset": "on005415",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-72",
+      "url": "https://data.nemar.org/on005415/v1.0.0/sub-72/?format=json",
+      "stored_as": "on005415/v1.0.0/sub-72/__listing.json",
+      "bytes": 230,
+      "sha256": "32b947f6bcaf9dab1ffb9d22a111df7f268082e8e8ad7952ea470dd804fe468a"
+    },
+    {
+      "dataset": "on005415",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-72/ieeg",
+      "url": "https://data.nemar.org/on005415/v1.0.0/sub-72/ieeg/?format=json",
+      "stored_as": "on005415/v1.0.0/sub-72/ieeg/__listing.json",
+      "bytes": 539,
+      "sha256": "577cf26f877ead5c9ced35c757ce71b42ce3d69bc165fb67be7a53b2b9369842"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-bipolar_channels.tsv",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-bipolar_channels.tsv",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-bipolar_channels.tsv",
+      "bytes": 3728,
+      "sha256": "6aab9ceeb1905c9661aea259ac78e4fd742ff3c4260a4dceea365d39dcd4f8e6"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-monopolar_channels.tsv",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-monopolar_channels.tsv",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-monopolar_channels.tsv",
+      "bytes": 3398,
+      "sha256": "a6d6cdcc2eca3137858196c8730216e49fc6c9230a48a913574388b40d34072e"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_coordsystem.json",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_coordsystem.json",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_coordsystem.json",
+      "bytes": 72,
+      "sha256": "e3f74ec07c4caf63c1273a9bba4ec42a75c56853cdf04d2621e4e98585373852"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_electrodes.tsv",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_electrodes.tsv",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_electrodes.tsv",
+      "bytes": 9120,
+      "sha256": "b0586954a843726f40b30cdc760be17bc7eedee42a7cd0d7f3d66af5140bb483"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_space-Talairach_coordsystem.json",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_space-Talairach_coordsystem.json",
+      "stored_as": "on005522/v1.0.0/sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_space-Talairach_coordsystem.json",
+      "bytes": 66,
+      "sha256": "4f798bcae0399d0f8a7fe4d7f3ff639da55c940aaa34d1883564af5cfe4d1ad8"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_space-Talairach_electrodes.tsv",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_space-Talairach_electrodes.tsv",
+      "stored_as": "on005522/v1.0.0/sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_space-Talairach_electrodes.tsv",
+      "bytes": 5699,
+      "sha256": "4c6cf74b3d3b213dfc1b3abfcf604cb47f0025b4ba5a1febf2f4ed445d7b2721"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on005522/v1.0.0/?format=json",
+      "stored_as": "on005522/v1.0.0/__listing.json",
+      "bytes": 2568,
+      "sha256": "c69ecb7dcbbdc4b699959f15b099d5d980441ebaea213bc92bbc1e55eca8843c"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-R1001P",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/?format=json",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/__listing.json",
+      "bytes": 186,
+      "sha256": "94f2f14cb4b0250b96369c316ba1ec4e9bbe5caf6144f5b6c97a181ad2adbdb4"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-R1001P/ses-0",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/ses-0/?format=json",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/ses-0/__listing.json",
+      "bytes": 222,
+      "sha256": "26320bf1c57a7cb30d65ec09e26846f601c5d0265a8b74ac971d1524fce9f6f3"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-R1001P/ses-0/ieeg",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1001P/ses-0/ieeg/?format=json",
+      "stored_as": "on005522/v1.0.0/sub-R1001P/ses-0/ieeg/__listing.json",
+      "bytes": 1088,
+      "sha256": "80f7d66f99ea7abd7875fcf591b8fbdac35dfe757f2ff63ac531ff7dbb61b4bc"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-R1009W",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1009W/?format=json",
+      "stored_as": "on005522/v1.0.0/sub-R1009W/__listing.json",
+      "bytes": 126,
+      "sha256": "fed5320bf7aebcdd8d69414365d3e43f5ff6ccf99bfd63ce6b403072b2107e6e"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-R1009W/ses-0",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1009W/ses-0/?format=json",
+      "stored_as": "on005522/v1.0.0/sub-R1009W/ses-0/__listing.json",
+      "bytes": 222,
+      "sha256": "fbc8a953c9317005700f8ed34611fd6fbaf0fddbe6c029cdd010bc6992c38c01"
+    },
+    {
+      "dataset": "on005522",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-R1009W/ses-0/ieeg",
+      "url": "https://data.nemar.org/on005522/v1.0.0/sub-R1009W/ses-0/ieeg/?format=json",
+      "stored_as": "on005522/v1.0.0/sub-R1009W/ses-0/ieeg/__listing.json",
+      "bytes": 1072,
+      "sha256": "783972f4e3bef2d7715920aca6b5d5e0959a4493883616e74fa444bd91b37cda"
+    },
+    {
+      "dataset": "on006136",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-P1/ieeg/sub-P1_coordsystem.json",
+      "url": "https://data.nemar.org/on006136/v1.0.0/sub-P1/ieeg/sub-P1_coordsystem.json",
+      "stored_as": "on006136/v1.0.0/sub-P1/ieeg/sub-P1_coordsystem.json",
+      "bytes": 70,
+      "sha256": "c2c811bb5865ac21354b0b611cf06ee7ad4a9c83897bb251aacad6b32a4717c1"
+    },
+    {
+      "dataset": "on006136",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-P1/ieeg/sub-P1_electrodes.tsv",
+      "url": "https://data.nemar.org/on006136/v1.0.0/sub-P1/ieeg/sub-P1_electrodes.tsv",
+      "stored_as": "on006136/v1.0.0/sub-P1/ieeg/sub-P1_electrodes.tsv",
+      "bytes": 400,
+      "sha256": "f58f7a0c735b4b551cf844e878dc4cc935adbef6b1ff7879c4ff7b0e99944423"
+    },
+    {
+      "dataset": "on006136",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on006136/v1.0.0/?format=json",
+      "stored_as": "on006136/v1.0.0/__listing.json",
+      "bytes": 1028,
+      "sha256": "28893cb929ee1ec1ee1725f8e19eb2a25a637ccf47c68fdcaa1411878f1e7a1d"
+    },
+    {
+      "dataset": "on006136",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-P1",
+      "url": "https://data.nemar.org/on006136/v1.0.0/sub-P1/?format=json",
+      "stored_as": "on006136/v1.0.0/sub-P1/__listing.json",
+      "bytes": 121,
+      "sha256": "055196bfb80f4e7e1ca6bd8dde63dd85e2cd563506124ed249310a34c746b9ca"
+    },
+    {
+      "dataset": "on006136",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-P1/ieeg",
+      "url": "https://data.nemar.org/on006136/v1.0.0/sub-P1/ieeg/?format=json",
+      "stored_as": "on006136/v1.0.0/sub-P1/ieeg/__listing.json",
+      "bytes": 473,
+      "sha256": "d60efb376470d30912943b229596f90ef4e0e582601cd88636f6979ba31cc0f9"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-01/ses-01/ieeg/sub-01_ses-01_acq-01_space-fsaverage_coordsystem.json",
+      "url": "https://data.nemar.org/on006253/v1.0.0/sub-01/ses-01/ieeg/sub-01_ses-01_acq-01_space-fsaverage_coordsystem.json",
+      "stored_as": "on006253/v1.0.0/sub-01/ses-01/ieeg/sub-01_ses-01_acq-01_space-fsaverage_coordsystem.json",
+      "bytes": 278,
+      "sha256": "8daf203e979fc907f1b0057782ce3ee225b8732360de34d2ac43b0486f99743a"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-01/ses-01/ieeg/sub-01_ses-01_acq-01_space-fsaverage_electrodes.tsv",
+      "url": "https://data.nemar.org/on006253/v1.0.0/sub-01/ses-01/ieeg/sub-01_ses-01_acq-01_space-fsaverage_electrodes.tsv",
+      "stored_as": "on006253/v1.0.0/sub-01/ses-01/ieeg/sub-01_ses-01_acq-01_space-fsaverage_electrodes.tsv",
+      "bytes": 3568,
+      "sha256": "a70259fbf0ff4502e97991fade5e664921f305ffd3c9693acf6148915abad1ce"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "file",
+      "path": "sub-01/sub-01_space-mni_electrodes.tsv",
+      "url": "https://data.nemar.org/on006253/v1.0.0/sub-01/sub-01_space-mni_electrodes.tsv",
+      "stored_as": "on006253/v1.0.0/sub-01/sub-01_space-mni_electrodes.tsv",
+      "bytes": 22978,
+      "sha256": "dfc119e59438178f7b9c0951d071abdcedd5fb81520757d0d628ae93f155b8ef"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "",
+      "url": "https://data.nemar.org/on006253/v1.0.0/?format=json",
+      "stored_as": "on006253/v1.0.0/__listing.json",
+      "bytes": 1194,
+      "sha256": "24093656231ada7e79788682b2d0f6b0ccc23b162d8e31d47e40940e8b3574b1"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-01",
+      "url": "https://data.nemar.org/on006253/v1.0.0/sub-01/?format=json",
+      "stored_as": "on006253/v1.0.0/sub-01/__listing.json",
+      "bytes": 193,
+      "sha256": "8cec7a92179322d771518065e60bc1677905508cff4eca852104dd5c254d46a9"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-01/ses-01",
+      "url": "https://data.nemar.org/on006253/v1.0.0/sub-01/ses-01/?format=json",
+      "stored_as": "on006253/v1.0.0/sub-01/ses-01/__listing.json",
+      "bytes": 128,
+      "sha256": "1b609ec93f7f7a99cc8a390113b4a18c258b356aa5561a628fcc54469359ac4c"
+    },
+    {
+      "dataset": "on006253",
+      "version": "v1.0.0",
+      "kind": "listing",
+      "path": "sub-01/ses-01/ieeg",
+      "url": "https://data.nemar.org/on006253/v1.0.0/sub-01/ses-01/ieeg/?format=json",
+      "stored_as": "on006253/v1.0.0/sub-01/ses-01/ieeg/__listing.json",
+      "bytes": 553,
+      "sha256": "bc74562a49533a286b9d0d0c7f223be220f4bd660a5c864fb4aed799abd8c1ac"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "iEEGCoordinateSystem": "IXI549Space",
+  "iEEGCoordinateUnits": "mm",
+  "iEEGCoordinateSystemDescription": "MNI coordinates from channelInfo.MNI_x/y/z of the release, one point per bipolar channel ('Bipolar iEEG signals were visualized at the center between two contacts'). Contact positions were identified on post-implantation CT co-registered to pre-implantation MRI and normalized to MNI space with SPM12 (Moraresku et al. 2025). Labelled IXI549Space, the BIDS name of the SPM12 normalization template.",
+  "iEEGCoordinateProcessingDescription": "CT-MRI co-registration, SPM12 normalization; bipolar-pair positions as provided by the authors"
+}

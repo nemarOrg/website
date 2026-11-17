@@ -1,0 +1,1 @@
+{"dataset_id":"on004642","version":"v1.0.0","path":"sub-01/ses-01/ieeg","kind":"directory","children":[{"kind":"file","name":"sub-01_ses-01_task-lozHFO_run-01_channels.tsv","size":401},{"kind":"file","name":"sub-01_ses-01_task-lozHFO_run-01_ieeg.edf","size":215042304},{"kind":"file","name":"sub-01_ses-01_task-lozHFO_run-01_ieeg.json","size":1033}]}
