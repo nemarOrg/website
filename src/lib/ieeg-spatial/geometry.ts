@@ -195,7 +195,7 @@ export interface RecordingGeometry {
 /** The part of `fetchDirListing`'s answer this module reads; null is a failed request. */
 export type ListDir = (path: string) => Promise<Pick<DirListing, "children"> | null>;
 
-/** The text of a dataset-relative file; null is a failed read. */
+/** The UTF-8 text of a dataset-relative file, as `Response.text()` returns it; null is a failed read. */
 export type ReadText = (path: string) => Promise<string | null>;
 
 export interface GeometryInput {
@@ -360,11 +360,6 @@ function selectPerSpace(candidates: Candidate[]): Map<string | null, Selection> 
 // Parsing
 // ---------------------------------------------------------------------------
 
-/** A byte order mark opens some real files (on004100, on005415); `fetch` strips it, a file read does not. */
-function stripBom(text: string): string {
-  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-}
-
 const DECIMAL = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
 /** A finite decimal, or null. `Number("")` is 0 and `Number("0x1")` is 1, so the text is checked first. */
@@ -396,10 +391,9 @@ interface ParsedElectrodes {
 
 /** Parse an `_electrodes.tsv`; null when it is not a tab-separated table with `name`, `x`, `y` and `z`. */
 function parseElectrodes(text: string): ParsedElectrodes | null {
-  const lines = stripBom(text)
-    .split(/\r?\n/)
-    .filter((l) => l.trim() !== "");
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length === 0) return null;
+  // `trim` also removes a leading byte order mark, which opens some real files (on004100, on005415).
   const header = lines[0].split("\t").map((h) => h.trim());
   const col = (name: string) => header.indexOf(name);
   const iName = col("name");
@@ -452,7 +446,7 @@ function jsonText(value: unknown): string | null {
 function parseCoordsystem(text: string): ParsedCoordsystem | null {
   let doc: unknown;
   try {
-    doc = JSON.parse(stripBom(text));
+    doc = JSON.parse(text);
   } catch {
     return null;
   }
