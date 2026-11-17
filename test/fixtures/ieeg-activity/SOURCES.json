@@ -11,7 +11,6 @@
  "level": 0,
  "engine_version": "3",
  "biosigio_version": "1.2.8",
- "store_updated_utc": "2026-09-27T14:34:21Z",
  "rate_hz": 1000.0,
  "channel_unit_in_store": "uV",
  "slice": {
@@ -41,7 +40,23 @@
    "42"
   ],
   "captured_with": "readLevel0 from src/lib/eeg-viewer/store.ts (dequantized and converted to volts, the same samples the viewer reads)",
-  "captured_on": "2026-11-17"
+  "captured_on": "2026-11-17",
+  "channel_units_in_store": [
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV",
+   "uV"
+  ]
  },
  "reference": {
   "file": "reference.json",
@@ -50,5 +65,7 @@
   "script_sha256": "d117de033bda0cb72849e40b2c2b3826905dea00602d35b5c205e1c2b7af70ab",
   "command": "cd test/fixtures/ieeg-activity && uv run --no-project --with scipy --with numpy python reference.py",
   "method": "scipy.signal.welch(x, fs=1000, window='hann', nperseg=1024, noverlap=512, detrend='constant', scaling='density'); band power = sum of density over bins lo <= f < hi times df; rms of the mean-removed samples; line length = mean(abs(diff(x))) * fs; values in microvolts"
- }
+ },
+ "index_updated_utc": "2026-09-27T14:34:21Z",
+ "index_updated_utc_source": "stores[zarr=sub-P5/ieeg/sub-P5_task-OWM_ieeg.zarr].updated_utc in https://zarr.nemar.org/on006136/zarr/index.json (equal to that file's top-level updated_utc); an index field, not an object timestamp of the store"
 }

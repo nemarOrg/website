@@ -8,14 +8,16 @@
  * `activityChannelsFromWindow` refuses them.
  *
  * Definitions (all per channel, over exactly the samples given; nothing is
- * claimed beyond that window):
+ * claimed beyond that window; one non-finite sample anywhere in the window makes
+ * the channel's value `null` for every metric):
  *  - `rms`: root mean square of the mean-removed samples, in the channel unit
  *    (the window's standard deviation, population form).
  *  - `line_length`: mean absolute first difference times the sampling rate, in
  *    the channel unit per second.
  *  - `band_power`: Welch's method (Hann window, periodic form; segment of 1 s
  *    rounded to a power of two in samples; 50 percent overlap; mean removed per
- *    segment; trailing partial segment dropped), one-sided density integrated
+ *    segment; the trailing partial segment is dropped, so the values describe
+ *    `analyzedS` seconds, which can be shorter than the window), one-sided density integrated
  *    over the band with bins `lo <= f < hi`, in the channel unit squared. With
  *    `relative`, decibels of the band's power against the channel's own power
  *    from 1 Hz up to the lesser of 150 Hz and 0.45 times the rate.
@@ -59,6 +61,13 @@ export interface ActivityChannel {
   label: string;
   /** Level-0 samples in `ActivityRequest.unit`. */
   samples: ArrayLike<number>;
+  /**
+   * The channel's original acquisition rate in Hz, when the store records one
+   * (`GroupHandle.originalRate`). The band limit is checked against the lesser of
+   * this and the served rate, so a channel resampled up from a lower rate never
+   * reports a band its source could not carry.
+   */
+  nativeRateHz?: number;
 }
 
 export interface ActivityRequest {
@@ -72,7 +81,7 @@ export interface ActivityRequest {
   band?: BandName;
   /** `band_power` only: decibels against the channel's own broadband power. */
   relative?: boolean;
-  /** Report in this unit instead (for example `"µV"`); both must be known voltage units. */
+  /** Report in this unit instead (for example `"µV"`); both must be known units of one dimension. */
   displayUnit?: string;
 }
 
@@ -89,10 +98,14 @@ export interface ActivityRefused {
   detail: string;
 }
 
+/** Why one channel has no value while the request as a whole went through. */
+export type ChannelNullReason = "non_finite" | "band_above_nyquist" | "undefined_value";
+
 export interface ChannelActivity {
   label: string;
-  /** `null` when the channel's samples are not all finite or the value is undefined. */
+  /** `null` when the channel has no value; `reason` then says why. */
   value: number | null;
+  reason: ChannelNullReason | null;
 }
 
 export interface ActivityResult {
@@ -103,10 +116,17 @@ export interface ActivityResult {
   /** Unit of every value: `µV`, `µV/s`, `µV²` or `dB`. */
   unit: string;
   rateHz: number;
-  /** Samples per channel the values were computed from. */
+  /** Samples per channel supplied (the window). */
   nSamples: number;
-  /** Seconds of signal the values describe (`nSamples / rateHz`). */
+  /** Seconds supplied (`nSamples / rateHz`). */
   windowS: number;
+  /**
+   * Samples the values actually describe: `nSamples` for `rms` and `line_length`;
+   * for `band_power` the span of the Welch segments, `(segments - 1) * segment / 2 + segment`.
+   */
+  analyzedSamples: number;
+  /** `analyzedSamples / rateHz`. */
+  analyzedS: number;
   /** Welch segment length in samples, `band_power` only. */
   segmentSamples: number | null;
   /** Number of Welch segments averaged, `band_power` only. */
@@ -124,9 +144,19 @@ function refuse(reason: ActivityRefusal, detail: string): ActivityRefused {
 
 // --- Units -------------------------------------------------------------------
 
-function isKnownUnit(unit: string): boolean {
+const VOLTAGE_UNITS = new Set(["v", "mv", "uv", "µv", "nv"]);
+const TESLA_UNITS = new Set(["t", "mt", "ut", "µt", "nt", "pt", "ft"]);
+
+/**
+ * The physical dimension of a unit the signal viewer converts to SI, or `null`.
+ * `readLevel0` treats an unknown unit as factor 1, so anything not listed here
+ * (a Greek-mu `μV`, `n/a`, `microvolts`) has not been converted and is refused.
+ */
+export function unitDimension(unit: string): "voltage" | "field" | null {
   const u = unit.trim().toLowerCase();
-  return u === "v" || u === "t" || unitToSI(unit) !== 1;
+  if (VOLTAGE_UNITS.has(u)) return "voltage";
+  if (TESLA_UNITS.has(u)) return "field";
+  return null;
 }
 
 /** `uV` to `µV`; anything else unchanged. */
@@ -137,28 +167,50 @@ function prettyUnit(unit: string): string {
 
 // --- Window adapter ----------------------------------------------------------
 
+export interface WindowChannelInfo {
+  label: string;
+  /** The channel's stored unit (`ChannelMeta.unit`). */
+  unit: string;
+  /** Optional original acquisition rate in Hz; see `ActivityChannel.nativeRateHz`. */
+  nativeRateHz?: number;
+}
+
 /**
  * Turn a signal viewer window into activity channels. Only level-0 line data
  * qualifies: a view level is a min/max envelope and says nothing about
- * spectra, so it is refused.
+ * spectra, so it is refused. The store converts samples to SI (`siFactor`), so
+ * the returned `unit` is `"V"` or `"T"`; a channel whose stored unit the store
+ * could not convert (it passes unknown units through as factor 1) is refused,
+ * as is a window mixing dimensions.
  */
 export function activityChannelsFromWindow(
   win: WindowData,
-  labels: readonly string[],
-): { ok: true; channels: ActivityChannel[] } | ActivityRefused {
+  info: readonly WindowChannelInfo[],
+): { ok: true; channels: ActivityChannel[]; unit: "V" | "T" } | ActivityRefused {
   if (win.level !== 0) {
     return refuse("not_level0", `window is view level ${win.level}, not level 0`);
   }
-  if (labels.length !== win.channels.length) {
-    return refuse("bad_input", `${labels.length} labels for ${win.channels.length} channels`);
+  if (info.length !== win.channels.length) {
+    return refuse("bad_input", `${info.length} channels described for ${win.channels.length}`);
   }
+  const dims = new Set<string>();
   const channels: ActivityChannel[] = [];
   for (let i = 0; i < win.channels.length; i++) {
     const ch = win.channels[i];
-    if (ch.kind !== "line") return refuse("not_level0", `channel ${labels[i]} is a min/max band`);
-    channels.push({ label: labels[i], samples: ch.line });
+    const { label, unit, nativeRateHz } = info[i];
+    if (ch.kind !== "line") return refuse("not_level0", `channel ${label} is a min/max band`);
+    const dim = unitDimension(unit);
+    if (dim === null) {
+      return refuse(
+        "bad_input",
+        `channel ${label} has unit "${unit}", which was not converted to SI`,
+      );
+    }
+    dims.add(dim);
+    channels.push({ label, samples: ch.line, nativeRateHz });
   }
-  return { ok: true, channels };
+  if (dims.size > 1) return refuse("bad_input", "channels mix voltage and field units");
+  return { ok: true, channels, unit: dims.has("field") ? "T" : "V" };
 }
 
 // --- FFT ---------------------------------------------------------------------
@@ -310,7 +362,12 @@ function integrateBand(psd: Float64Array, rateHz: number, nper: number, lo: numb
 
 // --- Metrics -----------------------------------------------------------------
 
-function rmsOf(x: ArrayLike<number>): number | null {
+function allFinite(x: ArrayLike<number>): boolean {
+  for (let i = 0; i < x.length; i++) if (!Number.isFinite(x[i])) return false;
+  return true;
+}
+
+function rmsOf(x: ArrayLike<number>): number {
   let sum = 0;
   for (let i = 0; i < x.length; i++) sum += x[i];
   const mean = sum / x.length;
@@ -319,15 +376,13 @@ function rmsOf(x: ArrayLike<number>): number | null {
     const d = x[i] - mean;
     sq += d * d;
   }
-  const v = Math.sqrt(sq / x.length);
-  return Number.isFinite(v) ? v : null;
+  return Math.sqrt(sq / x.length);
 }
 
-function lineLengthOf(x: ArrayLike<number>, rateHz: number): number | null {
+function lineLengthOf(x: ArrayLike<number>, rateHz: number): number {
   let sum = 0;
   for (let i = 1; i < x.length; i++) sum += Math.abs(x[i] - x[i - 1]);
-  const v = (sum / (x.length - 1)) * rateHz;
-  return Number.isFinite(v) ? v : null;
+  return (sum / (x.length - 1)) * rateHz;
 }
 
 /**
@@ -345,11 +400,18 @@ export function computeActivity(req: ActivityRequest): ActivityOutcome {
   if (channels.some((c) => c.samples.length !== n)) {
     return refuse("bad_input", "channels have different lengths");
   }
+  for (const c of channels) {
+    if (c.nativeRateHz !== undefined && !(Number.isFinite(c.nativeRateHz) && c.nativeRateHz > 0)) {
+      return refuse("bad_input", `channel ${c.label} has native rate ${c.nativeRateHz}`);
+    }
+  }
 
   let displayUnit = req.unit;
   let factor = 1;
   if (req.displayUnit !== undefined && req.displayUnit !== req.unit) {
-    if (!isKnownUnit(req.unit) || !isKnownUnit(req.displayUnit)) {
+    const from = unitDimension(req.unit);
+    const to = unitDimension(req.displayUnit);
+    if (from === null || to === null || from !== to) {
       return refuse("bad_input", `cannot convert ${req.unit} to ${req.displayUnit}`);
     }
     factor = unitToSI(req.unit) / unitToSI(req.displayUnit);
@@ -361,7 +423,7 @@ export function computeActivity(req: ActivityRequest): ActivityOutcome {
   let nper: number | null = null;
   let relative = false;
   if (metric === "band_power") {
-    if (!req.band || !(req.band in BANDS)) {
+    if (!req.band || !Object.hasOwn(BANDS, req.band)) {
       return refuse("bad_input", `unknown band ${String(req.band)}`);
     }
     band = BANDS[req.band];
@@ -377,40 +439,59 @@ export function computeActivity(req: ActivityRequest): ActivityOutcome {
     if (n < need) {
       return refuse("window_too_short", `${n} samples, band power needs ${need} at ${rateHz} Hz`);
     }
-  } else if (n < (metric === "rms" ? 1 : 2)) {
+  } else if (n < 2) {
     return refuse("window_too_short", `${n} samples is too few for ${metric}`);
   }
 
   const out: ChannelActivity[] = [];
   const referenceHi = Math.min(BROADBAND_HI_HZ, BAND_NYQUIST_FRACTION * rateHz);
   for (const ch of channels) {
+    const none = (reason: ChannelNullReason): ChannelActivity => ({
+      label: ch.label,
+      value: null,
+      reason,
+    });
+    if (!allFinite(ch.samples)) {
+      out.push(none("non_finite"));
+      continue;
+    }
+    if (band !== null && ch.nativeRateHz !== undefined && ch.nativeRateHz < rateHz) {
+      if (band[1] > BAND_NYQUIST_FRACTION * ch.nativeRateHz) {
+        out.push(none("band_above_nyquist"));
+        continue;
+      }
+    }
     let value: number | null;
     if (metric === "rms") {
-      value = rmsOf(ch.samples);
-      if (value !== null) value *= factor;
+      value = rmsOf(ch.samples) * factor;
     } else if (metric === "line_length") {
-      value = lineLengthOf(ch.samples, rateHz);
-      if (value !== null) value *= factor;
+      value = lineLengthOf(ch.samples, rateHz) * factor;
     } else {
       const psd = welchDensity(ch.samples, rateHz, nper as number);
       if (psd === null || band === null) {
-        value = null;
+        out.push(none("non_finite"));
+        continue;
+      }
+      const power = integrateBand(psd, rateHz, nper as number, band[0], band[1]);
+      if (relative) {
+        const total = integrateBand(psd, rateHz, nper as number, BROADBAND_LO_HZ, referenceHi);
+        value = power > 0 && total > 0 ? 10 * Math.log10(power / total) : null;
       } else {
-        const power = integrateBand(psd, rateHz, nper as number, band[0], band[1]);
-        if (relative) {
-          const total = integrateBand(psd, rateHz, nper as number, BROADBAND_LO_HZ, referenceHi);
-          value = power > 0 && total > 0 ? 10 * Math.log10(power / total) : null;
-        } else {
-          value = power * factor * factor;
-        }
+        value = power * factor * factor;
       }
     }
-    out.push({ label: ch.label, value });
+    out.push(
+      value !== null && Number.isFinite(value)
+        ? { label: ch.label, value, reason: null }
+        : none("undefined_value"),
+    );
   }
 
   const unit =
     metric === "rms" ? base : metric === "line_length" ? `${base}/s` : relative ? "dB" : `${base}²`;
   const segments = nper === null ? null : Math.floor((n - nper) / (nper / 2)) + 1;
+  const analyzedSamples =
+    nper === null || segments === null ? n : ((segments - 1) * nper) / 2 + nper;
   return {
     ok: true,
     metric,
@@ -420,6 +501,8 @@ export function computeActivity(req: ActivityRequest): ActivityOutcome {
     rateHz,
     nSamples: n,
     windowS: n / rateHz,
+    analyzedSamples,
+    analyzedS: analyzedSamples / rateHz,
     segmentSamples: nper,
     segments,
     referenceHz: relative ? [BROADBAND_LO_HZ, referenceHi] : null,
