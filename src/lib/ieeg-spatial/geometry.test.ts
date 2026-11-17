@@ -56,7 +56,7 @@ function fixtureText(datasetId: string, version: string, path: string): string {
 /** An independent reading of a BIDS table: header row, then one record per line. */
 function table(text: string): Record<string, string>[] {
   const lines = text
-    .replace(/^﻿/, "")
+    .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
     .filter((l) => l.trim() !== "");
   const head = lines[0].split("\t");
