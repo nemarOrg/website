@@ -685,6 +685,79 @@ describe("joins: exact names, then bipolar pairs", () => {
       cause: "no_position",
     });
   });
+
+  // Known-answer inputs, like the classifyFrame label table: no public electrodes file repeats a
+  // contact name or holds contacts whose names make two `-` splits. Each space below is the real
+  // on005522 space from resolve(), with its contact rows replaced by rows built from real ones.
+  describe("duplicate and ambiguous names (known-answer contacts)", () => {
+    const real = async () => only(await resolve("on005522", "v1.0.0", R1001P), "MNI152NLin6ASym");
+
+    it("a name carried by two rows is duplicate_contact, by exact name and inside an A-B pair", async () => {
+      const s = await real();
+      const first = contact(s, "LAF1");
+      const repeated: SpaceGeometry = {
+        ...s,
+        contacts: [...s.contacts, { ...first, position: [1, 2, 3], row: s.contacts.length }],
+      };
+      expect(joinChannels(repeated, ["LAF1"])[0]).toEqual({
+        channel: "LAF1",
+        status: "unlocated",
+        contacts: ["LAF1"],
+        position: null,
+        cause: "duplicate_contact",
+      });
+      expect(joinChannels(repeated, ["LAF1-LAF2"])[0]).toEqual({
+        channel: "LAF1-LAF2",
+        status: "unlocated",
+        contacts: ["LAF1", "LAF2"],
+        position: null,
+        cause: "duplicate_contact",
+      });
+      // Every other join is unchanged by the repeat.
+      expect(joinChannels(repeated, ["LAF2"])[0]).toMatchObject({ status: "located", cause: null });
+      expect(joinChannels(repeated, ["LAF3-LAF4"])[0]).toMatchObject({
+        status: "bipolar",
+        contacts: ["LAF3", "LAF4"],
+        cause: null,
+      });
+    });
+
+    it("a channel that two `-` splits both read as two contacts is ambiguous_pair, never the first split", async () => {
+      const s = await real();
+      const [a, b, c, d] = ["LAF1", "LAF2", "LAF3", "LAF4"].map((n) => contact(s, n));
+      // Contacts A, B-C, A-B and C: "A-B-C" is "A" + "B-C" and also "A-B" + "C".
+      const named = (name: string, from: typeof a, row: number) => ({ ...from, name, row });
+      const lookalike: SpaceGeometry = {
+        ...s,
+        contacts: [named("A", a, 0), named("B-C", b, 1), named("A-B", c, 2), named("C", d, 3)],
+      };
+      expect(joinChannels(lookalike, ["A-B-C"])[0]).toEqual({
+        channel: "A-B-C",
+        status: "unlocated",
+        contacts: [],
+        position: null,
+        cause: "ambiguous_pair",
+      });
+      // Every other join is unchanged: exact names first, and a single split still pairs.
+      expect(joinChannels(lookalike, ["A-B"])[0]).toMatchObject({
+        status: "located",
+        contacts: ["A-B"],
+      });
+      expect(joinChannels(lookalike, ["B-C"])[0]).toMatchObject({
+        status: "located",
+        contacts: ["B-C"],
+      });
+      expect(joinChannels(lookalike, ["A-C"])[0]).toMatchObject({
+        status: "bipolar",
+        contacts: ["A", "C"],
+        position: [
+          ((a.position as readonly number[])[0] + (d.position as readonly number[])[0]) / 2,
+          ((a.position as readonly number[])[1] + (d.position as readonly number[])[1]) / 2,
+          ((a.position as readonly number[])[2] + (d.position as readonly number[])[2]) / 2,
+        ],
+      });
+    });
+  });
 });
 
 describe("listing and reading failures", () => {
