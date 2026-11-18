@@ -5,4 +5,4 @@ no representations about the suitability of this software for any purpose. It is
 implied warranty. The authors are not responsible for any data loss, equipment damage, property loss, or injury to 
 subjects or patients resulting from the use or misuse of this software package.
 
-This folder holds a brain surface derived from the template files named above, built by scripts/vendor-brain-template.py; the notice above applies to every copy of it.
+This folder holds a brain surface derived from the TemplateFlow template tpl-MNI152NLin2009cAsym (its gray matter and white matter probability maps), built by scripts/vendor-brain-template.py; the notice above applies to every copy of it.

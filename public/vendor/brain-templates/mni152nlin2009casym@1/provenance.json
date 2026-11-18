@@ -43,7 +43,7 @@
   "regenerate": "uv run scripts/vendor-brain-template.py",
   "script": {
     "path": "scripts/vendor-brain-template.py",
-    "sha256": "8e1fbf8d360d4b39b51618910ceff67f64589993160bd6452f4b9f87aecc5b8b"
+    "sha256": "f19e5168692ef1fb3d2273c843fd99558c455c5d57c37c728339d4b684a77569"
   },
   "sources": [
     {
