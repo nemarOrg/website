@@ -5,7 +5,7 @@ Dataset ids, counts and measurements only.
 
 ## How it was run
 
-- Suite: `e2e/ieeg-spatial-validation.spec.ts` (26 tests), run against the local dev server with `PUBLIC_DATA_BASE_URL=https://data.nemar.org bun run test:e2e e2e/ieeg-spatial-validation.spec.ts`.
+- Suite: `e2e/ieeg-spatial-validation.spec.ts` (27 tests, the last of which fails a run that leaned on retries or started on a slow data plane), run against the local dev server with `PUBLIC_DATA_BASE_URL=https://data.nemar.org bun run test:e2e e2e/ieeg-spatial-validation.spec.ts`.
   Each test opens the embed route (the same viewer session the dataset dialog runs) on the dataset's first recording and reads the dataset's own sidecars and Zarr store from the public data plane; nothing is written anywhere.
 - Browser: Chromium 148.0.7778.96, headless, Playwright 1.60.0, desktop viewport 1280 by 900 (360 by 900 where stated), software WebGL.
   Nothing is claimed for Firefox or Safari.
@@ -13,7 +13,9 @@ Dataset ids, counts and measurements only.
 - The data plane answers 500 now and then, and the dev server's own server-side read of a dataset's landing file sometimes fails.
   The suite reloads the embed page and presses Retry as a reader would, and counts both; a failure that outlasts them fails the test.
   Several runs met data plane trouble and are reported as such, not hidden: one run lost ten tests to a connectivity episode (21 server-side reads of the dev server failed with `network_error` within about five minutes), others met stretches in which the Zarr route answered each range request in 7 to 14 s and sidecar resolution took over a minute; the tests that failed for those reasons were rerun.
-  The final full run is quoted in the pull request with its counters.
+  The suite never reached all green in one run: the final full run of the 26-test version had 2 failed and 24 passed in 16.0 minutes, and both failures were outages; every test passed at least once, in some run.
+  The suite now times the Zarr route before it starts (a median of three requests, recorded first), skips the long-task budget test with a visible reason while the route is slow, counts passing failures per test and fails its last test when the counts pass a stated allowance (3 embed reloads, 3 Retry presses, 10 server errors, 10 failed requests).
+  Its tests run in order in one worker only when the file is run alone (the configuration runs spec files in parallel workers).
 - The staging site check of `xx099902` is the manager's, after the epic is merged into staging; it was not run here.
 
 ## What the panel showed, per dataset
@@ -42,7 +44,7 @@ Every panel state that was opened carried the credit link: address `https://rave
 ## Light and dark
 
 `?theme=light|dark` on the embed route, on005522 (template), on005415 (native) and a refusal with Retry (a forced electrodes read failure, marked in the suite so it is not counted as a data plane failure).
-WCAG contrast of text against what is behind it, measured in the page: all at least 4.5.
+WCAG contrast of text, measured against the resolved CSS backgrounds, not canvas pixels (the credit link's 80 percent backing sits over the canvas); the suite takes the lowest of the first 200 elements matching each selector, and the figures below are for the first match of each, which equal the lowest in the latest run: all at least 4.5.
 on005522 light: status 17.9, credit 7.6, template label 17.9, contact name 17.9, recorded line 4.8; dark: 17.0, 12.6, 17.0, 17.0, 7.3.
 The canvas background luminance is 0.99 in light and 0.08 in dark; the surface and the contacts are drawn in both (surface 0.170 and 0.169 of the canvas).
 
@@ -64,37 +66,37 @@ Chromium launched with `--disable-3d-apis --disable-webgl --disable-webgl2` (bot
 | --- | --- | --- | --- |
 | Panel code beyond the viewer chunk at the epic base | 64 KB gzipped (65,536 bytes) | panel chunk 36,109 bytes (99,124 raw) plus viewer chunk growth 1,432 bytes (56,848 to 58,280; 161,956 to 166,137 raw) is 37,541 bytes; with the shared stylesheet's 716 bytes and the embed chunk's 37 the whole JavaScript and CSS delta is 38,296 bytes | met, 57 percent of the limit |
 | Template mesh transferred | 600 KB | as served by the dev server, no content encoding: 532,862 bytes for the two files (532,262 body, 600 of headers), the browser's own network entries; from a local server standing in for a compressing host: gzip level 9 430,133 bytes, brotli 370,440 body (371,040 transferred) | met, 89 percent of the limit uncompressed |
-| First contacts drawn after opening the panel, warm cache | 1.5 s | contacts: 16 to 55 ms over all warm opens in five full runs on three datasets (on005522, nm000485, on005415); cold (first open in a fresh context) 20 to 52 ms; the surface follows 93 to 312 ms after the click | met |
-| Long task while Activity recomputes a 10 s window of 128 or more channels | 200 ms | nm000485, 136 located channels, 10 s window. Zarr route fast (reads done in 0.4 s; seven runs): switch on and change of measure produced no long task (the browser reports tasks over 50 ms); moving the window, one task of 187 to 194 ms, against 190 to 209 ms for the same window step with Activity off. Zarr route slow (reads took 38 to 66 s; seven runs): switch on produced one task of 212 to 233 ms, change of measure one of 189 to 215 ms | met in the fast regime; missed by 6 to 17 percent (212 to 233 ms) in the slow regime, far from the 50 percent stop condition, so the lead decides; the scope's own step sits at the limit (see Findings) |
+| First contacts drawn after opening the panel, warm cache | 1.5 s | Plan-literal figure, from the click that opens the panel to the first draw call of the contacts: 16 to 55 ms over all warm opens in five full runs on three datasets (on005522, nm000485, on005415); cold (first open in a fresh context) 20 to 52 ms; the surface follows 93 to 312 ms after the click. Excluded interval, navigation to an enabled toggle (the dataset's sidecars resolve first): 3.2 to 5.0 s cold and 0.7 to 2.3 s warm while the data plane was fast, 11.5 to 19 s while it was slow. Reader-visible figure, navigation to first contacts if the reader opens the panel the moment the toggle enables: the excluded interval plus the 16 to 55 ms, so 0.7 to 2.3 s warm and 3.2 to 5.0 s cold while fast, up to about 14 s warm and 19 s cold while slow | met as the plan words it (click to first draw); the reader waits for the sidecars, which the budget does not cover |
+| Long task while Activity recomputes a 10 s window of 128 or more channels | 200 ms | nm000485, 136 located channels, 10 s window. Zarr route fast (reads done in 0.4 s; seven runs): switch on and change of measure produced no long task (the browser reports tasks over 50 ms); moving the window, one task of 187 to 194 ms, against 190 to 209 ms for the same window step with Activity off. Zarr route slow (reads took 38 to 66 s): switch on produced one task of 212 to 233 ms and change of measure one of 189 to 215 ms in seven runs here; in one slow-regime run of the independent review, 785 ms and 270 ms | met while the Zarr route is fast; missed while it is slow, over the full observed range 189 to 785 ms for the slow regime, 212 to 785 ms for the switch-on task (6 to 292 percent over 200 ms; the 270 ms run is 35 percent over). The stop condition (a miss of more than 50 percent, over 300 ms) was reached once (785 ms). Attribution is unknown: the panel's `computeActivityPlan` awaits the row reads and then computes in the same task and yields only after, so decoding and computing can land in one task whose length then follows what arrived together. The lead ruled: not fixed in this card, which stays measurement only; follow-up card IS-Q2 (trace first) |
 
 How each was measured:
 
 - Bundle: `bunx astro build` of the epic base (517bfee) and of this branch's base (6cba53d), `gzip -9c` of each emitted file; the three `generate:*` Open Graph steps of `bun run build` were skipped (they render cards from the live catalog and touch no chunk).
 - Mesh: `PerformanceResourceTiming` entries of the two `.mesh.bin` requests (`transferSize`, `encodedBodySize`, `decodedBodySize`), once from the site and once from a local server that sends identity, gzip or brotli with timing headers; what the production host does for `.bin` files was not read (see not run).
 - First contacts: a probe installed before the page loads wraps `drawElementsInstanced` (the renderer's one call for the contact spheres) and `drawElements` (the surface) and records `performance.now()` at the first call with a positive count after the click on the toggle (the click event's own timestamp); the pixels are then checked to hold contacts.
-  Warm means the page was reloaded in the same browser context, so the data and the surface revalidate from the HTTP cache.
-  The time from page load to an enabled toggle (sidecars resolved, not budgeted) was 3.2 to 5.0 s cold and 0.7 to 2.3 s warm while the data plane was fast, and up to 19 s cold and 14 s warm while it was slow.
+  Warm means a reload in the same browser context with conditional revalidation: the dev server sends an ETag and `Cache-Control: no-cache`, so every file is revalidated with a conditional request and the surface is fetched and decoded again; the cache saves bytes, not round trips or decoding.
 - Long tasks: `PerformanceObserver` of type `longtask` from before the page loads, reset before each phase.
   A first attempt with four tests in parallel gave 277 to 357 ms for the window step; that measured the host under load, not the panel, and the suite now runs this test alone.
 
 ## Findings (patch notes for the owning cards; nothing was fixed here)
 
-1. IS-V1 and IS-J1: a recording whose channel names join no contact (nm000377, on004624) gets a disabled toggle with the sentence "None of this recording's channels match a contact in the electrodes file." and nothing else.
+1. Moved to IS-Q2 (IS-V1 and IS-J1): a recording whose channel names join no contact (nm000377, on004624) gets a disabled toggle with the sentence "None of this recording's channels match a contact in the electrodes file." and nothing else.
    The unlocated-channel note that lists the original names lives inside the panel, which cannot be opened when no channel is located, so those names are shown nowhere.
    Either enable the toggle for this case so the refusal stage can list a few original channel names with their cause, or put a few names in the toggle's title.
-2. IS-V1 and IS-V2: on004100 declares `m` for numbers that are millimeter-sized, so the contacts are scaled by 1000 and lie about 17 m from the origin; the panel draws the template surface with no visible contact and says so only in a note below the canvas.
+2. Moved to IS-Q2 (IS-V1 and IS-V2, units): on004100 declares `m` for numbers that are millimeter-sized, so the contacts are scaled by 1000 and lie about 17 m from the origin; the panel draws the template surface with no visible contact and says so only in a note below the canvas.
    The ADR forbids inferring units from magnitudes, so the numbers are right to stay; the display could fit the camera to the contacts, or not draw the surface, when the span warning fires, or put the warning on the canvas.
-3. Viewer (not the panel): one window step of the scope at 136 channels is a long task of 187 to 209 ms with Activity off, at the plan's 200 ms limit.
-   The panel's recompute adds none, but the combined step has no margin.
+3. Viewer (not the panel): in the fast regime one window step of the scope at 136 channels is a long task of 187 to 209 ms with Activity off, at the plan's 200 ms limit.
+   In the independent review's slow-regime run the scope's window step was not reproduced as a long task, and in this suite's slow-regime runs the baseline step showed none (the window was cached), so it is not shown to be a long task in that regime.
+   The attribution of the slow-regime tasks in the budget table is unknown.
 4. Platform, for the Zarr converter owner (nemar-cli or biosigIO): in on005415, on004551, on005007, on004473 and on006136 the store's channel label differs from the dataset's `channels.tsv` name.
    Writing the BIDS name into the store label would remove the need for the IS-J1 name rules.
 5. Information: the on005415 electrodes file starts with a UTF-8 byte order mark; the panel's parser drops it, and a test reading the file raw has to as well.
 6. Platform (data plane): the Zarr route's latency swung from 0.4 s to 12 s for the same small request within one minute, and Activity on nm000485 took 0.4 s to become ready in one hour and 38 to 66 s in another (29 range requests, the slowest 7 to 14 s each).
-   The long task of 212 to 233 ms was seen only in the slow hour.
+   The long tasks of 212 to 238 ms were seen only in the slow hours.
    The toggle said "checking" for more than 60 s on some loads in that hour.
 7. Unexplained and intermittent, environment not ruled out: in about 16 runs of the export test, the page stopped answering at the click on the "2D views" switch three times (the test timed out; one teardown took 14 minutes), and once the embed page showed neither the viewer nor a notice for 90 s.
    Twelve repeated runs of the same sequence in a plain script (save PNG, then 2D views) did not reproduce it.
-   If it recurs, record whether the host was idle or asleep.
+   If it recurs, trace it rather than guess: a heartbeat in the page (a `requestAnimationFrame` loop recording the gaps, so a frozen renderer shows as a gap and a stalled network as none), the host kept awake (`caffeinate -i`) to rule sleep out, Playwright tracing for the test, a Chrome DevTools Protocol trace with the `devtools.timeline` and `v8` categories around the click, request timing for `views.json`, the two mesh files and the Zarr route, and the dev server's log for the same minute.
 
 ## Not run, would check
 
