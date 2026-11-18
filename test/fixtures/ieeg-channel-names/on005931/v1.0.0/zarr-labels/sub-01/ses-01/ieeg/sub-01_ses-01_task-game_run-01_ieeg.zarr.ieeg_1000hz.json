@@ -1,0 +1,262 @@
+{
+ "source": "https://zarr.nemar.org/on005931/zarr/sub-01/ses-01/ieeg/sub-01_ses-01_task-game_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "POL A1-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A2-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A3-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A4-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A5-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A6-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A7-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A8-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A9-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A10-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A11-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A12-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A13-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A14-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A15-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A16-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A17-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A18-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A19-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A20-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A21-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A22-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A23-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A24-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A25-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A26-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A27-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A28-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A29-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A30-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A31-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A32-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A33-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A34-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A35-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A36-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A37-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A38-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A39-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A40-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A41-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A42-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A43-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A44-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A45-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A46-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A47-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A48-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A49-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A50-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A51-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A52-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A53-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A54-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A55-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A56-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A57-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A58-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A59-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A60-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A61-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A62-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A63-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A64-AV",
+   "channel_type": "OTHER"
+  }
+ ]
+}

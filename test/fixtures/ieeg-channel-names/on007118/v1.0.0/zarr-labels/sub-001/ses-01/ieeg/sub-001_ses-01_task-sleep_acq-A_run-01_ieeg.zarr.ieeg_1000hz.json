@@ -1,0 +1,470 @@
+{
+ "source": "https://zarr.nemar.org/on007118/zarr/sub-001/ses-01/ieeg/sub-001_ses-01_task-sleep_acq-A_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "A1-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A2-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A3-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A4-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A5-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A6-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A7-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A8-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A9-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A10-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A11-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A12-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A13-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A14-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A15-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A16-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A17-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A18-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A19-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A20-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A21-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A22-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A23-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A24-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A25-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A26-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A27-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A28-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A29-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A30-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A31-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A32-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A33-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A34-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A35-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A36-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A37-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A38-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A39-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A40-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A41-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A42-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A43-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A44-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A45-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A46-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A47-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A48-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A49-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A50-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A51-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "A52-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B1-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B2-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B3-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B4-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B5-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B6-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B7-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B8-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B9-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B10-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B11-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B12-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B13-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B14-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B15-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B16-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B17-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B18-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B19-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B20-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B21-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B22-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B23-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B24-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B25-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B26-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B27-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B28-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B29-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B30-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B31-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B32-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B33-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B34-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B35-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B36-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B37-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B38-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B39-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B40-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B41-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B42-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B43-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B44-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B45-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B46-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B47-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B48-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B49-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B50-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B51-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B52-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B53-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B54-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B55-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B56-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B57-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B58-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B59-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B60-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B61-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B62-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B63-AV",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "B64-AV",
+   "channel_type": "OTHER"
+  }
+ ]
+}

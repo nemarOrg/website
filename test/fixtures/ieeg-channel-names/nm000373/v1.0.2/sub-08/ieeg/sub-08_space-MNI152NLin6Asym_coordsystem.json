@@ -1,0 +1,7 @@
+{
+  "iEEGCoordinateSystem": "MNI152NLin6Asym",
+  "iEEGCoordinateUnits": "n/a",
+  "iEEGCoordinateSystemDescription": "Values copied verbatim from the release file allContacts_MNIcoords.csv, described by the authors as coordinates 'in MNI 2mm standard space'. All values are positive integers (x 7-83, y 11-106, z 9-82), consistent with voxel indices of the FSL MNI152 T1 2 mm template (FSL MNI152_T1_2mm, i.e. MNI152NLin6Asym at 2 mm), not millimetres. They were not converted. If they are 0-based FSL voxel indices, millimetre coordinates follow from the template affine: x_mm = 90 - 2*x, y_mm = 2*y - 126, z_mm = 2*z - 72 (unverified assumption).",
+  "iEEGCoordinateProcessingDescription": "Authors' method (Dryad record): contact locations identified on post-operative CT and MRI, reconstructed in BioImage Suite, registered to the pre-operative MRI, converted from .MGRID to native-space coordinates with FieldTrip, written as a one-voxel-per-contact mask in FSL native space, and linearly registered to the MNI T1 2 mm standard brain.",
+  "iEEGCoordinateProcessingReference": "Sherman BE, Aljishi A, Graves KN, Quraishi IH, Sivaraju A, Damisah EC, Turk-Browne NB (2023). Intracranial entrainment reveals statistical learning across levels of abstraction. J Cogn Neurosci. doi:10.1162/jocn_a_02012"
+}

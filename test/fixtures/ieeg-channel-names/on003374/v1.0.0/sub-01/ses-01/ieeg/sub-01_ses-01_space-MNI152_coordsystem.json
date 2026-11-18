@@ -1,0 +1,7 @@
+{
+    "iEEGCoordinateSystem": "Other",
+    "iEEGCoordinateUnits": "mm",
+    "iEEGCoordinateSystemDescription": "MNI152, standard MNI space",
+    "iEEGCoordinateProcessingDescription": "volume-based registration to the standard MNI brain",
+    "iEEGCoordinateProcessingReference": "https://doi.org/10.1038/s41596-018-0009-6"
+}

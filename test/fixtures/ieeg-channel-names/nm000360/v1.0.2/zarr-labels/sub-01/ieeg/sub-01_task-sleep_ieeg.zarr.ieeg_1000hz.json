@@ -1,0 +1,94 @@
+{
+ "source": "https://zarr.nemar.org/nm000360/zarr/sub-01/ieeg/sub-01_task-sleep_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "LA1",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LA2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LA3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LMH1",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LMH2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LMH3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RA1",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RA3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RMH1",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RMH2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RMH3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LA1-LA2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LA2-LA3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LA3-LA4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LMH1-LMH2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LMH2-LMH3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "LMH3-LMH4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RA1-RA3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RA3-RA4",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RMH1-RMH2",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RMH2-RMH3",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "RMH3-RMH4",
+   "channel_type": "SEEG"
+  }
+ ]
+}

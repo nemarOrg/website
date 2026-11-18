@@ -1,0 +1,6 @@
+{
+  "iEEGCoordinateSystem": "MNI152NLin2009cAsym",
+  "iEEGCoordinateUnits": "mm",
+  "iEEGCoordinateSystemDescription": "x/y/z from deposit derivatives/sub-*/recon/ieeg_recon/module3/MNI/sub-*_ses-research3T_space-MNI152NLin2009cAsym_desc-mm_electrodes.txt (row order = module2/sub-*_electrode_names.txt). native_T00mri_* = module2 *_space-T00mri_desc-mm_electrodes.txt (pre-implant 3T T1 space). anat_label = DKT (antspynet) label, 2-mm radius, from module3 *_atlas-DKTantspynet_radius-2_desc-vox_coordinates.csv (12 of 15 subjects); tissue_atropos = Atropos tissue class; atlas_label_aal3_coarse = AAL3 lookup of the MNI coordinates (report/ieeg-atlas/build/coord_regions.py).",
+  "Source": "https://discover.pennsieve.io/datasets/662/version/1"
+}

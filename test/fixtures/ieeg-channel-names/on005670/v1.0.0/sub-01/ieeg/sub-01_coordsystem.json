@@ -1,0 +1,8 @@
+{
+    "IntendedFor": "/sub-01/ieeg/sub-01_task-rest_ieeg.edf",
+    "iEEGCoordinateSystem": "MNI152Lin",
+    "iEEGCoordinateUnits": "mm",
+    "iEEGCoordinateSystemDescription": "MNI152",
+    "iEEGCoordinateProcessingDescription": "Electrodes were localized using post-implant CT and co-registered to pre-implant MRI",
+    "iEEGCoordinateProcessingReference": "n/a"
+} 

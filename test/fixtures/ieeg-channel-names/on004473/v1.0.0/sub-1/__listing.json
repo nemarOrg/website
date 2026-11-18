@@ -1,0 +1,1 @@
+{"dataset_id":"on004473","version":"v1.0.0","path":"sub-1","kind":"directory","children":[{"kind":"dir","name":"anat"},{"kind":"dir","name":"beh"},{"kind":"dir","name":"ieeg"},{"kind":"file","name":"sub-1_scans.tsv","size":82}]}
