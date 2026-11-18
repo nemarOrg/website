@@ -36,6 +36,7 @@ import { readFileSync } from "node:fs";
 import { type Page, expect, test } from "@playwright/test";
 import { RAVE_CREDIT, creditLinkSpec } from "../src/lib/ieeg-spatial/credit";
 import { GEOMETRY_SENTENCES, WEBGL_SENTENCE } from "../src/lib/ieeg-spatial/panel";
+import { layoutViews, viewsMarkup } from "../src/lib/ieeg-spatial/views2d";
 
 // Serial, and with room for the network: the panel retries a passing failure of the data plane
 // quietly (about three seconds) before it shows Retry.
@@ -563,6 +564,7 @@ async function svgFacts(page: Page, text: string) {
       linkText: link?.querySelector("text")?.textContent ?? null,
       views: [...root.querySelectorAll("g[data-view]")].map((g) => g.getAttribute("data-view")),
       circles: root.querySelectorAll("circle[data-contact]").length,
+      orientation: root.querySelectorAll("text[data-orientation]").length,
       untitled: [...root.querySelectorAll("circle[data-contact]")].filter(
         (c) => !c.querySelector("title")?.textContent,
       ).length,
@@ -653,7 +655,9 @@ test("on005522: the figures say what Activity says, and the 2D views are the rea
   const title = await page
     .locator(`${STAGE} g[data-view="top"] circle[data-contact="1"] title`)
     .textContent();
-  expect(title).toMatch(/^[A-Z0-9]+; channels? [^;]+; \S+ µV²$/);
+  expect(title).toMatch(
+    /^[A-Z0-9]+ \(channels? [^)]+\); recorded \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, frame: MNI152NLin6ASym; \S+ µV²$/,
+  );
 
   // The saved SVG and the 2D PNG say the same: the summary, the colorbar ends, the selection.
   const svg = await saved(page, "svg");
@@ -665,6 +669,17 @@ test("on005522: the figures say what Activity says, and the 2D views are the rea
   }
   expect(facts.text).toContain("Selected:");
   expect(facts.linkHref).toBe(RAVE_CREDIT.href);
+  // Which measure and band the values are, in the selectors' words, in the file and the live views.
+  const measure = "Band power: High gamma, 70 to 150 Hz";
+  expect(facts.text).toContain(measure);
+  await expect(page.locator("[data-spatial-view-notes]")).toContainText(measure);
+  // Orientation letters: four per view, live and saved.
+  await expect(page.locator(`${STAGE} text[data-orientation]`)).toHaveCount(12);
+  expect(facts.orientation).toBe(12);
+  // The contact list says where each contact was recorded, as the file wrote it.
+  await expect(
+    page.locator('[data-spatial-list] li[data-contact="0"] .eegv__spatial-loc'),
+  ).toHaveText(/^recorded \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, frame: MNI152NLin6ASym$/);
 
   const png = await saved(page, "png");
   const corners = await pngCorners(page, png.bytes);
@@ -724,4 +739,38 @@ test("no save buttons where nothing is drawn: a refusal keeps the credit and no 
   await expect(page.locator("[data-spatial-save]:visible")).toHaveCount(0);
   await expect(page.locator("[data-spatial-view2d]:visible")).toHaveCount(0);
   await expectCredit(page);
+});
+
+test("a contact name XML cannot hold does not break the figure's markup", async ({ page }) => {
+  // The markup the 2D views and the SVG export share, with U+0001 and U+000B in a title, parsed
+  // by the browser's own XML parser. No network is needed.
+  const contacts = [
+    {
+      index: 0,
+      position: [1, 2, 3] as const,
+      size: null,
+      fill: "#f5b82e",
+      opacity: 1,
+      selected: false,
+      title: "A\u0001B\u000BC (channel A); recorded (1, 2, 3) mm, frame: ACPC",
+    },
+  ];
+  const views = layoutViews({
+    contacts,
+    millimeters: true,
+    template: null,
+    arrangement: "row",
+    region: { x: 0, y: 0, width: 900, height: 300 },
+  });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg">${viewsMarkup(views, { foreground: "#000", muted: "#555", border: "#ccc" }, "sans-serif")}</svg>`;
+  await page.goto("about:blank");
+  const result = await page.evaluate((source) => {
+    const doc = new DOMParser().parseFromString(source, "image/svg+xml");
+    return {
+      error: doc.querySelector("parsererror")?.textContent ?? null,
+      titles: [...doc.querySelectorAll("circle title")].map((t) => t.textContent),
+    };
+  }, svg);
+  expect(result.error).toBeNull();
+  expect(result.titles[0]).toBe("ABC (channel A); recorded (1, 2, 3) mm, frame: ACPC");
 });
