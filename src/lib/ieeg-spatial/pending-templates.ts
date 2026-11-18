@@ -69,13 +69,8 @@ export const PENDING_TEMPLATES: ReadonlyMap<StandardTemplate, PendingTemplate> =
     "The cohort of the positions (SpatialReference metadata), a published transform from that cohort's atlas to an adult MNI152 template, and a worked point pair; an infant surface may be needed instead.",
   ),
   pending(
-    "fsaverageSym",
-    "BIDS says its volumetric template is a FreeSurfer variant of MNI305, the sentence fsaverage's row rests on, but FreeSurfer's Xhemi documentation says nothing of fsaverage_sym coordinates in MNI305 space and no worked example is specific to it. Candidate: the fsaverage row.",
-    'A FreeSurfer source stating that fsaverage_sym coordinates are the same MNI305 space as fsaverage (or printing its own matrix) with a worked point pair; then add row("fsaverageSym", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, ...).',
-  ),
-  pending(
     "fsLR",
-    "A surface template (BIDS lists 164k to 4k meshes) and TemplateFlow holds surfaces only. BIDS says its volumetric template is MNI152NLin6Asym, but a position labeled fsLR may be a surface vertex, and no HCP or TemplateFlow source found prints the relation with a worked example.",
-    'An HCP or TemplateFlow source stating which volumetric space fsLR surface coordinates are in, with a worked vertex-to-volume pair; then add row("fsLR", "variant", IDENTITY, VARIANT_APPROXIMATION, ...).',
+    "A surface template (BIDS lists 164k to 4k meshes) and TemplateFlow holds surfaces only. BIDS names MNI152NLin6Asym as its volumetric template, but a position labeled fsLR may be a surface vertex coordinate, which no source found covers, and none prints a worked example.",
+    'An HCP or TemplateFlow source stating which volumetric space fsLR surface coordinates are in and how a vertex coordinate relates to it, with a worked vertex-to-volume pair; then add row("fsLR", "variant", IDENTITY, VARIANT_APPROXIMATION, ...).',
   ),
 ]);

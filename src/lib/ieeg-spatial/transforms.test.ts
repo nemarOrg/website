@@ -141,8 +141,8 @@ describe("MNI305 to MNI152: FreeSurfer's published affine and its worked example
     );
   });
 
-  it("MNI305 and fsaverage both reach the example through the registry", () => {
-    for (const id of ["MNI305", "fsaverage"] as const) {
+  it("MNI305, fsaverage and fsaverageSym all reach the example through the registry", () => {
+    for (const id of ["MNI305", "fsaverage", "fsaverageSym"] as const) {
       expectNear(placeOnTemplate(rule(id), inputOf(FS_ITEM_8)), exampleOf(FS_ITEM_8), 0.01);
     }
   });
@@ -241,6 +241,7 @@ describe("the registry", () => {
     IXI549Space: "variant",
     MNI305: "affine",
     fsaverage: "affine",
+    fsaverageSym: "affine",
     Talairach: "affine",
   };
 
@@ -262,6 +263,16 @@ describe("the registry", () => {
       if (r.kind !== "affine") expect([...r.transform], r.identifier).toEqual([...IDENTITY]);
     }
     expect(rule("fsaverage").source).toMatch(/FreeSurfer/);
+    // fsaverageSym rests on the BIDS sentence it shares with fsaverage, and says it is approximate
+    expect(rule("fsaverageSym").source).toMatch(/same sentence as fsaverage/);
+    expect(rule("fsaverageSym").source).toMatch(/FreeSurfer variant of MNI305/);
+    expect(rule("fsaverageSym").source).toMatch(/symmetric variant of fsaverage, so approximate/);
+    // and the sentence is in the pinned appendix, word for word the same for both
+    const clause = "the volumetric template corresponds to a FreeSurfer variant of `MNI305` space";
+    expect(APPENDIX.split(clause).length - 1).toBe(2);
+    const line = (id: string) => APPENDIX.split("\n").find((l) => l.startsWith(`| ${id} `)) ?? "";
+    expect(line("fsaverage")).toContain(clause);
+    expect(line("fsaverageSym")).toContain(clause);
     expect(rule("Talairach").source).toMatch(/Lancaster et al\. 2007/);
     expect(rule("Talairach").source).toMatch(/10\.1002\/hbm\.20345/);
   });
@@ -324,7 +335,7 @@ describe("the registry", () => {
     expect(placementRuleFor(template, { unit: null })).toBeNull();
     expect(placementRuleFor(template, { unit: "pixels" })).toBeNull();
     // identifiers of the BIDS table without a cited transform are not placed
-    for (const id of ["MNIColin27", "ICBM452AirSpace", "fsaverageSym", "fsLR", "NIHPD"]) {
+    for (const id of ["MNIColin27", "ICBM452AirSpace", "fsLR", "NIHPD"]) {
       expect(placementRuleFor(classifyFrame(id, null, null), mm), id).toBeNull();
     }
   });
@@ -361,6 +372,9 @@ describe("the label", () => {
       `${TEMPLATE_LABEL}; approximate: MNI305 to MNI152 affine`,
     );
     expect(templateLabel(rule("MNI305"))).toContain(MNI305_APPROXIMATION);
+    expect(templateLabel(rule("fsaverageSym"))).toBe(
+      `${TEMPLATE_LABEL}; approximate: MNI305 to MNI152 affine`,
+    );
     expect(templateLabel(rule("Talairach"))).toBe(
       `${TEMPLATE_LABEL}; approximate: Talairach to MNI affine`,
     );
@@ -547,7 +561,6 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
     "OASIS30Atropos",
     "UNCInfant",
     "fsLR",
-    "fsaverageSym",
   ];
 
   it("the registry and the pending table together are exactly the appendix's table, and no identifier is in both", () => {
@@ -622,10 +635,11 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
       expect(isPendingTemplate(frame), label).toBe(false);
       expect(noPlacementSentence(frame), label).not.toContain(" yet ");
     }
-    // the one that equals a current identifier in letter case is that identifier, so it is pending
+    // the one that equals a current identifier in letter case is that identifier (fsaverageSym, placed)
     const sym = classifyFrame("fsaveragesym", null, null);
     expect(sym).toMatchObject({ kind: "template", identifier: "fsaverageSym" });
-    expect(isPendingTemplate(sym)).toBe(true);
+    expect(isPendingTemplate(sym)).toBe(false);
+    expect(placementRuleFor(sym, { unit: "mm" })?.identifier).toBe("fsaverageSym");
   });
 
   it("a pending family reads 'No template placement yet for X' and every other unplaced frame reads 'No template placement for X'", () => {

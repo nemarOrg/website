@@ -1931,7 +1931,6 @@ describe("template anatomy", () => {
       "MNIColin27",
       "ICBM452AirSpace",
       "ICBM452Warp5Space",
-      "fsaverageSym",
       "fsLR",
       "NIHPD",
       "OASIS30AntsOASISAnts",
@@ -1965,6 +1964,23 @@ describe("template anatomy", () => {
     const placed = await underFrame("MNI152NLin2009cAsym");
     expect(loads(placed.effects)).toHaveLength(1);
     expect(viewModel(loaded(placed.state)).template).toMatchObject({ status: "ready" });
+  });
+
+  it("fsaverageSym is placed like fsaverage: the surface is asked for, the label says approximate, contacts go through FreeSurfer's affine", async () => {
+    const sym = await underFrame("fsaverageSym");
+    expect(loads(sym.effects)).toHaveLength(1);
+    expect(sym.state.template).toBe("loading");
+    expect(viewModel(sym.state).notes.join("\n")).not.toMatch(/No template placement/);
+    const ready = loaded(sym.state);
+    expect(viewModel(ready).template).toMatchObject({
+      status: "ready",
+      label: `${OWN}; approximate: MNI305 to MNI152 affine`,
+    });
+    const declared = sym.state.placement?.contacts.map((c) => c.position) ?? [];
+    expect(declared.length).toBeGreaterThan(10);
+    const drawn = drawnPositions(ready) ?? [];
+    declared.forEach((p, i) => expect(drawn[i]).toEqual(applyAffine(MNI305_TO_MNI152, p)));
+    expect(drawn[0]).not.toEqual(declared[0]);
   });
 
   it("the sentence for an undeclared frame does not name a frame the file never wrote", async () => {

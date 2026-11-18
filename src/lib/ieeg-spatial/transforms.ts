@@ -10,11 +10,11 @@
  * | --------------------------------------------- | ------------------------------------------- | --------------------------------------------------------- |
  * | `MNI152NLin2009cAsym`                         | none, the surface's own frame               | nothing                                                   |
  * | every other `MNI152*`, `IXI549Space`          | identity                                    | `approximate: MNI template variants differ by a few mm`   |
- * | `MNI305`, `fsaverage`                         | FreeSurfer's published MNI305 to MNI152     | `approximate: MNI305 to MNI152 affine`                    |
+ * | `MNI305`, `fsaverage`, `fsaverageSym`         | FreeSurfer's published MNI305 to MNI152     | `approximate: MNI305 to MNI152 affine`                    |
  * | `Talairach`                                   | inverse of Lancaster et al.'s pooled MTT    | `approximate: Talairach to MNI affine`                    |
  *
  * Every other identifier of the BIDS table is PENDING (`pending-templates.ts`): `MNIColin27`,
- * `ICBM452AirSpace`, `ICBM452Warp5Space`, `fsaverageSym`, `fsLR`, `NIHPD`, `OASIS30AntsOASISAnts`,
+ * `ICBM452AirSpace`, `ICBM452Warp5Space`, `fsLR`, `NIHPD`, `OASIS30AntsOASISAnts`,
  * `OASIS30Atropos` and `UNCInfant`. Each says why it has no row yet and what evidence would place
  * it, and the panel says "No template placement yet for X". A test fails when an identifier of the
  * pinned BIDS appendix is neither placed nor pending, so a new standard identifier forces a
@@ -38,7 +38,8 @@
  *   (item 8b) and its example to (9.3131, -21.5849, 33.8345). It says the MNI152 there is the one of
  *   FSL's standard 2 mm MNI152 template, so the surface (a 2009c brain) is a further
  *   few millimeters away, and the label says "approximate" for that reason too. BIDS names MNI305
- *   as the volume of `fsaverage` (coordinate-systems appendix), hence the same row.
+ *   as the volume of `fsaverage` (coordinate-systems appendix), hence the same row, and says the
+ *   same of `fsaverageSym` in the same words (see the registry, where that row's caveat is).
  * - Talairach to MNI: Lancaster JL, Tordesillas-Gutierrez D, Martinez M, Salinas F, Evans A,
  *   Zilles K, Mazziotta JC, Fox PT. Bias between MNI and Talairach coordinates analyzed using the
  *   ICBM-152 brain template. Human Brain Mapping 28(11):1194-1205 (2007), doi 10.1002/hbm.20345.
@@ -221,6 +222,14 @@ const MNI305_SOURCE =
 const TALAIRACH_SOURCE =
   "Lancaster et al. 2007, Human Brain Mapping 28:1194, doi 10.1002/hbm.20345, Eq. (3) inverted (BrainMap tal2icbm_other); a group-level model, at best 0.5 to 2.7 mm at landmarks (Table V, per-package fits; the pooled Eq. 3 is not tabulated), not the pipeline of every dataset's Talairach frame";
 
+// fsaverageSym: the BIDS appendix says of it, word for word as of fsaverage, "the volumetric
+// template corresponds to a FreeSurfer variant of MNI305 space", and fsaverage is placed on exactly
+// that sentence plus FreeSurfer's MNI305 to MNI152 matrix and worked example, so fsaverageSym takes
+// the same matrix and the same label. FreeSurfer's documentation says nothing more of fsaverage_sym
+// coordinates, and the surface is a symmetric variant of fsaverage: the relation is approximate.
+const FSAVERAGESYM_SOURCE =
+  "BIDS coordinate-systems appendix, fsaverageSym: the same sentence as fsaverage (a FreeSurfer variant of MNI305), so FreeSurfer's MNI305 to MNI152 matrix and worked example; a symmetric variant of fsaverage, so approximate";
+
 function row(
   identifier: StandardTemplate,
   kind: PlacementKind,
@@ -242,6 +251,7 @@ export const TEMPLATE_PLACEMENTS: ReadonlyMap<StandardTemplate, TemplatePlacemen
   ...MNI_VARIANTS.map((id) => row(id, "variant", IDENTITY, VARIANT_APPROXIMATION, VARIANT_SOURCE)),
   row("MNI305", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, MNI305_SOURCE),
   row("fsaverage", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, MNI305_SOURCE),
+  row("fsaverageSym", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, FSAVERAGESYM_SOURCE),
   row("Talairach", "affine", TALAIRACH_TO_MNI, TALAIRACH_APPROXIMATION, TALAIRACH_SOURCE),
 ]);
 
