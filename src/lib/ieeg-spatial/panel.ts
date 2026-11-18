@@ -30,6 +30,10 @@
  *   stays enabled, the panel says so and offers Retry.
  * - It never names the frame from a description, and never picks a space for the reader beyond a
  *   default the frame selector shows: the first shown template space, else the first shown space.
+ * - It never hides why it shows nothing (card IS-Q2). A recording whose channel names join no
+ *   contact keeps an openable toggle and opens a refusal that lists both sets of names as the
+ *   dataset wrote them (`name-refusal.ts`); a refusal for want of coordinates stays disabled with
+ *   its sentence.
  */
 
 import type { WindowData } from "../eeg-viewer/store";
@@ -101,6 +105,13 @@ import {
   resolveRecordingGeometry,
 } from "./geometry";
 import { isIeegModality } from "./layout";
+import {
+  type NameRefusal,
+  closedByNaming,
+  nameRefusal,
+  unlocatedCauseHeads,
+  unlocatedChannelName,
+} from "./name-refusal";
 import {
   TEMPLATE_DIRECTORY,
   TEMPLATE_FAILED_SENTENCE,
@@ -320,38 +331,25 @@ export function positionWarnings(
   return out;
 }
 
-const UNLOCATED_PHRASES: Record<UnlocatedCause, string> = {
-  no_contact: "no contact of that name in the electrodes file",
-  no_position: "the contact's position is not given",
-  duplicate_contact:
-    "the electrodes file lists the contact twice, or another channel already holds it",
-  ambiguous_pair: "the name reads as two contacts in more than one way",
-  ambiguous_name: "the name fits more than one contact equally well",
-};
-
 /**
  * Channels without a position, grouped by the cause `joinChannels` gave, each by its own name as
  * the recording gave it. At most six names each. A name that fits two contacts says which; a
- * channel that lost its contact to another says whose it is.
+ * channel that lost its contact to another says whose it is. The words of each cause are
+ * `name-refusal.ts`'s, which a recording closed by its names also uses.
  */
 export function unlocatedNotes(joins: readonly ChannelJoin[]): string[] {
   const byCause = new Map<UnlocatedCause, string[]>();
   for (const join of joins) {
     if (join.cause === null) continue;
-    const named =
-      join.cause === "ambiguous_name"
-        ? `${join.channel} (fits ${join.contacts.join(" and ")})`
-        : join.cause === "duplicate_contact" && join.contacts.length === 1
-          ? `${join.channel} (contact ${join.contacts[0]})`
-          : join.channel;
     const list = byCause.get(join.cause);
-    if (list) list.push(named);
-    else byCause.set(join.cause, [named]);
+    if (list) list.push(unlocatedChannelName(join));
+    else byCause.set(join.cause, [unlocatedChannelName(join)]);
   }
+  const heads = new Map(unlocatedCauseHeads(joins).map((h) => [h.cause, h.head]));
   return [...byCause].map(([cause, labels]) => {
     const shown = labels.slice(0, 6).join(", ");
     const more = labels.length > 6 ? ` and ${labels.length - 6} more` : "";
-    return `${labels.length} unlocated channel${labels.length === 1 ? "" : "s"}, ${UNLOCATED_PHRASES[cause]}: ${shown}${more}.`;
+    return `${heads.get(cause)}: ${shown}${more}.`;
   });
 }
 
@@ -1317,6 +1315,11 @@ export interface PanelModel {
   notes: string[];
   /** The selected channel in terms of its contacts (`channelProvenance`), or null. */
   selectedChannel: string | null;
+  /**
+   * Both sets of names, when the recording is closed by its channel names (the refusal stage
+   * lists them); null for every other state.
+   */
+  nameRefusal: NameRefusal | null;
   activity: ActivityModel | null;
   contacts: ContactRow[];
   /** Present in every state: the link the panel mounts, as plain data. */
@@ -1330,6 +1333,20 @@ export interface ModelLimits {
 const DEFAULT_LIMITS: ModelLimits = { maxContacts: MAX_CONTACTS };
 
 const TOGGLE_ENABLED_TITLE = "Brain: where the contacts are, in the frame the dataset declares";
+/** A recording closed by its channel names opens, to compare the two sets of names. */
+const NAMES_TOGGLE_TITLE =
+  "Brain: no channel name joins a contact; open to compare the two lists of names";
+
+/**
+ * The placement of a recording closed by its channel names: a shown space, channels, none located,
+ * and none unlocated for want of a position (that is a missing-coordinates refusal, which stays
+ * disabled). Null for every other state.
+ */
+function closedByNamingPlacement(state: PanelState): Placement | null {
+  const placement = state.placement;
+  if (!placement || state.geometry.kind !== "ready" || placement.contacts.length > 0) return null;
+  return closedByNaming(placement.joins, placement.located) ? placement : null;
+}
 
 function refusedSpaceSentences(geometry: RecordingGeometry): string {
   const distinct = new Set(geometry.spaces.map((s) => s.reason));
@@ -1361,6 +1378,9 @@ function toggleModel(state: PanelState): ToggleModel {
       pressed,
       title: "Brain: the electrode positions could not be loaded; open to retry",
     };
+  }
+  if (closedByNamingPlacement(state)) {
+    return { visible, enabled: true, pressed, title: NAMES_TOGGLE_TITLE };
   }
   if (geometry.spaces.some((s) => s.reason === null)) {
     return off(`Brain view unavailable: ${NO_MATCH_SENTENCE}`);
@@ -1609,6 +1629,17 @@ function selectedChannelSentence(state: PanelState): string | null {
   return join ? channelProvenance(join) : null;
 }
 
+/** Both sets of names, only on the refusal stage of a recording closed by its channel names. */
+function namesFor(state: PanelState, stage: StageModel): NameRefusal | null {
+  const placement = stage.kind === "refusal" ? closedByNamingPlacement(state) : null;
+  return placement
+    ? nameRefusal(
+        placement.joins,
+        placement.space.contacts.map((c) => c.name),
+      )
+    : null;
+}
+
 /** Everything the DOM half draws, from the state alone. The credit is in every model. */
 export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMITS): PanelModel {
   const stage = stageModel(state, limits);
@@ -1629,6 +1660,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
     selectedChannel: placement ? selectedChannelSentence(state) : null,
+    nameRefusal: namesFor(state, stage),
     activity: placement ? activityModel(state) : null,
     contacts: placement ? contactRows(state, stage) : [],
     credit: creditLinkSpec(),
@@ -1993,6 +2025,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const credit = creditLink(document);
   stage.append(msgWrap, views, credit);
 
+  // The names of a recording closed by its channel names (IS-Q2), under the refusal sentence.
+  const nameBox = el("div", "eegv__spatial-names");
+  nameBox.setAttribute("role", "group");
+  nameBox.setAttribute("aria-label", "Channel names and contact names that no rule joined");
+  nameBox.dataset.spatialNames = "";
+  nameBox.hidden = true;
+
   // The "2D views" switch and the two save buttons (IS-V3), shown while contacts are drawn.
   const actions = el("div", "eegv__spatial-actions");
   const view2dBtn = el("button", "eegv__btn", "2D views");
@@ -2086,6 +2125,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   inner.append(
     frameWrap,
     stage,
+    nameBox,
     actions,
     saveMsg,
     templateBox,
@@ -2285,6 +2325,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       retry.hidden = !(model.stage.kind === "refusal" && model.stage.retry);
     }
 
+    paintNames(model);
+
     paintViews(model);
     actions.hidden = !model.view.shown;
     view2dBtn.setAttribute("aria-pressed", String(model.view.on));
@@ -2400,6 +2442,39 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       template: templatePlacementFor(state, outlinesData),
       frameLabel: frameName(state.placement?.space.frame ?? null),
     };
+  }
+
+  /** The two sets of names of a recording closed by its channel names, rebuilt only when they change. */
+  function paintNames(model: PanelModel): void {
+    const refusal = model.nameRefusal;
+    nameBox.hidden = refusal === null;
+    if (refusal === null) {
+      if (nameBox.dataset.key !== undefined) nameBox.replaceChildren();
+      delete nameBox.dataset.key;
+      return;
+    }
+    const key = JSON.stringify(refusal);
+    if (nameBox.dataset.key === key) return;
+    nameBox.dataset.key = key;
+    const column = (list: NameRefusal["channels"], attribute: string) => {
+      const col = el("div", "eegv__spatial-names-col");
+      col.setAttribute(`data-${attribute}`, "");
+      const heading = el("p", "eegv__spatial-names-head", list.heading);
+      const ul = el("ul", "eegv__spatial-names-list");
+      for (const name of list.names) ul.append(el("li", "eegv__spatial-names-item", name));
+      col.append(heading, ul);
+      return col;
+    };
+    const cols = el("div", "eegv__spatial-names-cols");
+    cols.append(
+      column(refusal.channels, "spatial-names-channels"),
+      column(refusal.contacts, "spatial-names-contacts"),
+    );
+    nameBox.replaceChildren(
+      ...refusal.causes.map((c) => el("p", "eegv__spatial-names-cause", c)),
+      cols,
+      el("p", "eegv__spatial-names-verdict", refusal.verdict),
+    );
   }
 
   let viewsHtml = "";

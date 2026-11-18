@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { load } from "../../../test/ieeg-channel-fixtures";
 import { nodeFs, repoPath } from "../../../test/node";
 import type { WindowData } from "../eeg-viewer/store";
 import { computeActivity } from "./activity";
@@ -706,10 +707,94 @@ describe("the toggle", () => {
     expect(model.frames).toBeNull();
   });
 
-  it("is disabled, with its own sentence, when no channel matches a contact", () => {
-    const state = opened(bipolarGeometry, groupOf(["X1-X2", "X2-X3", "X3-X4"])).state;
+  it("a recording closed by its channel names (nm000377, on004624) stays openable, and opens a refusal that lists both sets of names", async () => {
+    for (const key of ["nm000377", "on004624"]) {
+      const l = await load(key);
+      const rec = { datasetId: l.case.id, version: l.case.version, path: l.case.recording };
+      const { state, effects } = opened(l.geometry, groupOf(l.labels), rec);
+      const model = viewModel(state);
+      // Not the generic disabled button: it opens, and says why in its title.
+      expect(model.toggle).toMatchObject({ visible: true, enabled: true, pressed: true });
+      expect(model.toggle.title).toBe(
+        "Brain: no channel name joins a contact; open to compare the two lists of names",
+      );
+      expect(model.stage).toEqual({ kind: "refusal", sentence: NO_MATCH_SENTENCE, retry: false });
+      const names = model.nameRefusal;
+      expect(names?.channels).toMatchObject({ total: l.labels.length });
+      expect(names?.channels.names).toEqual(l.labels.slice(0, 12));
+      expect(names?.contacts).toMatchObject({ total: l.space.contacts.length });
+      expect(names?.contacts.names).toEqual(l.space.contacts.slice(0, 12).map((c) => c.name));
+      expect(names?.causes).toEqual([
+        `${l.labels.length} unlocated channels, no contact of that name in the electrodes file.`,
+      ]);
+      expect(names?.verdict).toBe("No rule joined these names; nothing was guessed.");
+      // The credit stays, and nothing is drawn, claimed or read.
+      expect(model.credit).toEqual(creditLinkSpec());
+      expect(model.status).toBeNull();
+      expect(model.contacts).toEqual([]);
+      expect(model.activity).toBeNull();
+      expect(model.view.shown).toBe(false);
+      expect(model.template).toBeNull();
+      expect(effects.map((e) => e.type)).not.toContain("load_template");
+      expect(effects.map((e) => e.type)).not.toContain("load_outlines");
+      expect(effects.map((e) => e.type)).not.toContain("read_activity");
+    }
+  });
+
+  it("names are listed only for a refusal that names are the cause of", () => {
+    // A recording that joins is a canvas with no name lists, whatever else it says.
+    expect(viewModel(opened(bipolarGeometry, bipolarGroup).state).nameRefusal).toBeNull();
+    // Loading, a geometry failure and a closed panel have none either.
+    expect(viewModel(initialState()).nameRefusal).toBeNull();
+  });
+
+  it("a refusal for want of coordinates stays disabled with its sentence, and lists no names", async () => {
+    // nm000537: no usable positions. on004642: no electrodes file. Both are properties of the data.
+    const missing = [
+      {
+        g: await geometryOf("nm000537", "v1.0.2", NM537),
+        rec: { datasetId: "nm000537", version: "v1.0.2", path: NM537 },
+        reason: "no_coordinates",
+      },
+      {
+        g: await geometryOf(
+          "on004642",
+          "v1.0.0",
+          "sub-01/ses-01/ieeg/sub-01_ses-01_task-lozHFO_run-01_ieeg.edf",
+        ),
+        rec: {
+          datasetId: "on004642",
+          version: "v1.0.0",
+          path: "sub-01/ses-01/ieeg/sub-01_ses-01_task-lozHFO_run-01_ieeg.edf",
+        },
+        reason: "no_electrodes_file",
+      },
+    ] as const;
+    for (const { g, rec, reason } of missing) {
+      const labels = ["A1", "A2", "B1"];
+      const state = play(initialState(), [
+        { type: "recording_changed", recording: rec, group: groupOf(labels) },
+        { type: "geometry_resolved", token: 1, geometry: g },
+      ]).state;
+      const toggle = viewModel(state).toggle;
+      expect(toggle.enabled).toBe(false);
+      expect(toggle.title).toBe(`Brain view unavailable: ${GEOMETRY_SENTENCES[reason]}`);
+      expect(viewModel(state).nameRefusal).toBeNull();
+    }
+  });
+
+  it("channels that name a contact with no position are a missing-coordinates refusal, not a naming one", async () => {
+    // The real labels of on005415 whose contact the electrodes file leaves without a position.
+    const l = await load("on005415-86");
+    const noPosition = joinChannels(l.space, l.labels)
+      .filter((j) => j.cause === "no_position")
+      .map((j) => j.channel);
+    expect(noPosition.length).toBeGreaterThan(0);
+    const rec = { datasetId: l.case.id, version: l.case.version, path: l.case.recording };
+    const state = opened(l.geometry, groupOf(noPosition), rec).state;
     expect(viewModel(state).toggle.enabled).toBe(false);
-    expect(viewModel(state).toggle.title).toBe(`Brain view unavailable: ${NO_MATCH_SENTENCE}`);
+    expect(viewModel(state).toggle.title).toMatch(/^Brain view unavailable: /);
+    expect(viewModel(state).nameRefusal).toBeNull();
   });
 
   it("has a plain sentence for every reason IS-C1 can give, all different", () => {

@@ -939,6 +939,39 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
+/* The names of a recording closed by its channel names (IS-Q2): both lists, side by side, as the
+   dataset wrote them, under the refusal sentence. */
+.eegv__spatial-names {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--color-fg);
+}
+.eegv__spatial-names-cause,
+.eegv__spatial-names-verdict,
+.eegv__spatial-names-head {
+  margin: 0;
+}
+.eegv__spatial-names-verdict {
+  font-weight: 600;
+}
+.eegv__spatial-names-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.eegv__spatial-names-head {
+  color: var(--color-fg-muted);
+}
+.eegv__spatial-names-list {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.eegv__spatial-names-item {
+  overflow-wrap: anywhere;
+}
 .eegv__spatial-canvas {
   position: absolute;
   inset: 0;

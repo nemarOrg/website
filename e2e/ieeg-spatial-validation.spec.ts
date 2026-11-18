@@ -20,8 +20,9 @@
  * - Native frames: on005415 (ACPC, channel names joined by a rule) and on004473 (ACPC and ScanRAS,
  *   meters, names with spaces): never placed on the template (no mesh, no outlines requested), the
  *   join said in words, and the recorded location shown exactly as the file wrote it.
- * - Refusals: nm000537 (no coordinates), on004642 (no electrodes file), nm000377 and on004624
- *   (names that carry no usable link to a contact).
+ * - Refusals: nm000537 (no coordinates), on004642 (no electrodes file): a disabled toggle and its
+ *   sentence. nm000377 and on004624 (names that carry no usable link to a contact): the toggle opens
+ *   a refusal that lists both sets of names.
  * - EEG: on009081 never loads the panel's code nor reads an electrodes file.
  * - Exports on a template frame (nm000485); light and dark; keyboard only; 360 px; WebGL disabled.
  * - Budgets: the template mesh as transferred, the time to the first contacts on a warm cache, and
@@ -63,6 +64,9 @@ const TEMPLATE_BOX = "[data-spatial-template]";
 const TEMPLATE_LABEL = "[data-spatial-template-label]";
 const LIST = "[data-spatial-list]";
 const CONTACT_COLUMN = ".eegv__spatial-loc:not(.eegv__spatial-tpl)";
+const NAMES = "[data-spatial-names]";
+const NAMES_CHANNELS = "[data-spatial-names-channels]";
+const NAMES_CONTACTS = "[data-spatial-names-contacts]";
 
 /** The budgets of plan section 9, as the owner set them. */
 const BUDGET = {
@@ -84,6 +88,10 @@ const CREDIT_ARIA_LABEL = "Electrode view inspired by RAVE (opens in a new tab)"
 const TEMPLATE_REFERENCE_HREF = "https://doi.org/10.1016/j.neuroimage.2010.07.033";
 const TEMPLATE_LICENSE_PATH = "/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt";
 const WEBGL_SENTENCE = "3D view needs WebGL2";
+const NO_MATCH = "None of this recording's channels match a contact in the electrodes file.";
+const NAMES_TOGGLE_TITLE =
+  "Brain: no channel name joins a contact; open to compare the two lists of names";
+const NO_RULE = "No rule joined these names; nothing was guessed.";
 const UNREADABLE_SENTENCE = "The electrodes file could not be read.";
 
 const OWN_LABEL = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
@@ -937,8 +945,6 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
 // Refusals
 // ---------------------------------------------------------------------------
 
-const NO_MATCH = "None of this recording's channels match a contact in the electrodes file.";
-
 const REFUSALS = [
   {
     dataset: "nm000537",
@@ -951,18 +957,6 @@ const REFUSALS = [
     why: "no electrodes file",
     title:
       "Brain view unavailable: This recording has no electrodes file, so its contact positions are not known.",
-  },
-  {
-    // The store names channels "ch001"..., the electrodes file names contacts by shaft (survey row P2).
-    dataset: "nm000377",
-    why: "names carry no usable link",
-    title: `Brain view unavailable: ${NO_MATCH}`,
-  },
-  {
-    // Labels count from CH0, the file from Ch1 (survey row P3).
-    dataset: "on004624",
-    why: "names carry no usable link",
-    title: `Brain view unavailable: ${NO_MATCH}`,
   },
 ] as const;
 
@@ -980,13 +974,110 @@ for (const r of REFUSALS) {
     await page.waitForTimeout(1000);
     expect(template.meshes).toEqual([]);
     expect(template.outlines).toEqual([]);
-    if (r.why === "names carry no usable link") {
-      // The channel names are not listed anywhere on screen: the panel can only be opened once at
-      // least one channel is located, and the unlocated-channel note lives inside it (finding for
-      // IS-V1 and IS-J1, in the note). Recorded, not asserted as desired behavior.
-      const visibleNote = await page.locator(`${NOTES} li:visible`).count();
-      note(`${r.dataset} channel names listed on screen`, visibleNote > 0 ? "yes" : "no");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Closed by names
+// ---------------------------------------------------------------------------
+
+const CLOSED_BY_NAMES = [
+  {
+    // The store names channels "ch001"..., the electrodes file names contacts by shaft (survey row P2).
+    dataset: "nm000377",
+    channelsStart: ["ch001", "ch002", "ch003"],
+  },
+  {
+    // Labels count from CH0, the file from Ch1 (survey row P3).
+    dataset: "on004624",
+    channelsStart: ["CH0", "CH1", "CH10"],
+  },
+] as const;
+
+for (const r of CLOSED_BY_NAMES) {
+  test(`closed by names: ${r.dataset} opens a refusal that lists both sets of names as recorded, and draws and guesses nothing`, async ({
+    page,
+  }) => {
+    const template = watchTemplateRequests(page);
+    const sidecars = watchSidecars(page);
+    await openViewer(page, r.dataset);
+    await settled(page);
+    // Not the generic disabled button: it opens, and its title says why.
+    await expect(page.locator(TOGGLE)).toBeEnabled();
+    await expect(page.locator(TOGGLE)).toHaveAttribute("title", NAMES_TOGGLE_TITLE);
+    await page.click(TOGGLE);
+    for (let retries = 0; ; retries++) {
+      await expect(page.locator(STAGE)).not.toHaveAttribute("data-stage", "loading", {
+        timeout: 60_000,
+      });
+      if (!(await page.locator(`${PANEL} .eegv__spatial-retry`).isVisible()) || retries >= 3) break;
+      transient.panelRetries += 1;
+      await page.click(`${PANEL} .eegv__spatial-retry`);
     }
+    await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "refusal");
+    await expect(page.locator(PANEL)).toBeVisible();
+    // The generic sentence is still said first; the lists are under it.
+    await expect(page.locator(`${STAGE} .eegv__spatial-msg`)).toHaveText(NO_MATCH);
+    await expect(page.locator(NAMES)).toBeVisible();
+
+    // Both lists: at most 12 names each, with the counts they are taken from.
+    const channelHead =
+      (await page.locator(`${NAMES_CHANNELS} .eegv__spatial-names-head`).textContent()) ?? "";
+    const contactHead =
+      (await page.locator(`${NAMES_CONTACTS} .eegv__spatial-names-head`).textContent()) ?? "";
+    const channelCount = /^Channels in the recording, as named there \(first 12 of (\d+)\)$/.exec(
+      channelHead,
+    );
+    const contactCount =
+      /^Contacts in the electrodes file, as named there \(first 12 of (\d+)\)$/.exec(contactHead);
+    expect(channelCount, channelHead).not.toBeNull();
+    expect(contactCount, contactHead).not.toBeNull();
+    const channels = await texts(page, `${NAMES_CHANNELS} li`);
+    const contacts = await texts(page, `${NAMES_CONTACTS} li`);
+    expect(channels).toHaveLength(12);
+    expect(contacts).toHaveLength(12);
+    expect(channels.slice(0, r.channelsStart.length)).toEqual([...r.channelsStart]);
+
+    // The contact names are the electrodes file's own first rows, read here from the file itself.
+    const electrodes = [...sidecars.entries()].find(([name]) => name.endsWith("_electrodes.tsv"));
+    expect(electrodes, "the page read the electrodes file").toBeTruthy();
+    const tsv = (await (await page.request.get(electrodes?.[1] ?? "")).text()).replace(
+      /^\uFEFF/,
+      "",
+    );
+    const [header, ...body] = tsv.split(/\r?\n/).filter((l) => l.length > 0);
+    const nameColumn = header.split("\t").indexOf("name");
+    const fileNames = body
+      .map((l) => l.split("\t")[nameColumn]?.trim() ?? "")
+      .filter((n) => n !== "" && n !== "n/a");
+    expect(contacts).toEqual(fileNames.slice(0, 12));
+    expect(Number(contactCount?.[1])).toBe(fileNames.length);
+    // No listed channel name is a contact name: no rule could have joined them, and none claims to.
+    const all = new Set(fileNames);
+    for (const c of channels) expect(all.has(c), `${c} is a contact`).toBe(false);
+
+    // The cause is said in the notes' words, with the same count; the verdict is plain.
+    const total = Number(channelCount?.[1]);
+    await expect(page.locator(NAMES)).toContainText(
+      `${total} unlocated channels, no contact of that name in the electrodes file.`,
+    );
+    await expect(page.locator(NAMES)).toContainText(NO_RULE);
+
+    // Nothing is drawn, claimed or read, and the credit stays.
+    await expect(page.locator("canvas.eegv__spatial-canvas")).toHaveCount(0);
+    await expect(page.locator(STATUS)).toBeHidden();
+    await expect(page.locator(`${PANEL} .eegv__spatial-activity`)).toBeHidden();
+    await expect(page.locator(LIST)).toBeEmpty();
+    await expect(page.locator("[data-spatial-view2d]")).toBeHidden();
+    await expectCredit(page);
+    expect(await reads(page)).toBe(0);
+    await page.waitForTimeout(1000);
+    expect(template.meshes).toEqual([]);
+    expect(template.outlines).toEqual([]);
+    note(
+      `closed by names ${r.dataset}`,
+      `${total} channels (${channels.slice(0, 3).join(", ")}, ...) against ${fileNames.length} contacts (${contacts.slice(0, 3).join(", ")}, ...)`,
+    );
   });
 }
 
