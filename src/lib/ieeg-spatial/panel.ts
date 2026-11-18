@@ -1286,6 +1286,11 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
+/** Set text only when it changed, so a live region is not announced again for the same words. */
+function setText(node: HTMLElement, text: string): void {
+  if (node.textContent !== text) node.textContent = text;
+}
+
 function option(value: string, label: string): HTMLOptionElement {
   const o = document.createElement("option");
   o.value = value;
@@ -1523,11 +1528,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       msgWrap.hidden = true;
     } else {
       msgWrap.hidden = false;
-      stageMsg.textContent = model.stage.sentence;
+      setText(stageMsg, model.stage.sentence);
       retry.hidden = !(model.stage.kind === "refusal" && model.stage.retry);
     }
 
-    status.textContent = model.status ?? "";
+    setText(status, model.status ?? "");
     status.hidden = model.status === null;
     const noteKey = model.notes.join("\n");
     if (notes.dataset.key !== noteKey) {
@@ -1555,21 +1560,21 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         bandSel.dataset.key = am.bands.map((b) => `${b.label}${b.disabled}`).join("|");
       }
       bandSel.value = am.band;
-      actMsg.textContent = am.message ?? "";
+      setText(actMsg, am.message ?? "");
       actMsg.hidden = am.message === null;
       act.setAttribute("aria-busy", String(am.busy));
       bar.hidden = am.colorbar === null;
       if (am.colorbar) {
         barGrad.style.background = `linear-gradient(to right, ${am.colorbar.css})`;
-        barLo.textContent = am.colorbar.lo;
-        barHi.textContent = am.colorbar.hi;
+        setText(barLo, am.colorbar.lo);
+        setText(barHi, am.colorbar.hi);
         bar.title = am.colorbar.degenerate
           ? "Every value is the same, so every contact has one color."
           : "";
       }
-      actSummary.textContent = am.summary ?? "";
+      setText(actSummary, am.summary ?? "");
       actSummary.hidden = am.summary === null;
-      actNoData.textContent = am.noData ?? "";
+      setText(actNoData, am.noData ?? "");
       actNoData.hidden = am.noData === null;
     }
 
@@ -1614,6 +1619,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         activityCtl = null;
         return;
       case "read_activity": {
+        window.clearTimeout(activityTimer);
+        activityCtl?.abort();
         const ctl = new AbortController();
         activityCtl = ctl;
         activityTimer = window.setTimeout(
