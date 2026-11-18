@@ -137,7 +137,12 @@ describe("provenance.json", () => {
     for (const source of provenance.sources) {
       expect(source.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(script, `${source.path} is not pinned in the script`).toContain(source.sha256);
-      expect(script).toContain(String(source.bytes));
+      const name = source.path.split("/").pop() ?? "";
+      const key =
+        name === "LICENSE" ? '"LICENSE"' : name.includes("label-GM") ? "GM_FILE" : "WM_FILE";
+      expect(script, `${source.path}: size and hash are not pinned together as ${key}`).toContain(
+        `${key}: (${source.bytes}, "${source.sha256}")`,
+      );
     }
   });
 
@@ -195,6 +200,21 @@ describe("the hemisphere meshes", () => {
 
   it("landmark 2: every right vertex has x at least -1 mm", () => {
     expect(bounds(right().positions).min[0]).toBeGreaterThanOrEqual(-1);
+  });
+
+  it("reach the midline: the cut is on x = 0 and most of the cut vertices sit exactly on it", () => {
+    for (const [mesh, nearest] of [
+      [left(), (b: ReturnType<typeof bounds>) => b.max[0]],
+      [right(), (b: ReturnType<typeof bounds>) => -b.min[0]],
+    ] as const) {
+      expect(Math.abs(nearest(bounds(mesh.positions)))).toBeLessThan(0.01);
+      let onPlane = 0;
+      for (let i = 0; i < mesh.positions.length; i += 3) {
+        if (Math.abs(mesh.positions[i]) < 0.01) onPlane++;
+      }
+      // The surface is cut, not capped: hundreds of vertices lie on the plane.
+      expect(onPlane).toBeGreaterThan(300);
+    }
   });
 
   it("landmark 3: x lies within -75 to 75 mm", () => {

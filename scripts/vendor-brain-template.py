@@ -13,7 +13,7 @@
 """Vendor a light MNI152NLin2009cAsym brain surface (card IS-T1, website ADR 0028 pattern).
 
     uv run scripts/vendor-brain-template.py                  write the committed folder
-    uv run scripts/vendor-brain-template.py --out DIR        write somewhere else (an empty directory)
+    uv run scripts/vendor-brain-template.py --out DIR        write somewhere else (empty, or holding only this script's files)
     uv run scripts/vendor-brain-template.py --known-answer   print the pinned format example
 
 What it does. It downloads the TemplateFlow gray matter and white matter probability maps of the
@@ -101,8 +101,19 @@ VERSION = 1
 HEADER_BYTES = 40
 Q_MAX = 32767
 
+OUTPUT_FILES = {
+    "lh.mesh.bin",
+    "rh.mesh.bin",
+    "views.json",
+    "LICENSE.txt",
+    "README.md",
+    "provenance.json",
+    "SHA256SUMS",
+}
+
 LICENSE_ADDENDUM = (
-    "This folder holds a brain surface derived from the template files named above, built by "
+    "This folder holds a brain surface derived from the TemplateFlow template "
+    f"{TEMPLATE} (its gray matter and white matter probability maps), built by "
     f"{SCRIPT}; the notice above applies to every copy of it."
 )
 
@@ -479,7 +490,8 @@ def views_json(meshes: list[Mesh]) -> bytes:
         "frame": "MNI152NLin2009cAsym, RAS, millimeters",
         "note": (
             "Each polyline is a closed outline (the last point joins the first and is not "
-            "repeated); coordinates are [horizontal, vertical] in the named axes, unflipped."
+            "repeated); coordinates are [horizontal, vertical] in the named axes, unflipped. A "
+            "polyline inside another is a hole: fill all polylines together with the even-odd rule."
         ),
         "views": views,
     }
@@ -502,8 +514,13 @@ def tool_versions() -> dict[str, str]:
 
 
 def build(out: Path) -> None:
-    if out.exists() and any(out.iterdir()):
-        raise VendorError(f"{out} is not empty; give an empty directory or remove it first")
+    if out.exists():
+        # Rewriting a folder this script made is fine; anything else in the way is not ours to delete.
+        stray = sorted(entry.name for entry in out.iterdir() if entry.name not in OUTPUT_FILES)
+        if stray:
+            raise VendorError(f"{out} holds files this script did not write: {', '.join(stray)}")
+        for entry in out.iterdir():
+            entry.unlink()
     out.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(prefix="brain-template-src-") as tmp:
@@ -595,7 +612,12 @@ def build(out: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="an empty output directory")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=DEFAULT_OUT,
+        help="output directory, rewritten if it holds only this script's files",
+    )
     parser.add_argument(
         "--known-answer", action="store_true", help="print the pinned brain-mesh v1 example"
     )
