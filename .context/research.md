@@ -246,3 +246,8 @@ Regression-guarded in `src/middleware.test.ts` ("grants 'unsafe-eval' ONLY on th
   `_astro/blosc.<hash>.js` chunk, `fromConfig(...)`, and `.decode()` a raw
   `eeg_250hz/view/1/c/0/0/0` frame — throws the EvalError above under a CSP lacking
   `'unsafe-eval'`.
+
+## iEEG electrode geometry census (2026-11-17)
+
+Exact counts of what the iEEG spatial panel can show, per recording, over all 167 public `ieeg` datasets, by the viewer's own resolver: 6,316 template, 10,806 native (own frame, no anatomy), 18,696 refused (17,898 of them `no_coordinates`).
+Note: `.context/research-ieeg-geometry-census.md`; rerun with `bun scripts/ieeg-geometry-census.ts --out <dir>` (about two hours at the polite rate).

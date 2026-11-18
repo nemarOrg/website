@@ -743,7 +743,8 @@ export function renderNote(input: NoteInput): string {
     const pick = results
       .filter((d) => homogeneity(d) === c)
       .sort((a, b) => a.recordings.length - b.recordings.length || (a.id < b.id ? -1 : 1))[0];
-    return [`\`${c}\``, pick ? `${pick.id} (${pick.recordings.length} recordings)` : "none"];
+    const count = pick?.recordings.length ?? 0;
+    return [`\`${c}\``, pick ? `${pick.id} (${count} recording${count === 1 ? "" : "s"})` : "none"];
   });
   out.push(table(["Class", "Dataset"], fixtureRows));
   out.push("");
@@ -784,7 +785,13 @@ export function renderNote(input: NoteInput): string {
       d.unresolvedListings.length > 0 ||
       d.absentListings.length > 0,
   );
+  const unversioned = results.filter((d) => d.version === null);
   out.push("## Unresolved and anomalous\n");
+  if (unversioned.length) {
+    out.push(
+      `Datasets the catalog lists without a \`latest_version\`, so there is no tree to read (they count in the catalog total and are not classified): ${unversioned.map((d) => d.id).join(", ")}.\n`,
+    );
+  }
   out.push(
     gaps.length
       ? table(
