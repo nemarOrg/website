@@ -180,7 +180,7 @@ function note(type: string, value: string): void {
 
 /**
  * A page that stopped answering at a click was seen a few times in QA1's runs of the export test
- * and never reproduced (IS-Q2: 45 plain-script repeats under `caffeinate -i`, no stall; the host
+ * and never reproduced (IS-Q2: 111 plain-script repeats under `caffeinate -i`, no stall; the host
  * had slept during some of QA1's runs). This is how a future occurrence leaves evidence. It
  * installs, in the page: a 10 ms timer and a requestAnimationFrame loop that record every gap over
  * 60 and over 100 ms, and a console beat every 250 ms that reaches Node even while the page is

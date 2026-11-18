@@ -47,7 +47,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { type Page, expect, test } from "@playwright/test";
+import { type Page, type Request, expect, test } from "@playwright/test";
 import { RAVE_CREDIT, creditLinkSpec } from "../src/lib/ieeg-spatial/credit";
 import { GEOMETRY_SENTENCES, WEBGL_SENTENCE } from "../src/lib/ieeg-spatial/panel";
 import {
@@ -68,6 +68,36 @@ const TOGGLE = "[data-spatial-toggle]";
  * right now"). A helper that knew only the first waited 90 s on a page that was already saying so.
  */
 const EMBED_NOTICE = ".embed-msg__text, [data-embed-notice]:not([hidden])";
+
+/**
+ * Waits, when asked, until the Zarr host has been quiet: no request in flight and none for 1.5 s.
+ * The scope renders again after the panel opens and after every window step, and that render's data
+ * arrives whenever the data plane delivers it; a window report that lands after the Activity switch
+ * is on re-plans the read, which the first test would count as a second read. Settling first makes
+ * "one read" mean what it says (IS-Q2 found this on a slow data plane; the test failed 1 of 3 runs
+ * alone on the epic base too).
+ */
+function watchZarr(page: Page): () => Promise<void> {
+  const inFlight = new Set<Request>();
+  let last = Date.now();
+  const ends = (r: Request) => {
+    if (inFlight.delete(r)) last = Date.now();
+  };
+  page.on("request", (r) => {
+    if (new URL(r.url()).hostname !== "zarr.nemar.org") return;
+    inFlight.add(r);
+    last = Date.now();
+  });
+  page.on("requestfinished", ends);
+  page.on("requestfailed", ends);
+  return async () => {
+    const from = Date.now();
+    while (inFlight.size > 0 || Date.now() - last < 1500) {
+      if (Date.now() - from > 120_000) throw new Error("the Zarr host never went quiet");
+      await page.waitForTimeout(250);
+    }
+  };
+}
 const PANEL = "[data-spatial-panel]";
 const STAGE = "[data-spatial-stage]";
 const CREDIT = `${PANEL} a.eegv-credit`;
@@ -253,6 +283,7 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
       }
     }).observe({ type: "longtask", buffered: true });
   });
+  const zarrQuiet = watchZarr(page);
   await openViewer(page, "on005522");
   await settled(page);
   await expect(page.locator(TOGGLE)).toBeEnabled();
@@ -279,7 +310,10 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
   await page.waitForTimeout(800);
   expect(await reads(page)).toBe(0);
 
-  // Switch on: one read of the window, a colorbar, and contacts in many hues.
+  // Switch on: one read of the window, a colorbar, and contacts in many hues. First let the scope's
+  // own render, after the panel opened and the step above, land: its window report would otherwise
+  // re-plan the read.
+  await zarrQuiet();
   await page.evaluate(() => {
     (window as unknown as { __long: number[] }).__long = [];
   });
