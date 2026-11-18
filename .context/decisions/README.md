@@ -63,3 +63,4 @@ Add new entries here as you create ADRs:
 - ADR 0029 - [The admin Mail tab renders email as inert text and sends every reply under one key per draft](0029-admin-mail-tab-untrusted-text-and-reply-keys.md) (accepted)
 - ADR 0031 - [The cross-site form check is the site's own, with one exemption: the authorization-request POST](0031-cross-site-form-check-is-the-sites-own-with-one-exemption.md) (accepted)
 - ADR 0032 - [The search overview is a build-time setting, called from the browser](0032-the-search-overview-is-a-build-time-setting-called-from-the-browser.md) (accepted)
+- ADR 0033 - [iEEG contacts use the site's own renderer, template anatomy only where the frame allows, and a credit to RAVE](0033-ieeg-contacts-use-the-sites-own-renderer-and-credit-rave.md) (accepted)
