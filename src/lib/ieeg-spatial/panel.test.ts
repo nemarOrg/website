@@ -504,8 +504,10 @@ describe("contacts and traces link both ways", () => {
     const rows = viewModel(t.state).contacts;
     expect(rows.filter((r) => r.selected).map((r) => r.name)).toEqual(["LAF1", "LAF2"]);
     // The row says which channel it belongs to when the names differ.
-    expect(rows.find((r) => r.name === "LAF1")?.detail).toBe("LAF1-LAF2");
-    expect(rows.find((r) => r.name === "LAF2")?.detail).toBe("LAF1-LAF2, LAF2-LAF3");
+    expect(rows.find((r) => r.name === "LAF1")?.detail).toBe("(channel LAF1-LAF2)");
+    expect(rows.find((r) => r.name === "LAF2")?.detail).toBe("(channels LAF1-LAF2, LAF2-LAF3)");
+    // An exact pair carries no tag: both names are the file's own.
+    expect(rows.every((r) => r.tag === "" && r.tagTitle === "")).toBe(true);
   });
 
   it("clicking a contact selects its channel's trace and both of its contacts", () => {

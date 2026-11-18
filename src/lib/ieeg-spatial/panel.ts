@@ -59,13 +59,24 @@ import {
   createBrainRenderer,
   parseColor,
 } from "./brain-gl";
+import {
+  MATCH_KINDS,
+  MATCH_RULES,
+  type MatchKind,
+  type RuleTable,
+  matchTag,
+  ruleSentences,
+} from "./channel-match";
 import { type CreditLinkSpec, creditLink, creditLinkSpec } from "./credit";
 import {
+  type ChannelRef,
   type ExportFile,
   type ExportInput,
   FIGURE_FONT,
   type FigureTheme,
   type TemplatePlacement,
+  channelClause,
+  channelProvenance,
   downloadFailedSentence,
   downloadFile,
   exportPng,
@@ -79,6 +90,7 @@ import {
   type ChannelJoin,
   type Frame,
   type GeometryReason,
+  type RawCells,
   type RecordingGeometry,
   type SpaceGeometry,
   type Units,
@@ -130,6 +142,8 @@ const VIEWS_WIDTH = 340;
 const VIEWS_HEIGHT = 330;
 /** Unselected contacts are drawn this opaque while a selection exists. */
 const DIM_ALPHA = 0.3;
+/** A contact reached by an approximate name match is drawn this opaque. */
+export const APPROXIMATE_ALPHA = 0.55;
 // ---------------------------------------------------------------------------
 // Words
 // ---------------------------------------------------------------------------
@@ -301,23 +315,75 @@ export function positionWarnings(
 const UNLOCATED_PHRASES: Record<UnlocatedCause, string> = {
   no_contact: "no contact of that name in the electrodes file",
   no_position: "the contact's position is not given",
-  duplicate_contact: "the electrodes file lists the contact twice",
+  duplicate_contact:
+    "the electrodes file lists the contact twice, or another channel already holds it",
   ambiguous_pair: "the name reads as two contacts in more than one way",
+  ambiguous_name: "the name fits more than one contact equally well",
 };
 
-/** Channels without a position, grouped by the cause `joinChannels` gave. At most six names each. */
+/**
+ * Channels without a position, grouped by the cause `joinChannels` gave, each by its own name as
+ * the recording gave it. At most six names each. A name that fits two contacts says which; a
+ * channel that lost its contact to another says whose it is.
+ */
 export function unlocatedNotes(joins: readonly ChannelJoin[]): string[] {
   const byCause = new Map<UnlocatedCause, string[]>();
   for (const join of joins) {
     if (join.cause === null) continue;
+    const named =
+      join.cause === "ambiguous_name"
+        ? `${join.channel} (fits ${join.contacts.join(" and ")})`
+        : join.cause === "duplicate_contact" && join.contacts.length === 1
+          ? `${join.channel} (contact ${join.contacts[0]})`
+          : join.channel;
     const list = byCause.get(join.cause);
-    if (list) list.push(join.channel);
-    else byCause.set(join.cause, [join.channel]);
+    if (list) list.push(named);
+    else byCause.set(join.cause, [named]);
   }
   return [...byCause].map(([cause, labels]) => {
     const shown = labels.slice(0, 6).join(", ");
     const more = labels.length > 6 ? ` and ${labels.length - 6} more` : "";
     return `${labels.length} unlocated channel${labels.length === 1 ? "" : "s"}, ${UNLOCATED_PHRASES[cause]}: ${shown}${more}.`;
+  });
+}
+
+/** The non-exact tiers, in order, the ones a join can carry. */
+const LOOSE_KINDS = MATCH_KINDS.filter((k): k is Exclude<MatchKind, "exact"> => k !== "exact");
+
+/** How many channels reached their contact by each non-exact tier, strictest first. */
+export function matchCounts(joins: readonly ChannelJoin[]): { kind: MatchKind; count: number }[] {
+  return LOOSE_KINDS.flatMap((kind) => {
+    const count = joins.filter((j) => j.status !== "unlocated" && j.matchKind === kind).length;
+    return count > 0 ? [{ kind, count }] : [];
+  });
+}
+
+/**
+ * One note per rule chain that joined channels by a name rule: how many, what the rule read, and
+ * up to three real pairs (the recording's channel name, then the contact's), so a reader sees both
+ * names. Said for exact joins never: two identical names need no note.
+ */
+export function matchNotes(joins: readonly ChannelJoin[]): string[] {
+  const groups = new Map<string, { kind: MatchKind; joins: ChannelJoin[] }>();
+  for (const j of joins) {
+    if (j.status === "unlocated" || j.matchKind === null || j.matchKind === "exact") continue;
+    const key = `${j.matchKind}:${j.rule ?? ""}`;
+    const group = groups.get(key);
+    if (group) group.joins.push(j);
+    else groups.set(key, { kind: j.matchKind, joins: [j] });
+  }
+  return [...groups.values()].map(({ kind, joins: js }) => {
+    const rule = js[0].rule ?? "";
+    const sentence = ruleSentences(rule).join("; and ");
+    const examples = js
+      .slice(0, 3)
+      .map((j) => `${j.channel} for ${j.contacts.join(" and ")}`)
+      .join(", ");
+    const more = js.length > 3 ? `, and ${js.length - 3} more` : "";
+    const bipolar = js.some((j) => j.status === "bipolar")
+      ? " (bipolar pairs read at their midpoint)"
+      : "";
+    return `${js.length} channel${js.length === 1 ? "" : "s"} joined to contacts by ${matchTag(kind)}${bipolar}: ${sentence}. For example ${examples}${more}.`;
   });
 }
 
@@ -358,9 +424,13 @@ export interface GroupInfo {
 export interface PlacedContact {
   name: string;
   position: Vec3;
+  /** The file's own cells for the position and size, verbatim (`recordedLocation`). */
+  raw: RawCells;
   size: number | null;
   /** Channel rows (indices into the group's labels) that use this contact. */
   channels: number[];
+  /** True when some channel reached it by the `close` tier: drawn as an approximate name match. */
+  approximate: boolean;
 }
 
 export interface Placement {
@@ -384,8 +454,9 @@ export function placeContacts(
   space: SpaceGeometry,
   spaceIndex: number,
   labels: readonly string[],
+  rules: RuleTable = MATCH_RULES,
 ): Placement {
-  const joins = joinChannels(space, labels);
+  const joins = joinChannels(space, labels, rules);
   const byName = new Map(space.contacts.map((c) => [c.name, c]));
   const slot = new Map<string, number>();
   const contacts: PlacedContact[] = [];
@@ -402,9 +473,17 @@ export function placeContacts(
         if (i === undefined) {
           i = contacts.length;
           slot.set(name, i);
-          contacts.push({ name, position: contact.position, size: contact.size, channels: [] });
+          contacts.push({
+            name,
+            position: contact.position,
+            raw: contact.raw,
+            size: contact.size,
+            channels: [],
+            approximate: false,
+          });
         }
         contacts[i].channels.push(row);
+        if (join.matchKind === "close") contacts[i].approximate = true;
         mine.push(i);
       }
     }
@@ -1164,12 +1243,22 @@ export interface ActivityModel {
 
 export interface ContactRow {
   index: number;
+  /** The contact's name exactly as the electrodes file records it. */
   name: string;
-  /** The channel(s) the contact belongs to, when their names differ from the contact's. */
+  /**
+   * The recording's own channel name(s) beside it, in parentheses, when a name differs from the
+   * contact's or did not join by the file's own name; empty when both names are the same.
+   */
   detail: string;
+  /** The small tag beside `detail`: the kinds of match that are not exact, or empty. */
+  tag: string;
+  /** What the tag means, in the words of the rules, for its tooltip; empty with no tag. */
+  tagTitle: string;
   selected: boolean;
   /** Every channel that uses the contact, by name. */
   channels: string[];
+  /** The same channels with how each name reached the contact (`channelClause`, `contactTitle`). */
+  links: ChannelRef[];
   /** Where the dataset recorded it, with its unit word and frame (`recordedLocation`). */
   recorded: string;
   /** Where the template drawing puts it, once drawn and only then (`templateLocation`); else null. */
@@ -1218,6 +1307,8 @@ export interface PanelModel {
   /** `N of M channels located; frame: IDENTIFIER; positions as declared by the dataset`. */
   status: string | null;
   notes: string[];
+  /** The selected channel in terms of its contacts (`channelProvenance`), or null. */
+  selectedChannel: string | null;
   activity: ActivityModel | null;
   contacts: ContactRow[];
   /** Present in every state: the link the panel mounts, as plain data. */
@@ -1302,7 +1393,11 @@ function stageModel(state: PanelState, limits: ModelLimits): StageModel {
 function statusLine(state: PanelState): string | null {
   const { placement, group } = state;
   if (!placement || !group) return null;
-  return `${placement.located} of ${group.labels.length} channels located; frame: ${frameName(placement.space.frame)}; positions as declared by the dataset`;
+  const base = `${placement.located} of ${group.labels.length} channels located; frame: ${frameName(placement.space.frame)}; positions as declared by the dataset`;
+  // A join by a name rule is said here as well as in the notes: how many by which kind of match.
+  const counts = matchCounts(placement.joins);
+  if (counts.length === 0) return base;
+  return `${base}; joined by name rules: ${counts.map((c) => `${c.count} ${matchTag(c.kind)}`).join(", ")}`;
 }
 
 /** What the notice under a drawn template says, in plain words; the live box links its two parts. */
@@ -1353,6 +1448,7 @@ function frameNotes(placement: Placement): string[] {
   }
   if (placementRuleFor(frame, space.units) === null) notes.push(noPlacementSentence(frame));
   notes.push(unitsSentence(space.units));
+  notes.push(...matchNotes(placement.joins));
   notes.push(...unlocatedNotes(placement.joins));
   for (const w of positionWarnings(placement.contacts, space.units)) {
     notes.push(warningSentence(w));
@@ -1453,9 +1549,22 @@ function contactRows(state: PanelState, stage: StageModel): ContactRow[] {
   const frameLabel = frameName(placement.space.frame);
   const rule = placedRule(state, stage);
   return placement.contacts.map((contact, index) => {
-    const names = contact.channels
-      .map((row) => group.labels[row])
-      .filter((n) => n !== contact.name);
+    const links: ChannelRef[] = contact.channels.map((row) => ({
+      name: group.labels[row],
+      kind: placement.joins[row].matchKind ?? "exact",
+    }));
+    // Beside the name: the channels that are not simply the contact's own name.
+    const beside = links.filter((l) => l.name !== contact.name || l.kind !== "exact");
+    const tags = [...new Set(beside.flatMap((l) => matchTag(l.kind) ?? []))];
+    const rules = [
+      ...new Set(
+        contact.channels.flatMap((row) =>
+          placement.joins[row].matchKind === "exact"
+            ? []
+            : ruleSentences(placement.joins[row].rule ?? ""),
+        ),
+      ),
+    ];
     let value: string | null = null;
     if (shown) {
       const v = shown.contactValues[index];
@@ -1470,16 +1579,26 @@ function contactRows(state: PanelState, stage: StageModel): ContactRow[] {
     return {
       index,
       name: contact.name,
-      detail: names.length > 0 ? names.join(", ") : "",
+      detail: beside.length > 0 ? `(${channelClause(beside, false)})` : "",
+      tag: tags.join(", "),
+      tagTitle: rules.length > 0 ? `${rules.join("; ")}.` : "",
       selected: selected.has(index),
       channels: contact.channels.map((row) => group.labels[row]),
-      recorded: recordedLocation(contact.position, placement.space.units, frameLabel),
+      links,
+      recorded: recordedLocation(contact.raw, placement.space.units, frameLabel),
       template: rule
         ? templateLocation(placeOnTemplate(rule, contact.position), rule.approximation !== null)
         : null,
       value,
     };
   });
+}
+
+/** The selected channel, said by what it was joined to; null when none is selected or its name is its contact's own. */
+function selectedChannelSentence(state: PanelState): string | null {
+  const row = state.selection.channel;
+  const join = row === null ? undefined : state.placement?.joins[row];
+  return join ? channelProvenance(join) : null;
 }
 
 /** Everything the DOM half draws, from the state alone. The credit is in every model. */
@@ -1501,6 +1620,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
+    selectedChannel: placement ? selectedChannelSentence(state) : null,
     activity: placement ? activityModel(state) : null,
     contacts: placement ? contactRows(state, stage) : [],
     credit: creditLinkSpec(),
@@ -1535,7 +1655,14 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
       rgb = c ? [c[0] / 255, c[1] / 255, c[2] / 255] : palette.noData;
     }
     out.set(rgb, i * 4);
-    out[i * 4 + 3] = selected.size > 0 && !selected.has(i) ? DIM_ALPHA : 1;
+    // A contact some channel reached by an approximate name match is drawn half transparent, so
+    // it is told apart from an exact one; a selected contact is always fully drawn.
+    out[i * 4 + 3] =
+      selected.size > 0 && !selected.has(i)
+        ? DIM_ALPHA
+        : placement.contacts[i].approximate && !selected.has(i)
+          ? APPROXIMATE_ALPHA
+          : 1;
   }
   return out;
 }
@@ -1907,6 +2034,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const status = el("p", "eegv__spatial-status");
   status.setAttribute("aria-live", "polite");
   status.dataset.spatialStatus = "";
+  // The selected channel, said by what it was joined to (a bipolar pair, a name that joined by a rule).
+  const selChan = el("p", "eegv__spatial-status eegv__spatial-selchan");
+  selChan.setAttribute("aria-live", "polite");
+  selChan.dataset.spatialSelectedChannel = "";
+  selChan.hidden = true;
   const notes = el("ul", "eegv__spatial-notes");
 
   const act = el("div", "eegv__spatial-activity");
@@ -1949,6 +2081,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     saveMsg,
     templateBox,
     status,
+    selChan,
     viewNotes,
     notes,
     act,
@@ -1970,7 +2103,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   // --- model -> DOM -------------------------------------------------------
   interface RowEls {
     li: HTMLLIElement;
-    detail: HTMLElement;
+    /** The recording's channel name(s) beside the contact's name, in parentheses. */
+    names: HTMLElement;
+    /** The small tag for a join that is not the file's own name. */
+    tag: HTMLElement;
     value: HTMLElement;
     tpl: HTMLElement;
   }
@@ -1983,6 +2119,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       li.setAttribute("role", "option");
       li.dataset.contact = String(c.index);
       const detail = el("span", "eegv__spatial-detail");
+      const names = el("span", "eegv__spatial-chan");
+      const tag = el("span", "eegv__spatial-tag");
+      tag.hidden = true;
+      detail.append(names, tag);
       const value = el("span", "eegv__spatial-value");
       // Where the dataset recorded the contact, under its name, in the same words as the figures.
       const loc = el("span", "eegv__spatial-loc", c.recorded);
@@ -1990,7 +2130,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       const tpl = el("span", "eegv__spatial-loc eegv__spatial-tpl");
       tpl.hidden = true;
       li.append(el("span", "eegv__spatial-name", c.name), detail, value, loc, tpl);
-      return { li, detail, value, tpl };
+      return { li, names, tag, value, tpl };
     });
     list.replaceChildren(...rows.map((r) => r.li));
   }
@@ -2001,10 +2141,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       model.contacts.findIndex((c) => c.selected),
     );
     model.contacts.forEach((c, i) => {
-      const { li, detail, value, tpl } = rows[i];
+      const { li, names, tag, value, tpl } = rows[i];
       li.setAttribute("aria-selected", String(c.selected));
       li.tabIndex = i === focusIndex ? 0 : -1;
-      if (detail.textContent !== c.detail) detail.textContent = c.detail;
+      setText(names, c.detail);
+      tag.hidden = c.tag === "";
+      setText(tag, c.tag);
+      tag.title = c.tagTitle;
       const v = c.value ?? "";
       if (value.textContent !== v) value.textContent = v;
       tpl.hidden = c.template === null;
@@ -2144,6 +2287,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
     setText(status, model.status ?? "");
     status.hidden = model.status === null;
+    setText(selChan, model.selectedChannel === null ? "" : `Channel ${model.selectedChannel}`);
+    selChan.hidden = model.selectedChannel === null;
     const noteKey = model.notes.join("\n");
     if (notes.dataset.key !== noteKey) {
       notes.replaceChildren(...model.notes.map((n) => el("li", "eegv__spatial-note", n)));

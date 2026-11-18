@@ -32,10 +32,12 @@
  *   carry the label each row owes them; nm000355 (ACPC) draws no surface, fetches no mesh and says
  *   "No template placement for ACPC"; a failed mesh fetch leaves the contacts, says so, and a
  *   reopened panel tries again; an EEG dataset never asks for a mesh.
- *   The card names on005415 for the ACPC case, but its Zarr store labels channels "LTP1-20000"
- *   where the BIDS files say "LTP1", the panel joins by exact name only, and so its toggle stays
- *   disabled ("None of this recording's channels match a contact"); nm000355 is a native-frame
- *   dataset whose store labels do join.
+ *   nm000355 is the ACPC case here; on005415 (also ACPC) is the name-join case below.
+ * - Name joins (card IS-J1): on005415's Zarr store labels channels "LTP1-20000" where the BIDS
+ *   electrodes say "LTP1"; its Brain toggle is enabled, the panel names the contact first with the
+ *   recording's channel name in parentheses and a "suffix match" tag, says how many joined by
+ *   which kind, shows the recorded line as the file wrote it, and a saved SVG carries the same
+ *   sentences; on005522 and nm000376 (exact names only) show no match wording at all.
  *
  * The data plane answers 500 now and then (about one directory listing in five). The panel tries
  * a failed read again quietly, three more times, before it shows a refusal with Retry; a read that
@@ -899,7 +901,7 @@ test("on005522: the figures say what Activity says, and the 2D views are the rea
     .locator(`${STAGE} g[data-view="top"] circle[data-contact="1"] title`)
     .textContent();
   expect(title).toMatch(
-    /^[A-Z0-9]+ \(channels? [^)]+\); recorded \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, frame: MNI152NLin6ASym; template \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, approximate; \S+ µV²$/,
+    /^[A-Z0-9]+ \(channels? [^)]+\); recorded \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, frame: MNI152NLin6ASym, size -999; template \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, approximate; \S+ µV²$/,
   );
 
   // The saved SVG and the 2D PNG say the same: the summary, the colorbar ends, the selection.
@@ -924,7 +926,7 @@ test("on005522: the figures say what Activity says, and the 2D views are the rea
     page.locator(
       '[data-spatial-list] li[data-contact="0"] .eegv__spatial-loc:not(.eegv__spatial-tpl)',
     ),
-  ).toHaveText(/^recorded \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, frame: MNI152NLin6ASym$/);
+  ).toHaveText(/^recorded \(-?[\d.]+, -?[\d.]+, -?[\d.]+\) mm, frame: MNI152NLin6ASym, size -999$/);
 
   const png = await saved(page, "png");
   const corners = await pngCorners(page, png.bytes);
@@ -1163,4 +1165,89 @@ test("an EEG dataset never asks for the template outlines", async ({ page }) => 
   await expect(page.locator(".eegv__status")).toContainText("ch @", { timeout: 90_000 });
   await page.waitForTimeout(1500);
   expect(outlineRequests).toEqual([]);
+});
+
+test("on005415: LTP1-20000 joins LTP1, so the Brain toggle is enabled and the panel says how the names met", async ({
+  page,
+}) => {
+  await openViewer(page, "on005415");
+  await openBrain(page);
+  await expect(page.locator(TOGGLE)).toBeEnabled();
+
+  const status = (await page.locator("[data-spatial-status]").textContent()) ?? "";
+  expect(status).toMatch(
+    /^\d+ of \d+ channels located; frame: ACPC; positions as declared by the dataset; joined by name rules: \d+ suffix match$/,
+  );
+  const notes = page.locator(`${PANEL} .eegv__spatial-notes`);
+  await expect(notes).toContainText(
+    "joined to contacts by suffix match: channel names end in a numeric tail after the contact name. For example",
+  );
+  const note =
+    (await notes.locator("li", { hasText: "joined to contacts by" }).textContent()) ?? "";
+
+  // The contact as recorded first; the recording's own channel name beside it, in parentheses,
+  // with the kind of match as a tag; the recorded line as the file wrote it, in its own unit.
+  const row = page.locator("[data-spatial-list] li").first();
+  const name = (await row.locator(".eegv__spatial-name").textContent()) ?? "";
+  await expect(row.locator(".eegv__spatial-chan")).toHaveText(
+    new RegExp(`^\\(channel ${name}-\\d{4,5}\\)$`),
+  );
+  await expect(row.locator(".eegv__spatial-tag")).toHaveText("suffix match");
+  await expect(row.locator(".eegv__spatial-loc").first()).toHaveText(
+    /^recorded \(-?[0-9.]+(e-?[0-9]+)?, -?[0-9.]+(e-?[0-9]+)?, -?[0-9.]+(e-?[0-9]+)?\) m, frame: ACPC/,
+  );
+
+  // Selecting it says what the channel is in terms of its contact.
+  await row.click();
+  const selected = page.locator("[data-spatial-selected-channel]");
+  await expect(selected).toHaveText(
+    new RegExp(`^Channel ${name}-\\d{4,5} \\(contact ${name}; suffix match\\)$`),
+  );
+
+  // A saved SVG says the same: the status line, the note, the channel line, and a title per circle.
+  const svg = await saved(page, "svg");
+  const facts = await svgFacts(page, svg.bytes.toString("utf8"));
+  expect(facts.error).toBeNull();
+  expect(facts.text).toContain(status);
+  expect(facts.text).toContain(note);
+  expect(facts.text).toContain(
+    ((await selected.textContent()) ?? "").replace(/^Channel /, "Selected channel: "),
+  );
+  expect(facts.titles.length).toBeGreaterThan(0);
+  for (const t of facts.titles) {
+    expect(t).toMatch(/^[^ ]+ \(channels? [^;]*\[suffix match\]\); recorded \(.*\) m, frame: ACPC/);
+  }
+  // The PNG is the same figure (its sentences are the draw list's, unit-tested); it saves and carries the credit.
+  const png = await saved(page, "png");
+  expect(png.name).toMatch(/_contacts_acpc\.png$/);
+  const corners = await pngCorners(page, png.bytes);
+  expect(corners.signature).toBe("PNG");
+  expect(corners.right.colors).toBeGreaterThan(8);
+  test.info().annotations.push({
+    type: "name-join",
+    description: `${status} | rows=${await page.locator("[data-spatial-list] li").count()} | ${png.name} ${corners.width}x${corners.height}`,
+  });
+});
+
+test("on005522 and nm000376 join by exact names only: no match tag, no match note, the same status line", async ({
+  page,
+}) => {
+  for (const dataset of ["on005522", "nm000376"]) {
+    await openViewer(page, dataset);
+    await openBrain(page);
+    await expect(page.locator("[data-spatial-status]")).toHaveText(
+      /^\d+ of \d+ channels located; frame: [A-Za-z0-9]+; positions as declared by the dataset$/,
+    );
+    await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
+      "joined to contacts by",
+    );
+    expect(await page.locator("[data-spatial-list] .eegv__spatial-tag:not([hidden])").count()).toBe(
+      0,
+    );
+    await page.locator("[data-spatial-list] li").first().click();
+    await expect(page.locator("[data-spatial-list] li").first()).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  }
 });
