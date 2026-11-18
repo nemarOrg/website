@@ -1,0 +1,53 @@
+# Third-party notices
+
+This file separates what a license requires the site to carry from what the site credits voluntarily.
+The two are kept apart so nobody mistakes an acknowledgment for an obligation, or the reverse.
+
+## Required
+
+These notices travel with every copy of the surface they belong to.
+
+### Brain template surface (iEEG spatial view)
+
+The intracranial electroencephalography (iEEG) spatial view draws electrodes over the MNI152NLin2009cAsym template surface,
+a Montreal Neurological Institute (MNI) average brain distributed through TemplateFlow (<https://www.templateflow.org>).
+The template ships under the MNI notice, which must accompany every copy of the template files.
+
+- Notice: `public/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt`, in the vendored directory itself.
+  The copyright holder named there is Louis Collins, McConnell Brain Imaging Centre, MNI, McGill University.
+- Provenance of the vendored files (source, version, checksums): `provenance.json` in the same directory.
+- Reference for the template, to be cited by anyone using it:
+  Fonov V, Evans AC, Botteron K, Almli CR, McKinstry RC, Collins DL.
+  Unbiased average age-appropriate atlases for pediatric studies.
+  NeuroImage 54(1):313-327, 2011.
+  doi:[10.1016/j.neuroimage.2010.07.033](https://doi.org/10.1016/j.neuroimage.2010.07.033).
+
+### Brain Imaging Data Structure (BIDS) validator bundle
+
+The in-browser validator is a vendored build of the BIDS validator and its dependencies.
+Each bundled component's own license notice is reproduced in `public/vendor/bids-validator/3.0.2/THIRD_PARTY_LICENSES.txt`,
+and the bundle's exact dependency versions are in `provenance.json` beside it.
+
+## Acknowledged
+
+These credits are voluntary.
+No license asks for them.
+
+### RAVE
+
+The electrode view of the iEEG spatial view is inspired by RAVE,
+the Reproducible Analysis and Visualization of iEEG project (<https://rave.wiki>).
+NEMAR draws the view with its own renderer.
+**No RAVE code and no RAVE data ships with this site**,
+and the credit says "inspired by" because RAVE did not render the figure.
+
+The credit appears as a link reading "Electrode view inspired by RAVE" on every spatial panel,
+and inside every exported PNG and SVG file.
+It is declared once, in `src/lib/ieeg-spatial/credit.ts`.
+
+RAVE asks that users of its 3D viewer cite:
+
+Magnotti JF, Wang Z, Beauchamp MS.
+RAVE: Comprehensive open-source software for reproducible analysis and visualization of intracranial EEG data.
+NeuroImage 223:117341, 2020.
+doi:[10.1016/j.neuroimage.2020.117341](https://doi.org/10.1016/j.neuroimage.2020.117341).
