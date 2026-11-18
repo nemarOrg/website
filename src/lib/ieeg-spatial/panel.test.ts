@@ -7,6 +7,7 @@ import {
   GEOMETRY_REASONS,
   type GeometryInput,
   type RecordingGeometry,
+  classifyFrame,
   joinChannels,
   resolveRecordingGeometry,
 } from "./geometry";
@@ -1909,6 +1910,61 @@ describe("template anatomy", () => {
     const idle = reduce(state, { type: "toggle_open", open: false }).state;
     const never = { ...idle, template: "idle" as const };
     expect(reduce(never, { type: "template_loaded" }).state).toBe(never);
+  });
+
+  // No public dataset declares a pending family (the census has none), so this is the real contacts
+  // of nm000454 under a frame label changed to the one under test: a known-answer input, as the
+  // header of this file says. The code under test (`reduce`, `viewModel`) is untouched.
+  async function underFrame(label: string) {
+    const g = await geometryOf("nm000454", "v1.0.2", NM454);
+    const geometry: RecordingGeometry = {
+      ...g,
+      spaces: g.spaces.map((s) => ({ ...s, frame: classifyFrame(label, null, null) })),
+    };
+    const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
+    return openedOnSpace(geometry, 0, ref);
+  }
+  const TAIL = ": positions are shown in the dataset's own frame";
+
+  it("a pending family and an unsupported native frame get different sentences, and neither places a contact", async () => {
+    const pendingLabels = [
+      "MNIColin27",
+      "ICBM452AirSpace",
+      "ICBM452Warp5Space",
+      "fsaverageSym",
+      "fsLR",
+      "NIHPD",
+      "OASIS30AntsOASISAnts",
+      "OASIS30Atropos",
+      "UNCInfant",
+    ];
+    const declared = (await underFrame("ACPC")).state.placement?.contacts.map((c) => c.position);
+    expect(declared?.length).toBeGreaterThan(10);
+    const native = await underFrame("ACPC");
+    const nativeNotes = viewModel(native.state).notes;
+    expect(nativeNotes).toContain(`No template placement for ACPC${TAIL}`);
+    expect(nativeNotes.join("\n")).not.toContain("placement yet");
+
+    for (const label of pendingLabels) {
+      const { state, effects } = await underFrame(label);
+      const model = viewModel(state);
+      expect(model.stage.kind, label).toBe("canvas");
+      expect(model.notes, label).toContain(`No template placement yet for ${label}${TAIL}`);
+      expect(model.notes, label).not.toContain(`No template placement for ${label}${TAIL}`);
+      // no surface asked for, none drawn, no label, contacts exactly as declared
+      expect(loads(effects), label).toEqual([]);
+      expect(state.template, label).toBe("idle");
+      expect(model.template, label).toBeNull();
+      expect(drawnTemplate(state), label).toBeNull();
+      expect(templateRuleOf(state), label).toBeNull();
+      expect(drawnPositions(state), label).toEqual(declared);
+      // the credit stays
+      expect(model.credit, label).toEqual(creditLinkSpec());
+    }
+    // the same real contacts under a placed identifier do get the surface: the label is what differs
+    const placed = await underFrame("MNI152NLin2009cAsym");
+    expect(loads(placed.effects)).toHaveLength(1);
+    expect(viewModel(loaded(placed.state)).template).toMatchObject({ status: "ready" });
   });
 
   it("the sentence for an undeclared frame does not name a frame the file never wrote", async () => {

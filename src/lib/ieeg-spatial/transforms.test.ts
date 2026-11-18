@@ -8,6 +8,7 @@ import {
   MNI305_TO_MNI152,
   MNI_TO_TALAIRACH,
   MNI_VARIANTS,
+  PENDING_TEMPLATES,
   SURFACE_FRAME,
   TALAIRACH_APPROXIMATION,
   TALAIRACH_TO_MNI,
@@ -24,6 +25,7 @@ import {
   loadTemplateSurface,
   mergeMeshes,
   noPlacementSentence,
+  pendingTemplateFor,
   placeOnTemplate,
   placementRuleFor,
   templateLabel,
@@ -470,5 +472,132 @@ describe("the surface as files", () => {
         restore();
       }
     });
+  });
+});
+
+/**
+ * The pinned BIDS appendix (coordinate-systems.md at the commit IS-C1 pinned): the standard
+ * template table, parsed the way `geometry.test.ts` parses it, and the deprecated table's patterns.
+ */
+const APPENDIX = fs.readFileSync(
+  repoPath(
+    "test/fixtures/ieeg-geometry/bids-specification/074ae6ffcdcfa27f07e131f42a545574f20675c8/src/appendices/coordinate-systems.md",
+  ),
+  "utf8",
+);
+
+function appendixIdentifiers(): string[] {
+  const start = APPENDIX.indexOf("### Standard template identifiers");
+  const end = APPENDIX.indexOf("The following template identifiers are retained");
+  expect(start).toBeGreaterThan(0);
+  expect(end).toBeGreaterThan(start);
+  const names: string[] = [];
+  for (const line of APPENDIX.slice(start, end).split("\n")) {
+    if (!line.startsWith("|")) continue;
+    const first = line.replace(/\\\|/g, "\u0000").split("|")[1].trim();
+    if (first === "**Coordinate System**" || /^-+$/.test(first)) continue;
+    if (first.startsWith("MNI152NLin2009")) {
+      for (const flavor of ["a", "b", "c"]) {
+        for (const sym of ["Sym", "Asym"]) names.push(`MNI152NLin2009${flavor}${sym}`);
+      }
+    } else {
+      names.push(first.replace(/\\/g, ""));
+    }
+  }
+  return names;
+}
+
+describe("every identifier of the BIDS appendix is placed or pending", () => {
+  const PENDING = [
+    "ICBM452AirSpace",
+    "ICBM452Warp5Space",
+    "MNIColin27",
+    "NIHPD",
+    "OASIS30AntsOASISAnts",
+    "OASIS30Atropos",
+    "UNCInfant",
+    "fsLR",
+    "fsaverageSym",
+  ];
+
+  it("the registry and the pending table together are exactly the appendix's table, and no identifier is in both", () => {
+    const names = appendixIdentifiers();
+    expect(names.length).toBeGreaterThan(15);
+    for (const name of names) {
+      const placed = TEMPLATE_PLACEMENTS.has(name as StandardTemplate);
+      const waiting = PENDING_TEMPLATES.has(name as StandardTemplate);
+      expect(placed || waiting, `${name} is neither placed nor pending: decide it`).toBe(true);
+      expect(placed && waiting, `${name} is both placed and pending`).toBe(false);
+    }
+    const registered = [...TEMPLATE_PLACEMENTS.keys(), ...PENDING_TEMPLATES.keys()].sort();
+    expect(registered).toEqual([...names].sort());
+    expect([...PENDING_TEMPLATES.keys()].sort()).toEqual([...PENDING].sort());
+  });
+
+  it("every pending entry names its identifier, a reason and the evidence still needed, down to the worked example", () => {
+    for (const [id, entry] of PENDING_TEMPLATES) {
+      expect(entry.identifier, id).toBe(id);
+      expect(entry.reason.trim().length, `${id} reason`).toBeGreaterThan(60);
+      expect(entry.needed.trim().length, `${id} needed`).toBeGreaterThan(40);
+      expect(entry.needed, `${id} needed`).toMatch(/worked/);
+    }
+  });
+
+  it("a pending identifier is never placed, whatever its units, and a placed one is never pending", () => {
+    const mm = { unit: "mm" } as const;
+    for (const id of PENDING_TEMPLATES.keys()) {
+      const frame = classifyFrame(id, null, null);
+      expect(frame, id).toMatchObject({ kind: "template", identifier: id });
+      expect(placementRuleFor(frame, mm), id).toBeNull();
+      expect(pendingTemplateFor(frame)?.identifier, id).toBe(id);
+    }
+    for (const id of TEMPLATE_PLACEMENTS.keys()) {
+      expect(pendingTemplateFor(classifyFrame(id, null, null)), id).toBeNull();
+    }
+    // frames that are not template frames are never pending
+    for (const label of ["ACPC", "ScanRAS", "Other", "Pixels", "mni", null]) {
+      expect(pendingTemplateFor(classifyFrame(label, null, null)), String(label)).toBeNull();
+    }
+    expect(pendingTemplateFor(null)).toBeNull();
+  });
+
+  it("the deprecated spellings stay unknown frames: neither placed nor pending, and no 'yet'", () => {
+    expect(APPENDIX).toContain("fsaverage\\[3\\|4\\|5\\|6\\|sym\\]");
+    expect(APPENDIX).toContain("UNCInfant\\[0\\|1\\|2\\]V\\[21\\|22\\|23\\]");
+    const deprecated = [
+      ...["3", "4", "5", "6"].map((n) => `fsaverage${n}`),
+      ...["0", "1", "2"].flatMap((a) => ["21", "22", "23"].map((b) => `UNCInfant${a}V${b}`)),
+    ];
+    for (const label of deprecated) {
+      const frame = classifyFrame(label, null, null);
+      expect(frame, label).toMatchObject({ kind: "unknown", why: "unrecognized_label" });
+      expect(placementRuleFor(frame, { unit: "mm" }), label).toBeNull();
+      expect(pendingTemplateFor(frame), label).toBeNull();
+      expect(noPlacementSentence(frame), label).not.toContain(" yet ");
+    }
+    // the one that equals a current identifier in letter case is that identifier, so it is pending
+    const sym = classifyFrame("fsaveragesym", null, null);
+    expect(sym).toMatchObject({ kind: "template", identifier: "fsaverageSym" });
+    expect(pendingTemplateFor(sym)?.identifier).toBe("fsaverageSym");
+  });
+
+  it("a pending family reads 'No template placement yet for X' and every other unplaced frame reads 'No template placement for X'", () => {
+    const sentence = (label: string | null, entity: string | null = null) =>
+      noPlacementSentence(classifyFrame(label, entity, null));
+    const tail = ": positions are shown in the dataset's own frame";
+    for (const id of PENDING_TEMPLATES.keys()) {
+      expect(sentence(id), id).toBe(`No template placement yet for ${id}${tail}`);
+    }
+    for (const label of ["ACPC", "ScanRAS", "Other", "Pixels", "mni", "MNI152", "fsaverage5"]) {
+      expect(sentence(label), label).toBe(`No template placement for ${label}${tail}`);
+    }
+    expect(sentence(null)).toBe(`No template placement for an undeclared frame${tail}`);
+    // a placed identifier that was not placed (its units are not declared) is not "pending"
+    expect(sentence("MNI152NLin6Asym")).toBe(`No template placement for MNI152NLin6ASym${tail}`);
+    // the two wordings differ for a pending family and for a native frame, and only by "yet" and the name
+    expect(sentence("MNIColin27")).not.toBe(sentence("ACPC"));
+    expect(sentence("MNIColin27").replace(" yet", "")).toBe(
+      sentence("ACPC").replace("ACPC", "MNIColin27"),
+    );
   });
 });
