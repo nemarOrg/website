@@ -1,3 +1,10 @@
+import {
+  type GroupInfo,
+  type SpatialPanel,
+  createSpatialPanel,
+  isIeegModality,
+  spatialLayout,
+} from "../ieeg-spatial/panel";
 import { zarrStoreUrl } from "../zarr-base";
 /**
  * Signal-viewer orchestration (website#99). `mountEegViewer` builds a compact
@@ -214,6 +221,15 @@ export interface ViewerOptions {
   onRetry?: () => void | Promise<void>;
   /** This mount is a retry of a load that already failed, so the message says "still". */
   retried?: boolean;
+  /**
+   * The recording's place in the dataset, which switches on the "Brain" panel for intracranial
+   * (iEEG) channel groups (IS-V1, ADR 0033): the dataset id, the version and the recording's
+   * dataset-relative path name where its `_electrodes.tsv` and `_coordsystem.json` are read from
+   * (`src/lib/ieeg-spatial/geometry.ts`). Absent: no Brain toggle, as for any other caller.
+   * The embed route passes it too: the panel is a view, not an action, and its credit is a plain
+   * link (ADR 0023).
+   */
+  spatial?: { datasetId: string; version: string; recording: string };
 }
 
 /**
@@ -713,7 +729,10 @@ export async function mountEegViewer(
   // this function, and the `isStale` check after the await ruled out a newer
   // mount having taken ownership in the meantime.
   slot.innerHTML = "";
-  const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB);
+  // The Brain panel exists only when the caller named the recording and some channel group is
+  // intracranial: otherwise there is nothing to look up and no button to show (IS-V1).
+  const spatialWanted = !!opts.spatial && store.groups.some((g) => isIeegModality(g.modality));
+  const ui = buildDom(slot, store, eventTypes, preloadEnabled, preloadCapMB, spatialWanted);
   const cleanups: Array<() => void> = [];
   // `fitHeight` hosts get chrome whose height cannot change from one render to
   // the next (`.eegv--fit` in eeg-viewer.css); see `fitScopeHeight`.
@@ -778,6 +797,95 @@ export async function mountEegViewer(
 
   function group(): GroupHandle {
     return store.groups[groupIndex];
+  }
+
+  // --- iEEG Brain panel (IS-V1) ----------------------------------------------
+  // The panel decides everything (`src/lib/ieeg-spatial/panel.ts`); this is what it needs from the
+  // viewer and what the viewer does for it: the group's labels and rates, sample reads, the toggle
+  // button, and a highlighted band over the selected channel's trace.
+  let highlightLabel: string | null = null;
+
+  function spatialGroupInfo(): GroupInfo {
+    const g = group();
+    return {
+      index: groupIndex,
+      modality: g.modality,
+      labels: g.channelsByRow.map((c) => c.label),
+      units: g.channelsByRow.map((c) => c.unit),
+      rateHz: g.rate,
+      nativeRateHz: Number.isFinite(g.originalRate) && g.originalRate > 0 ? g.originalRate : null,
+      durationS: g.durationS,
+    };
+  }
+
+  /** Put the highlight band over the selected channel's slot, or hide it. */
+  function placeTraceHighlight(): void {
+    const band = ui.traceHl;
+    const idx =
+      highlightLabel === null || butterfly || !lastFrame
+        ? -1
+        : lastFrame.channels.findIndex((c) => c.label === highlightLabel);
+    const slotBox = idx >= 0 ? lastSlots[idx] : undefined;
+    if (!slotBox) {
+      band.hidden = true;
+      return;
+    }
+    band.style.top = `${slotBox.baseline - slotBox.halfHeight}px`;
+    band.style.height = `${slotBox.halfHeight * 2}px`;
+    band.hidden = false;
+  }
+
+  /** The panel selected a channel (or cleared): highlight its trace, and bring it into view. */
+  function showSpatialTrace(label: string | null): void {
+    highlightLabel = label;
+    if (label !== null) {
+      const row = group().channelsByRow.findIndex((c) => c.label === label);
+      if (row >= 0 && (row < chanStart || row >= chanStart + chanCount)) {
+        chanStart = Math.round(row - chanCount / 2);
+        void render();
+        return;
+      }
+    }
+    placeTraceHighlight();
+  }
+
+  /** Beside the scope when the viewer is wide enough; below it, at full width, when not. */
+  function syncSpatialLayout(): void {
+    if (!ui.spatialBox) return;
+    const narrow = spatialLayout(ui.root.getBoundingClientRect().width) === "below";
+    ui.plot.classList.toggle("eegv__plot--stack", narrow);
+  }
+
+  const spatial: SpatialPanel | null =
+    spatialWanted && opts.spatial && ui.spatialBox
+      ? createSpatialPanel({
+          recording: {
+            datasetId: opts.spatial.datasetId,
+            version: opts.spatial.version,
+            path: opts.spatial.recording,
+          },
+          box: ui.spatialBox,
+          themeRoot: ui.root,
+          group: spatialGroupInfo,
+          readRows: (gi, startS, endS, r0, r1, signal) =>
+            readLevel0(store.groups[gi], startS, endS, r0, r1, signal),
+          setToggle: (t) => {
+            const btn = ui.brainBtn;
+            if (!btn || !ui.brainGroup) return;
+            ui.brainGroup.hidden = !t.visible;
+            btn.disabled = !t.enabled;
+            btn.title = t.title;
+            btn.setAttribute("aria-pressed", String(t.pressed));
+            btn.classList.toggle("eegv__btn--active", t.pressed);
+          },
+          showTrace: showSpatialTrace,
+          // Opening or closing the panel changes the scope's width; re-measure and redraw.
+          layoutChanged: () => void render(),
+        })
+      : null;
+  if (spatial) {
+    ui.brainBtn?.addEventListener("click", () => spatial.toggle());
+    cleanups.push(() => spatial.dispose());
   }
 
   // --- degraded view pyramid ------------------------------------------------
@@ -1201,6 +1309,7 @@ export async function mountEegViewer(
   async function renderImpl(seq: number): Promise<void> {
     clamp();
     const g = group();
+    syncSpatialLayout();
     const { w, h } = sizeCanvas();
     syncControls();
     const plotWidth = Math.max(64, w - DEFAULT_RENDER.gutter - 8);
@@ -1284,6 +1393,9 @@ export async function mountEegViewer(
     }
     if (seq !== renderSeq) return; // a newer render superseded this one
     firstPaint = false;
+    // The Brain panel's activity overlay follows the window on screen (no read happens unless its
+    // Activity switch is on).
+    spatial?.setWindow(start, end - start);
     // Track the level actually rendered and (re)target the preloader at it --
     // a no-op when nothing about the target changed (see updatePrefetchTarget).
     lastWinLevel = win.level;
@@ -1345,6 +1457,7 @@ export async function mountEegViewer(
     };
     lastFrame = frame;
     lastSlots = traceLayout(frame.channels.length, lastPlotTop, lastPlotHeight);
+    placeTraceHighlight();
     const renderOpts = {
       ...DEFAULT_RENDER,
       ...themeColors(ui.root),
@@ -1771,6 +1884,8 @@ export async function mountEegViewer(
       // The `gainManuallySet` guard inside renderImpl still wins if the user has
       // already touched Scale +/-, so this cannot stomp a manual adjustment.
       autoscalePending = true;
+      // The Brain panel's contacts, selection and activity belong to one group's channels.
+      spatial?.setGroup(spatialGroupInfo());
       // Topomap is scalp-only; disable + hide it when the active group is not scalp.
       const scalpNow = !!topoLayout && isScalpModality(group().modality);
       ui.topoBtn.disabled = !scalpNow;
@@ -1807,13 +1922,18 @@ export async function mountEegViewer(
   );
 
   // --- Bad-channel click in stacked mode (gutter label hit-test) -----------
+  // With the Brain panel open a click on a trace or its label selects the channel's contact(s)
+  // instead (IS-V1); Shift+click on the label still marks it bad. The trace body is left to the
+  // annotation tool while it is armed.
   ui.canvas.addEventListener("click", (e) => {
     if (butterfly) return; // butterfly has no per-slot geometry
     if (!lastFrame || lastFrame.channels.length === 0) return;
     const rect = ui.canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    if (x >= lastPlotLeft) return; // only gutter (x < gutter)
+    const inGutter = x < lastPlotLeft;
+    const picking = !!spatial?.isOpen();
+    if (!inGutter && !(picking && !annotations.isActive())) return;
     const slots = lastSlots;
     for (let i = 0; i < slots.length; i++) {
       const slot = slots[i];
@@ -1821,12 +1941,20 @@ export async function mountEegViewer(
       const bot = slot.baseline + slot.halfHeight;
       if (y >= top && y < bot) {
         const label = lastFrame.channels[i].label;
+        if (!inGutter) {
+          spatial?.selectChannel(label);
+          break;
+        }
         // With the pencil armed a channel click is an annotation gesture: it
         // opens the popover for that channel, and the popover's status field
         // then decides the mark. Toggling here as well would fight it — the
         // annotator would land in a "bad" popover for a channel the same click
         // had just made good. With the pencil off nothing changes.
         if (annotations.onChannelClick(label)) break;
+        if (picking && !e.shiftKey) {
+          spatial?.selectChannel(label);
+          break;
+        }
         if (badChannels.has(label)) badChannels.delete(label);
         else badChannels.add(label);
         // Channel marking IS the selection the annotation tool acts on
@@ -2053,7 +2181,10 @@ export async function mountEegViewer(
   // Repaint when the site theme flips (the canvas reads CSS vars, so a light/dark
   // toggle on <html> must trigger a re-render to stay homogeneous).
   if (typeof MutationObserver !== "undefined") {
-    const mo = new MutationObserver(() => render());
+    const mo = new MutationObserver(() => {
+      spatial?.refreshTheme();
+      void render();
+    });
     mo.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class", "data-theme", "style"],
@@ -2104,6 +2235,8 @@ export async function mountEegViewer(
   });
 
   await render();
+  // After the first frame, so looking up the electrode files never competes with the signal.
+  if (!disposed) spatial?.start();
   void store.eventsReady.then((events) => {
     // Mirrors watchViewLevels' guard: a mount torn down while eventsReady is
     // still in flight must not write store.events/eventTypes, touch the
@@ -2156,6 +2289,13 @@ interface ViewerUi {
   clockCheck: HTMLInputElement;
   hideBadCheck: HTMLInputElement;
   topoBtn: HTMLButtonElement;
+  /** The Brain toggle and its labeled group; null when the viewer has no Brain panel (IS-V1). */
+  brainBtn: HTMLButtonElement | null;
+  brainGroup: HTMLElement | null;
+  /** The Brain panel's box in the plot row; null when there is no panel. */
+  spatialBox: HTMLElement | null;
+  /** The band drawn over the selected channel's trace (hidden unless a channel is selected). */
+  traceHl: HTMLElement;
   topo: HTMLElement;
   topoCanvas: HTMLCanvasElement;
   topoInfo: HTMLElement;
@@ -2197,6 +2337,7 @@ function buildDom(
   eventTypes: EventType[],
   preloadEnabled: boolean,
   preloadCapMB: number,
+  hasSpatial: boolean,
 ): ViewerUi {
   const root = el("div", "eegv");
   root.tabIndex = 0;
@@ -2279,6 +2420,26 @@ function buildDom(
     topoBtn.title = topoToggleTitle(scalp, store);
   }
   bar.append(grouped("Topo", topoBtn));
+
+  // Brain toggle (IS-V1): intracranial contacts in the frame the dataset declares. Built only for
+  // a viewer given a recording to look up; the panel (panel.ts) enables, titles and presses it.
+  // Hidden until the panel says the channel group is intracranial.
+  let brainBtn: HTMLButtonElement | null = null;
+  let brainGroup: HTMLElement | null = null;
+  if (hasSpatial) {
+    brainBtn = document.createElement("button");
+    brainBtn.type = "button";
+    brainBtn.className = "eegv__btn eegv__topo-btn";
+    brainBtn.disabled = true;
+    brainBtn.title = "Brain: checking this dataset for electrode positions";
+    brainBtn.setAttribute("aria-label", "Brain view of electrode contacts");
+    brainBtn.setAttribute("aria-pressed", "false");
+    brainBtn.dataset.spatialToggle = "";
+    brainBtn.innerHTML = brainGlyph();
+    brainGroup = grouped("Brain", brainBtn);
+    brainGroup.hidden = true;
+    bar.append(brainGroup);
+  }
 
   // Annotation-mode toggle (website#255). A primary view control like the
   // topomap, not a gear setting: it changes what a click on the trace *does*,
@@ -2377,6 +2538,7 @@ function buildDom(
       </ul>
       <p style="margin:0;font-size:10px;color:var(--color-fg-subtle)">Click a channel label to mark it bad (dim; <kbd>h</kbd> hides them)</p>
       <p style="margin:4px 0 0;font-size:10px;color:var(--color-fg-subtle)">Annotate mode (pencil): click the trace for an event marker, drag for a span. Marked channels can be annotated as a set.</p>
+      ${hasSpatial ? '<p style="margin:4px 0 0;font-size:10px;color:var(--color-fg-subtle)">Brain panel open: click a trace or its label to select the channel&#39;s contact; Shift+click a label to mark it bad.</p>' : ""}
     </div>
   `.trim();
 
@@ -2390,7 +2552,10 @@ function buildDom(
   glCanvas.className = "eegv__glcanvas";
   const canvas = document.createElement("canvas");
   canvas.className = "eegv__canvas";
-  scope.append(glCanvas, canvas);
+  const traceHl = el("div", "eegv__trace-hl");
+  traceHl.hidden = true;
+  traceHl.setAttribute("aria-hidden", "true");
+  scope.append(glCanvas, canvas, traceHl);
   const vscroll = document.createElement("input");
   vscroll.type = "range";
   vscroll.className = "eegv__vscroll";
@@ -2409,7 +2574,14 @@ function buildDom(
   topoScale.append(topoMin, topoBar, topoMax);
   const topoInfo = el("div", "eegv__topo-info");
   topo.append(topoCanvas, topoScale, topoInfo);
-  plot.append(scope, vscroll, topo, cursor);
+  // The Brain panel's box sits in the same row, after the scope and the topomap; its content is
+  // the panel's own (panel.ts). Hidden until opened.
+  let spatialBox: HTMLElement | null = null;
+  if (hasSpatial) {
+    spatialBox = el("div", "eegv__spatial");
+    spatialBox.hidden = true;
+  }
+  plot.append(scope, vscroll, topo, ...(spatialBox ? [spatialBox] : []), cursor);
 
   const hscroll = document.createElement("input");
   hscroll.type = "range";
@@ -2484,6 +2656,10 @@ function buildDom(
     legend,
     annotateBtn,
     annotPanel,
+    brainBtn,
+    brainGroup,
+    spatialBox,
+    traceHl,
     on(action, fn) {
       root
         .querySelector<HTMLButtonElement>(`[data-act="${action}"]`)
@@ -2712,6 +2888,11 @@ function resolveScalpPositions(
 /** Inline topomap icon: a head circle with a nose notch at the top. */
 function topoGlyph(): string {
   return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="8"/><path d="M9.2 6 L12 2.8 L14.8 6"/></svg>';
+}
+
+/** Inline Brain icon: a head profile with three contact dots. */
+function brainGlyph(): string {
+  return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4C8 4 5 6.7 5 10.4c0 1.7.6 3 1.6 4 .2 1.6 1.4 3 3.4 3.5V20h4v-2c2-.5 3.2-1.9 3.4-3.5 1-1 1.6-2.3 1.6-4C19 6.7 16 4 12 4z"/><circle cx="9.5" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="14.5" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="13.5" r="1" fill="currentColor" stroke="none"/></svg>';
 }
 
 /** Default Notch select value: the recording's PowerLineFrequency when it is a
