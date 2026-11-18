@@ -41,6 +41,9 @@ interface Provenance {
   script: { path: string; sha256: string };
   sources: { path: string; bytes: number; sha256: string; role: string }[];
   licenseSource: { sha256: string };
+  scope: string;
+  tools: Record<string, string>;
+  resolvedEnvironment: Record<string, string>;
   outputs: Record<string, { vertices: number; triangles: number }>;
 }
 
@@ -155,6 +158,59 @@ describe("provenance.json", () => {
   });
 });
 
+/**
+ * The packages the build resolved, with the versions it ran under: the five pinned in the script
+ * and what they pulled in. Update this with the rebuild (`provenance.json`, `resolvedEnvironment`).
+ */
+const EXPECTED_RESOLUTION: Record<string, string> = {
+  "fast-simplification": "0.2.0",
+  imageio: "2.38.2",
+  "lazy-loader": "0.6",
+  networkx: "3.7",
+  nibabel: "5.5.0",
+  numpy: "2.5.5",
+  packaging: "26.3",
+  pillow: "13.0.0",
+  "scikit-image": "0.26.0",
+  scipy: "1.18.1",
+  tifffile: "2026.11.12",
+  "typing-extensions": "4.16.0",
+};
+
+describe("the recorded build environment", () => {
+  it("lists every resolved package, direct and transitive, with its version", () => {
+    expect(
+      readProvenance().resolvedEnvironment,
+      `The resolution changed. Rebuild with: ${REBUILD}`,
+    ).toEqual(EXPECTED_RESOLUTION);
+  });
+
+  it("agrees with the exact pins in the script's inline metadata", () => {
+    const pins = [...text(SCRIPT).matchAll(/^# {3}"([a-z-]+)==([0-9.]+)",$/gm)];
+    expect(pins.map((m) => m[1]).sort()).toEqual([
+      "fast-simplification",
+      "nibabel",
+      "numpy",
+      "scikit-image",
+      "scipy",
+    ]);
+    const provenance = readProvenance();
+    for (const [, name, version] of pins) {
+      expect(provenance.resolvedEnvironment[name], name).toBe(version);
+      expect(provenance.tools[name], name).toBe(version);
+    }
+  });
+});
+
+describe("what the surface is", () => {
+  it("is described as the cerebrum and cerebellum tissue surface, in the README and provenance", () => {
+    for (const body of [text(`${DIR}/README.md`), readProvenance().scope]) {
+      expect(body).toContain("cerebrum and the cerebellum");
+      expect(body).toContain("not a cortical pial or white-matter surface");
+    }
+  });
+});
+
 describe("LICENSE.txt", () => {
   it("carries the MNI copyright notice, verbatim, and names this derived surface", async () => {
     const license = text(`${DIR}/LICENSE.txt`);
@@ -241,13 +297,13 @@ describe("the hemisphere meshes", () => {
   it("fill the template brain, not a fragment of it", () => {
     const l = bounds(left().positions);
     const r = bounds(right().positions);
-    // The cerebrum is about 140 mm wide, 175 mm long and 130 mm tall.
+    // Cerebrum and cerebellum together: about 144 mm wide, 181 mm long and 155 mm tall.
     expect(r.max[0] - l.min[0]).toBeGreaterThan(130);
     expect(Math.max(l.max[1], r.max[1]) - Math.min(l.min[1], r.min[1])).toBeGreaterThan(165);
     expect(Math.max(l.max[2], r.max[2]) - Math.min(l.min[2], r.min[2])).toBeGreaterThan(145);
   });
 
-  it("wind counter-clockwise seen from outside", () => {
+  it("wind counter-clockwise seen from outside, for nearly every triangle", () => {
     for (const mesh of [left(), right()]) {
       const p = mesh.positions;
       const ix = mesh.indices;
@@ -262,8 +318,32 @@ describe("the hemisphere meshes", () => {
         const out = [0, 1, 2].map((k) => (p[a + k] + p[b + k] + p[c + k]) / 3 - mean[k]);
         if (n[0] * out[0] + n[1] * out[1] + n[2] * out[2] > 0) outward++;
       }
-      // Folds and the open midline face inward; a flipped mesh would be near zero.
-      expect(outward / (ix.length / 3)).toBeGreaterThan(0.7);
+      // Measured 0.82 and 0.83: folds and the open midline face inward. A mesh with a third of its
+      // triangles flipped falls to about 0.6.
+      expect(outward / (ix.length / 3)).toBeGreaterThan(0.78);
+    }
+  });
+
+  it("enclose a positive volume of about a brain hemisphere", () => {
+    for (const mesh of [left(), right()]) {
+      const p = mesh.positions;
+      const ix = mesh.indices;
+      // Signed volume as the sum of origin-tetrahedra. The cut is open, but the origin lies on the
+      // cut plane, where the missing cap contributes exactly zero, so this is the enclosed volume.
+      let sixVolumes = 0;
+      for (let t = 0; t < ix.length; t += 3) {
+        const [a, b, c] = [ix[t] * 3, ix[t + 1] * 3, ix[t + 2] * 3];
+        sixVolumes +=
+          p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1]) +
+          p[a + 1] * (p[b + 2] * p[c] - p[b] * p[c + 2]) +
+          p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c]);
+      }
+      const volumeMm3 = sixVolumes / 6;
+      expect(volumeMm3, "negative: the mesh is inside out").toBeGreaterThan(0);
+      // Measured 0.88 million cubic millimeters each; a third of the triangles flipped gives a
+      // third of that.
+      expect(volumeMm3).toBeGreaterThan(700_000);
+      expect(volumeMm3).toBeLessThan(1_100_000);
     }
   });
 });
