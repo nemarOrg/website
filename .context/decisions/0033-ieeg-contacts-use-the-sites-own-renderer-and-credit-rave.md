@@ -37,7 +37,7 @@ Four choices are expensive to undo once a viewer and its exports rest on them: w
    |---|---|---|
    | `MNI152NLin2009cAsym` | on the surface, as declared | template brain, not this subject's anatomy |
    | other `MNI152*` identifiers, `IXI549Space` | on the surface, unchanged | template, and approximate |
-   | `MNI305`, `fsaverage` | on the surface, through FreeSurfer's MNI305 to MNI152 affine | template, and approximate |
+   | `MNI305`, `fsaverage` | on the surface, through FreeSurfer's MNI305 to MNI152 affine, only when the values are in millimeters; under the units banner (a converted unit with every contact over 300 mm from the origin) never placed, which holds for both committed `fsaverage` datasets (on004100, on006253: meters declared over millimeter-sized numbers) | template, and approximate |
    | `Talairach` | on the surface, through Lancaster and colleagues' Talairach to International Consortium for Brain Mapping 152 affine | template, and approximate |
 
    No contact is ever snapped or projected onto the surface.
