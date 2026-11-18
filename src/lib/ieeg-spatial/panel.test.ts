@@ -29,9 +29,11 @@ import {
   formatActivityValue,
   frameName,
   initialState,
+  needsAnotherTry,
   positionWarnings,
   readRuns,
   reduce,
+  resolveWithRetries,
   spatialLayout,
   unitsSentence,
   unlocatedNotes,
@@ -689,6 +691,101 @@ describe("the toggle", () => {
     expect(Object.keys(GEOMETRY_SENTENCES).sort()).toEqual([...GEOMETRY_REASONS].sort());
     expect(new Set(Object.values(GEOMETRY_SENTENCES)).size).toBe(GEOMETRY_REASONS.length);
     for (const s of Object.values(GEOMETRY_SENTENCES)) expect(s).toMatch(/^[A-Z].*\.$/);
+  });
+});
+
+describe("trying again quietly", () => {
+  const noWait = { delaysMs: [0, 0, 0], sleep: async () => {} };
+  const countingAttempt = (
+    dataset: string,
+    version: string,
+    recording: string,
+    failRead?: (path: string, call: number) => boolean,
+  ) => {
+    let calls = 0;
+    return {
+      calls: () => calls,
+      attempt: () => {
+        const call = calls++;
+        return geometryOf(
+          dataset,
+          version,
+          recording,
+          treeReader(dataset, version, (p) => failRead?.(p, call) ?? false),
+        );
+      },
+    };
+  };
+
+  it("a read that failed in a way that may pass is tried again until it works", async () => {
+    // The data plane answered 500 to the first two reads of the electrodes file, then 200.
+    const c = countingAttempt(
+      "on005522",
+      "v1.0.0",
+      BIPOLAR,
+      (p, call) => p.endsWith("_electrodes.tsv") && call < 2,
+    );
+    const geometry = await resolveWithRetries(c.attempt, noWait);
+    expect(c.calls()).toBe(3);
+    expect(geometry.reason).toBeNull();
+    expect(geometry.spaces[0].contacts.length).toBeGreaterThan(0);
+  });
+
+  it("gives up after the last pause and says so, so the reader can retry by hand", async () => {
+    const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
+    const geometry = await resolveWithRetries(c.attempt, noWait);
+    expect(c.calls()).toBe(4);
+    expect(geometry.reason).toBe("unreadable");
+    expect(needsAnotherTry(geometry)).toBe(true);
+  });
+
+  it("does not retry a refusal that is a property of the data", async () => {
+    const c = countingAttempt("nm000537", "v1.0.2", NM537);
+    const geometry = await resolveWithRetries(c.attempt, noWait);
+    expect(c.calls()).toBe(1);
+    expect(geometry.reason).toBe("no_coordinates");
+    expect(needsAnotherTry(geometry)).toBe(false);
+  });
+
+  it("stops at once when the resolution was superseded", async () => {
+    const ctl = new AbortController();
+    const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
+    ctl.abort();
+    await resolveWithRetries(c.attempt, { ...noWait, signal: ctl.signal });
+    expect(c.calls()).toBe(1);
+  });
+
+  it("stops when the resolution is superseded during a pause", async () => {
+    const ctl = new AbortController();
+    const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
+    await resolveWithRetries(c.attempt, {
+      delaysMs: [0, 0, 0],
+      sleep: async () => ctl.abort(),
+      signal: ctl.signal,
+    });
+    expect(c.calls()).toBe(1);
+  });
+
+  it("counts one frame's failure as worth another try, though the recording shows another frame", async () => {
+    const g = await geometryOf(
+      "nm000485",
+      "v1.0.2",
+      NM485,
+      treeReader("nm000485", "v1.0.2", (p) => p.includes("space-Other_electrodes")),
+    );
+    expect(g.reason).toBeNull();
+    expect(needsAnotherTry(g)).toBe(true);
+  });
+
+  it("waits the stated pause before each further try", async () => {
+    const waited: number[] = [];
+    const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
+    await resolveWithRetries(c.attempt, {
+      sleep: async (ms) => {
+        waited.push(ms);
+      },
+    });
+    expect(waited).toEqual([300, 800, 1600]);
   });
 });
 

@@ -80,8 +80,14 @@ export const MAX_ACTIVITY_SAMPLES = 4_000_000;
 export const READ_SLICE_CHANNELS = 16;
 /** Wait for the window to settle before reading, so a scroll does not start a read per frame. */
 export const ACTIVITY_DEBOUNCE_MS = 150;
-/** Give the sidecar reads this long before offering Retry. */
+/** Give the sidecar reads, retries included, this long before offering Retry. */
 export const GEOMETRY_TIMEOUT_MS = 30_000;
+/**
+ * Pauses before each further try when a read of the electrode files fails in a way that may pass.
+ * The data plane answers 500 now and then, and one directory listing in four or five is enough to
+ * fail a whole resolution, so the panel tries again quietly before it shows Retry.
+ */
+export const RETRY_DELAYS_MS: readonly number[] = [300, 800, 1600];
 /** Drawn contacts spread wider than this (millimeters, declared units) get a warning: a head is about 200. */
 export const SPAN_WARNING_MM = 250;
 /** Unselected contacts are drawn this opaque while a selection exists. */
@@ -388,6 +394,40 @@ export function defaultSpaceIndex(geometry: RecordingGeometry): number | null {
   const shown = geometry.spaces.flatMap((s, i) => (s.reason === null ? [i] : []));
   const template = shown.find((i) => geometry.spaces[i].frame?.kind === "template");
   return template ?? shown[0] ?? (geometry.spaces.length > 0 ? 0 : null);
+}
+
+/** True when a failure in this result may be the data plane's and not the dataset's. */
+export function needsAnotherTry(geometry: RecordingGeometry): boolean {
+  return isTransient(geometry.reason) || geometry.spaces.some((s) => isTransient(s.reason));
+}
+
+/**
+ * Resolve the contacts, trying again after each pause in `delaysMs` while the result is a failure
+ * that may pass (`unreadable`, `listing_failed`). A refusal that is a property of the data (no
+ * file, no coordinates, all zero, ambiguous) is final after one try, and an aborted `signal` ends
+ * the tries. Returns the last result, which still says so if every try failed.
+ */
+export async function resolveWithRetries(
+  attempt: () => Promise<RecordingGeometry>,
+  options: {
+    delaysMs?: readonly number[];
+    signal?: AbortSignal;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): Promise<RecordingGeometry> {
+  const {
+    delaysMs = RETRY_DELAYS_MS,
+    signal,
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  } = options;
+  let geometry = await attempt();
+  for (const delay of delaysMs) {
+    if (!needsAnotherTry(geometry) || signal?.aborted) break;
+    await sleep(delay);
+    if (signal?.aborted) break;
+    geometry = await attempt();
+  }
+  return geometry;
 }
 
 function placementFor(
@@ -1645,8 +1685,15 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       timedOut = true;
       ctl.abort();
     }, GEOMETRY_TIMEOUT_MS);
-    const source = dataPlaneSource(recording.datasetId, recording.version, { signal: ctl.signal });
-    resolveRecordingGeometry({ ...recording, recording: recording.path, ...source })
+    resolveWithRetries(
+      () =>
+        resolveRecordingGeometry({
+          ...recording,
+          recording: recording.path,
+          ...dataPlaneSource(recording.datasetId, recording.version, { signal: ctl.signal }),
+        }),
+      { signal: ctl.signal },
+    )
       .then((geometry) => {
         window.clearTimeout(geometryTimer);
         // A superseded or disposed resolution is dropped; a timeout is a failure to retry.
