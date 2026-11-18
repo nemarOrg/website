@@ -1,0 +1,1 @@
+{"dataset_id":"on004100","version":"v1.0.0","path":"sub-HUP060/ses-presurgery","kind":"directory","children":[{"kind":"dir","name":"ieeg"},{"kind":"file","name":"sub-HUP060_ses-presurgery_scans.tsv","size":505}]}

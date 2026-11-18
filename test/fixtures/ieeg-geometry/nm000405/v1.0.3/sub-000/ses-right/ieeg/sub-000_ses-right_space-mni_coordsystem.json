@@ -1,0 +1,5 @@
+{
+  "iEEGCoordinateSystem": "Other",
+  "iEEGCoordinateSystemDescription": "MNI space as labelled by the authors (space-mni); the exact template is not stated in the release. Coordinates in metres. Localisation with Lead-DBS (paper methods).",
+  "iEEGCoordinateUnits": "m"
+}

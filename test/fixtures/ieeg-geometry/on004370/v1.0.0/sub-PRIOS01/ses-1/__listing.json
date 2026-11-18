@@ -1,0 +1,1 @@
+{"dataset_id":"on004370","version":"v1.0.0","path":"sub-PRIOS01/ses-1","kind":"directory","children":[{"kind":"dir","name":"ieeg"},{"kind":"file","name":"sub-PRIOS01_ses-1_scans.json","size":554},{"kind":"file","name":"sub-PRIOS01_ses-1_scans.tsv","size":285}]}
