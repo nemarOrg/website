@@ -48,7 +48,16 @@ import {
   templatePlacementFor,
   viewModel,
 } from "./panel";
-import { ACTIVITY_CHOICES } from "./panel";
+import { ACTIVITY_CHOICES, templateNotice, templateRuleOf } from "./panel";
+import {
+  TALAIRACH_TO_MNI,
+  TEMPLATE_LICENSE_HREF,
+  TEMPLATE_LOADING_SENTENCE,
+  TEMPLATE_REFERENCE,
+  applyAffine,
+  noPlacementSentence,
+  templateLabel,
+} from "./transforms";
 import { VIEWS_SENTENCE, VIEW_NAMES, parseViewOutlines } from "./views2d";
 
 /**
@@ -177,6 +186,10 @@ const OUTLINES = parseViewOutlines(
 const TEMPLATE: TemplatePlacement = {
   outlines: OUTLINES,
   approximate: true,
+  references: [
+    "https://doi.org/10.1016/j.neuroimage.2010.07.033",
+    "/vendor/brain-templates/x/LICENSE.txt",
+  ],
   labels: [
     "Template brain, not this subject's anatomy.",
     "Approximate: MNI template variants differ by a few millimeters.",
@@ -364,8 +377,8 @@ describe("template outlines only for a registered template placement", () => {
 
   it("a native frame (ACPC) has no outline and no template sentence in the SVG", () => {
     expect(acpcState.placement?.space.frame?.kind).toBe("native");
-    expect(templatePlacementFor(acpcState)).toBeNull();
-    const svg = svgOf(inputOf(acpcState, templatePlacementFor(acpcState)));
+    expect(templatePlacementFor(acpcState, OUTLINES)).toBeNull();
+    const svg = svgOf(inputOf(acpcState, templatePlacementFor(acpcState, OUTLINES)));
     expect(svg).not.toContain("data-template-outline");
     expect(svg).not.toContain("Template brain");
   });
@@ -380,7 +393,7 @@ describe("template outlines only for a registered template placement", () => {
       [{ type: "frame_changed", spaceIndex: 0 }],
     );
     expect(other.placement?.space.frame?.kind).toBe("described");
-    expect(svgOf(inputOf(other, templatePlacementFor(other)))).not.toContain(
+    expect(svgOf(inputOf(other, templatePlacementFor(other, OUTLINES)))).not.toContain(
       "data-template-outline",
     );
   });
@@ -461,7 +474,9 @@ describe("every located contact has one circle with a title", () => {
 
   it("a native-frame contact has only the recorded line, in the file's own unit", () => {
     expect(acpcStateForTitles.placement?.space.frame?.kind).toBe("native");
-    const svg = svgOf(inputOf(acpcStateForTitles, templatePlacementFor(acpcStateForTitles)));
+    const svg = svgOf(
+      inputOf(acpcStateForTitles, templatePlacementFor(acpcStateForTitles, OUTLINES)),
+    );
     const [x, y, z] = recordedRow(
       "on004473",
       "v1.0.0",
@@ -582,11 +597,15 @@ describe("the files say what the screen says", () => {
   });
 
   it("the 3D PNG says the same, without the axes sentence for views it does not draw", () => {
-    const withViews = figureLabels(input, true).map((l) => l.text);
-    const without = figureLabels(input, false).map((l) => l.text);
-    expect(withViews).toContain(VIEWS_SENTENCE);
-    expect(without).not.toContain(VIEWS_SENTENCE);
-    expect(without).toEqual(withViews.filter((t) => t !== VIEWS_SENTENCE));
+    // Template sentences differ by design (the 3D frame says the panel's own state, the views the
+    // seam's); everything else is the same words.
+    const rest = (withViews: boolean) =>
+      figureLabels(input, withViews)
+        .filter((l) => l.role !== "template")
+        .map((l) => l.text);
+    expect(rest(true)).toContain(VIEWS_SENTENCE);
+    expect(rest(false)).not.toContain(VIEWS_SENTENCE);
+    expect(rest(false)).toEqual(rest(true).filter((t) => t !== VIEWS_SENTENCE));
   });
 
   it("without WebGL2 the screen's sentence is a label too", () => {
@@ -930,5 +949,312 @@ describe("downloadFile", () => {
     expect(timers).toHaveLength(1);
     timers[0]();
     expect(resolveObjectURL(link.href)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Template placement (IS-V2's registry, wired to the 2D views and the files)
+// ---------------------------------------------------------------------------
+
+const NM454 =
+  "sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_task-ictal10046_run-04_ieeg.edf";
+const NM376 = "sub-P1/ieeg/sub-P1_task-memact_ieeg.vhdr";
+const ON5522_TAL = "sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_acq-monopolar_ieeg.edf";
+const NM373 = "sub-01/ieeg/sub-01_task-categorySL_run-1_ieeg.edf";
+
+/** The panel opened on the first space of `identifier` (or `index`), as a reader would, outlines arrived. */
+async function placedOn(
+  dataset: string,
+  version: string,
+  recording: string,
+  pick: string | number,
+  ready = true,
+): Promise<PanelState> {
+  const geometry = await geometryOf(dataset, version, recording);
+  const index =
+    typeof pick === "number"
+      ? pick
+      : geometry.spaces.findIndex(
+          (sp) => sp.frame?.kind === "template" && sp.frame.identifier === pick,
+        );
+  expect(index, `${dataset} ${pick}`).toBeGreaterThanOrEqual(0);
+  const state = play(initialState(), [
+    {
+      type: "recording_changed",
+      recording: { datasetId: dataset, version, path: recording },
+      group: groupOf(geometry.spaces[index].contacts.map((c) => c.name)),
+    },
+    { type: "geometry_resolved", token: 1, geometry },
+    { type: "frame_changed", spaceIndex: index },
+    { type: "toggle_open" },
+    { type: "window_changed", startS: 0, lengthS: 10 },
+  ]);
+  return ready ? reduce(state, { type: "outlines_loaded" }).state : state;
+}
+
+const loadsOutlines = (events: PanelEvent[], from: PanelState = initialState()) => {
+  let state = from;
+  let n = 0;
+  for (const e of events) {
+    const t = reduce(state, e);
+    n += t.effects.filter((x) => x.type === "load_outlines").length;
+    state = t.state;
+  }
+  return { state, n };
+};
+
+describe("outlines are fetched only for a registered frame with the panel open", () => {
+  it("a registered frame asks once, when the panel opens, and not again on a reopen", async () => {
+    const geometry = await geometryOf("nm000376", "v1.0.2", NM376);
+    const labels = geometry.spaces[0].contacts.map((c) => c.name);
+    const start: PanelEvent[] = [
+      {
+        type: "recording_changed",
+        recording: { datasetId: "nm000376", version: "v1.0.2", path: NM376 },
+        group: groupOf(labels),
+      },
+      { type: "geometry_resolved", token: 1, geometry },
+    ];
+    const closed = loadsOutlines(start);
+    expect(closed.n).toBe(0);
+    expect(closed.state.outlines).toBe("idle");
+    const open = loadsOutlines([{ type: "toggle_open" }], closed.state);
+    expect(open.n).toBe(1);
+    expect(open.state.outlines).toBe("loading");
+    const done = reduce(open.state, { type: "outlines_loaded" }).state;
+    const again = loadsOutlines(
+      [
+        { type: "toggle_open", open: false },
+        { type: "toggle_open", open: true },
+        { type: "view_changed", view2d: true },
+      ],
+      done,
+    );
+    expect(again.n).toBe(0);
+    expect(again.state.outlines).toBe("ready");
+  });
+
+  it("a failure is tried again on a reopen, once", async () => {
+    const live = await placedOn("nm000376", "v1.0.2", NM376, "IXI549Space", false);
+    const failed = reduce(live, { type: "outlines_failed" }).state;
+    expect(failed.outlines).toBe("failed");
+    const retry = loadsOutlines(
+      [
+        { type: "toggle_open", open: false },
+        { type: "toggle_open", open: true },
+      ],
+      failed,
+    );
+    expect(retry.n).toBe(1);
+  });
+
+  it("never for ACPC or Other, nor for a template frame whose units are not declared", async () => {
+    const acpc = await geometryOf("on004473", "v1.0.0", ON4473);
+    for (const [geometry, path, ds, v] of [
+      [acpc, ON4473, "on004473", "v1.0.0"],
+      [nm485, NM485, "nm000485", "v1.0.2"],
+      [await geometryOf("nm000373", "v1.0.2", NM373), NM373, "nm000373", "v1.0.2"],
+    ] as const) {
+      const index = geometry.spaces.findIndex(
+        (sp) => sp.frame?.kind !== "template" || sp.units.unit !== "mm",
+      );
+      const { n, state } = loadsOutlines([
+        {
+          type: "recording_changed",
+          recording: { datasetId: ds, version: v, path },
+          group: groupOf(geometry.spaces[Math.max(0, index)].contacts.map((c) => c.name)),
+        },
+        { type: "geometry_resolved", token: 1, geometry },
+        { type: "frame_changed", spaceIndex: Math.max(0, index) },
+        { type: "toggle_open" },
+      ]);
+      expect(n, ds).toBe(0);
+      expect(state.outlines, ds).toBe("idle");
+    }
+  });
+
+  it("without WebGL2 or in the 2D views a registered frame still wants them, a refusal does not", async () => {
+    const live = await placedOn("nm000376", "v1.0.2", NM376, "IXI549Space", false);
+    expect(live.outlines).toBe("loading");
+    const flat = reduce(live, { type: "view_changed", view2d: true });
+    expect(flat.effects.some((e) => e.type === "load_outlines")).toBe(false);
+    const refused = opened(bipolar, groupOf(["no-such-channel"]), REC);
+    expect(refused.outlines).toBe("idle");
+  });
+});
+
+describe("the 2D views and the files draw a registered template, the same way as the 3D view", () => {
+  const CASES = [
+    {
+      name: "own frame",
+      args: ["nm000454", "v1.0.2", NM454, "MNI152NLin2009cAsym"],
+      approximate: false,
+    },
+    { name: "IXI549Space", args: ["nm000376", "v1.0.2", NM376, "IXI549Space"], approximate: true },
+    { name: "Talairach", args: ["on005522", "v1.0.0", ON5522_TAL, "Talairach"], approximate: true },
+  ] as const;
+
+  for (const c of CASES) {
+    it(`${c.name}: outlines, moved contacts, the 3D view's words, a template line per contact`, async () => {
+      const state = await placedOn(c.args[0], c.args[1], c.args[2], c.args[3]);
+      const rule = templateRuleOf(state);
+      if (!rule) throw new Error("no rule");
+      const seam = templatePlacementFor(state, OUTLINES);
+      if (!seam) throw new Error("no placement");
+      // The positions are V2's own placement of each declared position.
+      const contacts = state.placement?.contacts ?? [];
+      expect(seam.positions).toHaveLength(contacts.length);
+      expect(seam.approximate).toBe(c.approximate);
+      expect(seam.labels).toEqual([templateLabel(rule), templateNotice()]);
+      expect(seam.references).toEqual([TEMPLATE_REFERENCE.href, TEMPLATE_LICENSE_HREF]);
+      if (c.name === "Talairach") {
+        contacts.forEach((ct, i) => {
+          const want = applyAffine(TALAIRACH_TO_MNI, ct.position);
+          seam.positions?.[i]?.forEach((v, k) => expect(v).toBeCloseTo(want[k], 9));
+        });
+      } else {
+        expect(seam.positions).toEqual(contacts.map((ct) => ct.position));
+      }
+
+      const input = inputOf(state, seam);
+      const svg = svgOf(input);
+      expect(svg.match(/data-template-outline/g)).toHaveLength(3);
+      // Both sentences are labels of the file, word for word the 3D view's.
+      const labels = figureLabels(input, true).map((l) => l.text);
+      expect(labels).toContain(templateLabel(rule));
+      expect(labels).toContain(templateNotice());
+      expect(svg).toContain(`<dc:relation>${TEMPLATE_REFERENCE.href}</dc:relation>`);
+      expect(svg).toContain(`<dc:relation>${TEMPLATE_LICENSE_HREF}</dc:relation>`);
+      expect(templateLabel(rule).includes("approximate")).toBe(c.approximate);
+      // A contact's title says what was recorded, then the template position, then "approximate".
+      const first = contacts[0];
+      const placed = seam.positions?.[0] ?? [0, 0, 0];
+      const title =
+        new RegExp(`<title>(${first.name} \\(channel[^<]*)</title>`).exec(svg)?.[1] ?? "";
+      expect(title).toContain("; recorded (");
+      expect(title).toContain(`; ${templateLocation(placed, c.approximate)}`);
+      expect(title.indexOf("recorded")).toBeLessThan(title.indexOf("template ("));
+      expect(title.endsWith(", approximate") || title.includes(", approximate;")).toBe(
+        c.approximate,
+      );
+      // The live view says the same words: the model's row for the 2D stage, and its template box.
+      const flat = reduce(state, { type: "view_changed", view2d: true }).state;
+      const live = viewModel(flat);
+      expect(live.template).toMatchObject({
+        status: "ready",
+        label: templateLabel(rule),
+        notice: templateNotice(),
+      });
+      expect(live.contacts[0].template).toBe(templateLocation(placed, c.approximate));
+      expect(live.contacts[0].recorded).toMatch(/^recorded \(/);
+    });
+  }
+
+  it("the Selected line carries both positions", async () => {
+    const state = play(await placedOn("nm000376", "v1.0.2", NM376, "IXI549Space"), [
+      { type: "select_contact", contact: 0 },
+    ]);
+    const seam = templatePlacementFor(state, OUTLINES);
+    const label = figureLabels(inputOf(state, seam), true).find((l) => l.role === "selected");
+    expect(label?.text).toMatch(
+      /^Selected: .*; recorded \(.*\) mm, frame: IXI549Space; template \(.*\) mm, approximate$/,
+    );
+  });
+
+  it("the 3D frame says the model's words: the label once the surface is drawn, the loading sentence before", async () => {
+    const state = await placedOn("nm000454", "v1.0.2", NM454, "MNI152NLin2009cAsym");
+    expect(state.template).toBe("loading");
+    const loading = figureLabels(inputOf(state, null), false).map((l) => l.text);
+    expect(loading).toContain(TEMPLATE_LOADING_SENTENCE);
+    expect(loading.some((t) => t.startsWith("Template brain"))).toBe(false);
+    const ready = reduce(state, { type: "template_loaded" }).state;
+    const labels = figureLabels(inputOf(ready, null), false).map((l) => l.text);
+    expect(labels).toContain(templateLabel(templateRuleOf(ready) ?? (null as never)));
+    expect(labels).toContain(templateNotice());
+    // A list row gets its template line only once the surface is drawn.
+    expect(viewModel(state).contacts[0].template).toBeNull();
+    expect(viewModel(ready).contacts[0].template).toMatch(/^template \(.*\) mm$/);
+  });
+
+  it("a frame with no placement gets no outline, no template line and no label, and says why", async () => {
+    const cases: [string, PanelState][] = [
+      [
+        "ACPC",
+        opened(acpc, groupOf(acpc.spaces[0].contacts.map((c) => c.name)), {
+          datasetId: "on004473",
+          version: "v1.0.0",
+          path: ON4473,
+        }),
+      ],
+      [
+        "Other",
+        play(
+          opened(nm485, groupOf(nm485.spaces[0].contacts.map((c) => c.name)), {
+            datasetId: "nm000485",
+            version: "v1.0.2",
+            path: NM485,
+          }),
+          [{ type: "frame_changed", spaceIndex: 0 }],
+        ),
+      ],
+    ];
+    // Pending: a standard identifier the registry has no row for (derived from a real placed state).
+    const placed = await placedOn("nm000376", "v1.0.2", NM376, "IXI549Space");
+    if (placed.placement) {
+      const frame = {
+        kind: "template",
+        declared: "NIHPD",
+        identifier: "NIHPD",
+        caseNormalized: false,
+      } as const;
+      cases.push([
+        "pending",
+        {
+          ...placed,
+          placement: { ...placed.placement, space: { ...placed.placement.space, frame } },
+        },
+      ]);
+    }
+    for (const [name, base] of cases) {
+      const state = { ...base, outlines: "ready" as const };
+      expect(templatePlacementFor(state, OUTLINES), name).toBeNull();
+      const input = inputOf(state, templatePlacementFor(state, OUTLINES));
+      const svg = svgOf(input);
+      expect(svg, name).not.toContain("data-template-outline");
+      expect(svg, name).not.toContain("template (");
+      expect(svg, name).not.toContain("Template brain");
+      expect(svg, name).not.toContain("Template surface");
+      const word = state.placement?.space.frame;
+      expect(
+        figureLabels(input, true).some((l) => l.text.startsWith("No template placement")),
+        name,
+      ).toBe(true);
+      expect(
+        figureLabels(input, true).map((l) => l.text),
+        name,
+      ).toContain(noPlacementSentence(word ?? null));
+      expect(
+        viewModel(state).contacts.every((r) => r.template === null),
+        name,
+      ).toBe(true);
+    }
+  });
+
+  it("outlines still loading or failed draw the contacts as declared, with no template sentence", async () => {
+    const loading = await placedOn("nm000376", "v1.0.2", NM376, "IXI549Space", false);
+    expect(templatePlacementFor(loading, OUTLINES)).toBeNull();
+    const failed = reduce(loading, { type: "outlines_failed" }).state;
+    expect(templatePlacementFor(failed, OUTLINES)).toBeNull();
+    expect(
+      templatePlacementFor(await placedOn("nm000376", "v1.0.2", NM376, "IXI549Space"), null),
+    ).toBeNull();
+    // The 2D live view says so in the 3D view's words.
+    const flat = (st: PanelState) =>
+      viewModel(reduce(st, { type: "view_changed", view2d: true }).state);
+    expect(flat(loading).template).toEqual({
+      status: "loading",
+      sentence: TEMPLATE_LOADING_SENTENCE,
+    });
+    expect(flat(failed).template?.status).toBe("failed");
   });
 });

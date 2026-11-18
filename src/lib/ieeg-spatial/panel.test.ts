@@ -7,6 +7,7 @@ import {
   GEOMETRY_REASONS,
   type GeometryInput,
   type RecordingGeometry,
+  classifyFrame,
   joinChannels,
   resolveRecordingGeometry,
 } from "./geometry";
@@ -37,6 +38,8 @@ import {
   computeActivityPlan,
   contactColors,
   defaultSpaceIndex,
+  drawnPositions,
+  drawnTemplate,
   formatActivityValue,
   frameName,
   initialState,
@@ -45,10 +48,20 @@ import {
   readRuns,
   reduce,
   resolveWithRetries,
+  templateRuleOf,
   unitsSentence,
   unlocatedNotes,
   viewModel,
 } from "./panel";
+import {
+  MNI305_TO_MNI152,
+  TALAIRACH_TO_MNI,
+  TEMPLATE_FAILED_SENTENCE,
+  TEMPLATE_LICENSE_HREF,
+  TEMPLATE_LOADING_SENTENCE,
+  TEMPLATE_REFERENCE,
+  applyAffine,
+} from "./transforms";
 
 /**
  * Every geometry here comes from real public files of the NEMAR data plane, committed byte for byte
@@ -1505,5 +1518,491 @@ describe("exports", () => {
     };
     walk(repoPath("src"));
     for (const call of calls) expect(call.args, call.file).toBeGreaterThanOrEqual(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Template anatomy (card IS-V2)
+// ---------------------------------------------------------------------------
+
+const NM454 =
+  "sub-PID02/ses-clinical01/ieeg/sub-PID02_ses-clinical01_task-ictal10046_run-04_ieeg.edf";
+const ON5522_TAL = "sub-R1009W/ses-0/ieeg/sub-R1009W_ses-0_task-YC1_acq-monopolar_ieeg.edf";
+const ON6136 = "sub-P1/ieeg/sub-P1_task-OWM_ieeg.edf";
+const NM376 = "sub-P1/ieeg/sub-P1_task-memact_ieeg.vhdr";
+const ON5415 = "sub-72/ieeg/sub-72_task-numbers_run-1_ieeg.edf";
+
+const OWN = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
+const VARIANT = `${OWN}; approximate: MNI template variants differ by a few millimeters`;
+
+/** One real recording per placed frame (the identifiers MNI305 and the other variants have no fixture). */
+const PLACED = [
+  {
+    name: "MNI152NLin2009cAsym (the surface's own frame)",
+    dataset: ["nm000454", "v1.0.2"],
+    recording: NM454,
+    identifier: "MNI152NLin2009cAsym",
+    label: OWN,
+    approximate: false,
+  },
+  {
+    name: "MNI152NLin6ASym (another MNI variant)",
+    dataset: ["on005522", "v1.0.0"],
+    recording: MONOPOLAR,
+    identifier: "MNI152NLin6ASym",
+    label: VARIANT,
+    approximate: true,
+  },
+  {
+    name: "MNI152Lin",
+    dataset: ["on006136", "v1.0.0"],
+    recording: ON6136,
+    identifier: "MNI152Lin",
+    label: VARIANT,
+    approximate: true,
+  },
+  {
+    name: "IXI549Space",
+    dataset: ["nm000376", "v1.0.2"],
+    recording: NM376,
+    identifier: "IXI549Space",
+    label: VARIANT,
+    approximate: true,
+  },
+  {
+    name: "Talairach (a cited affine)",
+    dataset: ["on005522", "v1.0.0"],
+    recording: ON5522_TAL,
+    identifier: "Talairach",
+    label: `${OWN}; approximate: Talairach to MNI affine`,
+    approximate: true,
+  },
+  {
+    name: "fsaverage (FreeSurfer's MNI305 affine)",
+    dataset: ["on006253", "v1.0.0"],
+    recording: ON6253,
+    identifier: "fsaverage",
+    label: `${OWN}; approximate: MNI305 to MNI152 affine`,
+    approximate: true,
+  },
+] as const;
+
+async function placedState(c: (typeof PLACED)[number]) {
+  const [dataset, version] = c.dataset;
+  const geometry = await geometryOf(dataset, version, c.recording);
+  const index = geometry.spaces.findIndex(
+    (s) => s.frame?.kind === "template" && s.frame.identifier === c.identifier,
+  );
+  expect(index, c.name).toBeGreaterThanOrEqual(0);
+  const ref: RecordingRef = { datasetId: dataset, version, path: c.recording };
+  const live = play(opened(geometry, groupOf(contactLabels(geometry, index)), ref).state, [
+    { type: "frame_changed", spaceIndex: index },
+  ]);
+  return { geometry, index, ref, state: live.state, effects: live.effects };
+}
+
+/** The panel opened on one chosen frame: the reader picks it while the panel is still closed. */
+function openedOnSpace(
+  geometry: RecordingGeometry,
+  index: number,
+  ref: RecordingRef,
+): { state: PanelState; effects: PanelEffect[] } {
+  return play(initialState(), [
+    {
+      type: "recording_changed",
+      recording: ref,
+      group: groupOf(contactLabels(geometry, index)),
+    },
+    { type: "geometry_resolved", token: 1, geometry },
+    { type: "frame_changed", spaceIndex: index },
+    { type: "toggle_open" },
+    { type: "window_changed", startS: 0, lengthS: 10 },
+  ]);
+}
+
+const loads = (effects: PanelEffect[]) => effects.filter((e) => e.type === "load_template");
+const loaded = (state: PanelState) => reduce(state, { type: "template_loaded" }).state;
+
+/** A recording shown on a frame with no template placement, with the panel open. */
+async function unplacedCases() {
+  const acpc = await geometryOf("on005415", "v1.0.0", ON5415);
+  const scan = await geometryOf("on004473", "v1.0.0", ON4473);
+  const other = await geometryOf("nm000485", "v1.0.2", NM485);
+  const mni = await geometryOf("nm000405", "v1.0.3", NM405);
+  const noUnits = await geometryOf("nm000373", "v1.0.2", NM373);
+  const mniEntity = mni.spaces.findIndex((s) => s.space === "mni");
+  const otherIndex = other.spaces.findIndex((s) => s.frame?.kind === "described");
+  const scanIndex = scan.spaces.findIndex((s) => s.space === "ScanRAS");
+  return [
+    {
+      name: "ACPC",
+      geometry: acpc,
+      index: 0,
+      word: "ACPC",
+      path: ON5415,
+      ds: ["on005415", "v1.0.0"],
+    },
+    {
+      name: "ScanRAS",
+      geometry: scan,
+      index: scanIndex,
+      word: "ScanRAS",
+      path: ON4473,
+      ds: ["on004473", "v1.0.0"],
+    },
+    {
+      name: "Other",
+      geometry: other,
+      index: otherIndex,
+      word: "Other",
+      path: NM485,
+      ds: ["nm000485", "v1.0.2"],
+    },
+    {
+      name: "a label the file name contradicts",
+      geometry: mni,
+      index: mniEntity,
+      word: "Other",
+      path: NM405,
+      ds: ["nm000405", "v1.0.3"],
+    },
+    {
+      name: "a template frame whose units are not declared",
+      geometry: noUnits,
+      index: 0,
+      word: "MNI152NLin6ASym",
+      path: NM373,
+      ds: ["nm000373", "v1.0.2"],
+    },
+  ] as const;
+}
+
+describe("template anatomy", () => {
+  it("a registered frame asks for the surface once, when the panel is open on it and not before", async () => {
+    const c = PLACED[1];
+    const [dataset, version] = c.dataset;
+    const geometry = await geometryOf(dataset, version, c.recording);
+    const ref: RecordingRef = { datasetId: dataset, version, path: c.recording };
+    const closed = play(initialState(), [
+      { type: "recording_changed", recording: ref, group: groupOf(contactLabels(geometry, 0)) },
+      { type: "geometry_resolved", token: 1, geometry },
+      { type: "window_changed", startS: 0, lengthS: 10 },
+    ]);
+    expect(loads(closed.effects)).toEqual([]);
+    expect(closed.state.template).toBe("idle");
+
+    const open = reduce(closed.state, { type: "toggle_open" });
+    expect(loads(open.effects)).toEqual([{ type: "load_template" }]);
+    expect(open.state.template).toBe("loading");
+
+    // Nothing asks again while it loads, whatever else happens.
+    const more = play(open.state, [
+      { type: "window_changed", startS: 10, lengthS: 10 },
+      { type: "activity_switch", on: true },
+      { type: "select_channel", label: contactLabels(geometry, 0)[0] },
+    ]);
+    expect(loads(more.effects)).toEqual([]);
+    expect(loaded(more.state).template).toBe("ready");
+    // and a loaded surface is not asked for again when the panel is closed and opened
+    const again = play(loaded(more.state), [
+      { type: "toggle_open", open: false },
+      { type: "toggle_open", open: true },
+    ]);
+    expect(loads(again.effects)).toEqual([]);
+  });
+
+  it("a frame with no template placement never asks for the surface and says so", async () => {
+    for (const c of await unplacedCases()) {
+      const [dataset, version] = c.ds;
+      const ref: RecordingRef = { datasetId: dataset, version, path: c.path };
+      const start = openedOnSpace(c.geometry, c.index, ref);
+      const live = play(start.state, [
+        { type: "toggle_open", open: false },
+        { type: "toggle_open", open: true },
+        { type: "frame_changed", spaceIndex: c.index },
+      ]);
+      expect(live.state.template, c.name).toBe("idle");
+      expect(loads([...start.effects, ...live.effects]), c.name).toEqual([]);
+      const model = viewModel(live.state);
+      expect(model.stage.kind, c.name).toBe("canvas");
+      expect(model.template, c.name).toBeNull();
+      expect(model.notes, c.name).toContain(
+        `No template placement for ${c.word}: positions are shown in the dataset's own frame`,
+      );
+      // drawn exactly where the dataset says, and no surface
+      expect(drawnTemplate(live.state), c.name).toBeNull();
+      expect(drawnPositions(live.state), c.name).toEqual(
+        live.state.placement?.contacts.map((p) => p.position),
+      );
+    }
+  });
+
+  it("a frame that is placed does not say 'no template placement'", async () => {
+    for (const c of PLACED) {
+      const { state } = await placedState(c);
+      expect(viewModel(state).notes.join("\n"), c.name).not.toMatch(/No template placement/);
+    }
+  });
+
+  it("without WebGL2 the surface is never asked for, even if the panel was opened first", async () => {
+    const c = PLACED[1];
+    const [dataset, version] = c.dataset;
+    const geometry = await geometryOf(dataset, version, c.recording);
+    const ref: RecordingRef = { datasetId: dataset, version, path: c.recording };
+    const before = play(initialState(), [
+      { type: "webgl_unavailable" },
+      { type: "recording_changed", recording: ref, group: groupOf(contactLabels(geometry, 0)) },
+      { type: "geometry_resolved", token: 1, geometry },
+      { type: "toggle_open" },
+    ]);
+    expect(loads(before.effects)).toEqual([]);
+    expect(viewModel(before.state).stage.kind).toBe("no_webgl");
+    // The surface is never asked for; the 2D views wait on the template's outlines instead (IS-V3),
+    // and say so in the same words.
+    expect(viewModel(before.state).template).toEqual({
+      status: "loading",
+      sentence: "Loading the template brain...",
+    });
+    expect(before.state.template).toBe("idle");
+    expect(before.state.outlines).toBe("loading");
+
+    // The DOM half learns of the missing WebGL2 after the panel opened and the request was made:
+    // the request is withdrawn, so a later change does not leave a fetch "loading" for ever.
+    const asked = play(initialState(), [
+      { type: "recording_changed", recording: ref, group: groupOf(contactLabels(geometry, 0)) },
+      { type: "geometry_resolved", token: 1, geometry },
+      { type: "toggle_open" },
+    ]);
+    expect(loads(asked.effects)).toHaveLength(1);
+    expect(reduce(asked.state, { type: "webgl_unavailable" }).state.template).toBe("idle");
+  });
+
+  it("a recording with more than one frame asks only while the shown frame is placed", async () => {
+    const g = await geometryOf("nm000485", "v1.0.2", NM485);
+    const talairach = g.spaces.findIndex((s) => s.frame?.kind === "template");
+    const other = g.spaces.findIndex((s) => s.frame?.kind === "described");
+    const start = opened(g, groupOf(contactLabels(g, talairach)), {
+      datasetId: "nm000485",
+      version: "v1.0.2",
+      path: NM485,
+    });
+    expect(g.spaces[talairach].frame).toMatchObject({ identifier: "Talairach" });
+    expect(loads(start.effects)).toHaveLength(1);
+
+    // Moving to the described frame hides the surface: contacts as declared, no label, the sentence.
+    const ready = loaded(start.state);
+    const moved = reduce(ready, { type: "frame_changed", spaceIndex: other }).state;
+    expect(loads(reduce(ready, { type: "frame_changed", spaceIndex: other }).effects)).toEqual([]);
+    expect(viewModel(moved).template).toBeNull();
+    expect(drawnTemplate(moved)).toBeNull();
+    expect(viewModel(moved).notes).toContain(
+      "No template placement for Other: positions are shown in the dataset's own frame",
+    );
+    // Back to Talairach: the surface it already holds is drawn, with no second request.
+    const back = reduce(moved, { type: "frame_changed", spaceIndex: talairach });
+    expect(loads(back.effects)).toEqual([]);
+    expect(viewModel(back.state).template).toMatchObject({ status: "ready" });
+
+    // Opening on the described frame first and then moving to Talairach asks then, once.
+    const first = openedOnSpace(g, other, {
+      datasetId: "nm000485",
+      version: "v1.0.2",
+      path: NM485,
+    });
+    expect(first.state.template).toBe("idle");
+    expect(loads(first.effects)).toEqual([]);
+    const later = reduce(first.state, { type: "frame_changed", spaceIndex: talairach });
+    expect(loads(later.effects)).toHaveLength(1);
+  });
+
+  it("every state that draws the surface carries the template label, and every transformed one 'approximate'", async () => {
+    for (const c of PLACED) {
+      const { state } = await placedState(c);
+      const model = viewModel(loaded(state));
+      expect(model.template, c.name).toMatchObject({ status: "ready", label: c.label });
+      if (model.template?.status !== "ready") throw new Error("not ready");
+      expect(model.template.label.startsWith(OWN), c.name).toBe(true);
+      expect(model.template.approximate, c.name).toBe(c.approximate);
+      expect(/approximate: /.test(model.template.label), c.name).toBe(c.approximate);
+      // who made the surface and where its notice is, beside the label
+      expect(model.template.reference).toEqual({
+        text: TEMPLATE_REFERENCE.text,
+        href: "https://doi.org/10.1016/j.neuroimage.2010.07.033",
+      });
+      expect(model.template.license.href).toBe(
+        "/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt",
+      );
+      expect(model.template.license.href).toBe(TEMPLATE_LICENSE_HREF);
+      expect(drawnTemplate(loaded(state))?.identifier, c.name).toBe(c.identifier);
+      expect(templateRuleOf(state)?.identifier, c.name).toBe(c.identifier);
+    }
+  });
+
+  it("while the surface loads or has failed, no label claims a drawing, and the credit stays", async () => {
+    const { state } = await placedState(PLACED[4]);
+    expect(state.template).toBe("loading");
+    const loading = viewModel(state);
+    expect(loading.template).toEqual({ status: "loading", sentence: TEMPLATE_LOADING_SENTENCE });
+    expect(JSON.stringify(loading.template)).not.toMatch(/Template brain|approximate/);
+    const failed = viewModel(reduce(state, { type: "template_failed" }).state);
+    expect(failed.template).toEqual({ status: "failed", sentence: TEMPLATE_FAILED_SENTENCE });
+    expect(JSON.stringify(failed.template)).not.toMatch(/approximate/);
+    for (const model of [loading, failed, viewModel(loaded(state))]) {
+      expect(model.credit).toEqual(creditLinkSpec());
+    }
+  });
+
+  it("contacts go through the row's affine only while the surface is drawn, and nothing is moved onto it", async () => {
+    const tal = await placedState(PLACED[4]);
+    const declared = tal.state.placement?.contacts.map((c) => c.position) ?? [];
+    expect(declared.length).toBeGreaterThan(10);
+    // loading: as declared
+    expect(drawnPositions(tal.state)).toEqual(declared);
+    // ready: each through the inverse of Lancaster's Eq. (3), index for index
+    const drawn = drawnPositions(loaded(tal.state)) ?? [];
+    expect(drawn).toHaveLength(declared.length);
+    declared.forEach((p, i) => expect(drawn[i]).toEqual(applyAffine(TALAIRACH_TO_MNI, p)));
+    expect(drawn[0]).not.toEqual(declared[0]);
+    // failed: as declared again
+    expect(drawnPositions(reduce(tal.state, { type: "template_failed" }).state)).toEqual(declared);
+
+    const fsa = await placedState(PLACED[5]);
+    const fsaDeclared = fsa.state.placement?.contacts.map((c) => c.position) ?? [];
+    const fsaDrawn = drawnPositions(loaded(fsa.state)) ?? [];
+    fsaDeclared.forEach((p, i) => expect(fsaDrawn[i]).toEqual(applyAffine(MNI305_TO_MNI152, p)));
+
+    // the surface's own frame and the variants: untouched, whatever the surface is
+    for (const c of [PLACED[0], PLACED[1], PLACED[2], PLACED[3]]) {
+      const { state } = await placedState(c);
+      expect(drawnPositions(loaded(state)), c.name).toEqual(
+        state.placement?.contacts.map((p) => p.position),
+      );
+    }
+  });
+
+  it("a failed fetch is tried again when the panel is reopened, the frame changes or the recording does", async () => {
+    const { state, ref } = await placedState(PLACED[1]);
+    const failed = reduce(state, { type: "template_failed" }).state;
+    expect(failed.template).toBe("failed");
+    // staying open and moving the window does not retry
+    expect(
+      loads(reduce(failed, { type: "window_changed", startS: 5, lengthS: 10 }).effects),
+    ).toEqual([]);
+    const reopened = play(failed, [
+      { type: "toggle_open", open: false },
+      { type: "toggle_open", open: true },
+    ]);
+    expect(loads(reopened.effects)).toHaveLength(1);
+    expect(reopened.state.template).toBe("loading");
+    const framed = reduce(failed, { type: "frame_changed", spaceIndex: 0 });
+    expect(loads(framed.effects)).toHaveLength(1);
+    const recorded = reduce(failed, {
+      type: "recording_changed",
+      recording: ref,
+      group: groupOf(contactLabels(await geometryOf("on005522", "v1.0.0", MONOPOLAR), 0)),
+    });
+    expect(recorded.state.template).toBe("idle");
+    // a surface that is ready or loading survives a recording change, with no second request
+    const ready = loaded(state);
+    expect(
+      reduce(ready, { type: "recording_changed", recording: ref, group: groupOf(MONOPOLAR_LABELS) })
+        .state.template,
+    ).toBe("ready");
+  });
+
+  it("a report of the fetch that is not expected changes nothing", async () => {
+    const { state } = await placedState(PLACED[1]);
+    const ready = loaded(state);
+    expect(reduce(ready, { type: "template_loaded" }).state).toBe(ready);
+    expect(reduce(ready, { type: "template_failed" }).state).toBe(ready);
+    const idle = reduce(state, { type: "toggle_open", open: false }).state;
+    const never = { ...idle, template: "idle" as const };
+    expect(reduce(never, { type: "template_loaded" }).state).toBe(never);
+  });
+
+  // No public dataset declares a pending family (the census has none), so this is the real contacts
+  // of nm000454 under a frame label changed to the one under test: a known-answer input, as the
+  // header of this file says. The code under test (`reduce`, `viewModel`) is untouched.
+  async function underFrame(label: string) {
+    const g = await geometryOf("nm000454", "v1.0.2", NM454);
+    const geometry: RecordingGeometry = {
+      ...g,
+      spaces: g.spaces.map((s) => ({ ...s, frame: classifyFrame(label, null, null) })),
+    };
+    const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
+    return openedOnSpace(geometry, 0, ref);
+  }
+  const TAIL = ": positions are shown in the dataset's own frame";
+
+  it("a pending family and an unsupported native frame get different sentences, and neither places a contact", async () => {
+    const pendingLabels = [
+      "MNIColin27",
+      "ICBM452AirSpace",
+      "ICBM452Warp5Space",
+      "fsLR",
+      "NIHPD",
+      "OASIS30AntsOASISAnts",
+      "OASIS30Atropos",
+      "UNCInfant",
+    ];
+    const declared = (await underFrame("ACPC")).state.placement?.contacts.map((c) => c.position);
+    expect(declared?.length).toBeGreaterThan(10);
+    const native = await underFrame("ACPC");
+    const nativeNotes = viewModel(native.state).notes;
+    expect(nativeNotes).toContain(`No template placement for ACPC${TAIL}`);
+    expect(nativeNotes.join("\n")).not.toContain("placement yet");
+
+    for (const label of pendingLabels) {
+      const { state, effects } = await underFrame(label);
+      const model = viewModel(state);
+      expect(model.stage.kind, label).toBe("canvas");
+      expect(model.notes, label).toContain(`No template placement yet for ${label}${TAIL}`);
+      expect(model.notes, label).not.toContain(`No template placement for ${label}${TAIL}`);
+      // no surface asked for, none drawn, no label, contacts exactly as declared
+      expect(loads(effects), label).toEqual([]);
+      expect(state.template, label).toBe("idle");
+      expect(model.template, label).toBeNull();
+      expect(drawnTemplate(state), label).toBeNull();
+      expect(templateRuleOf(state), label).toBeNull();
+      expect(drawnPositions(state), label).toEqual(declared);
+      // the credit stays
+      expect(model.credit, label).toEqual(creditLinkSpec());
+    }
+    // the same real contacts under a placed identifier do get the surface: the label is what differs
+    const placed = await underFrame("MNI152NLin2009cAsym");
+    expect(loads(placed.effects)).toHaveLength(1);
+    expect(viewModel(loaded(placed.state)).template).toMatchObject({ status: "ready" });
+  });
+
+  it("fsaverageSym is placed like fsaverage: the surface is asked for, the label says approximate, contacts go through FreeSurfer's affine", async () => {
+    const sym = await underFrame("fsaverageSym");
+    expect(loads(sym.effects)).toHaveLength(1);
+    expect(sym.state.template).toBe("loading");
+    expect(viewModel(sym.state).notes.join("\n")).not.toMatch(/No template placement/);
+    const ready = loaded(sym.state);
+    expect(viewModel(ready).template).toMatchObject({
+      status: "ready",
+      label: `${OWN}; approximate: MNI305 to MNI152 affine`,
+    });
+    const declared = sym.state.placement?.contacts.map((c) => c.position) ?? [];
+    expect(declared.length).toBeGreaterThan(10);
+    const drawn = drawnPositions(ready) ?? [];
+    declared.forEach((p, i) => expect(drawn[i]).toEqual(applyAffine(MNI305_TO_MNI152, p)));
+    expect(drawn[0]).not.toEqual(declared[0]);
+  });
+
+  it("the sentence for an undeclared frame does not name a frame the file never wrote", async () => {
+    const g = await geometryOf("on006253", "v1.0.0", ON6253);
+    const index = g.spaces.findIndex((s) => s.space === "mni");
+    const { state, effects } = openedOnSpace(g, index, {
+      datasetId: "on006253",
+      version: "v1.0.0",
+      path: ON6253,
+    });
+    expect(loads(effects)).toEqual([]);
+    expect(viewModel(state).notes).toContain(
+      "No template placement for an undeclared frame: positions are shown in the dataset's own frame",
+    );
+    expect(state.template).toBe("idle");
   });
 });

@@ -17,9 +17,12 @@
  *    decisions of its own.
  *
  * What it never does:
- * - It draws only the frames `geometry.ts` offered, as written. No anatomy (template surfaces
- *   arrive with IS-V2), no projection, no inference from magnitudes. A lone contact at 0 0 0 and
- *   positions spread wider than a head are drawn as written and warned about.
+ * - It draws only the frames `geometry.ts` offered. Anatomy appears only behind a standard
+ *   template frame that `transforms.ts` has a cited row for (card IS-V2, ADR 0033): the surface is
+ *   fetched when the panel is open on such a frame, never for any other, contacts go through the
+ *   row's affine only while the surface is drawn, and every such state carries the template label.
+ *   There is no projection onto the surface and no inference from magnitudes. A lone contact at
+ *   0 0 0 and positions spread wider than a head are drawn as written and warned about.
  * - It reads no signal sample while the Activity switch is off (the default), and none while the
  *   panel is closed. Turning the switch off, closing the panel, or a recording, group or frame
  *   change aborts any read in flight.
@@ -48,6 +51,7 @@ import {
   minWindowSamples,
 } from "./activity";
 import {
+  type BrainMesh,
   type BrainRenderer,
   type BrainTheme,
   MAX_CONTACTS,
@@ -68,6 +72,7 @@ import {
   exportSvg,
   figureLabels,
   recordedLocation,
+  templateLocation,
   viewContacts,
 } from "./export";
 import {
@@ -84,7 +89,21 @@ import {
   resolveRecordingGeometry,
 } from "./geometry";
 import { isIeegModality } from "./layout";
-import { layoutViews, viewsMarkup } from "./views2d";
+import {
+  TEMPLATE_DIRECTORY,
+  TEMPLATE_FAILED_SENTENCE,
+  TEMPLATE_LICENSE_HREF,
+  TEMPLATE_LOADING_SENTENCE,
+  TEMPLATE_REFERENCE,
+  type TemplatePlacementRule,
+  fetchBytesSameOrigin,
+  loadTemplateSurface,
+  noPlacementSentence,
+  placeOnTemplate,
+  placementRuleFor,
+  templateLabel,
+} from "./transforms";
+import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -590,6 +609,13 @@ export type GeometryStatus =
   | { kind: "loading" }
   | { kind: "ready"; geometry: RecordingGeometry };
 
+/**
+ * The template surface: `idle` until a registered frame is shown with the panel open, `loading`
+ * while it is fetched, `ready` once the DOM half holds it, `failed` after a failed fetch (a
+ * reopened panel, a frame change or a recording change tries again).
+ */
+export type TemplateStatus = "idle" | "loading" | "ready" | "failed";
+
 export interface PanelState {
   recording: RecordingRef | null;
   group: GroupInfo | null;
@@ -605,6 +631,9 @@ export interface PanelState {
   selection: Selection;
   window: WindowSpan | null;
   activity: ActivityState;
+  template: TemplateStatus;
+  /** The template outlines of the 2D views and the SVG (IS-V3): the same states, for `views.json`. */
+  outlines: TemplateStatus;
   disposed: boolean;
 }
 
@@ -635,6 +664,8 @@ export function initialState(): PanelState {
     selection: NO_SELECTION,
     window: null,
     activity: idleActivity(),
+    template: "idle",
+    outlines: "idle",
     disposed: false,
   };
 }
@@ -655,6 +686,12 @@ export type PanelEvent =
   | { type: "window_changed"; startS: number; lengthS: number }
   | { type: "activity_report"; report: ActivityReport }
   | { type: "activity_failed"; token: number; reason: ActivityFailure }
+  /** The DOM half holds the decoded surface. */
+  | { type: "template_loaded" }
+  | { type: "template_failed" }
+  /** The DOM half holds the parsed outlines of `views.json` (IS-V3). */
+  | { type: "outlines_loaded" }
+  | { type: "outlines_failed" }
   | { type: "disposed" };
 
 export type PanelEffect =
@@ -662,6 +699,10 @@ export type PanelEffect =
   | { type: "abort_geometry" }
   | { type: "read_activity"; plan: ActivityPlan }
   | { type: "abort_activity" }
+  /** Fetch the template surface, once a canvas exists to draw it on. Never emitted for another frame. */
+  | { type: "load_template" }
+  /** Fetch the template outlines of the 2D views, once, for a registered frame with the panel open (IS-V3). */
+  | { type: "load_outlines" }
   /** Highlight this channel's trace in the scope; null clears the highlight. */
   | { type: "select_trace"; label: string | null };
 
@@ -758,7 +799,7 @@ function clearSelection(state: PanelState): Transition {
   };
 }
 
-export function reduce(state: PanelState, event: PanelEvent): Transition {
+function reduceCore(state: PanelState, event: PanelEvent): Transition {
   if (state.disposed) return same(state);
   switch (event.type) {
     case "recording_changed": {
@@ -771,6 +812,8 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
         geometryToken,
         webgl: state.webgl,
         view2d: state.view2d,
+        template: state.template,
+        outlines: state.outlines,
         activity: idleActivity(state.activity),
       };
       return {
@@ -955,6 +998,13 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
       };
     }
 
+    case "template_loaded":
+    case "template_failed":
+    case "outlines_loaded":
+    case "outlines_failed":
+      // Decided by `reduce`, which owns the template's status.
+      return same(state);
+
     case "disposed":
       return {
         state: { ...state, disposed: true },
@@ -965,6 +1015,106 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
         ],
       };
   }
+}
+
+// ---------------------------------------------------------------------------
+// The template surface (card IS-V2)
+// ---------------------------------------------------------------------------
+
+/** The row that places the shown space on the template surface, or null: the frame decides alone. */
+export function templateRuleOf(state: PanelState): TemplatePlacementRule | null {
+  const space = state.placement?.space;
+  return space ? placementRuleFor(space.frame, space.units) : null;
+}
+
+/**
+ * The surface is wanted only while the panel is open on a registered frame and the stage is a
+ * canvas (contacts to draw, within the limit, WebGL2 present). No other frame ever wants it.
+ */
+function wantsTemplate(state: PanelState): boolean {
+  return (
+    state.open &&
+    templateRuleOf(state) !== null &&
+    stageModel(state, DEFAULT_LIMITS).kind === "canvas"
+  );
+}
+
+/** The row the surface is drawn under right now: a registered frame whose surface has arrived. */
+export function drawnTemplate(state: PanelState): TemplatePlacementRule | null {
+  return state.template === "ready" ? templateRuleOf(state) : null;
+}
+
+/**
+ * The outlines of `views.json` are wanted only while the panel is open on a registered frame and
+ * contacts are drawn (3D, 2D or without WebGL2: the SVG export is always the 2D views). No other
+ * frame, no EEG recording and no closed panel ever asks for them.
+ */
+function wantsOutlines(state: PanelState): boolean {
+  if (!state.open || templateRuleOf(state) === null) return false;
+  const kind = stageModel(state, DEFAULT_LIMITS).kind;
+  return kind === "canvas" || kind === "views2d" || kind === "no_webgl";
+}
+
+/**
+ * The row under which the stage draws a template right now: the surface (3D) or the outlines (the
+ * 2D views) must have arrived. Null while loading, after a failure, and for every frame without a
+ * row, which are drawn as declared.
+ */
+export function placedRule(state: PanelState, stage: StageModel): TemplatePlacementRule | null {
+  const status = stage.kind === "canvas" ? state.template : state.outlines;
+  const drawn = stage.kind === "canvas" || stage.kind === "views2d" || stage.kind === "no_webgl";
+  return drawn && status === "ready" ? templateRuleOf(state) : null;
+}
+
+/**
+ * The positions of the placed contacts as drawn, in the order of `Placement.contacts` (which is
+ * the renderer's contact order): through the row's affine while the surface is drawn, as declared
+ * otherwise. Nothing is snapped or projected onto the surface.
+ */
+export function drawnPositions(state: PanelState): Vec3[] | null {
+  const placement = state.placement;
+  if (!placement) return null;
+  const rule = drawnTemplate(state);
+  return placement.contacts.map((c) => (rule ? placeOnTemplate(rule, c.position) : c.position));
+}
+
+/**
+ * Own the template's status around the rest of the machine: record the fetch's outcome, start the
+ * fetch when (and only when) a registered frame is shown with the panel open, forget a failure
+ * when the reader reopens the panel or changes frame or recording, and forget a request that
+ * WebGL2's absence made pointless.
+ */
+export function reduce(state: PanelState, event: PanelEvent): Transition {
+  if (state.disposed) return same(state);
+  if (event.type === "template_loaded" || event.type === "template_failed") {
+    if (state.template !== "loading") return same(state);
+    return same({ ...state, template: event.type === "template_loaded" ? "ready" : "failed" });
+  }
+  if (event.type === "outlines_loaded" || event.type === "outlines_failed") {
+    if (state.outlines !== "loading") return same(state);
+    return same({ ...state, outlines: event.type === "outlines_loaded" ? "ready" : "failed" });
+  }
+  const t = reduceCore(state, event);
+  let next = t.state;
+  const retries =
+    event.type === "frame_changed" ||
+    event.type === "recording_changed" ||
+    (event.type === "toggle_open" && next.open);
+  if (next.template === "failed" && retries) next = { ...next, template: "idle" };
+  if (next.outlines === "failed" && retries) next = { ...next, outlines: "idle" };
+  if (next.template === "loading" && event.type === "webgl_unavailable") {
+    next = { ...next, template: "idle" };
+  }
+  let effects = t.effects;
+  if (next.template === "idle" && wantsTemplate(next)) {
+    next = { ...next, template: "loading" };
+    effects = [...effects, { type: "load_template" }];
+  }
+  if (next.outlines === "idle" && wantsOutlines(next)) {
+    next = { ...next, outlines: "loading" };
+    effects = [...effects, { type: "load_outlines" }];
+  }
+  return next === t.state && effects === t.effects ? t : { state: next, effects };
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,6 +1172,8 @@ export interface ContactRow {
   channels: string[];
   /** Where the dataset recorded it, with its unit word and frame (`recordedLocation`). */
   recorded: string;
+  /** Where the template drawing puts it, once drawn and only then (`templateLocation`); else null. */
+  template: string | null;
   /** The activity value or why there is none; null when the overlay shows nothing. */
   value: string | null;
 }
@@ -1037,11 +1189,31 @@ export interface ViewSwitchModel {
   title: string;
 }
 
+/**
+ * The template surface under the canvas. `ready` is the only state in which the surface is drawn,
+ * and it always carries the label (and "approximate" wherever a transform or another MNI variant
+ * is involved), the template's reference and the link to its notice. Null for a frame with no
+ * template placement, which says so in `notes` instead.
+ */
+export type TemplateModel =
+  | { status: "loading"; sentence: string }
+  | { status: "failed"; sentence: string }
+  | {
+      status: "ready";
+      label: string;
+      approximate: boolean;
+      reference: { text: string; href: string };
+      license: { text: string; href: string };
+      /** The notice as one sentence ("Template surface: ...; ...."): the words of the links beside it. */
+      notice: string;
+    };
+
 export interface PanelModel {
   toggle: ToggleModel;
   open: boolean;
   stage: StageModel;
   view: ViewSwitchModel;
+  template: TemplateModel | null;
   frames: FrameSelectorModel | null;
   /** `N of M channels located; frame: IDENTIFIER; positions as declared by the dataset`. */
   status: string | null;
@@ -1133,6 +1305,35 @@ function statusLine(state: PanelState): string | null {
   return `${placement.located} of ${group.labels.length} channels located; frame: ${frameName(placement.space.frame)}; positions as declared by the dataset`;
 }
 
+/** What the notice under a drawn template says, in plain words; the live box links its two parts. */
+export const TEMPLATE_NOTICE_PREFIX = "Template surface: ";
+export const TEMPLATE_LICENSE_TEXT = "MNI copyright notice";
+export function templateNotice(): string {
+  return `${TEMPLATE_NOTICE_PREFIX}${TEMPLATE_REFERENCE.text}; ${TEMPLATE_LICENSE_TEXT}.`;
+}
+
+function templateModel(state: PanelState, stage: StageModel): TemplateModel | null {
+  // The 3D canvas waits on the surface; the 2D views (chosen, or for want of WebGL2) on the outlines.
+  if (stage.kind !== "canvas" && stage.kind !== "views2d" && stage.kind !== "no_webgl") return null;
+  const rule = templateRuleOf(state);
+  if (!rule) return null;
+  const status = stage.kind === "canvas" ? state.template : state.outlines;
+  if (status === "failed") {
+    return { status: "failed", sentence: TEMPLATE_FAILED_SENTENCE };
+  }
+  if (status !== "ready") {
+    return { status: "loading", sentence: TEMPLATE_LOADING_SENTENCE };
+  }
+  return {
+    status: "ready",
+    label: templateLabel(rule),
+    approximate: rule.approximation !== null,
+    reference: { text: TEMPLATE_REFERENCE.text, href: TEMPLATE_REFERENCE.href },
+    license: { text: TEMPLATE_LICENSE_TEXT, href: TEMPLATE_LICENSE_HREF },
+    notice: templateNotice(),
+  };
+}
+
 function frameNotes(placement: Placement): string[] {
   const { space } = placement;
   const notes: string[] = [];
@@ -1150,6 +1351,7 @@ function frameNotes(placement: Placement): string[] {
   if (frame?.kind === "unknown" && frame.why === "no_coordsystem") {
     notes.push("No coordinate system file pairs with these positions.");
   }
+  if (placementRuleFor(frame, space.units) === null) notes.push(noPlacementSentence(frame));
   notes.push(unitsSentence(space.units));
   notes.push(...unlocatedNotes(placement.joins));
   for (const w of positionWarnings(placement.contacts, space.units)) {
@@ -1243,12 +1445,13 @@ function activityModel(state: PanelState): ActivityModel | null {
   };
 }
 
-function contactRows(state: PanelState): ContactRow[] {
+function contactRows(state: PanelState, stage: StageModel): ContactRow[] {
   const { placement, group } = state;
   if (!placement || !group) return [];
   const selected = new Set(state.selection.contacts);
   const shown = state.activity.shown;
   const frameLabel = frameName(placement.space.frame);
+  const rule = placedRule(state, stage);
   return placement.contacts.map((contact, index) => {
     const names = contact.channels
       .map((row) => group.labels[row])
@@ -1271,6 +1474,9 @@ function contactRows(state: PanelState): ContactRow[] {
       selected: selected.has(index),
       channels: contact.channels.map((row) => group.labels[row]),
       recorded: recordedLocation(contact.position, placement.space.units, frameLabel),
+      template: rule
+        ? templateLocation(placeOnTemplate(rule, contact.position), rule.approximation !== null)
+        : null,
       value,
     };
   });
@@ -1291,11 +1497,12 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
       enabled: state.webgl,
       title: state.webgl ? VIEW_SWITCH_TITLE : WEBGL_SENTENCE,
     },
+    template: templateModel(state, stage),
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
     activity: placement ? activityModel(state) : null,
-    contacts: placement ? contactRows(state) : [],
+    contacts: placement ? contactRows(state, stage) : [],
     credit: creditLinkSpec(),
   };
 }
@@ -1338,16 +1545,28 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
 // ---------------------------------------------------------------------------
 
 /**
- * SEAM FOR IS-V2. The one place that decides whether a state is a registered template placement:
- * null for every state until IS-V2 says otherwise (so the 2D views and the exported figures draw
- * no outline and say no template sentence), and otherwise the outlines from the template's
- * `views.json`, the positions to draw (after IS-V2's transform) and the template and
- * "approximate" sentences. The 2D views and both exports read this and nothing else, so the screen
- * and the files cannot disagree. IS-V2 replaces this body; the signature and `TemplatePlacement`
- * (in `export.ts`) are the contract.
+ * The seam between the template (IS-V2) and the 2D views and exports (IS-V3). A registered
+ * template placement, with the outlines of `views.json` in hand, is the template's outlines, the
+ * contact positions through the same row's affine as the 3D view, and the same words as the 3D
+ * view says (`templateLabel`, `templateNotice`); the notice's addresses ride along for the SVG's
+ * metadata. Null for every other state (a frame with no row, pending or unsupported, units not
+ * converted, outlines still loading or failed), which draws the contacts as declared with no
+ * outline and no template sentence.
  */
-export function templatePlacementFor(_state: PanelState): TemplatePlacement | null {
-  return null;
+export function templatePlacementFor(
+  state: PanelState,
+  outlines: TemplateOutlines | null,
+): TemplatePlacement | null {
+  const rule = templateRuleOf(state);
+  const placement = state.placement;
+  if (!rule || !placement || !outlines || state.outlines !== "ready") return null;
+  return {
+    outlines,
+    positions: placement.contacts.map((c) => placeOnTemplate(rule, c.position)),
+    approximate: rule.approximation !== null,
+    labels: [templateLabel(rule), templateNotice()],
+    references: [TEMPLATE_REFERENCE.href, TEMPLATE_LICENSE_HREF],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1523,6 +1742,38 @@ export async function computeActivityPlan(
   };
 }
 
+/**
+ * The decoded surface, shared by every panel of the page: the same two small files for any
+ * dataset, so a second panel (or a reopened one) never fetches them again. A failure is not kept,
+ * so the next ask tries again. Never aborted: the promise is shared, so aborting it for one panel
+ * would fail the load of every other panel waiting on it; a panel that closes mid-fetch leaves the
+ * download to finish into the browser cache.
+ */
+let surfaceLoad: Promise<BrainMesh> | null = null;
+function templateSurface(): Promise<BrainMesh> {
+  surfaceLoad ??= loadTemplateSurface(fetchBytesSameOrigin).catch((err) => {
+    surfaceLoad = null;
+    throw err;
+  });
+  return surfaceLoad;
+}
+
+/** The template's outlines (`views.json`), shared by every panel of the page and fetched at most once. */
+let outlinesLoad: Promise<TemplateOutlines> | null = null;
+function templateOutlines(): Promise<TemplateOutlines> {
+  outlinesLoad ??= fetch(`${TEMPLATE_DIRECTORY}views.json`, { credentials: "same-origin" })
+    .then((res) => {
+      if (!res.ok) throw new Error(`views.json answered ${res.status}`);
+      return res.json();
+    })
+    .then(parseViewOutlines)
+    .catch((err) => {
+      outlinesLoad = null;
+      throw err;
+    });
+  return outlinesLoad;
+}
+
 export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const { box } = host;
   let state = initialState();
@@ -1538,6 +1789,15 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   let renderer: BrainRenderer | null = null;
   let canvas: HTMLCanvasElement | null = null;
   let drawnPlacement: Placement | null = null;
+  /** The row the contacts were last drawn under (null: as declared) and the mesh last handed over. */
+  let drawnRule: TemplatePlacementRule | null = null;
+  let drawnMesh: BrainMesh | null = null;
+  /** The surface, once the shared fetch has delivered it to this panel. */
+  let templateMesh: BrainMesh | null = null;
+  /** A `load_template` effect waits for a renderer: no WebGL2, no fetch. */
+  let templateRequested = false;
+  /** The parsed outlines, once `load_outlines` has finished. */
+  let outlinesData: TemplateOutlines | null = null;
   let palette: ColorPalette = { neutral: [0.96, 0.72, 0.18], noData: [0.4, 0.45, 0.5] };
   let theme: BrainTheme = {
     background: "#ffffff",
@@ -1604,6 +1864,32 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   viewNotes.dataset.spatialViewNotes = "";
   viewNotes.hidden = true;
 
+  // The template surface's words, under the canvas: the label first, then who made the surface and
+  // where its notice is. Present only while the surface is drawn (or loading, or failed).
+  const templateBox = el("div", "eegv__spatial-template");
+  templateBox.dataset.spatialTemplate = "";
+  const templateLine = el("p", "eegv__spatial-status");
+  templateLine.dataset.spatialTemplateLabel = "";
+  const templateNotice = el("p", "eegv__spatial-status eegv__spatial-template-notice");
+  templateNotice.dataset.spatialTemplateNotice = "";
+  const referenceLink = document.createElement("a");
+  referenceLink.dataset.spatialTemplateReference = "";
+  const licenseLink = document.createElement("a");
+  licenseLink.dataset.spatialTemplateLicense = "";
+  for (const a of [referenceLink, licenseLink]) {
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+  }
+  templateNotice.append(
+    document.createTextNode(TEMPLATE_NOTICE_PREFIX),
+    referenceLink,
+    document.createTextNode("; "),
+    licenseLink,
+    document.createTextNode("."),
+  );
+  templateBox.append(templateLine, templateNotice);
+  templateBox.hidden = true;
+
   const status = el("p", "eegv__spatial-status");
   status.setAttribute("aria-live", "polite");
   status.dataset.spatialStatus = "";
@@ -1642,7 +1928,18 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   // A bipolar channel selects two contacts at once.
   list.setAttribute("aria-multiselectable", "true");
   list.dataset.spatialList = "";
-  inner.append(frameWrap, stage, actions, saveMsg, status, viewNotes, notes, act, list);
+  inner.append(
+    frameWrap,
+    stage,
+    actions,
+    saveMsg,
+    templateBox,
+    status,
+    viewNotes,
+    notes,
+    act,
+    list,
+  );
   box.append(inner);
 
   // The panel owns its keys: arrows, letters and plus/minus must not reach the scope's shortcuts.
@@ -1661,6 +1958,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     li: HTMLLIElement;
     detail: HTMLElement;
     value: HTMLElement;
+    tpl: HTMLElement;
   }
   let rows: RowEls[] = [];
   let rowsFor: Placement | null = null;
@@ -1674,8 +1972,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       const value = el("span", "eegv__spatial-value");
       // Where the dataset recorded the contact, under its name, in the same words as the figures.
       const loc = el("span", "eegv__spatial-loc", c.recorded);
-      li.append(el("span", "eegv__spatial-name", c.name), detail, value, loc);
-      return { li, detail, value };
+      // The template position, a smaller line below, only while a template is drawn.
+      const tpl = el("span", "eegv__spatial-loc eegv__spatial-tpl");
+      tpl.hidden = true;
+      li.append(el("span", "eegv__spatial-name", c.name), detail, value, loc, tpl);
+      return { li, detail, value, tpl };
     });
     list.replaceChildren(...rows.map((r) => r.li));
   }
@@ -1686,12 +1987,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       model.contacts.findIndex((c) => c.selected),
     );
     model.contacts.forEach((c, i) => {
-      const { li, detail, value } = rows[i];
+      const { li, detail, value, tpl } = rows[i];
       li.setAttribute("aria-selected", String(c.selected));
       li.tabIndex = i === focusIndex ? 0 : -1;
       if (detail.textContent !== c.detail) detail.textContent = c.detail;
       const v = c.value ?? "";
       if (value.textContent !== v) value.textContent = v;
+      tpl.hidden = c.template === null;
+      setText(tpl, c.template ?? "");
     });
   }
 
@@ -1711,6 +2014,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       canvas?.remove();
       canvas = null;
       drawnPlacement = null;
+      drawnRule = null;
+      drawnMesh = null;
       return;
     }
     if (renderer) return;
@@ -1731,6 +2036,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     canvas = c;
     renderer = r;
     drawnPlacement = null;
+    drawnRule = null;
+    drawnMesh = null;
     c.addEventListener("click", onCanvasClick);
   }
 
@@ -1738,9 +2045,21 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     if (!renderer || !canvas) return;
     const placement = state.placement;
     renderer.resize();
-    if (placement && placement !== drawnPlacement) {
-      renderer.setContacts(placement.contacts.map((c) => ({ position: c.position, size: c.size })));
+    // The surface is drawn only for a registered frame whose surface has arrived, and the contacts
+    // go through that frame's affine only then; `PlacedContact` index i is renderer contact i.
+    const rule = drawnTemplate(state);
+    const mesh = rule ? templateMesh : null;
+    if (mesh !== drawnMesh) {
+      renderer.setMesh(mesh);
+      drawnMesh = mesh;
+    }
+    if (placement && (placement !== drawnPlacement || rule !== drawnRule)) {
+      const positions = drawnPositions(state) ?? [];
+      renderer.setContacts(
+        placement.contacts.map((c, i) => ({ position: positions[i], size: c.size })),
+      );
       drawnPlacement = placement;
+      drawnRule = rule;
     }
     const colors = contactColors(state, palette);
     if (colors) renderer.setColors(colors);
@@ -1772,6 +2091,21 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         frameSel.dataset.key = want;
       }
       frameSel.value = String(model.frames.selected);
+    }
+
+    // The template's words
+    const tm = model.template;
+    box.dataset.templateState = tm?.status ?? "none";
+    templateBox.hidden = tm === null;
+    if (tm) {
+      setText(templateLine, tm.status === "ready" ? tm.label : tm.sentence);
+      templateNotice.hidden = tm.status !== "ready";
+      if (tm.status === "ready") {
+        setText(referenceLink, tm.reference.text);
+        referenceLink.href = tm.reference.href;
+        setText(licenseLink, tm.license.text);
+        licenseLink.href = tm.license.href;
+      }
     }
 
     // Stage
@@ -1852,6 +2186,40 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
 
     syncRenderer();
+    if (templateRequested && renderer) {
+      templateRequested = false;
+      startTemplateLoad();
+    }
+  }
+
+  function startOutlinesLoad(): void {
+    templateOutlines().then(
+      (data) => {
+        if (disposed) return;
+        outlinesData = data;
+        dispatch({ type: "outlines_loaded" });
+      },
+      (err) => {
+        if (disposed) return;
+        console.error("[ieeg-spatial] loading the template outlines failed:", err);
+        dispatch({ type: "outlines_failed" });
+      },
+    );
+  }
+
+  function startTemplateLoad(): void {
+    templateSurface().then(
+      (mesh) => {
+        if (disposed) return;
+        templateMesh = mesh;
+        dispatch({ type: "template_loaded" });
+      },
+      (err) => {
+        if (disposed) return;
+        console.error("[ieeg-spatial] loading the template brain failed:", err);
+        dispatch({ type: "template_failed" });
+      },
+    );
   }
 
   // --- 2D views and exports (IS-V3) ---------------------------------------
@@ -1861,7 +2229,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       model,
       colors: contactColors(state, palette),
       theme: figureTheme,
-      template: templatePlacementFor(state),
+      template: templatePlacementFor(state, outlinesData),
       frameLabel: frameName(state.placement?.space.frame ?? null),
     };
   }
@@ -1891,7 +2259,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       viewsHtml = html;
     }
     const sentences = figureLabels(input, true)
-      .filter((l) => l.role === "template" || l.role === "axes" || l.role === "measure")
+      .filter((l) => l.role === "axes" || l.role === "measure")
       .map((l) => l.text);
     const key = sentences.join("\n");
     if (viewNotes.dataset.key !== key) {
@@ -1964,6 +2332,12 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         );
         return;
       }
+      case "load_outlines":
+        startOutlinesLoad();
+        return;
+      case "load_template":
+        templateRequested = true;
+        return;
       case "select_trace":
         host.showTrace(effect.label);
         return;

@@ -73,8 +73,10 @@ export interface TemplatePlacement {
   positions?: readonly (Vec3 | null)[];
   /** True when the positions are a conversion or another template variant: each title says "approximate". */
   approximate: boolean;
-  /** The sentences the screen says about the template (for example that it is approximate). */
+  /** The sentences the screen says about the template: its label (with "approximate" where it applies) and its notice. */
   labels: readonly string[];
+  /** Addresses behind those sentences (the reference, the license), for the SVG's metadata. */
+  references: readonly string[];
 }
 
 export interface ExportInput {
@@ -192,6 +194,8 @@ export interface Figure {
   recording: { datasetId: string; version: string; path: string };
   frameLabel: string;
   labels: FigureLabel[];
+  /** Addresses of the template's reference and license, when a template is drawn. */
+  references: string[];
   lines: PlacedLine[];
   /** The 3D frame's box, when the PNG draws it; null when the three views are drawn. */
   image: Region | null;
@@ -260,11 +264,23 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
     const selected = model.frames.options.find((o) => o.index === model.frames?.selected);
     add("frame", selected ? `Frame ${selected.label}` : null);
   }
-  for (const sentence of template?.labels ?? []) add("template", sentence);
+  // The three views say what the seam says; the 3D frame says what the panel's model said when the
+  // frame was drawn (a surface still loading, or one that failed, is said in those words).
+  if (withViews) {
+    for (const sentence of template?.labels ?? []) add("template", sentence);
+  } else if (model.template) {
+    const t = model.template;
+    if (t.status === "ready") {
+      add("template", t.label);
+      add("template", t.notice);
+    } else {
+      add("template", t.sentence);
+    }
+  }
   for (const note of model.notes) add("note", note);
   if (model.stage.kind === "no_webgl") add("webgl", model.stage.sentence);
   if (withViews) add("axes", VIEWS_SENTENCE);
-  const texts = contactTexts(input);
+  const texts = contactTexts(input, withViews ? "seam" : "model");
   const picked = model.contacts.flatMap((c, i) => (c.selected ? [contactTitle(texts[i])] : []));
   if (picked.length > 0) add("selected", `Selected: ${picked.join(" | ")}`);
   const a = model.activity;
@@ -332,7 +348,14 @@ export function contactTitle(t: ContactText): string {
     .join("; ");
 }
 
-function contactTexts(input: ExportInput): ContactText[] {
+/**
+ * `seam`: the three 2D views and the SVG, whose template line comes from the seam's positions.
+ * `model`: the live 3D canvas's PNG, whose template line is the model's (the surface may not have
+ * arrived, and then the canvas shows none).
+ */
+type TemplateSource = "seam" | "model";
+
+function contactTexts(input: ExportInput, source: TemplateSource): ContactText[] {
   const { state, model, template } = input;
   const placement = state.placement;
   if (!placement) return [];
@@ -343,7 +366,12 @@ function contactTexts(input: ExportInput): ContactText[] {
       name: c.name,
       channels: row?.channels ?? [],
       recorded: row?.recorded ?? "",
-      template: tp ? templateLocation(tp, template?.approximate ?? false) : null,
+      template:
+        source === "model"
+          ? (row?.template ?? null)
+          : tp
+            ? templateLocation(tp, template?.approximate ?? false)
+            : null,
       value: row?.value ?? null,
     };
   });
@@ -355,7 +383,7 @@ export function viewContacts(input: ExportInput): Views2dContact[] {
   const placement = state.placement;
   if (!placement) return [];
   const selected = new Set(state.selection.contacts);
-  const texts = contactTexts(input);
+  const texts = contactTexts(input, "seam");
   return placement.contacts.map((c, i) => {
     const fill = colors
       ? `rgb(${css255(colors[i * 4])}, ${css255(colors[i * 4 + 1])}, ${css255(colors[i * 4 + 2])})`
@@ -479,6 +507,7 @@ export function buildFigure(
     recording: { datasetId: rec.datasetId, version: rec.version, path: rec.path },
     frameLabel: input.frameLabel,
     labels,
+    references: image ? [] : [...(input.template?.references ?? [])],
     lines,
     image: imageBox,
     views,
@@ -776,6 +805,7 @@ export function buildSvg(figure: Figure): string {
     `<nemar:recording>${escapeXml(rec.path)}</nemar:recording>`,
     `<nemar:frame>${escapeXml(figure.frameLabel)}</nemar:frame>`,
     ...figure.labels.map((l) => `<dc:description>${escapeXml(l.text)}</dc:description>`),
+    ...figure.references.map((r) => `<dc:relation>${escapeXml(r)}</dc:relation>`),
     `<dc:description>${escapeXml(RAVE_CREDIT.text)}</dc:description>`,
     `<dc:relation>${escapeXml(RAVE_CREDIT.href)}</dc:relation>`,
     `<dc:relation>${escapeXml(doiUrl())}</dc:relation>`,
