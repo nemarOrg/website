@@ -22,6 +22,18 @@
  * - A channel joins a contact by exact name, or as `A-B` when both halves are
  *   contacts. No case folding, no prefix.
  *
+ * Two behaviors callers must know:
+ * - Only a file whose every located row is exactly 0 0 0 is `all_zero`. A single
+ *   contact at 0 0 0 inside a file that also has real rows is returned AT THE
+ *   ORIGIN, as written (real files do this: on005670, on006890); this module does
+ *   not decide which origin placements are placeholders, so a panel may treat them
+ *   as suspect.
+ * - `unreadable` and `listing_failed` do not say whether the cause was transient.
+ *   `unreadable` covers a failed read (HTTP 500, network error, abort) and a
+ *   malformed file alike, and `listing_failed` a failed or aborted listing. There
+ *   is no retry and no size cap on reads. A caller must not cache either as
+ *   permanent; offer a retry.
+ *
  * The module is pure: it takes `listDir` and `readText` functions, so tests hand
  * it readers over committed real files and production hands it
  * `dataPlaneSource`.
@@ -40,6 +52,10 @@ import { type DirListing, fetchDirListing, fileDownloadUrl } from "../dir-listin
  * paired coordsystem file is shown in its own frame with undeclared units, and the word
  * is carried as that frame's `why` (the plan counts these datasets among the ones with
  * usable coordinates). It is a member of the set so one vocabulary words every label.
+ *
+ * `unreadable` means the file could not be read or parsed, whether the cause was a
+ * transient failure (500, network, abort) or a malformed file; it is never proof that
+ * the file is bad. `listing_failed` likewise may be transient.
  */
 export type GeometryReason =
   | "no_electrodes_file"
