@@ -27,7 +27,7 @@ Four choices are expensive to undo once a viewer and its exports rest on them: w
 ## Decision
 
 1. **The site draws contacts with its own small Web Graphics Library version 2 (WebGL2) renderer and vendors no RAVE or threeBrain code.**
-   The module is `src/lib/ieeg-spatial/brain-gl.ts`: no three.js, no Babylon, no new runtime dependency and no `'unsafe-eval'` (ADR 0009's grant stays where it is), at most 14 KB gzipped, loaded with the viewer's lazy chunk.
+   The module is `src/lib/ieeg-spatial/brain-gl.ts`: no three.js, no Babylon, no new runtime dependency and no `'unsafe-eval'` (ADR 0009's grant stays where it is), at most 14 KB gzipped, in the panel's own lazy chunk, fetched only for an iEEG recording.
    It takes RAVE's visual vocabulary only (a translucent brain, contacts as spheres sized from the BIDS `size` column, a value overlay, view presets), and no RAVE code, asset or configuration format.
 2. **Anatomy is one vendored MNI152NLin2009cAsym surface, drawn only for standard template frames, and labeled as a template.**
    It is built from TemplateFlow's probability maps by a pinned script and served same-origin from `public/vendor/brain-templates/` with the MNI notice and a provenance file beside it (the pattern of ADR 0028), fetched only when a template frame is shown.
