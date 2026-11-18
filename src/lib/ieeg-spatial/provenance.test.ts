@@ -265,7 +265,7 @@ describe("the panel and the files say how many joined by which kind, and which n
     const chained = notes.find((n) => n.includes("EEG A1-Ref for A1"));
     expect(chained).toContain("by suffix match");
     expect(chained).toContain("start with a signal-type word");
-    expect(chained).toContain("end in a named reference");
+    expect(chained).toContain("end in -REF or -Ref with an optional number, read as a reference");
   });
 
   it("the unlocated channels are listed by their original names with the cause (nm000463)", async () => {
@@ -384,7 +384,8 @@ describe("an approximate name match is drawn apart", () => {
     const colors = contactColors(state, PALETTE);
     expect(colors).not.toBeNull();
     for (let i = 0; i < placement.contacts.length; i++) {
-      expect((colors as Float32Array)[i * 4 + 3]).toBeCloseTo(APPROXIMATE_ALPHA, 5);
+      // A literal, so changing the constant fails here.
+      expect((colors as Float32Array)[i * 4 + 3]).toBeCloseTo(0.55, 5);
     }
     expect(viewModel(state).status).toBe(
       "4 of 4 channels located; frame: Other (the file name says MNI152); positions as declared by the dataset; joined by name rules: 4 approximate name match",
@@ -395,7 +396,8 @@ describe("an approximate name match is drawn apart", () => {
     const picked = play(state, [{ type: "select_contact", contact: 0 }]);
     const c2 = contactColors(picked, PALETTE) as Float32Array;
     expect(c2[3]).toBe(1);
-    expect(c2[7]).toBeLessThan(APPROXIMATE_ALPHA);
+    expect(c2[7]).toBeLessThan(0.55);
+    expect(APPROXIMATE_ALPHA).toBe(0.55);
   });
 
   it("an exact or normalized join is drawn in full", async () => {

@@ -142,7 +142,15 @@ const VIEWS_WIDTH = 340;
 const VIEWS_HEIGHT = 330;
 /** Unselected contacts are drawn this opaque while a selection exists. */
 const DIM_ALPHA = 0.3;
-/** A contact reached by an approximate name match is drawn this opaque. */
+/**
+ * A contact reached by an approximate name match is drawn this opaque. Known limit: opacity is the
+ * only cue in the drawing itself, and it is overridden while anything is selected (the other
+ * contacts are dimmed to `DIM_ALPHA`, a selected one is drawn in full), so the cue is gone then.
+ * The text cues stay at all times: the row's tag, the status line's "approximate name match" and
+ * the "[approximate name match]" in titles. No shipped rule joins by the close tier, so nothing is
+ * affected today; the first close rule must add a cue that is not opacity (a ring or a marker in
+ * the renderer and the 2D views, which this card could not touch).
+ */
 export const APPROXIMATE_ALPHA = 0.55;
 // ---------------------------------------------------------------------------
 // Words
@@ -1656,7 +1664,8 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
     }
     out.set(rgb, i * 4);
     // A contact some channel reached by an approximate name match is drawn half transparent, so
-    // it is told apart from an exact one; a selected contact is always fully drawn.
+    // it is told apart from an exact one. Not while anything is selected: the others are dimmed to
+    // `DIM_ALPHA` and the selected one is drawn in full (see `APPROXIMATE_ALPHA`'s limit).
     out[i * 4 + 3] =
       selected.size > 0 && !selected.has(i)
         ? DIM_ALPHA

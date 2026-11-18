@@ -50,6 +50,14 @@ function withContact(space: SpaceGeometry, from: string, name: string): SpaceGeo
   };
 }
 
+/** A space of a few contacts, each a real row of `space` copied under the name wanted (a known answer). */
+function spaceNamed(space: SpaceGeometry, rows: [from: string, name: string][]): SpaceGeometry {
+  return {
+    ...space,
+    contacts: rows.map(([from, name], row) => ({ ...contactOf(space, from), name, row })),
+  };
+}
+
 const byChannel = (joins: ChannelJoin[]) => new Map(joins.map((j) => [j.channel, j]));
 
 describe("the tier list is data, and each rule carries its evidence", () => {
@@ -92,6 +100,21 @@ describe("the tier list is data, and each rule carries its evidence", () => {
       expect(join.matchKind, rule.id).toBe(rule.kind);
       expect(join.rule?.split("+"), rule.id).toContain(rule.id);
       expect(join.contacts).toContain(rule.example.contact);
+    }
+  });
+
+  it("the sentences say what the name does, not what it means: -AV and -REF are read as references, no dataset states it", () => {
+    expect((ruleById("average_reference") as MatchRule).sentence).toBe(
+      "channel names end in -AV, read as the average reference",
+    );
+    expect((ruleById("reference_name") as MatchRule).sentence).toBe(
+      "channel names end in -REF or -Ref with an optional number, read as a reference",
+    );
+    expect((ruleById("numeric_tail") as MatchRule).sentence).toBe(
+      "channel names end in a numeric tail after the contact name",
+    );
+    for (const id of ["average_reference", "reference_name"]) {
+      expect((ruleById(id) as MatchRule).pattern, id).toContain("read as");
     }
   });
 
@@ -473,6 +496,99 @@ describe("close: the tier exists, no rule joins today, and the engine guards eve
   });
 });
 
+describe("a name that only nearly fits a rule joins nothing (known-answer names, contacts A1 and A3)", () => {
+  // Two contacts copied from real rows of on005522 under the names the rules read. Every name below
+  // is a near miss of a rule's anchor: with the contact present, a loosened anchor would join it.
+  const near = [
+    "A1-2",
+    "A1-9",
+    "A1-999",
+    "pol A3",
+    "Eeg A3",
+    "EEG  A3",
+    "XEEG A3",
+    "A1-AVG",
+    "A1-AV2",
+    "A1-av",
+    "A1-Reference",
+    "A1-Ref+3",
+  ];
+
+  it("each near miss is unlocated, and each real form beside it joins", async () => {
+    const { space } = await load("on005522");
+    const known = spaceNamed(space, [
+      ["LAF1", "A1"],
+      ["LAF2", "A3"],
+    ]);
+    for (const name of near) {
+      expect(joinChannels(known, [name])[0], name).toMatchObject({
+        status: "unlocated",
+        cause: "no_contact",
+        matchKind: null,
+      });
+    }
+    // The same contacts, the forms the rules do read (one at a time: five forms of A1 in one list
+    // would be five claims on one contact, and rightly refuse each other).
+    const real: [string, string][] = [
+      ["A1-AV", "suffix"],
+      ["A1-REF1", "suffix"],
+      ["A1-Ref", "suffix"],
+      ["A1-20000", "suffix"],
+      ["A1-2000", "suffix"],
+      ["POL A3", "normalized"],
+      ["EEG A3", "normalized"],
+    ];
+    for (const [name, kind] of real) {
+      expect(joinChannels(known, [name])[0], name).toMatchObject({
+        status: "located",
+        matchKind: kind,
+      });
+    }
+  });
+});
+
+describe("zeros never carry a name across shafts", () => {
+  it("contacts L1 and L0: L01 is shaft L0 with index 1 as far as the file can say, so it does not join L1", async () => {
+    const { space } = await load("on005522");
+    const both = spaceNamed(space, [
+      ["LAF1", "L1"],
+      ["LAF2", "L0"],
+    ]);
+    expect(joinChannels(both, ["L01"])[0]).toMatchObject({
+      status: "unlocated",
+      cause: "no_contact",
+    });
+    // The same padding, with no contact L0 in the file, is only padding.
+    const alone = spaceNamed(space, [["LAF1", "L1"]]);
+    expect(joinChannels(alone, ["L01"])[0]).toMatchObject({
+      status: "located",
+      contacts: ["L1"],
+      matchKind: "normalized",
+      rule: "leading_zeros",
+    });
+  });
+
+  it("the same guard reads the other direction: contacts L01 and L0, channel L1", async () => {
+    const { space } = await load("on005522");
+    const both = spaceNamed(space, [
+      ["LAF1", "L01"],
+      ["LAF2", "L0"],
+    ]);
+    expect(joinChannels(both, ["L1"])[0]).toMatchObject({ status: "unlocated" });
+    const alone = spaceNamed(space, [["LAF1", "L01"]]);
+    expect(joinChannels(alone, ["L1"])[0]).toMatchObject({
+      contacts: ["L01"],
+      rule: "leading_zeros",
+    });
+  });
+
+  it("the surveyed padding is untouched: LSF1 for LSF01 and el063 for el63", async () => {
+    const a = await load("on004194");
+    expect(joinChannels(a.space, ["LSF1"])[0]).toMatchObject({ contacts: ["LSF01"] });
+    expect(buildNameIndex(["el63"]).find("el063", true)).toEqual(["el63"]);
+  });
+});
+
 describe("claims: an exact name keeps its contact", () => {
   it("nm000463: AD1_rms never takes the contact of the channel it was derived from", async () => {
     const { space, labels } = await load("nm000463");
@@ -535,7 +651,7 @@ describe("claims: an exact name keeps its contact", () => {
     const claim = (channel: number, label: string, kind: Claim["kind"]): Claim => ({
       channel,
       label,
-      contact: "C1",
+      contacts: ["C1"],
       kind,
     });
     expect(settleClaims([claim(0, "C1", "exact"), claim(1, "C1-x", "suffix")])).toEqual(
@@ -549,6 +665,86 @@ describe("claims: an exact name keeps its contact", () => {
       settleClaims([claim(0, "a", "normalized"), claim(1, "b", "suffix"), claim(2, "c", "suffix")]),
     ).toEqual(new Set([1, 2]));
     expect(settleClaims([claim(0, "a", "suffix")])).toEqual(new Set());
+  });
+
+  it("settleClaims: a name repeated at the winning tier is one claimant, and the looser claim still loses", () => {
+    const claim = (channel: number, label: string, kind: Claim["kind"]): Claim => ({
+      channel,
+      label,
+      contacts: ["C1"],
+      kind,
+    });
+    // The same label twice at the strictest tier wins together; only the lower tier is refused.
+    expect(
+      settleClaims([claim(0, "a", "suffix"), claim(1, "a", "suffix"), claim(2, "b", "close")]),
+    ).toEqual(new Set([2]));
+    expect(
+      settleClaims([claim(0, "C1", "exact"), claim(1, "C1", "exact"), claim(2, "C1-x", "suffix")]),
+    ).toEqual(new Set([2]));
+  });
+
+  it("on005415: LTP1 twice keeps both, and LTP1-20000 beside them is refused", async () => {
+    const { space } = await load("on005415-72");
+    const joins = joinChannels(space, ["LTP1", "LTP1", "LTP1-20000"]);
+    expect(joins[0]).toMatchObject({ status: "located", matchKind: "exact" });
+    expect(joins[1]).toMatchObject({ status: "located", matchKind: "exact" });
+    expect(joins[2]).toMatchObject({ status: "unlocated", cause: "duplicate_contact" });
+    // The same suffix name twice is one claimant.
+    const twice = joinChannels(space, ["LTP1-20000", "LTP1-20000", "LTP1-30000"]);
+    expect(twice.map((j) => j.status)).toEqual(["unlocated", "unlocated", "unlocated"]);
+    expect(joinChannels(space, ["LTP1-20000", "LTP1-20000"]).map((j) => j.status)).toEqual([
+      "located",
+      "located",
+    ]);
+  });
+});
+
+describe("bipolar pairs are claimed too", () => {
+  it("on006233: POL A1-A2 does not take the pair that A1-A2 already holds (duplicate_contact, as for one contact)", async () => {
+    const { space } = await load("on006233");
+    const joins = joinChannels(space, ["A1-A2", "POL A1-A2"]);
+    expect(joins[0]).toMatchObject({
+      status: "bipolar",
+      matchKind: "exact",
+      contacts: ["A1", "A2"],
+    });
+    expect(joins[1]).toEqual({
+      channel: "POL A1-A2",
+      status: "unlocated",
+      contacts: ["A1", "A2"],
+      position: null,
+      cause: "duplicate_contact",
+      matchKind: null,
+      rule: null,
+    });
+    // On its own it joins, as before.
+    expect(joinChannels(space, ["POL A1-A2"])[0]).toMatchObject({
+      status: "bipolar",
+      matchKind: "normalized",
+    });
+  });
+
+  it("two exact pairs on the same contacts (A1-A2 and A2-A1) both stay, as they do today", async () => {
+    const { space } = await load("on006233");
+    const joins = joinChannels(space, ["A1-A2", "A2-A1"]);
+    expect(joins.map((j) => [j.status, j.matchKind])).toEqual([
+      ["bipolar", "exact"],
+      ["bipolar", "exact"],
+    ]);
+  });
+
+  it("two differently written non-exact names for one pair both lose it", async () => {
+    const { space } = await load("on006233");
+    const joins = joinChannels(space, ["POL A1-A2", "EEG A1-A2", "POL A3-A4"]);
+    expect(joins[0]).toMatchObject({ status: "unlocated", cause: "duplicate_contact" });
+    expect(joins[1]).toMatchObject({ status: "unlocated", cause: "duplicate_contact" });
+    expect(joins[2]).toMatchObject({ status: "bipolar", contacts: ["A3", "A4"] });
+  });
+
+  it("a contact and a pair never compete: A1 and POL A1-A2 both join", async () => {
+    const { space } = await load("on006233");
+    const joins = joinChannels(space, ["A1", "POL A1-A2"]);
+    expect(joins.map((j) => j.status)).toEqual(["located", "bipolar"]);
   });
 });
 
@@ -602,6 +798,19 @@ describe("what the survey saw and this module does not join", () => {
 
   it("on004624: CH1 stays unlocated although Ch1 is a contact, because the labels start at CH0", async () => {
     const { space, labels } = await load("on004624");
+    // The evidence as the pending entry states it: CH0 to CH31 and four state_* channels, 36 in all,
+    // against contacts Ch1 to Ch32.
+    const ch = labels.filter((l) => /^CH\d+$/.test(l)).map((l) => Number(l.slice(2)));
+    expect([Math.min(...ch), Math.max(...ch), ch.length]).toEqual([0, 31, 32]);
+    expect(labels.filter((l) => l.startsWith("state_"))).toHaveLength(4);
+    expect(labels).toHaveLength(36);
+    expect(names(space).size).toBe(32);
+    const reason = (PENDING_PATTERNS.find((p) => p.id === "case_only") as { reason: string })
+      .reason;
+    expect(reason).toContain("CH0 to CH31");
+    expect(reason).toContain("state_*");
+    expect(reason).toContain("36 in all");
+    expect(reason).not.toContain("CH35");
     expect(labels).toContain("CH0");
     expect(labels).toContain("CH1");
     expect(names(space).has("Ch1")).toBe(true);

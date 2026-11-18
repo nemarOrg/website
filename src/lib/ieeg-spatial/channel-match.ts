@@ -17,7 +17,8 @@
  * 3. It lets an exact name keep its contact. When another channel reaches the same contact through
  *    a lower tier, or two differently written channels reach it through the same non-exact tier,
  *    `settleClaims` refuses them (`duplicate_contact`), so a derived channel (a `_rms` copy) never
- *    takes the contact of the channel it was derived from.
+ *    takes the contact of the channel it was derived from. A bipolar pair is claimed the same way:
+ *    `POL A1-A2` does not take the pair `A1-A2` already holds.
  *
  * Everything here is pure and takes names, not files: `geometry.ts` owns contacts and positions and
  * calls `matchName` and `settleClaims`.
@@ -55,7 +56,11 @@ export interface NameIndex {
   names: readonly string[];
   /** How many rows carry exactly this name. */
   count(name: string): number;
-  /** Distinct contact names equal to `form`, or, when `zeros` is set and none is, equal to it apart from leading zeros in the index. */
+  /**
+   * Distinct contact names equal to `form`, or, when `zeros` is set and none is, equal to it apart
+   * from leading zeros in the index, unless those zeros could be a digit of a shaft name the file
+   * also uses.
+   */
   find(form: string, zeros: boolean): string[];
 }
 
@@ -68,6 +73,16 @@ export function zeroKey(name: string): string {
   if (!m) return name;
   const digits = m[2].replace(/^0+(?=\d)/, "");
   return `${m[1]}${digits}`;
+}
+
+/**
+ * The part of a name before its trailing digits, and the zeros that open those digits (all but the
+ * last digit may be a zero: `A00` has the zero run `0`, `A0` none).
+ */
+function zeroPadding(name: string): { head: string; zeros: string } {
+  const m = /^(.*?)(\d+)$/.exec(name);
+  if (!m) return { head: name, zeros: "" };
+  return { head: m[1], zeros: /^0*(?=\d)/.exec(m[2])?.[0] ?? "" };
 }
 
 export function buildNameIndex(names: readonly string[]): NameIndex {
@@ -88,7 +103,15 @@ export function buildNameIndex(names: readonly string[]): NameIndex {
     count: (name) => counts.get(name) ?? 0,
     find(form, zeros) {
       if (counts.has(form)) return [form];
-      return zeros ? [...(byKey.get(zeroKey(form)) ?? [])] : [];
+      if (!zeros) return [];
+      // The zeros that are stripped must be padding, never a digit of another shaft's name: with
+      // contacts L1 and L0, `L01` could be shaft L0 and index 1, so it is not read as L1.
+      const crossesShaft = (candidate: string) =>
+        [form, candidate].some((x) => {
+          const { head, zeros: run } = zeroPadding(x);
+          return run !== "" && counts.has(`${head}${run}`);
+        });
+      return (byKey.get(zeroKey(form)) ?? []).filter((c) => !crossesShaft(c));
     },
   };
 }
@@ -150,9 +173,12 @@ export type MatchRule = TransformRule | ZeroRule | SuffixRule | CloseRule;
 const TYPE_PREFIX = /^(?:EEG|POL) (\S.*)$/;
 
 /**
- * A reference token after the contact name: `-REF1`, `-Ref1` (a reference named in the label, any
- * case, with or without a number), or `-` and four or more digits (`-20000`, `-2000`). Fewer digits
- * stay unread: `A1-2` is a bipolar pair written in short form, and `T7-1` a repeat counter.
+ * The tokens after the contact name that a suffix rule removes, each anchored at the end of the
+ * name and each read, not known, to be a reference: `-REF` or `-Ref` (any case, with or without a
+ * number), `-AV` exactly, and `-` with four or more digits (`-20000`, `-2000`). Fewer digits stay
+ * unread: `A1-2` is a bipolar pair written in short form, and `T7-1` a repeat counter. No dataset
+ * states what any of these tokens means (`iEEGReference` is `n/a` where it was checked); the rules
+ * rest on the survey and on the dataset's own `_channels.tsv` naming the contact at the same row.
  */
 const REFERENCE_NAME = /^(.+?)-ref\d*$/i;
 const AVERAGE_REFERENCE = /^(.+?)-AV$/;
@@ -212,20 +238,20 @@ export const MATCH_RULES: readonly MatchRule[] = [
     kind: "suffix",
     form: "strip",
     pattern:
-      "the contact name, a hyphen, then a reference named in the label (REF or Ref, with or without a number)",
+      "the contact name, a hyphen, then REF or Ref (any case, with or without a number), read as a reference",
     example: { channel: "O1-REF1", contact: "O1" },
     datasets: ["nm000379", "on004551", "on005007", "on005670"],
-    sentence: "channel names end in a named reference after the contact name",
+    sentence: "channel names end in -REF or -Ref with an optional number, read as a reference",
     strip: (name) => REFERENCE_NAME.exec(name)?.[1] ?? null,
   },
   {
     id: "average_reference",
     kind: "suffix",
     form: "strip",
-    pattern: "the contact name, a hyphen, then AV (the average reference)",
+    pattern: "the contact name, a hyphen, then AV, read as the average reference",
     example: { channel: "A1-AV", contact: "A1" },
     datasets: ["on005398", "on005931", "on006107", "on007118", "on007119", "on007120"],
-    sentence: "channel names end in the average reference after the contact name",
+    sentence: "channel names end in -AV, read as the average reference",
     strip: (name) => AVERAGE_REFERENCE.exec(name)?.[1] ?? null,
   },
   {
@@ -266,7 +292,7 @@ export const PENDING_PATTERNS: readonly PendingPattern[] = [
     example: { channels: ["CH1", "CH2"], contacts: ["Ch1", "Ch2"] },
     datasets: ["on004624"],
     reason:
-      "its labels run CH0 to CH35 against contacts Ch1 to Ch32, so the numbering may start at 0 in the labels and at 1 in the file; a case-folded join could pair CH1 with the wrong contact, and nothing in the dataset says which",
+      "its labels are CH0 to CH31 (32 channels, plus four state_* channels, 36 in all) against contacts Ch1 to Ch32, so the labels count from 0 and the file from 1; a case-folded join would pair CH1 with Ch1 when it may be the second contact, wrong for CH1 to CH31, and nothing in the dataset says which",
   },
   {
     id: "generic_index",
@@ -565,38 +591,42 @@ export function ruleSentences(rule: string): string[] {
 // Claims
 // ---------------------------------------------------------------------------
 
-/** One channel's single-contact join, before claims are settled. */
+/** One channel's join, before claims are settled: one contact, or the two of a bipolar pair. */
 export interface Claim {
   /** Index of the channel in the caller's list. */
   channel: number;
   /** The channel's name as the recording gave it. */
   label: string;
-  contact: string;
+  /** The contact, or the two contacts of a pair (the order does not matter: A1-A2 and A2-A1 are one pair). */
+  contacts: readonly string[];
   kind: MatchKind;
 }
 
 /**
- * Settle who owns each contact. A contact is claimed by channels; the strictest tier among its
- * claimants wins, provided one distinct channel name holds it (the same name twice is the same
- * claimant). Every claim below the winner's tier is refused, and when two differently written names
- * tie at a non-exact tier nobody wins: neither can be said to be the contact. Returns the indices
- * of the channels whose claim is refused.
+ * Settle who owns each contact, and each pair of contacts. A contact (or a pair) is claimed by
+ * channels; the strictest tier among its claimants wins, provided one distinct channel name holds
+ * it (the same name twice is the same claimant). Every claim below the winner's tier is refused,
+ * and when two differently written names tie at a non-exact tier nobody wins: neither can be said
+ * to be the contact. Exact claims never refuse one another (two exact channels that share a pair,
+ * A1-A2 and A2-A1, are as they are today); they only keep the pair from a lower tier. A contact
+ * and a pair never compete: a bipolar channel shares its contacts with the channels beside it.
+ * Returns the indices of the channels whose claim is refused.
  */
 export function settleClaims(claims: readonly Claim[]): Set<number> {
   const refused = new Set<number>();
-  const byContact = new Map<string, Claim[]>();
+  const byTarget = new Map<string, Claim[]>();
   for (const c of claims) {
-    const group = byContact.get(c.contact);
+    const key = [...c.contacts].sort().join("\u0000");
+    const group = byTarget.get(key);
     if (group) group.push(c);
-    else byContact.set(c.contact, [c]);
+    else byTarget.set(key, [c]);
   }
-  for (const group of byContact.values()) {
-    if (new Set(group.map((c) => c.label)).size < 2) continue;
+  for (const group of byTarget.values()) {
     const best = Math.min(...group.map((c) => tierOf(c.kind)));
     const top = group.filter((c) => tierOf(c.kind) === best);
     const topLabels = new Set(top.map((c) => c.label));
     for (const c of group) {
-      const wins = tierOf(c.kind) === best && topLabels.size === 1;
+      const wins = tierOf(c.kind) === best && (best === tierOf("exact") || topLabels.size === 1);
       if (!wins) refused.add(c.channel);
     }
   }

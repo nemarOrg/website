@@ -872,10 +872,12 @@ export function joinChannels(
     };
   });
 
+  // Claims: one contact, or the two of a bipolar pair. A refused channel keeps its contacts so the
+  // note can say whose they are; the cause is the same word for a contact and for a pair.
   const claims: Claim[] = [];
   joins.forEach((j, channel) => {
-    if (j.status === "located" && j.matchKind !== null) {
-      claims.push({ channel, label: j.channel, contact: j.contacts[0], kind: j.matchKind });
+    if (j.status !== "unlocated" && j.matchKind !== null) {
+      claims.push({ channel, label: j.channel, contacts: j.contacts, kind: j.matchKind });
     }
   });
   for (const channel of settleClaims(claims)) {
