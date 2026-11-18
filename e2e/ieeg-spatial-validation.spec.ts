@@ -128,6 +128,109 @@ function note(type: string, value: string): void {
   console.log(`[qa1] ${type}: ${value}`);
 }
 
+// ---------------------------------------------------------------------------
+// Evidence if a page ever stops answering
+// ---------------------------------------------------------------------------
+
+/**
+ * A page that stopped answering at a click was seen a few times in QA1's runs of the export test
+ * and never reproduced (IS-Q2: 45 plain-script repeats under `caffeinate -i`, no stall; the host
+ * had slept during some of QA1's runs). This is how a future occurrence leaves evidence. It
+ * installs, in the page: a 10 ms timer and a requestAnimationFrame loop that record every gap over
+ * 60 and over 100 ms, and a console beat every 250 ms that reaches Node even while the page is
+ * blocked, so "the page went quiet at T" is known without asking the page. In Node: the timing of
+ * the requests that matter (the outlines file, the mesh files, the Zarr host). `report` writes
+ * both into the test's annotations; a page that does not answer a trivial evaluate within 5 s is
+ * said to be unresponsive, with how long ago its last beat was.
+ */
+interface PageWatch {
+  report(why: string): Promise<void>;
+}
+
+let activeWatch: PageWatch | null = null;
+
+async function watchPage(page: Page): Promise<PageWatch> {
+  await page.addInitScript(() => {
+    const w = window as unknown as {
+      __hb: { timer: { at: number; gap: number }[]; raf: { at: number; gap: number }[] };
+    };
+    w.__hb = { timer: [], raf: [] };
+    let last = performance.now();
+    setInterval(() => {
+      const now = performance.now();
+      if (now - last > 60)
+        w.__hb.timer.push({ at: Math.round(last), gap: Math.round(now - last - 10) });
+      last = now;
+    }, 10);
+    let lastRaf = performance.now();
+    const loop = () =>
+      requestAnimationFrame(() => {
+        const now = performance.now();
+        if (now - lastRaf > 100)
+          w.__hb.raf.push({ at: Math.round(lastRaf), gap: Math.round(now - lastRaf) });
+        lastRaf = now;
+        loop();
+      });
+    loop();
+    setInterval(() => console.debug(`__HB__ ${Math.round(performance.now())}`), 250);
+  });
+  const t0 = Date.now();
+  let lastBeat = Date.now();
+  page.on("console", (m) => {
+    if (m.text().startsWith("__HB__")) lastBeat = Date.now();
+  });
+  const timings: { what: string; start: number; end: number | null; status: number | null }[] = [];
+  const what = (url: string) =>
+    /views\.json/.test(url)
+      ? "views.json"
+      : /\.mesh\.bin/.test(url)
+        ? "mesh"
+        : new URL(url).hostname === "zarr.nemar.org"
+          ? "zarr"
+          : null;
+  const open = new Map<Request, (typeof timings)[number]>();
+  page.on("request", (r) => {
+    const w = what(r.url());
+    if (!w) return;
+    const entry = { what: w, start: Date.now() - t0, end: null, status: null };
+    timings.push(entry);
+    open.set(r, entry);
+  });
+  page.on("requestfinished", async (r) => {
+    const e = open.get(r);
+    if (!e) return;
+    e.end = Date.now() - t0;
+    e.status = (await r.response().catch(() => null))?.status() ?? null;
+  });
+  return {
+    async report(why) {
+      const quiet = Date.now() - lastBeat;
+      let gaps: string;
+      try {
+        gaps = await Promise.race([
+          page.evaluate(() => JSON.stringify((window as unknown as { __hb: unknown }).__hb)),
+          new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error("no answer within 5 s")), 5000),
+          ),
+        ]);
+      } catch (e) {
+        gaps = `the page did not answer a trivial evaluate (${String(e)}): unresponsive`;
+      }
+      const summarize = (kind: string) => {
+        const t = timings.filter((x) => x.what === kind);
+        const done = t
+          .flatMap((x) => (x.end === null ? [] : [x.end - x.start]))
+          .sort((a, b) => a - b);
+        return `${kind}: ${t.length} requests, ${t.length - done.length} unfinished${done.length ? `, median ${done[Math.floor(done.length / 2)]} ms, slowest ${done[done.length - 1]} ms` : ""}`;
+      };
+      note(
+        `page heartbeat (${why})`,
+        `last console beat ${quiet} ms ago; gaps ${gaps}; ${["views.json", "mesh", "zarr"].map(summarize).join("; ")}`,
+      );
+    },
+  };
+}
+
 /** Three timed requests to the Zarr route, from Node; the median decides "slow". */
 async function timedZarr(): Promise<{ medianMs: number; times: number[]; slow: boolean }> {
   const times: number[] = [];
@@ -172,6 +275,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async () => {
+  const testInfo = test.info();
+  // A test that registered a page watch leaves its heartbeat and request timing when it did not pass.
+  const watch = activeWatch;
+  activeWatch = null;
+  if (watch && testInfo.status !== testInfo.expectedStatus)
+    await watch.report(testInfo.status ?? "failed");
   const delta = Object.fromEntries(
     Object.entries(transient).map(([k, v]) => [k, v - before[k as keyof typeof transient]]),
   );
@@ -908,6 +1017,8 @@ test("an EEG dataset (on009081) loads no panel code, reads no electrodes file an
 test("exports on a template frame (nm000485, Talairach): outlines, both sentences, the credit last", async ({
   page,
 }) => {
+  const watch = await watchPage(page);
+  activeWatch = watch;
   await openViewer(page, "nm000485");
   await openBrain(page);
   await waitTemplate(page);
@@ -973,6 +1084,7 @@ test("exports on a template frame (nm000485, Talairach): outlines, both sentence
     "exports nm000485",
     `svg ${svg.bytes.length} bytes, ${facts.outlines} outlines, ${facts.titles.length} titles; png3d ${c3d.width}x${c3d.height}, png2d ${corners.width}x${corners.height}`,
   );
+  await watch.report("passed");
 });
 
 // ---------------------------------------------------------------------------
