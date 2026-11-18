@@ -176,16 +176,16 @@ describe("pickNearest", () => {
     expect(pickNearest(cam, cx, cy, W, H, spheres)).toBe(1);
   });
 
-  it("among floor-only hits, takes the one whose center is closest to the pointer", () => {
+  it("among floor-only hits, takes the one whose center is closest to the pointer, in any order", () => {
     const cam = view("right");
     const [cx, cy] = project(cam, [0, 0, 0], W, H);
     const nearMm = mmPerPixel(cam, 350, H);
     const farMm = mmPerPixel(cam, 450, H);
-    const spheres = packContacts([
-      { position: [50, 3 * nearMm, 0], size: 0.01 }, // nearer in depth, 3 px away
-      { position: [-50, 2 * farMm, 0], size: 0.01 }, // farther in depth, 2 px away (its disc is 1.2 px)
-    ]);
-    expect(pickNearest(cam, cx, cy, W, H, spheres)).toBe(1);
+    const closer = { position: [-50, 2 * farMm, 0] as const, size: 0.01 }; // farther in depth, 2 px away (its disc is 1.2 px)
+    const nearer = { position: [50, 3 * nearMm, 0] as const, size: 0.01 }; // nearer in depth, 3 px away
+    // Closest first and closest last, so neither "first floor hit wins" nor "last wins" passes.
+    expect(pickNearest(cam, cx, cy, W, H, packContacts([closer, nearer]))).toBe(0);
+    expect(pickNearest(cam, cx, cy, W, H, packContacts([nearer, closer]))).toBe(1);
   });
 
   it("takes a larger pick floor for coarse pointers", () => {
