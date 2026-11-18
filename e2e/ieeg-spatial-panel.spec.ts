@@ -247,6 +247,56 @@ test("on005522: the credit link is what credit.ts declares and Tab reaches it", 
   await expectCredit(page);
 });
 
+test("on005522: the toggle names the panel it controls, and Escape closes it and returns focus", async ({
+  page,
+}) => {
+  await openViewer(page, "on005522");
+  await openBrain(page);
+  const id = await page.getAttribute(PANEL, "id");
+  expect(id).toMatch(/^eegv-spatial-\d+$/);
+  await expect(page.locator(TOGGLE)).toHaveAttribute("aria-controls", id ?? "");
+  await expect(page.locator(TOGGLE)).toHaveAttribute("aria-pressed", "true");
+
+  // From the contact list, with a contact selected and its trace highlighted.
+  await page.click('[data-spatial-list] li:has(.eegv__spatial-name:text-is("LAF2"))');
+  await expect(page.locator(".eegv__trace-hl")).toBeVisible();
+  await page.focus('[data-spatial-list] li[data-contact="0"]');
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeHidden();
+  await expect(page.locator(TOGGLE)).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
+  expect(
+    await page.evaluate(() => document.activeElement?.hasAttribute("data-spatial-toggle")),
+  ).toBe(true);
+  // Escape with the panel closed does nothing to the toggle, and it opens again.
+  await page.keyboard.press("Enter");
+  await expect(page.locator(PANEL)).toBeVisible();
+});
+
+test("the panel's code is fetched only for an iEEG recording", async ({ page }) => {
+  const modules: string[] = [];
+  const sidecars: string[] = [];
+  page.on("request", (r) => {
+    const url = r.url();
+    if (/ieeg-spatial\/(panel|brain-gl|geometry|activity)/.test(url)) modules.push(url);
+    if (/_electrodes\.tsv/.test(url)) sidecars.push(url);
+  });
+  // An EEG dataset: the viewer mounts, has no Brain toggle, and neither the panel's code nor an
+  // electrodes file is requested.
+  await page.goto("/dataset/on009081/embed");
+  await expect(page.locator(".eegv__status")).toContainText("ch @", { timeout: 90_000 });
+  await page.waitForTimeout(1500);
+  await expect(page.locator(TOGGLE)).toHaveCount(0);
+  expect(modules).toEqual([]);
+  expect(sidecars).toEqual([]);
+
+  // An iEEG dataset: both are requested, after the first frame.
+  await openViewer(page, "on005522");
+  await settled(page);
+  expect(modules.some((u) => /ieeg-spatial\/panel/.test(u))).toBe(true);
+  expect(sidecars.length).toBeGreaterThan(0);
+});
+
 test("on005522: contacts and traces link both ways, and a bipolar channel marks two contacts", async ({
   page,
 }) => {
@@ -414,5 +464,26 @@ test("at 360 px the panel goes below the scope, which keeps its full width", asy
   expect(geo.scope.w).toBeGreaterThanOrEqual(geo.root.w - 24);
   expect(geo.panel.w).toBeGreaterThanOrEqual(geo.root.w - 24);
   expect(geo.overflow).toBeLessThanOrEqual(0);
+  // The embed fits the scope to its host; with the panel below, it keeps at least 280 px (it was
+  // 179 px for 72 channels before the floor) and the embed's document scrolls instead.
+  expect(geo.scope.h).toBeGreaterThanOrEqual(280);
+  // The trace canvas is drawn at the scope's own height (not stretched to it), and the height is
+  // stable: the host's fit and the floor do not chase each other.
+  const canvasRows = () =>
+    page.evaluate(() => {
+      const c = document.querySelector<HTMLCanvasElement>("canvas.eegv__canvas");
+      const scope = document.querySelector(".eegv__scope")?.getBoundingClientRect().height ?? 0;
+      return { bitmap: c?.height ?? 0, scope, dpr: Math.min(2, window.devicePixelRatio || 1) };
+    });
+  const first = await canvasRows();
+  expect(Math.abs(first.bitmap / first.dpr - first.scope)).toBeLessThan(1.5);
+  await page.waitForTimeout(1200);
+  expect((await canvasRows()).scope).toBe(first.scope);
   await expectCredit(page);
+
+  // Closed, the panel changes nothing about the layout: no stack class, and the scope returns to
+  // the height its host gives it.
+  await page.click(TOGGLE);
+  await expect(page.locator(PANEL)).toBeHidden();
+  await expect(page.locator(".eegv__plot")).not.toHaveClass(/eegv__plot--stack/);
 });
