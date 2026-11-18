@@ -844,7 +844,10 @@
 /* The credit link of the iEEG spatial view (IS-K1), floated over a panel's bottom-right corner
    like the embed route's NEMAR mark: above the canvas layers, below any cursor readout. The
    panel that mounts it must be a positioned box. The size matches what the canvas and SVG
-   painters draw (credit.ts), and the backing is a token mix so both themes read it. */
+   painters draw (credit.ts), and the backing is a token mix so both themes read it. It stays
+   underlined at rest so color is not the only cue that it is a link. Where the painters shrink
+   the sentence to fit a very narrow panel, this link wraps it onto a second line instead,
+   which keeps the full text readable and clickable. */
 .eegv-credit {
   position: absolute;
   z-index: 4;
@@ -857,15 +860,13 @@
   color: var(--color-fg-muted);
   background: color-mix(in srgb, var(--color-bg) 80%, transparent);
   border-radius: var(--radius-sm);
-  text-decoration: none;
+  text-decoration: underline;
 }
 .eegv-credit:hover {
   color: var(--color-fg);
-  text-decoration: underline;
 }
 .eegv-credit:focus-visible {
   color: var(--color-fg);
-  text-decoration: underline;
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   box-shadow: none;

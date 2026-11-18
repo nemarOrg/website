@@ -13,8 +13,9 @@ The intracranial electroencephalography (iEEG) spatial view draws electrodes ove
 a Montreal Neurological Institute (MNI) average brain distributed through TemplateFlow (<https://templateflow.org>).
 The template ships under the MNI notice, which must accompany every copy of the template files.
 
-- Notice: `public/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt`, in the vendored directory itself.
-  The copyright holder named there is Louis Collins, McConnell Brain Imaging Centre, MNI, McGill University.
+- Notice: `LICENSE.txt` in the vendored directory, `public/vendor/brain-templates/mni152nlin2009casym@1/`.
+  The vendored files and their notice are added together, so the notice always travels with them.
+  It names Louis Collins, McConnell Brain Imaging Centre, MNI, McGill University, as the copyright holder.
 - Provenance of the vendored files (source, version, checksums): `provenance.json` in the same directory.
 - Reference for the template, to be cited by anyone using it:
   Fonov V, Evans AC, Botteron K, Almli CR, McKinstry RC, Collins DL.
@@ -41,9 +42,11 @@ NEMAR draws the view with its own renderer.
 **No RAVE code and no RAVE data ships with this site**,
 and the credit says "inspired by" because RAVE did not render the figure.
 
-The credit appears as a link reading "Electrode view inspired by RAVE" on every spatial panel,
-and inside every exported PNG and SVG file.
-It is declared once, in `src/lib/ieeg-spatial/credit.ts`.
+The credit is declared once, in `src/lib/ieeg-spatial/credit.ts`, in three forms:
+a link for each spatial panel,
+a painter for PNG exports,
+and a fragment for SVG exports.
+Every surface that draws the view uses these forms, so the link reads "Electrode view inspired by RAVE" and is present on screen and inside each exported file.
 
 RAVE asks that users of its 3D viewer cite:
 

@@ -6,8 +6,9 @@ import {
   CREDIT_FONT_PX,
   RAVE_CREDIT,
   creditLayout,
-  creditLinkAttributes,
+  creditLinkSpec,
   creditSvg,
+  paintCredit,
 } from "./credit";
 
 const REPO = fileURLToPath(new URL("../../../", import.meta.url));
@@ -35,10 +36,11 @@ describe("RAVE_CREDIT", () => {
   });
 });
 
-describe("creditLinkAttributes", () => {
-  const attrs = creditLinkAttributes();
+describe("creditLinkSpec", () => {
+  const { text, attributes: attrs } = creditLinkSpec();
 
-  it("takes href, title and text from the constant", () => {
+  it("takes its text, href and title from the constant", () => {
+    expect(text).toBe(RAVE_CREDIT.text);
     expect(attrs.href).toBe(RAVE_CREDIT.href);
     expect(attrs.title).toBe(RAVE_CREDIT.title);
   });
@@ -48,9 +50,20 @@ describe("creditLinkAttributes", () => {
     expect(attrs.rel.split(/\s+/).sort()).toEqual(["noopener", "noreferrer"]);
   });
 
+  it("names the new tab to assistive technology while still containing the visible text", () => {
+    expect(attrs["aria-label"]).toBe(`${RAVE_CREDIT.text} (opens in a new tab)`);
+  });
+
   it("is styled by its class alone and stays in the tab order", () => {
     expect(attrs.class).toBe("eegv-credit");
-    expect(Object.keys(attrs).sort()).toEqual(["class", "href", "rel", "target", "title"]);
+    expect(Object.keys(attrs).sort()).toEqual([
+      "aria-label",
+      "class",
+      "href",
+      "rel",
+      "target",
+      "title",
+    ]);
     // An anchor with an href is focusable; a negative tabindex or a style attribute would break
     // keyboard reach or the theme tokens, and neither is in the map.
     expect(attrs).not.toHaveProperty("tabindex");
@@ -78,12 +91,23 @@ describe("creditSvg", () => {
     expect(meta).toContain(RAVE_CREDIT.text);
     expect(meta).toContain(RAVE_CREDIT.href);
     expect(meta).toContain(RAVE_CREDIT.doi);
+    // The address and the DOI each get their own relation element; the DOI is not left to the
+    // description, whose title text happens to mention it.
+    const relations = [...meta.matchAll(/<dc:relation>([^<]*)<\/dc:relation>/g)].map((m) => m[1]);
+    expect(relations).toEqual([RAVE_CREDIT.href, `https://doi.org/${RAVE_CREDIT.doi}`]);
   });
 
-  it("paints colors from the theme and carries no raw ampersand or angle bracket from it", () => {
-    expect(svg).toContain(THEME.background);
-    expect(svg).toContain(THEME.foreground);
-    const hostile = creditSvg(800, 600, { background: 'x"><script>', foreground: "a&b" });
+  it("paints colors from the theme", () => {
+    expect(svg).toContain(`fill="${THEME.background}"`);
+    expect(svg).toContain(`fill="${THEME.foreground}"`);
+  });
+
+  it("cannot be broken out of an attribute or an element by a theme value", () => {
+    const hostile = creditSvg(800, 600, {
+      background: 'red" onload="x',
+      foreground: "</text><script>a&b",
+    });
+    expect(hostile).not.toContain('" onload=');
     expect(hostile).not.toContain("<script>");
     expect(hostile).toContain("a&amp;b");
   });
@@ -124,10 +148,12 @@ describe("creditLayout (the geometry paintCredit draws)", () => {
     }
   });
 
-  it("anchors to the bottom-right corner", () => {
-    const { box } = creditLayout(1280, 720, 1, 175);
-    expect(1280 - (box.x + box.width)).toBeLessThan(20);
-    expect(720 - (box.y + box.height)).toBeLessThan(20);
+  it("anchors to the bottom-right corner, 8 CSS pixels from each edge", () => {
+    for (const dpr of [1, 2]) {
+      const { box } = creditLayout(1280 * dpr, 720 * dpr, dpr, 175 * dpr);
+      expect(1280 * dpr - (box.x + box.width)).toBeCloseTo(8 * dpr);
+      expect(720 * dpr - (box.y + box.height)).toBeCloseTo(8 * dpr);
+    }
   });
 
   it("scales font and box with the device pixel ratio", () => {
@@ -148,6 +174,95 @@ describe("creditLayout (the geometry paintCredit draws)", () => {
     const { fontPx, box } = creditLayout(160, 100, 1, 175);
     expect(fontPx).toBeLessThan(CREDIT_FONT_PX);
     expect(box.x + box.width).toBeLessThanOrEqual(160);
+  });
+});
+
+describe("paintCredit", () => {
+  /**
+   * A recording stand-in for the browser's 2D context: it keeps every drawing call with the
+   * state that was set when the call happened, and measures text as a fixed fraction of the
+   * font size. The function under test is the real one; only the canvas is recorded.
+   */
+  function recordingContext() {
+    const calls: { op: string; args: unknown[]; font: string; alpha: number; fill: string }[] = [];
+    const state = { font: "", globalAlpha: 1, fillStyle: "", textAlign: "", textBaseline: "" };
+    const saved: (typeof state)[] = [];
+    const log =
+      (op: string) =>
+      (...args: unknown[]) => {
+        calls.push({ op, args, font: state.font, alpha: state.globalAlpha, fill: state.fillStyle });
+      };
+    const ctx = {
+      get font() {
+        return state.font;
+      },
+      set font(v: string) {
+        state.font = v;
+      },
+      get globalAlpha() {
+        return state.globalAlpha;
+      },
+      set globalAlpha(v: number) {
+        state.globalAlpha = v;
+      },
+      get fillStyle() {
+        return state.fillStyle;
+      },
+      set fillStyle(v: string) {
+        state.fillStyle = v;
+      },
+      set textAlign(v: string) {
+        state.textAlign = v;
+      },
+      set textBaseline(v: string) {
+        state.textBaseline = v;
+      },
+      save: () => {
+        saved.push({ ...state });
+        log("save")();
+      },
+      restore: () => {
+        Object.assign(state, saved.pop());
+        log("restore")();
+      },
+      measureText: (t: string) => ({ width: t.length * Number.parseFloat(state.font) * 0.5 }),
+      fillRect: log("fillRect"),
+      fillText: log("fillText"),
+    };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, calls, state };
+  }
+
+  it("draws the sentence on a themed backing and returns the covered box", () => {
+    const { ctx, calls } = recordingContext();
+    const box = paintCredit(ctx, 1280, 720, THEME, 1);
+    const rect = calls.find((c) => c.op === "fillRect");
+    const text = calls.find((c) => c.op === "fillText");
+    expect(rect?.args).toEqual([box.x, box.y, box.width, box.height]);
+    expect(rect?.fill).toBe(THEME.background);
+    expect(rect?.alpha).toBeLessThan(1);
+    expect(text?.args[0]).toBe(RAVE_CREDIT.text);
+    expect(text?.fill).toBe(THEME.foreground);
+    expect(text?.alpha).toBe(1);
+  });
+
+  it("sizes the text at 11 CSS pixels times the device pixel ratio", () => {
+    for (const dpr of [1, 2]) {
+      const { ctx, calls } = recordingContext();
+      paintCredit(ctx, 1280 * dpr, 720 * dpr, THEME, dpr);
+      const text = calls.find((c) => c.op === "fillText");
+      expect(Number.parseFloat(text?.font ?? "")).toBeCloseTo(CREDIT_FONT_PX * dpr);
+    }
+  });
+
+  it("leaves the caller's context state as it found it, and the box inside the canvas", () => {
+    const { ctx, calls, state } = recordingContext();
+    state.globalAlpha = 0.3;
+    const box = paintCredit(ctx, 300, 200, THEME, 2);
+    expect(calls[0].op).toBe("save");
+    expect(calls[calls.length - 1].op).toBe("restore");
+    expect(state.globalAlpha).toBe(0.3);
+    expect(box.x + box.width).toBeLessThanOrEqual(300);
+    expect(box.y + box.height).toBeLessThanOrEqual(200);
   });
 });
 
@@ -178,6 +293,24 @@ describe("the credit is declared once", () => {
       .sort();
     expect(hits).toEqual(["src/lib/ieeg-spatial/credit.test.ts", "src/lib/ieeg-spatial/credit.ts"]);
   });
+
+  it("has no other phrasing of the credit anywhere it could ship", () => {
+    const variant = new RegExp(`inspired by ${"rave"}`, "i");
+    const hits = [...files, ...sourceFiles(join(REPO, "e2e"))]
+      .filter((f) => variant.test(readFileSync(f, "utf8")))
+      .map((f) => relative(REPO, f))
+      .sort();
+    expect(hits).toEqual(["src/lib/ieeg-spatial/credit.test.ts", "src/lib/ieeg-spatial/credit.ts"]);
+  });
+
+  it("never says RAVE powered, rendered or drew the figure, in code or notices", () => {
+    const claim = new RegExp(`(powered|rendered|drawn|made|built) (by|with) ${"rave"}`, "i");
+    const notices = join(REPO, "THIRD_PARTY_NOTICES.md");
+    const hits = [...files, notices]
+      .filter((f) => claim.test(readFileSync(f, "utf8")))
+      .map((f) => relative(REPO, f));
+    expect(hits).toEqual([]);
+  });
 });
 
 describe(".eegv-credit style", () => {
@@ -196,6 +329,21 @@ describe(".eegv-credit style", () => {
     for (const [, , body] of rules) {
       expect(body).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
     }
+    const base = rules.find((r) => r[1].trim() === ".eegv-credit")?.[2] ?? "";
+    expect(base).toMatch(/color:\s*var\(--color-fg/);
+    expect(base).toMatch(/background:[^;]*var\(--color-bg\)/);
+  });
+
+  it("shows a focus ring from the focus token and an underline before any hover", () => {
+    const focus = rules.find((r) => r[1].includes(":focus-visible"))?.[2] ?? "";
+    expect(focus).toMatch(/outline:\s*2px solid var\(--color-focus\)/);
+    const base = rules.find((r) => r[1].trim() === ".eegv-credit")?.[2] ?? "";
+    expect(base).toMatch(/text-decoration:\s*underline/);
+  });
+
+  it("darkens the text on hover", () => {
+    const hover = rules.find((r) => r[1].includes(":hover"))?.[2] ?? "";
+    expect(hover).toMatch(/color:\s*var\(--color-fg\)/);
   });
 
   it("keeps the 11 pixel size the canvas painter uses", () => {

@@ -62,31 +62,43 @@ export interface CreditLayout {
   centerY: number;
 }
 
-/** The attributes of the live link, as a plain map so Node tests read them without a DOM. */
-export function creditLinkAttributes(): {
-  href: string;
-  title: string;
-  target: string;
-  rel: string;
-  class: string;
-} {
+/** What the live link is made of: its text and attributes, as plain data Node tests can read. */
+export interface CreditLinkSpec {
+  text: string;
+  attributes: {
+    href: string;
+    title: string;
+    target: string;
+    rel: string;
+    class: string;
+    "aria-label": string;
+  };
+}
+
+export function creditLinkSpec(): CreditLinkSpec {
   return {
-    href: RAVE_CREDIT.href,
-    title: RAVE_CREDIT.title,
-    target: "_blank",
-    rel: "noopener noreferrer",
-    class: CREDIT_CLASS,
+    text: RAVE_CREDIT.text,
+    attributes: {
+      href: RAVE_CREDIT.href,
+      title: RAVE_CREDIT.title,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      class: CREDIT_CLASS,
+      // The visible text first, so the name still contains what a sighted user reads.
+      "aria-label": `${RAVE_CREDIT.text} (opens in a new tab)`,
+    },
   };
 }
 
 /**
- * The live link for a panel corner. An anchor with an href is keyboard-focusable and carries its
- * accessible name in its text; position and colors come from the `eegv-credit` class alone.
+ * The live link for a panel corner. An anchor with an href is keyboard-focusable; position and
+ * colors come from the `eegv-credit` class alone. Everything it sets comes from `creditLinkSpec`.
  */
 export function creditLink(doc: Document): HTMLAnchorElement {
+  const { text, attributes } = creditLinkSpec();
   const a = doc.createElement("a");
-  for (const [name, value] of Object.entries(creditLinkAttributes())) a.setAttribute(name, value);
-  a.textContent = RAVE_CREDIT.text;
+  for (const [name, value] of Object.entries(attributes)) a.setAttribute(name, value);
+  a.textContent = text;
   return a;
 }
 
@@ -126,8 +138,9 @@ export function creditLayout(
 /**
  * Paint the credit in the bottom-right corner of a raster export, on a token-colored backing,
  * and return the box it covered. The caller paints it last. `width` and `height` are the
- * canvas's pixel size and `dpr` its device pixel ratio (the browser's by default), so the text
- * is `CREDIT_FONT_PX` CSS pixels tall on screen.
+ * canvas's pixel size and `dpr` its device pixel ratio, so the text is `CREDIT_FONT_PX` CSS
+ * pixels tall on screen. The default is the browser's ratio, right for a canvas drawn at screen
+ * scale; an export canvas rendered at a fixed scale, whatever the screen, must pass its own.
  */
 export function paintCredit(
   ctx: CanvasRenderingContext2D,
