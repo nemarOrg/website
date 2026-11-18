@@ -1047,3 +1047,10 @@
 .eegv__trace-hl[hidden] {
   display: none;
 }
+/* With the panel below, the scope keeps at least this height (STACKED_SCOPE_MIN_HEIGHT in
+   src/lib/ieeg-spatial/layout.ts, which the viewer also applies to the canvas size). A host that
+   fits the scope to its own height (the embed route) scrolls its document instead of squeezing
+   the traces. */
+.eegv__plot--stack .eegv__scope {
+  min-block-size: 280px;
+}

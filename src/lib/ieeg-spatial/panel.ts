@@ -69,6 +69,7 @@ import {
   joinChannels,
   resolveRecordingGeometry,
 } from "./geometry";
+import { isIeegModality } from "./layout";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -92,16 +93,6 @@ export const RETRY_DELAYS_MS: readonly number[] = [300, 800, 1600];
 export const SPAN_WARNING_MM = 250;
 /** Unselected contacts are drawn this opaque while a selection exists. */
 const DIM_ALPHA = 0.3;
-/**
- * The viewer's width (CSS pixels) from which the panel sits beside the scope. Narrower, it goes
- * below the scope at full width, so the traces are never squeezed or hidden.
- */
-export const SPATIAL_BESIDE_MIN_WIDTH = 720;
-
-export function spatialLayout(viewerWidth: number): "beside" | "below" {
-  return viewerWidth >= SPATIAL_BESIDE_MIN_WIDTH ? "beside" : "below";
-}
-
 // ---------------------------------------------------------------------------
 // Words
 // ---------------------------------------------------------------------------
@@ -131,7 +122,8 @@ export const LOADING_SENTENCE = "Looking for electrode positions...";
 export const NO_MATCH_SENTENCE =
   "None of this recording's channels match a contact in the electrodes file.";
 
-export type ActivityFailure = ActivityRefusal | "read_failed";
+/** What can stop an activity read: IS-M1's refusals, the panel's own mixed-units check, a failed read. */
+export type ActivityFailure = ActivityRefusal | "mixed_units" | "read_failed";
 
 /** User-facing sentence per activity refusal; `rateHz` is the group's level-0 rate. */
 export const ACTIVITY_SENTENCES: Record<ActivityFailure, (rateHz: number) => string> = {
@@ -142,6 +134,8 @@ export const ACTIVITY_SENTENCES: Record<ActivityFailure, (rateHz: number) => str
   not_level0: () =>
     "Activity needs full-rate samples, and this window is a zoomed-out summary. Zoom in.",
   bad_input: () => "Activity cannot be computed for this recording's channel units.",
+  mixed_units: () =>
+    "Activity cannot be computed: this recording's channels mix voltage and field units.",
   read_failed: () =>
     "The signal could not be read. Change the window, or turn Activity off and on, to try again.",
 };
@@ -323,10 +317,6 @@ export interface GroupInfo {
   durationS: number;
 }
 
-export function isIeegModality(modality: string | undefined): boolean {
-  return (modality || "").toUpperCase() === "IEEG";
-}
-
 export interface PlacedContact {
   name: string;
   position: Vec3;
@@ -396,6 +386,23 @@ export function defaultSpaceIndex(geometry: RecordingGeometry): number | null {
   return template ?? shown[0] ?? (geometry.spaces.length > 0 ? 0 : null);
 }
 
+/** Wait `ms`, or until `signal` aborts, whichever is first; the timer is cleared on abort. */
+export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
 /** True when a failure in this result may be the data plane's and not the dataset's. */
 export function needsAnotherTry(geometry: RecordingGeometry): boolean {
   return isTransient(geometry.reason) || geometry.spaces.some((s) => isTransient(s.reason));
@@ -412,18 +419,14 @@ export async function resolveWithRetries(
   options: {
     delaysMs?: readonly number[];
     signal?: AbortSignal;
-    sleep?: (ms: number) => Promise<void>;
+    sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   } = {},
 ): Promise<RecordingGeometry> {
-  const {
-    delaysMs = RETRY_DELAYS_MS,
-    signal,
-    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
-  } = options;
+  const { delaysMs = RETRY_DELAYS_MS, signal, sleep = abortableSleep } = options;
   let geometry = await attempt();
   for (const delay of delaysMs) {
     if (!needsAnotherTry(geometry) || signal?.aborted) break;
-    await sleep(delay);
+    await sleep(delay, signal);
     if (signal?.aborted) break;
     geometry = await attempt();
   }
@@ -1281,6 +1284,8 @@ export interface SpatialPanelHost {
   ): Promise<WindowData>;
   /** The toggle button: show it or not, enable it, press it, title it. */
   setToggle(toggle: ToggleModel): void;
+  /** Move focus to the toggle button (after Escape closes the panel). */
+  focusToggle(): void;
   /** Highlight a channel's trace in the scope; null clears it. */
   showTrace(label: string | null): void;
   /** The panel opened or closed, so the scope's width changes. */
@@ -1351,6 +1356,80 @@ function failedGeometry(recording: RecordingRef, reason: GeometryReason): Record
 /** One macrotask, so a long loop of slices gives the page a turn between them. */
 function nextTask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+export type PlanOutcome =
+  | { ok: true; report: ActivityReport }
+  | { ok: false; reason: ActivityFailure };
+
+/**
+ * Read and compute one plan in slices of at most `sliceChannels` consecutive located channels
+ * (so no slice is a long task), yielding between slices. `readRows` returns the level-0 window of
+ * rows `[r0, r1)`. Returns null when `signal` aborted, a failure word when IS-M1 refuses a slice
+ * or the slices disagree about the unit (voltage in one, field in another: one color scale
+ * cannot span them), and otherwise one report whose summary fields come from the first slice (the
+ * rate and window are the same for all). A rejected `readRows` rejects this.
+ */
+export async function computeActivityPlan(
+  plan: ActivityPlan,
+  group: Pick<GroupInfo, "labels" | "units" | "nativeRateHz">,
+  readRows: (r0: number, r1: number) => Promise<WindowData>,
+  options: {
+    signal?: AbortSignal;
+    sliceChannels?: number;
+    yieldTask?: () => Promise<void>;
+  } = {},
+): Promise<PlanOutcome | null> {
+  const { signal, sliceChannels = READ_SLICE_CHANNELS, yieldTask = nextTask } = options;
+  const perRow: (ChannelActivity | null)[] = new Array(group.labels.length).fill(null);
+  let first: ActivityResult | null = null;
+  let firstUnit: "V" | "T" | null = null;
+  for (const [r0, r1] of readRuns(plan.rows, sliceChannels)) {
+    if (signal?.aborted) return null;
+    const win = await readRows(r0, r1);
+    if (signal?.aborted) return null;
+    const info = Array.from({ length: r1 - r0 }, (_, i) => ({
+      label: group.labels[r0 + i],
+      unit: group.units[r0 + i],
+      nativeRateHz: group.nativeRateHz ?? undefined,
+    }));
+    const adapted = activityChannelsFromWindow(win, info);
+    if (!adapted.ok) return { ok: false, reason: adapted.reason };
+    firstUnit ??= adapted.unit;
+    if (adapted.unit !== firstUnit) return { ok: false, reason: "mixed_units" };
+    const outcome = computeActivity({
+      channels: adapted.channels,
+      rateHz: plan.rateHz,
+      unit: adapted.unit,
+      metric: plan.metric,
+      band: plan.band ?? undefined,
+      relative: plan.relative,
+      displayUnit: adapted.unit === "V" ? "µV" : undefined,
+    });
+    if (!outcome.ok) return { ok: false, reason: outcome.reason };
+    outcome.channels.forEach((c, i) => {
+      perRow[r0 + i] = c;
+    });
+    first ??= outcome;
+    await yieldTask();
+  }
+  if (signal?.aborted || !first) return null;
+  return {
+    ok: true,
+    report: {
+      token: plan.token,
+      metric: first.metric,
+      band: first.band,
+      relative: first.relative,
+      unit: first.unit,
+      windowS: first.windowS,
+      analyzedS: first.analyzedS,
+      segments: first.segments,
+      segmentSamples: first.segmentSamples,
+      referenceHz: first.referenceHz,
+      channels: perRow,
+    },
+  };
 }
 
 export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
@@ -1443,7 +1522,15 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   box.append(inner);
 
   // The panel owns its keys: arrows, letters and plus/minus must not reach the scope's shortcuts.
-  box.addEventListener("keydown", (e) => e.stopPropagation());
+  // Escape closes the panel and hands focus back to the toggle that opened it.
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape" && state.open) {
+      e.preventDefault();
+      dispatch({ type: "toggle_open", open: false });
+      host.focusToggle();
+    }
+  });
 
   // --- model -> DOM -------------------------------------------------------
   interface RowEls {
@@ -1721,65 +1808,24 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     box.dataset.activityReads = String(reads);
     const group = host.group();
     if (group.index !== plan.groupIndex) return;
-    const perRow: (ChannelActivity | null)[] = new Array(group.labels.length).fill(null);
-    let first: ActivityResult | null = null;
     try {
-      for (const [r0, r1] of readRuns(plan.rows, READ_SLICE_CHANNELS)) {
-        if (signal.aborted) return;
-        const win = await host.readRows(plan.groupIndex, plan.startS, plan.endS, r0, r1, signal);
-        if (signal.aborted) return;
-        const info = Array.from({ length: r1 - r0 }, (_, i) => ({
-          label: group.labels[r0 + i],
-          unit: group.units[r0 + i],
-          nativeRateHz: group.nativeRateHz ?? undefined,
-        }));
-        const adapted = activityChannelsFromWindow(win, info);
-        if (!adapted.ok) {
-          dispatch({ type: "activity_failed", token: plan.token, reason: adapted.reason });
-          return;
-        }
-        const outcome = computeActivity({
-          channels: adapted.channels,
-          rateHz: plan.rateHz,
-          unit: adapted.unit,
-          metric: plan.metric,
-          band: plan.band ?? undefined,
-          relative: plan.relative,
-          displayUnit: adapted.unit === "V" ? "µV" : undefined,
-        });
-        if (!outcome.ok) {
-          dispatch({ type: "activity_failed", token: plan.token, reason: outcome.reason });
-          return;
-        }
-        outcome.channels.forEach((c, i) => {
-          perRow[r0 + i] = c;
-        });
-        first ??= outcome;
-        await nextTask();
-      }
+      const outcome = await computeActivityPlan(
+        plan,
+        group,
+        (r0, r1) => host.readRows(plan.groupIndex, plan.startS, plan.endS, r0, r1, signal),
+        { signal },
+      );
+      if (outcome === null || signal.aborted) return;
+      dispatch(
+        outcome.ok
+          ? { type: "activity_report", report: outcome.report }
+          : { type: "activity_failed", token: plan.token, reason: outcome.reason },
+      );
     } catch (err) {
       if (signal.aborted) return;
       console.error("[ieeg-spatial] reading activity failed:", err);
       dispatch({ type: "activity_failed", token: plan.token, reason: "read_failed" });
-      return;
     }
-    if (signal.aborted || !first) return;
-    dispatch({
-      type: "activity_report",
-      report: {
-        token: plan.token,
-        metric: first.metric,
-        band: first.band,
-        relative: first.relative,
-        unit: first.unit,
-        windowS: first.windowS,
-        analyzedS: first.analyzedS,
-        segments: first.segments,
-        segmentSamples: first.segmentSamples,
-        referenceHz: first.referenceHz,
-        channels: perRow,
-      },
-    });
   }
 
   function onCanvasClick(e: MouseEvent): void {

@@ -1,10 +1,6 @@
-import {
-  type GroupInfo,
-  type SpatialPanel,
-  createSpatialPanel,
-  isIeegModality,
-  spatialLayout,
-} from "../ieeg-spatial/panel";
+import { isIeegModality, spatialLayout, stackedScopeHeight } from "../ieeg-spatial/layout";
+// Types only: the panel's code is fetched by `startSpatial` for an iEEG recording, never here.
+import type { GroupInfo, SpatialPanel } from "../ieeg-spatial/panel";
 import { zarrStoreUrl } from "../zarr-base";
 /**
  * Signal-viewer orchestration (website#99). `mountEegViewer` builds a compact
@@ -849,44 +845,76 @@ export async function mountEegViewer(
     placeTraceHighlight();
   }
 
-  /** Beside the scope when the viewer is wide enough; below it, at full width, when not. */
+  /**
+   * Beside the scope when the viewer is wide enough; below it, at full width, when not (and only
+   * while the panel is open, so a closed panel changes nothing about the viewer's layout).
+   */
   function syncSpatialLayout(): void {
     if (!ui.spatialBox) return;
-    const narrow = spatialLayout(ui.root.getBoundingClientRect().width) === "below";
-    ui.plot.classList.toggle("eegv__plot--stack", narrow);
+    const below = spatialLayout(ui.root.getBoundingClientRect().width) === "below";
+    ui.plot.classList.toggle("eegv__plot--stack", below && !!spatial?.isOpen());
   }
 
-  const spatial: SpatialPanel | null =
-    spatialWanted && opts.spatial && ui.spatialBox
-      ? createSpatialPanel({
-          recording: {
-            datasetId: opts.spatial.datasetId,
-            version: opts.spatial.version,
-            path: opts.spatial.recording,
-          },
-          box: ui.spatialBox,
-          themeRoot: ui.root,
-          group: spatialGroupInfo,
-          readRows: (gi, startS, endS, r0, r1, signal) =>
-            readLevel0(store.groups[gi], startS, endS, r0, r1, signal),
-          setToggle: (t) => {
-            const btn = ui.brainBtn;
-            if (!btn || !ui.brainGroup) return;
-            ui.brainGroup.hidden = !t.visible;
-            btn.disabled = !t.enabled;
-            btn.title = t.title;
-            btn.setAttribute("aria-pressed", String(t.pressed));
-            btn.classList.toggle("eegv__btn--active", t.pressed);
-          },
-          showTrace: showSpatialTrace,
-          // Opening or closing the panel changes the scope's width; re-measure and redraw.
-          layoutChanged: () => void render(),
-        })
-      : null;
-  if (spatial) {
-    ui.brainBtn?.addEventListener("click", () => spatial.toggle());
-    cleanups.push(() => spatial.dispose());
+  /** The toggle as the viewer shows it until the panel's code is loaded and takes it over. */
+  function showBrainToggle(title: string): void {
+    const btn = ui.brainBtn;
+    if (!btn || !ui.brainGroup) return;
+    ui.brainGroup.hidden = !isIeegModality(group().modality);
+    btn.disabled = true;
+    btn.title = title;
   }
+  const CHECKING_TITLE = "Brain: checking this dataset for electrode positions";
+  showBrainToggle(CHECKING_TITLE);
+
+  /**
+   * Load the panel's code and start it. Only for an iEEG recording with a spatial input, after
+   * the first frame, so the electrode files are looked up (and the code fetched) only where there
+   * are contacts to show, and never ahead of the signal.
+   */
+  let spatial: SpatialPanel | null = null;
+  async function startSpatial(): Promise<void> {
+    const where = opts.spatial;
+    const box = ui.spatialBox;
+    if (!spatialWanted || !where || !box) return;
+    let panel: typeof import("../ieeg-spatial/panel");
+    try {
+      panel = await import("../ieeg-spatial/panel");
+    } catch (err) {
+      console.error("[eeg-viewer] the Brain panel's code did not load:", err);
+      if (!disposed) {
+        showBrainToggle("Brain view could not be loaded; reload the page to try again");
+      }
+      return;
+    }
+    if (disposed) return;
+    spatial = panel.createSpatialPanel({
+      recording: { datasetId: where.datasetId, version: where.version, path: where.recording },
+      box,
+      themeRoot: ui.root,
+      group: spatialGroupInfo,
+      readRows: (gi, startS, endS, r0, r1, signal) =>
+        readLevel0(store.groups[gi], startS, endS, r0, r1, signal),
+      setToggle: (t) => {
+        const btn = ui.brainBtn;
+        if (!btn || !ui.brainGroup) return;
+        ui.brainGroup.hidden = !t.visible;
+        btn.disabled = !t.enabled;
+        btn.title = t.title;
+        btn.setAttribute("aria-pressed", String(t.pressed));
+        btn.classList.toggle("eegv__btn--active", t.pressed);
+      },
+      focusToggle: () => ui.brainBtn?.focus(),
+      showTrace: showSpatialTrace,
+      // Opening or closing the panel changes the scope's width; re-measure and redraw.
+      layoutChanged: () => void render(),
+    });
+    spatial.start();
+    // The first render has already run, so tell the panel the window that is on screen.
+    if (lastFrame)
+      spatial.setWindow(lastFrame.windowStartS, lastFrame.windowEndS - lastFrame.windowStartS);
+  }
+  ui.brainBtn?.addEventListener("click", () => spatial?.toggle());
+  cleanups.push(() => spatial?.dispose());
 
   // --- degraded view pyramid ------------------------------------------------
   // `GroupHandle.viewLevelsDegraded` is the store's way of saying "the pyramid
@@ -1081,7 +1109,10 @@ export async function mountEegViewer(
       px(cs.paddingBottom);
     let used = 0;
     for (const child of slot.children) used += child.getBoundingClientRect().height;
-    return fitScopeHeight(host, used - ui.scope.getBoundingClientRect().height);
+    return stackedScopeHeight(
+      fitScopeHeight(host, used - ui.scope.getBoundingClientRect().height),
+      ui.plot.classList.contains("eegv__plot--stack"),
+    );
   }
 
   function sizeCanvas(): { w: number; h: number } {
@@ -1885,7 +1916,8 @@ export async function mountEegViewer(
       // already touched Scale +/-, so this cannot stomp a manual adjustment.
       autoscalePending = true;
       // The Brain panel's contacts, selection and activity belong to one group's channels.
-      spatial?.setGroup(spatialGroupInfo());
+      if (spatial) spatial.setGroup(spatialGroupInfo());
+      else if (ui.brainGroup) ui.brainGroup.hidden = !isIeegModality(group().modality);
       // Topomap is scalp-only; disable + hide it when the active group is not scalp.
       const scalpNow = !!topoLayout && isScalpModality(group().modality);
       ui.topoBtn.disabled = !scalpNow;
@@ -2236,7 +2268,7 @@ export async function mountEegViewer(
 
   await render();
   // After the first frame, so looking up the electrode files never competes with the signal.
-  if (!disposed) spatial?.start();
+  if (!disposed) void startSpatial();
   void store.eventsReady.then((events) => {
     // Mirrors watchViewLevels' guard: a mount torn down while eventsReady is
     // still in flight must not write store.events/eventTypes, touch the
@@ -2580,6 +2612,10 @@ function buildDom(
   if (hasSpatial) {
     spatialBox = el("div", "eegv__spatial");
     spatialBox.hidden = true;
+    // One id per viewer on the page, so the toggle can say which box it controls.
+    spatialBoxSeq += 1;
+    spatialBox.id = `eegv-spatial-${spatialBoxSeq}`;
+    brainBtn?.setAttribute("aria-controls", spatialBox.id);
   }
   plot.append(scope, vscroll, topo, ...(spatialBox ? [spatialBox] : []), cursor);
 
@@ -2889,6 +2925,8 @@ function resolveScalpPositions(
 function topoGlyph(): string {
   return '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13.5" r="8"/><path d="M9.2 6 L12 2.8 L14.8 6"/></svg>';
 }
+
+let spatialBoxSeq = 0;
 
 /** Inline Brain icon: a head profile with three contact dots. */
 function brainGlyph(): string {

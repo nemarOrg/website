@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { nodeFs, repoPath } from "../../../test/node";
+import type { WindowData } from "../eeg-viewer/store";
+import { computeActivity } from "./activity";
 import { creditLinkSpec } from "./credit";
 import {
   GEOMETRY_REASONS,
@@ -9,7 +11,15 @@ import {
   resolveRecordingGeometry,
 } from "./geometry";
 import {
+  SPATIAL_BESIDE_MIN_WIDTH,
+  STACKED_SCOPE_MIN_HEIGHT,
+  isIeegModality,
+  spatialLayout,
+  stackedScopeHeight,
+} from "./layout";
+import {
   ACTIVITY_SENTENCES,
+  type ActivityPlan,
   type ActivityReport,
   GEOMETRY_SENTENCES,
   type GroupInfo,
@@ -20,10 +30,11 @@ import {
   type PanelEvent,
   type PanelState,
   type RecordingRef,
-  SPATIAL_BESIDE_MIN_WIDTH,
   TRANSIENT_REASONS,
   WEBGL_SENTENCE,
+  abortableSleep,
   activitySamples,
+  computeActivityPlan,
   contactColors,
   defaultSpaceIndex,
   formatActivityValue,
@@ -34,7 +45,6 @@ import {
   readRuns,
   reduce,
   resolveWithRetries,
-  spatialLayout,
   unitsSentence,
   unlocatedNotes,
   viewModel,
@@ -785,6 +795,33 @@ describe("trying again quietly", () => {
     expect(needsAnotherTry(g)).toBe(true);
   });
 
+  it("an abort cancels a long pause at once instead of waiting it out", async () => {
+    const ctl = new AbortController();
+    const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
+    const started = Date.now();
+    const pending = resolveWithRetries(c.attempt, { delaysMs: [60_000], signal: ctl.signal });
+    setTimeout(() => ctl.abort(), 20);
+    const geometry = await pending;
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(c.calls()).toBe(1);
+    expect(geometry.reason).toBe("unreadable");
+  });
+
+  it("abortableSleep waits its time, and ends early on an abort or an already aborted signal", async () => {
+    const t0 = Date.now();
+    await abortableSleep(30);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(25);
+    const ctl = new AbortController();
+    const t1 = Date.now();
+    const slept = abortableSleep(60_000, ctl.signal);
+    ctl.abort();
+    await slept;
+    expect(Date.now() - t1).toBeLessThan(1000);
+    const t2 = Date.now();
+    await abortableSleep(60_000, ctl.signal);
+    expect(Date.now() - t2).toBeLessThan(1000);
+  });
+
   it("waits the stated pause before each further try", async () => {
     const waited: number[] = [];
     const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
@@ -1134,10 +1171,207 @@ describe("activity values on the contacts", () => {
       "window_too_short",
       "not_level0",
       "bad_input",
+      "mixed_units",
       "read_failed",
     ] as const) {
       expect(ACTIVITY_SENTENCES[reason](1000).length).toBeGreaterThan(20);
     }
+  });
+});
+
+describe("activity reports and failures carry a token", () => {
+  it("a report for another token, arriving while the read computes, changes nothing", () => {
+    const on = reduce(opened(bipolarGeometry, bipolarGroup).state, {
+      type: "activity_switch",
+      on: true,
+    });
+    expect(on.state.activity.status.kind).toBe("computing");
+    const late = reduce(on.state, {
+      type: "activity_report",
+      report: knownReport(on.state.activity.token - 1, BIPOLAR_LABELS),
+    });
+    expect(late.state).toBe(on.state);
+    expect(late.effects).toEqual([]);
+    // The right token lands.
+    const right = reduce(on.state, {
+      type: "activity_report",
+      report: knownReport(on.state.activity.token, BIPOLAR_LABELS),
+    });
+    expect(right.state.activity.status).toEqual({ kind: "ready" });
+  });
+});
+
+// A real window: 14 channels, 2 s of level-0 samples of on006136 sub-P5 at 1000 Hz, in volts as
+// readLevel0 returns them (test/fixtures/ieeg-activity, SOURCES.json names its provenance).
+const activitySources = JSON.parse(
+  fs.readFileSync(repoPath("test/fixtures/ieeg-activity/SOURCES.json"), "utf8"),
+) as {
+  slice: { file: string; n_channels: number; n_samples: number; channel_labels: string[] };
+};
+const sliceBytes = fs.readFileSync(
+  repoPath(`test/fixtures/ieeg-activity/${activitySources.slice.file}`),
+);
+const sliceSamples = new Float32Array(sliceBytes.slice().buffer);
+const SLICE_ROWS = activitySources.slice.n_channels;
+const SLICE_COLS = activitySources.slice.n_samples;
+
+function fixtureRows(r0: number, r1: number, level = 0): WindowData {
+  return {
+    level,
+    nCols: SLICE_COLS,
+    channels: Array.from({ length: r1 - r0 }, (_, i) => ({
+      kind: "line" as const,
+      line: sliceSamples.slice((r0 + i) * SLICE_COLS, (r0 + i + 1) * SLICE_COLS),
+    })),
+  };
+}
+
+const slicePlan: ActivityPlan = {
+  token: 7,
+  groupIndex: 0,
+  startS: 300,
+  endS: 302,
+  rateHz: 1000,
+  metric: "rms",
+  band: null,
+  relative: false,
+  rows: Array.from({ length: SLICE_ROWS }, (_, i) => i),
+};
+const sliceGroup = {
+  labels: activitySources.slice.channel_labels,
+  units: activitySources.slice.channel_labels.map(() => "uV"),
+  nativeRateHz: 1000,
+};
+const noYield = { yieldTask: async () => {} };
+
+describe("computing a plan in slices", () => {
+  it("slicing does not change the values, and reads only the rows it is asked for", async () => {
+    const asked: [number, number][] = [];
+    const sliced = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        asked.push([r0, r1]);
+        return fixtureRows(r0, r1);
+      },
+      { ...noYield, sliceChannels: 5 },
+    );
+    expect(asked).toEqual([
+      [0, 5],
+      [5, 10],
+      [10, 14],
+    ]);
+    const whole = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => fixtureRows(r0, r1),
+      {
+        ...noYield,
+        sliceChannels: 100,
+      },
+    );
+    expect(sliced?.ok && whole?.ok).toBe(true);
+    if (!sliced?.ok || !whole?.ok) return;
+    expect(sliced.report.channels).toEqual(whole.report.channels);
+    expect(sliced.report.unit).toBe("µV");
+    // And they are what IS-M1 gives for the same window in one call.
+    const direct = computeActivity({
+      channels: activitySources.slice.channel_labels.map((label, i) => ({
+        label,
+        samples: sliceSamples.slice(i * SLICE_COLS, (i + 1) * SLICE_COLS),
+        nativeRateHz: 1000,
+      })),
+      rateHz: 1000,
+      unit: "V",
+      metric: "rms",
+      displayUnit: "µV",
+    });
+    expect(direct.ok).toBe(true);
+    if (!direct.ok) return;
+    expect(sliced.report.channels.map((c) => c?.value)).toEqual(
+      direct.channels.map((c) => c.value),
+    );
+  });
+
+  it("refuses when a later slice's channels have another unit than the first's", async () => {
+    // Seven channels in microvolts, then seven in femtotesla: one color scale cannot span them.
+    const units = sliceGroup.labels.map((_, i) => (i < 7 ? "uV" : "fT"));
+    let reads = 0;
+    const outcome = await computeActivityPlan(
+      slicePlan,
+      { ...sliceGroup, units },
+      async (r0, r1) => {
+        reads += 1;
+        return fixtureRows(r0, r1);
+      },
+      { ...noYield, sliceChannels: 7 },
+    );
+    expect(reads).toBe(2);
+    expect(outcome).toEqual({ ok: false, reason: "mixed_units" });
+    expect(ACTIVITY_SENTENCES.mixed_units(1000)).toBe(
+      "Activity cannot be computed: this recording's channels mix voltage and field units.",
+    );
+    // The panel says so in words, and shows nothing.
+    const on = reduce(opened(bipolarGeometry, bipolarGroup).state, {
+      type: "activity_switch",
+      on: true,
+    });
+    const failed = reduce(on.state, {
+      type: "activity_failed",
+      token: on.state.activity.token,
+      reason: "mixed_units",
+    });
+    expect(viewModel(failed.state).activity?.message).toBe(ACTIVITY_SENTENCES.mixed_units(500));
+    expect(failed.state.activity.shown).toBeNull();
+  });
+
+  it("carries IS-M1's refusal of a window that is not level 0", async () => {
+    const outcome = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => fixtureRows(r0, r1, 1),
+      noYield,
+    );
+    expect(outcome).toEqual({ ok: false, reason: "not_level0" });
+  });
+
+  it("stops at once when aborted, returning nothing", async () => {
+    const ctl = new AbortController();
+    let reads = 0;
+    const outcome = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        reads += 1;
+        ctl.abort();
+        return fixtureRows(r0, r1);
+      },
+      { ...noYield, sliceChannels: 5, signal: ctl.signal },
+    );
+    expect(outcome).toBeNull();
+    expect(reads).toBe(1);
+  });
+});
+
+describe("layout", () => {
+  it("keeps the scope at least 280 px tall while the panel is below it, in the code and the stylesheet", () => {
+    expect(STACKED_SCOPE_MIN_HEIGHT).toBe(280);
+    // The embed fits the scope to its host: with the panel below, that left 179 px for 72 channels.
+    expect(stackedScopeHeight(179, true)).toBe(280);
+    expect(stackedScopeHeight(645, true)).toBe(645);
+    expect(stackedScopeHeight(179, false)).toBe(179);
+    const css = fs.readFileSync(repoPath("src/styles/eeg-viewer.css"), "utf8");
+    const rule = /\.eegv__plot--stack \.eegv__scope\s*\{[^}]*min-block-size:\s*(\d+)px/.exec(css);
+    expect(rule?.[1]).toBe(String(STACKED_SCOPE_MIN_HEIGHT));
+  });
+
+  it("knows an iEEG group by its modality, ignoring case, and nothing else", () => {
+    expect(isIeegModality("IEEG")).toBe(true);
+    expect(isIeegModality("ieeg")).toBe(true);
+    expect(isIeegModality("EEG")).toBe(false);
+    expect(isIeegModality("MEG")).toBe(false);
+    expect(isIeegModality(undefined)).toBe(false);
+    expect(isIeegModality("")).toBe(false);
   });
 });
 
@@ -1172,7 +1406,64 @@ describe("layout and disposal", () => {
   });
 });
 
+/**
+ * How many arguments the call whose name starts at `at` has: the non-empty pieces between its
+ * parentheses at the top level. Commas inside brackets, braces, parentheses and strings do not
+ * split, and a trailing comma (as a formatter leaves after the last argument of a multi-line
+ * call) adds no argument.
+ */
+function countArguments(text: string, at: number): number {
+  const open = text.indexOf("(", at);
+  const pieces: string[] = [""];
+  let depth = 0;
+  let quote = "";
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === "\\") i += 1;
+      else if (ch === quote) quote = "";
+      pieces[pieces.length - 1] += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+    if (ch === "(" || ch === "[" || ch === "{") {
+      depth += 1;
+      if (depth === 1) continue;
+    } else if (ch === ")" || ch === "]" || ch === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    } else if (ch === "," && depth === 1) {
+      pieces.push("");
+      continue;
+    }
+    pieces[pieces.length - 1] += ch;
+  }
+  return pieces.filter((p) => p.trim() !== "").length;
+}
+
 describe("exports", () => {
+  it("counts a call's arguments, with and without a trailing comma, so the guard can fail", () => {
+    const call = (args: string[], trailing: boolean) =>
+      `paintCredit(\n  ${args.join(",\n  ")}${trailing ? "," : ""}\n)`;
+    const four = ["ctx", "width", "height", "theme"];
+    const five = [...four, "dpr"];
+    for (const trailing of [false, true]) {
+      expect(countArguments(call(four, trailing), 0), `four, trailing ${trailing}`).toBe(4);
+      expect(countArguments(call(five, trailing), 0), `five, trailing ${trailing}`).toBe(5);
+    }
+    // Commas inside nested calls, objects, arrays and strings stay inside their argument.
+    expect(
+      countArguments(
+        'paintCredit(ctx, w, h, { background: "#fff", foreground: "a,b" }, Math.min(2, window.devicePixelRatio), )',
+        0,
+      ),
+    ).toBe(5);
+    expect(countArguments("paintCredit()", 0)).toBe(0);
+    // Only the call at `at` is counted, not what follows it.
+    const two = "paintCredit(a, b); other(c, d, e, f, g);";
+    expect(countArguments(two, 0)).toBe(2);
+  });
+
   it("every call to paintCredit passes its own device pixel ratio", () => {
     // IS-V1 draws no export, so there is no call yet. IS-V3 will: an export canvas rendered at a
     // fixed scale, whatever the screen, has to say its own ratio, or a 2x export drawn from a 1x
@@ -1189,17 +1480,7 @@ describe("exports", () => {
             at >= 0;
             at = text.indexOf("paintCredit(", at + 1)
           ) {
-            let depth = 0;
-            let args = 1;
-            for (let i = at + "paintCredit".length; i < text.length; i++) {
-              const ch = text[i];
-              if (ch === "(" || ch === "[" || ch === "{") depth += 1;
-              else if (ch === ")" || ch === "]" || ch === "}") {
-                depth -= 1;
-                if (depth === 0) break;
-              } else if (ch === "," && depth === 1) args += 1;
-            }
-            calls.push({ file: path, args });
+            calls.push({ file: path, args: countArguments(text, at) });
           }
         }
       }
