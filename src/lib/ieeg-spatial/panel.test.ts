@@ -5,6 +5,7 @@ import {
   GEOMETRY_REASONS,
   type GeometryInput,
   type RecordingGeometry,
+  joinChannels,
   resolveRecordingGeometry,
 } from "./geometry";
 import {
@@ -26,12 +27,14 @@ import {
   contactColors,
   defaultSpaceIndex,
   formatActivityValue,
+  frameName,
   initialState,
   positionWarnings,
   readRuns,
   reduce,
   spatialLayout,
   unitsSentence,
+  unlocatedNotes,
   viewModel,
 } from "./panel";
 
@@ -95,6 +98,7 @@ const NM373 = "sub-01/ieeg/sub-01_task-categorySL_run-1_ieeg.edf";
 const ON4473 = "sub-1/ieeg/sub-1_task-SlowFast_ieeg.edf";
 const ON4100 =
   "sub-HUP060/ses-presurgery/ieeg/sub-HUP060_ses-presurgery_task-ictal_acq-seeg_run-01_ieeg.edf";
+const NM405 = "sub-000/ses-right/ieeg/sub-000_ses-right_task-force_run-0_desc-1kHz_ieeg.vhdr";
 const ON6253 = "sub-01/ses-01/ieeg/sub-01_ses-01_task-MetaRDK_acq-01_run-01_ieeg.edf";
 
 const BIPOLAR_LABELS = channelLabels(
@@ -258,6 +262,21 @@ describe("a recording, group or frame change starts clean", () => {
     const next = reduce(after.state, { type: "window_changed", startS: 0, lengthS: 10 });
     expect(reads(next.effects)).toHaveLength(1);
     expect(reads(next.effects)[0].groupIndex).toBe(1);
+  });
+
+  it("a group change to a group that is not iEEG closes the panel, whose toggle is then hidden", () => {
+    const live = opened(bipolarGeometry, bipolarGroup).state;
+    expect(live.open).toBe(true);
+    const eeg = reduce(live, {
+      type: "group_changed",
+      group: groupOf(BIPOLAR_LABELS, { index: 1, modality: "EEG" }),
+    });
+    expect(eeg.state.open).toBe(false);
+    expect(viewModel(eeg.state).toggle.visible).toBe(false);
+    // Back to an iEEG group: the panel stays as it was left, closed.
+    const back = reduce(eeg.state, { type: "group_changed", group: groupOf(BIPOLAR_LABELS) });
+    expect(back.state.open).toBe(false);
+    expect(viewModel(back.state).toggle).toMatchObject({ visible: true, enabled: true });
   });
 
   it("a frame change clears the selection and aborts the read", () => {
@@ -777,6 +796,29 @@ describe("the status line, frames and notes", () => {
     );
   });
 
+  it("lists the channels that have no position, with the cause IS-C1 gave, and never counts them", () => {
+    const labels = [...BIPOLAR_LABELS.slice(0, 3), "X1-X2", "X2-X3", "LAF1"];
+    const state = opened(bipolarGeometry, groupOf(labels)).state;
+    const notes = viewModel(state).notes;
+    expect(notes).toContain(
+      "2 unlocated channels, no contact of that name in the electrodes file: X1-X2, X2-X3.",
+    );
+    // LAF1 alone is a contact in the file, so it is located (the file lists it as a contact).
+    expect(viewModel(state).status).toContain("4 of 6 channels located");
+    expect(unlocatedNotes([])).toEqual([]);
+    const many = Array.from({ length: 9 }, (_, i) => `Z${i}-Z${i + 1}`);
+    expect(unlocatedNotes(joinChannels(bipolarGeometry.spaces[0], many))).toEqual([
+      "9 unlocated channels, no contact of that name in the electrodes file: Z0-Z1, Z1-Z2, Z2-Z3, Z3-Z4, Z4-Z5, Z5-Z6 and 3 more.",
+    ]);
+  });
+
+  it("shows both the declared label and the file name when they disagree", async () => {
+    const g = await geometryOf("nm000405", "v1.0.3", NM405);
+    const space = g.spaces.find((s) => s.space === "mni");
+    expect(space?.frame).toMatchObject({ kind: "unknown", why: "space_mismatch" });
+    expect(frameName(space?.frame ?? null)).toBe("Other (the file name says mni)");
+  });
+
   it("warns about positions wider than a head, and draws them as written", async () => {
     // on004100 declares meters, but its values are millimeter-sized; the declared unit decides.
     const g = await geometryOf("on004100", "v1.0.0", ON4100);
@@ -1022,5 +1064,42 @@ describe("layout and disposal", () => {
       expect(t.state).toBe(gone.state);
       expect(t.effects).toEqual([]);
     }
+  });
+});
+
+describe("exports", () => {
+  it("every call to paintCredit passes its own device pixel ratio", () => {
+    // IS-V1 draws no export, so there is no call yet. IS-V3 will: an export canvas rendered at a
+    // fixed scale, whatever the screen, has to say its own ratio, or a 2x export drawn from a 1x
+    // screen would shrink the credit. The default (the screen's ratio) is for live canvases only.
+    const calls: { file: string; args: number }[] = [];
+    const walk = (dir: string) => {
+      for (const name of fs.readdirSync(dir)) {
+        const path = `${dir}/${name}`;
+        if (fs.statSync(path).isDirectory()) walk(path);
+        else if (/\.(ts|astro)$/.test(name) && !name.endsWith(".test.ts") && name !== "credit.ts") {
+          const text = fs.readFileSync(path, "utf8");
+          for (
+            let at = text.indexOf("paintCredit(");
+            at >= 0;
+            at = text.indexOf("paintCredit(", at + 1)
+          ) {
+            let depth = 0;
+            let args = 1;
+            for (let i = at + "paintCredit".length; i < text.length; i++) {
+              const ch = text[i];
+              if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+              else if (ch === ")" || ch === "]" || ch === "}") {
+                depth -= 1;
+                if (depth === 0) break;
+              } else if (ch === "," && depth === 1) args += 1;
+            }
+            calls.push({ file: path, args });
+          }
+        }
+      }
+    };
+    walk(repoPath("src"));
+    for (const call of calls) expect(call.args, call.file).toBeGreaterThanOrEqual(5);
   });
 });

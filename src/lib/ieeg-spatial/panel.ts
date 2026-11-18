@@ -63,6 +63,7 @@ import {
   type RecordingGeometry,
   type SpaceGeometry,
   type Units,
+  type UnlocatedCause,
   type Vec3,
   dataPlaneSource,
   joinChannels,
@@ -257,6 +258,29 @@ export function positionWarnings(
     if (widest > SPAN_WARNING_MM) out.push({ kind: "span", mm: widest });
   }
   return out;
+}
+
+const UNLOCATED_PHRASES: Record<UnlocatedCause, string> = {
+  no_contact: "no contact of that name in the electrodes file",
+  no_position: "the contact's position is not given",
+  duplicate_contact: "the electrodes file lists the contact twice",
+  ambiguous_pair: "the name reads as two contacts in more than one way",
+};
+
+/** Channels without a position, grouped by the cause `joinChannels` gave. At most six names each. */
+export function unlocatedNotes(joins: readonly ChannelJoin[]): string[] {
+  const byCause = new Map<UnlocatedCause, string[]>();
+  for (const join of joins) {
+    if (join.cause === null) continue;
+    const list = byCause.get(join.cause);
+    if (list) list.push(join.channel);
+    else byCause.set(join.cause, [join.channel]);
+  }
+  return [...byCause].map(([cause, labels]) => {
+    const shown = labels.slice(0, 6).join(", ");
+    const more = labels.length > 6 ? ` and ${labels.length - 6} more` : "";
+    return `${labels.length} unlocated channel${labels.length === 1 ? "" : "s"}, ${UNLOCATED_PHRASES[cause]}: ${shown}${more}.`;
+  });
 }
 
 function warningSentence(w: PositionWarning): string {
@@ -702,6 +726,8 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
         ...state,
         group: event.group,
         placement,
+        // The Brain toggle is hidden for a group that is not iEEG, so nothing could close it.
+        open: state.open && isIeegModality(event.group.modality),
         selection: NO_SELECTION,
         // The next render reports the new group's window; nothing is read before it does.
         window: null,
@@ -1031,6 +1057,7 @@ function frameNotes(placement: Placement): string[] {
     notes.push("No coordinate system file pairs with these positions.");
   }
   notes.push(unitsSentence(space.units));
+  notes.push(...unlocatedNotes(placement.joins));
   for (const w of positionWarnings(placement.contacts, space.units)) {
     notes.push(warningSentence(w));
   }
@@ -1364,6 +1391,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const list = el("ul", "eegv__spatial-list");
   list.setAttribute("role", "listbox");
   list.setAttribute("aria-label", "Contacts");
+  // A bipolar channel selects two contacts at once.
+  list.setAttribute("aria-multiselectable", "true");
   list.dataset.spatialList = "";
   inner.append(frameWrap, stage, status, notes, act, list);
   box.append(inner);
@@ -1472,6 +1501,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     ensureRenderer(model.open && model.stage.kind === "canvas");
     // Creating the renderer may have found no WebGL2; the model then says so.
     model = viewModel(state);
+    if (!model.open) return;
 
     // Frame selector
     frameWrap.hidden = model.frames === null;
