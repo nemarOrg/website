@@ -610,6 +610,14 @@ export interface Claim {
  * to be the contact. Exact claims never refuse one another (two exact channels that share a pair,
  * A1-A2 and A2-A1, are as they are today); they only keep the pair from a lower tier. A contact
  * and a pair never compete: a bipolar channel shares its contacts with the channels beside it.
+ *
+ * A pair is keyed by its two contacts in sorted order, so the opposite polarities (`A1-A2` and
+ * `A2-A1`) are one pair. For exact names that is harmless: both are the file's own names and stay.
+ * For non-exact names it is a refusal: `POL A1-A2` and `POL A2-A1` may be two real channels of
+ * opposite polarity, but two non-exact spellings cannot be told apart from a duplicate, so neither
+ * joins. That is the safe side, a channel left unlocated and named in the notes rather than one
+ * placed on a guess; no surveyed recording has it. Pinned by a test (the sorted key is what makes
+ * the two opposite spellings collide).
  * Returns the indices of the channels whose claim is refused.
  */
 export function settleClaims(claims: readonly Claim[]): Set<number> {

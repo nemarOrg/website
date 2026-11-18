@@ -733,6 +733,38 @@ describe("bipolar pairs are claimed too", () => {
     ]);
   });
 
+  it("opposite polarities: exact A1-A2 and A2-A1 both stay, non-exact POL A1-A2 and POL A2-A1 both refuse (known-answer labels on real contacts)", async () => {
+    const { space } = await load("on006233");
+    // The refusal is the safe side: two non-exact spellings of one pair cannot be told apart from
+    // a duplicate, even when they may be two real channels of opposite polarity. Exact names are
+    // unambiguous, so both stay. The pair is keyed by its sorted contacts; this pins both halves.
+    const refused = joinChannels(space, ["POL A1-A2", "POL A2-A1"]);
+    for (const j of refused) {
+      expect(j, j.channel).toMatchObject({
+        status: "unlocated",
+        cause: "duplicate_contact",
+        matchKind: null,
+        rule: null,
+      });
+      expect([...j.contacts].sort()).toEqual(["A1", "A2"]);
+    }
+    const stay = joinChannels(space, ["A1-A2", "A2-A1"]);
+    expect(stay.map((j) => [j.status, j.matchKind])).toEqual([
+      ["bipolar", "exact"],
+      ["bipolar", "exact"],
+    ]);
+    // An exact pair also keeps the pair from a non-exact spelling of the opposite polarity.
+    const mixed = joinChannels(space, ["A1-A2", "POL A2-A1"]);
+    expect(mixed[0]).toMatchObject({ status: "bipolar", matchKind: "exact" });
+    expect(mixed[1]).toMatchObject({ status: "unlocated", cause: "duplicate_contact" });
+    // Alone, either opposite spelling joins.
+    expect(joinChannels(space, ["POL A2-A1"])[0]).toMatchObject({
+      status: "bipolar",
+      contacts: ["A2", "A1"],
+      matchKind: "normalized",
+    });
+  });
+
   it("two differently written non-exact names for one pair both lose it", async () => {
     const { space } = await load("on006233");
     const joins = joinChannels(space, ["POL A1-A2", "EEG A1-A2", "POL A3-A4"]);
