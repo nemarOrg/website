@@ -47,9 +47,11 @@
  *   the "other" form being the one for templates other than the SPM and FSL copies, as the 2009c
  *   one is. The paper prints no worked point pair to 0.01 mm; see `transforms.test.ts`.
  *   This is approximate by construction: Eq. (3) is a group-level bias model, fitted on SPM2 and
- *   FSL normalizations of 100 brains, and the landmark disparities left after it are 0.5 to 2.7 mm
- *   (the paper's Table V, MTT columns, 10 brains). A dataset's own Talairach frame may also come
- *   from another pipeline, such as FreeSurfer's `talairach.xfm`, which this row does not model.
+ *   FSL normalizations of 100 brains. The paper's Table V gives landmark disparities of at best
+ *   0.5 to 2.7 mm (8 landmarks, 10 brains), but for the per-package best-fit transforms (Eqs. 1
+ *   and 2); the pooled Eq. (3) is not tabulated, so its residuals are likely somewhat larger. A
+ *   dataset's own Talairach frame may also come from another pipeline, such as FreeSurfer's
+ *   `talairach.xfm`, which this row does not model.
  * - MNI variants and IXI549Space: identity, because the BIDS appendix lists them as MNI-space
  *   templates and nothing cited gives a better map. The label says so.
  */
@@ -212,11 +214,12 @@ const VARIANT_SOURCE =
   "BIDS coordinate-systems appendix, standard template identifiers: an MNI-space template, taken as the surface's frame unchanged";
 const MNI305_SOURCE =
   "FreeSurfer CoordinateSystems documentation, item 8 (MNI305 to MNI152), matrix and worked example";
-// A group-level bias model fitted on SPM2 and FSL data, with landmark disparities of 0.5 to 2.7 mm
-// left over (Table V, MTT columns), applied to a dataset whose Talairach frame may come from
-// another pipeline (for example FreeSurfer's talairach.xfm): approximate by construction.
+// A group-level bias model fitted on SPM2 and FSL data. Table V's landmark disparities, at best 0.5
+// to 2.7 mm, are for the per-package fits (Eqs. 1 and 2); the pooled Eq. (3) is not tabulated, so
+// its residuals are likely somewhat larger. It is applied to a dataset whose Talairach frame may
+// come from another pipeline (for example FreeSurfer's talairach.xfm): approximate by construction.
 const TALAIRACH_SOURCE =
-  "Lancaster et al. 2007, Human Brain Mapping 28:1194, doi 10.1002/hbm.20345, Eq. (3) inverted (BrainMap tal2icbm_other); a group-level model with landmark disparities of 0.5 to 2.7 mm, not the pipeline of every dataset's Talairach frame";
+  "Lancaster et al. 2007, Human Brain Mapping 28:1194, doi 10.1002/hbm.20345, Eq. (3) inverted (BrainMap tal2icbm_other); a group-level model, at best 0.5 to 2.7 mm at landmarks (Table V, per-package fits; the pooled Eq. 3 is not tabulated), not the pipeline of every dataset's Talairach frame";
 
 function row(
   identifier: StandardTemplate,

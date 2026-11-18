@@ -19,7 +19,7 @@
       "icbm_other2tal_m_sha256": "3d610b511187554d98ac21f06c818cc7333659a5aeb85582ab5fa3389aceb50d",
       "tal2icbm_other_m_sha256": "16e6dce916f7ae55003cf4153a7ccbf4008f532cede75b1919431b50a20047fd",
       "third_copy": "NiMARE nimare/utils.py tal2mni and mni2tal, github.com/neurostuff/NiMARE, file at commit b5d866dc1a4e12277b91d2131c60b3e035279c51, SHA-256 6a14f559a2eab1e206acc9b2d93a8d8b5100a3fd43eb7432a77de773cb25cb87",
-      "kind": "the matrix rows and two quoted sentences; the m-files and the paper are not redistributed"
+      "kind": "the matrix rows, two quoted sentences and the values of Table V; the m-files and the paper are not redistributed"
     }
   ]
 }

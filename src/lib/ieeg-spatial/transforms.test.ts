@@ -266,6 +266,36 @@ describe("the registry", () => {
     expect(rule("Talairach").source).toMatch(/10\.1002\/hbm\.20345/);
   });
 
+  it("the Talairach row claims no more than Table V supports: per-package fits, the pooled matrix untabulated", () => {
+    const source = rule("Talairach").source;
+    expect(source).toMatch(/at best 0\.5 to 2\.7 mm/);
+    expect(source).toMatch(/Table V, per-package fits/);
+    expect(source).toMatch(/pooled Eq\. 3 is not tabulated/);
+    expect(source).not.toMatch(/left after|disparities of 0\.5/);
+    // The numbers are the MTT columns of Table V in the committed excerpt: 8 landmarks, two
+    // packages, from 0.5 to 2.7 mm, and the table is for the per-package fits, not the pooled one.
+    const table = LANCASTER.slice(LANCASTER.indexOf("Landmark | SPM2 MNI"))
+      .split("\n")
+      .slice(1)
+      .filter((l) => l.includes("|"))
+      .map((l) => l.split("|").map((c) => c.trim()));
+    expect(table.map((r) => r[0])).toEqual([
+      "Anterior",
+      "Superior",
+      "Inferior",
+      "Posterior",
+      "Right",
+      "Left",
+      "AC",
+      "PC",
+    ]);
+    const mtt = table.flatMap((r) => [Number(r[3]), Number(r[6])]);
+    expect(mtt).toHaveLength(16);
+    expect(Math.min(...mtt)).toBe(0.5);
+    expect(Math.max(...mtt)).toBe(2.7);
+    expect(LANCASTER).toMatch(/the pooled Eq\. \(3\) is not\s+in this table/);
+  });
+
   it("a template frame is placed by its canonical identifier, whatever the spelling of the file", () => {
     for (const declared of ["MNI152NLin6Asym", "mni152nlin6asym", "MNI152NLin6ASym"]) {
       const frame = classifyFrame(declared, null, null);

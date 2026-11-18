@@ -19,3 +19,17 @@ icbm_other = [0.9357 0.0029 -0.0072 -1.0423
 From the paper's text (Results, "MTT Transform Analysis" and Table IV): the mean coordinate of the
 anterior commissure (AC) in MNI space fitted with FSL is (0.3, 1.4, -4.4) mm; "Best-fit MTT transforms led
 to coordinate disparity at the AC and PC of ~1 mm for both SPM2 and FLS (Table V)".
+
+Table V of the paper (distance in mm between mean MNI and Talairach coordinates for select landmark
+sites, N = 10 brains; the "MTT" columns are MNI coordinates transformed using the best-fit MTT
+transforms of each package, the paper's Eqs. (1) for SPM2 and (2) for FSL; the pooled Eq. (3) is not
+in this table). Values only, the standard errors are dropped:
+Landmark | SPM2 MNI | SPM2 mni2tal | SPM2 MTT | FSL MNI | FSL mni2tal | FSL MTT
+Anterior | 13.6 | 16.2 | 1.3 | 8.9 | 11.7 | 0.5
+Superior | 13.0 | 14.3 | 2.7 | 9.2 | 10.3 | 1.4
+Inferior | 10.3 | 6.8 | 2.3 | 7.0 | 4.7 | 1.8
+Posterior | 10.2 | 13.7 | 2.6 | 6.9 | 10.7 | 2.1
+Right | 5.6 | 5.1 | 1.6 | 4.6 | 4.6 | 1.5
+Left | 4.9 | 5.4 | 1.8 | 2.7 | 3.0 | 1.2
+AC | 4.6 | 3.6 | 1.0 | 3.0 | 2.4 | 1.0
+PC | 0.6 | 1.4 | 1.4 | 1.0 | 1.9 | 1.4
