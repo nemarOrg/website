@@ -747,12 +747,20 @@ describe("trying again quietly", () => {
     expect(needsAnotherTry(geometry)).toBe(false);
   });
 
-  it("stops at once when the resolution was superseded", async () => {
+  it("stops at once when the resolution was superseded, without even waiting", async () => {
     const ctl = new AbortController();
+    const waited: number[] = [];
     const c = countingAttempt("on005522", "v1.0.0", BIPOLAR, (p) => p.endsWith("_electrodes.tsv"));
     ctl.abort();
-    await resolveWithRetries(c.attempt, { ...noWait, signal: ctl.signal });
+    await resolveWithRetries(c.attempt, {
+      delaysMs: [0, 0, 0],
+      sleep: async (ms) => {
+        waited.push(ms);
+      },
+      signal: ctl.signal,
+    });
     expect(c.calls()).toBe(1);
+    expect(waited).toEqual([]);
   });
 
   it("stops when the resolution is superseded during a pause", async () => {
