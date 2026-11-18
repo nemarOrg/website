@@ -1482,9 +1482,10 @@ describe("exports", () => {
   });
 
   it("every call to paintCredit passes its own device pixel ratio", () => {
-    // IS-V1 draws no export, so there is no call yet. IS-V3 will: an export canvas rendered at a
-    // fixed scale, whatever the screen, has to say its own ratio, or a 2x export drawn from a 1x
-    // screen would shrink the credit. The default (the screen's ratio) is for live canvases only.
+    // An export canvas rendered at a fixed scale, whatever the screen, has to say its own ratio,
+    // or a 2x export drawn from a 1x screen would shrink the credit. The default (the screen's
+    // ratio) is for live canvases only. export.ts has the one call (export.test.ts checks that it
+    // passes the export's own ratio).
     const calls: { file: string; args: number }[] = [];
     const walk = (dir: string) => {
       for (const name of fs.readdirSync(dir)) {

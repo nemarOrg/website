@@ -57,6 +57,19 @@ import {
 } from "./brain-gl";
 import { type CreditLinkSpec, creditLink, creditLinkSpec } from "./credit";
 import {
+  type ExportFile,
+  type ExportInput,
+  FIGURE_FONT,
+  type FigureTheme,
+  type TemplatePlacement,
+  downloadFailedSentence,
+  downloadFile,
+  exportPng,
+  exportSvg,
+  figureLabels,
+  viewContacts,
+} from "./export";
+import {
   type ChannelJoin,
   type Frame,
   type GeometryReason,
@@ -70,6 +83,7 @@ import {
   resolveRecordingGeometry,
 } from "./geometry";
 import { isIeegModality } from "./layout";
+import { layoutViews, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -91,6 +105,9 @@ export const GEOMETRY_TIMEOUT_MS = 30_000;
 export const RETRY_DELAYS_MS: readonly number[] = [300, 800, 1600];
 /** Drawn contacts spread wider than this (millimeters, declared units) get a warning: a head is about 200. */
 export const SPAN_WARNING_MM = 250;
+/** The 2D views' drawing box in the panel (CSS pixels at a 1:1 view box; the SVG scales to the stage). */
+const VIEWS_WIDTH = 340;
+const VIEWS_HEIGHT = 330;
 /** Unselected contacts are drawn this opaque while a selection exists. */
 const DIM_ALPHA = 0.3;
 // ---------------------------------------------------------------------------
@@ -118,6 +135,7 @@ function isTransient(reason: GeometryReason | null): boolean {
 }
 
 export const WEBGL_SENTENCE = "3D view needs WebGL2";
+const VIEW_SWITCH_TITLE = "Show the contacts in three flat views (left, top, front) instead of 3D";
 export const LOADING_SENTENCE = "Looking for electrode positions...";
 export const NO_MATCH_SENTENCE =
   "None of this recording's channels match a contact in the electrodes file.";
@@ -581,6 +599,8 @@ export interface PanelState {
   placement: Placement | null;
   open: boolean;
   webgl: boolean;
+  /** The reader asked for the three 2D views instead of the 3D canvas (IS-V3). */
+  view2d: boolean;
   selection: Selection;
   window: WindowSpan | null;
   activity: ActivityState;
@@ -610,6 +630,7 @@ export function initialState(): PanelState {
     placement: null,
     open: false,
     webgl: true,
+    view2d: false,
     selection: NO_SELECTION,
     window: null,
     activity: idleActivity(),
@@ -624,6 +645,7 @@ export type PanelEvent =
   | { type: "retry" }
   | { type: "toggle_open"; open?: boolean }
   | { type: "webgl_unavailable" }
+  | { type: "view_changed"; view2d: boolean }
   | { type: "frame_changed"; spaceIndex: number }
   | { type: "select_contact"; contact: number | null; toggle?: boolean }
   | { type: "select_channel"; label: string | null }
@@ -747,6 +769,7 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
         geometry: { kind: "loading" },
         geometryToken,
         webgl: state.webgl,
+        view2d: state.view2d,
         activity: idleActivity(state.activity),
       };
       return {
@@ -837,6 +860,11 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
 
     case "webgl_unavailable":
       return { state: { ...state, webgl: false }, effects: [] };
+
+    case "view_changed":
+      return event.view2d === state.view2d
+        ? same(state)
+        : { state: { ...state, view2d: event.view2d }, effects: [] };
 
     case "frame_changed": {
       if (state.geometry.kind !== "ready" || !state.geometry.geometry.spaces[event.spaceIndex]) {
@@ -953,6 +981,9 @@ export interface ToggleModel {
 export type StageModel =
   | { kind: "loading"; sentence: string }
   | { kind: "canvas" }
+  /** The three 2D views, chosen by the reader. */
+  | { kind: "views2d" }
+  /** The three 2D views, because WebGL2 is missing; the sentence says so. */
   | { kind: "no_webgl"; sentence: string }
   | { kind: "refusal"; sentence: string; retry: boolean };
 
@@ -988,10 +1019,22 @@ export interface ContactRow {
   value: string | null;
 }
 
+/** The "2D views" switch and the save buttons, shown only while contacts are drawn. */
+export interface ViewSwitchModel {
+  /** Contacts are drawn, so the switch and the save buttons are shown. */
+  shown: boolean;
+  /** The 2D views are what the stage draws, by choice or because WebGL2 is missing. */
+  on: boolean;
+  /** False when WebGL2 is missing: 2D is the only view. */
+  enabled: boolean;
+  title: string;
+}
+
 export interface PanelModel {
   toggle: ToggleModel;
   open: boolean;
   stage: StageModel;
+  view: ViewSwitchModel;
   frames: FrameSelectorModel | null;
   /** `N of M channels located; frame: IDENTIFIER; positions as declared by the dataset`. */
   status: string | null;
@@ -1073,6 +1116,7 @@ function stageModel(state: PanelState, limits: ModelLimits): StageModel {
     };
   }
   if (!state.webgl) return { kind: "no_webgl", sentence: WEBGL_SENTENCE };
+  if (state.view2d) return { kind: "views2d" };
   return { kind: "canvas" };
 }
 
@@ -1213,11 +1257,18 @@ function contactRows(state: PanelState): ContactRow[] {
 /** Everything the DOM half draws, from the state alone. The credit is in every model. */
 export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMITS): PanelModel {
   const stage = stageModel(state, limits);
-  const placement = stage.kind === "canvas" || stage.kind === "no_webgl" ? state.placement : null;
+  const drawn = stage.kind === "canvas" || stage.kind === "views2d" || stage.kind === "no_webgl";
+  const placement = drawn ? state.placement : null;
   return {
     toggle: toggleModel(state),
     open: state.open,
     stage,
+    view: {
+      shown: drawn,
+      on: stage.kind === "views2d" || stage.kind === "no_webgl",
+      enabled: state.webgl,
+      title: state.webgl ? VIEW_SWITCH_TITLE : WEBGL_SENTENCE,
+    },
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
@@ -1258,6 +1309,23 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
     out[i * 4 + 3] = selected.size > 0 && !selected.has(i) ? DIM_ALPHA : 1;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Seam for IS-V2 (template anatomy)
+// ---------------------------------------------------------------------------
+
+/**
+ * SEAM FOR IS-V2. The one place that decides whether a state is a registered template placement:
+ * null for every state until IS-V2 says otherwise (so the 2D views and the exported figures draw
+ * no outline and say no template sentence), and otherwise the outlines from the template's
+ * `views.json`, the positions to draw (after IS-V2's transform) and the template and
+ * "approximate" sentences. The 2D views and both exports read this and nothing else, so the screen
+ * and the files cannot disagree. IS-V2 replaces this body; the signature and `TemplatePlacement`
+ * (in `export.ts`) are the contract.
+ */
+export function templatePlacementFor(_state: PanelState): TemplatePlacement | null {
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1306,7 +1374,7 @@ export interface SpatialPanel {
   dispose(): void;
 }
 
-function tokens(root: HTMLElement): { theme: BrainTheme; noData: string } {
+function tokens(root: HTMLElement): { theme: BrainTheme; noData: string; border: string } {
   const cs = getComputedStyle(root);
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
   return {
@@ -1317,6 +1385,7 @@ function tokens(root: HTMLElement): { theme: BrainTheme; noData: string } {
       contact: v("--brand-electrode", "#f5b82e"),
     },
     noData: v("--color-fg-subtle", "#64748b"),
+    border: v("--color-border", "#e2e8f0"),
   };
 }
 
@@ -1454,6 +1523,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     mesh: "#475569",
     contact: "#f5b82e",
   };
+  let figureTheme: FigureTheme = {
+    background: "#ffffff",
+    foreground: "#0f172a",
+    muted: "#475569",
+    border: "#e2e8f0",
+    contact: "#f5b82e",
+  };
+  let savingMessage = "";
 
   // --- DOM ---------------------------------------------------------------
   box.replaceChildren();
@@ -1476,9 +1553,34 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   retry.hidden = true;
   const msgWrap = el("div", "eegv__spatial-msgwrap");
   msgWrap.append(stageMsg, retry);
+  // The three 2D views (IS-V3), in the stage with the sentence and the credit.
+  const views = el("div", "eegv__spatial-views");
+  views.dataset.spatialViews = "";
+  views.hidden = true;
   // The credit is created here, on every mount, and nothing passes an option to leave it out.
   const credit = creditLink(document);
-  stage.append(msgWrap, credit);
+  stage.append(msgWrap, views, credit);
+
+  // The "2D views" switch and the two save buttons (IS-V3), shown while contacts are drawn.
+  const actions = el("div", "eegv__spatial-actions");
+  const view2dBtn = el("button", "eegv__btn", "2D views");
+  view2dBtn.type = "button";
+  view2dBtn.dataset.spatialView2d = "";
+  const savePngBtn = el("button", "eegv__btn", "Save PNG");
+  savePngBtn.type = "button";
+  savePngBtn.dataset.spatialSave = "png";
+  const saveSvgBtn = el("button", "eegv__btn", "Save SVG");
+  saveSvgBtn.type = "button";
+  saveSvgBtn.dataset.spatialSave = "svg";
+  actions.append(view2dBtn, savePngBtn, saveSvgBtn);
+  actions.hidden = true;
+  const saveMsg = el("p", "eegv__spatial-actmsg");
+  saveMsg.setAttribute("role", "status");
+  saveMsg.hidden = true;
+  // What the 2D views say beyond their circles: how the axes are read, and the template sentences.
+  const viewNotes = el("ul", "eegv__spatial-viewnotes");
+  viewNotes.dataset.spatialViewNotes = "";
+  viewNotes.hidden = true;
 
   const status = el("p", "eegv__spatial-status");
   status.setAttribute("aria-live", "polite");
@@ -1518,7 +1620,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   // A bipolar channel selects two contacts at once.
   list.setAttribute("aria-multiselectable", "true");
   list.dataset.spatialList = "";
-  inner.append(frameWrap, stage, status, notes, act, list);
+  inner.append(frameWrap, stage, actions, saveMsg, status, viewNotes, notes, act, list);
   box.append(inner);
 
   // The panel owns its keys: arrows, letters and plus/minus must not reach the scope's shortcuts.
@@ -1651,13 +1753,22 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     // Stage
     const stageKind = model.stage.kind;
     stage.dataset.stage = stageKind;
-    if (stageKind === "canvas") {
+    if (model.stage.kind === "canvas" || model.stage.kind === "views2d") {
       msgWrap.hidden = true;
     } else {
       msgWrap.hidden = false;
       setText(stageMsg, model.stage.sentence);
       retry.hidden = !(model.stage.kind === "refusal" && model.stage.retry);
     }
+
+    paintViews(model);
+    actions.hidden = !model.view.shown;
+    view2dBtn.setAttribute("aria-pressed", String(model.view.on));
+    view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
+    view2dBtn.disabled = !model.view.enabled;
+    view2dBtn.title = model.view.title;
+    setText(saveMsg, savingMessage);
+    saveMsg.hidden = savingMessage === "" || !model.view.shown;
 
     setText(status, model.status ?? "");
     status.hidden = model.status === null;
@@ -1717,6 +1828,79 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
 
     syncRenderer();
+  }
+
+  // --- 2D views and exports (IS-V3) ---------------------------------------
+  function figureInput(model: PanelModel): ExportInput {
+    return {
+      state,
+      model,
+      colors: contactColors(state, palette),
+      theme: figureTheme,
+      template: templatePlacementFor(state),
+      frameLabel: frameName(state.placement?.space.frame ?? null),
+    };
+  }
+
+  let viewsHtml = "";
+  function paintViews(model: PanelModel): void {
+    const show = model.stage.kind === "views2d" || model.stage.kind === "no_webgl";
+    views.hidden = !show;
+    viewNotes.hidden = !show;
+    if (!show || !state.placement) {
+      if (viewsHtml !== "") views.replaceChildren();
+      viewsHtml = "";
+      return;
+    }
+    const input = figureInput(model);
+    const laid = layoutViews({
+      contacts: viewContacts(input),
+      millimeters: state.placement.space.units.unit === "mm",
+      template: input.template?.outlines ?? null,
+      arrangement: "grid",
+      region: { x: 0, y: 0, width: VIEWS_WIDTH, height: VIEWS_HEIGHT },
+    });
+    // Every circle carries its own <title>, so the group is not an image: its children stay reachable.
+    const html = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEWS_WIDTH} ${VIEWS_HEIGHT}" role="group" aria-label="Contacts in three views. The contact list below is the keyboard alternative.">${viewsMarkup(laid, { foreground: figureTheme.foreground, muted: figureTheme.muted, border: figureTheme.border }, FIGURE_FONT)}</svg>`;
+    if (html !== viewsHtml) {
+      views.innerHTML = html;
+      viewsHtml = html;
+    }
+    const sentences = figureLabels(input, true)
+      .filter((l) => l.role === "template" || l.role === "axes")
+      .map((l) => l.text);
+    const key = sentences.join("\n");
+    if (viewNotes.dataset.key !== key) {
+      viewNotes.replaceChildren(...sentences.map((n) => el("li", "eegv__spatial-note", n)));
+      viewNotes.dataset.key = key;
+    }
+  }
+
+  async function save(kind: "png" | "svg"): Promise<void> {
+    const model = viewModel(state);
+    if (!model.view.shown) return;
+    savingMessage = "";
+    let filename = `figure.${kind}`;
+    try {
+      const input = figureInput(model);
+      let file: ExportFile;
+      if (kind === "svg") {
+        file = exportSvg(input);
+      } else {
+        // The 3D canvas's current frame when the live view is 3D; the three views otherwise.
+        const frame = model.stage.kind === "canvas" && renderer ? renderer.snapshot() : null;
+        file = await exportPng(input, frame);
+      }
+      filename = file.filename;
+      downloadFile(file);
+    } catch (err) {
+      console.error(`[ieeg-spatial] saving the ${kind} failed:`, err);
+      savingMessage =
+        filename === `figure.${kind}`
+          ? `The ${kind.toUpperCase()} could not be made. Try the other format, or the 2D views.`
+          : downloadFailedSentence(filename);
+    }
+    sync();
   }
 
   // --- events -------------------------------------------------------------
@@ -1841,6 +2025,17 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   }
 
   retry.addEventListener("click", () => dispatch({ type: "retry" }));
+  view2dBtn.addEventListener("click", () => {
+    if (view2dBtn.disabled) return;
+    savingMessage = "";
+    dispatch({ type: "view_changed", view2d: !viewModel(state).view.on });
+  });
+  savePngBtn.addEventListener("click", () => void save("png"));
+  saveSvgBtn.addEventListener("click", () => void save("svg"));
+  views.addEventListener("click", (e) => {
+    const dot = (e.target as Element | null)?.closest<SVGCircleElement>("circle[data-contact]");
+    if (dot) dispatch({ type: "select_contact", contact: Number(dot.dataset.contact) });
+  });
   frameSel.addEventListener("change", () =>
     dispatch({ type: "frame_changed", spaceIndex: Number(frameSel.value) }),
   );
@@ -1891,6 +2086,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     const t = tokens(host.themeRoot);
     theme = t.theme;
     palette = { neutral: parseColor(t.theme.contact), noData: parseColor(t.noData) };
+    figureTheme = {
+      background: t.theme.background,
+      foreground: t.theme.outline,
+      muted: t.theme.mesh,
+      border: t.border,
+      contact: t.theme.contact,
+    };
     renderer?.setTheme(theme);
   }
   readTheme();
