@@ -217,9 +217,9 @@ export function placementRuleFor(
   return TEMPLATE_PLACEMENTS.get(frame.identifier) ?? null;
 }
 
-/** Where a contact at `declared` is drawn: through the row's affine, nothing else. */
+/** Where a contact at `declared` is drawn: through the row's affine (the identity for `own` and `variant`), nothing else. */
 export function placeOnTemplate(rule: TemplatePlacementRule, declared: Vec3): Vec3 {
-  return rule.kind === "affine" ? applyAffine(rule.transform, declared) : declared;
+  return applyAffine(rule.transform, declared);
 }
 
 // ---------------------------------------------------------------------------
