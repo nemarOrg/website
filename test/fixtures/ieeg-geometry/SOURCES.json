@@ -10,7 +10,8 @@
       "url": "https://github.com/bids-standard/bids-specification/blob/074ae6ffcdcfa27f07e131f42a545574f20675c8/src/appendices/coordinate-systems.md",
       "stored_as": "bids-specification/074ae6ffcdcfa27f07e131f42a545574f20675c8/src/appendices/coordinate-systems.md",
       "bytes": 29597,
-      "sha256": "b63c11182f3036be1e4fd5bc4872fdc0d2c33e09ab9f2a89bd17b26240215953"
+      "sha256": "b63c11182f3036be1e4fd5bc4872fdc0d2c33e09ab9f2a89bd17b26240215953",
+      "license": "CC-BY-4.0 (Attribution 4.0 International, Copyright (c) 2018, BIDS Contributors); source: https://github.com/bids-standard/bids-specification at commit 074ae6ffcdcfa27f07e131f42a545574f20675c8, LICENSE at that commit; used unmodified as a test fixture"
     },
     {
       "dataset": "nm000373",
