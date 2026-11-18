@@ -48,7 +48,7 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { brotliCompressSync, gzipSync } from "node:zlib";
-import { type Page, chromium, expect, test } from "@playwright/test";
+import { type Page, type Request, chromium, expect, test } from "@playwright/test";
 
 // Each test loads real data over the network and may wait out a few quiet retries.
 test.describe.configure({ mode: "default", timeout: 600_000 });
@@ -106,8 +106,15 @@ const ALLOWANCE = { embedReloads: 3, panelRetries: 3, http5xx: 10, requestFailed
 
 /** A Zarr request slower than this, as a median of three, makes the data plane "slow" for this run. */
 const SLOW_ZARR_MEDIAN_MS = 3000;
-/** Switching Activity on takes longer than this to become ready only while the Zarr route is slow. */
-const SLOW_ACTIVITY_READY_MS = 5000;
+/** The Zarr host the panel's sample reads go to. */
+const ZARR_HOST = "zarr.nemar.org";
+/**
+ * A seam to test the test: delays every request to the Zarr host by this many milliseconds (the
+ * response is the real one, only late), as a slow data plane would. Unset in a normal run.
+ */
+const SLOW_ZARR_SEAM_MS = Number(process.env.QA1_SLOW_ZARR_MS ?? 0);
+/** With fast Zarr requests, Activity not ready after this long is a stall of the panel: a failure. */
+const ACTIVITY_STALL_MS = 120_000;
 const PREFLIGHT_URL =
   "https://zarr.nemar.org/nm000485/zarr/sub-P001/ieeg/sub-P001_task-wordsnonfont_run-1_ieeg.zarr/zarr.json";
 let preflight: { medianMs: number; slow: boolean } = { medianMs: 0, slow: false };
@@ -121,9 +128,8 @@ function note(type: string, value: string): void {
   console.log(`[qa1] ${type}: ${value}`);
 }
 
-test.beforeAll(async ({ browser }) => {
-  console.log(`[qa1] browser: Chromium ${browser.version()} (headless)`);
-  // One cheap timed read of the Zarr route (three requests, the median), recorded first.
+/** Three timed requests to the Zarr route, from Node; the median decides "slow". */
+async function timedZarr(): Promise<{ medianMs: number; times: number[]; slow: boolean }> {
   const times: number[] = [];
   for (let i = 0; i < 3; i++) {
     const t0 = Date.now();
@@ -135,9 +141,16 @@ test.beforeAll(async ({ browser }) => {
     }
   }
   times.sort((a, b) => a - b);
-  preflight = { medianMs: times[1], slow: times[1] >= SLOW_ZARR_MEDIAN_MS };
+  return { medianMs: times[1], times, slow: times[1] >= SLOW_ZARR_MEDIAN_MS };
+}
+
+test.beforeAll(async ({ browser }) => {
+  console.log(`[qa1] browser: Chromium ${browser.version()} (headless)`);
+  // One cheap timed read of the Zarr route, recorded first.
+  const first = await timedZarr();
+  preflight = { medianMs: first.medianMs, slow: first.slow };
   console.log(
-    `[qa1] preflight: Zarr route median ${preflight.medianMs} ms of ${times.join(", ")} ms; data plane ${preflight.slow ? "SLOW" : "fast"} (threshold ${SLOW_ZARR_MEDIAN_MS} ms)`,
+    `[qa1] preflight: Zarr route median ${first.medianMs} ms of ${first.times.join(", ")} ms; data plane ${first.slow ? "SLOW" : "fast"} (threshold ${SLOW_ZARR_MEDIAN_MS} ms)`,
   );
 });
 
@@ -1491,20 +1504,80 @@ for (const c of FIRST_CONTACT_CASES) {
   });
 }
 
-test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000485) adds no long task over 200 ms; the window step may exceed the scope's own step by 50 ms; judged only while the data plane is fast", async ({
+test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000485) adds no long task over 200 ms; the window step may exceed the scope's own step by 50 ms; judged only while the data plane is measured fast", async ({
   page,
 }) => {
-  test.skip(
-    preflight.slow,
-    `data plane slow (Zarr median ${preflight.medianMs} ms at preflight); long-task budget not judged`,
+  // A fresh timed read right before this test (not the one from the start of the run).
+  const fresh = await timedZarr();
+  note(
+    "fresh preflight before the long-task test",
+    `Zarr median ${fresh.medianMs} ms of ${fresh.times.join(", ")} ms`,
   );
+  test.skip(
+    fresh.slow,
+    `data plane slow (Zarr median ${fresh.medianMs} ms at a fresh preflight); long-task budget not judged`,
+  );
+  if (SLOW_ZARR_SEAM_MS > 0) {
+    await page.route(new RegExp(`//${ZARR_HOST.replace(/\./g, "\\.")}/`), async (route) => {
+      await new Promise((done) => setTimeout(done, SLOW_ZARR_SEAM_MS));
+      await route.continue();
+    });
+  }
+  // Evidence about the data plane, from this page's own requests to the Zarr host once Activity
+  // starts reading: how long each took. Slowness is decided from this and only this, never from
+  // how long the panel took to become ready (that includes its own read, compute and yield loop).
+  const zarr = { on: false, started: new Map<Request, number>(), durations: [] as number[] };
+  page.on("request", (r) => {
+    if (zarr.on && new URL(r.url()).hostname === ZARR_HOST) zarr.started.set(r, Date.now());
+  });
+  page.on("requestfinished", (r) => {
+    const t0 = zarr.started.get(r);
+    if (t0 !== undefined) {
+      zarr.durations.push(Date.now() - t0);
+      zarr.started.delete(r);
+    }
+  });
+  /** Finished requests plus those still in flight, by how long each has taken so far. */
+  const zarrEvidence = () => {
+    const open = [...zarr.started.values()].map((t0) => Date.now() - t0);
+    const all = [...zarr.durations, ...open].sort((a, b) => a - b);
+    return {
+      n: all.length,
+      median: all.length ? all[Math.floor(all.length / 2)] : 0,
+      slowest: all.length ? all[all.length - 1] : 0,
+      text: `${all.length} Zarr requests (${open.length} unfinished), median ${all.length ? all[Math.floor(all.length / 2)] : 0} ms, slowest ${all.length ? all[all.length - 1] : 0} ms`,
+    };
+  };
+  const zarrSlow = () => {
+    const e = zarrEvidence();
+    return e.n > 0 && e.slowest >= SLOW_ZARR_MEDIAN_MS;
+  };
+
+  // Two ways to see a block of the main thread. The `longtask` entries (tasks over 50 ms) are the
+  // plan's measure, but the API does not report every block: in this page a 300 ms busy loop in
+  // the recompute was missed by it while a heartbeat saw it. So a 10 ms timer also records every
+  // gap over 60 ms between its own ticks (a gap is the blocked time plus at most the 10 ms
+  // period), and the budget is judged on whichever saw the longer block.
   await page.addInitScript(() => {
-    const w = window as unknown as { __long: { start: number; dur: number }[] };
+    const w = window as unknown as {
+      __long: { start: number; dur: number }[];
+      __longObserver: PerformanceObserver;
+      __beat: number[];
+    };
     w.__long = [];
-    new PerformanceObserver((list) => {
+    w.__beat = [];
+    const take = (list: PerformanceObserverEntryList) => {
       for (const e of list.getEntries())
         w.__long.push({ start: Math.round(e.startTime), dur: Math.round(e.duration) });
-    }).observe({ type: "longtask", buffered: true });
+    };
+    w.__longObserver = new PerformanceObserver((list) => take(list));
+    w.__longObserver.observe({ type: "longtask", buffered: true });
+    let last = performance.now();
+    setInterval(() => {
+      const now = performance.now();
+      if (now - last > 60) w.__beat.push(Math.round(now - last - 10));
+      last = now;
+    }, 10);
   });
   await openViewer(page, "nm000485");
   await openBrain(page);
@@ -1515,17 +1588,49 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   expect(located).toBeGreaterThanOrEqual(128);
   await page.waitForTimeout(2000);
 
-  const longTasks = () =>
-    page.evaluate(() => (window as unknown as { __long: { start: number; dur: number }[] }).__long);
-  const mark = () =>
+  // The observer's callback is delivered late (after a stretch of busy tasks it may not have run
+  // by the time the panel is "ready"), so every read first takes the records still queued.
+  type LongWindow = {
+    __long: { start: number; dur: number }[];
+    __longObserver: PerformanceObserver;
+    __beat: number[];
+  };
+  const blocks = () =>
     page.evaluate(() => {
-      (window as unknown as { __long: unknown[] }).__long = [];
+      const w = window as unknown as LongWindow;
+      for (const e of w.__longObserver.takeRecords())
+        w.__long.push({ start: Math.round(e.startTime), dur: Math.round(e.duration) });
+      return { api: w.__long.map((e) => e.dur), beat: [...w.__beat] };
     });
-  const phases: Record<string, { ms: number; tasks: number[] }> = {};
-  const readyAfter = async (state: string) => {
-    await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", state, {
-      timeout: 120_000,
+  const mark = async () => {
+    await blocks();
+    await page.evaluate(() => {
+      const w = window as unknown as LongWindow;
+      w.__long = [];
+      w.__beat = [];
     });
+  };
+  const phases: Record<string, { ms: number; api: number[]; beat: number[] }> = {};
+  const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
+
+  /** Wait for `reads` and the ready state; a wait that runs out is a stall, judged on the evidence. */
+  const settleAfter = async (what: string, readsWanted: number) => {
+    const deadline = Date.now() + ACTIVITY_STALL_MS;
+    try {
+      await expect.poll(() => reads(page), { timeout: ACTIVITY_STALL_MS }).toBe(readsWanted);
+      await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready", {
+        timeout: Math.max(1000, deadline - Date.now()),
+      });
+    } catch {
+      const e = zarrEvidence();
+      note(`Activity stalled at "${what}"`, e.text);
+      // Slow Zarr requests explain a late panel: the budget is not judged. Fast ones do not: the
+      // panel itself stalled, which is a failure with the evidence in its message.
+      test.skip(zarrSlow(), `data plane slow (${e.text}); long-task budget not judged`);
+      throw new Error(
+        `Activity did not become ready within ${ACTIVITY_STALL_MS / 1000} s at "${what}" with fast Zarr requests (${e.text}): a stall of the panel`,
+      );
+    }
   };
 
   // Baseline: the same window step with Activity off, so a long task of the scope's own read and
@@ -1533,55 +1638,58 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   await mark();
   await page.click('[data-act="step-fwd"]');
   await page.waitForTimeout(2500);
-  const baseline = (await longTasks()).map((e) => e.dur);
+  const baseline = await blocks();
   expect(await reads(page)).toBe(0);
 
+  zarr.on = true;
   await mark();
   let t = Date.now();
   await page.check("[data-spatial-activity]");
-  await expect.poll(() => reads(page), { timeout: 120_000 }).toBe(1);
-  await readyAfter("ready");
-  phases["switch on"] = { ms: Date.now() - t, tasks: (await longTasks()).map((e) => e.dur) };
+  await settleAfter("switch on", 1);
+  phases["switch on"] = { ms: Date.now() - t, ...(await blocks()) };
+  const switchOnEvidence = zarrEvidence();
   const summary =
     (await page.locator(`${PANEL} .eegv__spatial-actsum`).first().textContent()) ?? "";
 
   await mark();
   t = Date.now();
   await page.click('[data-act="step-fwd"]');
-  await expect.poll(() => reads(page), { timeout: 120_000 }).toBe(2);
-  await readyAfter("ready");
-  phases["window moved"] = { ms: Date.now() - t, tasks: (await longTasks()).map((e) => e.dur) };
+  await settleAfter("window moved", 2);
+  phases["window moved"] = { ms: Date.now() - t, ...(await blocks()) };
 
   await mark();
   t = Date.now();
   await page.selectOption(`${PANEL} select[aria-label="Activity measure"]`, "rms");
-  await expect(page.locator("[data-spatial-colorbar]")).toContainText("µV", { timeout: 120_000 });
-  await readyAfter("ready");
-  phases["measure RMS"] = { ms: Date.now() - t, tasks: (await longTasks()).map((e) => e.dur) };
+  await expect(page.locator("[data-spatial-colorbar]")).toContainText("µV", {
+    timeout: ACTIVITY_STALL_MS,
+  });
+  await settleAfter("measure RMS", 2);
+  phases["measure RMS"] = { ms: Date.now() - t, ...(await blocks()) };
 
-  const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
-  const readySeconds = phases["switch on"].ms / 1000;
   // Switching Activity on and changing the measure are the panel's recompute alone: strictly the budget.
-  const recompute = max([...phases["switch on"].tasks, ...phases["measure RMS"].tasks]);
+  const seen = (p: { api: number[]; beat: number[] }) => [...p.api, ...p.beat];
+  const recompute = max([...seen(phases["switch on"]), ...seen(phases["measure RMS"])]);
   // Moving the window also moves the scope, whose own read and redraw is a long task of its own
   // (the baseline, Activity off). The recompute may add at most 50 ms to that.
-  const moved = max(phases["window moved"].tasks);
-  const scopeAlone = max(baseline);
+  const moved = max(seen(phases["window moved"]));
+  const scopeAlone = max(seen(baseline));
+  const evidence = zarrEvidence();
   note(
     "long tasks nm000485",
     `${located} located channels; ${Object.entries(phases)
-      .map(([k, v]) => `${k}: ${v.ms} ms to ready, long tasks [${v.tasks.join(", ")}] ms`)
+      .map(
+        ([k, v]) =>
+          `${k}: ${v.ms} ms to ready, longtask API [${v.api.join(", ")}] heartbeat gaps [${v.beat.join(", ")}] ms`,
+      )
       .join(
         "; ",
-      )}; baseline window step with Activity off: long tasks [${baseline.join(", ")}] ms; recompute alone longest ${recompute} ms; window moved longest ${moved} ms against ${scopeAlone} ms for the scope alone; ${summary.slice(0, 120)}`,
+      )}; baseline window step with Activity off: longtask API [${baseline.api.join(", ")}] heartbeat gaps [${baseline.beat.join(", ")}] ms; recompute alone longest ${recompute} ms; window moved longest ${moved} ms against ${scopeAlone} ms for the scope alone; data plane evidence at switch on: ${switchOnEvidence.text}; over the test: ${evidence.text}; ${summary.slice(0, 120)}`,
   );
-  // The budget is judged only while the Zarr route is fast. While it is slow the numbers above are
-  // recorded and the test is skipped with the reason: a long task measured on a data plane that
-  // took tens of seconds to deliver the samples says nothing the budget was written for.
-  test.skip(
-    phases["switch on"].ms >= SLOW_ACTIVITY_READY_MS,
-    `data plane slow (${readySeconds.toFixed(1)} s to ready); long-task budget not judged`,
-  );
+  // The budget is judged only while the Zarr requests were measured fast. If any took as long as
+  // the threshold, the numbers above are recorded and the test is skipped with that evidence. The
+  // time the panel took to become ready never decides this: with fast requests the recompute is
+  // always asserted, however long ready took.
+  test.skip(zarrSlow(), `data plane slow (${evidence.text}); long-task budget not judged`);
   expect(recompute).toBeLessThanOrEqual(BUDGET.longTaskMs);
   expect(moved).toBeLessThanOrEqual(Math.max(BUDGET.longTaskMs, scopeAlone + 50));
   expect((await canvasColors(page)).hues).toBeGreaterThanOrEqual(3);
@@ -1597,6 +1705,9 @@ test("the run absorbed no more passing failures than the allowance, and the data
   expect(transient.panelRetries).toBeLessThanOrEqual(ALLOWANCE.panelRetries);
   expect(transient.http5xx).toBeLessThanOrEqual(ALLOWANCE.http5xx);
   expect(transient.requestFailed).toBeLessThanOrEqual(ALLOWANCE.requestFailed);
+  // The counters and the preflight live in the worker, and Playwright starts a new worker after a
+  // failed test, which resets them: on a run that already has failures this allowance is weaker
+  // than it reads, and the failures themselves are the signal.
   // A slow preflight is not a failure of the panel, but it is said on the run, not hidden.
   expect(preflight.slow, `Zarr route median ${preflight.medianMs} ms at preflight`).toBe(false);
 });
