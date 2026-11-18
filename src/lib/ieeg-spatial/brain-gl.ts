@@ -2,7 +2,7 @@
  * A small WebGL2 renderer for a translucent brain mesh and up to 2,000 electrode contacts
  * (card IS-R1). Hand-written like the signal viewer's trace layer (`eeg-viewer/gl-trace.ts`):
  * no three.js, no new dependency, drawn on demand (no animation loop while idle), and loaded
- * with the viewer's lazy chunk.
+ * in the panel's own lazy chunk, fetched only for an iEEG recording.
  *
  * Coordinates are millimeters in right-anterior-superior (RAS) space with +z up; see
  * `camera.ts` for the orbit camera and the six view presets. Contacts are one instanced
