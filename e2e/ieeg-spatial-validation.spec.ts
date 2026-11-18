@@ -139,6 +139,15 @@ const ZARR_HOST = "zarr.nemar.org";
  * response is the real one, only late), as a slow data plane would. Unset in a normal run.
  */
 const SLOW_ZARR_SEAM_MS = Number(process.env.QA1_SLOW_ZARR_MS ?? 0);
+/**
+ * A second seam, for the fast regime on a day the data plane is slow: replay the Zarr host's real
+ * responses from an HTTP archive (a HAR file) instead of the network. Record one by running the
+ * long-task test once with `QA1_ZARR_HAR_RECORD=1` (it writes the file when the test ends), then
+ * replay it with `QA1_ZARR_HAR=<file>`. A request the archive lacks goes to the network. Unset in a
+ * normal run.
+ */
+const ZARR_HAR = process.env.QA1_ZARR_HAR;
+const ZARR_HAR_RECORD = process.env.QA1_ZARR_HAR_RECORD === "1";
 /** With fast Zarr requests, Activity not ready after this long is a stall of the panel: a failure. */
 const ACTIVITY_STALL_MS = 120_000;
 const PREFLIGHT_URL =
@@ -1913,6 +1922,14 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
     fresh.slow,
     `data plane slow (Zarr median ${fresh.medianMs} ms at a fresh preflight); long-task budget not judged`,
   );
+  if (ZARR_HAR) {
+    await page.routeFromHAR(ZARR_HAR, {
+      url: new RegExp(`//${ZARR_HOST.replace(/\./g, "\\.")}/`),
+      notFound: "fallback",
+      update: ZARR_HAR_RECORD,
+      updateContent: "embed",
+    });
+  }
   if (SLOW_ZARR_SEAM_MS > 0) {
     await page.route(new RegExp(`//${ZARR_HOST.replace(/\./g, "\\.")}/`), async (route) => {
       await new Promise((done) => setTimeout(done, SLOW_ZARR_SEAM_MS));
