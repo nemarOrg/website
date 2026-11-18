@@ -88,7 +88,14 @@ export const MIN_DOT_PX = 2.5;
 export const FIXED_DOT_PX = 3.5;
 /** Room for a view's title above its drawing, and around it. CSS pixels. */
 const TITLE_PX = 18;
-const PAD_PX = 10;
+const PAD_PX = 18;
+/** The frame drawn round each view sits this far inside its box, so frames never touch. */
+export const FRAME_INSET_PX = 3;
+/** Orientation letters sit this far inside the box's side, well inside the frame. */
+export const LETTER_INSET_PX = 8;
+export const LETTER_PX = 10;
+/** The title's distance from the box's left. */
+export const TITLE_INSET_PX = 10;
 /** A view's extent is never taken as less than this share of the widest, so a lone contact is not zoomed to infinity. */
 const MIN_EXTENT_SHARE = 0.05;
 
@@ -199,6 +206,8 @@ export interface ViewCell {
   letters: ViewLetter[];
   /** The view's own box, in the same pixels as the dots. */
   box: Region;
+  /** The frame drawn round the view: the box, inset. The letters are inside it. */
+  frame: Region;
   /** An SVG path (closed subpaths, fill with the even-odd rule) or null when no template is drawn. */
   outlinePath: string | null;
   /** Far to near, the selected contacts last. */
@@ -316,13 +325,19 @@ export function layoutViews(input: Views2dInput): Views2d {
     const midY = box.y + TITLE_PX + PAD_PX + innerH / 2 + 3;
     const midX = box.x + cellW / 2;
     const letters: ViewLetter[] = [
-      { text: ends.left, x: r2(box.x + 3), y: r2(midY), anchor: "start" },
-      { text: ends.right, x: r2(box.x + cellW - 3), y: r2(midY), anchor: "end" },
-      { text: ends.top, x: r2(midX), y: r2(box.y + TITLE_PX + 8), anchor: "middle" },
-      { text: ends.bottom, x: r2(midX), y: r2(box.y + cellH - 2), anchor: "middle" },
+      { text: ends.left, x: r2(box.x + LETTER_INSET_PX), y: r2(midY), anchor: "start" },
+      { text: ends.right, x: r2(box.x + cellW - LETTER_INSET_PX), y: r2(midY), anchor: "end" },
+      { text: ends.top, x: r2(midX), y: r2(box.y + TITLE_PX + 12), anchor: "middle" },
+      { text: ends.bottom, x: r2(midX), y: r2(box.y + cellH - LETTER_INSET_PX), anchor: "middle" },
     ];
+    const frame: Region = {
+      x: box.x + FRAME_INSET_PX,
+      y: box.y + FRAME_INSET_PX,
+      width: cellW - 2 * FRAME_INSET_PX,
+      height: cellH - 2 * FRAME_INSET_PX,
+    };
 
-    return { name, title: VIEW_DEFS[name].title, letters, box, outlinePath, dots };
+    return { name, title: VIEW_DEFS[name].title, letters, box, frame, outlinePath, dots };
   });
 
   return { region, cells, drawn: located.length };
@@ -363,11 +378,12 @@ export function viewsMarkup(views: Views2d, theme: ViewsTheme, font: string): st
     .map((cell) => {
       const parts = [
         `<g id="view-${cell.name}" data-view="${cell.name}">`,
-        `<text x="${r2(cell.box.x + PAD_PX)}" y="${r2(cell.box.y + 13)}" font-family="${escapeXml(font)}" font-size="12" font-weight="600" fill="${escapeXml(theme.foreground)}">${escapeXml(cell.title)}</text>`,
+        `<rect data-view-frame="" x="${r2(cell.frame.x)}" y="${r2(cell.frame.y)}" width="${r2(cell.frame.width)}" height="${r2(cell.frame.height)}" fill="none" stroke="${escapeXml(theme.border)}" stroke-width="1"/>`,
+        `<text x="${r2(cell.box.x + TITLE_INSET_PX)}" y="${r2(cell.box.y + 13)}" font-family="${escapeXml(font)}" font-size="12" font-weight="600" fill="${escapeXml(theme.foreground)}">${escapeXml(cell.title)}</text>`,
       ];
       for (const l of cell.letters) {
         parts.push(
-          `<text data-orientation="${escapeXml(l.text)}" x="${l.x}" y="${l.y}" text-anchor="${l.anchor}" font-family="${escapeXml(font)}" font-size="10" fill="${escapeXml(theme.muted)}">${escapeXml(l.text)}</text>`,
+          `<text data-orientation="${escapeXml(l.text)}" x="${l.x}" y="${l.y}" text-anchor="${l.anchor}" font-family="${escapeXml(font)}" font-size="${LETTER_PX}" fill="${escapeXml(theme.muted)}">${escapeXml(l.text)}</text>`,
         );
       }
       if (cell.outlinePath) {

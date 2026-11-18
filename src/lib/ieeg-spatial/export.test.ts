@@ -48,7 +48,13 @@ import {
   templatePlacementFor,
   viewModel,
 } from "./panel";
-import { ACTIVITY_CHOICES, templateNotice, templateRuleOf } from "./panel";
+import {
+  ACTIVITY_CHOICES,
+  forgetTemplateOutlines,
+  templateNotice,
+  templateOutlines,
+  templateRuleOf,
+} from "./panel";
 import {
   TALAIRACH_TO_MNI,
   TEMPLATE_LICENSE_HREF,
@@ -110,7 +116,7 @@ function channelLabels(datasetId: string, version: string, path: string): string
     .map((l) => l.split("\t")[0]);
 }
 
-/** x, y, z of one contact exactly as the electrodes file wrote them (its text, not a parsed number). */
+/** x, y, z of one contact as the electrodes file wrote them (its text). The fixtures hold values the line reproduces character for character; the line itself is numerically equal, not verbatim. */
 function recordedRow(datasetId: string, version: string, file: string, name: string): string[] {
   const text = fs.readFileSync(repoPath(`${FIXTURES}/${datasetId}/${version}/${file}`), "utf8");
   const row = text.split(/\r?\n/).find((l) => l.split("\t")[0] === name);
@@ -339,6 +345,7 @@ describe("exportPng's draw list paints the credit last", () => {
     it(`for ${name}`, () => {
       const ops = buildDrawList(buildFigure(input, image));
       expect(ops.filter((o) => o.op === "credit")).toHaveLength(1);
+      expect(ops.filter((o) => o.op === "frame")).toHaveLength(image ? 0 : 3);
       expect(ops[ops.length - 1].op).toBe("credit");
       // Every label, view and the image come before it.
       const credit = ops.findIndex((o) => o.op === "credit");
@@ -433,7 +440,7 @@ describe("every located contact has one circle with a title", () => {
       for (const c of mine) expect(c).toContain(`<title>${contact.name} (channel`);
     });
     // LAF2 belongs to two channels. Its title says its name as recorded first, the channels beside
-    // it, where the dataset recorded it exactly as the electrodes file wrote it (with the file's
+    // it, where the dataset recorded it, equal to the electrodes file's value (with the file's
     // unit word and the declared frame), and the mean value, 1.5 µV².
     const laf2 = contacts.findIndex((c) => c.name === "LAF2");
     const title = /data-contact="\d+"[^>]*><title>(LAF2[^<]*)<\/title>/.exec(
@@ -815,6 +822,7 @@ function recordingContext() {
     setTransform: noop,
     measureText: (t: string) => ({ width: t.length * Number.parseFloat(state.font) * 0.5 }),
     fillRect: noop,
+    strokeRect: noop,
     beginPath: noop,
     arc: noop,
     fill: noop,
@@ -1256,5 +1264,48 @@ describe("the 2D views and the files draw a registered template, the same way as
       sentence: TEMPLATE_LOADING_SENTENCE,
     });
     expect(flat(failed).template?.status).toBe("failed");
+  });
+});
+
+describe("the template outlines are read once per page", () => {
+  const file = fs.readFileSync(
+    repoPath("public/vendor/brain-templates/mni152nlin2009casym@1/views.json"),
+    "utf8",
+  );
+
+  it("two panels opened in sequence share one read, and a failure is not kept", async () => {
+    forgetTemplateOutlines();
+    let reads = 0;
+    const read = async () => {
+      reads += 1;
+      return JSON.parse(file);
+    };
+    const failing = async () => {
+      reads += 1;
+      throw new Error("views.json answered 503");
+    };
+    await expect(templateOutlines(failing)).rejects.toThrow("503");
+    expect(reads).toBe(1);
+    // The failure was forgotten: the next panel reads again, and the one after it does not.
+    const first = await templateOutlines(read);
+    const second = await templateOutlines(read);
+    expect(reads).toBe(2);
+    expect(second).toBe(first);
+    expect(first.left.polylines.length).toBeGreaterThan(0);
+    forgetTemplateOutlines();
+  });
+
+  it("refuses a file that is not the outlines format, and keeps nothing", async () => {
+    forgetTemplateOutlines();
+    await expect(templateOutlines(async () => ({ format: "other" }))).rejects.toThrow(
+      /brain-template-views/,
+    );
+    let reads = 0;
+    await templateOutlines(async () => {
+      reads += 1;
+      return JSON.parse(file);
+    });
+    expect(reads).toBe(1);
+    forgetTemplateOutlines();
   });
 });

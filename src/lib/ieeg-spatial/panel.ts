@@ -1758,20 +1758,34 @@ function templateSurface(): Promise<BrainMesh> {
   return surfaceLoad;
 }
 
-/** The template's outlines (`views.json`), shared by every panel of the page and fetched at most once. */
+/** Read the template's outlines file from the same origin. */
+async function readOutlinesFile(): Promise<unknown> {
+  const res = await fetch(`${TEMPLATE_DIRECTORY}views.json`, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`views.json answered ${res.status}`);
+  return res.json();
+}
+
+/**
+ * The template's outlines (`views.json`), shared by every panel of the page and read at most once:
+ * a second panel, or a reopened one, gets the same promise. A failure is not kept, so the next ask
+ * tries again. `read` is the file's reader (the page's fetch by default).
+ */
 let outlinesLoad: Promise<TemplateOutlines> | null = null;
-function templateOutlines(): Promise<TemplateOutlines> {
-  outlinesLoad ??= fetch(`${TEMPLATE_DIRECTORY}views.json`, { credentials: "same-origin" })
-    .then((res) => {
-      if (!res.ok) throw new Error(`views.json answered ${res.status}`);
-      return res.json();
-    })
+export function templateOutlines(
+  read: () => Promise<unknown> = readOutlinesFile,
+): Promise<TemplateOutlines> {
+  outlinesLoad ??= read()
     .then(parseViewOutlines)
     .catch((err) => {
       outlinesLoad = null;
       throw err;
     });
   return outlinesLoad;
+}
+
+/** Forget the shared outlines, so a test can start from a page that has not read them. */
+export function forgetTemplateOutlines(): void {
+  outlinesLoad = null;
 }
 
 export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {

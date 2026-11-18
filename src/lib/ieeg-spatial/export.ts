@@ -37,7 +37,9 @@ import { RAVE_CREDIT, creditSvg, doiUrl, paintCredit } from "./credit";
 import type { Frame, Units, Vec3 } from "./geometry";
 import type { PanelModel, PanelState } from "./panel";
 import {
+  LETTER_PX,
   type Region,
+  TITLE_INSET_PX,
   type TemplateOutlines,
   VIEWS_SENTENCE,
   type Views2d,
@@ -302,11 +304,14 @@ const triple = (p: Vec3, show: (v: number) => string): string => `(${p.map(show)
 const millimeters = (v: number): string => String(Math.round(v * 1000) / 1000 || 0);
 
 /**
- * The position the dataset recorded, as the electrodes file wrote it, with the file's unit word
- * and the declared frame. IS-C1 holds positions in millimeters when the file's unit is a length it
- * converts, so a converted position is divided back by the same factor and read to 15 significant
- * digits, which undoes the multiplication's rounding noise for any value the file wrote with 15 or
- * fewer; a position in the file's own unit is printed as parsed, never rounded.
+ * The position the dataset recorded, with the file's unit word and the declared frame. It is
+ * numerically equal to the file's value to 15 significant digits, not the file's own characters:
+ * trailing zeros and exponent notation are normalized (the parser keeps numbers, not text).
+ * IS-C1 holds positions in millimeters when the file's unit is a length it converts, so a
+ * converted position is divided back by the same factor and read to 15 significant digits, which
+ * undoes the multiplication's rounding noise; a position in the file's own unit is printed as
+ * parsed, with no further rounding. Carrying the raw coordinate strings through IS-C1's parser, so
+ * the line is verbatim, is the next card's work (IS-J1).
  */
 export function recordedLocation(position: Vec3, units: Units, frameLabel: string): string {
   const scale = units.unit === "mm" && units.scaleToMm ? units.scaleToMm : 1;
@@ -535,6 +540,8 @@ export type DrawOp =
       anchor: "start" | "middle" | "end";
     }
   | { op: "rect"; x: number; y: number; width: number; height: number; fill: string }
+  /** A view's frame: an outline, no fill. */
+  | { op: "frame"; x: number; y: number; width: number; height: number; stroke: string }
   | {
       op: "path";
       role: "template-outline";
@@ -580,11 +587,12 @@ export function buildDrawList(figure: Figure): DrawOp[] {
     ops.push({ op: "image", ...figure.image });
   }
   for (const cell of figure.views?.cells ?? []) {
+    ops.push({ op: "frame", ...cell.frame, stroke: theme.border });
     ops.push({
       op: "text",
       label: "view",
       text: cell.title,
-      x: cell.box.x + 10,
+      x: cell.box.x + TITLE_INSET_PX,
       y: cell.box.y + 13,
       size: 12,
       fill: theme.foreground,
@@ -598,7 +606,7 @@ export function buildDrawList(figure: Figure): DrawOp[] {
         text: l.text,
         x: l.x,
         y: l.y,
-        size: 10,
+        size: LETTER_PX,
         fill: theme.muted,
         bold: false,
         anchor: l.anchor,
@@ -705,6 +713,11 @@ export function rasterize(
       case "rect":
         ctx.fillStyle = op.fill;
         ctx.fillRect(op.x, op.y, op.width, op.height);
+        break;
+      case "frame":
+        ctx.strokeStyle = op.stroke;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(op.x, op.y, op.width, op.height);
         break;
       case "path": {
         const p = new Path2D(op.d);

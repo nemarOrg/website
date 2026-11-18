@@ -5,6 +5,9 @@ import { PRESETS, createCamera, project, setPreset } from "./camera";
 import { type GeometryInput, type RecordingGeometry, resolveRecordingGeometry } from "./geometry";
 import {
   FIXED_DOT_PX,
+  FRAME_INSET_PX,
+  LETTER_INSET_PX,
+  LETTER_PX,
   MIN_DOT_PX,
   type TemplateOutlines,
   VIEWS_SENTENCE,
@@ -186,6 +189,64 @@ describe("orientation letters", () => {
     expect(viewEnds("left")).toEqual({ left: "A", right: "P", top: "S", bottom: "I" });
     expect(viewEnds("top")).toEqual({ left: "L", right: "R", top: "A", bottom: "P" });
     expect(viewEnds("front")).toEqual({ left: "R", right: "L", top: "S", bottom: "I" });
+  });
+
+  it("never touch a neighboring view's letters, and sit inside their own view's frame", () => {
+    // A letter's footprint: the glyph is about 0.6 em wide and 1 em tall, set on its baseline.
+    const box = (l: { text: string; x: number; y: number; anchor: string }) => {
+      const w = 0.6 * LETTER_PX * l.text.length;
+      const left = l.anchor === "start" ? l.x : l.anchor === "end" ? l.x - w : l.x - w / 2;
+      return { left, right: left + w, top: l.y - LETTER_PX, bottom: l.y };
+    };
+    const GAP = 8; // pixels that must stay free between two letters of different views
+    for (const arrangement of ["row", "grid"] as const) {
+      const region =
+        arrangement === "row"
+          ? { x: 0, y: 0, width: 900, height: 300 }
+          : { x: 0, y: 0, width: 340, height: 330 };
+      const cells = layout([contact(0, [1, 2, 3])], { arrangement, region }).cells;
+      for (const cell of cells) {
+        for (const l of cell.letters) {
+          const b = box(l);
+          // Inside the view's own frame, clear of its edge.
+          expect(b.left, `${cell.name} ${l.text}`).toBeGreaterThan(cell.frame.x + 2);
+          expect(b.right, `${cell.name} ${l.text}`).toBeLessThan(
+            cell.frame.x + cell.frame.width - 2,
+          );
+          expect(b.top, `${cell.name} ${l.text}`).toBeGreaterThan(cell.frame.y + 2);
+          expect(b.bottom, `${cell.name} ${l.text}`).toBeLessThan(cell.frame.y + cell.frame.height);
+        }
+      }
+      for (const a of cells) {
+        for (const b of cells) {
+          if (a === b) continue;
+          for (const la of a.letters) {
+            for (const lb of b.letters) {
+              const [p, q] = [box(la), box(lb)];
+              const gapX = Math.max(q.left - p.right, p.left - q.right);
+              const gapY = Math.max(q.top - p.bottom, p.top - q.bottom);
+              expect(
+                Math.max(gapX, gapY),
+                `${a.name} ${la.text} / ${b.name} ${lb.text}`,
+              ).toBeGreaterThanOrEqual(GAP);
+            }
+          }
+        }
+      }
+    }
+    expect(LETTER_INSET_PX).toBeGreaterThan(FRAME_INSET_PX);
+  });
+
+  it("have a frame round each view that never touches its neighbor's", () => {
+    const cells = layout([contact(0, [1, 2, 3])]).cells;
+    for (let i = 1; i < cells.length; i++) {
+      expect(
+        cells[i].frame.x - (cells[i - 1].frame.x + cells[i - 1].frame.width),
+      ).toBeGreaterThanOrEqual(2 * FRAME_INSET_PX);
+    }
+    expect(
+      viewsMarkup(layout([contact(0, [1, 2, 3])]), THEME, "sans-serif").match(/data-view-frame/g),
+    ).toHaveLength(3);
   });
 
   it("are placed at the four sides of each view and written into the markup", () => {
