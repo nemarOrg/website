@@ -13,6 +13,7 @@ import {
   type Views2dContact,
   layoutViews,
   parseViewOutlines,
+  viewEnds,
   viewsMarkup,
 } from "./views2d";
 
@@ -147,6 +148,62 @@ describe("orientation", () => {
   it("always draws a selected contact last", () => {
     const cs = [contact(0, [5, 0, 0], { selected: true }), contact(1, [-5, 0, 0])];
     for (const cell of layout(cs).cells) expect(cell.dots[cell.dots.length - 1].index).toBe(0);
+  });
+});
+
+describe("orientation letters", () => {
+  const POSITIVE = ["R", "A", "S"] as const; // the positive end of x, y, z
+  const NEGATIVE = ["L", "P", "I"] as const;
+
+  it("sit on the side of the screen where the 3D camera puts each axis's end", () => {
+    const axes = [
+      [1, 0, 0],
+      [0, 1, 0],
+      [0, 0, 1],
+    ] as const;
+    for (const name of VIEW_NAMES) {
+      const cam = createCamera();
+      setPreset(cam, name);
+      const o = project(cam, [0, 0, 0], 800, 800);
+      const ends = viewEnds(name);
+      for (const axis of [0, 1, 2] as const) {
+        const [px, py] = project(cam, axes[axis], 800, 800);
+        const dx = Math.round((px - o[0]) * 1000) / 1000;
+        const dy = Math.round((py - o[1]) * 1000) / 1000;
+        if (dx !== 0) {
+          expect(dx > 0 ? ends.right : ends.left, `${name} +${axis}`).toBe(POSITIVE[axis]);
+          expect(dx > 0 ? ends.left : ends.right, `${name} -${axis}`).toBe(NEGATIVE[axis]);
+        }
+        if (dy !== 0) {
+          expect(dy < 0 ? ends.top : ends.bottom, `${name} +${axis}`).toBe(POSITIVE[axis]);
+          expect(dy < 0 ? ends.bottom : ends.top, `${name} -${axis}`).toBe(NEGATIVE[axis]);
+        }
+      }
+    }
+  });
+
+  it("are the known letters for RAS: A and P with S and I on the left view, and so on", () => {
+    expect(viewEnds("left")).toEqual({ left: "A", right: "P", top: "S", bottom: "I" });
+    expect(viewEnds("top")).toEqual({ left: "L", right: "R", top: "A", bottom: "P" });
+    expect(viewEnds("front")).toEqual({ left: "R", right: "L", top: "S", bottom: "I" });
+  });
+
+  it("are placed at the four sides of each view and written into the markup", () => {
+    const views = layout([contact(0, [1, 2, 3])]);
+    for (const cell of views.cells) {
+      const [left, right, top, bottom] = cell.letters;
+      expect(left.x).toBeLessThan(cell.box.x + cell.box.width / 2);
+      expect(right.x).toBeGreaterThan(cell.box.x + cell.box.width / 2);
+      expect(top.y).toBeLessThan(bottom.y);
+      expect(cell.letters.map((l) => l.text)).toEqual([
+        viewEnds(cell.name).left,
+        viewEnds(cell.name).right,
+        viewEnds(cell.name).top,
+        viewEnds(cell.name).bottom,
+      ]);
+    }
+    const markup = viewsMarkup(views, THEME, "sans-serif");
+    expect(markup.match(/data-orientation="/g)).toHaveLength(12);
   });
 });
 
@@ -340,6 +397,15 @@ describe("template outlines", () => {
 describe("markup", () => {
   it("says how the axes are read, once, in one place", () => {
     expect(VIEWS_SENTENCE).toContain("right, anterior and superior");
+  });
+
+  it("removes the control characters XML cannot hold from titles and view text", () => {
+    const cs = [contact(0, [1, 2, 3], { title: "A\u0001B\u000BC\u0009D\u000AE" })];
+    const markup = viewsMarkup(layout(cs), THEME, "sans-serif");
+    // Tab and newline are legal XML and stay; U+0001 and U+000B go.
+    expect(markup).toContain("<title>ABC\tD\nE</title>");
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to find them
+    expect(markup).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
   });
 
   it("escapes what the dataset wrote into a title", () => {

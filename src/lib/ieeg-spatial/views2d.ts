@@ -47,6 +47,37 @@ export const VIEW_DEFS: Record<ViewName, ViewDef> = {
   front: { title: "Front", h: 0, v: 2, hSign: -1, depth: 1, nearSign: 1 },
 };
 
+/** The two ends of each world axis, negative then positive: right-anterior-superior. */
+const AXIS_ENDS: Record<0 | 1 | 2, readonly [string, string]> = {
+  0: ["L", "R"],
+  1: ["P", "A"],
+  2: ["I", "S"],
+};
+
+export interface ViewEnds {
+  left: string;
+  right: string;
+  top: string;
+  bottom: string;
+}
+
+/**
+ * The orientation letters of a view, from its definition alone: the end of each axis that lies on
+ * each side of the screen (R and L for x, A and P for y, S and I for z). A test checks them
+ * against the 3D camera's own projection.
+ */
+export function viewEnds(name: ViewName): ViewEnds {
+  const def = VIEW_DEFS[name];
+  const [hNeg, hPos] = AXIS_ENDS[def.h];
+  const [vNeg, vPos] = AXIS_ENDS[def.v];
+  return {
+    left: def.hSign > 0 ? hNeg : hPos,
+    right: def.hSign > 0 ? hPos : hNeg,
+    top: vPos,
+    bottom: vNeg,
+  };
+}
+
 /** The sentence that says how the axes are read; shown with the views, live and exported. */
 export const VIEWS_SENTENCE =
   "Left, top and front views read the file's x, y and z as right, anterior and superior, as the 3D view does.";
@@ -154,9 +185,18 @@ export interface Dot {
   title: string;
 }
 
+export interface ViewLetter {
+  text: string;
+  x: number;
+  y: number;
+  anchor: "start" | "middle" | "end";
+}
+
 export interface ViewCell {
   name: ViewName;
   title: string;
+  /** Orientation letters at the four sides of the drawing, in the same pixels as the dots. */
+  letters: ViewLetter[];
   /** The view's own box, in the same pixels as the dots. */
   box: Region;
   /** An SVG path (closed subpaths, fill with the even-odd rule) or null when no template is drawn. */
@@ -272,7 +312,17 @@ export function layoutViews(input: Views2dInput): Views2d {
       .sort((a, b) => Number(a.dot.selected) - Number(b.dot.selected) || a.near - b.near)
       .map((d) => d.dot);
 
-    return { name, title: VIEW_DEFS[name].title, box, outlinePath, dots };
+    const ends = viewEnds(name);
+    const midY = box.y + TITLE_PX + PAD_PX + innerH / 2 + 3;
+    const midX = box.x + cellW / 2;
+    const letters: ViewLetter[] = [
+      { text: ends.left, x: r2(box.x + 3), y: r2(midY), anchor: "start" },
+      { text: ends.right, x: r2(box.x + cellW - 3), y: r2(midY), anchor: "end" },
+      { text: ends.top, x: r2(midX), y: r2(box.y + TITLE_PX + 8), anchor: "middle" },
+      { text: ends.bottom, x: r2(midX), y: r2(box.y + cellH - 2), anchor: "middle" },
+    ];
+
+    return { name, title: VIEW_DEFS[name].title, letters, box, outlinePath, dots };
   });
 
   return { region, cells, drawn: located.length };
@@ -289,8 +339,14 @@ export interface ViewsTheme {
   border: string;
 }
 
+/** The control characters XML 1.0 cannot hold; a contact name from a file may carry one. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to remove them
+const XML_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
+
+/** Text or an attribute value made safe for XML: forbidden control characters removed, then escaped. */
 export function escapeXml(s: string): string {
   return s
+    .replace(XML_CONTROL, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -309,6 +365,11 @@ export function viewsMarkup(views: Views2d, theme: ViewsTheme, font: string): st
         `<g id="view-${cell.name}" data-view="${cell.name}">`,
         `<text x="${r2(cell.box.x + PAD_PX)}" y="${r2(cell.box.y + 13)}" font-family="${escapeXml(font)}" font-size="12" font-weight="600" fill="${escapeXml(theme.foreground)}">${escapeXml(cell.title)}</text>`,
       ];
+      for (const l of cell.letters) {
+        parts.push(
+          `<text data-orientation="${escapeXml(l.text)}" x="${l.x}" y="${l.y}" text-anchor="${l.anchor}" font-family="${escapeXml(font)}" font-size="10" fill="${escapeXml(theme.muted)}">${escapeXml(l.text)}</text>`,
+        );
+      }
       if (cell.outlinePath) {
         parts.push(
           `<path data-template-outline="" d="${cell.outlinePath}" fill="${escapeXml(theme.muted)}" fill-opacity="0.12" fill-rule="evenodd" stroke="${escapeXml(theme.muted)}" stroke-width="1" stroke-linejoin="round"/>`,
