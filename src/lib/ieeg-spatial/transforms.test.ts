@@ -307,6 +307,24 @@ describe("the registry", () => {
     expect(LANCASTER).toMatch(/the pooled Eq\. \(3\) is not\s+in this table/);
   });
 
+  it("IXI549Space is the one placed row that says its relation to MNI152 is not stated, and the appendix bears that out", () => {
+    const ixi = rule("IXI549Space");
+    expect(ixi.kind).toBe("variant");
+    expect(ixi.approximation).toBe(VARIANT_APPROXIMATION);
+    expect(ixi.source).toMatch(/ICBM MNI 452/);
+    expect(ixi.source).toMatch(/not to an MNI152 template/);
+    expect(ixi.source).toMatch(/documented exception/);
+    for (const r of RULES) {
+      if (r.identifier !== "IXI549Space") expect(r.source, r.identifier).not.toMatch(/exception/);
+    }
+    // the appendix's own words: IXI549 is linearly transformed to ICBM MNI 452, no MNI152 mentioned
+    const line = APPENDIX.split("\n").find((l) => l.startsWith("| IXI549Space ")) ?? "";
+    expect(line).toContain("linearly transformed to ICBM MNI 452");
+    expect(line).not.toMatch(/MNI152/);
+    // ICBM452 itself is pending, which is why the relation does not reach the surface frame
+    expect(PENDING_TEMPLATES.has("ICBM452AirSpace")).toBe(true);
+  });
+
   it("a template frame is placed by its canonical identifier, whatever the spelling of the file", () => {
     for (const declared of ["MNI152NLin6Asym", "mni152nlin6asym", "MNI152NLin6ASym"]) {
       const frame = classifyFrame(declared, null, null);

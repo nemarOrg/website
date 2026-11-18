@@ -152,9 +152,10 @@ export const TALAIRACH_TO_MNI: Affine = invertAffine(MNI_TO_TALAIRACH);
  * pending entry in `pending-templates.ts`; never both, never neither):
  *
  * 1. Source. A primary source (the template's own documentation, the paper that defines it, or
- *    the software's manual) that states the relation of the family's frame to the surface frame,
- *    MNI152NLin2009cAsym: an identity relation in words, or a numeric matrix. Do not infer a
- *    relation from names, brain size or "looks like MNI".
+ *    the software's manual) that states the relation of the family's frame to an MNI152 template
+ *    or to the surface frame, MNI152NLin2009cAsym: an identity relation in words, or a numeric
+ *    matrix. Do not infer a relation from names, brain size or "looks like MNI". The one
+ *    documented exception to this policy is IXI549Space (see `IXI_SOURCE`).
  * 2. Worked example. The source must print an input point and its output (a matrix with no pair
  *    does not qualify; an identity relation's pair is the point itself). No pair, no row: leave
  *    the entry pending and say in `needed` which pair would settle it.
@@ -213,6 +214,15 @@ export const MNI_VARIANTS = [
 
 const VARIANT_SOURCE =
   "BIDS coordinate-systems appendix, standard template identifiers: an MNI-space template, taken as the surface's frame unchanged";
+// IXI549Space is the one documented exception to the policy that a placed row needs a stated
+// relation to the MNI152 frame. The BIDS appendix says it is the average of 549 IXI subjects
+// "linearly transformed to ICBM MNI 452": a relation to ICBM452 (itself pending, with no stated
+// relation to MNI152), not to an MNI152 template. The row stays identity, labeled approximate,
+// because the card (ADR 0033, Q4 A) placed it. A primary source stating IXI549Space's relation to
+// an MNI152 template, with a worked point pair, would settle it; absent that it is a candidate to
+// move to `pending-templates.ts`.
+const IXI_SOURCE =
+  "BIDS coordinate-systems appendix: IXI549Space is linearly transformed to ICBM MNI 452, a relation to ICBM452 (pending), not to an MNI152 template; kept as identity by the card's decision, a documented exception";
 const MNI305_SOURCE =
   "FreeSurfer CoordinateSystems documentation, item 8 (MNI305 to MNI152), matrix and worked example";
 // A group-level bias model fitted on SPM2 and FSL data. Table V's landmark disparities, at best 0.5
@@ -248,7 +258,15 @@ export const TEMPLATE_PLACEMENTS: ReadonlyMap<StandardTemplate, TemplatePlacemen
     null,
     "The vendored surface's own frame (public/vendor/brain-templates provenance.json)",
   ),
-  ...MNI_VARIANTS.map((id) => row(id, "variant", IDENTITY, VARIANT_APPROXIMATION, VARIANT_SOURCE)),
+  ...MNI_VARIANTS.map((id) =>
+    row(
+      id,
+      "variant",
+      IDENTITY,
+      VARIANT_APPROXIMATION,
+      id === "IXI549Space" ? IXI_SOURCE : VARIANT_SOURCE,
+    ),
+  ),
   row("MNI305", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, MNI305_SOURCE),
   row("fsaverage", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, MNI305_SOURCE),
   row("fsaverageSym", "affine", MNI305_TO_MNI152, MNI305_APPROXIMATION, FSAVERAGESYM_SOURCE),
