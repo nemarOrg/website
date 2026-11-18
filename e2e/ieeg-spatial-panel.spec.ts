@@ -166,6 +166,15 @@ async function inkShare(page: Page): Promise<number> {
   }, png.toString("base64"));
 }
 
+/**
+ * What `inkShare` separates. Measured in headless Chromium: with the surface 0.166 to 0.170 on
+ * four datasets (on005522, nm000454, nm000485, nm000376); contacts only 0.045 for the densest
+ * native-frame case (nm000355, 152 contacts). The bounds sit in between, at twice the contacts-only
+ * value and at three quarters of the lowest surface value.
+ */
+const MESH_INK_MIN = 0.12;
+const CONTACTS_INK_MAX = 0.09;
+
 /** Requests for the vendored template surface, from now on. */
 function watchMeshRequests(page: Page): string[] {
   const urls: string[] = [];
@@ -344,7 +353,7 @@ test("on005522: the template brain is drawn behind the contacts, labeled, and fe
   // The brain covers a large part of the canvas, and the contacts are still on it.
   const share = await inkShare(page);
   test.info().annotations.push({ type: "ink-share-with-template", description: share.toFixed(3) });
-  expect(share).toBeGreaterThan(0.15);
+  expect(share).toBeGreaterThan(MESH_INK_MIN);
   expect((await canvasColors(page)).saturated).toBeGreaterThan(50);
   await expectCredit(page);
 
@@ -371,7 +380,7 @@ test("nm000355 is in ACPC: no brain, no mesh request, and the panel says there i
   // Contacts only: small spheres, nothing like a brain's footprint.
   const share = await inkShare(page);
   test.info().annotations.push({ type: "ink-share-contacts-only", description: share.toFixed(3) });
-  expect(share).toBeLessThan(0.05);
+  expect(share).toBeLessThan(CONTACTS_INK_MAX);
   expect((await canvasColors(page)).saturated).toBeGreaterThan(20);
   await page.waitForTimeout(1000);
   expect(meshRequests).toEqual([]);
@@ -421,7 +430,7 @@ for (const c of PLACED_FRAMES) {
     );
     const share = await inkShare(page);
     test.info().annotations.push({ type: `ink-share-${c.frame}`, description: share.toFixed(3) });
-    if (c.brain) expect(share).toBeGreaterThan(0.15);
+    if (c.brain) expect(share).toBeGreaterThan(MESH_INK_MIN);
     expect(meshRequests).toHaveLength(2);
     await expectCredit(page);
   });
@@ -444,7 +453,7 @@ test("a failed mesh fetch leaves the contacts, says so without a label, and a re
   // The contacts are still there, in the declared frame, with no brain behind them.
   await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "canvas");
   expect((await canvasColors(page)).saturated).toBeGreaterThan(50);
-  expect(await inkShare(page)).toBeLessThan(0.05);
+  expect(await inkShare(page)).toBeLessThan(CONTACTS_INK_MAX);
   await expectCredit(page);
 
   failing = false;
@@ -457,7 +466,7 @@ test("a failed mesh fetch leaves the contacts, says so without a label, and a re
   await expect(page.locator(TEMPLATE_LABEL_LINE)).toContainText(
     "Template brain (MNI152NLin2009cAsym)",
   );
-  expect(await inkShare(page)).toBeGreaterThan(0.15);
+  expect(await inkShare(page)).toBeGreaterThan(MESH_INK_MIN);
 });
 
 test("on005522: the credit link is what credit.ts declares and Tab reaches it", async ({
