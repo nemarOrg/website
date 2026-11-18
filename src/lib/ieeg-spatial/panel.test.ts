@@ -31,7 +31,9 @@ import {
   type PanelEffect,
   type PanelEvent,
   type PanelState,
+  READ_SLICE_CHANNELS,
   type RecordingRef,
+  SLICE_SAMPLE_CAP,
   TRANSIENT_REASONS,
   WEBGL_SENTENCE,
   abortableSleep,
@@ -46,9 +48,10 @@ import {
   initialState,
   needsAnotherTry,
   positionWarnings,
-  readRuns,
+  readSpans,
   reduce,
   resolveWithRetries,
+  sliceRowCount,
   templateRuleOf,
   unitsSentence,
   unlocatedNotes,
@@ -443,18 +446,53 @@ describe("the read bound", () => {
     expect(activitySamples(3, 5, 5, 500)).toBe(3);
   });
 
-  it("splits located rows into short consecutive runs", () => {
-    expect(readRuns([], 16)).toEqual([]);
-    expect(readRuns([0, 1, 2, 5, 6, 9], 16)).toEqual([
-      [0, 3],
-      [5, 7],
-      [9, 10],
+  it("reads the located rows once: one span from the first to the last row, split only at the sample bound", () => {
+    expect(readSpans([], 2000, MAX_ACTIVITY_SAMPLES)).toEqual([]);
+    // Located rows that are not neighbors still make one read: the span between them is read once.
+    expect(readSpans([0, 1, 2, 5, 6, 9], 10_000, MAX_ACTIVITY_SAMPLES)).toEqual([
+      { start: 0, end: 10, rows: [0, 1, 2, 5, 6, 9] },
     ]);
-    expect(readRuns([0, 1, 2, 3, 4], 2)).toEqual([
-      [0, 2],
-      [2, 4],
-      [4, 5],
+    // A span past the bound is cut before the row that would pass it, never inside a row.
+    expect(readSpans([0, 1, 2, 3, 4], 1000, 2500)).toEqual([
+      { start: 0, end: 2, rows: [0, 1] },
+      { start: 2, end: 4, rows: [2, 3] },
+      { start: 4, end: 5, rows: [4] },
     ]);
+    expect(readSpans([0, 40], 1000, 2500)).toEqual([
+      { start: 0, end: 1, rows: [0] },
+      { start: 40, end: 41, rows: [40] },
+    ]);
+    // One row longer than the bound is still read, alone.
+    expect(readSpans([3, 4], 5_000_000, MAX_ACTIVITY_SAMPLES)).toEqual([
+      { start: 3, end: 4, rows: [3] },
+      { start: 4, end: 5, rows: [4] },
+    ]);
+  });
+
+  it("never reads more than the bound in one call, however sparse the located rows are", () => {
+    for (const perChannel of [1000, 20_000, 250_000, 1_000_000]) {
+      const rows = [0, 3, 90, 91, 400];
+      for (const span of readSpans(rows, perChannel, MAX_ACTIVITY_SAMPLES)) {
+        const samples = (span.end - span.start) * perChannel;
+        expect(samples <= MAX_ACTIVITY_SAMPLES || span.end - span.start === 1).toBe(true);
+      }
+    }
+  });
+
+  it("slices by samples as well as channels: at most 16 channels and at most the sample cap", () => {
+    expect(READ_SLICE_CHANNELS).toBe(16);
+    expect(SLICE_SAMPLE_CAP).toBe(1_000_000);
+    // A 10 s window at 1 kHz: 16 channels (160,000 samples) are far under the cap.
+    expect(sliceRowCount(10_000)).toBe(16);
+    // 62,500 samples per channel is exactly 16 channels at the cap; past it the slice shrinks.
+    expect(sliceRowCount(62_500)).toBe(16);
+    expect(sliceRowCount(62_501)).toBe(15);
+    expect(sliceRowCount(250_000)).toBe(4);
+    // One channel is the floor: it cannot be cut, whatever its window holds.
+    expect(sliceRowCount(1_000_001)).toBe(1);
+    expect(sliceRowCount(4_000_000)).toBe(1);
+    expect(sliceRowCount(10_000, 5)).toBe(5);
+    expect(sliceRowCount(10_000, 16, 50_000)).toBe(5);
   });
 
   it("refuses a band the rate cannot carry, and a window too short, before reading", () => {
@@ -1345,7 +1383,7 @@ const sliceGroup = {
 const noYield = { yieldTask: async () => {} };
 
 describe("computing a plan in slices", () => {
-  it("slicing does not change the values, and reads only the rows it is asked for", async () => {
+  it("slicing does not change the values, and the window is read once", async () => {
     const asked: [number, number][] = [];
     const sliced = await computeActivityPlan(
       slicePlan,
@@ -1356,11 +1394,8 @@ describe("computing a plan in slices", () => {
       },
       { ...noYield, sliceChannels: 5 },
     );
-    expect(asked).toEqual([
-      [0, 5],
-      [5, 10],
-      [10, 14],
-    ]);
+    // One read for the whole window, computed in three slices of at most five channels.
+    expect(asked).toEqual([[0, 14]]);
     const whole = await computeActivityPlan(
       slicePlan,
       sliceGroup,
@@ -1393,6 +1428,94 @@ describe("computing a plan in slices", () => {
     );
   });
 
+  it("reads only once for rows that are not neighbors, and computes only the located ones", async () => {
+    const rows = [0, 1, 2, 3, 10, 11];
+    const asked: [number, number][] = [];
+    const outcome = await computeActivityPlan(
+      { ...slicePlan, rows },
+      sliceGroup,
+      async (r0, r1) => {
+        asked.push([r0, r1]);
+        return fixtureRows(r0, r1);
+      },
+      { ...noYield, sliceChannels: 4 },
+    );
+    expect(asked).toEqual([[0, 12]]);
+    expect(outcome?.ok).toBe(true);
+    if (!outcome?.ok) return;
+    // The rows the span covered but the plan did not name have no value.
+    outcome.report.channels.forEach((c, row) => {
+      expect(c === null).toBe(!rows.includes(row));
+    });
+    // And the located ones equal what a read of exactly those rows gives.
+    const direct = computeActivity({
+      channels: rows.map((row) => ({
+        label: activitySources.slice.channel_labels[row],
+        samples: sliceSamples.slice(row * SLICE_COLS, (row + 1) * SLICE_COLS),
+        nativeRateHz: 1000,
+      })),
+      rateHz: 1000,
+      unit: "V",
+      metric: "rms",
+      displayUnit: "µV",
+    });
+    expect(direct.ok).toBe(true);
+    if (!direct.ok) return;
+    expect(rows.map((row) => outcome.report.channels[row]?.value)).toEqual(
+      direct.channels.map((c) => c.value),
+    );
+  });
+
+  it("yields to the page after the read and after every slice, so decoding and computing never share a task", async () => {
+    const events: string[] = [];
+    await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        events.push(`read ${r0}-${r1}`);
+        return fixtureRows(r0, r1);
+      },
+      {
+        sliceChannels: 5,
+        yieldTask: async () => {
+          events.push("yield");
+        },
+      },
+    );
+    // 14 rows in slices of 5, 5 and 4: one yield after the read, one after each slice.
+    expect(events).toEqual(["read 0-14", "yield", "yield", "yield", "yield"]);
+  });
+
+  it("caps the samples of a slice: a long window is computed in smaller slices, whatever the channel cap says", async () => {
+    // 2,000 samples per channel with a 5,000-sample cap: two channels per slice.
+    const events: string[] = [];
+    const outcome = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        events.push(`read ${r0}-${r1}`);
+        return fixtureRows(r0, r1);
+      },
+      {
+        sliceChannels: 16,
+        sliceSamples: 5_000,
+        yieldTask: async () => {
+          events.push("yield");
+        },
+      },
+    );
+    expect(events.filter((e) => e === "yield")).toHaveLength(1 + 7);
+    expect(outcome?.ok).toBe(true);
+    // The default cap leaves a 14-channel, 2,000-sample window in one slice.
+    const one: string[] = [];
+    await computeActivityPlan(slicePlan, sliceGroup, async (r0, r1) => fixtureRows(r0, r1), {
+      yieldTask: async () => {
+        one.push("yield");
+      },
+    });
+    expect(one).toHaveLength(2);
+  });
+
   it("refuses when a later slice's channels have another unit than the first's", async () => {
     // Seven channels in microvolts, then seven in femtotesla: one color scale cannot span them.
     const units = sliceGroup.labels.map((_, i) => (i < 7 ? "uV" : "fT"));
@@ -1406,7 +1529,8 @@ describe("computing a plan in slices", () => {
       },
       { ...noYield, sliceChannels: 7 },
     );
-    expect(reads).toBe(2);
+    // One read of the window; the second slice is where the unit changes.
+    expect(reads).toBe(1);
     expect(outcome).toEqual({ ok: false, reason: "mixed_units" });
     expect(ACTIVITY_SENTENCES.mixed_units(1000)).toBe(
       "Activity cannot be computed: this recording's channels mix voltage and field units.",

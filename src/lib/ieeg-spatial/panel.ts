@@ -13,8 +13,8 @@
  *    DOM half draws. The credit is a field of the model in every state, so no state can leave it
  *    out. Both are covered by `panel.test.ts` without a DOM.
  * 2. `createSpatialPanel`, the DOM half: it runs the effects (resolve the dataset's sidecars,
- *    read level-0 samples in small slices, drive the renderer) and paints the model. It holds no
- *    decisions of its own.
+ *    read level-0 samples once per window and compute them in slices, drive the renderer) and
+ *    paints the model. It holds no decisions of its own.
  *
  * What it never does:
  * - It draws only the frames `geometry.ts` offered. Anatomy appears only behind a standard
@@ -138,8 +138,16 @@ import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } fr
 
 /** The most samples one activity computation reads: window samples times channels read. */
 export const MAX_ACTIVITY_SAMPLES = 4_000_000;
-/** Channels read and computed per slice, so one slice stays well under a 200 ms long task. */
+/** Channels computed per slice, at most, so one slice stays well under a 200 ms long task. */
 export const READ_SLICE_CHANNELS = 16;
+/**
+ * Samples computed per slice, at most: rows times a window's samples. A long window shrinks the
+ * slice below `READ_SLICE_CHANNELS` channels (one channel is the floor, since a channel cannot be
+ * cut). Measured in headless Chromium 148 (IS-Q2, no tracing, one band-power call): 1.5 ms for
+ * 81,920 samples, 8.4 ms for 500,000 and 68 ms for 4,000,000, so this cap's 1,000,000 samples
+ * is about 17 ms by linear interpolation (not measured at that size), against a 200 ms budget.
+ */
+export const SLICE_SAMPLE_CAP = 1_000_000;
 /** Wait for the window to settle before reading, so a scroll does not start a read per frame. */
 export const ACTIVITY_DEBOUNCE_MS = 150;
 /** Give the sidecar reads, retries included, this long before offering Retry. */
@@ -593,15 +601,45 @@ export function activitySamples(
   return rows * perChannel;
 }
 
-/** Consecutive row runs of at most `maxLen` rows, from a sorted list of distinct rows. */
-export function readRuns(rows: readonly number[], maxLen: number): [number, number][] {
-  const runs: [number, number][] = [];
+/** How many located channels one slice holds: at most `maxRows`, and at most `cap` samples, never fewer than one. */
+export function sliceRowCount(
+  perChannelSamples: number,
+  maxRows: number = READ_SLICE_CHANNELS,
+  cap: number = SLICE_SAMPLE_CAP,
+): number {
+  return Math.max(1, Math.min(maxRows, Math.floor(cap / Math.max(1, perChannelSamples))));
+}
+
+/** One read of the store: rows `[start, end)`, of which `rows` are the located ones to compute. */
+export interface ReadSpan {
+  start: number;
+  end: number;
+  rows: number[];
+}
+
+/**
+ * The reads that fetch a plan's located rows: one span from the first row to the last, so each
+ * chunk of the store is fetched once for the window (a chunk holds many channels, and a read per
+ * slice fetched the same chunks again for every slice). A span is cut before the row that would
+ * take it past `maxSamples` (rows times `perChannelSamples`), never inside a row, which also keeps
+ * the rows read between located ones from outgrowing the bound. `rows` is sorted and distinct.
+ */
+export function readSpans(
+  rows: readonly number[],
+  perChannelSamples: number,
+  maxSamples: number,
+): ReadSpan[] {
+  const spans: ReadSpan[] = [];
   for (const row of rows) {
-    const last = runs[runs.length - 1];
-    if (last && last[1] === row && last[1] - last[0] < maxLen) last[1] = row + 1;
-    else runs.push([row, row + 1]);
+    const last = spans[spans.length - 1];
+    if (last && (row + 1 - last.start) * perChannelSamples <= maxSamples) {
+      last.end = row + 1;
+      last.rows.push(row);
+    } else {
+      spans.push({ start: row, end: row + 1, rows: [row] });
+    }
   }
-  return runs;
+  return spans;
 }
 
 export interface ActivityPlan {
@@ -1878,10 +1916,12 @@ export type PlanOutcome =
   | { ok: false; reason: ActivityFailure };
 
 /**
- * Read and compute one plan in slices of at most `sliceChannels` consecutive located channels
- * (so no slice is a long task), yielding between slices. `readRows` returns the level-0 window of
- * rows `[r0, r1)`. Returns null when `signal` aborted, a failure word when IS-M1 refuses a slice
- * or the slices disagree about the unit (voltage in one, field in another: one color scale
+ * Read and compute one plan. The located rows are read once for the window (`readSpans`; `readRows`
+ * returns the level-0 window of rows `[r0, r1)`), so no chunk of the store is fetched twice, and
+ * then computed in slices of at most `sliceChannels` channels and `sliceSamples` samples, yielding
+ * to the page after the read and after every slice, so decoding and computing never share a task
+ * and no slice is a long one. Returns null when `signal` aborted, a failure word when IS-M1 refuses
+ * a slice or the slices disagree about the unit (voltage in one, field in another: one color scale
  * cannot span them), and otherwise one report whose summary fields come from the first slice (the
  * rate and window are the same for all). A rejected `readRows` rejects this.
  */
@@ -1892,41 +1932,63 @@ export async function computeActivityPlan(
   options: {
     signal?: AbortSignal;
     sliceChannels?: number;
+    sliceSamples?: number;
+    /** The most samples one call of `readRows` may ask for. */
+    readSamples?: number;
     yieldTask?: () => Promise<void>;
   } = {},
 ): Promise<PlanOutcome | null> {
-  const { signal, sliceChannels = READ_SLICE_CHANNELS, yieldTask = nextTask } = options;
+  const {
+    signal,
+    sliceChannels = READ_SLICE_CHANNELS,
+    sliceSamples = SLICE_SAMPLE_CAP,
+    readSamples = MAX_ACTIVITY_SAMPLES,
+    yieldTask = nextTask,
+  } = options;
   const perRow: (ChannelActivity | null)[] = new Array(group.labels.length).fill(null);
   let first: ActivityResult | null = null;
   let firstUnit: "V" | "T" | null = null;
-  for (const [r0, r1] of readRuns(plan.rows, sliceChannels)) {
+  const perChannel = activitySamples(1, plan.startS, plan.endS, plan.rateHz);
+  const sliceSize = sliceRowCount(perChannel, sliceChannels, sliceSamples);
+  for (const span of readSpans(plan.rows, perChannel, readSamples)) {
     if (signal?.aborted) return null;
-    const win = await readRows(r0, r1);
+    const win = await readRows(span.start, span.end);
     if (signal?.aborted) return null;
-    const info = Array.from({ length: r1 - r0 }, (_, i) => ({
-      label: group.labels[r0 + i],
-      unit: group.units[r0 + i],
-      nativeRateHz: group.nativeRateHz ?? undefined,
-    }));
-    const adapted = activityChannelsFromWindow(win, info);
-    if (!adapted.ok) return { ok: false, reason: adapted.reason };
-    firstUnit ??= adapted.unit;
-    if (adapted.unit !== firstUnit) return { ok: false, reason: "mixed_units" };
-    const outcome = computeActivity({
-      channels: adapted.channels,
-      rateHz: plan.rateHz,
-      unit: adapted.unit,
-      metric: plan.metric,
-      band: plan.band ?? undefined,
-      relative: plan.relative,
-      displayUnit: adapted.unit === "V" ? "µV" : undefined,
-    });
-    if (!outcome.ok) return { ok: false, reason: outcome.reason };
-    outcome.channels.forEach((c, i) => {
-      perRow[r0 + i] = c;
-    });
-    first ??= outcome;
+    // The read's decoding is done; compute in a task of its own.
     await yieldTask();
+    for (let i = 0; i < span.rows.length; i += sliceSize) {
+      if (signal?.aborted) return null;
+      const rows = span.rows.slice(i, i + sliceSize);
+      const slice: WindowData = {
+        level: win.level,
+        nCols: win.nCols,
+        channels: rows.map((row) => win.channels[row - span.start]),
+      };
+      const info = rows.map((row) => ({
+        label: group.labels[row],
+        unit: group.units[row],
+        nativeRateHz: group.nativeRateHz ?? undefined,
+      }));
+      const adapted = activityChannelsFromWindow(slice, info);
+      if (!adapted.ok) return { ok: false, reason: adapted.reason };
+      firstUnit ??= adapted.unit;
+      if (adapted.unit !== firstUnit) return { ok: false, reason: "mixed_units" };
+      const outcome = computeActivity({
+        channels: adapted.channels,
+        rateHz: plan.rateHz,
+        unit: adapted.unit,
+        metric: plan.metric,
+        band: plan.band ?? undefined,
+        relative: plan.relative,
+        displayUnit: adapted.unit === "V" ? "µV" : undefined,
+      });
+      if (!outcome.ok) return { ok: false, reason: outcome.reason };
+      outcome.channels.forEach((c, k) => {
+        perRow[rows[k]] = c;
+      });
+      first ??= outcome;
+      await yieldTask();
+    }
   }
   if (signal?.aborted || !first) return null;
   return {
