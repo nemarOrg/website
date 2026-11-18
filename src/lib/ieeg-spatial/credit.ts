@@ -21,6 +21,11 @@ export const RAVE_CREDIT = Object.freeze({
   doi: "10.1016/j.neuroimage.2020.117341",
 });
 
+/** The paper's address, built once: the credit's title names the DOI, exported metadata links it. */
+export function doiUrl(): string {
+  return `https://doi.org/${RAVE_CREDIT.doi}`;
+}
+
 /** The class the live link wears; its rules live in `src/styles/eeg-viewer.css`. */
 export const CREDIT_CLASS = "eegv-credit";
 
@@ -191,7 +196,7 @@ export function creditSvg(width: number, height: number, theme: CreditTheme): st
   const textWidth = RAVE_CREDIT.text.length * CREDIT_FONT_PX * SVG_ADVANCE_EM;
   const layout = creditLayout(width, height, 1, textWidth);
   const { box } = layout;
-  const doi = `https://doi.org/${RAVE_CREDIT.doi}`;
+  const doi = doiUrl();
   return [
     `<g class="${CREDIT_CLASS}">`,
     `<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">`,

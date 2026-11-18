@@ -61,6 +61,21 @@ import {
 } from "./brain-gl";
 import { type CreditLinkSpec, creditLink, creditLinkSpec } from "./credit";
 import {
+  type ExportFile,
+  type ExportInput,
+  FIGURE_FONT,
+  type FigureTheme,
+  type TemplatePlacement,
+  downloadFailedSentence,
+  downloadFile,
+  exportPng,
+  exportSvg,
+  figureLabels,
+  recordedLocation,
+  templateLocation,
+  viewContacts,
+} from "./export";
+import {
   type ChannelJoin,
   type Frame,
   type GeometryReason,
@@ -75,6 +90,7 @@ import {
 } from "./geometry";
 import { isIeegModality } from "./layout";
 import {
+  TEMPLATE_DIRECTORY,
   TEMPLATE_FAILED_SENTENCE,
   TEMPLATE_LICENSE_HREF,
   TEMPLATE_LOADING_SENTENCE,
@@ -87,6 +103,7 @@ import {
   placementRuleFor,
   templateLabel,
 } from "./transforms";
+import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -108,6 +125,9 @@ export const GEOMETRY_TIMEOUT_MS = 30_000;
 export const RETRY_DELAYS_MS: readonly number[] = [300, 800, 1600];
 /** Drawn contacts spread wider than this (millimeters, declared units) get a warning: a head is about 200. */
 export const SPAN_WARNING_MM = 250;
+/** The 2D views' drawing box in the panel (CSS pixels at a 1:1 view box; the SVG scales to the stage). */
+const VIEWS_WIDTH = 340;
+const VIEWS_HEIGHT = 330;
 /** Unselected contacts are drawn this opaque while a selection exists. */
 const DIM_ALPHA = 0.3;
 // ---------------------------------------------------------------------------
@@ -135,6 +155,7 @@ function isTransient(reason: GeometryReason | null): boolean {
 }
 
 export const WEBGL_SENTENCE = "3D view needs WebGL2";
+const VIEW_SWITCH_TITLE = "Show the contacts in three flat views (left, top, front) instead of 3D";
 export const LOADING_SENTENCE = "Looking for electrode positions...";
 export const NO_MATCH_SENTENCE =
   "None of this recording's channels match a contact in the electrodes file.";
@@ -605,10 +626,14 @@ export interface PanelState {
   placement: Placement | null;
   open: boolean;
   webgl: boolean;
+  /** The reader asked for the three 2D views instead of the 3D canvas (IS-V3). */
+  view2d: boolean;
   selection: Selection;
   window: WindowSpan | null;
   activity: ActivityState;
   template: TemplateStatus;
+  /** The template outlines of the 2D views and the SVG (IS-V3): the same states, for `views.json`. */
+  outlines: TemplateStatus;
   disposed: boolean;
 }
 
@@ -635,10 +660,12 @@ export function initialState(): PanelState {
     placement: null,
     open: false,
     webgl: true,
+    view2d: false,
     selection: NO_SELECTION,
     window: null,
     activity: idleActivity(),
     template: "idle",
+    outlines: "idle",
     disposed: false,
   };
 }
@@ -650,6 +677,7 @@ export type PanelEvent =
   | { type: "retry" }
   | { type: "toggle_open"; open?: boolean }
   | { type: "webgl_unavailable" }
+  | { type: "view_changed"; view2d: boolean }
   | { type: "frame_changed"; spaceIndex: number }
   | { type: "select_contact"; contact: number | null; toggle?: boolean }
   | { type: "select_channel"; label: string | null }
@@ -661,6 +689,9 @@ export type PanelEvent =
   /** The DOM half holds the decoded surface. */
   | { type: "template_loaded" }
   | { type: "template_failed" }
+  /** The DOM half holds the parsed outlines of `views.json` (IS-V3). */
+  | { type: "outlines_loaded" }
+  | { type: "outlines_failed" }
   | { type: "disposed" };
 
 export type PanelEffect =
@@ -670,6 +701,8 @@ export type PanelEffect =
   | { type: "abort_activity" }
   /** Fetch the template surface, once a canvas exists to draw it on. Never emitted for another frame. */
   | { type: "load_template" }
+  /** Fetch the template outlines of the 2D views, once, for a registered frame with the panel open (IS-V3). */
+  | { type: "load_outlines" }
   /** Highlight this channel's trace in the scope; null clears the highlight. */
   | { type: "select_trace"; label: string | null };
 
@@ -778,7 +811,9 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
         geometry: { kind: "loading" },
         geometryToken,
         webgl: state.webgl,
+        view2d: state.view2d,
         template: state.template,
+        outlines: state.outlines,
         activity: idleActivity(state.activity),
       };
       return {
@@ -870,6 +905,11 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
     case "webgl_unavailable":
       return { state: { ...state, webgl: false }, effects: [] };
 
+    case "view_changed":
+      return event.view2d === state.view2d
+        ? same(state)
+        : { state: { ...state, view2d: event.view2d }, effects: [] };
+
     case "frame_changed": {
       if (state.geometry.kind !== "ready" || !state.geometry.geometry.spaces[event.spaceIndex]) {
         return same(state);
@@ -960,6 +1000,8 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
 
     case "template_loaded":
     case "template_failed":
+    case "outlines_loaded":
+    case "outlines_failed":
       // Decided by `reduce`, which owns the template's status.
       return same(state);
 
@@ -1003,6 +1045,28 @@ export function drawnTemplate(state: PanelState): TemplatePlacementRule | null {
 }
 
 /**
+ * The outlines of `views.json` are wanted only while the panel is open on a registered frame and
+ * contacts are drawn (3D, 2D or without WebGL2: the SVG export is always the 2D views). No other
+ * frame, no EEG recording and no closed panel ever asks for them.
+ */
+function wantsOutlines(state: PanelState): boolean {
+  if (!state.open || templateRuleOf(state) === null) return false;
+  const kind = stageModel(state, DEFAULT_LIMITS).kind;
+  return kind === "canvas" || kind === "views2d" || kind === "no_webgl";
+}
+
+/**
+ * The row under which the stage draws a template right now: the surface (3D) or the outlines (the
+ * 2D views) must have arrived. Null while loading, after a failure, and for every frame without a
+ * row, which are drawn as declared.
+ */
+export function placedRule(state: PanelState, stage: StageModel): TemplatePlacementRule | null {
+  const status = stage.kind === "canvas" ? state.template : state.outlines;
+  const drawn = stage.kind === "canvas" || stage.kind === "views2d" || stage.kind === "no_webgl";
+  return drawn && status === "ready" ? templateRuleOf(state) : null;
+}
+
+/**
  * The positions of the placed contacts as drawn, in the order of `Placement.contacts` (which is
  * the renderer's contact order): through the row's affine while the surface is drawn, as declared
  * otherwise. Nothing is snapped or projected onto the surface.
@@ -1026,6 +1090,10 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
     if (state.template !== "loading") return same(state);
     return same({ ...state, template: event.type === "template_loaded" ? "ready" : "failed" });
   }
+  if (event.type === "outlines_loaded" || event.type === "outlines_failed") {
+    if (state.outlines !== "loading") return same(state);
+    return same({ ...state, outlines: event.type === "outlines_loaded" ? "ready" : "failed" });
+  }
   const t = reduceCore(state, event);
   let next = t.state;
   const retries =
@@ -1033,16 +1101,20 @@ export function reduce(state: PanelState, event: PanelEvent): Transition {
     event.type === "recording_changed" ||
     (event.type === "toggle_open" && next.open);
   if (next.template === "failed" && retries) next = { ...next, template: "idle" };
+  if (next.outlines === "failed" && retries) next = { ...next, outlines: "idle" };
   if (next.template === "loading" && event.type === "webgl_unavailable") {
     next = { ...next, template: "idle" };
   }
+  let effects = t.effects;
   if (next.template === "idle" && wantsTemplate(next)) {
-    return {
-      state: { ...next, template: "loading" },
-      effects: [...t.effects, { type: "load_template" }],
-    };
+    next = { ...next, template: "loading" };
+    effects = [...effects, { type: "load_template" }];
   }
-  return next === t.state ? t : { state: next, effects: t.effects };
+  if (next.outlines === "idle" && wantsOutlines(next)) {
+    next = { ...next, outlines: "loading" };
+    effects = [...effects, { type: "load_outlines" }];
+  }
+  return next === t.state && effects === t.effects ? t : { state: next, effects };
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,6 +1132,9 @@ export interface ToggleModel {
 export type StageModel =
   | { kind: "loading"; sentence: string }
   | { kind: "canvas" }
+  /** The three 2D views, chosen by the reader. */
+  | { kind: "views2d" }
+  /** The three 2D views, because WebGL2 is missing; the sentence says so. */
   | { kind: "no_webgl"; sentence: string }
   | { kind: "refusal"; sentence: string; retry: boolean };
 
@@ -1075,6 +1150,8 @@ export interface ActivityModel {
   band: BandName;
   bands: { value: BandName; label: string; disabled: boolean }[];
   showBand: boolean;
+  /** Which measure and band the values are (the selectors' own words); null while Activity is off. */
+  measure: string | null;
   /** A plain sentence for the current status, or null. */
   message: string | null;
   busy: boolean;
@@ -1091,8 +1168,25 @@ export interface ContactRow {
   /** The channel(s) the contact belongs to, when their names differ from the contact's. */
   detail: string;
   selected: boolean;
+  /** Every channel that uses the contact, by name. */
+  channels: string[];
+  /** Where the dataset recorded it, with its unit word and frame (`recordedLocation`). */
+  recorded: string;
+  /** Where the template drawing puts it, once drawn and only then (`templateLocation`); else null. */
+  template: string | null;
   /** The activity value or why there is none; null when the overlay shows nothing. */
   value: string | null;
+}
+
+/** The "2D views" switch and the save buttons, shown only while contacts are drawn. */
+export interface ViewSwitchModel {
+  /** Contacts are drawn, so the switch and the save buttons are shown. */
+  shown: boolean;
+  /** The 2D views are what the stage draws, by choice or because WebGL2 is missing. */
+  on: boolean;
+  /** False when WebGL2 is missing: 2D is the only view. */
+  enabled: boolean;
+  title: string;
 }
 
 /**
@@ -1110,12 +1204,15 @@ export type TemplateModel =
       approximate: boolean;
       reference: { text: string; href: string };
       license: { text: string; href: string };
+      /** The notice as one sentence ("Template surface: ...; ...."): the words of the links beside it. */
+      notice: string;
     };
 
 export interface PanelModel {
   toggle: ToggleModel;
   open: boolean;
   stage: StageModel;
+  view: ViewSwitchModel;
   template: TemplateModel | null;
   frames: FrameSelectorModel | null;
   /** `N of M channels located; frame: IDENTIFIER; positions as declared by the dataset`. */
@@ -1198,6 +1295,7 @@ function stageModel(state: PanelState, limits: ModelLimits): StageModel {
     };
   }
   if (!state.webgl) return { kind: "no_webgl", sentence: WEBGL_SENTENCE };
+  if (state.view2d) return { kind: "views2d" };
   return { kind: "canvas" };
 }
 
@@ -1207,14 +1305,23 @@ function statusLine(state: PanelState): string | null {
   return `${placement.located} of ${group.labels.length} channels located; frame: ${frameName(placement.space.frame)}; positions as declared by the dataset`;
 }
 
+/** What the notice under a drawn template says, in plain words; the live box links its two parts. */
+export const TEMPLATE_NOTICE_PREFIX = "Template surface: ";
+export const TEMPLATE_LICENSE_TEXT = "MNI copyright notice";
+export function templateNotice(): string {
+  return `${TEMPLATE_NOTICE_PREFIX}${TEMPLATE_REFERENCE.text}; ${TEMPLATE_LICENSE_TEXT}.`;
+}
+
 function templateModel(state: PanelState, stage: StageModel): TemplateModel | null {
-  if (stage.kind !== "canvas") return null;
+  // The 3D canvas waits on the surface; the 2D views (chosen, or for want of WebGL2) on the outlines.
+  if (stage.kind !== "canvas" && stage.kind !== "views2d" && stage.kind !== "no_webgl") return null;
   const rule = templateRuleOf(state);
   if (!rule) return null;
-  if (state.template === "failed") {
+  const status = stage.kind === "canvas" ? state.template : state.outlines;
+  if (status === "failed") {
     return { status: "failed", sentence: TEMPLATE_FAILED_SENTENCE };
   }
-  if (state.template !== "ready") {
+  if (status !== "ready") {
     return { status: "loading", sentence: TEMPLATE_LOADING_SENTENCE };
   }
   return {
@@ -1222,7 +1329,8 @@ function templateModel(state: PanelState, stage: StageModel): TemplateModel | nu
     label: templateLabel(rule),
     approximate: rule.approximation !== null,
     reference: { text: TEMPLATE_REFERENCE.text, href: TEMPLATE_REFERENCE.href },
-    license: { text: "MNI copyright notice", href: TEMPLATE_LICENSE_HREF },
+    license: { text: TEMPLATE_LICENSE_TEXT, href: TEMPLATE_LICENSE_HREF },
+    notice: templateNotice(),
   };
 }
 
@@ -1284,6 +1392,17 @@ function activitySummary(shown: ActivityShown): string {
   return `${parts.join("; ")}.`;
 }
 
+/** "Band power, relative (dB): High gamma, 70 to 150 Hz": the selectors' words, in one place. */
+function measureSentence(a: ActivityState): string {
+  const choice = ACTIVITY_CHOICES.find((c) => c.value === a.choice)?.label ?? a.choice;
+  if (a.choice !== "band_power" && a.choice !== "band_power_db") return choice;
+  return `${choice}: ${bandLabel(a.band)}`;
+}
+
+function bandLabel(band: BandName): string {
+  return `${BAND_NAMES[band]}, ${BANDS[band][0]} to ${BANDS[band][1]} Hz`;
+}
+
 function activityModel(state: PanelState): ActivityModel | null {
   const { placement, group } = state;
   if (!placement || !group) return null;
@@ -1306,10 +1425,11 @@ function activityModel(state: PanelState): ActivityModel | null {
     band: a.band,
     bands: (Object.keys(BANDS) as BandName[]).map((value) => ({
       value,
-      label: `${BAND_NAMES[value]}, ${BANDS[value][0]} to ${BANDS[value][1]} Hz`,
+      label: bandLabel(value),
       disabled: BANDS[value][1] > BAND_NYQUIST_FRACTION * group.rateHz,
     })),
     showBand: a.choice === "band_power" || a.choice === "band_power_db",
+    measure: a.on ? measureSentence(a) : null,
     message,
     busy: status.kind === "computing",
     summary: shown ? activitySummary(shown) : null,
@@ -1325,11 +1445,13 @@ function activityModel(state: PanelState): ActivityModel | null {
   };
 }
 
-function contactRows(state: PanelState): ContactRow[] {
+function contactRows(state: PanelState, stage: StageModel): ContactRow[] {
   const { placement, group } = state;
   if (!placement || !group) return [];
   const selected = new Set(state.selection.contacts);
   const shown = state.activity.shown;
+  const frameLabel = frameName(placement.space.frame);
+  const rule = placedRule(state, stage);
   return placement.contacts.map((contact, index) => {
     const names = contact.channels
       .map((row) => group.labels[row])
@@ -1350,6 +1472,11 @@ function contactRows(state: PanelState): ContactRow[] {
       name: contact.name,
       detail: names.length > 0 ? names.join(", ") : "",
       selected: selected.has(index),
+      channels: contact.channels.map((row) => group.labels[row]),
+      recorded: recordedLocation(contact.position, placement.space.units, frameLabel),
+      template: rule
+        ? templateLocation(placeOnTemplate(rule, contact.position), rule.approximation !== null)
+        : null,
       value,
     };
   });
@@ -1358,17 +1485,24 @@ function contactRows(state: PanelState): ContactRow[] {
 /** Everything the DOM half draws, from the state alone. The credit is in every model. */
 export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMITS): PanelModel {
   const stage = stageModel(state, limits);
-  const placement = stage.kind === "canvas" || stage.kind === "no_webgl" ? state.placement : null;
+  const drawn = stage.kind === "canvas" || stage.kind === "views2d" || stage.kind === "no_webgl";
+  const placement = drawn ? state.placement : null;
   return {
     toggle: toggleModel(state),
     open: state.open,
     stage,
+    view: {
+      shown: drawn,
+      on: stage.kind === "views2d" || stage.kind === "no_webgl",
+      enabled: state.webgl,
+      title: state.webgl ? VIEW_SWITCH_TITLE : WEBGL_SENTENCE,
+    },
     template: templateModel(state, stage),
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
     activity: placement ? activityModel(state) : null,
-    contacts: placement ? contactRows(state) : [],
+    contacts: placement ? contactRows(state, stage) : [],
     credit: creditLinkSpec(),
   };
 }
@@ -1404,6 +1538,35 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
     out[i * 4 + 3] = selected.size > 0 && !selected.has(i) ? DIM_ALPHA : 1;
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Seam for IS-V2 (template anatomy)
+// ---------------------------------------------------------------------------
+
+/**
+ * The seam between the template (IS-V2) and the 2D views and exports (IS-V3). A registered
+ * template placement, with the outlines of `views.json` in hand, is the template's outlines, the
+ * contact positions through the same row's affine as the 3D view, and the same words as the 3D
+ * view says (`templateLabel`, `templateNotice`); the notice's addresses ride along for the SVG's
+ * metadata. Null for every other state (a frame with no row, pending or unsupported, units not
+ * converted, outlines still loading or failed), which draws the contacts as declared with no
+ * outline and no template sentence.
+ */
+export function templatePlacementFor(
+  state: PanelState,
+  outlines: TemplateOutlines | null,
+): TemplatePlacement | null {
+  const rule = templateRuleOf(state);
+  const placement = state.placement;
+  if (!rule || !placement || !outlines || state.outlines !== "ready") return null;
+  return {
+    outlines,
+    positions: placement.contacts.map((c) => placeOnTemplate(rule, c.position)),
+    approximate: rule.approximation !== null,
+    labels: [templateLabel(rule), templateNotice()],
+    references: [TEMPLATE_REFERENCE.href, TEMPLATE_LICENSE_HREF],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1452,7 +1615,7 @@ export interface SpatialPanel {
   dispose(): void;
 }
 
-function tokens(root: HTMLElement): { theme: BrainTheme; noData: string } {
+function tokens(root: HTMLElement): { theme: BrainTheme; noData: string; border: string } {
   const cs = getComputedStyle(root);
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
   return {
@@ -1463,6 +1626,7 @@ function tokens(root: HTMLElement): { theme: BrainTheme; noData: string } {
       contact: v("--brand-electrode", "#f5b82e"),
     },
     noData: v("--color-fg-subtle", "#64748b"),
+    border: v("--color-border", "#e2e8f0"),
   };
 }
 
@@ -1594,6 +1758,36 @@ function templateSurface(): Promise<BrainMesh> {
   return surfaceLoad;
 }
 
+/** Read the template's outlines file from the same origin. */
+async function readOutlinesFile(): Promise<unknown> {
+  const res = await fetch(`${TEMPLATE_DIRECTORY}views.json`, { credentials: "same-origin" });
+  if (!res.ok) throw new Error(`views.json answered ${res.status}`);
+  return res.json();
+}
+
+/**
+ * The template's outlines (`views.json`), shared by every panel of the page and read at most once:
+ * a second panel, or a reopened one, gets the same promise. A failure is not kept, so the next ask
+ * tries again. `read` is the file's reader (the page's fetch by default).
+ */
+let outlinesLoad: Promise<TemplateOutlines> | null = null;
+export function templateOutlines(
+  read: () => Promise<unknown> = readOutlinesFile,
+): Promise<TemplateOutlines> {
+  outlinesLoad ??= read()
+    .then(parseViewOutlines)
+    .catch((err) => {
+      outlinesLoad = null;
+      throw err;
+    });
+  return outlinesLoad;
+}
+
+/** Forget the shared outlines, so a test can start from a page that has not read them. */
+export function forgetTemplateOutlines(): void {
+  outlinesLoad = null;
+}
+
 export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const { box } = host;
   let state = initialState();
@@ -1616,6 +1810,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   let templateMesh: BrainMesh | null = null;
   /** A `load_template` effect waits for a renderer: no WebGL2, no fetch. */
   let templateRequested = false;
+  /** The parsed outlines, once `load_outlines` has finished. */
+  let outlinesData: TemplateOutlines | null = null;
   let palette: ColorPalette = { neutral: [0.96, 0.72, 0.18], noData: [0.4, 0.45, 0.5] };
   let theme: BrainTheme = {
     background: "#ffffff",
@@ -1623,6 +1819,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     mesh: "#475569",
     contact: "#f5b82e",
   };
+  let figureTheme: FigureTheme = {
+    background: "#ffffff",
+    foreground: "#0f172a",
+    muted: "#475569",
+    border: "#e2e8f0",
+    contact: "#f5b82e",
+  };
+  let savingMessage = "";
 
   // --- DOM ---------------------------------------------------------------
   box.replaceChildren();
@@ -1645,9 +1849,34 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   retry.hidden = true;
   const msgWrap = el("div", "eegv__spatial-msgwrap");
   msgWrap.append(stageMsg, retry);
+  // The three 2D views (IS-V3), in the stage with the sentence and the credit.
+  const views = el("div", "eegv__spatial-views");
+  views.dataset.spatialViews = "";
+  views.hidden = true;
   // The credit is created here, on every mount, and nothing passes an option to leave it out.
   const credit = creditLink(document);
-  stage.append(msgWrap, credit);
+  stage.append(msgWrap, views, credit);
+
+  // The "2D views" switch and the two save buttons (IS-V3), shown while contacts are drawn.
+  const actions = el("div", "eegv__spatial-actions");
+  const view2dBtn = el("button", "eegv__btn", "2D views");
+  view2dBtn.type = "button";
+  view2dBtn.dataset.spatialView2d = "";
+  const savePngBtn = el("button", "eegv__btn", "Save PNG");
+  savePngBtn.type = "button";
+  savePngBtn.dataset.spatialSave = "png";
+  const saveSvgBtn = el("button", "eegv__btn", "Save SVG");
+  saveSvgBtn.type = "button";
+  saveSvgBtn.dataset.spatialSave = "svg";
+  actions.append(view2dBtn, savePngBtn, saveSvgBtn);
+  actions.hidden = true;
+  const saveMsg = el("p", "eegv__spatial-actmsg");
+  saveMsg.setAttribute("role", "status");
+  saveMsg.hidden = true;
+  // What the 2D views say beyond their circles: how the axes are read, and the template sentences.
+  const viewNotes = el("ul", "eegv__spatial-viewnotes");
+  viewNotes.dataset.spatialViewNotes = "";
+  viewNotes.hidden = true;
 
   // The template surface's words, under the canvas: the label first, then who made the surface and
   // where its notice is. Present only while the surface is drawn (or loading, or failed).
@@ -1666,7 +1895,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     a.rel = "noopener noreferrer";
   }
   templateNotice.append(
-    document.createTextNode("Template surface: "),
+    document.createTextNode(TEMPLATE_NOTICE_PREFIX),
     referenceLink,
     document.createTextNode("; "),
     licenseLink,
@@ -1713,7 +1942,18 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   // A bipolar channel selects two contacts at once.
   list.setAttribute("aria-multiselectable", "true");
   list.dataset.spatialList = "";
-  inner.append(frameWrap, stage, templateBox, status, notes, act, list);
+  inner.append(
+    frameWrap,
+    stage,
+    actions,
+    saveMsg,
+    templateBox,
+    status,
+    viewNotes,
+    notes,
+    act,
+    list,
+  );
   box.append(inner);
 
   // The panel owns its keys: arrows, letters and plus/minus must not reach the scope's shortcuts.
@@ -1732,6 +1972,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     li: HTMLLIElement;
     detail: HTMLElement;
     value: HTMLElement;
+    tpl: HTMLElement;
   }
   let rows: RowEls[] = [];
   let rowsFor: Placement | null = null;
@@ -1743,8 +1984,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       li.dataset.contact = String(c.index);
       const detail = el("span", "eegv__spatial-detail");
       const value = el("span", "eegv__spatial-value");
-      li.append(el("span", "eegv__spatial-name", c.name), detail, value);
-      return { li, detail, value };
+      // Where the dataset recorded the contact, under its name, in the same words as the figures.
+      const loc = el("span", "eegv__spatial-loc", c.recorded);
+      // The template position, a smaller line below, only while a template is drawn.
+      const tpl = el("span", "eegv__spatial-loc eegv__spatial-tpl");
+      tpl.hidden = true;
+      li.append(el("span", "eegv__spatial-name", c.name), detail, value, loc, tpl);
+      return { li, detail, value, tpl };
     });
     list.replaceChildren(...rows.map((r) => r.li));
   }
@@ -1755,12 +2001,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       model.contacts.findIndex((c) => c.selected),
     );
     model.contacts.forEach((c, i) => {
-      const { li, detail, value } = rows[i];
+      const { li, detail, value, tpl } = rows[i];
       li.setAttribute("aria-selected", String(c.selected));
       li.tabIndex = i === focusIndex ? 0 : -1;
       if (detail.textContent !== c.detail) detail.textContent = c.detail;
       const v = c.value ?? "";
       if (value.textContent !== v) value.textContent = v;
+      tpl.hidden = c.template === null;
+      setText(tpl, c.template ?? "");
     });
   }
 
@@ -1877,13 +2125,22 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     // Stage
     const stageKind = model.stage.kind;
     stage.dataset.stage = stageKind;
-    if (stageKind === "canvas") {
+    if (model.stage.kind === "canvas" || model.stage.kind === "views2d") {
       msgWrap.hidden = true;
     } else {
       msgWrap.hidden = false;
       setText(stageMsg, model.stage.sentence);
       retry.hidden = !(model.stage.kind === "refusal" && model.stage.retry);
     }
+
+    paintViews(model);
+    actions.hidden = !model.view.shown;
+    view2dBtn.setAttribute("aria-pressed", String(model.view.on));
+    view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
+    view2dBtn.disabled = !model.view.enabled;
+    view2dBtn.title = model.view.title;
+    setText(saveMsg, savingMessage);
+    saveMsg.hidden = savingMessage === "" || !model.view.shown;
 
     setText(status, model.status ?? "");
     status.hidden = model.status === null;
@@ -1949,6 +2206,21 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
   }
 
+  function startOutlinesLoad(): void {
+    templateOutlines().then(
+      (data) => {
+        if (disposed) return;
+        outlinesData = data;
+        dispatch({ type: "outlines_loaded" });
+      },
+      (err) => {
+        if (disposed) return;
+        console.error("[ieeg-spatial] loading the template outlines failed:", err);
+        dispatch({ type: "outlines_failed" });
+      },
+    );
+  }
+
   function startTemplateLoad(): void {
     templateSurface().then(
       (mesh) => {
@@ -1962,6 +2234,79 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         dispatch({ type: "template_failed" });
       },
     );
+  }
+
+  // --- 2D views and exports (IS-V3) ---------------------------------------
+  function figureInput(model: PanelModel): ExportInput {
+    return {
+      state,
+      model,
+      colors: contactColors(state, palette),
+      theme: figureTheme,
+      template: templatePlacementFor(state, outlinesData),
+      frameLabel: frameName(state.placement?.space.frame ?? null),
+    };
+  }
+
+  let viewsHtml = "";
+  function paintViews(model: PanelModel): void {
+    const show = model.stage.kind === "views2d" || model.stage.kind === "no_webgl";
+    views.hidden = !show;
+    viewNotes.hidden = !show;
+    if (!show || !state.placement) {
+      if (viewsHtml !== "") views.replaceChildren();
+      viewsHtml = "";
+      return;
+    }
+    const input = figureInput(model);
+    const laid = layoutViews({
+      contacts: viewContacts(input),
+      millimeters: state.placement.space.units.unit === "mm",
+      template: input.template?.outlines ?? null,
+      arrangement: "grid",
+      region: { x: 0, y: 0, width: VIEWS_WIDTH, height: VIEWS_HEIGHT },
+    });
+    // Every circle carries its own <title>, so the group is not an image: its children stay reachable.
+    const html = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VIEWS_WIDTH} ${VIEWS_HEIGHT}" role="group" aria-label="Contacts in three views. The contact list below is the keyboard alternative.">${viewsMarkup(laid, { foreground: figureTheme.foreground, muted: figureTheme.muted, border: figureTheme.border }, FIGURE_FONT)}</svg>`;
+    if (html !== viewsHtml) {
+      views.innerHTML = html;
+      viewsHtml = html;
+    }
+    const sentences = figureLabels(input, true)
+      .filter((l) => l.role === "axes" || l.role === "measure")
+      .map((l) => l.text);
+    const key = sentences.join("\n");
+    if (viewNotes.dataset.key !== key) {
+      viewNotes.replaceChildren(...sentences.map((n) => el("li", "eegv__spatial-note", n)));
+      viewNotes.dataset.key = key;
+    }
+  }
+
+  async function save(kind: "png" | "svg"): Promise<void> {
+    const model = viewModel(state);
+    if (!model.view.shown) return;
+    savingMessage = "";
+    let filename = `figure.${kind}`;
+    try {
+      const input = figureInput(model);
+      let file: ExportFile;
+      if (kind === "svg") {
+        file = exportSvg(input);
+      } else {
+        // The 3D canvas's current frame when the live view is 3D; the three views otherwise.
+        const frame = model.stage.kind === "canvas" && renderer ? renderer.snapshot() : null;
+        file = await exportPng(input, frame);
+      }
+      filename = file.filename;
+      downloadFile(file);
+    } catch (err) {
+      console.error(`[ieeg-spatial] saving the ${kind} failed:`, err);
+      savingMessage =
+        filename === `figure.${kind}`
+          ? `The ${kind.toUpperCase()} could not be made. Try the other format, or the 2D views.`
+          : downloadFailedSentence(filename);
+    }
+    sync();
   }
 
   // --- events -------------------------------------------------------------
@@ -2001,6 +2346,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         );
         return;
       }
+      case "load_outlines":
+        startOutlinesLoad();
+        return;
       case "load_template":
         templateRequested = true;
         return;
@@ -2089,6 +2437,17 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   }
 
   retry.addEventListener("click", () => dispatch({ type: "retry" }));
+  view2dBtn.addEventListener("click", () => {
+    if (view2dBtn.disabled) return;
+    savingMessage = "";
+    dispatch({ type: "view_changed", view2d: !viewModel(state).view.on });
+  });
+  savePngBtn.addEventListener("click", () => void save("png"));
+  saveSvgBtn.addEventListener("click", () => void save("svg"));
+  views.addEventListener("click", (e) => {
+    const dot = (e.target as Element | null)?.closest<SVGCircleElement>("circle[data-contact]");
+    if (dot) dispatch({ type: "select_contact", contact: Number(dot.dataset.contact) });
+  });
   frameSel.addEventListener("change", () =>
     dispatch({ type: "frame_changed", spaceIndex: Number(frameSel.value) }),
   );
@@ -2139,6 +2498,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     const t = tokens(host.themeRoot);
     theme = t.theme;
     palette = { neutral: parseColor(t.theme.contact), noData: parseColor(t.noData) };
+    figureTheme = {
+      background: t.theme.background,
+      foreground: t.theme.outline,
+      muted: t.theme.mesh,
+      border: t.border,
+      contact: t.theme.contact,
+    };
     renderer?.setTheme(theme);
   }
   readTheme();

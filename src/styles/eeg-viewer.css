@@ -968,7 +968,8 @@
   margin: 0;
   color: var(--color-fg);
 }
-.eegv__spatial-notes {
+.eegv__spatial-notes,
+.eegv__spatial-viewnotes {
   margin: 0;
   padding-inline-start: 1.1em;
 }
@@ -1035,10 +1036,46 @@
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
+.eegv__spatial-loc {
+  grid-column: 1 / -1;
+  font-size: 0.9em;
+  color: var(--color-fg-subtle);
+  overflow-wrap: anywhere;
+}
 .eegv__spatial-detail,
 .eegv__spatial-value {
   color: var(--color-fg-muted);
   overflow-wrap: anywhere;
+}
+/* The 2D views, the "2D views" switch and the save buttons (IS-V3). The three views are drawn
+   into the stage as an inline SVG whose text and dots use the same resolved tokens as the saved
+   figures; the stage stops being a fixed-ratio box and grows with them, and keeps a band at the
+   bottom for the credit link floated over its corner. Without WebGL2 the sentence sits above the
+   views instead of over the stage. */
+.eegv__spatial-stage[data-stage="views2d"],
+.eegv__spatial-stage[data-stage="no_webgl"] {
+  aspect-ratio: auto;
+  max-block-size: none;
+}
+.eegv__spatial-stage[data-stage="no_webgl"] .eegv__spatial-msgwrap {
+  position: static;
+  padding: var(--space-2) var(--space-3) 0;
+}
+.eegv__spatial-views {
+  padding: var(--space-1) var(--space-1) 36px;
+}
+.eegv__spatial-views svg {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+.eegv__spatial-views circle {
+  cursor: pointer;
+}
+.eegv__spatial-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 /* The band over the selected channel's trace in the scope. It sits above the trace canvases and
    below the annotation layer, and takes no pointer events. */
