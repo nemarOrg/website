@@ -13,8 +13,8 @@
  *    DOM half draws. The credit is a field of the model in every state, so no state can leave it
  *    out. Both are covered by `panel.test.ts` without a DOM.
  * 2. `createSpatialPanel`, the DOM half: it runs the effects (resolve the dataset's sidecars,
- *    read level-0 samples in small slices, drive the renderer) and paints the model. It holds no
- *    decisions of its own.
+ *    read level-0 samples once per window and compute them in slices, drive the renderer) and
+ *    paints the model. It holds no decisions of its own.
  *
  * What it never does:
  * - It draws only the frames `geometry.ts` offered. Anatomy appears only behind a standard
@@ -30,6 +30,13 @@
  *   stays enabled, the panel says so and offers Retry.
  * - It never names the frame from a description, and never picks a space for the reader beyond a
  *   default the frame selector shows: the first shown template space, else the first shown space.
+ * - It never hides why it shows nothing (card IS-Q2). A recording whose channel names join no
+ *   contact keeps an openable toggle and opens a refusal that lists both sets of names as the
+ *   dataset wrote them (`name-refusal.ts`); a refusal for want of coordinates stays disabled with
+ *   its sentence. When a declared non-millimeter unit is converted and every drawn contact then
+ *   lies more than 300 mm from the origin, a banner on the stage and in every figure says so
+ *   (`units-banner.ts`), the contacts are drawn as declared in the flat views, and no template is
+ *   placed. Nothing is rescaled and no unit is inferred.
  */
 
 import type { WindowData } from "../eeg-viewer/store";
@@ -102,6 +109,13 @@ import {
 } from "./geometry";
 import { isIeegModality } from "./layout";
 import {
+  type NameRefusal,
+  closedByNaming,
+  nameRefusal,
+  unlocatedCauseHeads,
+  unlocatedChannelName,
+} from "./name-refusal";
+import {
   TEMPLATE_DIRECTORY,
   TEMPLATE_FAILED_SENTENCE,
   TEMPLATE_LICENSE_HREF,
@@ -115,6 +129,7 @@ import {
   placementRuleFor,
   templateLabel,
 } from "./transforms";
+import { type UnitsBanner, unitsBanner } from "./units-banner";
 import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
@@ -123,8 +138,16 @@ import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } fr
 
 /** The most samples one activity computation reads: window samples times channels read. */
 export const MAX_ACTIVITY_SAMPLES = 4_000_000;
-/** Channels read and computed per slice, so one slice stays well under a 200 ms long task. */
+/** Channels computed per slice, at most, so one slice stays well under a 200 ms long task. */
 export const READ_SLICE_CHANNELS = 16;
+/**
+ * Samples computed per slice, at most: rows times a window's samples. A long window shrinks the
+ * slice below `READ_SLICE_CHANNELS` channels (one channel is the floor, since a channel cannot be
+ * cut). Measured in headless Chromium 148 (IS-Q2, no tracing, one band-power call): 1.5 ms for
+ * 81,920 samples, 8.4 ms for 500,000 and 68 ms for 4,000,000, so this cap's 1,000,000 samples
+ * is about 17 ms by linear interpolation (not measured at that size), against a 200 ms budget.
+ */
+export const SLICE_SAMPLE_CAP = 1_000_000;
 /** Wait for the window to settle before reading, so a scroll does not start a read per frame. */
 export const ACTIVITY_DEBOUNCE_MS = 150;
 /** Give the sidecar reads, retries included, this long before offering Retry. */
@@ -177,6 +200,13 @@ function isTransient(reason: GeometryReason | null): boolean {
 }
 
 export const WEBGL_SENTENCE = "3D view needs WebGL2";
+/**
+ * Under the units banner the contacts lie too far out for the 3D spheres (true-size millimeters,
+ * with no minimum on-screen size) to be seen, so the stage is the three flat views, which size
+ * their dots in pixels; the switch says so instead of offering a 3D view that would draw nothing.
+ */
+export const BANNER_VIEW_SENTENCE =
+  "3D view is off while the units banner shows; the three flat views draw every contact as declared";
 const VIEW_SWITCH_TITLE = "Show the contacts in three flat views (left, top, front) instead of 3D";
 export const LOADING_SENTENCE = "Looking for electrode positions...";
 export const NO_MATCH_SENTENCE =
@@ -320,38 +350,25 @@ export function positionWarnings(
   return out;
 }
 
-const UNLOCATED_PHRASES: Record<UnlocatedCause, string> = {
-  no_contact: "no contact of that name in the electrodes file",
-  no_position: "the contact's position is not given",
-  duplicate_contact:
-    "the electrodes file lists the contact twice, or another channel already holds it",
-  ambiguous_pair: "the name reads as two contacts in more than one way",
-  ambiguous_name: "the name fits more than one contact equally well",
-};
-
 /**
  * Channels without a position, grouped by the cause `joinChannels` gave, each by its own name as
  * the recording gave it. At most six names each. A name that fits two contacts says which; a
- * channel that lost its contact to another says whose it is.
+ * channel that lost its contact to another says whose it is. The words of each cause are
+ * `name-refusal.ts`'s, which a recording closed by its names also uses.
  */
 export function unlocatedNotes(joins: readonly ChannelJoin[]): string[] {
   const byCause = new Map<UnlocatedCause, string[]>();
   for (const join of joins) {
     if (join.cause === null) continue;
-    const named =
-      join.cause === "ambiguous_name"
-        ? `${join.channel} (fits ${join.contacts.join(" and ")})`
-        : join.cause === "duplicate_contact" && join.contacts.length === 1
-          ? `${join.channel} (contact ${join.contacts[0]})`
-          : join.channel;
     const list = byCause.get(join.cause);
-    if (list) list.push(named);
-    else byCause.set(join.cause, [named]);
+    if (list) list.push(unlocatedChannelName(join));
+    else byCause.set(join.cause, [unlocatedChannelName(join)]);
   }
+  const heads = new Map(unlocatedCauseHeads(joins).map((h) => [h.cause, h.head]));
   return [...byCause].map(([cause, labels]) => {
     const shown = labels.slice(0, 6).join(", ");
     const more = labels.length > 6 ? ` and ${labels.length - 6} more` : "";
-    return `${labels.length} unlocated channel${labels.length === 1 ? "" : "s"}, ${UNLOCATED_PHRASES[cause]}: ${shown}${more}.`;
+    return `${heads.get(cause)}: ${shown}${more}.`;
   });
 }
 
@@ -584,15 +601,45 @@ export function activitySamples(
   return rows * perChannel;
 }
 
-/** Consecutive row runs of at most `maxLen` rows, from a sorted list of distinct rows. */
-export function readRuns(rows: readonly number[], maxLen: number): [number, number][] {
-  const runs: [number, number][] = [];
+/** How many located channels one slice holds: at most `maxRows`, and at most `cap` samples, never fewer than one. */
+export function sliceRowCount(
+  perChannelSamples: number,
+  maxRows: number = READ_SLICE_CHANNELS,
+  cap: number = SLICE_SAMPLE_CAP,
+): number {
+  return Math.max(1, Math.min(maxRows, Math.floor(cap / Math.max(1, perChannelSamples))));
+}
+
+/** One read of the store: rows `[start, end)`, of which `rows` are the located ones to compute. */
+export interface ReadSpan {
+  start: number;
+  end: number;
+  rows: number[];
+}
+
+/**
+ * The reads that fetch a plan's located rows: one span from the first row to the last, so each
+ * chunk of the store is fetched once for the window (a chunk holds many channels, and a read per
+ * slice fetched the same chunks again for every slice). A span is cut before the row that would
+ * take it past `maxSamples` (rows times `perChannelSamples`), never inside a row, which also keeps
+ * the rows read between located ones from outgrowing the bound. `rows` is sorted and distinct.
+ */
+export function readSpans(
+  rows: readonly number[],
+  perChannelSamples: number,
+  maxSamples: number,
+): ReadSpan[] {
+  const spans: ReadSpan[] = [];
   for (const row of rows) {
-    const last = runs[runs.length - 1];
-    if (last && last[1] === row && last[1] - last[0] < maxLen) last[1] = row + 1;
-    else runs.push([row, row + 1]);
+    const last = spans[spans.length - 1];
+    if (last && (row + 1 - last.start) * perChannelSamples <= maxSamples) {
+      last.end = row + 1;
+      last.rows.push(row);
+    } else {
+      spans.push({ start: row, end: row + 1, rows: [row] });
+    }
   }
-  return runs;
+  return spans;
 }
 
 export interface ActivityPlan {
@@ -1108,10 +1155,29 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
 // The template surface (card IS-V2)
 // ---------------------------------------------------------------------------
 
-/** The row that places the shown space on the template surface, or null: the frame decides alone. */
+/**
+ * The banner of the shown space (`units-banner.ts`): the declared unit converted, and every drawn
+ * contact then more than 300 mm from the origin. Null when nothing is placed or the units are fine.
+ * Never changes a position: it reads the contacts as IS-C1 gave them.
+ */
+export function bannerOf(placement: Placement | null): UnitsBanner | null {
+  return placement
+    ? unitsBanner(
+        placement.space.units,
+        placement.contacts.map((c) => c.position),
+      )
+    : null;
+}
+
+/**
+ * The row that places the shown space on the template surface, or null: the frame decides alone,
+ * except under the units banner, whose sentence says the positions are placed on no template, so
+ * no row is offered and neither the surface nor the outlines are asked for.
+ */
 export function templateRuleOf(state: PanelState): TemplatePlacementRule | null {
-  const space = state.placement?.space;
-  return space ? placementRuleFor(space.frame, space.units) : null;
+  const placement = state.placement;
+  if (!placement || bannerOf(placement)) return null;
+  return placementRuleFor(placement.space.frame, placement.space.units);
 }
 
 /**
@@ -1281,9 +1347,15 @@ export interface ViewSwitchModel {
   shown: boolean;
   /** The 2D views are what the stage draws, by choice or because WebGL2 is missing. */
   on: boolean;
-  /** False when WebGL2 is missing: 2D is the only view. */
+  /** False when WebGL2 is missing or the units banner shows: the flat views are the only view. */
   enabled: boolean;
   title: string;
+  /**
+   * Why the 3D view is not offered under the units banner, for a visible line beside the switch (a
+   * disabled button has no focus and its title is a tooltip); the same words as the title. Null
+   * otherwise, including without WebGL2, whose sentence the stage already says.
+   */
+  reason: string | null;
 }
 
 /**
@@ -1317,6 +1389,21 @@ export interface PanelModel {
   notes: string[];
   /** The selected channel in terms of its contacts (`channelProvenance`), or null. */
   selectedChannel: string | null;
+  /**
+   * The units banner (`units-banner.ts`), said on the stage and in every figure, or null. Present
+   * only while contacts are drawn.
+   */
+  banner: string | null;
+  /**
+   * The flat views' scale in words, under the banner (`units-banner.ts`): they have no scale bar,
+   * so this says their extent; null whenever there is no banner.
+   */
+  scale: string | null;
+  /**
+   * Both sets of names, when the recording is closed by its channel names (the refusal stage
+   * lists them); null for every other state.
+   */
+  nameRefusal: NameRefusal | null;
   activity: ActivityModel | null;
   contacts: ContactRow[];
   /** Present in every state: the link the panel mounts, as plain data. */
@@ -1330,6 +1417,20 @@ export interface ModelLimits {
 const DEFAULT_LIMITS: ModelLimits = { maxContacts: MAX_CONTACTS };
 
 const TOGGLE_ENABLED_TITLE = "Brain: where the contacts are, in the frame the dataset declares";
+/** A recording closed by its channel names opens, to compare the two sets of names. */
+const NAMES_TOGGLE_TITLE =
+  "Brain: no channel name joins a contact; open to compare the two lists of names";
+
+/**
+ * The placement of a recording closed by its channel names: a shown space, channels, none located,
+ * and none unlocated for want of a position (that is a missing-coordinates refusal, which stays
+ * disabled). Null for every other state.
+ */
+function closedByNamingPlacement(state: PanelState): Placement | null {
+  const placement = state.placement;
+  if (!placement || state.geometry.kind !== "ready" || placement.contacts.length > 0) return null;
+  return closedByNaming(placement.joins, placement.located) ? placement : null;
+}
 
 function refusedSpaceSentences(geometry: RecordingGeometry): string {
   const distinct = new Set(geometry.spaces.map((s) => s.reason));
@@ -1361,6 +1462,9 @@ function toggleModel(state: PanelState): ToggleModel {
       pressed,
       title: "Brain: the electrode positions could not be loaded; open to retry",
     };
+  }
+  if (closedByNamingPlacement(state)) {
+    return { visible, enabled: true, pressed, title: NAMES_TOGGLE_TITLE };
   }
   if (geometry.spaces.some((s) => s.reason === null)) {
     return off(`Brain view unavailable: ${NO_MATCH_SENTENCE}`);
@@ -1394,7 +1498,7 @@ function stageModel(state: PanelState, limits: ModelLimits): StageModel {
     };
   }
   if (!state.webgl) return { kind: "no_webgl", sentence: WEBGL_SENTENCE };
-  if (state.view2d) return { kind: "views2d" };
+  if (state.view2d || bannerOf(placement)) return { kind: "views2d" };
   return { kind: "canvas" };
 }
 
@@ -1609,11 +1713,23 @@ function selectedChannelSentence(state: PanelState): string | null {
   return join ? channelProvenance(join) : null;
 }
 
+/** Both sets of names, only on the refusal stage of a recording closed by its channel names. */
+function namesFor(state: PanelState, stage: StageModel): NameRefusal | null {
+  const placement = stage.kind === "refusal" ? closedByNamingPlacement(state) : null;
+  return placement
+    ? nameRefusal(
+        placement.joins,
+        placement.space.contacts.map((c) => c.name),
+      )
+    : null;
+}
+
 /** Everything the DOM half draws, from the state alone. The credit is in every model. */
 export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMITS): PanelModel {
   const stage = stageModel(state, limits);
   const drawn = stage.kind === "canvas" || stage.kind === "views2d" || stage.kind === "no_webgl";
   const placement = drawn ? state.placement : null;
+  const banner = bannerOf(placement);
   return {
     toggle: toggleModel(state),
     open: state.open,
@@ -1621,14 +1737,18 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
     view: {
       shown: drawn,
       on: stage.kind === "views2d" || stage.kind === "no_webgl",
-      enabled: state.webgl,
-      title: state.webgl ? VIEW_SWITCH_TITLE : WEBGL_SENTENCE,
+      enabled: state.webgl && !banner,
+      title: !state.webgl ? WEBGL_SENTENCE : banner ? BANNER_VIEW_SENTENCE : VIEW_SWITCH_TITLE,
+      reason: state.webgl && banner ? BANNER_VIEW_SENTENCE : null,
     },
     template: templateModel(state, stage),
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
     selectedChannel: placement ? selectedChannelSentence(state) : null,
+    banner: banner?.text ?? null,
+    scale: banner?.scale ?? null,
+    nameRefusal: namesFor(state, stage),
     activity: placement ? activityModel(state) : null,
     contacts: placement ? contactRows(state, stage) : [],
     credit: creditLinkSpec(),
@@ -1809,10 +1929,12 @@ export type PlanOutcome =
   | { ok: false; reason: ActivityFailure };
 
 /**
- * Read and compute one plan in slices of at most `sliceChannels` consecutive located channels
- * (so no slice is a long task), yielding between slices. `readRows` returns the level-0 window of
- * rows `[r0, r1)`. Returns null when `signal` aborted, a failure word when IS-M1 refuses a slice
- * or the slices disagree about the unit (voltage in one, field in another: one color scale
+ * Read and compute one plan. The located rows are read once for the window (`readSpans`; `readRows`
+ * returns the level-0 window of rows `[r0, r1)`), so no chunk of the store is fetched twice, and
+ * then computed in slices of at most `sliceChannels` channels and `sliceSamples` samples, yielding
+ * to the page after the read and after every slice, so decoding and computing never share a task
+ * and no slice is a long one. Returns null when `signal` aborted, a failure word when IS-M1 refuses
+ * a slice or the slices disagree about the unit (voltage in one, field in another: one color scale
  * cannot span them), and otherwise one report whose summary fields come from the first slice (the
  * rate and window are the same for all). A rejected `readRows` rejects this.
  */
@@ -1823,41 +1945,63 @@ export async function computeActivityPlan(
   options: {
     signal?: AbortSignal;
     sliceChannels?: number;
+    sliceSamples?: number;
+    /** The most samples one call of `readRows` may ask for. */
+    readSamples?: number;
     yieldTask?: () => Promise<void>;
   } = {},
 ): Promise<PlanOutcome | null> {
-  const { signal, sliceChannels = READ_SLICE_CHANNELS, yieldTask = nextTask } = options;
+  const {
+    signal,
+    sliceChannels = READ_SLICE_CHANNELS,
+    sliceSamples = SLICE_SAMPLE_CAP,
+    readSamples = MAX_ACTIVITY_SAMPLES,
+    yieldTask = nextTask,
+  } = options;
   const perRow: (ChannelActivity | null)[] = new Array(group.labels.length).fill(null);
   let first: ActivityResult | null = null;
   let firstUnit: "V" | "T" | null = null;
-  for (const [r0, r1] of readRuns(plan.rows, sliceChannels)) {
+  const perChannel = activitySamples(1, plan.startS, plan.endS, plan.rateHz);
+  const sliceSize = sliceRowCount(perChannel, sliceChannels, sliceSamples);
+  for (const span of readSpans(plan.rows, perChannel, readSamples)) {
     if (signal?.aborted) return null;
-    const win = await readRows(r0, r1);
+    const win = await readRows(span.start, span.end);
     if (signal?.aborted) return null;
-    const info = Array.from({ length: r1 - r0 }, (_, i) => ({
-      label: group.labels[r0 + i],
-      unit: group.units[r0 + i],
-      nativeRateHz: group.nativeRateHz ?? undefined,
-    }));
-    const adapted = activityChannelsFromWindow(win, info);
-    if (!adapted.ok) return { ok: false, reason: adapted.reason };
-    firstUnit ??= adapted.unit;
-    if (adapted.unit !== firstUnit) return { ok: false, reason: "mixed_units" };
-    const outcome = computeActivity({
-      channels: adapted.channels,
-      rateHz: plan.rateHz,
-      unit: adapted.unit,
-      metric: plan.metric,
-      band: plan.band ?? undefined,
-      relative: plan.relative,
-      displayUnit: adapted.unit === "V" ? "µV" : undefined,
-    });
-    if (!outcome.ok) return { ok: false, reason: outcome.reason };
-    outcome.channels.forEach((c, i) => {
-      perRow[r0 + i] = c;
-    });
-    first ??= outcome;
+    // The read's decoding is done; compute in a task of its own.
     await yieldTask();
+    for (let i = 0; i < span.rows.length; i += sliceSize) {
+      if (signal?.aborted) return null;
+      const rows = span.rows.slice(i, i + sliceSize);
+      const slice: WindowData = {
+        level: win.level,
+        nCols: win.nCols,
+        channels: rows.map((row) => win.channels[row - span.start]),
+      };
+      const info = rows.map((row) => ({
+        label: group.labels[row],
+        unit: group.units[row],
+        nativeRateHz: group.nativeRateHz ?? undefined,
+      }));
+      const adapted = activityChannelsFromWindow(slice, info);
+      if (!adapted.ok) return { ok: false, reason: adapted.reason };
+      firstUnit ??= adapted.unit;
+      if (adapted.unit !== firstUnit) return { ok: false, reason: "mixed_units" };
+      const outcome = computeActivity({
+        channels: adapted.channels,
+        rateHz: plan.rateHz,
+        unit: adapted.unit,
+        metric: plan.metric,
+        band: plan.band ?? undefined,
+        relative: plan.relative,
+        displayUnit: adapted.unit === "V" ? "µV" : undefined,
+      });
+      if (!outcome.ok) return { ok: false, reason: outcome.reason };
+      outcome.channels.forEach((c, k) => {
+        perRow[rows[k]] = c;
+      });
+      first ??= outcome;
+      await yieldTask();
+    }
   }
   if (signal?.aborted || !first) return null;
   return {
@@ -1923,6 +2067,9 @@ export function templateOutlines(
 export function forgetTemplateOutlines(): void {
   outlinesLoad = null;
 }
+
+/** Gives each panel's ids their own numbers (a page may hold more than one panel). */
+let panelSeq = 0;
 
 export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const { box } = host;
@@ -1991,7 +2138,24 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   views.hidden = true;
   // The credit is created here, on every mount, and nothing passes an option to leave it out.
   const credit = creditLink(document);
-  stage.append(msgWrap, views, credit);
+  // The units banner (IS-Q2): a visible warning over the top of the drawing, for a dataset whose
+  // declared unit disagrees with its numbers. Hidden unless the model carries one.
+  const banner = el("div", "eegv__spatial-banner");
+  banner.setAttribute("role", "note");
+  banner.dataset.spatialBanner = "";
+  banner.hidden = true;
+  // The flat views have no scale bar: under the banner this line says their extent in words.
+  const scaleLine = el("p", "eegv__spatial-scale");
+  scaleLine.dataset.spatialScale = "";
+  scaleLine.hidden = true;
+  stage.append(banner, scaleLine, msgWrap, views, credit);
+
+  // The names of a recording closed by its channel names (IS-Q2), under the refusal sentence.
+  const nameBox = el("div", "eegv__spatial-names");
+  nameBox.setAttribute("role", "group");
+  nameBox.setAttribute("aria-label", "Channel names and contact names that no rule joined");
+  nameBox.dataset.spatialNames = "";
+  nameBox.hidden = true;
 
   // The "2D views" switch and the two save buttons (IS-V3), shown while contacts are drawn.
   const actions = el("div", "eegv__spatial-actions");
@@ -2006,6 +2170,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   saveSvgBtn.dataset.spatialSave = "svg";
   actions.append(view2dBtn, savePngBtn, saveSvgBtn);
   actions.hidden = true;
+  // Why the 3D view is off under the banner, in the page and not only in the button's tooltip.
+  const viewReason = el("p", "eegv__spatial-actmsg");
+  viewReason.dataset.spatialViewReason = "";
+  viewReason.id = `eegv-view-reason-${++panelSeq}`;
+  viewReason.hidden = true;
   const saveMsg = el("p", "eegv__spatial-actmsg");
   saveMsg.setAttribute("role", "status");
   saveMsg.hidden = true;
@@ -2086,7 +2255,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   inner.append(
     frameWrap,
     stage,
+    nameBox,
     actions,
+    viewReason,
     saveMsg,
     templateBox,
     status,
@@ -2285,12 +2456,22 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       retry.hidden = !(model.stage.kind === "refusal" && model.stage.retry);
     }
 
+    setText(banner, model.banner ?? "");
+    banner.hidden = model.banner === null;
+    setText(scaleLine, model.scale ?? "");
+    scaleLine.hidden = model.scale === null;
+    paintNames(model);
+
     paintViews(model);
     actions.hidden = !model.view.shown;
     view2dBtn.setAttribute("aria-pressed", String(model.view.on));
     view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
     view2dBtn.disabled = !model.view.enabled;
     view2dBtn.title = model.view.title;
+    setText(viewReason, model.view.reason ?? "");
+    viewReason.hidden = model.view.reason === null || !model.view.shown;
+    if (viewReason.hidden) view2dBtn.removeAttribute("aria-describedby");
+    else view2dBtn.setAttribute("aria-describedby", viewReason.id);
     setText(saveMsg, savingMessage);
     saveMsg.hidden = savingMessage === "" || !model.view.shown;
 
@@ -2400,6 +2581,54 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       template: templatePlacementFor(state, outlinesData),
       frameLabel: frameName(state.placement?.space.frame ?? null),
     };
+  }
+
+  /** The two sets of names of a recording closed by its channel names, rebuilt only when they change. */
+  function paintNames(model: PanelModel): void {
+    const refusal = model.nameRefusal;
+    nameBox.hidden = refusal === null;
+    if (refusal === null) {
+      if (nameBox.dataset.key !== undefined) nameBox.replaceChildren();
+      delete nameBox.dataset.key;
+      return;
+    }
+    const key = JSON.stringify(refusal);
+    if (nameBox.dataset.key === key) return;
+    nameBox.dataset.key = key;
+    const column = (list: NameRefusal["channels"], attribute: string) => {
+      const col = el("div", "eegv__spatial-names-col");
+      col.setAttribute(`data-${attribute}`, "");
+      const heading = el("p", "eegv__spatial-names-head", list.heading);
+      heading.id = `eegv-${attribute}-${++panelSeq}`;
+      const ul = el("ul", "eegv__spatial-names-list");
+      // The list is named by its heading, for a screen reader that lands on the list itself.
+      ul.setAttribute("aria-labelledby", heading.id);
+      list.names.forEach((name, i) => {
+        // Each name is its own bidirectional run (`dir="auto"` with CSS isolation), so a
+        // right-to-left name cannot reorder its neighbors or the note after it.
+        const li = el("li", "eegv__spatial-names-item", name);
+        li.dir = "auto";
+        const note = list.notes[i];
+        if (note) {
+          const tag = el("span", "eegv__spatial-names-note", ` [${note}]`);
+          tag.dir = "ltr";
+          li.append(tag);
+        }
+        ul.append(li);
+      });
+      col.append(heading, ul);
+      return col;
+    };
+    const cols = el("div", "eegv__spatial-names-cols");
+    cols.append(
+      column(refusal.channels, "spatial-names-channels"),
+      column(refusal.contacts, "spatial-names-contacts"),
+    );
+    nameBox.replaceChildren(
+      ...refusal.causes.map((c) => el("p", "eegv__spatial-names-cause", c)),
+      cols,
+      el("p", "eegv__spatial-names-verdict", refusal.verdict),
+    );
   }
 
   let viewsHtml = "";

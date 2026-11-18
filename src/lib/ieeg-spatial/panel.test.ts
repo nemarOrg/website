@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { load } from "../../../test/ieeg-channel-fixtures";
 import { nodeFs, repoPath } from "../../../test/node";
 import type { WindowData } from "../eeg-viewer/store";
 import { computeActivity } from "./activity";
@@ -30,7 +31,9 @@ import {
   type PanelEffect,
   type PanelEvent,
   type PanelState,
+  READ_SLICE_CHANNELS,
   type RecordingRef,
+  SLICE_SAMPLE_CAP,
   TRANSIENT_REASONS,
   WEBGL_SENTENCE,
   abortableSleep,
@@ -45,9 +48,10 @@ import {
   initialState,
   needsAnotherTry,
   positionWarnings,
-  readRuns,
+  readSpans,
   reduce,
   resolveWithRetries,
+  sliceRowCount,
   templateRuleOf,
   unitsSentence,
   unlocatedNotes,
@@ -442,18 +446,53 @@ describe("the read bound", () => {
     expect(activitySamples(3, 5, 5, 500)).toBe(3);
   });
 
-  it("splits located rows into short consecutive runs", () => {
-    expect(readRuns([], 16)).toEqual([]);
-    expect(readRuns([0, 1, 2, 5, 6, 9], 16)).toEqual([
-      [0, 3],
-      [5, 7],
-      [9, 10],
+  it("reads the located rows once: one span from the first to the last row, split only at the sample bound", () => {
+    expect(readSpans([], 2000, MAX_ACTIVITY_SAMPLES)).toEqual([]);
+    // Located rows that are not neighbors still make one read: the span between them is read once.
+    expect(readSpans([0, 1, 2, 5, 6, 9], 10_000, MAX_ACTIVITY_SAMPLES)).toEqual([
+      { start: 0, end: 10, rows: [0, 1, 2, 5, 6, 9] },
     ]);
-    expect(readRuns([0, 1, 2, 3, 4], 2)).toEqual([
-      [0, 2],
-      [2, 4],
-      [4, 5],
+    // A span past the bound is cut before the row that would pass it, never inside a row.
+    expect(readSpans([0, 1, 2, 3, 4], 1000, 2500)).toEqual([
+      { start: 0, end: 2, rows: [0, 1] },
+      { start: 2, end: 4, rows: [2, 3] },
+      { start: 4, end: 5, rows: [4] },
     ]);
+    expect(readSpans([0, 40], 1000, 2500)).toEqual([
+      { start: 0, end: 1, rows: [0] },
+      { start: 40, end: 41, rows: [40] },
+    ]);
+    // One row longer than the bound is still read, alone.
+    expect(readSpans([3, 4], 5_000_000, MAX_ACTIVITY_SAMPLES)).toEqual([
+      { start: 3, end: 4, rows: [3] },
+      { start: 4, end: 5, rows: [4] },
+    ]);
+  });
+
+  it("never reads more than the bound in one call, however sparse the located rows are", () => {
+    for (const perChannel of [1000, 20_000, 250_000, 1_000_000]) {
+      const rows = [0, 3, 90, 91, 400];
+      for (const span of readSpans(rows, perChannel, MAX_ACTIVITY_SAMPLES)) {
+        const samples = (span.end - span.start) * perChannel;
+        expect(samples <= MAX_ACTIVITY_SAMPLES || span.end - span.start === 1).toBe(true);
+      }
+    }
+  });
+
+  it("slices by samples as well as channels: at most 16 channels and at most the sample cap", () => {
+    expect(READ_SLICE_CHANNELS).toBe(16);
+    expect(SLICE_SAMPLE_CAP).toBe(1_000_000);
+    // A 10 s window at 1 kHz: 16 channels (160,000 samples) are far under the cap.
+    expect(sliceRowCount(10_000)).toBe(16);
+    // 62,500 samples per channel is exactly 16 channels at the cap; past it the slice shrinks.
+    expect(sliceRowCount(62_500)).toBe(16);
+    expect(sliceRowCount(62_501)).toBe(15);
+    expect(sliceRowCount(250_000)).toBe(4);
+    // One channel is the floor: it cannot be cut, whatever its window holds.
+    expect(sliceRowCount(1_000_001)).toBe(1);
+    expect(sliceRowCount(4_000_000)).toBe(1);
+    expect(sliceRowCount(10_000, 5)).toBe(5);
+    expect(sliceRowCount(10_000, 16, 50_000)).toBe(5);
   });
 
   it("refuses a band the rate cannot carry, and a window too short, before reading", () => {
@@ -706,10 +745,94 @@ describe("the toggle", () => {
     expect(model.frames).toBeNull();
   });
 
-  it("is disabled, with its own sentence, when no channel matches a contact", () => {
-    const state = opened(bipolarGeometry, groupOf(["X1-X2", "X2-X3", "X3-X4"])).state;
+  it("a recording closed by its channel names (nm000377, on004624) stays openable, and opens a refusal that lists both sets of names", async () => {
+    for (const key of ["nm000377", "on004624"]) {
+      const l = await load(key);
+      const rec = { datasetId: l.case.id, version: l.case.version, path: l.case.recording };
+      const { state, effects } = opened(l.geometry, groupOf(l.labels), rec);
+      const model = viewModel(state);
+      // Not the generic disabled button: it opens, and says why in its title.
+      expect(model.toggle).toMatchObject({ visible: true, enabled: true, pressed: true });
+      expect(model.toggle.title).toBe(
+        "Brain: no channel name joins a contact; open to compare the two lists of names",
+      );
+      expect(model.stage).toEqual({ kind: "refusal", sentence: NO_MATCH_SENTENCE, retry: false });
+      const names = model.nameRefusal;
+      expect(names?.channels).toMatchObject({ total: l.labels.length });
+      expect(names?.channels.names).toEqual(l.labels.slice(0, 12));
+      expect(names?.contacts).toMatchObject({ total: l.space.contacts.length });
+      expect(names?.contacts.names).toEqual(l.space.contacts.slice(0, 12).map((c) => c.name));
+      expect(names?.causes).toEqual([
+        `${l.labels.length} unlocated channels, no contact of that name in the electrodes file.`,
+      ]);
+      expect(names?.verdict).toBe("No rule joined these names; nothing was guessed.");
+      // The credit stays, and nothing is drawn, claimed or read.
+      expect(model.credit).toEqual(creditLinkSpec());
+      expect(model.status).toBeNull();
+      expect(model.contacts).toEqual([]);
+      expect(model.activity).toBeNull();
+      expect(model.view.shown).toBe(false);
+      expect(model.template).toBeNull();
+      expect(effects.map((e) => e.type)).not.toContain("load_template");
+      expect(effects.map((e) => e.type)).not.toContain("load_outlines");
+      expect(effects.map((e) => e.type)).not.toContain("read_activity");
+    }
+  });
+
+  it("names are listed only for a refusal that names are the cause of", () => {
+    // A recording that joins is a canvas with no name lists, whatever else it says.
+    expect(viewModel(opened(bipolarGeometry, bipolarGroup).state).nameRefusal).toBeNull();
+    // Loading, a geometry failure and a closed panel have none either.
+    expect(viewModel(initialState()).nameRefusal).toBeNull();
+  });
+
+  it("a refusal for want of coordinates stays disabled with its sentence, and lists no names", async () => {
+    // nm000537: no usable positions. on004642: no electrodes file. Both are properties of the data.
+    const missing = [
+      {
+        g: await geometryOf("nm000537", "v1.0.2", NM537),
+        rec: { datasetId: "nm000537", version: "v1.0.2", path: NM537 },
+        reason: "no_coordinates",
+      },
+      {
+        g: await geometryOf(
+          "on004642",
+          "v1.0.0",
+          "sub-01/ses-01/ieeg/sub-01_ses-01_task-lozHFO_run-01_ieeg.edf",
+        ),
+        rec: {
+          datasetId: "on004642",
+          version: "v1.0.0",
+          path: "sub-01/ses-01/ieeg/sub-01_ses-01_task-lozHFO_run-01_ieeg.edf",
+        },
+        reason: "no_electrodes_file",
+      },
+    ] as const;
+    for (const { g, rec, reason } of missing) {
+      const labels = ["A1", "A2", "B1"];
+      const state = play(initialState(), [
+        { type: "recording_changed", recording: rec, group: groupOf(labels) },
+        { type: "geometry_resolved", token: 1, geometry: g },
+      ]).state;
+      const toggle = viewModel(state).toggle;
+      expect(toggle.enabled).toBe(false);
+      expect(toggle.title).toBe(`Brain view unavailable: ${GEOMETRY_SENTENCES[reason]}`);
+      expect(viewModel(state).nameRefusal).toBeNull();
+    }
+  });
+
+  it("channels that name a contact with no position are a missing-coordinates refusal, not a naming one", async () => {
+    // The real labels of on005415 whose contact the electrodes file leaves without a position.
+    const l = await load("on005415-86");
+    const noPosition = joinChannels(l.space, l.labels)
+      .filter((j) => j.cause === "no_position")
+      .map((j) => j.channel);
+    expect(noPosition.length).toBeGreaterThan(0);
+    const rec = { datasetId: l.case.id, version: l.case.version, path: l.case.recording };
+    const state = opened(l.geometry, groupOf(noPosition), rec).state;
     expect(viewModel(state).toggle.enabled).toBe(false);
-    expect(viewModel(state).toggle.title).toBe(`Brain view unavailable: ${NO_MATCH_SENTENCE}`);
+    expect(viewModel(state).toggle.title).toMatch(/^Brain view unavailable: /);
+    expect(viewModel(state).nameRefusal).toBeNull();
   });
 
   it("has a plain sentence for every reason IS-C1 can give, all different", () => {
@@ -1260,7 +1383,7 @@ const sliceGroup = {
 const noYield = { yieldTask: async () => {} };
 
 describe("computing a plan in slices", () => {
-  it("slicing does not change the values, and reads only the rows it is asked for", async () => {
+  it("slicing does not change the values, and the window is read once", async () => {
     const asked: [number, number][] = [];
     const sliced = await computeActivityPlan(
       slicePlan,
@@ -1271,11 +1394,8 @@ describe("computing a plan in slices", () => {
       },
       { ...noYield, sliceChannels: 5 },
     );
-    expect(asked).toEqual([
-      [0, 5],
-      [5, 10],
-      [10, 14],
-    ]);
+    // One read for the whole window, computed in three slices of at most five channels.
+    expect(asked).toEqual([[0, 14]]);
     const whole = await computeActivityPlan(
       slicePlan,
       sliceGroup,
@@ -1308,6 +1428,94 @@ describe("computing a plan in slices", () => {
     );
   });
 
+  it("reads only once for rows that are not neighbors, and computes only the located ones", async () => {
+    const rows = [0, 1, 2, 3, 10, 11];
+    const asked: [number, number][] = [];
+    const outcome = await computeActivityPlan(
+      { ...slicePlan, rows },
+      sliceGroup,
+      async (r0, r1) => {
+        asked.push([r0, r1]);
+        return fixtureRows(r0, r1);
+      },
+      { ...noYield, sliceChannels: 4 },
+    );
+    expect(asked).toEqual([[0, 12]]);
+    expect(outcome?.ok).toBe(true);
+    if (!outcome?.ok) return;
+    // The rows the span covered but the plan did not name have no value.
+    outcome.report.channels.forEach((c, row) => {
+      expect(c === null).toBe(!rows.includes(row));
+    });
+    // And the located ones equal what a read of exactly those rows gives.
+    const direct = computeActivity({
+      channels: rows.map((row) => ({
+        label: activitySources.slice.channel_labels[row],
+        samples: sliceSamples.slice(row * SLICE_COLS, (row + 1) * SLICE_COLS),
+        nativeRateHz: 1000,
+      })),
+      rateHz: 1000,
+      unit: "V",
+      metric: "rms",
+      displayUnit: "µV",
+    });
+    expect(direct.ok).toBe(true);
+    if (!direct.ok) return;
+    expect(rows.map((row) => outcome.report.channels[row]?.value)).toEqual(
+      direct.channels.map((c) => c.value),
+    );
+  });
+
+  it("yields to the page after the read and after every slice, so decoding and computing never share a task", async () => {
+    const events: string[] = [];
+    await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        events.push(`read ${r0}-${r1}`);
+        return fixtureRows(r0, r1);
+      },
+      {
+        sliceChannels: 5,
+        yieldTask: async () => {
+          events.push("yield");
+        },
+      },
+    );
+    // 14 rows in slices of 5, 5 and 4: one yield after the read, one after each slice.
+    expect(events).toEqual(["read 0-14", "yield", "yield", "yield", "yield"]);
+  });
+
+  it("caps the samples of a slice: a long window is computed in smaller slices, whatever the channel cap says", async () => {
+    // 2,000 samples per channel with a 5,000-sample cap: two channels per slice.
+    const events: string[] = [];
+    const outcome = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        events.push(`read ${r0}-${r1}`);
+        return fixtureRows(r0, r1);
+      },
+      {
+        sliceChannels: 16,
+        sliceSamples: 5_000,
+        yieldTask: async () => {
+          events.push("yield");
+        },
+      },
+    );
+    expect(events.filter((e) => e === "yield")).toHaveLength(1 + 7);
+    expect(outcome?.ok).toBe(true);
+    // The default cap leaves a 14-channel, 2,000-sample window in one slice.
+    const one: string[] = [];
+    await computeActivityPlan(slicePlan, sliceGroup, async (r0, r1) => fixtureRows(r0, r1), {
+      yieldTask: async () => {
+        one.push("yield");
+      },
+    });
+    expect(one).toHaveLength(2);
+  });
+
   it("refuses when a later slice's channels have another unit than the first's", async () => {
     // Seven channels in microvolts, then seven in femtotesla: one color scale cannot span them.
     const units = sliceGroup.labels.map((_, i) => (i < 7 ? "uV" : "fT"));
@@ -1321,7 +1529,8 @@ describe("computing a plan in slices", () => {
       },
       { ...noYield, sliceChannels: 7 },
     );
-    expect(reads).toBe(2);
+    // One read of the window; the second slice is where the unit changes.
+    expect(reads).toBe(1);
     expect(outcome).toEqual({ ok: false, reason: "mixed_units" });
     expect(ACTIVITY_SENTENCES.mixed_units(1000)).toBe(
       "Activity cannot be computed: this recording's channels mix voltage and field units.",
@@ -1586,12 +1795,39 @@ const PLACED = [
     identifier: "fsaverage",
     label: `${OWN}; approximate: MNI305 to MNI152 affine`,
     approximate: true,
+    // Both committed fsaverage datasets declare meters over millimeter-sized numbers, which the
+    // units banner withholds from any template (see units-banner.test.ts). The affine path needs a
+    // head-scale geometry, so this one reads the file's own numbers as millimeters (below).
+    asMillimeters: true,
   },
 ] as const;
 
+/**
+ * A known-answer input, never something the panel does: the same real contacts with the numbers
+ * the electrodes file wrote taken as millimeters. Used where a registered frame is needed at head
+ * scale and the only committed file of that frame declares meters over millimeter-sized numbers.
+ */
+function readAsMillimeters(g: RecordingGeometry): RecordingGeometry {
+  const mm = { declared: "mm", unit: "mm", scaleToMm: 1, unitsDeclared: true } as const;
+  return {
+    ...g,
+    spaces: g.spaces.map((s) => ({
+      ...s,
+      units: mm,
+      contacts: s.contacts.map((c) => ({
+        ...c,
+        position: c.position
+          ? ([Number(c.raw.x), Number(c.raw.y), Number(c.raw.z)] as const)
+          : null,
+      })),
+    })),
+  };
+}
+
 async function placedState(c: (typeof PLACED)[number]) {
   const [dataset, version] = c.dataset;
-  const geometry = await geometryOf(dataset, version, c.recording);
+  const file = await geometryOf(dataset, version, c.recording);
+  const geometry = "asMillimeters" in c && c.asMillimeters ? readAsMillimeters(file) : file;
   const index = geometry.spaces.findIndex(
     (s) => s.frame?.kind === "template" && s.frame.identifier === c.identifier,
   );

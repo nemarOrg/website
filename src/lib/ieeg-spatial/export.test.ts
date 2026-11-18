@@ -786,6 +786,7 @@ describe("the panel's switch to the 2D views", () => {
       on: false,
       enabled: true,
       title: expect.stringContaining("three flat views"),
+      reason: null,
     });
     const flat = reduce(plain, { type: "view_changed", view2d: true }).state;
     expect(viewModel(flat).stage.kind).toBe("views2d");
@@ -809,7 +810,13 @@ describe("the panel's switch to the 2D views", () => {
     const state = reduce(plain, { type: "webgl_unavailable" }).state;
     const model = viewModel(state);
     expect(model.stage.kind).toBe("no_webgl");
-    expect(model.view).toEqual({ shown: true, on: true, enabled: false, title: WEBGL_SENTENCE });
+    expect(model.view).toEqual({
+      shown: true,
+      on: true,
+      enabled: false,
+      title: WEBGL_SENTENCE,
+      reason: null,
+    });
     expect(model.credit.attributes.href).toBe(RAVE_CREDIT.href);
   });
 

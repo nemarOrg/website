@@ -14,14 +14,17 @@
  *
  * Groups, each dataset loaded once per group:
  * - Template frames: nm000454 (the surface's own frame, no "approximate"), on005522 (MNI152NLin6ASym,
- *   bipolar names, every join exact), on004100 (fsaverage, meters), nm000485 (Talairach, two frames
- *   offered), nm000376 (IXI549Space): toggle, frames offered, the surface drawn, the label each
- *   frame owes, the credit link.
+ *   bipolar names, every join exact), nm000485 (Talairach, two frames offered), nm000376
+ *   (IXI549Space): toggle, frames offered, the surface drawn, the label each frame owes, the
+ *   credit link.
+ * - Units: on004100 (fsaverage; declares meters over millimeter-sized numbers): the banner on the
+ *   stage and in the saved SVG and PNG, no surface, the contacts as declared in the flat views.
  * - Native frames: on005415 (ACPC, channel names joined by a rule) and on004473 (ACPC and ScanRAS,
  *   meters, names with spaces): never placed on the template (no mesh, no outlines requested), the
  *   join said in words, and the recorded location shown exactly as the file wrote it.
- * - Refusals: nm000537 (no coordinates), on004642 (no electrodes file), nm000377 and on004624
- *   (names that carry no usable link to a contact).
+ * - Refusals: nm000537 (no coordinates), on004642 (no electrodes file): a disabled toggle and its
+ *   sentence. nm000377 and on004624 (names that carry no usable link to a contact): the toggle opens
+ *   a refusal that lists both sets of names.
  * - EEG: on009081 never loads the panel's code nor reads an electrodes file.
  * - Exports on a template frame (nm000485); light and dark; keyboard only; 360 px; WebGL disabled.
  * - Budgets: the template mesh as transferred, the time to the first contacts on a warm cache, and
@@ -54,6 +57,12 @@ import { type Page, type Request, chromium, expect, test } from "@playwright/tes
 test.describe.configure({ mode: "default", timeout: 600_000 });
 
 const TOGGLE = "[data-spatial-toggle]";
+/**
+ * The embed's two notices: the server-rendered one (`.embed-msg__text`) and the one the page writes
+ * when the Zarr index fails to load ("The signal viewer could not load this dataset's recordings
+ * right now"). A helper that knew only the first waited 90 s on a page that was already saying so.
+ */
+const EMBED_NOTICE = ".embed-msg__text, [data-embed-notice]:not([hidden])";
 const PANEL = "[data-spatial-panel]";
 const STAGE = "[data-spatial-stage]";
 const STATUS = "[data-spatial-status]";
@@ -63,6 +72,12 @@ const TEMPLATE_BOX = "[data-spatial-template]";
 const TEMPLATE_LABEL = "[data-spatial-template-label]";
 const LIST = "[data-spatial-list]";
 const CONTACT_COLUMN = ".eegv__spatial-loc:not(.eegv__spatial-tpl)";
+const BANNER = "[data-spatial-banner]";
+const SCALE = "[data-spatial-scale]";
+const VIEW_REASON = "[data-spatial-view-reason]";
+const NAMES = "[data-spatial-names]";
+const NAMES_CHANNELS = "[data-spatial-names-channels]";
+const NAMES_CONTACTS = "[data-spatial-names-contacts]";
 
 /** The budgets of plan section 9, as the owner set them. */
 const BUDGET = {
@@ -84,9 +99,28 @@ const CREDIT_ARIA_LABEL = "Electrode view inspired by RAVE (opens in a new tab)"
 const TEMPLATE_REFERENCE_HREF = "https://doi.org/10.1016/j.neuroimage.2010.07.033";
 const TEMPLATE_LICENSE_PATH = "/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt";
 const WEBGL_SENTENCE = "3D view needs WebGL2";
+const NO_MATCH = "None of this recording's channels match a contact in the electrodes file.";
+const NAMES_TOGGLE_TITLE =
+  "Brain: no channel name joins a contact; open to compare the two lists of names";
+const NO_RULE = "No rule joined these names; nothing was guessed.";
+const BANNER_VIEW_TITLE =
+  "3D view is off while the units banner shows; the three flat views draw every contact as declared";
+/** The units banner as the stage and the figures say it; the distance is the dataset's own number. */
+const BANNER_PATTERN =
+  /^Declared unit m, but the values look millimeter-sized \(largest distance ([\d,]+) mm from the origin\)\. Positions are shown as declared and are not placed on any template\.$/;
+/** The sentence under the banner about the flat views' scale (they have no scale bar). */
+const SCALE_PATTERN =
+  /^Scale: the three views share one scale, and the drawn contacts span ([\d,]+) mm along the widest axis\.$/;
 const UNREADABLE_SENTENCE = "The electrodes file could not be read.";
 
 const OWN_LABEL = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
+/**
+ * Banner lines across a figure cover most of the content width in the rows under the title; the
+ * first row of the three views (three short titles, a few letters) covers a small part of it.
+ * Calibrated on the two real PNGs and noted in each run (`banner band ink columns ...`).
+ */
+const BANNER_BAND_MIN = 0.3;
+const BANNER_BAND_CONTROL_MAX = 0.2;
 /** What `inkShare` separates, measured by the panel spec: the surface covers 0.166 to 0.170 of the canvas, contacts alone at most 0.045. */
 const MESH_INK_MIN = 0.12;
 const CONTACTS_INK_MAX = 0.09;
@@ -106,6 +140,9 @@ const ALLOWANCE = { embedReloads: 3, panelRetries: 3, http5xx: 10, requestFailed
 
 /** A Zarr request slower than this, as a median of three, makes the data plane "slow" for this run. */
 const SLOW_ZARR_MEDIAN_MS = 3000;
+/** Quiet means no Zarr request in flight and none for this long (the scope's redraw follows its data within ~300 ms). */
+const ZARR_QUIET_MS = 1500;
+const ZARR_QUIET_TIMEOUT_MS = 180_000;
 /** The Zarr host the panel's sample reads go to. */
 const ZARR_HOST = "zarr.nemar.org";
 /**
@@ -113,6 +150,15 @@ const ZARR_HOST = "zarr.nemar.org";
  * response is the real one, only late), as a slow data plane would. Unset in a normal run.
  */
 const SLOW_ZARR_SEAM_MS = Number(process.env.QA1_SLOW_ZARR_MS ?? 0);
+/**
+ * A second seam, for the fast regime on a day the data plane is slow: replay the Zarr host's real
+ * responses from an HTTP archive (a HAR file) instead of the network. Record one by running the
+ * long-task test once with `QA1_ZARR_HAR_RECORD=1` (it writes the file when the test ends), then
+ * replay it with `QA1_ZARR_HAR=<file>`. A request the archive lacks goes to the network. Unset in a
+ * normal run.
+ */
+const ZARR_HAR = process.env.QA1_ZARR_HAR;
+const ZARR_HAR_RECORD = process.env.QA1_ZARR_HAR_RECORD === "1";
 /** With fast Zarr requests, Activity not ready after this long is a stall of the panel: a failure. */
 const ACTIVITY_STALL_MS = 120_000;
 const PREFLIGHT_URL =
@@ -126,6 +172,109 @@ const FORCED_HEADER = "x-qa1-forced";
 function note(type: string, value: string): void {
   test.info().annotations.push({ type, description: value });
   console.log(`[qa1] ${type}: ${value}`);
+}
+
+// ---------------------------------------------------------------------------
+// Evidence if a page ever stops answering
+// ---------------------------------------------------------------------------
+
+/**
+ * A page that stopped answering at a click was seen a few times in QA1's runs of the export test
+ * and never reproduced (IS-Q2: 111 plain-script repeats under `caffeinate -i`, no stall; the host
+ * had slept during some of QA1's runs). This is how a future occurrence leaves evidence. It
+ * installs, in the page: a 10 ms timer and a requestAnimationFrame loop that record every gap over
+ * 60 and over 100 ms, and a console beat every 250 ms that reaches Node even while the page is
+ * blocked, so "the page went quiet at T" is known without asking the page. In Node: the timing of
+ * the requests that matter (the outlines file, the mesh files, the Zarr host). `report` writes
+ * both into the test's annotations; a page that does not answer a trivial evaluate within 5 s is
+ * said to be unresponsive, with how long ago its last beat was.
+ */
+interface PageWatch {
+  report(why: string): Promise<void>;
+}
+
+let activeWatch: PageWatch | null = null;
+
+async function watchPage(page: Page): Promise<PageWatch> {
+  await page.addInitScript(() => {
+    const w = window as unknown as {
+      __hb: { timer: { at: number; gap: number }[]; raf: { at: number; gap: number }[] };
+    };
+    w.__hb = { timer: [], raf: [] };
+    let last = performance.now();
+    setInterval(() => {
+      const now = performance.now();
+      if (now - last > 60)
+        w.__hb.timer.push({ at: Math.round(last), gap: Math.round(now - last - 10) });
+      last = now;
+    }, 10);
+    let lastRaf = performance.now();
+    const loop = () =>
+      requestAnimationFrame(() => {
+        const now = performance.now();
+        if (now - lastRaf > 100)
+          w.__hb.raf.push({ at: Math.round(lastRaf), gap: Math.round(now - lastRaf) });
+        lastRaf = now;
+        loop();
+      });
+    loop();
+    setInterval(() => console.debug(`__HB__ ${Math.round(performance.now())}`), 250);
+  });
+  const t0 = Date.now();
+  let lastBeat = Date.now();
+  page.on("console", (m) => {
+    if (m.text().startsWith("__HB__")) lastBeat = Date.now();
+  });
+  const timings: { what: string; start: number; end: number | null; status: number | null }[] = [];
+  const what = (url: string) =>
+    /views\.json/.test(url)
+      ? "views.json"
+      : /\.mesh\.bin/.test(url)
+        ? "mesh"
+        : new URL(url).hostname === "zarr.nemar.org"
+          ? "zarr"
+          : null;
+  const open = new Map<Request, (typeof timings)[number]>();
+  page.on("request", (r) => {
+    const w = what(r.url());
+    if (!w) return;
+    const entry = { what: w, start: Date.now() - t0, end: null, status: null };
+    timings.push(entry);
+    open.set(r, entry);
+  });
+  page.on("requestfinished", async (r) => {
+    const e = open.get(r);
+    if (!e) return;
+    e.end = Date.now() - t0;
+    e.status = (await r.response().catch(() => null))?.status() ?? null;
+  });
+  return {
+    async report(why) {
+      const quiet = Date.now() - lastBeat;
+      let gaps: string;
+      try {
+        gaps = await Promise.race([
+          page.evaluate(() => JSON.stringify((window as unknown as { __hb: unknown }).__hb)),
+          new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error("no answer within 5 s")), 5000),
+          ),
+        ]);
+      } catch (e) {
+        gaps = `the page did not answer a trivial evaluate (${String(e)}): unresponsive`;
+      }
+      const summarize = (kind: string) => {
+        const t = timings.filter((x) => x.what === kind);
+        const done = t
+          .flatMap((x) => (x.end === null ? [] : [x.end - x.start]))
+          .sort((a, b) => a - b);
+        return `${kind}: ${t.length} requests, ${t.length - done.length} unfinished${done.length ? `, median ${done[Math.floor(done.length / 2)]} ms, slowest ${done[done.length - 1]} ms` : ""}`;
+      };
+      note(
+        `page heartbeat (${why})`,
+        `last console beat ${quiet} ms ago; gaps ${gaps}; ${["views.json", "mesh", "zarr"].map(summarize).join("; ")}`,
+      );
+    },
+  };
 }
 
 /** Three timed requests to the Zarr route, from Node; the median decides "slow". */
@@ -156,8 +305,16 @@ test.beforeAll(async ({ browser }) => {
 
 let before = { ...transient };
 
+/** Requests each page has sent and not yet seen finish or fail, with when they started: what a stalled page was waiting for. */
+const pending = new WeakMap<Page, Map<Request, number>>();
+
 test.beforeEach(async ({ page }) => {
   before = { ...transient };
+  const open = new Map<Request, number>();
+  pending.set(page, open);
+  page.on("request", (r) => open.set(r, Date.now()));
+  page.on("requestfinished", (r) => open.delete(r));
+  page.on("requestfailed", (r) => open.delete(r));
   page.on("response", (r) => {
     // A 500 this suite forced itself (the refusal check) is not a passing failure of the data plane.
     if (r.headers()[FORCED_HEADER]) return;
@@ -172,6 +329,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(async () => {
+  const testInfo = test.info();
+  // A test that registered a page watch leaves its heartbeat and request timing when it did not pass.
+  const watch = activeWatch;
+  activeWatch = null;
+  if (watch && testInfo.status !== testInfo.expectedStatus)
+    await watch.report(testInfo.status ?? "failed");
   const delta = Object.fromEntries(
     Object.entries(transient).map(([k, v]) => [k, v - before[k as keyof typeof transient]]),
   );
@@ -194,16 +357,55 @@ test.afterAll(async () => {
 // Driving the viewer
 // ---------------------------------------------------------------------------
 
-/** The embed route opens the dataset's first recording; `query` is for `?theme=`. */
-async function openViewer(page: Page, dataset: string, query = ""): Promise<void> {
+/**
+ * What a page that has shown neither its viewer nor a notice looked like: its load state, its
+ * words, and the requests it was still waiting for (host and path, with their age). Written to the
+ * test's annotations when `openViewer` gives up. The "embed showed nothing for 90 s" met so far was
+ * a notice the helper did not know (`EMBED_NOTICE`); this is the evidence if a page ever shows
+ * neither.
+ */
+async function describeStalledPage(page: Page): Promise<string> {
+  const waiting = [...(pending.get(page)?.entries() ?? [])]
+    .map(([r, t0]) => {
+      const u = new URL(r.url());
+      return `${u.hostname}${u.pathname.slice(-48)} (${Date.now() - t0} ms)`;
+    })
+    .slice(0, 10);
+  const seen = await Promise.race([
+    page.evaluate(() => ({
+      state: document.readyState,
+      status: document.querySelector(".eegv__status")?.textContent ?? null,
+      text: (document.body?.innerText ?? "").replace(/\s+/g, " ").slice(0, 160),
+    })),
+    new Promise<string>((resolve) => setTimeout(() => resolve("no answer within 5 s"), 5000)),
+  ]);
+  return `${JSON.stringify(seen)}; waiting for ${waiting.length} requests: ${waiting.join("; ") || "none"}`;
+}
+
+/**
+ * The embed route opens the dataset's first recording; `query` is for `?theme=`; `ready` is the
+ * element that says the viewer is up (the Brain toggle for an iEEG recording).
+ */
+async function openViewer(page: Page, dataset: string, query = "", ready = TOGGLE): Promise<void> {
   // The embed page's own server-side reads fail now and then ("could not load this dataset right
   // now"); a reader reloads, and so does this.
   for (let attempt = 1; ; attempt++) {
     await page.goto(`/dataset/${dataset}/embed${query}`);
-    const outcome = await Promise.race([
-      page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 }).then(() => "viewer"),
-      page.waitForSelector(".embed-msg__text", { timeout: 90_000 }).then(() => "notice"),
-    ]);
+    let outcome: "viewer" | "notice";
+    try {
+      outcome = await Promise.race([
+        page
+          .waitForSelector(ready, { state: "attached", timeout: 90_000 })
+          .then(() => "viewer" as const),
+        page.waitForSelector(EMBED_NOTICE, { timeout: 90_000 }).then(() => "notice" as const),
+      ]);
+    } catch (e) {
+      note(
+        `embed of ${dataset} showed neither its viewer nor a notice in 90 s`,
+        await describeStalledPage(page),
+      );
+      throw e;
+    }
     if (outcome === "viewer") return;
     if (attempt >= 4)
       throw new Error(`the embed page for ${dataset} kept saying it could not load`);
@@ -222,7 +424,10 @@ async function settled(page: Page): Promise<void> {
 }
 
 /** Click the toggle and wait for the stage to leave "loading"; Retry on a refusal that offers it. */
-async function openBrain(page: Page, wantStage: "canvas" | "no_webgl" = "canvas"): Promise<void> {
+async function openBrain(
+  page: Page,
+  wantStage: "canvas" | "no_webgl" | "views2d" = "canvas",
+): Promise<void> {
   await settled(page);
   await expect(page.locator(TOGGLE)).toBeEnabled();
   await page.click(TOGGLE);
@@ -390,6 +595,40 @@ async function pngCorners(page: Page, bytes: Buffer) {
 }
 
 /**
+ * The share of a PNG's pixel columns that hold at least one dark pixel (luminance under 40 percent)
+ * in the rows `[y0, y1)`: a line of bold text across the figure covers many columns, a few short
+ * titles cover few. Canvas pixels; the figures are drawn at 2 canvas pixels per figure pixel.
+ */
+async function pngInkColumns(page: Page, bytes: Buffer, y0: number, y1: number): Promise<number> {
+  return page.evaluate(
+    async ({ b64, from, to }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, from, c.width, to - from).data;
+      let columns = 0;
+      for (let x = 0; x < c.width; x++) {
+        for (let y = 0; y < to - from; y++) {
+          const i = (y * c.width + x) * 4;
+          if (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2] < 102) {
+            columns += 1;
+            break;
+          }
+        }
+      }
+      return columns / c.width;
+    },
+    { b64: bytes.toString("base64"), from: y0, to: y1 },
+  );
+}
+
+/**
  * The lowest WCAG contrast, over the first 200 elements matching `selector`, of the element's text
  * against the CSS backgrounds resolved behind it (not canvas pixels: the credit link's backing sits
  * over the canvas).
@@ -464,6 +703,17 @@ async function svgFacts(page: Page, text: string) {
     const link = credit?.querySelector("a");
     return {
       error: doc.querySelector("parsererror")?.textContent ?? null,
+      banner: root.querySelector('g#banner text[data-role="banner"]')?.textContent ?? null,
+      scale: root.querySelector('text[data-role="scale"]')?.textContent ?? null,
+      bannerBeforeViews: (() => {
+        const bannerGroup = root.querySelector("g#banner");
+        const viewsGroup = root.querySelector("g#views");
+        return (
+          !!bannerGroup &&
+          !!viewsGroup &&
+          (bannerGroup.compareDocumentPosition(viewsGroup) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+        );
+      })(),
       lastClass: credit?.getAttribute("class") ?? null,
       linkHref: link?.getAttribute("href") ?? null,
       linkText: link?.querySelector("text")?.textContent ?? null,
@@ -522,8 +772,6 @@ interface TemplateCase {
   dataset: string;
   frame: string;
   label: string;
-  /** Whether the surface is expected to cover the canvas (not when the contacts sit far outside a head). */
-  surface: boolean;
   /** The frames the selector offers, or null when the recording has one frame and no selector. */
   frames: string[] | null;
 }
@@ -533,37 +781,24 @@ const TEMPLATE_CASES: TemplateCase[] = [
     dataset: "nm000454",
     frame: "MNI152NLin2009cAsym",
     label: OWN_LABEL,
-    surface: true,
     frames: null,
   },
   {
     dataset: "on005522",
     frame: "MNI152NLin6ASym",
     label: `${OWN_LABEL}; approximate: MNI template variants differ by a few millimeters`,
-    surface: true,
-    frames: null,
-  },
-  {
-    // The file says meters but its numbers are millimeter-sized, so the contacts sit far outside a
-    // head; the panel says so, and the surface is still drawn and labeled.
-    dataset: "on004100",
-    frame: "fsaverage",
-    label: `${OWN_LABEL}; approximate: MNI305 to MNI152 affine`,
-    surface: false,
     frames: null,
   },
   {
     dataset: "nm000485",
     frame: "Talairach",
     label: `${OWN_LABEL}; approximate: Talairach to MNI affine`,
-    surface: true,
     frames: ["Other", "Talairach"],
   },
   {
     dataset: "nm000376",
     frame: "IXI549Space",
     label: `${OWN_LABEL}; approximate: MNI template variants differ by a few millimeters`,
-    surface: true,
     frames: null,
   },
 ];
@@ -625,19 +860,12 @@ for (const c of TEMPLATE_CASES) {
       "lh.mesh.bin",
       "rh.mesh.bin",
     ]);
-    if (c.surface) await expectSurfaceDrawn(page, c.dataset);
-    // The contacts are on screen, except where the file's own numbers put them outside any head
-    // (on004100: meters declared, millimeters written), which the panel says in words below.
+    await expectSurfaceDrawn(page, c.dataset);
     const saturated = (await canvasColors(page)).saturated;
     note(`saturated contact pixels ${c.dataset}`, String(saturated));
-    if (c.surface) expect(saturated).toBeGreaterThan(20);
+    expect(saturated).toBeGreaterThan(20);
     await expectCredit(page);
 
-    if (c.dataset === "on004100") {
-      // Declared meters with millimeter-sized numbers: the panel warns and never corrects.
-      await expect(page.locator(NOTES)).toContainText(/span \d+ mm, wider than a head/);
-      await expect(page.locator(NOTES)).toContainText("the file says m, scaled to millimeters");
-    }
     if (c.dataset === "on005522") {
       // Every join is the file's own name or an exact bipolar pair: no rule is named anywhere.
       await expect(page.locator(STATUS)).toHaveText(/positions as declared by the dataset$/);
@@ -825,8 +1053,6 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
 // Refusals
 // ---------------------------------------------------------------------------
 
-const NO_MATCH = "None of this recording's channels match a contact in the electrodes file.";
-
 const REFUSALS = [
   {
     dataset: "nm000537",
@@ -839,18 +1065,6 @@ const REFUSALS = [
     why: "no electrodes file",
     title:
       "Brain view unavailable: This recording has no electrodes file, so its contact positions are not known.",
-  },
-  {
-    // The store names channels "ch001"..., the electrodes file names contacts by shaft (survey row P2).
-    dataset: "nm000377",
-    why: "names carry no usable link",
-    title: `Brain view unavailable: ${NO_MATCH}`,
-  },
-  {
-    // Labels count from CH0, the file from Ch1 (survey row P3).
-    dataset: "on004624",
-    why: "names carry no usable link",
-    title: `Brain view unavailable: ${NO_MATCH}`,
   },
 ] as const;
 
@@ -868,15 +1082,259 @@ for (const r of REFUSALS) {
     await page.waitForTimeout(1000);
     expect(template.meshes).toEqual([]);
     expect(template.outlines).toEqual([]);
-    if (r.why === "names carry no usable link") {
-      // The channel names are not listed anywhere on screen: the panel can only be opened once at
-      // least one channel is located, and the unlocated-channel note lives inside it (finding for
-      // IS-V1 and IS-J1, in the note). Recorded, not asserted as desired behavior.
-      const visibleNote = await page.locator(`${NOTES} li:visible`).count();
-      note(`${r.dataset} channel names listed on screen`, visibleNote > 0 ? "yes" : "no");
-    }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Closed by names
+// ---------------------------------------------------------------------------
+
+const CLOSED_BY_NAMES = [
+  {
+    // The store names channels "ch001"..., the electrodes file names contacts by shaft (survey row P2).
+    dataset: "nm000377",
+    channelsStart: ["ch001", "ch002", "ch003"],
+  },
+  {
+    // Labels count from CH0, the file from Ch1 (survey row P3).
+    dataset: "on004624",
+    channelsStart: ["CH0", "CH1", "CH10"],
+  },
+] as const;
+
+for (const r of CLOSED_BY_NAMES) {
+  test(`closed by names: ${r.dataset} opens a refusal that lists both sets of names as recorded, and draws and guesses nothing`, async ({
+    page,
+  }) => {
+    const template = watchTemplateRequests(page);
+    const sidecars = watchSidecars(page);
+    await openViewer(page, r.dataset);
+    await settled(page);
+    // Not the generic disabled button: it opens, and its title says why.
+    await expect(page.locator(TOGGLE)).toBeEnabled();
+    await expect(page.locator(TOGGLE)).toHaveAttribute("title", NAMES_TOGGLE_TITLE);
+    await page.click(TOGGLE);
+    for (let retries = 0; ; retries++) {
+      await expect(page.locator(STAGE)).not.toHaveAttribute("data-stage", "loading", {
+        timeout: 60_000,
+      });
+      if (!(await page.locator(`${PANEL} .eegv__spatial-retry`).isVisible()) || retries >= 3) break;
+      transient.panelRetries += 1;
+      await page.click(`${PANEL} .eegv__spatial-retry`);
+    }
+    await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "refusal");
+    await expect(page.locator(PANEL)).toBeVisible();
+    // The generic sentence is still said first; the lists are under it.
+    await expect(page.locator(`${STAGE} .eegv__spatial-msg`)).toHaveText(NO_MATCH);
+    await expect(page.locator(NAMES)).toBeVisible();
+
+    // Both lists: at most 12 names each, with the counts they are taken from.
+    const channelHead =
+      (await page.locator(`${NAMES_CHANNELS} .eegv__spatial-names-head`).textContent()) ?? "";
+    const contactHead =
+      (await page.locator(`${NAMES_CONTACTS} .eegv__spatial-names-head`).textContent()) ?? "";
+    const channelCount = /^Channels in the recording, as named there \(first 12 of (\d+)\)$/.exec(
+      channelHead,
+    );
+    const contactCount =
+      /^Contacts in the electrodes file, as named there \(first 12 of (\d+)\)$/.exec(contactHead);
+    expect(channelCount, channelHead).not.toBeNull();
+    expect(contactCount, contactHead).not.toBeNull();
+    const channels = await texts(page, `${NAMES_CHANNELS} li`);
+    const contacts = await texts(page, `${NAMES_CONTACTS} li`);
+    expect(channels).toHaveLength(12);
+    expect(contacts).toHaveLength(12);
+    expect(channels.slice(0, r.channelsStart.length)).toEqual([...r.channelsStart]);
+
+    // The contact names are the electrodes file's own first rows, read here from the file itself.
+    const electrodes = [...sidecars.entries()].find(([name]) => name.endsWith("_electrodes.tsv"));
+    expect(electrodes, "the page read the electrodes file").toBeTruthy();
+    // The data plane answers 500 now and then: read the file again, as the panel does.
+    let tsv = "";
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const res = await page.request.get(electrodes?.[1] ?? "");
+      tsv = (await res.text()).replace(/^\uFEFF/, "");
+      if (res.ok() && tsv.split(/\r?\n/)[0]?.split("\t").includes("name")) break;
+      transient.requestFailed += 1;
+      await page.waitForTimeout(1000 * attempt);
+    }
+    const [header, ...body] = tsv.split(/\r?\n/).filter((l) => l.length > 0);
+    const nameColumn = header.split("\t").indexOf("name");
+    const fileNames = body
+      .map((l) => l.split("\t")[nameColumn]?.trim() ?? "")
+      .filter((n) => n !== "" && n !== "n/a");
+    expect(contacts).toEqual(fileNames.slice(0, 12));
+    expect(Number(contactCount?.[1])).toBe(fileNames.length);
+    // No listed channel name is a contact name: no rule could have joined them, and none claims to.
+    const all = new Set(fileNames);
+    for (const c of channels) expect(all.has(c), `${c} is a contact`).toBe(false);
+
+    // The cause is said in the notes' words, with the same count; the verdict is plain.
+    const total = Number(channelCount?.[1]);
+    await expect(page.locator(NAMES)).toContainText(
+      `${total} unlocated channels, no contact of that name in the electrodes file.`,
+    );
+    await expect(page.locator(NAMES)).toContainText(NO_RULE);
+
+    // Each list is named by its heading, and each name is its own bidirectional run: `dir="auto"` on
+    // the item (which also makes the browser isolate it) and the isolation written in the
+    // stylesheet (Chromium computes `isolate` for any list item, so the computed style alone
+    // would prove nothing).
+    for (const list of [NAMES_CHANNELS, NAMES_CONTACTS]) {
+      const headingId =
+        (await page.locator(`${list} .eegv__spatial-names-head`).getAttribute("id")) ?? "";
+      expect(headingId).not.toBe("");
+      await expect(page.locator(`${list} ul`)).toHaveAttribute("aria-labelledby", headingId);
+      await expect(page.locator(`${list} li`).first()).toHaveAttribute("dir", "auto");
+    }
+    expect(readFileSync("src/styles/eeg-viewer.css", "utf8")).toMatch(
+      /\.eegv__spatial-names-item\s*\{[^}]*unicode-bidi:\s*isolate/,
+    );
+
+    // Nothing is drawn, claimed or read, and the credit stays.
+    await expect(page.locator("canvas.eegv__spatial-canvas")).toHaveCount(0);
+    await expect(page.locator(STATUS)).toBeHidden();
+    await expect(page.locator(`${PANEL} .eegv__spatial-activity`)).toBeHidden();
+    await expect(page.locator(LIST)).toBeEmpty();
+    await expect(page.locator("[data-spatial-view2d]")).toBeHidden();
+    await expectCredit(page);
+    expect(await reads(page)).toBe(0);
+    await page.waitForTimeout(1000);
+    expect(template.meshes).toEqual([]);
+    expect(template.outlines).toEqual([]);
+    note(
+      `closed by names ${r.dataset}`,
+      `${total} channels (${channels.slice(0, 3).join(", ")}, ...) against ${fileNames.length} contacts (${contacts.slice(0, 3).join(", ")}, ...)`,
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// The units banner
+// ---------------------------------------------------------------------------
+
+test("units banner (on004100): declared meters over millimeter-sized numbers show a banner on the stage and in the saved SVG and PNG, with the contacts as declared and no template", async ({
+  page,
+}) => {
+  const template = watchTemplateRequests(page);
+  await openViewer(page, "on004100");
+  await settled(page);
+  await expect(page.locator(TOGGLE)).toBeEnabled();
+  // The stage is the three flat views: the 3D spheres are true-size millimeters, so at this
+  // distance a canvas would draw nothing.
+  await openBrain(page, "views2d");
+  await expect(page.locator(BANNER)).toBeVisible();
+  const text = (await page.locator(BANNER).textContent()) ?? "";
+  const match = BANNER_PATTERN.exec(text);
+  expect(match, text).not.toBeNull();
+  const farthest = Number((match?.[1] ?? "").replace(/,/g, ""));
+  // Far past 300 mm, the rule's distance: the numbers are meters-by-declaration.
+  expect(farthest).toBeGreaterThan(300);
+
+  // On the stage itself, in flow above the views, so it covers none of them.
+  const stage = await page.locator(STAGE).boundingBox();
+  const banner = await page.locator(BANNER).boundingBox();
+  const views = await page.locator(`${STAGE} svg`).first().boundingBox();
+  expect(stage && banner && views).toBeTruthy();
+  if (stage && banner && views) {
+    expect(banner.y).toBeGreaterThanOrEqual(stage.y - 1);
+    expect(banner.y + banner.height).toBeLessThanOrEqual(stage.y + stage.height);
+    expect(banner.y + banner.height).toBeLessThanOrEqual(views.y + 1);
+  }
+  expect(await page.locator(`${STAGE} canvas`).count()).toBe(0);
+  expect(
+    await page.locator(BANNER).evaluate((e) => e.closest("[data-spatial-stage]") !== null),
+  ).toBe(true);
+
+  // The views have no scale bar, so a line in the stage says their extent, in the same number the
+  // notes give for the span of the drawn contacts.
+  await expect(page.locator(SCALE)).toBeVisible();
+  const scaleText = (await page.locator(SCALE).textContent()) ?? "";
+  const scaleMatch = SCALE_PATTERN.exec(scaleText);
+  expect(scaleMatch, scaleText).not.toBeNull();
+  expect(
+    await page.locator(SCALE).evaluate((e) => e.closest("[data-spatial-stage]") !== null),
+  ).toBe(true);
+  const scaleBox = await page.locator(SCALE).boundingBox();
+  if (scaleBox && banner && views) {
+    expect(scaleBox.y).toBeGreaterThanOrEqual(banner.y + banner.height - 1);
+    expect(scaleBox.y + scaleBox.height).toBeLessThanOrEqual(views.y + 1);
+  }
+
+  // The 3D switch is off and says why, in the page and not only in a tooltip on a disabled button;
+  // the contacts are drawn, as declared, in the file's frame.
+  await expect(page.locator(VIEW_REASON)).toBeVisible();
+  await expect(page.locator(VIEW_REASON)).toHaveText(BANNER_VIEW_TITLE);
+  const reasonId = (await page.locator(VIEW_REASON).getAttribute("id")) ?? "";
+  expect(reasonId).not.toBe("");
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-describedby", reasonId);
+  const actionsBox = await page.locator(".eegv__spatial-actions").boundingBox();
+  const reasonBox = await page.locator(VIEW_REASON).boundingBox();
+  if (actionsBox && reasonBox) {
+    // Right under the switch's row.
+    expect(reasonBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height - 1);
+    expect(reasonBox.y - (actionsBox.y + actionsBox.height)).toBeLessThan(24);
+  }
+  await expect(page.locator("[data-spatial-view2d]")).toBeDisabled();
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("title", BANNER_VIEW_TITLE);
+  const located = Number((await page.locator(STATUS).textContent())?.match(/^(\d+) of/)?.[1]);
+  expect(located).toBeGreaterThan(0);
+  await expect(page.locator(STATUS)).toHaveText(
+    /^\d+ of \d+ channels located; frame: fsaverage; positions as declared by the dataset$/,
+  );
+  await expect(page.locator(`${STAGE} circle[data-contact]`)).toHaveCount(3 * located);
+  await expect(page.locator(NOTES)).toContainText(
+    "Units: millimeters (the file says m, scaled to millimeters).",
+  );
+  await expect(page.locator(NOTES)).toContainText(/span \d+ mm, wider than a head/);
+  const notedSpan = (await page.locator(NOTES).textContent())?.match(/span (\d+) mm, wider/)?.[1];
+  expect(
+    Math.abs(Number((scaleMatch?.[1] ?? "").replace(/,/g, "")) - Number(notedSpan)),
+  ).toBeLessThanOrEqual(1);
+  // No template: no surface, no outlines, no label, no template position on a row.
+  await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
+  await expect(page.locator(`${STAGE} path[data-template-outline]`)).toHaveCount(0);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "none");
+  const row = page.locator(`${LIST} li[data-contact="0"]`);
+  await expect(row.locator(CONTACT_COLUMN)).toHaveText(
+    /^recorded \(-?[\d.e-]+, -?[\d.e-]+, -?[\d.e-]+\) m, frame: fsaverage/,
+  );
+  await expect(row.locator(".eegv__spatial-tpl")).toBeHidden();
+  await page.waitForTimeout(1000);
+  expect(template.meshes).toEqual([]);
+  expect(template.outlines).toEqual([]);
+  await expectCredit(page);
+
+  // The saved SVG says the same words in a banner of its own, above the views, and still ends with the credit.
+  const svg = await saved(page, "svg");
+  const facts = await svgFacts(page, svg.bytes.toString("utf8"));
+  expect(facts.error).toBeNull();
+  expect(facts.banner).toBe(text);
+  expect(facts.scale).toBe(scaleText);
+  expect(facts.bannerBeforeViews).toBe(true);
+  expect(facts.metadata).toContain(text);
+  expect(facts.outlines).toBe(0);
+  expect(facts.circles).toBe(3 * located);
+  expect(facts.lastClass).toBe("eegv-credit");
+  expect(facts.linkHref).toBe(CREDIT_HREF);
+  expect(svg.name).toMatch(/_contacts_fsaverage\.svg$/);
+
+  // The saved PNG draws it under the title: bold text across the figure, where the control has none.
+  const png = await saved(page, "png");
+  const corners = await pngCorners(page, png.bytes);
+  expect(corners.right.colors).toBeGreaterThan(8);
+  expect(corners.right.dark).toBeGreaterThan(40);
+  expect(corners.left.colors).toBe(1);
+  // Figure pixels 52 to 84 (the first two banner lines), at 2 canvas pixels per figure pixel.
+  const bannerBand = await pngInkColumns(page, png.bytes, 104, 168);
+  note("banner band ink columns on004100 png", bannerBand.toFixed(3));
+  expect(bannerBand).toBeGreaterThan(BANNER_BAND_MIN);
+  note(
+    "units banner on004100",
+    `${located} located channels; farthest ${farthest} mm; svg ${svg.bytes.length} bytes; png ${corners.width}x${corners.height}`,
+  );
+});
 
 test("an EEG dataset (on009081) loads no panel code, reads no electrodes file and shows no Brain toggle", async ({
   page,
@@ -890,7 +1348,7 @@ test("an EEG dataset (on009081) loads no panel code, reads no electrodes file an
       modules.push(url);
     if (/_(electrodes\.tsv|coordsystem\.json)/.test(url)) sidecars.push(url);
   });
-  await page.goto("/dataset/on009081/embed");
+  await openViewer(page, "on009081", "", ".eegv__status");
   await expect(page.locator(".eegv__status")).toContainText("ch @", { timeout: 90_000 });
   await page.waitForTimeout(2000);
   await expect(page.locator(TOGGLE)).toHaveCount(0);
@@ -908,6 +1366,8 @@ test("an EEG dataset (on009081) loads no panel code, reads no electrodes file an
 test("exports on a template frame (nm000485, Talairach): outlines, both sentences, the credit last", async ({
   page,
 }) => {
+  const watch = await watchPage(page);
+  activeWatch = watch;
   await openViewer(page, "nm000485");
   await openBrain(page);
   await waitTemplate(page);
@@ -969,10 +1429,16 @@ test("exports on a template frame (nm000485, Talairach): outlines, both sentence
   expect(corners.right.colors).toBeGreaterThan(8);
   expect(corners.right.dark).toBeGreaterThan(40);
   expect(corners.left.colors).toBe(1);
+  // The control for the banner's PNG check: this figure has no banner, so the rows under its title
+  // hold the first row of views, which is a few short titles and letters.
+  const controlBand = await pngInkColumns(page, png.bytes, 104, 168);
+  note("banner band ink columns nm000485 png (no banner)", controlBand.toFixed(3));
+  expect(controlBand).toBeLessThan(BANNER_BAND_CONTROL_MAX);
   note(
     "exports nm000485",
     `svg ${svg.bytes.length} bytes, ${facts.outlines} outlines, ${facts.titles.length} titles; png3d ${c3d.width}x${c3d.height}, png2d ${corners.width}x${corners.height}`,
   );
+  await watch.report("passed");
 });
 
 // ---------------------------------------------------------------------------
@@ -1504,7 +1970,7 @@ for (const c of FIRST_CONTACT_CASES) {
   });
 }
 
-test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000485) adds no long task over 200 ms; the window step may exceed the scope's own step by 50 ms; judged only while the data plane is measured fast", async ({
+test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000485) adds no long task over 200 ms; the window step may exceed the scope's own step by 50 ms; judged in every regime of the data plane", async ({
   page,
 }) => {
   // A fresh timed read right before this test (not the one from the start of the run).
@@ -1517,6 +1983,14 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
     fresh.slow,
     `data plane slow (Zarr median ${fresh.medianMs} ms at a fresh preflight); long-task budget not judged`,
   );
+  if (ZARR_HAR) {
+    await page.routeFromHAR(ZARR_HAR, {
+      url: new RegExp(`//${ZARR_HOST.replace(/\./g, "\\.")}/`),
+      notFound: "fallback",
+      update: ZARR_HAR_RECORD,
+      updateContent: "embed",
+    });
+  }
   if (SLOW_ZARR_SEAM_MS > 0) {
     await page.route(new RegExp(`//${ZARR_HOST.replace(/\./g, "\\.")}/`), async (route) => {
       await new Promise((done) => setTimeout(done, SLOW_ZARR_SEAM_MS));
@@ -1553,6 +2027,38 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
     return e.n > 0 && e.slowest >= SLOW_ZARR_MEDIAN_MS;
   };
 
+  // The scope renders again after the panel opens (it narrows) and after every window step, and the
+  // data of that render arrives whenever the data plane delivers it. With a slow plane it landed in
+  // the middle of a later phase, where it showed as a block of 210 to 245 ms that the recompute
+  // was blamed for. A Chromium trace (IS-Q2) shows it is the scope's own WebGL frame (a synchronous
+  // read-back of its 130-odd traces in a headless, software-GL browser), while decoding and
+  // computing the whole window were 1.4 and 4.2 ms at most in any one task. So nothing is measured
+  // until the Zarr host has been quiet for a while: no request in flight, none for `ZARR_QUIET_MS`.
+  const inFlight = new Set<Request>();
+  let lastZarrEvent = Date.now();
+  const zarrEnds = (r: Request) => {
+    if (inFlight.delete(r)) lastZarrEvent = Date.now();
+  };
+  page.on("request", (r) => {
+    if (new URL(r.url()).hostname !== ZARR_HOST) return;
+    inFlight.add(r);
+    lastZarrEvent = Date.now();
+  });
+  page.on("requestfinished", zarrEnds);
+  page.on("requestfailed", zarrEnds);
+  const zarrQuiet = async (what: string) => {
+    const waitedFrom = Date.now();
+    while (inFlight.size > 0 || Date.now() - lastZarrEvent < ZARR_QUIET_MS) {
+      if (Date.now() - waitedFrom > ZARR_QUIET_TIMEOUT_MS) {
+        const text = `the Zarr host was not quiet within ${ZARR_QUIET_TIMEOUT_MS / 1000} s at "${what}" (${inFlight.size} requests in flight): the scope's own render has not landed`;
+        note("scope did not settle", text);
+        test.skip(true, `data plane too slow to measure: ${text}`);
+      }
+      await page.waitForTimeout(250);
+    }
+    note(`scope settled at "${what}"`, `${Date.now() - waitedFrom} ms of waiting`);
+  };
+
   // Two ways to see a block of the main thread. The `longtask` entries (tasks over 50 ms) are the
   // plan's measure, but the API does not report every block: in this page a 300 ms busy loop in
   // the recompute was missed by it while a heartbeat saw it. So a 10 ms timer also records every
@@ -1587,6 +2093,7 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   const located = Number((await page.locator(STATUS).textContent())?.match(/^(\d+) of/)?.[1]);
   expect(located).toBeGreaterThanOrEqual(128);
   await page.waitForTimeout(2000);
+  await zarrQuiet("panel opened");
 
   // The observer's callback is delivered late (after a stretch of busy tasks it may not have run
   // by the time the panel is "ready"), so every read first takes the records still queued.
@@ -1638,6 +2145,8 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   await mark();
   await page.click('[data-act="step-fwd"]');
   await page.waitForTimeout(2500);
+  await zarrQuiet("baseline window step");
+  await page.waitForTimeout(500);
   const baseline = await blocks();
   expect(await reads(page)).toBe(0);
 
@@ -1685,11 +2194,11 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
         "; ",
       )}; baseline window step with Activity off: longtask API [${baseline.api.join(", ")}] heartbeat gaps [${baseline.beat.join(", ")}] ms; recompute alone longest ${recompute} ms; window moved longest ${moved} ms against ${scopeAlone} ms for the scope alone; data plane evidence at switch on: ${switchOnEvidence.text}; over the test: ${evidence.text}; ${summary.slice(0, 120)}`,
   );
-  // The budget is judged only while the Zarr requests were measured fast. If any took as long as
-  // the threshold, the numbers above are recorded and the test is skipped with that evidence. The
-  // time the panel took to become ready never decides this: with fast requests the recompute is
-  // always asserted, however long ready took.
-  test.skip(zarrSlow(), `data plane slow (${evidence.text}); long-task budget not judged`);
+  // The budget is judged in every regime of the data plane. Slow requests used to be a reason to skip
+  // because the scope's own late render landed inside the phases and was blamed on the recompute;
+  // the quiet waits above settle that render first, so a slow plane no longer pollutes the numbers.
+  // The evidence of how slow it was is recorded with them.
+  note("data plane during the budget runs", `${zarrSlow() ? "slow" : "fast"}: ${evidence.text}`);
   expect(recompute).toBeLessThanOrEqual(BUDGET.longTaskMs);
   expect(moved).toBeLessThanOrEqual(Math.max(BUDGET.longTaskMs, scopeAlone + 50));
   expect((await canvasColors(page)).hues).toBeGreaterThanOrEqual(3);

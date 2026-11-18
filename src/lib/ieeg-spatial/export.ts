@@ -146,6 +146,9 @@ const COLORBAR_STEPS = 48;
 const LABEL_PX = 12;
 const LABEL_LINE = 16;
 const LABEL_GAP = 6;
+/** The banner's lines wrap at this share of the content width: bold text is wider than the estimate. */
+const BANNER_WRAP_SHARE = 0.92;
+const BANNER_GAP = 10;
 const TITLE_PX = 16;
 /** Empty band at the bottom where the credit sits, so it covers no label, view or image. */
 const FOOTER_HEIGHT = 44;
@@ -160,6 +163,7 @@ export type LabelRole =
   | "note"
   | "webgl"
   | "axes"
+  | "scale"
   | "selected"
   | "measure"
   | "activity";
@@ -196,6 +200,11 @@ export interface Figure {
   theme: FigureTheme;
   recording: { datasetId: string; version: string; path: string };
   frameLabel: string;
+  /**
+   * The units banner (`units-banner.ts`), wrapped, right under the title and above the picture, in
+   * bold foreground text; null when the panel shows none.
+   */
+  banner: { text: string; lines: PlacedLine[] } | null;
   labels: FigureLabel[];
   /** Addresses of the template's reference and license, when a template is drawn. */
   references: string[];
@@ -283,6 +292,8 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
   for (const note of model.notes) add("note", note);
   if (model.stage.kind === "no_webgl") add("webgl", model.stage.sentence);
   if (withViews) add("axes", VIEWS_SENTENCE);
+  // Under the units banner the views have no scale bar: the figure says their extent in words.
+  if (withViews) add("scale", model.scale);
   const texts = contactTexts(input, withViews ? "seam" : "model");
   const picked = model.contacts.flatMap((c, i) => (c.selected ? [contactTitle(texts[i])] : []));
   if (model.selectedChannel !== null) add("selected", `Selected channel: ${model.selectedChannel}`);
@@ -473,6 +484,24 @@ export function buildFigure(
   const titleY = MARGIN + TITLE_PX - 2;
   let y = MARGIN + 28;
 
+  // The banner comes first, above the picture, so a figure cannot be read without it. It is drawn
+  // bold, which is wider than the regular text the width estimate describes, so it wraps early.
+  let banner: Figure["banner"] = null;
+  if (model.banner) {
+    const lines: PlacedLine[] = wrapText(
+      model.banner,
+      contentW * BANNER_WRAP_SHARE,
+      LABEL_PX,
+      measure,
+    ).map((text) => {
+      const line: PlacedLine = { labelId: "banner", text, x: MARGIN, y: y + LABEL_LINE - 4 };
+      y += LABEL_LINE;
+      return line;
+    });
+    banner = { text: model.banner, lines };
+    y += BANNER_GAP;
+  }
+
   let imageBox: Region | null = null;
   let views: Views2d | null = null;
   if (image) {
@@ -549,6 +578,7 @@ export function buildFigure(
     theme,
     recording: { datasetId: rec.datasetId, version: rec.version, path: rec.path },
     frameLabel: input.frameLabel,
+    banner,
     labels,
     references: image ? [] : [...(input.template?.references ?? [])],
     lines,
@@ -621,6 +651,19 @@ export function buildDrawList(figure: Figure): DrawOp[] {
     bold: true,
     anchor: "start",
   });
+  for (const line of figure.banner?.lines ?? []) {
+    ops.push({
+      op: "text",
+      label: "banner",
+      text: line.text,
+      x: line.x,
+      y: line.y,
+      size: LABEL_PX,
+      fill: theme.foreground,
+      bold: true,
+      anchor: "start",
+    });
+  }
   if (figure.image) {
     ops.push({ op: "image", ...figure.image });
   }
@@ -825,6 +868,19 @@ function labelTexts(figure: Figure): string {
     .join("");
 }
 
+function bannerMarkup(figure: Figure): string {
+  const banner = figure.banner;
+  if (!banner || banner.lines.length === 0) return "";
+  const first = banner.lines[0];
+  const tspans = banner.lines
+    .map(
+      (l, i) =>
+        `<tspan x="${num(l.x)}"${i === 0 ? "" : ` y="${num(l.y)}"`}>${escapeXml(l.text)}</tspan>`,
+    )
+    .join("");
+  return `<g id="banner"><text data-role="banner" x="${num(first.x)}" y="${num(first.y)}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${LABEL_PX}" font-weight="600" fill="${escapeXml(figure.theme.foreground)}">${tspans}</text></g>`;
+}
+
 function colorbarMarkup(figure: Figure): string {
   const bar = figure.colorbar;
   if (!bar) return "";
@@ -855,6 +911,7 @@ export function buildSvg(figure: Figure): string {
     `<nemar:version>${escapeXml(rec.version)}</nemar:version>`,
     `<nemar:recording>${escapeXml(rec.path)}</nemar:recording>`,
     `<nemar:frame>${escapeXml(figure.frameLabel)}</nemar:frame>`,
+    ...(figure.banner ? [`<dc:description>${escapeXml(figure.banner.text)}</dc:description>`] : []),
     ...figure.labels.map((l) => `<dc:description>${escapeXml(l.text)}</dc:description>`),
     ...figure.references.map((r) => `<dc:relation>${escapeXml(r)}</dc:relation>`),
     `<dc:description>${escapeXml(RAVE_CREDIT.text)}</dc:description>`,
@@ -870,6 +927,7 @@ export function buildSvg(figure: Figure): string {
     metadata,
     `<rect width="${figure.width}" height="${figure.height}" fill="${escapeXml(theme.background)}"/>`,
     `<text x="${MARGIN}" y="${num(figure.titleY)}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${TITLE_PX}" font-weight="600" fill="${escapeXml(theme.foreground)}">${escapeXml(figure.title)}</text>`,
+    bannerMarkup(figure),
     figure.views
       ? `<g id="views">${viewsMarkup(figure.views, { foreground: theme.foreground, muted: theme.muted, border: theme.border }, FIGURE_FONT)}</g>`
       : "",

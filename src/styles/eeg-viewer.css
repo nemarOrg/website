@@ -939,6 +939,74 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
+/* The units banner (IS-Q2): a plain, always-visible warning at the top of the stage, in flow so it
+   never covers a view, for a dataset whose declared unit disagrees with its numbers. Tokens only;
+   the warning color is a tint and a rule, the words stay in the foreground color so both themes
+   read them. */
+.eegv__spatial-banner {
+  position: relative;
+  z-index: 3;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--color-fg);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-bg));
+  border-block-end: 2px solid var(--color-warning);
+}
+/* The flat views have no scale bar: under the banner this line says their extent in words. */
+.eegv__spatial-scale {
+  position: relative;
+  z-index: 3;
+  margin: 0;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-fg-muted);
+}
+/* The names of a recording closed by its channel names (IS-Q2): both lists, side by side, as the
+   dataset wrote them, under the refusal sentence. */
+.eegv__spatial-names {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--color-fg);
+}
+.eegv__spatial-names-cause,
+.eegv__spatial-names-verdict,
+.eegv__spatial-names-head {
+  margin: 0;
+}
+.eegv__spatial-names-verdict {
+  font-weight: 600;
+}
+.eegv__spatial-names-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.eegv__spatial-names-head {
+  color: var(--color-fg-muted);
+}
+.eegv__spatial-names-list {
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.eegv__spatial-names-item {
+  /* One bidirectional run per name, spaces kept as written, and a name that is wider than the
+     column breaks anywhere instead of overflowing it. */
+  unicode-bidi: isolate;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eegv__spatial-names-note {
+  color: var(--color-fg-subtle);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.85em;
+}
 .eegv__spatial-canvas {
   position: absolute;
   inset: 0;
