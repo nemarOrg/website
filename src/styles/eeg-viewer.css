@@ -910,6 +910,12 @@
   color: var(--color-fg-muted);
   font-size: var(--fs-xs);
 }
+/* Nothing in the panel gives up height to fit: when its content outgrows the scope's height the
+   panel scrolls. Without this a scroll container such as the contact list is the one flex item
+   that may shrink below its content, so it collapses and its rows are drawn over its neighbors. */
+.eegv__spatial-inner > * {
+  flex-shrink: 0;
+}
 .eegv__plot--stack {
   flex-wrap: wrap;
 }
