@@ -41,9 +41,24 @@
     }
   },
   "regenerate": "uv run scripts/vendor-brain-template.py",
+  "resolvedEnvironment": {
+    "fast-simplification": "0.2.0",
+    "imageio": "2.38.2",
+    "lazy-loader": "0.6",
+    "networkx": "3.7",
+    "nibabel": "5.5.0",
+    "numpy": "2.5.5",
+    "packaging": "26.3",
+    "pillow": "13.0.0",
+    "scikit-image": "0.26.0",
+    "scipy": "1.18.1",
+    "tifffile": "2026.11.12",
+    "typing-extensions": "4.16.0"
+  },
+  "scope": "A tissue surface of the template's gray plus white matter at the 0.5 level and 1 mm: the cerebrum and the cerebellum (lowest point near z = -72 mm), with whatever brainstem tissue the two maps contain; it is not a cortical pial or white-matter surface, and it is not any subject's anatomy.",
   "script": {
     "path": "scripts/vendor-brain-template.py",
-    "sha256": "f19e5168692ef1fb3d2273c843fd99558c455c5d57c37c728339d4b684a77569"
+    "sha256": "1f3226e151afefa418ee229fecc93d329e5dd5d3fba9849fd52f66e57d891474"
   },
   "sources": [
     {

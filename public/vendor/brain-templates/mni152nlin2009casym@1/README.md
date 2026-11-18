@@ -1,14 +1,15 @@
 # Template brain surface, MNI152NLin2009cAsym, version 1
 
-A light left and right hemisphere surface of the Montreal Neurological Institute (MNI) ICBM 2009c
-nonlinear asymmetric template, for the intracranial electroencephalography (iEEG) spatial view.
+A light brain surface, in a left and a right half, of the Montreal Neurological Institute (MNI) ICBM
+2009c nonlinear asymmetric template, for the intracranial electroencephalography (iEEG) spatial view.
+A tissue surface of the template's gray plus white matter at the 0.5 level and 1 mm: the cerebrum and the cerebellum (lowest point near z = -72 mm), with whatever brainstem tissue the two maps contain; it is not a cortical pial or white-matter surface, and it is not any subject's anatomy.
 The page fetches it from the same origin, only when a template frame is shown.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `lh.mesh.bin`, `rh.mesh.bin` | Left and right hemisphere in `brain-mesh v1` (see `src/lib/ieeg-spatial/mesh-format.ts`), millimeters, right-anterior-superior (RAS), the template's own frame |
+| `lh.mesh.bin`, `rh.mesh.bin` | Left (x < 0) and right (x > 0) half of the surface in `brain-mesh v1` (see `src/lib/ieeg-spatial/mesh-format.ts`), millimeters, right-anterior-superior (RAS), the template's own frame |
 | `views.json` | Outline of the pair projected on the left, top and front planes, millimeters, for the 2D view |
 | `LICENSE.txt` | The MNI copyright notice, verbatim, which must travel with every copy of the surface |
 | `provenance.json` | Source files and their hashes, tool versions, parameters, and the hash of the script that built this folder |
@@ -23,10 +24,9 @@ No FreeSurfer, RAVE, threeBrain or N27 asset is used.
 ## How it was made
 
 The two probability maps are summed, the 0.5 isosurface is extracted at 1 mm, cut at x = 0 into
-hemispheres, reduced to the largest connected piece of each, smoothed (Taubin, 10 iterations) and
-decimated to at most 15000 vertices per hemisphere.
-The hemispheres are open at the midline where the cut crosses tissue; nothing is capped.
-The surface is a template brain, not any subject's anatomy.
+a left and a right half, reduced to the largest connected piece of each, smoothed (Taubin,
+10 iterations) and decimated to at most 15000 vertices per half.
+The halves are open at the midline where the cut crosses tissue; nothing is capped.
 
 ## Rebuild
 
