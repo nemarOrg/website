@@ -106,6 +106,9 @@ const ALLOWANCE = { embedReloads: 3, panelRetries: 3, http5xx: 10, requestFailed
 
 /** A Zarr request slower than this, as a median of three, makes the data plane "slow" for this run. */
 const SLOW_ZARR_MEDIAN_MS = 3000;
+/** Quiet means no Zarr request in flight and none for this long (the scope's redraw follows its data within ~300 ms). */
+const ZARR_QUIET_MS = 1500;
+const ZARR_QUIET_TIMEOUT_MS = 180_000;
 /** The Zarr host the panel's sample reads go to. */
 const ZARR_HOST = "zarr.nemar.org";
 /**
@@ -1665,6 +1668,38 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
     return e.n > 0 && e.slowest >= SLOW_ZARR_MEDIAN_MS;
   };
 
+  // The scope renders again after the panel opens (it narrows) and after every window step, and the
+  // data of that render arrives whenever the data plane delivers it. With a slow plane it landed in
+  // the middle of a later phase, where it showed as a block of 210 to 245 ms that the recompute
+  // was blamed for. A Chromium trace (IS-Q2) shows it is the scope's own WebGL frame (a synchronous
+  // read-back of its 130-odd traces in a headless, software-GL browser), while decoding and
+  // computing the whole window were 1.4 and 4.2 ms at most in any one task. So nothing is measured
+  // until the Zarr host has been quiet for a while: no request in flight, none for `ZARR_QUIET_MS`.
+  const inFlight = new Set<Request>();
+  let lastZarrEvent = Date.now();
+  const zarrEnds = (r: Request) => {
+    if (inFlight.delete(r)) lastZarrEvent = Date.now();
+  };
+  page.on("request", (r) => {
+    if (new URL(r.url()).hostname !== ZARR_HOST) return;
+    inFlight.add(r);
+    lastZarrEvent = Date.now();
+  });
+  page.on("requestfinished", zarrEnds);
+  page.on("requestfailed", zarrEnds);
+  const zarrQuiet = async (what: string) => {
+    const waitedFrom = Date.now();
+    while (inFlight.size > 0 || Date.now() - lastZarrEvent < ZARR_QUIET_MS) {
+      if (Date.now() - waitedFrom > ZARR_QUIET_TIMEOUT_MS) {
+        const text = `the Zarr host was not quiet within ${ZARR_QUIET_TIMEOUT_MS / 1000} s at "${what}" (${inFlight.size} requests in flight): the scope's own render has not landed`;
+        note("scope did not settle", text);
+        test.skip(true, `data plane too slow to measure: ${text}`);
+      }
+      await page.waitForTimeout(250);
+    }
+    note(`scope settled at "${what}"`, `${Date.now() - waitedFrom} ms of waiting`);
+  };
+
   // Two ways to see a block of the main thread. The `longtask` entries (tasks over 50 ms) are the
   // plan's measure, but the API does not report every block: in this page a 300 ms busy loop in
   // the recompute was missed by it while a heartbeat saw it. So a 10 ms timer also records every
@@ -1699,6 +1734,7 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   const located = Number((await page.locator(STATUS).textContent())?.match(/^(\d+) of/)?.[1]);
   expect(located).toBeGreaterThanOrEqual(128);
   await page.waitForTimeout(2000);
+  await zarrQuiet("panel opened");
 
   // The observer's callback is delivered late (after a stretch of busy tasks it may not have run
   // by the time the panel is "ready"), so every read first takes the records still queued.
@@ -1750,6 +1786,8 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   await mark();
   await page.click('[data-act="step-fwd"]');
   await page.waitForTimeout(2500);
+  await zarrQuiet("baseline window step");
+  await page.waitForTimeout(500);
   const baseline = await blocks();
   expect(await reads(page)).toBe(0);
 
@@ -1797,11 +1835,11 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
         "; ",
       )}; baseline window step with Activity off: longtask API [${baseline.api.join(", ")}] heartbeat gaps [${baseline.beat.join(", ")}] ms; recompute alone longest ${recompute} ms; window moved longest ${moved} ms against ${scopeAlone} ms for the scope alone; data plane evidence at switch on: ${switchOnEvidence.text}; over the test: ${evidence.text}; ${summary.slice(0, 120)}`,
   );
-  // The budget is judged only while the Zarr requests were measured fast. If any took as long as
-  // the threshold, the numbers above are recorded and the test is skipped with that evidence. The
-  // time the panel took to become ready never decides this: with fast requests the recompute is
-  // always asserted, however long ready took.
-  test.skip(zarrSlow(), `data plane slow (${evidence.text}); long-task budget not judged`);
+  // The budget is judged in every regime of the data plane. Slow requests used to be a reason to skip
+  // because the scope's own late render landed inside the phases and was blamed on the recompute;
+  // the quiet waits above settle that render first, so a slow plane no longer pollutes the numbers.
+  // The evidence of how slow it was is recorded with them.
+  note("data plane during the budget runs", `${zarrSlow() ? "slow" : "fast"}: ${evidence.text}`);
   expect(recompute).toBeLessThanOrEqual(BUDGET.longTaskMs);
   expect(moved).toBeLessThanOrEqual(Math.max(BUDGET.longTaskMs, scopeAlone + 50));
   expect((await canvasColors(page)).hues).toBeGreaterThanOrEqual(3);
