@@ -20,6 +20,17 @@
  *   sentence.
  * - At 360 px the panel goes below the scope; the traces keep the full width and nothing scrolls
  *   sideways.
+ * - Template anatomy (card IS-V2): on005522 (a standard MNI frame) draws the vendored brain surface
+ *   behind the contacts with the template label and "approximate", the link to the surface's notice
+ *   and its reference, and fetches the two mesh files only once the panel is open; nm000454 (the
+ *   surface's own frame), nm000485 (Talairach), on004100 (fsaverage) and nm000376 (IXI549Space)
+ *   carry the label each row owes them; nm000355 (ACPC) draws no surface, fetches no mesh and says
+ *   "No template placement for ACPC"; a failed mesh fetch leaves the contacts, says so, and a
+ *   reopened panel tries again; an EEG dataset never asks for a mesh.
+ *   The card names on005415 for the ACPC case, but its Zarr store labels channels "LTP1-20000"
+ *   where the BIDS files say "LTP1", the panel joins by exact name only, and so its toggle stays
+ *   disabled ("None of this recording's channels match a contact"); nm000355 is a native-frame
+ *   dataset whose store labels do join.
  *
  * The data plane answers 500 now and then (about one directory listing in five). The panel tries
  * a failed read again quietly, three more times, before it shows a refusal with Retry; a read that
@@ -30,6 +41,11 @@
 import { type Page, expect, test } from "@playwright/test";
 import { RAVE_CREDIT, creditLinkSpec } from "../src/lib/ieeg-spatial/credit";
 import { GEOMETRY_SENTENCES, WEBGL_SENTENCE } from "../src/lib/ieeg-spatial/panel";
+import {
+  TEMPLATE_FAILED_SENTENCE,
+  TEMPLATE_LICENSE_HREF,
+  TEMPLATE_REFERENCE,
+} from "../src/lib/ieeg-spatial/transforms";
 
 // Serial, and with room for the network: the panel retries a passing failure of the data plane
 // quietly (about three seconds) before it shows Retry.
@@ -121,6 +137,46 @@ async function canvasColors(page: Page): Promise<{ saturated: number; hues: numb
     return { saturated, hues: buckets.filter((n) => n >= 3).length };
   }, png.toString("base64"));
 }
+
+/**
+ * The share of the panel canvas's pixels that differ visibly from its background (the corner
+ * pixel): a brain surface covers a large part of the canvas, a handful of contacts a very small one.
+ */
+async function inkShare(page: Page): Promise<number> {
+  const png = await page.locator("canvas.eegv__spatial-canvas").screenshot();
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    const [r0, g0, b0] = [d[0], d[1], d[2]];
+    let ink = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (Math.max(Math.abs(d[i] - r0), Math.abs(d[i + 1] - g0), Math.abs(d[i + 2] - b0)) > 12) {
+        ink += 1;
+      }
+    }
+    return ink / (d.length / 4);
+  }, png.toString("base64"));
+}
+
+/** Requests for the vendored template surface, from now on. */
+function watchMeshRequests(page: Page): string[] {
+  const urls: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/vendor/brain-templates/")) urls.push(new URL(r.url()).pathname);
+  });
+  return urls;
+}
+
+const TEMPLATE_BOX = "[data-spatial-template]";
+const TEMPLATE_LABEL_LINE = "[data-spatial-template-label]";
 
 async function reads(page: Page): Promise<number> {
   return Number(await page.getAttribute(PANEL, "data-activity-reads"));
@@ -239,6 +295,171 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
   await expect(page.locator("[data-spatial-colorbar]")).toBeHidden();
 });
 
+test("on005522: the template brain is drawn behind the contacts, labeled, and fetched only once the panel is open", async ({
+  page,
+}) => {
+  const meshRequests = watchMeshRequests(page);
+  await openViewer(page, "on005522");
+  await settled(page);
+  // The panel is closed: no surface has been asked for.
+  expect(meshRequests).toEqual([]);
+  await openBrain(page);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "ready", {
+    timeout: 60_000,
+  });
+
+  // The label says it is a template, and "approximate" because MNI152NLin6ASym is another MNI
+  // variant than the surface's own; the status line still names the declared frame.
+  await expect(page.locator(TEMPLATE_BOX)).toBeVisible();
+  await expect(page.locator(TEMPLATE_LABEL_LINE)).toHaveText(
+    "Template brain (MNI152NLin2009cAsym), not this subject's anatomy; approximate: MNI template variants differ by a few millimeters",
+  );
+  await expect(page.locator("[data-spatial-status]")).toContainText("frame: MNI152NLin6ASym;");
+  // No "no placement" sentence for a placed frame.
+  await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
+    "No template placement",
+  );
+
+  // The notice the template travels with, and its reference, are links to read.
+  const license = page.locator("[data-spatial-template-license]");
+  await expect(license).toHaveAttribute("href", TEMPLATE_LICENSE_HREF);
+  expect(TEMPLATE_LICENSE_HREF).toBe("/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt");
+  await expect(license).toHaveAttribute("target", "_blank");
+  expect(await license.getAttribute("rel")).toContain("noopener");
+  const reference = page.locator("[data-spatial-template-reference]");
+  await expect(reference).toHaveAttribute("href", TEMPLATE_REFERENCE.href);
+  expect(TEMPLATE_REFERENCE.href).toBe("https://doi.org/10.1016/j.neuroimage.2010.07.033");
+  await expect(reference).toContainText("Fonov");
+  // The link target is the committed notice: the MNI copyright line, served from the same origin.
+  const notice = await page.request.get(TEMPLATE_LICENSE_HREF);
+  expect(notice.status()).toBe(200);
+  expect(await notice.text()).toContain("Louis Collins");
+
+  // Exactly the two hemisphere files, from the same origin, after the panel opened.
+  expect(meshRequests.sort()).toEqual([
+    "/vendor/brain-templates/mni152nlin2009casym@1/lh.mesh.bin",
+    "/vendor/brain-templates/mni152nlin2009casym@1/rh.mesh.bin",
+  ]);
+
+  // The brain covers a large part of the canvas, and the contacts are still on it.
+  const share = await inkShare(page);
+  test.info().annotations.push({ type: "ink-share-with-template", description: share.toFixed(3) });
+  expect(share).toBeGreaterThan(0.15);
+  expect((await canvasColors(page)).saturated).toBeGreaterThan(50);
+  await expectCredit(page);
+
+  // Closing and reopening the panel does not fetch the surface again.
+  await page.click(TOGGLE);
+  await expect(page.locator(PANEL)).toBeHidden();
+  await page.click(TOGGLE);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "ready");
+  expect(meshRequests).toHaveLength(2);
+});
+
+test("nm000355 is in ACPC: no brain, no mesh request, and the panel says there is no template placement", async ({
+  page,
+}) => {
+  const meshRequests = watchMeshRequests(page);
+  await openViewer(page, "nm000355");
+  await openBrain(page);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "none");
+  await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
+  await expect(page.locator("[data-spatial-status]")).toContainText("frame: ACPC;");
+  await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).toContainText(
+    "No template placement for ACPC: positions are shown in the dataset's own frame",
+  );
+  // Contacts only: small spheres, nothing like a brain's footprint.
+  const share = await inkShare(page);
+  test.info().annotations.push({ type: "ink-share-contacts-only", description: share.toFixed(3) });
+  expect(share).toBeLessThan(0.05);
+  expect((await canvasColors(page)).saturated).toBeGreaterThan(20);
+  await page.waitForTimeout(1000);
+  expect(meshRequests).toEqual([]);
+  await expectCredit(page);
+});
+
+/** Each placed frame's own label, on a real dataset whose store labels join its contacts. */
+const OWN = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
+const PLACED_FRAMES = [
+  { dataset: "nm000454", frame: "MNI152NLin2009cAsym", label: OWN, brain: true },
+  {
+    dataset: "nm000485",
+    frame: "Talairach",
+    label: `${OWN}; approximate: Talairach to MNI affine`,
+    brain: true,
+  },
+  {
+    dataset: "nm000376",
+    frame: "IXI549Space",
+    label: `${OWN}; approximate: MNI template variants differ by a few millimeters`,
+    brain: true,
+  },
+  {
+    // The file says meters but its numbers are millimeter-sized, so the contacts sit far outside a
+    // head, as the panel warns; the surface is still drawn and labeled.
+    dataset: "on004100",
+    frame: "fsaverage",
+    label: `${OWN}; approximate: MNI305 to MNI152 affine`,
+    brain: false,
+  },
+] as const;
+
+for (const c of PLACED_FRAMES) {
+  test(`${c.dataset} (${c.frame}): the surface is drawn under its label`, async ({ page }) => {
+    const meshRequests = watchMeshRequests(page);
+    await openViewer(page, c.dataset);
+    await openBrain(page);
+    await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "ready", {
+      timeout: 60_000,
+    });
+    await expect(page.locator("[data-spatial-status]")).toContainText(`frame: ${c.frame};`);
+    await expect(page.locator(TEMPLATE_LABEL_LINE)).toHaveText(c.label);
+    await expect(page.locator("[data-spatial-template-license]")).toBeVisible();
+    await expect(page.locator("[data-spatial-template-reference]")).toBeVisible();
+    await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
+      "No template placement",
+    );
+    const share = await inkShare(page);
+    test.info().annotations.push({ type: `ink-share-${c.frame}`, description: share.toFixed(3) });
+    if (c.brain) expect(share).toBeGreaterThan(0.15);
+    expect(meshRequests).toHaveLength(2);
+    await expectCredit(page);
+  });
+}
+
+test("a failed mesh fetch leaves the contacts, says so without a label, and a reopened panel tries again", async ({
+  page,
+}) => {
+  let failing = true;
+  await page.route(/\/vendor\/brain-templates\//, (route) =>
+    failing ? route.abort("failed") : route.continue(),
+  );
+  await openViewer(page, "on005522");
+  await openBrain(page);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "failed", {
+    timeout: 30_000,
+  });
+  await expect(page.locator(TEMPLATE_LABEL_LINE)).toHaveText(TEMPLATE_FAILED_SENTENCE);
+  await expect(page.locator("[data-spatial-template-license]")).toBeHidden();
+  // The contacts are still there, in the declared frame, with no brain behind them.
+  await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "canvas");
+  expect((await canvasColors(page)).saturated).toBeGreaterThan(50);
+  expect(await inkShare(page)).toBeLessThan(0.05);
+  await expectCredit(page);
+
+  failing = false;
+  await page.click(TOGGLE);
+  await expect(page.locator(PANEL)).toBeHidden();
+  await page.click(TOGGLE);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "ready", {
+    timeout: 30_000,
+  });
+  await expect(page.locator(TEMPLATE_LABEL_LINE)).toContainText(
+    "Template brain (MNI152NLin2009cAsym)",
+  );
+  expect(await inkShare(page)).toBeGreaterThan(0.15);
+});
+
 test("on005522: the credit link is what credit.ts declares and Tab reaches it", async ({
   page,
 }) => {
@@ -276,6 +497,7 @@ test("on005522: the toggle names the panel it controls, and Escape closes it and
 test("the panel's code is fetched only for an iEEG recording", async ({ page }) => {
   const modules: string[] = [];
   const sidecars: string[] = [];
+  const meshes = watchMeshRequests(page);
   page.on("request", (r) => {
     const url = r.url();
     if (/ieeg-spatial\/(panel|brain-gl|geometry|activity)/.test(url)) modules.push(url);
@@ -289,12 +511,15 @@ test("the panel's code is fetched only for an iEEG recording", async ({ page }) 
   await expect(page.locator(TOGGLE)).toHaveCount(0);
   expect(modules).toEqual([]);
   expect(sidecars).toEqual([]);
+  expect(meshes).toEqual([]);
 
   // An iEEG dataset: both are requested, after the first frame.
   await openViewer(page, "on005522");
   await settled(page);
   expect(modules.some((u) => /ieeg-spatial\/panel/.test(u))).toBe(true);
   expect(sidecars.length).toBeGreaterThan(0);
+  // The surface waits for the panel to be opened on a placed frame.
+  expect(meshes).toEqual([]);
 });
 
 test("on005522: contacts and traces link both ways, and a bipolar channel marks two contacts", async ({
