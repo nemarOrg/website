@@ -1,0 +1,518 @@
+{
+ "source": "https://zarr.nemar.org/nm000377/zarr/sub-EC192/ieeg/sub-EC192_task-heights_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "ch001",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch002",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch003",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch004",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch005",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch006",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch007",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch008",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch009",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch010",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch011",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch012",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch013",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch014",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch015",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch016",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch017",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch018",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch019",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch020",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch021",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch022",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch023",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch024",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch025",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch026",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch027",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch028",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch029",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch030",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch031",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch032",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch033",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch034",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch035",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch036",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch037",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch038",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch039",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch040",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch041",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch042",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch043",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch044",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch045",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch046",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch047",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch048",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch049",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch050",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch051",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch052",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch053",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch054",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch055",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch056",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch057",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch058",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch059",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch060",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch061",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch062",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch063",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch064",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch065",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch066",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch067",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch068",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch069",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch070",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch071",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch072",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch073",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch074",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch075",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch076",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch077",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch078",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch079",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch080",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch081",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch082",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch083",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch084",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch085",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch086",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch087",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch088",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch089",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch090",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch091",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch092",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch093",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch094",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch095",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch096",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch097",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch098",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch099",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch100",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch101",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch102",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch103",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch104",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch105",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch106",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch107",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch108",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch109",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch110",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch111",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch112",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch113",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch114",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch115",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch116",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch117",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch118",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch119",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch120",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch121",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch122",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch123",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch124",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch125",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch126",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch127",
+   "channel_type": "SEEG"
+  },
+  {
+   "label": "ch128",
+   "channel_type": "SEEG"
+  }
+ ]
+}

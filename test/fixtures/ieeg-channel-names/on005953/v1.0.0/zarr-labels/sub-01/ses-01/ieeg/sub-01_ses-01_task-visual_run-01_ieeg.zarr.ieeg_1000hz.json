@@ -1,0 +1,478 @@
+{
+ "source": "https://zarr.nemar.org/on005953/zarr/sub-01/ses-01/ieeg/sub-01_ses-01_task-visual_run-01_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "1",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "2",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "3",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "4",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "5",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "6",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "7",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "8",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "9",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "10",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "11",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "12",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "13",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "14",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "15",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "16",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "17",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "18",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "19",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "20",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "21",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "22",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "23",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "24",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "25",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "26",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "27",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "28",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "29",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "30",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "31",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "32",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "33",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "34",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "35",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "36",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "37",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "38",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "39",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "40",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "41",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "42",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "43",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "44",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "45",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "46",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "47",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "48",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "49",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "50",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "51",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "52",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "53",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "54",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "55",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "56",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "57",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "58",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "59",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "60",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "61",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "62",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "63",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "64",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "65",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "66",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "67",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "68",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "69",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "70",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "71",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "72",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "73",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "74",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "75",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "76",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "77",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "78",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "79",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "80",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "81",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "82",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "83",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "84",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "85",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "86",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "87",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "88",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "89",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "90",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "91",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "92",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "93",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "94",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "95",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "96",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "97",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "98",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "99",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "100",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "101",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "102",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "103",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "104",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "105",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "106",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "107",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "108",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "109",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "110",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "111",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "112",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "113",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "114",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "115",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "116",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "117",
+   "channel_type": "ECOG"
+  },
+  {
+   "label": "118",
+   "channel_type": "ECOG"
+  }
+ ]
+}

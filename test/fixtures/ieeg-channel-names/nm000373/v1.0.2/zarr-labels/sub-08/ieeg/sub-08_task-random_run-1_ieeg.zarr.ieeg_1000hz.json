@@ -1,0 +1,1110 @@
+{
+ "source": "https://zarr.nemar.org/nm000373/zarr/sub-08/ieeg/sub-08_task-random_run-1_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "FP1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "OF12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FOr8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Or12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T7-0",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T8-0",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Op12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Ca12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "AC12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "A8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "H8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "L8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Mi8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "Pi12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "SMA12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC9",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC10",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC11",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "PC12",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S5",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S6",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "S8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "ECG1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "ECG2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP1'",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "FP2'",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "F7",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "F8",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T7-1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "T8-1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "O2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "F3",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "F4",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "C3",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C4",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "CZ",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "E1",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "E2",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "C186",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C187",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C188",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C189",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C190",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C191",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C192",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C193",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C194",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C195",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C196",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C197",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C198",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C199",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C200",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C201",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C202",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C203",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C204",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C205",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C206",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C207",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C208",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C209",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C210",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C211",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C212",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C213",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C214",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C215",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C216",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C217",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C218",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C219",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C220",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C221",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C222",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C223",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C224",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C225",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C226",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C227",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C228",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C229",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C230",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C231",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C232",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C233",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C234",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C235",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C236",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C237",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C238",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C239",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C240",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C241",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C242",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C243",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C244",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C245",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C246",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C247",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C248",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C249",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C250",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C251",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C252",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C253",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C254",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C255",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "C256",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC1",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC2",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC3",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC4",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC5",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC6",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC7",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC8",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC9",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC10",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC11",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC12",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC13",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC14",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC15",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "DC16",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "TRIG",
+   "channel_type": "TRIG"
+  },
+  {
+   "label": "OSAT",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "PR",
+   "channel_type": "MISC"
+  },
+  {
+   "label": "Pleth",
+   "channel_type": "MISC"
+  }
+ ]
+}

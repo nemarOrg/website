@@ -14,7 +14,6 @@ import {
   buildDrawList,
   buildFigure,
   buildSvg,
-  contactTitle,
   downloadFile,
   estimateWidth,
   exportSvg,
@@ -453,7 +452,7 @@ describe("every located contact has one circle with a title", () => {
       "LAF2",
     );
     expect(title).toBe(
-      `LAF2 (channels LAF1-LAF2, LAF2-LAF3); recorded (${x}, ${y}, ${z}) mm, frame: MNI152NLin6ASym; 1.50 µV²`,
+      `LAF2 (channels LAF1-LAF2, LAF2-LAF3); recorded (${x}, ${y}, ${z}) mm, frame: MNI152NLin6ASym, size -999; 1.50 µV²`,
     );
   });
 
@@ -461,7 +460,7 @@ describe("every located contact has one circle with a title", () => {
     const svg = svgOf(inputOf(plain));
     expect(svg).not.toContain("µV²");
     expect(svg).toMatch(
-      /<title>LAF1 \(channel LAF1-LAF2\); recorded \(-41\.18, 60\.1441, 3\.01713875326076\) mm, frame: MNI152NLin6ASym<\/title>/,
+      /<title>LAF1 \(channel LAF1-LAF2\); recorded \(-41\.18, 60\.1441, 3\.01713875326076\) mm, frame: MNI152NLin6ASym, size -999<\/title>/,
     );
   });
 
@@ -471,7 +470,7 @@ describe("every located contact has one circle with a title", () => {
     const svg = svgOf(inputOf(plain, { ...TEMPLATE, positions }));
     const laf1 = /<title>(LAF1 \(channel[^<]*)<\/title>/.exec(svg)?.[1] ?? "";
     expect(laf1).toBe(
-      "LAF1 (channel LAF1-LAF2); recorded (-41.18, 60.1441, 3.01713875326076) mm, frame: MNI152NLin6ASym; template (0.5, -2, 3.25) mm, approximate",
+      "LAF1 (channel LAF1-LAF2); recorded (-41.18, 60.1441, 3.01713875326076) mm, frame: MNI152NLin6ASym, size -999; template (0.5, -2, 3.25) mm, approximate",
     );
     // Without the approximate flag the title does not claim it.
     const own = svgOf(inputOf(plain, { ...TEMPLATE, approximate: false, positions }));
@@ -497,21 +496,70 @@ describe("every located contact has one circle with a title", () => {
     expect(svg).not.toMatch(/; template \(/);
   });
 
-  it("builds a title from closed parts, the recorded line first after the name", () => {
-    const units = { declared: "mm", unit: "mm", scaleToMm: 1, unitsDeclared: true } as const;
-    expect(recordedLocation([1, -2.5, 3], units, "ACPC")).toBe(
-      "recorded (1, -2.5, 3) mm, frame: ACPC",
+  it("builds the recorded line from the file's own cells, never from the parsed numbers", () => {
+    const mm = { declared: "mm", unit: "mm", scaleToMm: 1, unitsDeclared: true } as const;
+    const cells = { x: "1.50", y: "-5.0", z: "-7.589096499647889e-05", size: "n/a" };
+    // Trailing zero, exponent notation and 16 significant digits stay what the file wrote.
+    expect(recordedLocation(cells, mm, "ACPC")).toBe(
+      "recorded (1.50, -5.0, -7.589096499647889e-05) mm, frame: ACPC",
     );
-    expect(recordedLocation([1, 2, 3], { ...units, unit: null, scaleToMm: null }, "X")).toBe(
-      "recorded (1, 2, 3), units not declared, frame: X",
+    // The unit word is the file's own: meters stay meters, centimeters stay centimeters.
+    const m = { declared: "m", unit: "mm", scaleToMm: 1000, unitsDeclared: true } as const;
+    expect(recordedLocation(cells, m, "ACPC")).toContain(") m, frame: ACPC");
+    const cm = { declared: "cm", unit: "mm", scaleToMm: 10, unitsDeclared: true } as const;
+    expect(recordedLocation(cells, cm, "ACPC")).toContain(") cm, frame: ACPC");
+    const none = { declared: null, unit: null, scaleToMm: null, unitsDeclared: false } as const;
+    expect(recordedLocation(cells, none, "X")).toBe(
+      "recorded (1.50, -5.0, -7.589096499647889e-05), units not declared, frame: X",
     );
-    expect(
-      recordedLocation([1, 2, 3], { ...units, unit: "pixels", scaleToMm: null }, "Pixels"),
-    ).toBe("recorded (1, 2, 3) pixels, frame: Pixels");
+    expect(recordedLocation(cells, { ...none, declared: "n/a" }, "X")).toContain(
+      ", units not declared, frame: X",
+    );
+    expect(recordedLocation(cells, { ...none, declared: "furlong" }, "X")).toContain(
+      ', units "furlong" (not converted), frame: X',
+    );
+    const px = {
+      declared: "pixels",
+      unit: "pixels",
+      scaleToMm: null,
+      unitsDeclared: true,
+    } as const;
+    expect(recordedLocation(cells, px, "Pixels")).toContain(") pixels, frame: Pixels");
+    // A size is added as written (the -999 sentinel too); n/a and an empty cell add nothing.
+    expect(recordedLocation({ ...cells, size: "12.50" }, mm, "ACPC")).toMatch(/, size 12\.50$/);
+    expect(recordedLocation({ ...cells, size: "-999" }, mm, "ACPC")).toMatch(/, size -999$/);
+    expect(recordedLocation({ ...cells, size: "" }, mm, "ACPC")).not.toContain("size");
+    expect(recordedLocation({ ...cells, size: null }, mm, "ACPC")).not.toContain("size");
     expect(templateLocation([1.00049, 2, 3], true)).toBe("template (1, 2, 3) mm, approximate");
-    expect(
-      contactTitle({ name: "A", channels: [], recorded: "r", template: null, value: null }),
-    ).toBe("A; r");
+  });
+
+  it("the displayed line is the committed fixtures' own bytes (on004473 in meters, nm000376 in millimeters)", async () => {
+    const g = await geometryOf("on004473", "v1.0.0", ON4473);
+    const s = g.spaces.find((x) => x.space === "ACPC");
+    const lamy1 = s?.contacts.find((c) => c.name === "LAMY1");
+    const [x, y, z] = recordedRow(
+      "on004473",
+      "v1.0.0",
+      "sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv",
+      "LAMY1",
+    );
+    expect(y).toBe("-7.589096499647889e-05");
+    expect(recordedLocation(lamy1?.raw as never, s?.units as never, "ACPC")).toBe(
+      `recorded (${x}, ${y}, ${z}) m, frame: ACPC`,
+    );
+    const n = await geometryOf("nm000376", "v1.0.2", "sub-P1/ieeg/sub-P1_task-memact_ieeg.vhdr");
+    const ns = n.spaces[0];
+    const a67 = ns.contacts.find((c) => c.name === "A6-A7");
+    const [nx, ny, nz] = recordedRow(
+      "nm000376",
+      "v1.0.2",
+      "sub-P1/ieeg/sub-P1_space-IXI549Space_electrodes.tsv",
+      "A6-A7",
+    );
+    expect(ny).toBe("-5.0");
+    expect(recordedLocation(a67?.raw as never, ns.units, "IXI549Space")).toBe(
+      `recorded (${nx}, ${ny}, ${nz}) mm, frame: IXI549Space`,
+    );
   });
 
   it("draws no circle for a channel that has no position", () => {
@@ -573,9 +621,11 @@ describe("the files say what the screen says", () => {
     const texts = buildDrawList(figure).flatMap((o) => (o.op === "text" ? [o.text] : []));
     expect(texts).toContain(bar?.lo);
     expect(texts).toContain(bar?.hi);
-    const selected = figure.labels.find((l) => l.role === "selected");
-    expect(selected?.text).toBe(
-      "Selected: LAF1 (channel LAF1-LAF2); recorded (-41.18, 60.1441, 3.01713875326076) mm, frame: MNI152NLin6ASym; 1.00 µV² | LAF2 (channels LAF1-LAF2, LAF2-LAF3); recorded (-48.8321, 53.1194, 1.08525940626615) mm, frame: MNI152NLin6ASym; 1.50 µV²",
+    const selectedLabels = figure.labels.filter((l) => l.role === "selected").map((l) => l.text);
+    // The channel first, by what it was joined to; then each contact with both names and where it was recorded.
+    expect(selectedLabels[0]).toBe("Selected channel: LAF1-LAF2 (contacts LAF1, LAF2; midpoint)");
+    expect(selectedLabels[1]).toBe(
+      "Selected: LAF1 (channel LAF1-LAF2); recorded (-41.18, 60.1441, 3.01713875326076) mm, frame: MNI152NLin6ASym, size -999; 1.00 µV² | LAF2 (channels LAF1-LAF2, LAF2-LAF3); recorded (-48.8321, 53.1194, 1.08525940626615) mm, frame: MNI152NLin6ASym, size -999; 1.50 µV²",
     );
   });
 

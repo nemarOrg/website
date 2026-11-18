@@ -1,0 +1,958 @@
+{
+ "source": "https://zarr.nemar.org/on005670/zarr/sub-01/ieeg/sub-01_task-rest_ieeg.zarr/ieeg_1000hz/zarr.json",
+ "group": "ieeg_1000hz",
+ "channels": [
+  {
+   "label": "POL A'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL A'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC01",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC02",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC03",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC04",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC09",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL DC16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C'16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL D'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL E'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL F'16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL G'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X'16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y'16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL V'8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL H14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL B12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "EEG C1-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG C2-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG C3-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG C4-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG C5-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "EEG C6-Ref",
+   "channel_type": "EEG"
+  },
+  {
+   "label": "POL C7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL C16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL X16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y1",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y2",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y3",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y4",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y5",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y6",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y7",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y8",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y9",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y10",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y11",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y12",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y13",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y14",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y15",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL Y16",
+   "channel_type": "OTHER"
+  },
+  {
+   "label": "POL EKG1",
+   "channel_type": "ECG"
+  },
+  {
+   "label": "POL EKG2",
+   "channel_type": "ECG"
+  }
+ ]
+}

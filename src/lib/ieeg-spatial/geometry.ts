@@ -19,8 +19,9 @@
  *   or partial match counts.
  * - Units come from `iEEGCoordinateUnits` alone (`m`, `cm`, `mm`); never from
  *   magnitudes. Undeclared units leave the values as written.
- * - A channel joins a contact by exact name, or as `A-B` when both halves are
- *   contacts. No case folding, no prefix.
+ * - A channel joins a contact by exact name, as `A-B` when both halves are contacts, or by one of
+ *   the named rules of `channel-match.ts` (each read from the survey of real recordings, each
+ *   recorded as the join's `matchKind`). Two readings of a name refuse; nothing is guessed.
  *
  * Two behaviors callers must know:
  * - Only a file whose every located row is exactly 0 0 0 is `all_zero`. A single
@@ -40,6 +41,16 @@
  */
 
 import { type DirListing, fetchDirListing, fileDownloadUrl } from "../dir-listing";
+import {
+  type Claim,
+  MATCH_RULES,
+  type MatchKind,
+  type RuleTable,
+  buildNameIndex,
+  matchName,
+  settleClaims,
+  splitPairs,
+} from "./channel-match";
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -158,10 +169,27 @@ export interface Units {
 
 export type Vec3 = readonly [number, number, number];
 
+/**
+ * The coordinate cells of one electrodes row exactly as the file wrote them (surrounding
+ * whitespace removed, nothing else): `-7.589096499647889e-05`, `-5.0` and `n/a` stay what they
+ * are. `Contact.position` is the number the text parses to, converted to millimeters when the file
+ * says so; this is the text to SHOW, so a reader sees what was recorded and not what the parser
+ * made of it.
+ */
+export interface RawCells {
+  x: string;
+  y: string;
+  z: string;
+  /** The `size` cell; null when the file has no `size` column. */
+  size: string | null;
+}
+
 export interface Contact {
   name: string;
   /** Millimeters when `units.unit === "mm"`; otherwise as written. Null when x, y or z is `n/a`, empty or not a finite number. */
   position: Vec3 | null;
+  /** The cells `position` and `size` were read from, verbatim (see `RawCells`). */
+  raw: RawCells;
   /** Contact surface area in square millimeters as written; null when `n/a`, non-finite or not positive (the `-999` sentinel). */
   size: number | null;
   /** The remaining optional columns as written (`ECoG`, `ECOG` and `SEEG` all occur); null for `n/a` or empty. */
@@ -401,6 +429,7 @@ function optionalText(cell: string | undefined): string | null {
 interface RawRow {
   name: string;
   xyz: [number, number, number] | null;
+  raw: RawCells;
   size: number | null;
   type: string | null;
   group: string | null;
@@ -437,6 +466,7 @@ function parseElectrodes(text: string): ParsedElectrodes | null {
       skipped += 1;
       continue;
     }
+    const cell = (i: number): string => (cells[i] ?? "").trim();
     const x = parseFiniteNumber(cells[iX] ?? "");
     const y = parseFiniteNumber(cells[iY] ?? "");
     const z = parseFiniteNumber(cells[iZ] ?? "");
@@ -445,6 +475,7 @@ function parseElectrodes(text: string): ParsedElectrodes | null {
     rows.push({
       name,
       xyz: x === null || y === null || z === null ? null : [x, y, z],
+      raw: { x: cell(iX), y: cell(iY), z: cell(iZ), size: iSize < 0 ? null : cell(iSize) },
       size: size !== null && size > 0 ? size : null,
       type: iType < 0 ? null : optionalText(cells[iType]),
       group: iGroup < 0 ? null : optionalText(cells[iGroup]),
@@ -611,6 +642,7 @@ async function buildSpace(
   const contacts: Contact[] = table.rows.map((r, row) => ({
     name: r.name,
     position: r.xyz && [r.xyz[0] * scale, r.xyz[1] * scale, r.xyz[2] * scale],
+    raw: r.raw,
     size: r.size,
     type: r.type,
     group: r.group,
@@ -702,18 +734,33 @@ export async function resolveRecordingGeometry(input: GeometryInput): Promise<Re
 export type UnlocatedCause =
   | "no_contact" // no contact carries the name, and no `A-B` split names two contacts
   | "no_position" // the named contact (or one half of the pair) has no position
-  | "duplicate_contact" // two rows carry the same contact name
-  | "ambiguous_pair"; // more than one `-` split names two contacts
+  | "duplicate_contact" // two rows carry the same contact name, or two channels reach one contact
+  | "ambiguous_pair" // more than one `-` split names two contacts
+  | "ambiguous_name"; // two or more contacts are equally good readings of the name
 
 export interface ChannelJoin {
   channel: string;
-  /** `located`: one contact by exact name. `bipolar`: two contacts, position at their midpoint. */
+  /**
+   * `located`: one contact, by exact name or by a named rule (`matchKind` says which).
+   * `bipolar`: two contacts, position at their midpoint. `unlocated`: no position.
+   */
   status: "located" | "bipolar" | "unlocated";
-  /** Names of the contacts joined: one, two for a bipolar channel, none for `no_contact`. */
+  /**
+   * Names of the contacts joined: one, two for a bipolar channel, the candidates for
+   * `ambiguous_name`, none for `no_contact`.
+   */
   contacts: string[];
   /** In the space's units; null when unlocated. */
   position: Vec3 | null;
   cause: UnlocatedCause | null;
+  /**
+   * How the channel's name reached its contact(s): `exact` for the file's own name and for a
+   * bipolar pair of exact names, a lower tier (`channel-match.ts`) for any other join; null when
+   * unlocated.
+   */
+  matchKind: MatchKind | null;
+  /** The ids of the rules that read the name (chains joined with `+`); null for an exact join. */
+  rule: string | null;
 }
 
 function midpoint(a: Vec3, b: Vec3): Vec3 {
@@ -721,45 +768,50 @@ function midpoint(a: Vec3, b: Vec3): Vec3 {
 }
 
 function unlocated(channel: string, cause: UnlocatedCause, contacts: string[] = []): ChannelJoin {
-  return { channel, status: "unlocated", contacts, position: null, cause };
+  return {
+    channel,
+    status: "unlocated",
+    contacts,
+    position: null,
+    cause,
+    matchKind: null,
+    rule: null,
+  };
 }
 
 /**
- * Join channel labels to the contacts of one space. Exact name first; otherwise a
- * channel `A-B` (or `A - B`) joins both contacts when exactly one `-` split names
- * two contacts. A name that is a contact but has no position is unlocated, never
- * a fall-through to the pair rule. No case folding, no prefix matching.
+ * Join channel labels to the contacts of one space, tier by tier (`channel-match.ts`).
+ *
+ * 1. The exact name. 2. A channel `A-B` (or `A - B`) joins both contacts when exactly one `-`
+ * split names two contacts, by exact names. 3. The non-exact tiers, in order: `normalized`,
+ * `suffix`, `close`, each a set of named rules read from the survey of real recordings. A name that
+ * is a contact but has no position is unlocated, never a fall-through to the pair rule or to a
+ * lower tier. Two candidates at one tier make the channel `ambiguous_name`.
+ *
+ * Last, claims are settled: a contact an exact name holds is never taken by a channel that reached
+ * it through a lower tier, and two differently written names reaching one contact through the same
+ * non-exact tier both lose it (`duplicate_contact`). Every exact join is unchanged by all of this.
  */
-export function joinChannels(space: SpaceGeometry, channels: readonly string[]): ChannelJoin[] {
+export function joinChannels(
+  space: SpaceGeometry,
+  channels: readonly string[],
+  rules: RuleTable = MATCH_RULES,
+): ChannelJoin[] {
   const byName = new Map<string, Contact[]>();
   for (const c of space.contacts) {
     const group = byName.get(c.name);
     if (group) group.push(c);
     else byName.set(c.name, [c]);
   }
+  const index = buildNameIndex(space.contacts.map((c) => c.name));
 
-  return channels.map((channel): ChannelJoin => {
-    const exact = byName.get(channel);
-    if (exact) {
-      if (exact.length > 1) return unlocated(channel, "duplicate_contact", [channel]);
-      const position = exact[0].position;
-      if (position === null) return unlocated(channel, "no_position", [channel]);
-      return { channel, status: "located", contacts: [channel], position, cause: null };
-    }
-
-    const pairs: [string, string][] = [];
-    for (let i = 0; i < channel.length; i++) {
-      if (channel[i] !== "-") continue;
-      const left = channel.slice(0, i).trim();
-      const right = channel.slice(i + 1).trim();
-      if (left !== "" && right !== "" && left !== right && byName.has(left) && byName.has(right)) {
-        pairs.push([left, right]);
-      }
-    }
-    if (pairs.length === 0) return unlocated(channel, "no_contact");
-    if (pairs.length > 1) return unlocated(channel, "ambiguous_pair");
-
-    const [left, right] = pairs[0];
+  /** A bipolar join of two contacts that are in the file: the midpoint, or why there is none. */
+  const bipolar = (
+    channel: string,
+    [left, right]: [string, string],
+    matchKind: MatchKind,
+    rule: string | null,
+  ): ChannelJoin => {
     const a = byName.get(left) as Contact[];
     const b = byName.get(right) as Contact[];
     if (a.length > 1 || b.length > 1) return unlocated(channel, "duplicate_contact", [left, right]);
@@ -772,8 +824,70 @@ export function joinChannels(space: SpaceGeometry, channels: readonly string[]):
       contacts: [left, right],
       position: midpoint(pa, pb),
       cause: null,
+      matchKind,
+      rule,
+    };
+  };
+
+  const joins = channels.map((channel): ChannelJoin => {
+    const exact = byName.get(channel);
+    if (exact) {
+      if (exact.length > 1) return unlocated(channel, "duplicate_contact", [channel]);
+      const position = exact[0].position;
+      if (position === null) return unlocated(channel, "no_position", [channel]);
+      return {
+        channel,
+        status: "located",
+        contacts: [channel],
+        position,
+        cause: null,
+        matchKind: "exact",
+        rule: null,
+      };
+    }
+
+    const pairs = splitPairs(channel, index);
+    if (pairs.length > 1) return unlocated(channel, "ambiguous_pair");
+    if (pairs.length === 1) return bipolar(channel, pairs[0], "exact", null);
+
+    const found = matchName(channel, index, rules);
+    if (found.kind === "none") return unlocated(channel, "no_contact");
+    if (found.kind === "ambiguous") return unlocated(channel, "ambiguous_name", found.candidates);
+    if (found.contacts.length === 2) {
+      return bipolar(channel, found.contacts, found.matchKind, found.rule);
+    }
+    const name = found.contacts[0];
+    const rows = byName.get(name) as Contact[];
+    if (rows.length > 1) return unlocated(channel, "duplicate_contact", [name]);
+    const position = rows[0].position;
+    if (position === null) return unlocated(channel, "no_position", [name]);
+    return {
+      channel,
+      status: "located",
+      contacts: [name],
+      position,
+      cause: null,
+      matchKind: found.matchKind,
+      rule: found.rule,
     };
   });
+
+  // Claims: one contact, or the two of a bipolar pair. A refused channel keeps its contacts so the
+  // note can say whose they are; the cause is the same word for a contact and for a pair.
+  const claims: Claim[] = [];
+  joins.forEach((j, channel) => {
+    if (j.status !== "unlocated" && j.matchKind !== null) {
+      claims.push({ channel, label: j.channel, contacts: j.contacts, kind: j.matchKind });
+    }
+  });
+  for (const channel of settleClaims(claims)) {
+    joins[channel] = unlocated(
+      joins[channel].channel,
+      "duplicate_contact",
+      joins[channel].contacts,
+    );
+  }
+  return joins;
 }
 
 // ---------------------------------------------------------------------------

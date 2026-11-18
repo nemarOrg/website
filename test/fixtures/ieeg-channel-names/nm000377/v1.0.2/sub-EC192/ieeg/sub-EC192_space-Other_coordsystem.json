@@ -1,0 +1,6 @@
+{
+  "iEEGCoordinateSystem": "Other",
+  "iEEGCoordinateUnits": "mm",
+  "iEEGCoordinateSystemDescription": "elecmatrix of '<EC n>_TDT_elecs_all_warped.mat' from Electrode_Locations.zip ('automatically generated electrode locations'; file names say the positions were warped to a template). The template is not named in the release.",
+  "iEEGCoordinateProcessingDescription": "Pre-operative 3T MRI co-registered with post-operative CT using SPM12 (Yilmaz Balban et al. 2021); warping as released."
+}

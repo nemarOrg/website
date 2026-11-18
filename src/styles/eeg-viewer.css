@@ -1047,6 +1047,23 @@
   color: var(--color-fg-muted);
   overflow-wrap: anywhere;
 }
+/* The recording's own channel name beside the contact's, smaller than the name, and the kind of
+   match when the name did not join as the file wrote it. */
+.eegv__spatial-chan {
+  font-size: 0.9em;
+}
+.eegv__spatial-tag {
+  margin-inline-start: 0.5ch;
+  padding: 0 0.5ch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.8em;
+  color: var(--color-fg-subtle);
+  white-space: nowrap;
+}
+.eegv__spatial-selchan {
+  overflow-wrap: anywhere;
+}
 /* The 2D views, the "2D views" switch and the save buttons (IS-V3). The three views are drawn
    into the stage as an inline SVG whose text and dots use the same resolved tokens as the saved
    figures; the stage stops being a fixed-ratio box and grows with them, and keeps a band at the

@@ -33,8 +33,9 @@
  */
 
 import { colorFor } from "./activity";
+import { type MatchKind, matchTag } from "./channel-match";
 import { RAVE_CREDIT, creditSvg, doiUrl, paintCredit } from "./credit";
-import type { Frame, Units, Vec3 } from "./geometry";
+import type { ChannelJoin, Frame, RawCells, Units, Vec3 } from "./geometry";
 import type { PanelModel, PanelState } from "./panel";
 import {
   LETTER_PX,
@@ -284,6 +285,7 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
   if (withViews) add("axes", VIEWS_SENTENCE);
   const texts = contactTexts(input, withViews ? "seam" : "model");
   const picked = model.contacts.flatMap((c, i) => (c.selected ? [contactTitle(texts[i])] : []));
+  if (model.selectedChannel !== null) add("selected", `Selected channel: ${model.selectedChannel}`);
   if (picked.length > 0) add("selected", `Selected: ${picked.join(" | ")}`);
   const a = model.activity;
   if (a) {
@@ -304,24 +306,22 @@ const triple = (p: Vec3, show: (v: number) => string): string => `(${p.map(show)
 const millimeters = (v: number): string => String(Math.round(v * 1000) / 1000 || 0);
 
 /**
- * The position the dataset recorded, with the file's unit word and the declared frame. It is
- * numerically equal to the file's value to 15 significant digits, not the file's own characters:
- * trailing zeros and exponent notation are normalized (the parser keeps numbers, not text).
- * IS-C1 holds positions in millimeters when the file's unit is a length it converts, so a
- * converted position is divided back by the same factor and read to 15 significant digits, which
- * undoes the multiplication's rounding noise; a position in the file's own unit is printed as
- * parsed, with no further rounding. Carrying the raw coordinate strings through IS-C1's parser, so
- * the line is verbatim, is the next card's work (IS-J1).
+ * What the dataset recorded for a contact, in the file's own words: x, y and z exactly as the
+ * electrodes file wrote them (`-7.589096499647889e-05`, `-5.0` and `63.150000000000006` stay what
+ * they are; the parser's numbers are for placing the contact, never for this line), the file's
+ * unit word (`m`, `cm`, `mm`, `pixels`) and the declared frame. A `size` the file gives is added exactly as
+ * written, with no unit of ours; an `n/a` or empty one is left out, since nothing was recorded. A unit the file leaves
+ * out, or writes as `n/a`, is said not to be declared; any other word the view does not convert is
+ * quoted.
  */
-export function recordedLocation(position: Vec3, units: Units, frameLabel: string): string {
-  const scale = units.unit === "mm" && units.scaleToMm ? units.scaleToMm : 1;
-  const show = (v: number): string =>
-    scale === 1 ? String(v) : String(Number((v / scale).toPrecision(15)));
+export function recordedLocation(raw: RawCells, units: Units, frameLabel: string): string {
   let unit: string;
-  if (units.unit === "mm") unit = scale === 1 ? " mm" : ` ${units.declared}`;
-  else if (units.unit === "pixels") unit = " pixels";
-  else unit = ", units not declared";
-  return `recorded ${triple(position, show)}${unit}, frame: ${frameLabel}`;
+  if (units.unitsDeclared && units.declared !== null) unit = ` ${units.declared}`;
+  else if (units.declared === null || units.declared === "n/a") unit = ", units not declared";
+  else unit = `, units "${units.declared}" (not converted)`;
+  const size =
+    raw.size === null || raw.size === "" || raw.size === "n/a" ? "" : `, size ${raw.size}`;
+  return `recorded (${raw.x}, ${raw.y}, ${raw.z})${unit}, frame: ${frameLabel}${size}`;
 }
 
 /** The template position, only where a registered template placement gives one. */
@@ -329,11 +329,19 @@ export function templateLocation(position: Vec3, approximate: boolean): string {
   return `template ${triple(position, millimeters)} mm${approximate ? ", approximate" : ""}`;
 }
 
+/** A channel that uses a contact, and how its name reached it. */
+export interface ChannelRef {
+  /** The channel's own name, as the recording gave it. */
+  name: string;
+  /** `exact` for the file's own name; anything else is said beside the name. */
+  kind: MatchKind;
+}
+
 export interface ContactText {
   /** The contact's name as the electrodes file records it. */
   name: string;
-  /** The channels that use it, beside the name. */
-  channels: readonly string[];
+  /** The channels that use it, beside the name, each with how its name reached the contact. */
+  channels: readonly ChannelRef[];
   /** `recordedLocation(...)`. */
   recorded: string;
   /** `templateLocation(...)` or null. */
@@ -342,15 +350,45 @@ export interface ContactText {
   value: string | null;
 }
 
-/** One sentence per contact: name first, channel beside it, where it was recorded, the rest. */
+/**
+ * The channels beside a contact's name: `channel LTP1-20000 [suffix match]`. The recording's own
+ * name comes first in the recording's words; a join that is not the file's own name carries its
+ * kind in brackets, and an exact name carries nothing. `withTags: false` leaves the brackets out
+ * for a surface that shows the kind apart (the list's small tag).
+ */
+export function channelClause(channels: readonly ChannelRef[], withTags = true): string {
+  if (channels.length === 0) return "";
+  const parts = channels.map((c) => {
+    const tag = withTags ? matchTag(c.kind) : null;
+    return tag ? `${c.name} [${tag}]` : c.name;
+  });
+  return `channel${channels.length === 1 ? "" : "s"} ${parts.join(", ")}`;
+}
+
+/**
+ * One sentence per contact: name first, channel beside it, where it was recorded, the rest. The
+ * circle titles, the "Selected:" line of the files and the live list's rows all say it this way.
+ */
 export function contactTitle(t: ContactText): string {
-  const channel =
-    t.channels.length === 0
-      ? ""
-      : ` (channel${t.channels.length === 1 ? "" : "s"} ${t.channels.join(", ")})`;
-  return [`${t.name}${channel}`, t.recorded, t.template, t.value]
+  const clause = channelClause(t.channels);
+  return [clause === "" ? t.name : `${t.name} (${clause})`, t.recorded, t.template, t.value]
     .filter((x): x is string => !!x)
     .join("; ");
+}
+
+/**
+ * What a channel is, in terms of the contacts it was joined to, for the channel that is selected:
+ * `LAF1-LAF2 (contacts LAF1, LAF2; midpoint)` for a bipolar channel, `LTP1-20000 (contact LTP1;
+ * suffix match)` for a name that joined by a rule. Null for a channel whose name is its contact's
+ * own, where there is nothing to add.
+ */
+export function channelProvenance(join: ChannelJoin): string | null {
+  if (join.status === "unlocated" || join.matchKind === null) return null;
+  const tag = matchTag(join.matchKind);
+  if (join.status === "bipolar") {
+    return `${join.channel} (contacts ${join.contacts.join(", ")}; midpoint${tag ? `; ${tag}` : ""})`;
+  }
+  return tag ? `${join.channel} (contact ${join.contacts[0]}; ${tag})` : null;
 }
 
 /**
@@ -369,7 +407,7 @@ function contactTexts(input: ExportInput, source: TemplateSource): ContactText[]
     const tp = template?.positions?.[i];
     return {
       name: c.name,
-      channels: row?.channels ?? [],
+      channels: row?.links ?? [],
       recorded: row?.recorded ?? "",
       template:
         source === "model"

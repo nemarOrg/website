@@ -1,0 +1,1 @@
+{"dataset_id":"on005670","version":"v1.0.0","path":"sub-01/ieeg","kind":"directory","children":[{"kind":"file","name":"sub-01_coordsystem.json","size":366},{"kind":"file","name":"sub-01_electrodes.tsv","size":13935},{"kind":"file","name":"sub-01_task-rest_ieeg.edf","size":414032384},{"kind":"file","name":"sub-01_task-rest_ieeg.json","size":595}]}
