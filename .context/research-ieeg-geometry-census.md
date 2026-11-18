@@ -4,6 +4,10 @@ How many recordings the spatial panel can show on a template, show in their own 
 These numbers replace the sampled ones in `.context/plans/ieeg-spatial/plan.md` section 3.
 Dataset ids and counts only.
 
+## Provenance
+
+The full run (2026-11-17, 115 minutes) was produced by an earlier revision of `scripts/ieeg-geometry-census.ts`, before review changes (request timeout, `Accept` header, 404 and 410 as the only absences, argument validation, a note section for datasets without a version). The tables below the "Run" section were rendered from that run's per-dataset results by the current script, so the raw `census-note.md` of the run differs from this file only by those sections and by two wording fixes. Classes and counts were re-verified on a rerun of 4 datasets (nm000377, on005415, nm000537, on003844) with the current script, with identical classes. "Reading the numbers" and "Agreement with the IS-C1 fixtures" were written by hand from the run's output and are not script output; `scripts/ieeg-geometry-census.test.ts` guards the fixture agreement.
+
 ## How it is counted
 
 Rerun with `bun scripts/ieeg-geometry-census.ts --out <dir>` (add `--resume` to continue an interrupted run).
@@ -279,7 +283,7 @@ One dataset per class or reason, chosen among datasets whose recordings all shar
 
 Datasets the catalog lists without a `latest_version`, so there is no tree to read (they count in the catalog total and are not classified): on005691.
 
-None.
+No recordings or listings are unresolved, and no listing answered 404.
 
 ## Listing count against the catalog's recording count
 
@@ -303,7 +307,7 @@ None.
 
 - Half of all recordings (52.2 percent) cannot be drawn, almost all because the electrodes file holds only `n/a` coordinates (`no_coordinates`, 64 datasets, including large ones such as nm000183 and nm000182). Only 17.6 percent can sit on a template. The panel's refusal state is therefore the most common state, not an edge case.
 - Mixed datasets are rare: 12 of 157 datasets with recordings hold more than one class (nm000253, nm000352, nm000360, nm000380, nm000455, nm000481, on003374, on004551, on004774, on004789, on004809, on006136), so the class is nearly a property of the dataset.
-- 36 datasets reach `template` (the sampled audit counted 39). One difference is understood: nm000373 declares `MNI152NLin6Asym` but its units are `n/a`, so its 30 recordings are `native` with `template_units_undeclared`; the resolver never infers a unit.
+- 37 datasets carry a template-kind frame; 36 of them reach `template`, and the one that does not is nm000373, which declares `MNI152NLin6Asym` but has units `n/a`, so its 30 recordings are `native` with `template_units_undeclared` (the resolver never infers a unit). The sampled audit counted 39 datasets on a standard template identifier. The remaining difference (39 against 37) is not explained here: it may come from the audit's sampling, from datasets it counted by identifier that have no `_ieeg` data entry, or from labels it normalized; none of these was checked.
 - "More than one space" is counted per recording, as the panel meets it: 5 datasets offer two spaces for some recording. The sampled audit's 16 counted datasets whose different subjects use different spaces, which never meet in one recording.
 - Nine datasets have no classified recording because their listings hold no `_ieeg` data entry: nm000363, nm000387, nm000390, nm000461 and nm000464 hold derived products under `ieeg/` (spike tables, ripple bands, connectivity; checked on the first subject of each), on002799, on005083 and on006253 hold electrodes, channels and events files but no `_ieeg` data entry, and nm000389's first subject has no `ieeg` directory (not checked further). The catalog's `recording_count` is 0 for all nine. A tenth, on005691, has no `latest_version` in the catalog (its `recording_count` is 8), so it was not read.
 - The listings agree with the catalog's `recording_count` for 156 of 167 datasets. The 11 that differ are listed above; only on001785 was checked (its other subjects hold scalp `eeg` directories, which the catalog counts and this census does not). The census uses the listings as the record; the other ten differences were not investigated.

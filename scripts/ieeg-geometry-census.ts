@@ -15,7 +15,7 @@
  * - `refused`: no space can be shown; the resolver's reason word says why.
  *
  * Read-only and polite: public GET requests only, at most 4 in flight and 5 started per second,
- * one `User-Agent`, and every transient failure (HTTP 5xx or 429, a network error, an unparsable
+ * one `User-Agent`, and every transient failure (any HTTP status but 200, 404 and 410, a network error or a 30 second timeout, an unparsable
  * answer) is retried with backoff. A transient failure that outlasts its retries is never counted
  * as an absence: the recording is `unresolved`, and unresolved recordings are re-resolved in
  * further rounds. Whatever is still unresolved at the end is reported, not classified. The
@@ -48,6 +48,7 @@ export const USER_AGENT = "nemar-ieeg-geometry-census/1";
 const MAX_IN_FLIGHT = 4;
 const MIN_START_INTERVAL_MS = 200; // at most 5 requests started per second
 const MAX_ATTEMPTS = 6;
+const REQUEST_TIMEOUT_MS = 30_000; // a hung connection aborts and retries as a network error
 const BACKOFF_BASE_MS = 1000;
 const BACKOFF_CAP_MS = 30_000;
 const ABORT_FAILURE_SHARE = 0.05; // the card's stop condition, measured after retries
@@ -145,9 +146,9 @@ export function recordingNames(children: readonly Child[]): string[] {
 export type Fetched =
   /** The answer, HTTP 200. */
   | { kind: "ok"; body: string }
-  /** A definitive HTTP answer other than 200, 429 or 5xx (a 404 means the thing is not there). */
+  /** A definitive HTTP 404 or 410: the thing is not there. */
   | { kind: "absent"; status: number }
-  /** Still failing after every retry (HTTP 5xx or 429, or a network error). Not an absence. */
+  /** Still failing after every retry (any other HTTP status, a timeout or a network error). Not an absence. */
   | { kind: "transient"; status: number | null };
 
 export interface NetStats {
@@ -220,22 +221,33 @@ export class Net {
     exhausted: 0,
   };
   private limiter = new Limiter(MAX_IN_FLIGHT, MIN_START_INTERVAL_MS);
+  private maxAttempts: number;
+  private backoffBaseMs: number;
+
+  /** The defaults are the census's; a test passes small values to see retries quickly. */
+  constructor(options: { maxAttempts?: number; backoffBaseMs?: number } = {}) {
+    this.maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
+    this.backoffBaseMs = options.backoffBaseMs ?? BACKOFF_BASE_MS;
+  }
 
   /** GET with retry on transient failures. `validate` may reject a 200 body as transient. */
   async get(url: string, validate?: (body: string) => boolean): Promise<Fetched> {
     this.stats.requests++;
     let last: number | null = null;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       if (attempt > 1) {
         this.stats.retries++;
-        const backoff = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** (attempt - 2));
+        const backoff = Math.min(BACKOFF_CAP_MS, this.backoffBaseMs * 2 ** (attempt - 2));
         await sleep(backoff / 2 + Math.random() * (backoff / 2));
       }
       this.stats.attempts++;
       let outcome: Fetched | "retry";
       try {
         outcome = await this.limiter.run(async () => {
-          const res = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+          const res = await fetch(url, {
+            headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          });
           if (res.status === 200) {
             const body = await res.text();
             if (validate && !validate(body)) {
@@ -245,12 +257,14 @@ export class Net {
             return { kind: "ok", body } as const;
           }
           await res.arrayBuffer().catch(() => undefined);
-          if (res.status === 429 || res.status >= 500) {
-            last = res.status;
-            this.count(String(res.status));
-            return "retry" as const;
+          if (res.status === 404 || res.status === 410) {
+            return { kind: "absent", status: res.status } as const;
           }
-          return { kind: "absent", status: res.status } as const;
+          // Anything else (429, 5xx, and also 401, 403, 408 and the like) says nothing about
+          // whether the file exists, so it is retried and never read as an absence.
+          last = res.status;
+          this.count(String(res.status));
+          return "retry" as const;
         });
       } catch {
         last = null;
@@ -278,7 +292,7 @@ export class Net {
     const { requests, exhausted } = this.stats;
     if (requests >= ABORT_MIN_REQUESTS && exhausted / requests > ABORT_FAILURE_SHARE) {
       throw new StopCondition(
-        `${exhausted} of ${requests} requests failed after ${MAX_ATTEMPTS} attempts ` +
+        `${exhausted} of ${requests} requests failed after ${this.maxAttempts} attempts ` +
           `(${((100 * exhausted) / requests).toFixed(1)} percent, limit ${100 * ABORT_FAILURE_SHARE})`,
       );
     }
@@ -803,7 +817,7 @@ export function renderNote(input: NoteInput): string {
             d.absentListings.length,
           ]),
         )
-      : "None.",
+      : "No recordings or listings are unresolved, and no listing answered 404.",
   );
   out.push("");
 
@@ -833,24 +847,58 @@ export function renderNote(input: NoteInput): string {
 // Main
 // ---------------------------------------------------------------------------
 
-function parseArgs(argv: string[]) {
-  const args = { out: "", resume: false, only: null as string[] | null, rounds: 4 };
+const USAGE = `usage: bun scripts/ieeg-geometry-census.ts --out <dir> [options]
+
+Classifies every recording of every public iEEG dataset with the viewer's resolver.
+Read-only: public GET requests, at most 4 in flight and 5 started per second.
+
+  --out <dir>     where to write datasets/<id>.json, census.json and census-note.md (required)
+  --resume        skip datasets already finished in <dir> at the catalog's current version
+  --only a,b,c    census only these dataset ids (an id the catalog does not list is an error)
+  --rounds <n>    rounds for unresolved recordings, a positive integer (default 4)
+  --help          print this text`;
+
+export interface Args {
+  out: string;
+  resume: boolean;
+  only: string[] | null;
+  rounds: number;
+  help: boolean;
+}
+
+export function parseArgs(argv: readonly string[]): Args {
+  const args: Args = { out: "", resume: false, only: null, rounds: 4, help: false };
+  const value = (i: number, flag: string): string => {
+    const v = argv[i];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} needs a value`);
+    return v;
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--out") args.out = argv[++i] ?? "";
+    if (a === "--help" || a === "-h") args.help = true;
+    else if (a === "--out") args.out = value(++i, a);
     else if (a === "--resume") args.resume = true;
-    else if (a === "--only") args.only = (argv[++i] ?? "").split(",").filter(Boolean);
-    else if (a === "--rounds") args.rounds = Number(argv[++i]);
-    else throw new Error(`unknown argument ${a}`);
+    else if (a === "--only") {
+      args.only = value(++i, a).split(",").filter(Boolean);
+      if (args.only.length === 0) throw new Error("--only needs at least one dataset id");
+    } else if (a === "--rounds") {
+      const raw = value(++i, a);
+      if (!/^[1-9][0-9]*$/.test(raw))
+        throw new Error(`--rounds must be a positive integer, got ${raw}`);
+      args.rounds = Number(raw);
+    } else throw new Error(`unknown argument ${a}\n\n${USAGE}`);
   }
-  if (!args.out) throw new Error("usage: bun scripts/ieeg-geometry-census.ts --out <dir>");
+  if (!args.help && !args.out) throw new Error(`--out is required\n\n${USAGE}`);
   return args;
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    console.log(USAGE);
+    return;
+  }
   const dir = `${args.out.replace(/\/$/, "")}/datasets`;
-  mkdirSync(dir, { recursive: true });
   const started = Date.now();
   const net = new Net();
   const log = (msg: string) =>
@@ -861,6 +909,11 @@ async function main() {
   log(
     `catalog: ${unique.size} datasets (total_count ${catalog.totalCount}, at the last page ${catalog.totalCountAtEnd})`,
   );
+  const unknownIds = (args.only ?? []).filter((id) => !unique.has(id));
+  if (unknownIds.length > 0) {
+    throw new Error(`--only names datasets the catalog does not list: ${unknownIds.join(", ")}`);
+  }
+  mkdirSync(dir, { recursive: true });
   const wanted = [...unique.values()]
     .filter((r) => !args.only || args.only.includes(r.id))
     .sort((a, b) => (a.id < b.id ? -1 : 1));
