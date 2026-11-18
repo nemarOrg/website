@@ -21,16 +21,19 @@
  * - At 360 px the panel goes below the scope; the traces keep the full width and nothing scrolls
  *   sideways.
  *
- * The data plane answers 500 now and then. A read that fails that way is a real refusal the panel
- * offers Retry for, so `openBrain` uses Retry, as a reader would, and says in the test's
- * annotations how many it needed.
+ * The data plane answers 500 now and then (about one directory listing in five). The panel tries
+ * a failed read again quietly, three more times, before it shows a refusal with Retry; a read that
+ * still fails is a real refusal, so `openBrain` uses Retry, as a reader would, and says in the
+ * test's annotations how many it needed.
  */
 
 import { type Page, expect, test } from "@playwright/test";
 import { RAVE_CREDIT, creditLinkSpec } from "../src/lib/ieeg-spatial/credit";
 import { GEOMETRY_SENTENCES, WEBGL_SENTENCE } from "../src/lib/ieeg-spatial/panel";
 
-test.describe.configure({ mode: "serial" });
+// Serial, and with room for the network: the panel retries a passing failure of the data plane
+// quietly (about three seconds) before it shows Retry.
+test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 const TOGGLE = "[data-spatial-toggle]";
 const PANEL = "[data-spatial-panel]";
@@ -39,8 +42,20 @@ const CREDIT = `${PANEL} a.eegv-credit`;
 
 /** The embed route opens the dataset's first recording; for on005522 that is sub-R1001P's bipolar one. */
 async function openViewer(page: Page, dataset: string): Promise<void> {
-  await page.goto(`/dataset/${dataset}/embed`);
-  await page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 });
+  // The embed page's own server-side reads (the dataset's landing file) fail now and then with a
+  // 503 and "could not load this dataset right now"; a reader reloads, and so does this.
+  for (let attempt = 1; ; attempt++) {
+    await page.goto(`/dataset/${dataset}/embed`);
+    const outcome = await Promise.race([
+      page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 }).then(() => "viewer"),
+      page.waitForSelector(".embed-msg__text", { timeout: 90_000 }).then(() => "notice"),
+    ]);
+    if (outcome === "viewer") return;
+    if (attempt >= 4)
+      throw new Error(`the embed page for ${dataset} kept saying it could not load`);
+    test.info().annotations.push({ type: "transient-embed-reload", description: String(attempt) });
+    await page.waitForTimeout(1000);
+  }
 }
 
 /** Wait until the toggle has an answer: enabled, or disabled with a reason (not "checking"). */
@@ -347,7 +362,7 @@ test("a failed electrodes read is a refusal with Retry and the credit, and Retry
   await expect(page.locator(TOGGLE)).toBeEnabled();
   await expect(page.locator(TOGGLE)).toHaveAttribute("title", /retry/);
   await page.click(TOGGLE);
-  await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "refusal");
+  await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "refusal", { timeout: 30_000 });
   await expect(page.locator(`${STAGE} .eegv__spatial-msg`)).toHaveText(
     GEOMETRY_SENTENCES.unreadable,
   );
