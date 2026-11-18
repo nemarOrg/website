@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { nodeFs, repoPath } from "../../../test/node";
 import { STANDARD_TEMPLATES, type StandardTemplate, type Vec3, classifyFrame } from "./geometry";
 import { decodeBrainMesh, encodeBrainMesh, icosphere } from "./mesh-format";
+import { PENDING_TEMPLATES } from "./pending-templates";
 import {
   IDENTITY,
   MNI305_APPROXIMATION,
   MNI305_TO_MNI152,
   MNI_TO_TALAIRACH,
   MNI_VARIANTS,
-  PENDING_TEMPLATES,
   SURFACE_FRAME,
   TALAIRACH_APPROXIMATION,
   TALAIRACH_TO_MNI,
@@ -22,10 +22,10 @@ import {
   fetchBytesSameOrigin,
   frameWord,
   invertAffine,
+  isPendingTemplate,
   loadTemplateSurface,
   mergeMeshes,
   noPlacementSentence,
-  pendingTemplateFor,
   placeOnTemplate,
   placementRuleFor,
   templateLabel,
@@ -549,16 +549,33 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
       const frame = classifyFrame(id, null, null);
       expect(frame, id).toMatchObject({ kind: "template", identifier: id });
       expect(placementRuleFor(frame, mm), id).toBeNull();
-      expect(pendingTemplateFor(frame)?.identifier, id).toBe(id);
+      expect(isPendingTemplate(frame), id).toBe(true);
     }
     for (const id of TEMPLATE_PLACEMENTS.keys()) {
-      expect(pendingTemplateFor(classifyFrame(id, null, null)), id).toBeNull();
+      expect(isPendingTemplate(classifyFrame(id, null, null)), id).toBe(false);
     }
     // frames that are not template frames are never pending
     for (const label of ["ACPC", "ScanRAS", "Other", "Pixels", "mni", null]) {
-      expect(pendingTemplateFor(classifyFrame(label, null, null)), String(label)).toBeNull();
+      expect(isPendingTemplate(classifyFrame(label, null, null)), String(label)).toBe(false);
     }
-    expect(pendingTemplateFor(null)).toBeNull();
+    expect(isPendingTemplate(null)).toBe(false);
+  });
+
+  it("no runtime module imports the pending table, so none of its text reaches the panel's chunk", () => {
+    const importers: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of fs.readdirSync(dir)) {
+        const path = `${dir}/${name}`;
+        if (fs.statSync(path).isDirectory()) walk(path);
+        else if (/\.(ts|astro)$/.test(name) && !name.endsWith(".test.ts")) {
+          if (/from\s+["'][^"']*pending-templates["']/.test(fs.readFileSync(path, "utf8"))) {
+            importers.push(path);
+          }
+        }
+      }
+    };
+    walk(repoPath("src"));
+    expect(importers).toEqual([]);
   });
 
   it("the deprecated spellings stay unknown frames: neither placed nor pending, and no 'yet'", () => {
@@ -572,13 +589,13 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
       const frame = classifyFrame(label, null, null);
       expect(frame, label).toMatchObject({ kind: "unknown", why: "unrecognized_label" });
       expect(placementRuleFor(frame, { unit: "mm" }), label).toBeNull();
-      expect(pendingTemplateFor(frame), label).toBeNull();
+      expect(isPendingTemplate(frame), label).toBe(false);
       expect(noPlacementSentence(frame), label).not.toContain(" yet ");
     }
     // the one that equals a current identifier in letter case is that identifier, so it is pending
     const sym = classifyFrame("fsaveragesym", null, null);
     expect(sym).toMatchObject({ kind: "template", identifier: "fsaverageSym" });
-    expect(pendingTemplateFor(sym)?.identifier).toBe("fsaverageSym");
+    expect(isPendingTemplate(sym)).toBe(true);
   });
 
   it("a pending family reads 'No template placement yet for X' and every other unplaced frame reads 'No template placement for X'", () => {
