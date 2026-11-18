@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import urllib.request
@@ -117,17 +118,26 @@ LICENSE_ADDENDUM = (
     f"{SCRIPT}; the notice above applies to every copy of it."
 )
 
+# What the surface is, stated once for the README and provenance.json.
+SURFACE_SCOPE = (
+    "A tissue surface of the template's gray plus white matter at the 0.5 level and 1 mm: the "
+    "cerebrum and the cerebellum (lowest point near z = -72 mm), with whatever brainstem tissue the "
+    "two maps contain; it is not a cortical pial or white-matter surface, and it is not any "
+    "subject's anatomy."
+)
+
 README = f"""# Template brain surface, MNI152NLin2009cAsym, version 1
 
-A light left and right hemisphere surface of the Montreal Neurological Institute (MNI) ICBM 2009c
-nonlinear asymmetric template, for the intracranial electroencephalography (iEEG) spatial view.
+A light brain surface, in a left and a right half, of the Montreal Neurological Institute (MNI) ICBM
+2009c nonlinear asymmetric template, for the intracranial electroencephalography (iEEG) spatial view.
+{SURFACE_SCOPE}
 The page fetches it from the same origin, only when a template frame is shown.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `lh.mesh.bin`, `rh.mesh.bin` | Left and right hemisphere in `brain-mesh v1` (see `src/lib/ieeg-spatial/mesh-format.ts`), millimeters, right-anterior-superior (RAS), the template's own frame |
+| `lh.mesh.bin`, `rh.mesh.bin` | Left (x < 0) and right (x > 0) half of the surface in `brain-mesh v1` (see `src/lib/ieeg-spatial/mesh-format.ts`), millimeters, right-anterior-superior (RAS), the template's own frame |
 | `views.json` | Outline of the pair projected on the left, top and front planes, millimeters, for the 2D view |
 | `LICENSE.txt` | The MNI copyright notice, verbatim, which must travel with every copy of the surface |
 | `provenance.json` | Source files and their hashes, tool versions, parameters, and the hash of the script that built this folder |
@@ -142,10 +152,9 @@ No FreeSurfer, RAVE, threeBrain or N27 asset is used.
 ## How it was made
 
 The two probability maps are summed, the 0.5 isosurface is extracted at 1 mm, cut at x = 0 into
-hemispheres, reduced to the largest connected piece of each, smoothed (Taubin, {SMOOTH_ITERATIONS} iterations) and
-decimated to at most {MAX_VERTICES} vertices per hemisphere.
-The hemispheres are open at the midline where the cut crosses tissue; nothing is capped.
-The surface is a template brain, not any subject's anatomy.
+a left and a right half, reduced to the largest connected piece of each, smoothed (Taubin,
+{SMOOTH_ITERATIONS} iterations) and decimated to at most {MAX_VERTICES} vertices per half.
+The halves are open at the midline where the cut crosses tissue; nothing is capped.
 
 ## Rebuild
 
@@ -506,11 +515,38 @@ def views_json(meshes: list[Mesh]) -> bytes:
 # ---------------------------------------------------------------------------------------------
 
 
+PINNED_PACKAGES = ["numpy", "scipy", "nibabel", "scikit-image", "fast-simplification"]
+
+
 def tool_versions() -> dict[str, str]:
-    names = ["numpy", "scipy", "nibabel", "scikit-image", "fast-simplification"]
-    versions = {name: metadata.version(name) for name in names}
+    versions = {name: metadata.version(name) for name in PINNED_PACKAGES}
     versions["python"] = ".".join(str(part) for part in sys.version_info[:3])
     return dict(sorted(versions.items()))
+
+
+def normalize(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def resolved_environment() -> dict[str, str]:
+    """The five pinned packages and everything they pull in at run time, with the versions this
+    run resolved, by normalized name. The walk follows `Requires-Dist` from the pinned packages,
+    so a stale package left in a reused environment is not recorded."""
+    from packaging.requirements import Requirement  # installed with nibabel
+
+    pending = [normalize(name) for name in PINNED_PACKAGES]
+    found: dict[str, str] = {}
+    while pending:
+        name = pending.pop()
+        if name in found:
+            continue
+        dist = metadata.distribution(name)
+        found[name] = dist.version
+        for line in dist.requires or []:
+            requirement = Requirement(line)
+            if requirement.marker is None or requirement.marker.evaluate({"extra": ""}):
+                pending.append(normalize(requirement.name))
+    return dict(sorted(found.items()))
 
 
 def build(out: Path) -> None:
@@ -547,6 +583,7 @@ def build(out: Path) -> None:
     provenance = {
         "name": NAME,
         "frame": "MNI152NLin2009cAsym, RAS, millimeters",
+        "scope": SURFACE_SCOPE,
         "format": "brain-mesh v1 (src/lib/ieeg-spatial/mesh-format.ts), 16-bit indices",
         "template": {
             "archive": "TemplateFlow (https://templateflow.org)",
@@ -571,6 +608,7 @@ def build(out: Path) -> None:
         "script": {"path": SCRIPT, "sha256": sha256_hex(Path(__file__).read_bytes())},
         "regenerate": REGENERATE,
         "tools": tool_versions(),
+        "resolvedEnvironment": resolved_environment(),
         "parameters": {
             "field": "gray matter plus white matter probability, 1 mm",
             "isosurface": LEVEL,
