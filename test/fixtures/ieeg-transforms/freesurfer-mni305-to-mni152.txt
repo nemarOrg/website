@@ -1,0 +1,15 @@
+Excerpt of the FreeSurfer wiki page "CoordinateSystems", items 8 and 8b, as extracted from the page's text
+(retrieved 2026-11-17). Only the numbers and the sentences around them are kept, verbatim; line breaks
+inside the matrices are the page's own.
+
+8. I have an RAS from a voxel in MNI305 space (fsaverage space) which I want to convert to MNI152 space. Create a vector of the MNI305 space point like v = [R A S 1]'. Multiply this vector by the matrix below (ie, M*v)
+    0.9975   -0.0073    0.0176   -0.0429
+    0.0146    1.0009   -0.0024    1.5496
+   -0.0130   -0.0093    0.9971    1.1840
+Eg, if the RAS point is (10 -20 35), then v = [10 -20 35 1]', and M*v = [10.695 -18.409 36.137 1], so the RAS in MNI152 space would be  10.695 -18.409 36.137. The above matrix is V152*inv(T152)*R*T305*inv(V305), where V152 and V305 are the vox2ras matrices from the 152 and 305 spaces, T152 and T305 are the tkregister-vox2ras matrices from the 152 and 305 spaces,  and R is from  $FREESURFER_HOME/average/mni152.register.dat
+
+8b. I have an RAS from a voxel in MNI152 space  which I want to convert to MNI305 space (fsaverage space). Create a vector of the MNI152 space point like v = [R A S 1]'. Multiply this vector by the matrix below (ie, M*v)
+    1.0022    0.0071   -0.0177    0.0528
+   -0.0146    0.9990    0.0027   -1.5519
+    0.0129    0.0094    1.0027   -1.2012
+Eg, if the RAS point is (10 -20 35), then v = [10 -20 35 1]', and M*v = [9.3131  -21.5849   33.8345 1], so the RAS in MNI305 space would be  9.3131  -21.5849   33.8345. The above matrix is inv(V152*inv(T152)*R*T305*inv(V305)), where V152 and V305 are the vox2ras matrices from the 152 and 305 spaces, T152 and T305 are the tkregister-vox2ras matrices from the 152 and 305 spaces,  and R is from  $FREESURFER_HOME/average/mni152.register.dat
