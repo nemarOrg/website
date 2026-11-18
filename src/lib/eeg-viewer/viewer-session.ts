@@ -536,6 +536,9 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         version: ctx.version,
         filePath: path,
         zarrToken: ctx.zarrToken,
+        // The Brain panel looks the recording's electrode files up by dataset, version and path.
+        // Both surfaces pass it: the panel is a view, and its credit is a plain link (ADR 0023).
+        spatial: { datasetId: ctx.datasetId, version: ctx.version, recording: path },
         downloadUrl: req.downloadUrl,
         dirRecording: req.dirRecording,
         // Checked *inside* the mount, right after its own async gap, so a
@@ -1097,6 +1100,11 @@ export function createViewerSession(hooks: ViewerSessionHooks): ViewerSession {
         version: current.version,
         filePath: target.path,
         zarrToken: current.zarrToken,
+        spatial: {
+          datasetId: current.datasetId,
+          version: current.version,
+          recording: target.path,
+        },
         downloadUrl: fileDownloadUrl(current.datasetId, current.version, target.path),
         // The target may be a `.mefd`/`.ds`/BTi directory recording
         // (website#252) with no tree row to read `data-dir-recording` from, so
