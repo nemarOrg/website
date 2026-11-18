@@ -1351,6 +1351,23 @@ describe("computing a plan in slices", () => {
     expect(outcome).toBeNull();
     expect(reads).toBe(1);
   });
+
+  it("reads nothing at all when it was aborted before it began", async () => {
+    const ctl = new AbortController();
+    ctl.abort();
+    let reads = 0;
+    const outcome = await computeActivityPlan(
+      slicePlan,
+      sliceGroup,
+      async (r0, r1) => {
+        reads += 1;
+        return fixtureRows(r0, r1);
+      },
+      { ...noYield, signal: ctl.signal },
+    );
+    expect(outcome).toBeNull();
+    expect(reads).toBe(0);
+  });
 });
 
 describe("layout", () => {
