@@ -1,0 +1,21 @@
+The pooled best-fit MNI-to-Talairach (MTT) transform of Lancaster et al. 2007 (Human Brain Mapping 28:1194-1205,
+doi 10.1002/hbm.20345), Eq. (3), "MTT pooled", read from the equation image of the open-access full text
+(retrieved 2026-11-17), and the same four rows as BrainMap's icbm_other2tal.m applies them (the variable
+icbm_other, retrieved 2026-11-17). tal2icbm_other.m inverts these rows to go from Talairach to MNI.
+The two copies, and the copy in NiMARE's nimare.utils.tal2mni, agree digit for digit.
+
+Eq. (3), MTT pooled (row-major, 4 x 4):
+  0.9357   0.0029  -0.0072  -1.0423
+ -0.0065   0.9396  -0.0726  -1.3940
+  0.0103   0.0752   0.8967   3.6475
+  0        0        0        1
+
+icbm_other2tal.m, icbm_other:
+icbm_other = [0.9357 0.0029 -0.0072 -1.0423
+			 -0.0065 0.9396 -0.0726 -1.3940
+			  0.0103 0.0752  0.8967  3.6475
+			  0.0000 0.0000  0.0000  1.0000];
+
+From the paper's text (Results, "MTT Transform Analysis" and Table IV): the mean coordinate of the
+anterior commissure (AC) in MNI space fitted with FSL is (0.3, 1.4, -4.4) mm; "Best-fit MTT transforms led
+to coordinate disparity at the AC and PC of ~1 mm for both SPM2 and FLS (Table V)".
