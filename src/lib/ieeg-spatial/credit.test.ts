@@ -254,6 +254,13 @@ describe("paintCredit", () => {
     }
   });
 
+  it("measures at the scaled size, so the box doubles with the ratio", () => {
+    const one = paintCredit(recordingContext().ctx, 1280, 720, THEME, 1);
+    const two = paintCredit(recordingContext().ctx, 2560, 1440, THEME, 2);
+    expect(two.width).toBeCloseTo(2 * one.width);
+    expect(two.height).toBeCloseTo(2 * one.height);
+  });
+
   it("leaves the caller's context state as it found it, and the box inside the canvas", () => {
     const { ctx, calls, state } = recordingContext();
     state.globalAlpha = 0.3;
