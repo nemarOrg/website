@@ -1581,8 +1581,9 @@ export async function computeActivityPlan(
 /**
  * The decoded surface, shared by every panel of the page: the same two small files for any
  * dataset, so a second panel (or a reopened one) never fetches them again. A failure is not kept,
- * so the next ask tries again. Never aborted: a panel that closes mid-fetch leaves the download to
- * finish into the browser cache.
+ * so the next ask tries again. Never aborted: the promise is shared, so aborting it for one panel
+ * would fail the load of every other panel waiting on it; a panel that closes mid-fetch leaves the
+ * download to finish into the browser cache.
  */
 let surfaceLoad: Promise<BrainMesh> | null = null;
 function templateSurface(): Promise<BrainMesh> {
