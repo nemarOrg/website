@@ -67,6 +67,12 @@ describe("creditSvg", () => {
     );
   });
 
+  it("opens its link in a new tab without leaking the opener or the referrer", () => {
+    const a = /<a [^>]*>/.exec(svg)?.[0] ?? "";
+    expect(a).toContain('target="_blank"');
+    expect(a).toContain('rel="noopener noreferrer"');
+  });
+
   it("names the credit, the address and the DOI in a metadata block", () => {
     const meta = /<metadata[\s\S]*<\/metadata>/.exec(svg)?.[0] ?? "";
     expect(meta).toContain(RAVE_CREDIT.text);
