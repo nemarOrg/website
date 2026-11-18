@@ -1,5 +1,14 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
@@ -301,13 +310,59 @@ describe("the credit is declared once", () => {
     expect(hits).toEqual(["src/lib/ieeg-spatial/credit.test.ts", "src/lib/ieeg-spatial/credit.ts"]);
   });
 
-  it("has no other phrasing of the credit anywhere it could ship", () => {
+  /**
+   * The one file outside `credit.ts` that may carry the sentence: the validation spec holds the
+   * credit's words, address and DOI as an independent literal copy on purpose, so that it fails
+   * when `credit.ts` is reworded or a DOI is mistyped (a spec that read them from `credit.ts`
+   * would move with it). It is allowed by this exact path and nothing else: every other file in
+   * `src` and `e2e`, and the notices, stays covered by the scan.
+   */
+  const INDEPENDENT_COPY = "e2e/ieeg-spatial-validation.spec.ts";
+
+  /** The files among `all` that phrase the credit, relative to `root`, minus the one exact exception. */
+  function phrasingHits(all: string[], root: string): string[] {
     const variant = new RegExp(`inspired by ${"rave"}`, "i");
-    const hits = [...files, ...sourceFiles(join(REPO, "e2e")), join(REPO, "THIRD_PARTY_NOTICES.md")]
+    return all
+      .filter((f) => relative(root, f) !== INDEPENDENT_COPY)
       .filter((f) => variant.test(readFileSync(f, "utf8")))
-      .map((f) => relative(REPO, f))
+      .map((f) => relative(root, f))
       .sort();
+  }
+
+  it("has no other phrasing of the credit anywhere it could ship", () => {
+    const hits = phrasingHits(
+      [...files, ...sourceFiles(join(REPO, "e2e")), join(REPO, "THIRD_PARTY_NOTICES.md")],
+      REPO,
+    );
     expect(hits).toEqual(["src/lib/ieeg-spatial/credit.test.ts", "src/lib/ieeg-spatial/credit.ts"]);
+  });
+
+  it("allows the validation spec's copy by its exact path and no other file", () => {
+    const root = mkdtempSync(join(tmpdir(), "credit-scan-"));
+    try {
+      const sentence = `// Electrode view ${"inspired by"} ${"RAVE"}\n`;
+      const paths = [
+        INDEPENDENT_COPY,
+        "e2e/other.spec.ts",
+        "e2e/ieeg-spatial-validation.spec.ts.bak",
+        "src/e2e/ieeg-spatial-validation.spec.ts",
+        "src/lib/other.ts",
+        "THIRD_PARTY_NOTICES.md",
+      ].map((rel) => join(root, rel));
+      for (const f of paths) {
+        mkdirSync(dirname(f), { recursive: true });
+        writeFileSync(f, sentence);
+      }
+      expect(phrasingHits(paths, root)).toEqual([
+        "THIRD_PARTY_NOTICES.md",
+        "e2e/ieeg-spatial-validation.spec.ts.bak",
+        "e2e/other.spec.ts",
+        "src/e2e/ieeg-spatial-validation.spec.ts",
+        "src/lib/other.ts",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("never says RAVE powered, rendered or drew the figure, in code or notices", () => {
