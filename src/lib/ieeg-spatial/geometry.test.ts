@@ -593,6 +593,83 @@ describe("frames: classified, never promoted", () => {
   });
 });
 
+describe("verbatim cells: the file's own text rides beside the parsed numbers", () => {
+  // The cells of one electrodes file as the file wrote them, read independently of the module.
+  const cellsOf = (datasetId: string, version: string, path: string) =>
+    table(fixtureText(datasetId, version, path));
+
+  it("on004473 (meters): every contact's x, y, z and size are the file's own cells", async () => {
+    const g = await resolve("on004473", "v1.0.0", ON4473);
+    const s = only(g, "ACPC");
+    const rows = cellsOf("on004473", "v1.0.0", "sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv");
+    expect(s.contacts).toHaveLength(rows.length);
+    s.contacts.forEach((c, i) => {
+      expect(c.name).toBe(rows[i].name);
+      expect(c.raw).toEqual({ x: rows[i].x, y: rows[i].y, z: rows[i].z, size: rows[i].size });
+    });
+    // Exponent notation and 16 significant digits survive; the parsed number is the converted one.
+    const lamy1 = contact(s, "LAMY1");
+    expect(lamy1.raw.y).toBe("-7.589096499647889e-05");
+    expect(lamy1.position?.[1]).toBeCloseTo(-0.07589096499647889, 15);
+    expect(lamy1.raw.x).toBe("-0.0257293468714703");
+  });
+
+  it("nm000376 (millimeters): trailing zeros and 17 significant digits survive", async () => {
+    const g = await resolve("nm000376", "v1.0.2", NM376);
+    const s = only(g, "IXI549Space");
+    const rows = cellsOf(
+      "nm000376",
+      "v1.0.2",
+      "sub-P1/ieeg/sub-P1_space-IXI549Space_electrodes.tsv",
+    );
+    s.contacts.forEach((c, i) => {
+      expect(c.raw).toEqual({ x: rows[i].x, y: rows[i].y, z: rows[i].z, size: rows[i].size });
+    });
+    // `-5.0` parses to -5 and `63.150000000000006` to a double that prints shorter or longer; the
+    // file's text is what the contact carries.
+    expect(contact(s, "A6-A7").raw.y).toBe("-5.0");
+    expect(contact(s, "A6-A7").position?.[1]).toBe(-5);
+    expect(contact(s, "Q8-Q9").raw.x).toBe("63.150000000000006");
+    expect(contact(s, "A2-A3").raw.z).toBe("-24.814999999999998");
+  });
+
+  it("a cell that is n/a stays n/a in the raw text while the position is null", async () => {
+    const g = await resolve("on004100", "v1.0.0", HUP060);
+    const s = only(g, "fsaverage");
+    const c3 = contact(s, "C3");
+    expect(c3.position).toBeNull();
+    expect(c3.raw).toMatchObject({ x: "n/a", y: "n/a", z: "n/a" });
+  });
+
+  it("the size cell is null only when the file has no size column", async () => {
+    const withSize = only(await resolve("on005522", "v1.0.0", R1001P), "MNI152NLin6ASym");
+    expect(withSize.contacts.every((c) => typeof c.raw.size === "string")).toBe(true);
+    // A known-answer file without a size column: the header cells decide, not the row count.
+    const text = "name\tx\ty\tz\nA1\t1.50\t-0.0\t3e0\n";
+    const reader: Pick<GeometryInput, "listDir" | "readText"> = {
+      listDir: async () => ({
+        children: [
+          { kind: "file", name: "sub-1_electrodes.tsv", size: text.length },
+          { kind: "file", name: "sub-1_coordsystem.json", size: 2 },
+        ],
+      }),
+      readText: async (path) =>
+        path.endsWith("coordsystem.json")
+          ? JSON.stringify({ iEEGCoordinateSystem: "ACPC", iEEGCoordinateUnits: "mm" })
+          : text,
+    };
+    const g = await resolveRecordingGeometry({
+      datasetId: "x",
+      version: "v1",
+      recording: "sub-1/ieeg/sub-1_ieeg.edf",
+      ...reader,
+    });
+    const a1 = contact(g.spaces[0], "A1");
+    expect(a1.raw).toEqual({ x: "1.50", y: "-0.0", z: "3e0", size: null });
+    expect(a1.position).toEqual([1.5, -0, 3]);
+  });
+});
+
 describe("joins: exact names, then bipolar pairs", () => {
   const names = (path: string) => table(path).map((r) => r.name);
 
@@ -705,6 +782,8 @@ describe("joins: exact names, then bipolar pairs", () => {
         contacts: ["LAF1"],
         position: null,
         cause: "duplicate_contact",
+        matchKind: null,
+        rule: null,
       });
       expect(joinChannels(repeated, ["LAF1-LAF2"])[0]).toEqual({
         channel: "LAF1-LAF2",
@@ -712,6 +791,8 @@ describe("joins: exact names, then bipolar pairs", () => {
         contacts: ["LAF1", "LAF2"],
         position: null,
         cause: "duplicate_contact",
+        matchKind: null,
+        rule: null,
       });
       // Every other join is unchanged by the repeat.
       expect(joinChannels(repeated, ["LAF2"])[0]).toMatchObject({ status: "located", cause: null });
@@ -737,6 +818,8 @@ describe("joins: exact names, then bipolar pairs", () => {
         contacts: [],
         position: null,
         cause: "ambiguous_pair",
+        matchKind: null,
+        rule: null,
       });
       // Every other join is unchanged: exact names first, and a single split still pairs.
       expect(joinChannels(lookalike, ["A-B"])[0]).toMatchObject({
