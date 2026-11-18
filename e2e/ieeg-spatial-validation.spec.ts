@@ -73,6 +73,8 @@ const TEMPLATE_LABEL = "[data-spatial-template-label]";
 const LIST = "[data-spatial-list]";
 const CONTACT_COLUMN = ".eegv__spatial-loc:not(.eegv__spatial-tpl)";
 const BANNER = "[data-spatial-banner]";
+const SCALE = "[data-spatial-scale]";
+const VIEW_REASON = "[data-spatial-view-reason]";
 const NAMES = "[data-spatial-names]";
 const NAMES_CHANNELS = "[data-spatial-names-channels]";
 const NAMES_CONTACTS = "[data-spatial-names-contacts]";
@@ -106,6 +108,9 @@ const BANNER_VIEW_TITLE =
 /** The units banner as the stage and the figures say it; the distance is the dataset's own number. */
 const BANNER_PATTERN =
   /^Declared unit m, but the values look millimeter-sized \(largest distance ([\d,]+) mm from the origin\)\. Positions are shown as declared and are not placed on any template\.$/;
+/** The sentence under the banner about the flat views' scale (they have no scale bar). */
+const SCALE_PATTERN =
+  /^Scale: the three views share one scale, and the drawn contacts span ([\d,]+) mm along the widest axis\.$/;
 const UNREADABLE_SENTENCE = "The electrodes file could not be read.";
 
 const OWN_LABEL = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
@@ -699,6 +704,7 @@ async function svgFacts(page: Page, text: string) {
     return {
       error: doc.querySelector("parsererror")?.textContent ?? null,
       banner: root.querySelector('g#banner text[data-role="banner"]')?.textContent ?? null,
+      scale: root.querySelector('text[data-role="scale"]')?.textContent ?? null,
       bannerBeforeViews: (() => {
         const bannerGroup = root.querySelector("g#banner");
         const viewsGroup = root.querySelector("g#views");
@@ -1225,7 +1231,35 @@ test("units banner (on004100): declared meters over millimeter-sized numbers sho
     await page.locator(BANNER).evaluate((e) => e.closest("[data-spatial-stage]") !== null),
   ).toBe(true);
 
-  // The 3D switch is off and says why; the contacts are drawn, as declared, in the file's frame.
+  // The views have no scale bar, so a line in the stage says their extent, in the same number the
+  // notes give for the span of the drawn contacts.
+  await expect(page.locator(SCALE)).toBeVisible();
+  const scaleText = (await page.locator(SCALE).textContent()) ?? "";
+  const scaleMatch = SCALE_PATTERN.exec(scaleText);
+  expect(scaleMatch, scaleText).not.toBeNull();
+  expect(
+    await page.locator(SCALE).evaluate((e) => e.closest("[data-spatial-stage]") !== null),
+  ).toBe(true);
+  const scaleBox = await page.locator(SCALE).boundingBox();
+  if (scaleBox && banner && views) {
+    expect(scaleBox.y).toBeGreaterThanOrEqual(banner.y + banner.height - 1);
+    expect(scaleBox.y + scaleBox.height).toBeLessThanOrEqual(views.y + 1);
+  }
+
+  // The 3D switch is off and says why, in the page and not only in a tooltip on a disabled button;
+  // the contacts are drawn, as declared, in the file's frame.
+  await expect(page.locator(VIEW_REASON)).toBeVisible();
+  await expect(page.locator(VIEW_REASON)).toHaveText(BANNER_VIEW_TITLE);
+  const reasonId = (await page.locator(VIEW_REASON).getAttribute("id")) ?? "";
+  expect(reasonId).not.toBe("");
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-describedby", reasonId);
+  const actionsBox = await page.locator(".eegv__spatial-actions").boundingBox();
+  const reasonBox = await page.locator(VIEW_REASON).boundingBox();
+  if (actionsBox && reasonBox) {
+    // Right under the switch's row.
+    expect(reasonBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height - 1);
+    expect(reasonBox.y - (actionsBox.y + actionsBox.height)).toBeLessThan(24);
+  }
   await expect(page.locator("[data-spatial-view2d]")).toBeDisabled();
   await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("title", BANNER_VIEW_TITLE);
@@ -1239,6 +1273,10 @@ test("units banner (on004100): declared meters over millimeter-sized numbers sho
     "Units: millimeters (the file says m, scaled to millimeters).",
   );
   await expect(page.locator(NOTES)).toContainText(/span \d+ mm, wider than a head/);
+  const notedSpan = (await page.locator(NOTES).textContent())?.match(/span (\d+) mm, wider/)?.[1];
+  expect(
+    Math.abs(Number((scaleMatch?.[1] ?? "").replace(/,/g, "")) - Number(notedSpan)),
+  ).toBeLessThanOrEqual(1);
   // No template: no surface, no outlines, no label, no template position on a row.
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
   await expect(page.locator(`${STAGE} path[data-template-outline]`)).toHaveCount(0);
@@ -1258,6 +1296,7 @@ test("units banner (on004100): declared meters over millimeter-sized numbers sho
   const facts = await svgFacts(page, svg.bytes.toString("utf8"));
   expect(facts.error).toBeNull();
   expect(facts.banner).toBe(text);
+  expect(facts.scale).toBe(scaleText);
   expect(facts.bannerBeforeViews).toBe(true);
   expect(facts.metadata).toContain(text);
   expect(facts.outlines).toBe(0);

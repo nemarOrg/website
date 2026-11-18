@@ -163,6 +163,7 @@ export type LabelRole =
   | "note"
   | "webgl"
   | "axes"
+  | "scale"
   | "selected"
   | "measure"
   | "activity";
@@ -291,6 +292,8 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
   for (const note of model.notes) add("note", note);
   if (model.stage.kind === "no_webgl") add("webgl", model.stage.sentence);
   if (withViews) add("axes", VIEWS_SENTENCE);
+  // Under the units banner the views have no scale bar: the figure says their extent in words.
+  if (withViews) add("scale", model.scale);
   const texts = contactTexts(input, withViews ? "seam" : "model");
   const picked = model.contacts.flatMap((c, i) => (c.selected ? [contactTitle(texts[i])] : []));
   if (model.selectedChannel !== null) add("selected", `Selected channel: ${model.selectedChannel}`);

@@ -12,7 +12,11 @@
  * drawn contact then lies more than `UNITS_BANNER_MIN_DISTANCE_MM` from the origin. One contact
  * inside that distance is a plausible head, so there is no banner; a file in millimeters, a file
  * with no declared unit, and a file whose meters really are meters (`on004473`: its contacts lie
- * 29 to 115 mm out) never have one. The sentence is declared here and nowhere else.
+ * 29 to 115 mm out) never have one. A contact at exactly 0 0 0 is left out of that test: IS-C1
+ * returns what the file wrote, and real files put unlocated contacts at the origin as a
+ * placeholder (the panel warns about them separately), so one placeholder must not hide a file
+ * whose every real contact is tens of meters out. The sentences are declared here and nowhere
+ * else.
  */
 
 import type { Units, Vec3 } from "./geometry";
@@ -30,8 +34,15 @@ export interface UnitsBanner {
   declared: string;
   /** The farthest drawn contact from the origin, millimeters as drawn. */
   largestMm: number;
+  /** The widest range of the drawn contacts along one axis, millimeters as drawn. */
+  spanMm: number;
   /** The sentence, as the stage and the figures say it. */
   text: string;
+  /**
+   * The flat views carry no scale bar, so this says their extent in words: one scale for the
+   * three views, and how far the drawn contacts reach along the widest axis.
+   */
+  scale: string;
 }
 
 /** The banner's sentence: declared once; the stage and every figure read it from the model. */
@@ -40,9 +51,15 @@ function bannerText(declared: string, largestMm: number): string {
   return `Declared unit ${declared}, but the values look millimeter-sized (largest distance ${distance} mm from the origin). Positions are shown as declared and are not placed on any template.`;
 }
 
+/** The sentence under the banner about the flat views' scale; declared here, said on the stage and in the figures. */
+function scaleText(spanMm: number): string {
+  const span = Math.round(spanMm).toLocaleString("en-US");
+  return `Scale: the three views share one scale, and the drawn contacts span ${span} mm along the widest axis.`;
+}
+
 /**
  * The banner for these drawn positions (millimeters as IS-C1 gave them, never rescaled), or null.
- * Reads the positions and never changes them.
+ * Reads the positions and never changes them. Contacts at exactly 0 0 0 are left out (see above).
  */
 export function unitsBanner(units: Units, positions: readonly Vec3[]): UnitsBanner | null {
   const converted =
@@ -51,15 +68,28 @@ export function unitsBanner(units: Units, positions: readonly Vec3[]): UnitsBann
     units.declared !== null &&
     units.scaleToMm !== null &&
     units.scaleToMm !== 1;
-  if (!converted || positions.length === 0) return null;
+  if (!converted) return null;
+  const placed = positions.filter((p) => p[0] !== 0 || p[1] !== 0 || p[2] !== 0);
+  if (placed.length === 0) return null;
   let nearest = Number.POSITIVE_INFINITY;
   let farthest = 0;
-  for (const p of positions) {
+  for (const p of placed) {
     const d = Math.hypot(p[0], p[1], p[2]);
     nearest = Math.min(nearest, d);
     farthest = Math.max(farthest, d);
   }
   if (!(nearest > UNITS_BANNER_MIN_DISTANCE_MM)) return null;
+  let spanMm = 0;
+  for (let axis = 0; axis < 3; axis++) {
+    const values = placed.map((p) => p[axis]);
+    spanMm = Math.max(spanMm, Math.max(...values) - Math.min(...values));
+  }
   const declared = units.declared as string;
-  return { declared, largestMm: farthest, text: bannerText(declared, farthest) };
+  return {
+    declared,
+    largestMm: farthest,
+    spanMm,
+    text: bannerText(declared, farthest),
+    scale: scaleText(spanMm),
+  };
 }

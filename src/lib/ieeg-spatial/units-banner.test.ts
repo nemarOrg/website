@@ -106,11 +106,52 @@ describe("the rule", () => {
   it("needs every contact past 300 mm: one inside is a plausible head, and a distance of exactly 300 is not past it", () => {
     const past = positionsOf(on4100);
     expect(unitsBanner(METERS, past)).not.toBeNull();
-    expect(unitsBanner(METERS, [...past, [0, 0, 0]])).toBeNull();
     expect(unitsBanner(METERS, [...past, [120, 0, 0]])).toBeNull();
     expect(unitsBanner(METERS, [[300, 0, 0]])).toBeNull();
     expect(unitsBanner(METERS, [[300.001, 0, 0]])).not.toBeNull();
     expect(unitsBanner(METERS, [])).toBeNull();
+  });
+
+  it("leaves a contact at exactly 0 0 0 out of the test: IS-C1 returns a placeholder as written, and one must not hide a file whose real contacts are tens of meters out", () => {
+    const past = positionsOf(on4100);
+    const plain = unitsBanner(METERS, past);
+    const withPlaceholder = unitsBanner(METERS, [...past, [0, 0, 0]]);
+    expect(withPlaceholder).not.toBeNull();
+    // Nothing else changes: the farthest contact, the span and the words are the same.
+    expect(withPlaceholder?.largestMm).toBe(plain?.largestMm);
+    expect(withPlaceholder?.spanMm).toBe(plain?.spanMm);
+    expect(withPlaceholder?.text).toBe(plain?.text);
+    // Only placeholders say nothing; a placeholder beside a plausible contact is still a head.
+    expect(unitsBanner(METERS, [[0, 0, 0]])).toBeNull();
+    expect(
+      unitsBanner(METERS, [
+        [0, 0, 0],
+        [0, 0, 0],
+      ]),
+    ).toBeNull();
+    expect(
+      unitsBanner(METERS, [
+        [0, 0, 0],
+        [120, 0, 0],
+      ]),
+    ).toBeNull();
+    // A contact that is merely near the origin is not a placeholder.
+    expect(unitsBanner(METERS, [...past, [0, 0, 0.001]])).toBeNull();
+  });
+
+  it("says the flat views' scale in words: the widest range of the drawn contacts, in whole millimeters", () => {
+    const b = unitsBanner(on4100.spaces[0].units, positionsOf(on4100));
+    expect(b?.spanMm).toBeCloseTo(72368, 0);
+    expect(b?.scale).toBe(
+      "Scale: the three views share one scale, and the drawn contacts span 72,368 mm along the widest axis.",
+    );
+    // Axis by axis, the widest one: x spans 4000 mm, y 9000, z 1000.
+    const wide = unitsBanner(METERS, [
+      [3000, 5000, 4000],
+      [7000, -4000, 5000],
+    ]);
+    expect(wide?.spanMm).toBe(9000);
+    expect(wide?.scale).toContain("span 9,000 mm");
   });
 
   it("any non-mm unit that was converted can trigger it, and names the unit the file wrote", () => {
@@ -126,7 +167,13 @@ describe("the rule", () => {
     const b = unitsBanner(METERS, positions);
     expect(positions).toEqual(copy);
     expect(b?.largestMm).toBe(5000);
-    expect(Object.keys(b ?? {}).sort()).toEqual(["declared", "largestMm", "text"]);
+    expect(Object.keys(b ?? {}).sort()).toEqual([
+      "declared",
+      "largestMm",
+      "scale",
+      "spanMm",
+      "text",
+    ]);
   });
 
   it("writes the distance with thousands separators and whole millimeters", () => {
@@ -186,7 +233,13 @@ describe("in the panel", () => {
       enabled: false,
       title:
         "3D view is off while the units banner shows; the three flat views draw every contact as declared",
+      // Also said where a keyboard or screen-reader user finds it: a disabled button has no focus.
+      reason:
+        "3D view is off while the units banner shows; the three flat views draw every contact as declared",
     });
+    expect(model.scale).toBe(
+      "Scale: the three views share one scale, and the drawn contacts span 72,368 mm along the widest axis.",
+    );
     expect(model.banner).toBe(
       "Declared unit m, but the values look millimeter-sized (largest distance 61,924 mm from the origin). Positions are shown as declared and are not placed on any template.",
     );
@@ -243,9 +296,24 @@ describe("in the panel", () => {
     expect(row.template).toBeNull();
   });
 
-  it("on004473 and nm000485 have no banner", () => {
-    expect(viewModel(opened("on004473", "v1.0.0", ON4473, on4473).state).banner).toBeNull();
-    expect(viewModel(opened("nm000485", "v1.0.2", NM485, nm485).state).banner).toBeNull();
+  it("on004473 and nm000485 have no banner, no scale line and no reason for a 3D switch that is on", () => {
+    for (const model of [
+      viewModel(opened("on004473", "v1.0.0", ON4473, on4473).state),
+      viewModel(opened("nm000485", "v1.0.2", NM485, nm485).state),
+    ]) {
+      expect(model.banner).toBeNull();
+      expect(model.scale).toBeNull();
+      expect(model.view.reason).toBeNull();
+      expect(model.view.enabled).toBe(true);
+    }
+  });
+
+  it("without WebGL2 the stage says why and there is no second line for it, banner or not", () => {
+    const noGl = reduce(rec.state, { type: "webgl_unavailable" }).state;
+    const model = viewModel(noGl);
+    expect(model.stage).toMatchObject({ kind: "no_webgl", sentence: "3D view needs WebGL2" });
+    expect(model.view.reason).toBeNull();
+    expect(model.view.title).toBe("3D view needs WebGL2");
   });
 });
 
@@ -285,6 +353,27 @@ describe("in the files", () => {
     expect(svg).toContain(`<dc:description>${BANNER}</dc:description>`);
     expect(svg.indexOf('<g id="banner">')).toBeLessThan(svg.indexOf('<g id="views">'));
     expect(svg.lastIndexOf('class="eegv-credit"')).toBeGreaterThan(svg.indexOf('<g id="banner">'));
+  });
+
+  it("both files carry the scale sentence the stage says, in the labels", () => {
+    const SCALE =
+      "Scale: the three views share one scale, and the drawn contacts span 72,368 mm along the widest axis.";
+    const svg = buildSvg(buildFigure(inputOf(rec.state), null));
+    expect(svg).toContain(`data-role="scale"`);
+    expect(svg.replace(/<[^>]+>/g, "")).toContain(SCALE);
+    expect(svg).toContain(`<dc:description>${SCALE}</dc:description>`);
+    const figure = buildFigure(inputOf(rec.state), null);
+    const lines = buildDrawList(figure).flatMap((o) =>
+      o.op === "text" && figure.labels.some((l) => l.id === o.label && l.role === "scale")
+        ? [o.text]
+        : [],
+    );
+    expect(lines.join("")).toBe(SCALE);
+    // A figure without the banner has no scale line.
+    const ok = opened("on004473", "v1.0.0", ON4473, on4473).state;
+    expect(buildSvg(buildFigure({ ...inputOf(ok), frameLabel: "ACPC" }, null))).not.toContain(
+      'data-role="scale"',
+    );
   });
 
   it("the PNG draw list paints it as bold foreground text under the title, before the picture", () => {

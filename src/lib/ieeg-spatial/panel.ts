@@ -1347,9 +1347,15 @@ export interface ViewSwitchModel {
   shown: boolean;
   /** The 2D views are what the stage draws, by choice or because WebGL2 is missing. */
   on: boolean;
-  /** False when WebGL2 is missing: 2D is the only view. */
+  /** False when WebGL2 is missing or the units banner shows: the flat views are the only view. */
   enabled: boolean;
   title: string;
+  /**
+   * Why the 3D view is not offered under the units banner, for a visible line beside the switch (a
+   * disabled button has no focus and its title is a tooltip); the same words as the title. Null
+   * otherwise, including without WebGL2, whose sentence the stage already says.
+   */
+  reason: string | null;
 }
 
 /**
@@ -1388,6 +1394,11 @@ export interface PanelModel {
    * only while contacts are drawn.
    */
   banner: string | null;
+  /**
+   * The flat views' scale in words, under the banner (`units-banner.ts`): they have no scale bar,
+   * so this says their extent; null whenever there is no banner.
+   */
+  scale: string | null;
   /**
    * Both sets of names, when the recording is closed by its channel names (the refusal stage
    * lists them); null for every other state.
@@ -1728,6 +1739,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
       on: stage.kind === "views2d" || stage.kind === "no_webgl",
       enabled: state.webgl && !banner,
       title: !state.webgl ? WEBGL_SENTENCE : banner ? BANNER_VIEW_SENTENCE : VIEW_SWITCH_TITLE,
+      reason: state.webgl && banner ? BANNER_VIEW_SENTENCE : null,
     },
     template: templateModel(state, stage),
     frames: frameSelector(state),
@@ -1735,6 +1747,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
     notes: placement ? frameNotes(placement) : [],
     selectedChannel: placement ? selectedChannelSentence(state) : null,
     banner: banner?.text ?? null,
+    scale: banner?.scale ?? null,
     nameRefusal: namesFor(state, stage),
     activity: placement ? activityModel(state) : null,
     contacts: placement ? contactRows(state, stage) : [],
@@ -2055,6 +2068,9 @@ export function forgetTemplateOutlines(): void {
   outlinesLoad = null;
 }
 
+/** Gives each panel's ids their own numbers (a page may hold more than one panel). */
+let panelSeq = 0;
+
 export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const { box } = host;
   let state = initialState();
@@ -2128,7 +2144,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   banner.setAttribute("role", "note");
   banner.dataset.spatialBanner = "";
   banner.hidden = true;
-  stage.append(banner, msgWrap, views, credit);
+  // The flat views have no scale bar: under the banner this line says their extent in words.
+  const scaleLine = el("p", "eegv__spatial-scale");
+  scaleLine.dataset.spatialScale = "";
+  scaleLine.hidden = true;
+  stage.append(banner, scaleLine, msgWrap, views, credit);
 
   // The names of a recording closed by its channel names (IS-Q2), under the refusal sentence.
   const nameBox = el("div", "eegv__spatial-names");
@@ -2150,6 +2170,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   saveSvgBtn.dataset.spatialSave = "svg";
   actions.append(view2dBtn, savePngBtn, saveSvgBtn);
   actions.hidden = true;
+  // Why the 3D view is off under the banner, in the page and not only in the button's tooltip.
+  const viewReason = el("p", "eegv__spatial-actmsg");
+  viewReason.dataset.spatialViewReason = "";
+  viewReason.id = `eegv-view-reason-${++panelSeq}`;
+  viewReason.hidden = true;
   const saveMsg = el("p", "eegv__spatial-actmsg");
   saveMsg.setAttribute("role", "status");
   saveMsg.hidden = true;
@@ -2232,6 +2257,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     stage,
     nameBox,
     actions,
+    viewReason,
     saveMsg,
     templateBox,
     status,
@@ -2432,6 +2458,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
     setText(banner, model.banner ?? "");
     banner.hidden = model.banner === null;
+    setText(scaleLine, model.scale ?? "");
+    scaleLine.hidden = model.scale === null;
     paintNames(model);
 
     paintViews(model);
@@ -2440,6 +2468,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
     view2dBtn.disabled = !model.view.enabled;
     view2dBtn.title = model.view.title;
+    setText(viewReason, model.view.reason ?? "");
+    viewReason.hidden = model.view.reason === null || !model.view.shown;
+    if (viewReason.hidden) view2dBtn.removeAttribute("aria-describedby");
+    else view2dBtn.setAttribute("aria-describedby", viewReason.id);
     setText(saveMsg, savingMessage);
     saveMsg.hidden = savingMessage === "" || !model.view.shown;
 
