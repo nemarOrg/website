@@ -62,6 +62,12 @@ import { layoutViews, viewsMarkup } from "../src/lib/ieeg-spatial/views2d";
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
 const TOGGLE = "[data-spatial-toggle]";
+/**
+ * The embed's two notices: the server-rendered one (`.embed-msg__text`) and the one the page writes
+ * when the Zarr index fails to load ("The signal viewer could not load this dataset's recordings
+ * right now"). A helper that knew only the first waited 90 s on a page that was already saying so.
+ */
+const EMBED_NOTICE = ".embed-msg__text, [data-embed-notice]:not([hidden])";
 const PANEL = "[data-spatial-panel]";
 const STAGE = "[data-spatial-stage]";
 const CREDIT = `${PANEL} a.eegv-credit`;
@@ -74,7 +80,7 @@ async function openViewer(page: Page, dataset: string): Promise<void> {
     await page.goto(`/dataset/${dataset}/embed`);
     const outcome = await Promise.race([
       page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 }).then(() => "viewer"),
-      page.waitForSelector(".embed-msg__text", { timeout: 90_000 }).then(() => "notice"),
+      page.waitForSelector(EMBED_NOTICE, { timeout: 90_000 }).then(() => "notice"),
     ]);
     if (outcome === "viewer") return;
     if (attempt >= 4)

@@ -134,7 +134,7 @@ Reproduction attempt, on the epic base before any change (ec75559), nm000485, he
 - The committed export test, 40 repeats on the final head (`--repeat-each=40 --workers=1`, `caffeinate -i`, 21 minutes, no sleep event in the host's log): 36 passed and 4 failed, none at or after the click on "2D views".
   Three failed before the panel opened, on a toggle still saying "checking this dataset for electrode positions" after 120 s; in each the page answered (its last console beat was 94 to 191 ms old, no heartbeat gap over 72 ms), `views.json` and the mesh files had not been asked for, and the Zarr host had slow requests (the slowest finished one took 11.5, 82 and 114 s) and 3 with no completion event after the test gave up at 120 s.
   The viewer starts the panel after its first frame, and its first frame waits on those reads, so this is the data plane and a viewer with no timeout on them, not the panel (finding 11).
-  One failed at page load: the embed showed the dataset's title and neither the viewer nor a notice for 90 s, with the page responsive and no request pending (finding 12).
+  One failed at page load: the embed's own notice, "The signal viewer could not load this dataset's recordings right now", was on screen and the helper did not recognize it (finding 12).
 
 Outcome: not reproduced, no product cause found, not claimed fixed, left open.
 If it recurs the export test now leaves its evidence in the test's annotations: heartbeat gaps (timer over 60 ms, animation frame over 100 ms), the time since the page's last console beat (which reaches Node even while the page is blocked), whether the page answered a trivial evaluate within 5 s, and the timing of `views.json`, the mesh files and the Zarr requests.
@@ -168,9 +168,11 @@ If it recurs the export test now leaves its evidence in the test's annotations: 
 11. For the viewer's owner (not the panel), seen in 3 of 40 repeats of the export test in a slow hour: the viewer's first frame waits on Zarr reads that take 80 to 114 s or are still open when the test gives up, and shows neither content nor a notice meanwhile; the Brain toggle stays "checking" because the panel starts after the first frame.
     The page itself is responsive (heartbeat clean).
     A timeout on the first reads, with the viewer's own notice, would turn it into a message and a Retry.
-12. For the embed's owner, seen once in 40: the embed page was complete (dataset title shown), had no request pending and answered, and showed neither the viewer nor its "could not load" notice for 90 s.
-    The cause is not known: this run did not capture the page's console, and 111 repeats of the plain script (which do) did not meet it.
-    The spec now records the page's load state, words and pending requests when it gives up on an embed (`describeStalledPage`).
+12. Explained, a test helper's gap and not a silent page: the embed writes a second notice, "The signal viewer could not load this dataset's recordings right now" (`[data-embed-notice]`, when the Zarr index fails to load), and the helpers of both specs waited only for the server-rendered one (`.embed-msg__text`).
+    A page snapshot of one failure (the panel spec's nm000454) shows it, with the dev server's log answering `[api] list datasets: 500` at the time.
+    The other cases (on004624 in the full run, one export repeat) failed the same way and are taken to be the same page, by the symptom and not by a snapshot of their own: the export repeat's recorded page text was cut at 160 characters before the notice, and the full run's snapshot was empty.
+    So IS-QA1's "once the embed showed neither the viewer nor a notice for 90 s" was most likely a notice the helper missed, during a data plane outage.
+    Both specs now wait for either notice and count the reload; `openViewer` still records the page's load state, words and pending requests if it gives up on a page that shows neither.
 
 ## Not run, would check
 

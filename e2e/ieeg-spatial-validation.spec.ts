@@ -57,6 +57,12 @@ import { type Page, type Request, chromium, expect, test } from "@playwright/tes
 test.describe.configure({ mode: "default", timeout: 600_000 });
 
 const TOGGLE = "[data-spatial-toggle]";
+/**
+ * The embed's two notices: the server-rendered one (`.embed-msg__text`) and the one the page writes
+ * when the Zarr index fails to load ("The signal viewer could not load this dataset's recordings
+ * right now"). A helper that knew only the first waited 90 s on a page that was already saying so.
+ */
+const EMBED_NOTICE = ".embed-msg__text, [data-embed-notice]:not([hidden])";
 const PANEL = "[data-spatial-panel]";
 const STAGE = "[data-spatial-stage]";
 const STATUS = "[data-spatial-status]";
@@ -349,8 +355,9 @@ test.afterAll(async () => {
 /**
  * What a page that has shown neither its viewer nor a notice looked like: its load state, its
  * words, and the requests it was still waiting for (host and path, with their age). Written to the
- * test's annotations when `openViewer` gives up, so the one "embed showed nothing for 90 s" that
- * IS-QA1 met once leaves evidence the next time.
+ * test's annotations when `openViewer` gives up. The "embed showed nothing for 90 s" met so far was
+ * a notice the helper did not know (`EMBED_NOTICE`); this is the evidence if a page ever shows
+ * neither.
  */
 async function describeStalledPage(page: Page): Promise<string> {
   const waiting = [...(pending.get(page)?.entries() ?? [])]
@@ -385,7 +392,7 @@ async function openViewer(page: Page, dataset: string, query = "", ready = TOGGL
         page
           .waitForSelector(ready, { state: "attached", timeout: 90_000 })
           .then(() => "viewer" as const),
-        page.waitForSelector(".embed-msg__text", { timeout: 90_000 }).then(() => "notice" as const),
+        page.waitForSelector(EMBED_NOTICE, { timeout: 90_000 }).then(() => "notice" as const),
       ]);
     } catch (e) {
       note(
