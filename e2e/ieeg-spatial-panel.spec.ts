@@ -28,8 +28,9 @@
  * - Template anatomy (card IS-V2): on005522 (a standard MNI frame) draws the vendored brain surface
  *   behind the contacts with the template label and "approximate", the link to the surface's notice
  *   and its reference, and fetches the two mesh files only once the panel is open; nm000454 (the
- *   surface's own frame), nm000485 (Talairach), on004100 (fsaverage) and nm000376 (IXI549Space)
- *   carry the label each row owes them; nm000355 (ACPC) draws no surface, fetches no mesh and says
+ *   surface's own frame), nm000485 (Talairach) and nm000376 (IXI549Space) carry the label each
+ *   row owes them (on004100, the one fsaverage dataset here, declares meters over millimeter-sized
+ *   numbers: its units banner withholds it from any template, and the validation spec covers it); nm000355 (ACPC) draws no surface, fetches no mesh and says
  *   "No template placement for ACPC"; a failed mesh fetch leaves the contacts, says so, and a
  *   reopened panel tries again; an EEG dataset never asks for a mesh.
  *   nm000355 is the ACPC case here; on005415 (also ACPC) is the name-join case below.
@@ -413,14 +414,6 @@ const PLACED_FRAMES = [
     frame: "IXI549Space",
     label: `${OWN}; approximate: MNI template variants differ by a few millimeters`,
     brain: true,
-  },
-  {
-    // The file says meters but its numbers are millimeter-sized, so the contacts sit far outside a
-    // head, as the panel warns; the surface is still drawn and labeled.
-    dataset: "on004100",
-    frame: "fsaverage",
-    label: `${OWN}; approximate: MNI305 to MNI152 affine`,
-    brain: false,
   },
 ] as const;
 

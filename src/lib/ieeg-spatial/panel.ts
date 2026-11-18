@@ -33,7 +33,10 @@
  * - It never hides why it shows nothing (card IS-Q2). A recording whose channel names join no
  *   contact keeps an openable toggle and opens a refusal that lists both sets of names as the
  *   dataset wrote them (`name-refusal.ts`); a refusal for want of coordinates stays disabled with
- *   its sentence.
+ *   its sentence. When a declared non-millimeter unit is converted and every drawn contact then
+ *   lies more than 300 mm from the origin, a banner on the stage and in every figure says so
+ *   (`units-banner.ts`), the contacts are drawn as declared in the flat views, and no template is
+ *   placed. Nothing is rescaled and no unit is inferred.
  */
 
 import type { WindowData } from "../eeg-viewer/store";
@@ -126,6 +129,7 @@ import {
   placementRuleFor,
   templateLabel,
 } from "./transforms";
+import { type UnitsBanner, unitsBanner } from "./units-banner";
 import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
@@ -188,6 +192,13 @@ function isTransient(reason: GeometryReason | null): boolean {
 }
 
 export const WEBGL_SENTENCE = "3D view needs WebGL2";
+/**
+ * Under the units banner the contacts lie too far out for the 3D spheres (true-size millimeters,
+ * with no minimum on-screen size) to be seen, so the stage is the three flat views, which size
+ * their dots in pixels; the switch says so instead of offering a 3D view that would draw nothing.
+ */
+export const BANNER_VIEW_SENTENCE =
+  "3D view is off while the units banner shows; the three flat views draw every contact as declared";
 const VIEW_SWITCH_TITLE = "Show the contacts in three flat views (left, top, front) instead of 3D";
 export const LOADING_SENTENCE = "Looking for electrode positions...";
 export const NO_MATCH_SENTENCE =
@@ -1106,10 +1117,29 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
 // The template surface (card IS-V2)
 // ---------------------------------------------------------------------------
 
-/** The row that places the shown space on the template surface, or null: the frame decides alone. */
+/**
+ * The banner of the shown space (`units-banner.ts`): the declared unit converted, and every drawn
+ * contact then more than 300 mm from the origin. Null when nothing is placed or the units are fine.
+ * Never changes a position: it reads the contacts as IS-C1 gave them.
+ */
+export function bannerOf(placement: Placement | null): UnitsBanner | null {
+  return placement
+    ? unitsBanner(
+        placement.space.units,
+        placement.contacts.map((c) => c.position),
+      )
+    : null;
+}
+
+/**
+ * The row that places the shown space on the template surface, or null: the frame decides alone,
+ * except under the units banner, whose sentence says the positions are placed on no template, so
+ * no row is offered and neither the surface nor the outlines are asked for.
+ */
 export function templateRuleOf(state: PanelState): TemplatePlacementRule | null {
-  const space = state.placement?.space;
-  return space ? placementRuleFor(space.frame, space.units) : null;
+  const placement = state.placement;
+  if (!placement || bannerOf(placement)) return null;
+  return placementRuleFor(placement.space.frame, placement.space.units);
 }
 
 /**
@@ -1316,6 +1346,11 @@ export interface PanelModel {
   /** The selected channel in terms of its contacts (`channelProvenance`), or null. */
   selectedChannel: string | null;
   /**
+   * The units banner (`units-banner.ts`), said on the stage and in every figure, or null. Present
+   * only while contacts are drawn.
+   */
+  banner: string | null;
+  /**
    * Both sets of names, when the recording is closed by its channel names (the refusal stage
    * lists them); null for every other state.
    */
@@ -1414,7 +1449,7 @@ function stageModel(state: PanelState, limits: ModelLimits): StageModel {
     };
   }
   if (!state.webgl) return { kind: "no_webgl", sentence: WEBGL_SENTENCE };
-  if (state.view2d) return { kind: "views2d" };
+  if (state.view2d || bannerOf(placement)) return { kind: "views2d" };
   return { kind: "canvas" };
 }
 
@@ -1645,6 +1680,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
   const stage = stageModel(state, limits);
   const drawn = stage.kind === "canvas" || stage.kind === "views2d" || stage.kind === "no_webgl";
   const placement = drawn ? state.placement : null;
+  const banner = bannerOf(placement);
   return {
     toggle: toggleModel(state),
     open: state.open,
@@ -1652,14 +1688,15 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
     view: {
       shown: drawn,
       on: stage.kind === "views2d" || stage.kind === "no_webgl",
-      enabled: state.webgl,
-      title: state.webgl ? VIEW_SWITCH_TITLE : WEBGL_SENTENCE,
+      enabled: state.webgl && !banner,
+      title: !state.webgl ? WEBGL_SENTENCE : banner ? BANNER_VIEW_SENTENCE : VIEW_SWITCH_TITLE,
     },
     template: templateModel(state, stage),
     frames: frameSelector(state),
     status: placement ? statusLine(state) : null,
     notes: placement ? frameNotes(placement) : [],
     selectedChannel: placement ? selectedChannelSentence(state) : null,
+    banner: banner?.text ?? null,
     nameRefusal: namesFor(state, stage),
     activity: placement ? activityModel(state) : null,
     contacts: placement ? contactRows(state, stage) : [],
@@ -2023,7 +2060,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   views.hidden = true;
   // The credit is created here, on every mount, and nothing passes an option to leave it out.
   const credit = creditLink(document);
-  stage.append(msgWrap, views, credit);
+  // The units banner (IS-Q2): a visible warning over the top of the drawing, for a dataset whose
+  // declared unit disagrees with its numbers. Hidden unless the model carries one.
+  const banner = el("div", "eegv__spatial-banner");
+  banner.setAttribute("role", "note");
+  banner.dataset.spatialBanner = "";
+  banner.hidden = true;
+  stage.append(banner, msgWrap, views, credit);
 
   // The names of a recording closed by its channel names (IS-Q2), under the refusal sentence.
   const nameBox = el("div", "eegv__spatial-names");
@@ -2325,6 +2368,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       retry.hidden = !(model.stage.kind === "refusal" && model.stage.retry);
     }
 
+    setText(banner, model.banner ?? "");
+    banner.hidden = model.banner === null;
     paintNames(model);
 
     paintViews(model);

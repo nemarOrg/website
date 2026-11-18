@@ -939,6 +939,22 @@
   border-radius: var(--radius-sm);
   overflow: hidden;
 }
+/* The units banner (IS-Q2): a plain, always-visible warning at the top of the stage, in flow so it
+   never covers a view, for a dataset whose declared unit disagrees with its numbers. Tokens only;
+   the warning color is a tint and a rule, the words stay in the foreground color so both themes
+   read them. */
+.eegv__spatial-banner {
+  position: relative;
+  z-index: 3;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--color-fg);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-bg));
+  border-block-end: 2px solid var(--color-warning);
+}
 /* The names of a recording closed by its channel names (IS-Q2): both lists, side by side, as the
    dataset wrote them, under the refusal sentence. */
 .eegv__spatial-names {

@@ -1671,12 +1671,39 @@ const PLACED = [
     identifier: "fsaverage",
     label: `${OWN}; approximate: MNI305 to MNI152 affine`,
     approximate: true,
+    // Both committed fsaverage datasets declare meters over millimeter-sized numbers, which the
+    // units banner withholds from any template (see units-banner.test.ts). The affine path needs a
+    // head-scale geometry, so this one reads the file's own numbers as millimeters (below).
+    asMillimeters: true,
   },
 ] as const;
 
+/**
+ * A known-answer input, never something the panel does: the same real contacts with the numbers
+ * the electrodes file wrote taken as millimeters. Used where a registered frame is needed at head
+ * scale and the only committed file of that frame declares meters over millimeter-sized numbers.
+ */
+function readAsMillimeters(g: RecordingGeometry): RecordingGeometry {
+  const mm = { declared: "mm", unit: "mm", scaleToMm: 1, unitsDeclared: true } as const;
+  return {
+    ...g,
+    spaces: g.spaces.map((s) => ({
+      ...s,
+      units: mm,
+      contacts: s.contacts.map((c) => ({
+        ...c,
+        position: c.position
+          ? ([Number(c.raw.x), Number(c.raw.y), Number(c.raw.z)] as const)
+          : null,
+      })),
+    })),
+  };
+}
+
 async function placedState(c: (typeof PLACED)[number]) {
   const [dataset, version] = c.dataset;
-  const geometry = await geometryOf(dataset, version, c.recording);
+  const file = await geometryOf(dataset, version, c.recording);
+  const geometry = "asMillimeters" in c && c.asMillimeters ? readAsMillimeters(file) : file;
   const index = geometry.spaces.findIndex(
     (s) => s.frame?.kind === "template" && s.frame.identifier === c.identifier,
   );

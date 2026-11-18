@@ -14,9 +14,11 @@
  *
  * Groups, each dataset loaded once per group:
  * - Template frames: nm000454 (the surface's own frame, no "approximate"), on005522 (MNI152NLin6ASym,
- *   bipolar names, every join exact), on004100 (fsaverage, meters), nm000485 (Talairach, two frames
- *   offered), nm000376 (IXI549Space): toggle, frames offered, the surface drawn, the label each
- *   frame owes, the credit link.
+ *   bipolar names, every join exact), nm000485 (Talairach, two frames offered), nm000376
+ *   (IXI549Space): toggle, frames offered, the surface drawn, the label each frame owes, the
+ *   credit link.
+ * - Units: on004100 (fsaverage; declares meters over millimeter-sized numbers): the banner on the
+ *   stage and in the saved SVG and PNG, no surface, the contacts as declared in the flat views.
  * - Native frames: on005415 (ACPC, channel names joined by a rule) and on004473 (ACPC and ScanRAS,
  *   meters, names with spaces): never placed on the template (no mesh, no outlines requested), the
  *   join said in words, and the recorded location shown exactly as the file wrote it.
@@ -64,6 +66,7 @@ const TEMPLATE_BOX = "[data-spatial-template]";
 const TEMPLATE_LABEL = "[data-spatial-template-label]";
 const LIST = "[data-spatial-list]";
 const CONTACT_COLUMN = ".eegv__spatial-loc:not(.eegv__spatial-tpl)";
+const BANNER = "[data-spatial-banner]";
 const NAMES = "[data-spatial-names]";
 const NAMES_CHANNELS = "[data-spatial-names-channels]";
 const NAMES_CONTACTS = "[data-spatial-names-contacts]";
@@ -92,9 +95,21 @@ const NO_MATCH = "None of this recording's channels match a contact in the elect
 const NAMES_TOGGLE_TITLE =
   "Brain: no channel name joins a contact; open to compare the two lists of names";
 const NO_RULE = "No rule joined these names; nothing was guessed.";
+const BANNER_VIEW_TITLE =
+  "3D view is off while the units banner shows; the three flat views draw every contact as declared";
+/** The units banner as the stage and the figures say it; the distance is the dataset's own number. */
+const BANNER_PATTERN =
+  /^Declared unit m, but the values look millimeter-sized \(largest distance ([\d,]+) mm from the origin\)\. Positions are shown as declared and are not placed on any template\.$/;
 const UNREADABLE_SENTENCE = "The electrodes file could not be read.";
 
 const OWN_LABEL = "Template brain (MNI152NLin2009cAsym), not this subject's anatomy";
+/**
+ * Banner lines across a figure cover most of the content width in the rows under the title; the
+ * first row of the three views (three short titles, a few letters) covers a small part of it.
+ * Calibrated on the two real PNGs and noted in each run (`banner band ink columns ...`).
+ */
+const BANNER_BAND_MIN = 0.3;
+const BANNER_BAND_CONTROL_MAX = 0.2;
 /** What `inkShare` separates, measured by the panel spec: the surface covers 0.166 to 0.170 of the canvas, contacts alone at most 0.045. */
 const MESH_INK_MIN = 0.12;
 const CONTACTS_INK_MAX = 0.09;
@@ -342,7 +357,10 @@ async function settled(page: Page): Promise<void> {
 }
 
 /** Click the toggle and wait for the stage to leave "loading"; Retry on a refusal that offers it. */
-async function openBrain(page: Page, wantStage: "canvas" | "no_webgl" = "canvas"): Promise<void> {
+async function openBrain(
+  page: Page,
+  wantStage: "canvas" | "no_webgl" | "views2d" = "canvas",
+): Promise<void> {
   await settled(page);
   await expect(page.locator(TOGGLE)).toBeEnabled();
   await page.click(TOGGLE);
@@ -510,6 +528,40 @@ async function pngCorners(page: Page, bytes: Buffer) {
 }
 
 /**
+ * The share of a PNG's pixel columns that hold at least one dark pixel (luminance under 40 percent)
+ * in the rows `[y0, y1)`: a line of bold text across the figure covers many columns, a few short
+ * titles cover few. Canvas pixels; the figures are drawn at 2 canvas pixels per figure pixel.
+ */
+async function pngInkColumns(page: Page, bytes: Buffer, y0: number, y1: number): Promise<number> {
+  return page.evaluate(
+    async ({ b64, from, to }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("no 2d context");
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, from, c.width, to - from).data;
+      let columns = 0;
+      for (let x = 0; x < c.width; x++) {
+        for (let y = 0; y < to - from; y++) {
+          const i = (y * c.width + x) * 4;
+          if (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2] < 102) {
+            columns += 1;
+            break;
+          }
+        }
+      }
+      return columns / c.width;
+    },
+    { b64: bytes.toString("base64"), from: y0, to: y1 },
+  );
+}
+
+/**
  * The lowest WCAG contrast, over the first 200 elements matching `selector`, of the element's text
  * against the CSS backgrounds resolved behind it (not canvas pixels: the credit link's backing sits
  * over the canvas).
@@ -584,6 +636,16 @@ async function svgFacts(page: Page, text: string) {
     const link = credit?.querySelector("a");
     return {
       error: doc.querySelector("parsererror")?.textContent ?? null,
+      banner: root.querySelector('g#banner text[data-role="banner"]')?.textContent ?? null,
+      bannerBeforeViews: (() => {
+        const bannerGroup = root.querySelector("g#banner");
+        const viewsGroup = root.querySelector("g#views");
+        return (
+          !!bannerGroup &&
+          !!viewsGroup &&
+          (bannerGroup.compareDocumentPosition(viewsGroup) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+        );
+      })(),
       lastClass: credit?.getAttribute("class") ?? null,
       linkHref: link?.getAttribute("href") ?? null,
       linkText: link?.querySelector("text")?.textContent ?? null,
@@ -642,8 +704,6 @@ interface TemplateCase {
   dataset: string;
   frame: string;
   label: string;
-  /** Whether the surface is expected to cover the canvas (not when the contacts sit far outside a head). */
-  surface: boolean;
   /** The frames the selector offers, or null when the recording has one frame and no selector. */
   frames: string[] | null;
 }
@@ -653,37 +713,24 @@ const TEMPLATE_CASES: TemplateCase[] = [
     dataset: "nm000454",
     frame: "MNI152NLin2009cAsym",
     label: OWN_LABEL,
-    surface: true,
     frames: null,
   },
   {
     dataset: "on005522",
     frame: "MNI152NLin6ASym",
     label: `${OWN_LABEL}; approximate: MNI template variants differ by a few millimeters`,
-    surface: true,
-    frames: null,
-  },
-  {
-    // The file says meters but its numbers are millimeter-sized, so the contacts sit far outside a
-    // head; the panel says so, and the surface is still drawn and labeled.
-    dataset: "on004100",
-    frame: "fsaverage",
-    label: `${OWN_LABEL}; approximate: MNI305 to MNI152 affine`,
-    surface: false,
     frames: null,
   },
   {
     dataset: "nm000485",
     frame: "Talairach",
     label: `${OWN_LABEL}; approximate: Talairach to MNI affine`,
-    surface: true,
     frames: ["Other", "Talairach"],
   },
   {
     dataset: "nm000376",
     frame: "IXI549Space",
     label: `${OWN_LABEL}; approximate: MNI template variants differ by a few millimeters`,
-    surface: true,
     frames: null,
   },
 ];
@@ -745,19 +792,12 @@ for (const c of TEMPLATE_CASES) {
       "lh.mesh.bin",
       "rh.mesh.bin",
     ]);
-    if (c.surface) await expectSurfaceDrawn(page, c.dataset);
-    // The contacts are on screen, except where the file's own numbers put them outside any head
-    // (on004100: meters declared, millimeters written), which the panel says in words below.
+    await expectSurfaceDrawn(page, c.dataset);
     const saturated = (await canvasColors(page)).saturated;
     note(`saturated contact pixels ${c.dataset}`, String(saturated));
-    if (c.surface) expect(saturated).toBeGreaterThan(20);
+    expect(saturated).toBeGreaterThan(20);
     await expectCredit(page);
 
-    if (c.dataset === "on004100") {
-      // Declared meters with millimeter-sized numbers: the panel warns and never corrects.
-      await expect(page.locator(NOTES)).toContainText(/span \d+ mm, wider than a head/);
-      await expect(page.locator(NOTES)).toContainText("the file says m, scaled to millimeters");
-    }
     if (c.dataset === "on005522") {
       // Every join is the file's own name or an exact bipolar pair: no rule is named anywhere.
       await expect(page.locator(STATUS)).toHaveText(/positions as declared by the dataset$/);
@@ -1081,6 +1121,100 @@ for (const r of CLOSED_BY_NAMES) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// The units banner
+// ---------------------------------------------------------------------------
+
+test("units banner (on004100): declared meters over millimeter-sized numbers show a banner on the stage and in the saved SVG and PNG, with the contacts as declared and no template", async ({
+  page,
+}) => {
+  const template = watchTemplateRequests(page);
+  await openViewer(page, "on004100");
+  await settled(page);
+  await expect(page.locator(TOGGLE)).toBeEnabled();
+  // The stage is the three flat views: the 3D spheres are true-size millimeters, so at this
+  // distance a canvas would draw nothing.
+  await openBrain(page, "views2d");
+  await expect(page.locator(BANNER)).toBeVisible();
+  const text = (await page.locator(BANNER).textContent()) ?? "";
+  const match = BANNER_PATTERN.exec(text);
+  expect(match, text).not.toBeNull();
+  const farthest = Number((match?.[1] ?? "").replace(/,/g, ""));
+  // Far past 300 mm, the rule's distance: the numbers are meters-by-declaration.
+  expect(farthest).toBeGreaterThan(300);
+
+  // On the stage itself, in flow above the views, so it covers none of them.
+  const stage = await page.locator(STAGE).boundingBox();
+  const banner = await page.locator(BANNER).boundingBox();
+  const views = await page.locator(`${STAGE} svg`).first().boundingBox();
+  expect(stage && banner && views).toBeTruthy();
+  if (stage && banner && views) {
+    expect(banner.y).toBeGreaterThanOrEqual(stage.y - 1);
+    expect(banner.y + banner.height).toBeLessThanOrEqual(stage.y + stage.height);
+    expect(banner.y + banner.height).toBeLessThanOrEqual(views.y + 1);
+  }
+  expect(await page.locator(`${STAGE} canvas`).count()).toBe(0);
+  expect(
+    await page.locator(BANNER).evaluate((e) => e.closest("[data-spatial-stage]") !== null),
+  ).toBe(true);
+
+  // The 3D switch is off and says why; the contacts are drawn, as declared, in the file's frame.
+  await expect(page.locator("[data-spatial-view2d]")).toBeDisabled();
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("title", BANNER_VIEW_TITLE);
+  const located = Number((await page.locator(STATUS).textContent())?.match(/^(\d+) of/)?.[1]);
+  expect(located).toBeGreaterThan(0);
+  await expect(page.locator(STATUS)).toHaveText(
+    /^\d+ of \d+ channels located; frame: fsaverage; positions as declared by the dataset$/,
+  );
+  await expect(page.locator(`${STAGE} circle[data-contact]`)).toHaveCount(3 * located);
+  await expect(page.locator(NOTES)).toContainText(
+    "Units: millimeters (the file says m, scaled to millimeters).",
+  );
+  await expect(page.locator(NOTES)).toContainText(/span \d+ mm, wider than a head/);
+  // No template: no surface, no outlines, no label, no template position on a row.
+  await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
+  await expect(page.locator(`${STAGE} path[data-template-outline]`)).toHaveCount(0);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "none");
+  const row = page.locator(`${LIST} li[data-contact="0"]`);
+  await expect(row.locator(CONTACT_COLUMN)).toHaveText(
+    /^recorded \(-?[\d.e-]+, -?[\d.e-]+, -?[\d.e-]+\) m, frame: fsaverage/,
+  );
+  await expect(row.locator(".eegv__spatial-tpl")).toBeHidden();
+  await page.waitForTimeout(1000);
+  expect(template.meshes).toEqual([]);
+  expect(template.outlines).toEqual([]);
+  await expectCredit(page);
+
+  // The saved SVG says the same words in a banner of its own, above the views, and still ends with the credit.
+  const svg = await saved(page, "svg");
+  const facts = await svgFacts(page, svg.bytes.toString("utf8"));
+  expect(facts.error).toBeNull();
+  expect(facts.banner).toBe(text);
+  expect(facts.bannerBeforeViews).toBe(true);
+  expect(facts.metadata).toContain(text);
+  expect(facts.outlines).toBe(0);
+  expect(facts.circles).toBe(3 * located);
+  expect(facts.lastClass).toBe("eegv-credit");
+  expect(facts.linkHref).toBe(CREDIT_HREF);
+  expect(svg.name).toMatch(/_contacts_fsaverage\.svg$/);
+
+  // The saved PNG draws it under the title: bold text across the figure, where the control has none.
+  const png = await saved(page, "png");
+  const corners = await pngCorners(page, png.bytes);
+  expect(corners.right.colors).toBeGreaterThan(8);
+  expect(corners.right.dark).toBeGreaterThan(40);
+  expect(corners.left.colors).toBe(1);
+  // Figure pixels 52 to 84 (the first two banner lines), at 2 canvas pixels per figure pixel.
+  const bannerBand = await pngInkColumns(page, png.bytes, 104, 168);
+  note("banner band ink columns on004100 png", bannerBand.toFixed(3));
+  expect(bannerBand).toBeGreaterThan(BANNER_BAND_MIN);
+  note(
+    "units banner on004100",
+    `${located} located channels; farthest ${farthest} mm; svg ${svg.bytes.length} bytes; png ${corners.width}x${corners.height}`,
+  );
+});
+
 test("an EEG dataset (on009081) loads no panel code, reads no electrodes file and shows no Brain toggle", async ({
   page,
 }) => {
@@ -1174,6 +1308,11 @@ test("exports on a template frame (nm000485, Talairach): outlines, both sentence
   expect(corners.right.colors).toBeGreaterThan(8);
   expect(corners.right.dark).toBeGreaterThan(40);
   expect(corners.left.colors).toBe(1);
+  // The control for the banner's PNG check: this figure has no banner, so the rows under its title
+  // hold the first row of views, which is a few short titles and letters.
+  const controlBand = await pngInkColumns(page, png.bytes, 104, 168);
+  note("banner band ink columns nm000485 png (no banner)", controlBand.toFixed(3));
+  expect(controlBand).toBeLessThan(BANNER_BAND_CONTROL_MAX);
   note(
     "exports nm000485",
     `svg ${svg.bytes.length} bytes, ${facts.outlines} outlines, ${facts.titles.length} titles; png3d ${c3d.width}x${c3d.height}, png2d ${corners.width}x${corners.height}`,
