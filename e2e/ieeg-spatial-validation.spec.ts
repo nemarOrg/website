@@ -285,8 +285,16 @@ test.beforeAll(async ({ browser }) => {
 
 let before = { ...transient };
 
+/** Requests each page has sent and not yet seen finish or fail, with when they started: what a stalled page was waiting for. */
+const pending = new WeakMap<Page, Map<Request, number>>();
+
 test.beforeEach(async ({ page }) => {
   before = { ...transient };
+  const open = new Map<Request, number>();
+  pending.set(page, open);
+  page.on("request", (r) => open.set(r, Date.now()));
+  page.on("requestfinished", (r) => open.delete(r));
+  page.on("requestfailed", (r) => open.delete(r));
   page.on("response", (r) => {
     // A 500 this suite forced itself (the refusal check) is not a passing failure of the data plane.
     if (r.headers()[FORCED_HEADER]) return;
@@ -329,16 +337,54 @@ test.afterAll(async () => {
 // Driving the viewer
 // ---------------------------------------------------------------------------
 
-/** The embed route opens the dataset's first recording; `query` is for `?theme=`. */
-async function openViewer(page: Page, dataset: string, query = ""): Promise<void> {
+/**
+ * What a page that has shown neither its viewer nor a notice looked like: its load state, its
+ * words, and the requests it was still waiting for (host and path, with their age). Written to the
+ * test's annotations when `openViewer` gives up, so the one "embed showed nothing for 90 s" that
+ * IS-QA1 met once leaves evidence the next time.
+ */
+async function describeStalledPage(page: Page): Promise<string> {
+  const waiting = [...(pending.get(page)?.entries() ?? [])]
+    .map(([r, t0]) => {
+      const u = new URL(r.url());
+      return `${u.hostname}${u.pathname.slice(-48)} (${Date.now() - t0} ms)`;
+    })
+    .slice(0, 10);
+  const seen = await Promise.race([
+    page.evaluate(() => ({
+      state: document.readyState,
+      status: document.querySelector(".eegv__status")?.textContent ?? null,
+      text: (document.body?.innerText ?? "").replace(/\s+/g, " ").slice(0, 160),
+    })),
+    new Promise<string>((resolve) => setTimeout(() => resolve("no answer within 5 s"), 5000)),
+  ]);
+  return `${JSON.stringify(seen)}; waiting for ${waiting.length} requests: ${waiting.join("; ") || "none"}`;
+}
+
+/**
+ * The embed route opens the dataset's first recording; `query` is for `?theme=`; `ready` is the
+ * element that says the viewer is up (the Brain toggle for an iEEG recording).
+ */
+async function openViewer(page: Page, dataset: string, query = "", ready = TOGGLE): Promise<void> {
   // The embed page's own server-side reads fail now and then ("could not load this dataset right
   // now"); a reader reloads, and so does this.
   for (let attempt = 1; ; attempt++) {
     await page.goto(`/dataset/${dataset}/embed${query}`);
-    const outcome = await Promise.race([
-      page.waitForSelector(TOGGLE, { state: "attached", timeout: 90_000 }).then(() => "viewer"),
-      page.waitForSelector(".embed-msg__text", { timeout: 90_000 }).then(() => "notice"),
-    ]);
+    let outcome: "viewer" | "notice";
+    try {
+      outcome = await Promise.race([
+        page
+          .waitForSelector(ready, { state: "attached", timeout: 90_000 })
+          .then(() => "viewer" as const),
+        page.waitForSelector(".embed-msg__text", { timeout: 90_000 }).then(() => "notice" as const),
+      ]);
+    } catch (e) {
+      note(
+        `embed of ${dataset} showed neither its viewer nor a notice in 90 s`,
+        await describeStalledPage(page),
+      );
+      throw e;
+    }
     if (outcome === "viewer") return;
     if (attempt >= 4)
       throw new Error(`the embed page for ${dataset} kept saying it could not load`);
@@ -1081,10 +1127,15 @@ for (const r of CLOSED_BY_NAMES) {
     // The contact names are the electrodes file's own first rows, read here from the file itself.
     const electrodes = [...sidecars.entries()].find(([name]) => name.endsWith("_electrodes.tsv"));
     expect(electrodes, "the page read the electrodes file").toBeTruthy();
-    const tsv = (await (await page.request.get(electrodes?.[1] ?? "")).text()).replace(
-      /^\uFEFF/,
-      "",
-    );
+    // The data plane answers 500 now and then: read the file again, as the panel does.
+    let tsv = "";
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      const res = await page.request.get(electrodes?.[1] ?? "");
+      tsv = (await res.text()).replace(/^\uFEFF/, "");
+      if (res.ok() && tsv.split(/\r?\n/)[0]?.split("\t").includes("name")) break;
+      transient.requestFailed += 1;
+      await page.waitForTimeout(1000 * attempt);
+    }
     const [header, ...body] = tsv.split(/\r?\n/).filter((l) => l.length > 0);
     const nameColumn = header.split("\t").indexOf("name");
     const fileNames = body
@@ -1227,7 +1278,7 @@ test("an EEG dataset (on009081) loads no panel code, reads no electrodes file an
       modules.push(url);
     if (/_(electrodes\.tsv|coordsystem\.json)/.test(url)) sidecars.push(url);
   });
-  await page.goto("/dataset/on009081/embed");
+  await openViewer(page, "on009081", "", ".eegv__status");
   await expect(page.locator(".eegv__status")).toContainText("ch @", { timeout: 90_000 });
   await page.waitForTimeout(2000);
   await expect(page.locator(TOGGLE)).toHaveCount(0);
@@ -1849,7 +1900,7 @@ for (const c of FIRST_CONTACT_CASES) {
   });
 }
 
-test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000485) adds no long task over 200 ms; the window step may exceed the scope's own step by 50 ms; judged only while the data plane is measured fast", async ({
+test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000485) adds no long task over 200 ms; the window step may exceed the scope's own step by 50 ms; judged in every regime of the data plane", async ({
   page,
 }) => {
   // A fresh timed read right before this test (not the one from the start of the run).
