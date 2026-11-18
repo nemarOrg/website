@@ -10,7 +10,7 @@ These notices travel with every copy of the surface they belong to.
 ### Brain template surface (iEEG spatial view)
 
 The intracranial electroencephalography (iEEG) spatial view draws electrodes over the MNI152NLin2009cAsym template surface,
-a Montreal Neurological Institute (MNI) average brain distributed through TemplateFlow (<https://www.templateflow.org>).
+a Montreal Neurological Institute (MNI) average brain distributed through TemplateFlow (<https://templateflow.org>).
 The template ships under the MNI notice, which must accompany every copy of the template files.
 
 - Notice: `public/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt`, in the vendored directory itself.
