@@ -1654,11 +1654,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   templateBox.dataset.spatialTemplate = "";
   const templateLine = el("p", "eegv__spatial-status");
   templateLine.dataset.spatialTemplateLabel = "";
-  const templateNotice = el("p", "eegv__spatial-actsum");
+  const templateNotice = el("p", "eegv__spatial-status eegv__spatial-template-notice");
   templateNotice.dataset.spatialTemplateNotice = "";
-  const referenceLink = el("a", "eegv__spatial-template-link");
+  const referenceLink = document.createElement("a");
   referenceLink.dataset.spatialTemplateReference = "";
-  const licenseLink = el("a", "eegv__spatial-template-link");
+  const licenseLink = document.createElement("a");
   licenseLink.dataset.spatialTemplateLicense = "";
   for (const a of [referenceLink, licenseLink]) {
     a.target = "_blank";
@@ -1818,8 +1818,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       renderer.setMesh(mesh);
       drawnMesh = mesh;
     }
-    const positions = drawnPositions(state);
-    if (placement && positions && (placement !== drawnPlacement || rule !== drawnRule)) {
+    if (placement && (placement !== drawnPlacement || rule !== drawnRule)) {
+      const positions = drawnPositions(state) ?? [];
       renderer.setContacts(
         placement.contacts.map((c, i) => ({ position: positions[i], size: c.size })),
       );
