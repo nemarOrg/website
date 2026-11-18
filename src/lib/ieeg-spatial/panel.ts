@@ -67,6 +67,7 @@ import {
   exportPng,
   exportSvg,
   figureLabels,
+  recordedLocation,
   viewContacts,
 } from "./export";
 import {
@@ -999,6 +1000,8 @@ export interface ActivityModel {
   band: BandName;
   bands: { value: BandName; label: string; disabled: boolean }[];
   showBand: boolean;
+  /** Which measure and band the values are (the selectors' own words); null while Activity is off. */
+  measure: string | null;
   /** A plain sentence for the current status, or null. */
   message: string | null;
   busy: boolean;
@@ -1015,6 +1018,10 @@ export interface ContactRow {
   /** The channel(s) the contact belongs to, when their names differ from the contact's. */
   detail: string;
   selected: boolean;
+  /** Every channel that uses the contact, by name. */
+  channels: string[];
+  /** Where the dataset recorded it, with its unit word and frame (`recordedLocation`). */
+  recorded: string;
   /** The activity value or why there is none; null when the overlay shows nothing. */
   value: string | null;
 }
@@ -1183,6 +1190,17 @@ function activitySummary(shown: ActivityShown): string {
   return `${parts.join("; ")}.`;
 }
 
+/** "Band power, relative (dB): High gamma, 70 to 150 Hz": the selectors' words, in one place. */
+function measureSentence(a: ActivityState): string {
+  const choice = ACTIVITY_CHOICES.find((c) => c.value === a.choice)?.label ?? a.choice;
+  if (a.choice !== "band_power" && a.choice !== "band_power_db") return choice;
+  return `${choice}: ${bandLabel(a.band)}`;
+}
+
+function bandLabel(band: BandName): string {
+  return `${BAND_NAMES[band]}, ${BANDS[band][0]} to ${BANDS[band][1]} Hz`;
+}
+
 function activityModel(state: PanelState): ActivityModel | null {
   const { placement, group } = state;
   if (!placement || !group) return null;
@@ -1205,10 +1223,11 @@ function activityModel(state: PanelState): ActivityModel | null {
     band: a.band,
     bands: (Object.keys(BANDS) as BandName[]).map((value) => ({
       value,
-      label: `${BAND_NAMES[value]}, ${BANDS[value][0]} to ${BANDS[value][1]} Hz`,
+      label: bandLabel(value),
       disabled: BANDS[value][1] > BAND_NYQUIST_FRACTION * group.rateHz,
     })),
     showBand: a.choice === "band_power" || a.choice === "band_power_db",
+    measure: a.on ? measureSentence(a) : null,
     message,
     busy: status.kind === "computing",
     summary: shown ? activitySummary(shown) : null,
@@ -1229,6 +1248,7 @@ function contactRows(state: PanelState): ContactRow[] {
   if (!placement || !group) return [];
   const selected = new Set(state.selection.contacts);
   const shown = state.activity.shown;
+  const frameLabel = frameName(placement.space.frame);
   return placement.contacts.map((contact, index) => {
     const names = contact.channels
       .map((row) => group.labels[row])
@@ -1249,6 +1269,8 @@ function contactRows(state: PanelState): ContactRow[] {
       name: contact.name,
       detail: names.length > 0 ? names.join(", ") : "",
       selected: selected.has(index),
+      channels: contact.channels.map((row) => group.labels[row]),
+      recorded: recordedLocation(contact.position, placement.space.units, frameLabel),
       value,
     };
   });
@@ -1650,7 +1672,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       li.dataset.contact = String(c.index);
       const detail = el("span", "eegv__spatial-detail");
       const value = el("span", "eegv__spatial-value");
-      li.append(el("span", "eegv__spatial-name", c.name), detail, value);
+      // Where the dataset recorded the contact, under its name, in the same words as the figures.
+      const loc = el("span", "eegv__spatial-loc", c.recorded);
+      li.append(el("span", "eegv__spatial-name", c.name), detail, value, loc);
       return { li, detail, value };
     });
     list.replaceChildren(...rows.map((r) => r.li));
@@ -1867,7 +1891,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       viewsHtml = html;
     }
     const sentences = figureLabels(input, true)
-      .filter((l) => l.role === "template" || l.role === "axes")
+      .filter((l) => l.role === "template" || l.role === "axes" || l.role === "measure")
       .map((l) => l.text);
     const key = sentences.join("\n");
     if (viewNotes.dataset.key !== key) {

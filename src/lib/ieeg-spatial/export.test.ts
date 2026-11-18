@@ -1,24 +1,30 @@
+import { resolveObjectURL } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import { nodeFs, repoPath } from "../../../test/node";
 import { colorFor } from "./activity";
 import { parseColor } from "./brain-gl";
-import { CREDIT_CLASS, CREDIT_FONT_PX, RAVE_CREDIT } from "./credit";
+import { CREDIT_CLASS, CREDIT_FONT_PX, RAVE_CREDIT, doiUrl } from "./credit";
 import {
   EXPORT_SCALE,
   type ExportInput,
   FIGURE_WIDTH,
   type FigureTheme,
+  REVOKE_DELAY_MS,
   type TemplatePlacement,
   buildDrawList,
   buildFigure,
   buildSvg,
+  contactTitle,
+  downloadFile,
   estimateWidth,
   exportSvg,
   figureFileName,
   figureLabels,
   frameFileLabel,
   rasterize,
+  recordedLocation,
   recordingStem,
+  templateLocation,
   viewContacts,
   wrapText,
 } from "./export";
@@ -42,6 +48,7 @@ import {
   templatePlacementFor,
   viewModel,
 } from "./panel";
+import { ACTIVITY_CHOICES } from "./panel";
 import { VIEWS_SENTENCE, VIEW_NAMES, parseViewOutlines } from "./views2d";
 
 /**
@@ -92,6 +99,14 @@ function channelLabels(datasetId: string, version: string, path: string): string
     .slice(1)
     .filter((l) => l.trim() !== "")
     .map((l) => l.split("\t")[0]);
+}
+
+/** x, y, z of one contact exactly as the electrodes file wrote them (its text, not a parsed number). */
+function recordedRow(datasetId: string, version: string, file: string, name: string): string[] {
+  const text = fs.readFileSync(repoPath(`${FIXTURES}/${datasetId}/${version}/${file}`), "utf8");
+  const row = text.split(/\r?\n/).find((l) => l.split("\t")[0] === name);
+  if (!row) throw new Error(`no ${name} in ${file}`);
+  return row.split("\t").slice(1, 4);
 }
 
 const BIPOLAR = "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_acq-bipolar_ieeg.edf";
@@ -161,6 +176,7 @@ const OUTLINES = parseViewOutlines(
 /** What IS-V2 will say for a standard template frame that is not the template's own; known-answer data. */
 const TEMPLATE: TemplatePlacement = {
   outlines: OUTLINES,
+  approximate: true,
   labels: [
     "Template brain, not this subject's anatomy.",
     "Approximate: MNI template variants differ by a few millimeters.",
@@ -205,6 +221,12 @@ const withActivity = (() => {
   }).state;
 })();
 const selectedActivity = play(withActivity, [{ type: "select_channel", label: "LAF1-LAF2" }]);
+
+const acpcStateForTitles = opened(acpc, groupOf(acpc.spaces[0].contacts.map((c) => c.name)), {
+  datasetId: "on004473",
+  version: "v1.0.0",
+  path: ON4473,
+});
 
 function svgOf(input: ExportInput): string {
   return exportSvg(input).data as string;
@@ -273,10 +295,17 @@ describe("exportSvg carries the credit inside the file", () => {
     );
     expect(meta).toContain(`<dc:description>${RAVE_CREDIT.text}</dc:description>`);
     expect(meta).toContain(`<dc:relation>${RAVE_CREDIT.href}</dc:relation>`);
-    expect(meta).toContain(`<dc:relation>https://doi.org/${RAVE_CREDIT.doi}</dc:relation>`);
+    expect(doiUrl()).toBe(`https://doi.org/${RAVE_CREDIT.doi}`);
+    expect(meta).toContain(`<dc:relation>${doiUrl()}</dc:relation>`);
     for (const label of figureLabels(inputOf(plain, TEMPLATE), true)) {
       expect(meta).toContain(`<dc:description>${label.text}</dc:description>`);
     }
+  });
+
+  it("builds the paper's address nowhere but credit.ts", () => {
+    const source = fs.readFileSync(repoPath("src/lib/ieeg-spatial/export.ts"), "utf8");
+    expect(source).not.toContain("doi.org");
+    expect(source).toContain("doiUrl()");
   });
 
   it("is well-formed XML with one view group each for left, top and front", () => {
@@ -388,20 +417,79 @@ describe("every located contact has one circle with a title", () => {
     contacts.forEach((contact, i) => {
       const mine = circles.filter((c) => c.includes(`data-contact="${i}"`));
       expect(mine, contact.name).toHaveLength(3);
-      for (const c of mine) expect(c).toContain(`<title>${contact.name}; channel`);
+      for (const c of mine) expect(c).toContain(`<title>${contact.name} (channel`);
     });
-    // LAF2 belongs to two channels; its title says both and carries its mean value, 1.5 µV².
+    // LAF2 belongs to two channels. Its title says its name as recorded first, the channels beside
+    // it, where the dataset recorded it exactly as the electrodes file wrote it (with the file's
+    // unit word and the declared frame), and the mean value, 1.5 µV².
     const laf2 = contacts.findIndex((c) => c.name === "LAF2");
     const title = /data-contact="\d+"[^>]*><title>(LAF2[^<]*)<\/title>/.exec(
       circles.find((c) => c.includes(`data-contact="${laf2}"`)) ?? "",
     )?.[1];
-    expect(title).toBe("LAF2; channels LAF1-LAF2, LAF2-LAF3; 1.50 µV²");
+    const [x, y, z] = recordedRow(
+      "on005522",
+      "v1.0.0",
+      "sub-R1001P/ses-0/ieeg/sub-R1001P_ses-0_task-YC1_space-MNI152NLin6ASym_electrodes.tsv",
+      "LAF2",
+    );
+    expect(title).toBe(
+      `LAF2 (channels LAF1-LAF2, LAF2-LAF3); recorded (${x}, ${y}, ${z}) mm, frame: MNI152NLin6ASym; 1.50 µV²`,
+    );
   });
 
-  it("says nothing of a value while Activity is off", () => {
+  it("says nothing of a value while Activity is off, and still names the recorded position", () => {
     const svg = svgOf(inputOf(plain));
     expect(svg).not.toContain("µV²");
-    expect(svg).toMatch(/<title>LAF1; channel LAF1-LAF2<\/title>/);
+    expect(svg).toMatch(
+      /<title>LAF1 \(channel LAF1-LAF2\); recorded \(-41\.18, 60\.1441, 3\.01713875326076\) mm, frame: MNI152NLin6ASym<\/title>/,
+    );
+  });
+
+  it("a contact with a template position says both, the recorded one first, and says approximate", () => {
+    const n = plain.placement?.contacts.length ?? 0;
+    const positions = Array.from({ length: n }, (_, i) => [i + 0.5, -2, 3.25] as const);
+    const svg = svgOf(inputOf(plain, { ...TEMPLATE, positions }));
+    const laf1 = /<title>(LAF1 \(channel[^<]*)<\/title>/.exec(svg)?.[1] ?? "";
+    expect(laf1).toBe(
+      "LAF1 (channel LAF1-LAF2); recorded (-41.18, 60.1441, 3.01713875326076) mm, frame: MNI152NLin6ASym; template (0.5, -2, 3.25) mm, approximate",
+    );
+    // Without the approximate flag the title does not claim it.
+    const own = svgOf(inputOf(plain, { ...TEMPLATE, approximate: false, positions }));
+    expect(own).toContain("; template (0.5, -2, 3.25) mm</title>");
+    expect(own).not.toContain("mm, approximate</title>");
+  });
+
+  it("a native-frame contact has only the recorded line, in the file's own unit", () => {
+    expect(acpcStateForTitles.placement?.space.frame?.kind).toBe("native");
+    const svg = svgOf(inputOf(acpcStateForTitles, templatePlacementFor(acpcStateForTitles)));
+    const [x, y, z] = recordedRow(
+      "on004473",
+      "v1.0.0",
+      "sub-1/ieeg/sub-1_space-ACPC_electrodes.tsv",
+      "LENT1",
+    );
+    // The file says meters; the line says what it recorded, in meters, and the frame; no template.
+    expect(svg).toContain(
+      `<title>LENT1 (channel LENT1); recorded (${x}, ${y}, ${z}) m, frame: ACPC</title>`,
+    );
+    expect(svg).not.toMatch(/; template \(/);
+  });
+
+  it("builds a title from closed parts, the recorded line first after the name", () => {
+    const units = { declared: "mm", unit: "mm", scaleToMm: 1, unitsDeclared: true } as const;
+    expect(recordedLocation([1, -2.5, 3], units, "ACPC")).toBe(
+      "recorded (1, -2.5, 3) mm, frame: ACPC",
+    );
+    expect(recordedLocation([1, 2, 3], { ...units, unit: null, scaleToMm: null }, "X")).toBe(
+      "recorded (1, 2, 3), units not declared, frame: X",
+    );
+    expect(
+      recordedLocation([1, 2, 3], { ...units, unit: "pixels", scaleToMm: null }, "Pixels"),
+    ).toBe("recorded (1, 2, 3) pixels, frame: Pixels");
+    expect(templateLocation([1.00049, 2, 3], true)).toBe("template (1, 2, 3) mm, approximate");
+    expect(
+      contactTitle({ name: "A", channels: [], recorded: "r", template: null, value: null }),
+    ).toBe("A; r");
   });
 
   it("draws no circle for a channel that has no position", () => {
@@ -465,7 +553,7 @@ describe("the files say what the screen says", () => {
     expect(texts).toContain(bar?.hi);
     const selected = figure.labels.find((l) => l.role === "selected");
     expect(selected?.text).toBe(
-      "Selected: LAF1 (LAF1-LAF2): 1.00 µV²; LAF2 (LAF1-LAF2, LAF2-LAF3): 1.50 µV²",
+      "Selected: LAF1 (channel LAF1-LAF2); recorded (-41.18, 60.1441, 3.01713875326076) mm, frame: MNI152NLin6ASym; 1.00 µV² | LAF2 (channels LAF1-LAF2, LAF2-LAF3); recorded (-48.8321, 53.1194, 1.08525940626615) mm, frame: MNI152NLin6ASym; 1.50 µV²",
     );
   });
 
@@ -541,7 +629,7 @@ describe("the figure's layout", () => {
     expect((tall?.width ?? 0) / (tall?.height ?? 1)).toBeCloseTo(0.5);
   });
 
-  it("never draws the 3D frame larger than its own pixel size", () => {
+  it("never makes the 3D frame wider than its own pixel count in figure pixels (drawn at 2x)", () => {
     const small = buildFigure(inputOf(plain), { width: 340, height: 272 }).image;
     expect(small?.width).toBe(340);
     expect(small?.height).toBe(272);
@@ -717,3 +805,130 @@ function recordingContext() {
   };
   return { ctx: ctx as unknown as CanvasRenderingContext2D, texts };
 }
+
+describe("which measure and band the values are", () => {
+  function activityState(events: PanelEvent[]): PanelState {
+    const on = play(plain, [{ type: "activity_switch", on: true }, ...events]);
+    return reduce(on, {
+      type: "activity_report",
+      report: knownReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+  }
+  const words = (choice: string) => ACTIVITY_CHOICES.find((c) => c.value === choice)?.label;
+
+  it("band power names the choice and the band, in the selectors' words, in the model and every file", () => {
+    const input = inputOf(withActivity);
+    expect(input.model.activity?.measure).toBe(`${words("band_power")}: High gamma, 70 to 150 Hz`);
+    const figure = buildFigure(input, null);
+    const label = figure.labels.find((l) => l.role === "measure");
+    expect(label?.text).toBe("Band power: High gamma, 70 to 150 Hz");
+    expect(svgLabelText(buildSvg(figure), label?.id ?? "")).toBe(label?.text);
+    const drawn = buildDrawList(figure).flatMap((o) =>
+      o.op === "text" && o.label === label?.id ? [o.text] : [],
+    );
+    expect(drawn.join("")).toBe(label?.text);
+    // The 3D PNG says it too.
+    expect(figureLabels(input, false).some((l) => l.text === label?.text)).toBe(true);
+  });
+
+  it("relative band power and a lower band", () => {
+    const state = activityState([
+      { type: "activity_options", choice: "band_power_db", band: "theta" },
+    ]);
+    expect(viewModel(state).activity?.measure).toBe(`${words("band_power_db")}: Theta, 4 to 8 Hz`);
+    expect(figureLabels(inputOf(state), true).map((l) => l.text)).toContain(
+      "Band power, relative (dB): Theta, 4 to 8 Hz",
+    );
+  });
+
+  it("RMS and line length name no band", () => {
+    const rms = activityState([{ type: "activity_options", choice: "rms" }]);
+    expect(viewModel(rms).activity?.measure).toBe("RMS (mean removed)");
+    const ll = activityState([{ type: "activity_options", choice: "line_length" }]);
+    expect(viewModel(ll).activity?.measure).toBe("Line length");
+  });
+
+  it("says nothing while Activity is off", () => {
+    expect(viewModel(plain).activity?.measure).toBeNull();
+    expect(figureLabels(inputOf(plain), true).some((l) => l.role === "measure")).toBe(false);
+  });
+});
+
+describe("a contact name that XML cannot hold", () => {
+  it("is cleaned in every circle title, so the document still parses as XML", () => {
+    const contacts = (plain.placement?.contacts ?? []).map((c, i) =>
+      i === 0 ? { ...c, name: "A\u0001B\u000BC" } : c,
+    );
+    const state: PanelState = plain.placement
+      ? { ...plain, placement: { ...plain.placement, contacts } }
+      : plain;
+    const svg = svgOf(inputOf(state));
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to find them
+    expect(svg).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/);
+    expect(svg).toContain("<title>ABC (channel");
+    expectWellFormed(svg);
+  });
+});
+
+describe("orientation letters", () => {
+  it("every view carries four, in the SVG and the PNG's draw list", () => {
+    const figure = buildFigure(inputOf(plain), null);
+    const svg = buildSvg(figure);
+    expect(svg.match(/data-orientation=/g)).toHaveLength(12);
+    const ops = buildDrawList(figure).filter((o) => o.op === "text" && o.label === "orientation");
+    expect(ops).toHaveLength(12);
+    const live = viewsMarkupLetters(figure);
+    expect(live).toEqual(["A", "P", "S", "I", "L", "R", "A", "P", "R", "L", "S", "I"].sort());
+  });
+});
+
+function viewsMarkupLetters(figure: ReturnType<typeof buildFigure>): string[] {
+  return (figure.views?.cells ?? []).flatMap((c) => c.letters.map((l) => l.text)).sort();
+}
+
+describe("downloadFile", () => {
+  function fakeDocument() {
+    const link = {
+      href: "",
+      download: "",
+      clicked: 0,
+      click() {
+        this.clicked += 1;
+      },
+      remove() {},
+    };
+    const doc = { createElement: () => link, body: { append() {} } } as unknown as Document;
+    return { doc, link };
+  }
+
+  it("hands the browser the file under its name, and revokes its address after the delay", () => {
+    const { doc, link } = fakeDocument();
+    const timers: { run: () => void; ms: number }[] = [];
+    downloadFile({ filename: "a.svg", mime: "image/svg+xml", data: "<svg/>" }, doc, (run, ms) =>
+      timers.push({ run, ms }),
+    );
+    expect(link.download).toBe("a.svg");
+    expect(link.clicked).toBe(1);
+    expect(timers.map((t) => t.ms)).toEqual([REVOKE_DELAY_MS]);
+    // The real URL registry holds the blob until the timer runs, and not after.
+    expect(resolveObjectURL(link.href)).toBeDefined();
+    timers[0].run();
+    expect(resolveObjectURL(link.href)).toBeUndefined();
+  });
+
+  it("revokes the address even when the browser refuses the click", () => {
+    const { doc, link } = fakeDocument();
+    link.click = () => {
+      throw new Error("blocked");
+    };
+    const timers: (() => void)[] = [];
+    expect(() =>
+      downloadFile({ filename: "a.png", mime: "image/png", data: new Blob(["x"]) }, doc, (run) =>
+        timers.push(run),
+      ),
+    ).toThrow("blocked");
+    expect(timers).toHaveLength(1);
+    timers[0]();
+    expect(resolveObjectURL(link.href)).toBeUndefined();
+  });
+});

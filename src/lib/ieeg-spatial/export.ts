@@ -33,8 +33,8 @@
  */
 
 import { colorFor } from "./activity";
-import { RAVE_CREDIT, creditSvg, paintCredit } from "./credit";
-import type { Frame, Vec3 } from "./geometry";
+import { RAVE_CREDIT, creditSvg, doiUrl, paintCredit } from "./credit";
+import type { Frame, Units, Vec3 } from "./geometry";
 import type { PanelModel, PanelState } from "./panel";
 import {
   type Region,
@@ -71,6 +71,8 @@ export interface TemplatePlacement {
   outlines: TemplateOutlines;
   /** One position per placed contact, in the template's millimeters; absent: as declared. */
   positions?: readonly (Vec3 | null)[];
+  /** True when the positions are a conversion or another template variant: each title says "approximate". */
+  approximate: boolean;
   /** The sentences the screen says about the template (for example that it is approximate). */
   labels: readonly string[];
 }
@@ -154,6 +156,7 @@ export type LabelRole =
   | "webgl"
   | "axes"
   | "selected"
+  | "measure"
   | "activity";
 
 export interface FigureLabel {
@@ -241,13 +244,6 @@ export function wrapText(
   return lines.map((l, i) => (l.space && i < lines.length - 1 ? `${l.text} ` : l.text));
 }
 
-/** The control characters XML 1.0 cannot hold, removed; everything else is escaped by `escapeXml`. */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: the point is to remove them
-const XML_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g;
-function xmlText(s: string): string {
-  return escapeXml(s.replace(XML_CONTROL, ""));
-}
-
 const css255 = (v: number): number => Math.round(Math.max(0, Math.min(1, v)) * 255);
 
 /** The words the screen shows around the picture, in the order it shows them. */
@@ -268,15 +264,12 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
   for (const note of model.notes) add("note", note);
   if (model.stage.kind === "no_webgl") add("webgl", model.stage.sentence);
   if (withViews) add("axes", VIEWS_SENTENCE);
-  const selected = model.contacts.filter((c) => c.selected);
-  if (selected.length > 0) {
-    const text = selected
-      .map((c) => `${c.name}${c.detail ? ` (${c.detail})` : ""}${c.value ? `: ${c.value}` : ""}`)
-      .join("; ");
-    add("selected", `Selected: ${text}`);
-  }
+  const texts = contactTexts(input);
+  const picked = model.contacts.flatMap((c, i) => (c.selected ? [contactTitle(texts[i])] : []));
+  if (picked.length > 0) add("selected", `Selected: ${picked.join(" | ")}`);
   const a = model.activity;
   if (a) {
+    add("measure", a.measure);
     add("activity", a.message);
     add("activity", a.summary);
     add("activity", a.noData);
@@ -284,18 +277,86 @@ export function figureLabels(input: ExportInput, withViews: boolean): FigureLabe
   return out;
 }
 
-/** Contacts as the views draw them: fill and opacity from the panel's colors, title from the model. */
+// ---------------------------------------------------------------------------
+// What a contact is called, and where it is: declared once, read by the list, the circles'
+// titles, the selection line of the files and the files' metadata.
+// ---------------------------------------------------------------------------
+
+const triple = (p: Vec3, show: (v: number) => string): string => `(${p.map(show).join(", ")})`;
+const millimeters = (v: number): string => String(Math.round(v * 1000) / 1000 || 0);
+
+/**
+ * The position the dataset recorded, as the electrodes file wrote it, with the file's unit word
+ * and the declared frame. IS-C1 holds positions in millimeters when the file's unit is a length it
+ * converts, so a converted position is divided back by the same factor and read to 15 significant
+ * digits, which undoes the multiplication's rounding noise for any value the file wrote with 15 or
+ * fewer; a position in the file's own unit is printed as parsed, never rounded.
+ */
+export function recordedLocation(position: Vec3, units: Units, frameLabel: string): string {
+  const scale = units.unit === "mm" && units.scaleToMm ? units.scaleToMm : 1;
+  const show = (v: number): string =>
+    scale === 1 ? String(v) : String(Number((v / scale).toPrecision(15)));
+  let unit: string;
+  if (units.unit === "mm") unit = scale === 1 ? " mm" : ` ${units.declared}`;
+  else if (units.unit === "pixels") unit = " pixels";
+  else unit = ", units not declared";
+  return `recorded ${triple(position, show)}${unit}, frame: ${frameLabel}`;
+}
+
+/** The template position, only where a registered template placement gives one. */
+export function templateLocation(position: Vec3, approximate: boolean): string {
+  return `template ${triple(position, millimeters)} mm${approximate ? ", approximate" : ""}`;
+}
+
+export interface ContactText {
+  /** The contact's name as the electrodes file records it. */
+  name: string;
+  /** The channels that use it, beside the name. */
+  channels: readonly string[];
+  /** `recordedLocation(...)`. */
+  recorded: string;
+  /** `templateLocation(...)` or null. */
+  template: string | null;
+  /** The activity value or why there is none; null when the overlay shows nothing. */
+  value: string | null;
+}
+
+/** One sentence per contact: name first, channel beside it, where it was recorded, the rest. */
+export function contactTitle(t: ContactText): string {
+  const channel =
+    t.channels.length === 0
+      ? ""
+      : ` (channel${t.channels.length === 1 ? "" : "s"} ${t.channels.join(", ")})`;
+  return [`${t.name}${channel}`, t.recorded, t.template, t.value]
+    .filter((x): x is string => !!x)
+    .join("; ");
+}
+
+function contactTexts(input: ExportInput): ContactText[] {
+  const { state, model, template } = input;
+  const placement = state.placement;
+  if (!placement) return [];
+  return placement.contacts.map((c, i) => {
+    const row = model.contacts[i];
+    const tp = template?.positions?.[i];
+    return {
+      name: c.name,
+      channels: row?.channels ?? [],
+      recorded: row?.recorded ?? "",
+      template: tp ? templateLocation(tp, template?.approximate ?? false) : null,
+      value: row?.value ?? null,
+    };
+  });
+}
+
+/** Contacts as the views draw them: fill and opacity from the panel's colors, title from `contactTitle`. */
 export function viewContacts(input: ExportInput): Views2dContact[] {
-  const { state, model, colors, theme, template } = input;
+  const { state, colors, theme, template } = input;
   const placement = state.placement;
   if (!placement) return [];
   const selected = new Set(state.selection.contacts);
+  const texts = contactTexts(input);
   return placement.contacts.map((c, i) => {
-    const channels = c.channels
-      .map((row) => state.group?.labels[row] ?? "")
-      .filter((n) => n !== "");
-    const value = model.contacts[i]?.value;
-    const title = `${c.name}; channel${channels.length === 1 ? "" : "s"} ${channels.join(", ")}${value ? `; ${value}` : ""}`;
     const fill = colors
       ? `rgb(${css255(colors[i * 4])}, ${css255(colors[i * 4 + 1])}, ${css255(colors[i * 4 + 2])})`
       : theme.contact;
@@ -306,7 +367,7 @@ export function viewContacts(input: ExportInput): Views2dContact[] {
       fill,
       opacity: colors ? colors[i * 4 + 3] : 1,
       selected: selected.has(i),
-      title,
+      title: contactTitle(texts[i]),
     };
   });
 }
@@ -344,8 +405,9 @@ export function buildFigure(
   let imageBox: Region | null = null;
   let views: Views2d | null = null;
   if (image) {
-    // Fit the content width and the height cap, but never draw the frame larger than its own
-    // pixel size: the renderer's frame is the panel's size, and enlarging it more only blurs it.
+    // Fit the content width and the height cap, but never wider than the frame's own pixel count in
+    // figure pixels. The PNG is drawn at EXPORT_SCALE canvas pixels per figure pixel, so the frame
+    // is upsampled by exactly EXPORT_SCALE (smoothed); a larger box would only blur it more.
     const maxW = Math.min(contentW, image.width);
     const h = Math.min(IMAGE_MAX_HEIGHT, (maxW * image.height) / Math.max(1, image.width));
     const w = (h * image.width) / Math.max(1, image.height);
@@ -441,7 +503,7 @@ export type DrawOp =
       size: number;
       fill: string;
       bold: boolean;
-      anchor: "start" | "end";
+      anchor: "start" | "middle" | "end";
     }
   | { op: "rect"; x: number; y: number; width: number; height: number; fill: string }
   | {
@@ -500,6 +562,19 @@ export function buildDrawList(figure: Figure): DrawOp[] {
       bold: true,
       anchor: "start",
     });
+    for (const l of cell.letters) {
+      ops.push({
+        op: "text",
+        label: "orientation",
+        text: l.text,
+        x: l.x,
+        y: l.y,
+        size: 10,
+        fill: theme.muted,
+        bold: false,
+        anchor: l.anchor,
+      });
+    }
     if (cell.outlinePath) {
       ops.push({
         op: "path",
@@ -593,7 +668,7 @@ export function rasterize(
         break;
       case "text":
         ctx.font = `${op.bold ? "600 " : ""}${op.size}px ${FIGURE_FONT}`;
-        ctx.textAlign = op.anchor;
+        ctx.textAlign = op.anchor === "middle" ? "center" : op.anchor;
         ctx.textBaseline = "alphabetic";
         ctx.fillStyle = op.fill;
         ctx.fillText(op.text, op.x, op.y);
@@ -662,7 +737,7 @@ function labelTexts(figure: Figure): string {
       const tspans = lines
         .map(
           (l, i) =>
-            `<tspan x="${num(l.x)}"${i === 0 ? "" : ` y="${num(l.y)}"`}>${xmlText(l.text)}</tspan>`,
+            `<tspan x="${num(l.x)}"${i === 0 ? "" : ` y="${num(l.y)}"`}>${escapeXml(l.text)}</tspan>`,
         )
         .join("");
       return `<text id="${label.id}" data-role="${label.role}" x="${num(first.x)}" y="${num(first.y)}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${LABEL_PX}" fill="${escapeXml(figure.theme.muted)}">${tspans}</text>`;
@@ -680,7 +755,7 @@ function colorbarMarkup(figure: Figure): string {
     )
     .join("");
   const text = (end: { text: string; x: number }, anchor: string) =>
-    `<text x="${num(end.x)}" y="${num(bar.textY)}" text-anchor="${anchor}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${LABEL_PX}" fill="${escapeXml(figure.theme.muted)}">${xmlText(end.text)}</text>`;
+    `<text x="${num(end.x)}" y="${num(bar.textY)}" text-anchor="${anchor}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${LABEL_PX}" fill="${escapeXml(figure.theme.muted)}">${escapeXml(end.text)}</text>`;
   return `<g id="colorbar">${rects}${text(bar.lo, "start")}${text(bar.hi, "end")}</g>`;
 }
 
@@ -695,25 +770,25 @@ export function buildSvg(figure: Figure): string {
   const description = `Contacts of ${rec.path}, frame ${figure.frameLabel}.`;
   const metadata = [
     '<metadata id="figure-metadata" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:nemar="urn:nemar:ieeg-spatial-figure:1">',
-    `<dc:title>${xmlText(figure.title)}</dc:title>`,
-    `<nemar:dataset>${xmlText(rec.datasetId)}</nemar:dataset>`,
-    `<nemar:version>${xmlText(rec.version)}</nemar:version>`,
-    `<nemar:recording>${xmlText(rec.path)}</nemar:recording>`,
-    `<nemar:frame>${xmlText(figure.frameLabel)}</nemar:frame>`,
-    ...figure.labels.map((l) => `<dc:description>${xmlText(l.text)}</dc:description>`),
-    `<dc:description>${xmlText(RAVE_CREDIT.text)}</dc:description>`,
-    `<dc:relation>${xmlText(RAVE_CREDIT.href)}</dc:relation>`,
-    `<dc:relation>${xmlText(`https://doi.org/${RAVE_CREDIT.doi}`)}</dc:relation>`,
+    `<dc:title>${escapeXml(figure.title)}</dc:title>`,
+    `<nemar:dataset>${escapeXml(rec.datasetId)}</nemar:dataset>`,
+    `<nemar:version>${escapeXml(rec.version)}</nemar:version>`,
+    `<nemar:recording>${escapeXml(rec.path)}</nemar:recording>`,
+    `<nemar:frame>${escapeXml(figure.frameLabel)}</nemar:frame>`,
+    ...figure.labels.map((l) => `<dc:description>${escapeXml(l.text)}</dc:description>`),
+    `<dc:description>${escapeXml(RAVE_CREDIT.text)}</dc:description>`,
+    `<dc:relation>${escapeXml(RAVE_CREDIT.href)}</dc:relation>`,
+    `<dc:relation>${escapeXml(doiUrl())}</dc:relation>`,
     "</metadata>",
   ].join("");
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${figure.width} ${figure.height}" width="${figure.width}" height="${figure.height}" role="img" aria-labelledby="figure-title figure-desc">`,
-    `<title id="figure-title">${xmlText(figure.title)}</title>`,
-    `<desc id="figure-desc">${xmlText(description)}</desc>`,
+    `<title id="figure-title">${escapeXml(figure.title)}</title>`,
+    `<desc id="figure-desc">${escapeXml(description)}</desc>`,
     metadata,
     `<rect width="${figure.width}" height="${figure.height}" fill="${escapeXml(theme.background)}"/>`,
-    `<text x="${MARGIN}" y="${num(figure.titleY)}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${TITLE_PX}" font-weight="600" fill="${escapeXml(theme.foreground)}">${xmlText(figure.title)}</text>`,
+    `<text x="${MARGIN}" y="${num(figure.titleY)}" font-family="${escapeXml(FIGURE_FONT)}" font-size="${TITLE_PX}" font-weight="600" fill="${escapeXml(theme.foreground)}">${escapeXml(figure.title)}</text>`,
     figure.views
       ? `<g id="views">${viewsMarkup(figure.views, { foreground: theme.foreground, muted: theme.muted, border: theme.border }, FIGURE_FONT)}</g>`
       : "",
@@ -800,13 +875,20 @@ export async function exportPng(
   return { filename: figureFileName(input, "png"), mime: "image/png", data: blob };
 }
 
+/** How long the download's address lives, so the navigation can start before it is revoked. */
+export const REVOKE_DELAY_MS = 1000;
+
 /** What the panel says when the browser refuses the download. */
 export function downloadFailedSentence(filename: string): string {
   return `Couldn't start the download of ${filename}. Check that this browser allows downloads from this page, then try again.`;
 }
 
 /** Hand a file to the browser as a download. Throws when it cannot start one. */
-export function downloadFile(file: ExportFile, doc: Document = document): void {
+export function downloadFile(
+  file: ExportFile,
+  doc: Document = document,
+  schedule: (run: () => void, ms: number) => void = (run, ms) => void setTimeout(run, ms),
+): void {
   const blob =
     typeof file.data === "string"
       ? new Blob([file.data], { type: `${file.mime};charset=utf-8` })
@@ -821,6 +903,6 @@ export function downloadFile(file: ExportFile, doc: Document = document): void {
     link.remove();
   } finally {
     // Give the navigation a tick to start before the blob goes away.
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    schedule(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS);
   }
 }

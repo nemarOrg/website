@@ -1036,6 +1036,12 @@
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
+.eegv__spatial-loc {
+  grid-column: 1 / -1;
+  font-size: 0.9em;
+  color: var(--color-fg-subtle);
+  overflow-wrap: anywhere;
+}
 .eegv__spatial-detail,
 .eegv__spatial-value {
   color: var(--color-fg-muted);
