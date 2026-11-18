@@ -20,6 +20,11 @@
  *   sentence.
  * - At 360 px the panel goes below the scope; the traces keep the full width and nothing scrolls
  *   sideways.
+ * - IS-V3: the "2D views" switch draws the contacts as three SVG views (and without WebGL2 they
+ *   are the stage); Save PNG and Save SVG download figures that carry the credit INSIDE the file:
+ *   the downloaded PNG is decoded and its bottom-right corner holds the credit's pixels while the
+ *   bottom-left corner is the plain background, and the downloaded SVG is parsed and ends with the
+ *   credit's link, address and metadata.
  *
  * The data plane answers 500 now and then (about one directory listing in five). The panel tries
  * a failed read again quietly, three more times, before it shows a refusal with Retry; a read that
@@ -27,6 +32,7 @@
  * test's annotations how many it needed.
  */
 
+import { readFileSync } from "node:fs";
 import { type Page, expect, test } from "@playwright/test";
 import { RAVE_CREDIT, creditLinkSpec } from "../src/lib/ieeg-spatial/credit";
 import { GEOMETRY_SENTENCES, WEBGL_SENTENCE } from "../src/lib/ieeg-spatial/panel";
@@ -486,4 +492,236 @@ test("at 360 px the panel goes below the scope, which keeps its full width", asy
   await page.click(TOGGLE);
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(".eegv__plot")).not.toHaveClass(/eegv__plot--stack/);
+});
+
+/** What the page sees in a downloaded PNG: its size, and how many distinct colors two corners hold. */
+async function pngCorners(
+  page: Page,
+  bytes: Buffer,
+): Promise<{
+  width: number;
+  height: number;
+  signature: string;
+  right: { colors: number; dark: number };
+  left: { colors: number; dark: number };
+}> {
+  return page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext("2d");
+    if (!ctx) throw new Error("no 2d context");
+    ctx.drawImage(img, 0, 0);
+    // The credit sits in the bottom-right 440 by 60 canvas pixels (2x export): the sentence's
+    // backing is about 220 CSS pixels wide, 8 CSS pixels in from the corner.
+    const region = (x: number, y: number, w: number, h: number) => {
+      const d = ctx.getImageData(x, y, w, h).data;
+      const seen = new Set<number>();
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        seen.add((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+        if (d[i] + d[i + 1] + d[i + 2] < 384) dark += 1;
+      }
+      return { colors: seen.size, dark };
+    };
+    const w = 440;
+    const h = 60;
+    return {
+      width: img.width,
+      height: img.height,
+      signature: atob(b64.slice(0, 12)).slice(1, 4),
+      right: region(img.width - w, img.height - h, w, h),
+      left: region(0, img.height - h, w, h),
+    };
+  }, bytes.toString("base64"));
+}
+
+async function saved(page: Page, kind: "png" | "svg"): Promise<{ name: string; bytes: Buffer }> {
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.click(`[data-spatial-save="${kind}"]`),
+  ]);
+  const path = await download.path();
+  return { name: download.suggestedFilename(), bytes: readFileSync(path) };
+}
+
+/** Parse a downloaded SVG in the page and report what the card requires of it. */
+async function svgFacts(page: Page, text: string) {
+  return page.evaluate((source) => {
+    const doc = new DOMParser().parseFromString(source, "image/svg+xml");
+    const root = doc.documentElement;
+    const credit = root.lastElementChild;
+    const link = credit?.querySelector("a");
+    return {
+      error: doc.querySelector("parsererror")?.textContent ?? null,
+      rootName: root.localName,
+      lastClass: credit?.getAttribute("class") ?? null,
+      linkHref: link?.getAttribute("href") ?? null,
+      linkText: link?.querySelector("text")?.textContent ?? null,
+      views: [...root.querySelectorAll("g[data-view]")].map((g) => g.getAttribute("data-view")),
+      circles: root.querySelectorAll("circle[data-contact]").length,
+      untitled: [...root.querySelectorAll("circle[data-contact]")].filter(
+        (c) => !c.querySelector("title")?.textContent,
+      ).length,
+      metadata: root.querySelector("metadata#figure-metadata")?.textContent ?? "",
+      text: root.textContent ?? "",
+    };
+  }, text);
+}
+
+test("on005522: Save PNG and Save SVG carry the credit inside the files", async ({ page }) => {
+  await openViewer(page, "on005522");
+  await openBrain(page);
+  const contacts = await page.locator("[data-spatial-list] li").count();
+  expect(contacts).toBeGreaterThan(0);
+  const status = (await page.locator("[data-spatial-status]").textContent()) ?? "";
+
+  // The 3D view's PNG: the canvas frame, the labels, and the credit in the bottom-right pixels.
+  const png = await saved(page, "png");
+  expect(png.name).toMatch(
+    /^sub-R1001P_ses-0_task-YC1_acq-bipolar_ieeg_contacts_mni152nlin6asym\.png$/,
+  );
+  const corners = await pngCorners(page, png.bytes);
+  expect(corners.signature).toBe("PNG");
+  expect(corners.width).toBe(1920);
+  expect(corners.height).toBeGreaterThan(600);
+  // The credit's backing and text make the bottom-right corner anything but uniform; the opposite
+  // corner is the plain background, so the difference is the credit and nothing else.
+  expect(corners.right.colors).toBeGreaterThan(8);
+  expect(corners.right.dark).toBeGreaterThan(40);
+  expect(corners.left.colors).toBe(1);
+  test.info().annotations.push({
+    type: "png",
+    description: `${png.name} ${corners.width}x${corners.height} bytes=${png.bytes.length} right=${JSON.stringify(corners.right)} left=${JSON.stringify(corners.left)}`,
+  });
+
+  // The SVG: one document, three views, a circle and a title per contact, and the credit last.
+  const svg = await saved(page, "svg");
+  expect(svg.name).toBe(png.name.replace(/\.png$/, ".svg"));
+  const facts = await svgFacts(page, svg.bytes.toString("utf8"));
+  expect(facts.error).toBeNull();
+  expect(facts.rootName).toBe("svg");
+  expect(facts.views).toEqual(["left", "top", "front"]);
+  expect(facts.circles).toBe(3 * contacts);
+  expect(facts.untitled).toBe(0);
+  expect(facts.lastClass).toBe("eegv-credit");
+  expect(facts.linkHref).toBe(RAVE_CREDIT.href);
+  expect(facts.linkText).toBe(RAVE_CREDIT.text);
+  expect(facts.metadata).toContain(RAVE_CREDIT.href);
+  expect(facts.metadata).toContain(RAVE_CREDIT.doi);
+  expect(facts.metadata).toContain("on005522");
+  expect(facts.metadata).toContain(status);
+  expect(svg.bytes.toString("utf8").trimEnd().endsWith("</svg>")).toBe(true);
+  test.info().annotations.push({
+    type: "svg",
+    description: `${svg.name} bytes=${svg.bytes.length} circles=${facts.circles} link=${facts.linkHref}`,
+  });
+});
+
+test("on005522: the figures say what Activity says, and the 2D views are the reader's choice", async ({
+  page,
+}) => {
+  await openViewer(page, "on005522");
+  await openBrain(page);
+  await page.check("[data-spatial-activity]");
+  await expect(page.locator("[data-spatial-colorbar]")).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
+  const summary =
+    (await page.locator(`${PANEL} .eegv__spatial-actsum`).first().textContent()) ?? "";
+  const barText = (await page.locator("[data-spatial-colorbar]").textContent()) ?? "";
+  expect(summary).toMatch(/Welch's method/);
+
+  // The switch: the canvas goes, three SVG views come, the list and the credit stay.
+  await page.click("[data-spatial-view2d]");
+  await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "views2d");
+  await expect(page.locator("canvas.eegv__spatial-canvas")).toHaveCount(0);
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-pressed", "true");
+  const circles = page.locator(`${STAGE} svg circle[data-contact]`);
+  const listed = await page.locator("[data-spatial-list] li").count();
+  await expect(circles).toHaveCount(3 * listed);
+  await expectCredit(page);
+  // A click on a dot selects the contact: the list says so, in every view.
+  await page.locator(`${STAGE} g[data-view="top"] circle[data-contact="1"]`).dispatchEvent("click");
+  await expect(page.locator('[data-spatial-list] li[data-contact="1"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  // A dot's title names the contact, its channel and the value Activity gave it.
+  const title = await page
+    .locator(`${STAGE} g[data-view="top"] circle[data-contact="1"] title`)
+    .textContent();
+  expect(title).toMatch(/^[A-Z0-9]+; channels? [^;]+; \S+ µV²$/);
+
+  // The saved SVG and the 2D PNG say the same: the summary, the colorbar ends, the selection.
+  const svg = await saved(page, "svg");
+  const facts = await svgFacts(page, svg.bytes.toString("utf8"));
+  expect(facts.error).toBeNull();
+  expect(facts.text).toContain(summary);
+  for (const end of barText.split(/\s{2,}|(?<=µV²)(?=\S)/).filter(Boolean)) {
+    expect(facts.text).toContain(end.trim());
+  }
+  expect(facts.text).toContain("Selected:");
+  expect(facts.linkHref).toBe(RAVE_CREDIT.href);
+
+  const png = await saved(page, "png");
+  const corners = await pngCorners(page, png.bytes);
+  expect(corners.right.colors).toBeGreaterThan(8);
+  expect(corners.left.colors).toBe(1);
+
+  // Back to 3D: the canvas returns, drawn again.
+  await page.click("[data-spatial-view2d]");
+  await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "canvas");
+  await expect(page.locator("canvas.eegv__spatial-canvas")).toHaveCount(1);
+  await expectCredit(page);
+});
+
+test("without WebGL2 the 2D views are the stage, the switch says why, and the files still save", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (this: HTMLCanvasElement, type: string) {
+      // biome-ignore lint/style/noArguments: forwards the original call unchanged
+      return type === "webgl2" ? null : original.apply(this, arguments as never);
+    } as typeof original;
+  });
+  await openViewer(page, "on005522");
+  await openBrain(page, "no_webgl");
+  const listed = await page.locator("[data-spatial-list] li").count();
+  await expect(page.locator(`${STAGE} svg circle[data-contact]`)).toHaveCount(3 * listed);
+  await expect(page.locator(`${STAGE} .eegv__spatial-msg`)).toHaveText(WEBGL_SENTENCE);
+  await expect(page.locator("[data-spatial-view2d]")).toBeDisabled();
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-spatial-view2d]")).toHaveAttribute("title", WEBGL_SENTENCE);
+  await expectCredit(page);
+
+  const svg = await saved(page, "svg");
+  const facts = await svgFacts(page, svg.bytes.toString("utf8"));
+  expect(facts.error).toBeNull();
+  expect(facts.circles).toBe(3 * listed);
+  expect(facts.text).toContain(WEBGL_SENTENCE);
+  expect(facts.linkHref).toBe(RAVE_CREDIT.href);
+
+  const png = await saved(page, "png");
+  const corners = await pngCorners(page, png.bytes);
+  expect(corners.right.colors).toBeGreaterThan(8);
+  expect(corners.left.colors).toBe(1);
+});
+
+test("no save buttons where nothing is drawn: a refusal keeps the credit and no switch", async ({
+  page,
+}) => {
+  await page.route(/_electrodes\.tsv/, (route) =>
+    route.fulfill({ status: 500, body: "unavailable" }),
+  );
+  await openViewer(page, "on005522");
+  await settled(page);
+  await page.click(TOGGLE);
+  await expect(page.locator(STAGE)).toHaveAttribute("data-stage", "refusal", { timeout: 30_000 });
+  await expect(page.locator("[data-spatial-save]:visible")).toHaveCount(0);
+  await expect(page.locator("[data-spatial-view2d]:visible")).toHaveCount(0);
+  await expectCredit(page);
 });
