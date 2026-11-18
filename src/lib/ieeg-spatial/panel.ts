@@ -2599,8 +2599,23 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       const col = el("div", "eegv__spatial-names-col");
       col.setAttribute(`data-${attribute}`, "");
       const heading = el("p", "eegv__spatial-names-head", list.heading);
+      heading.id = `eegv-${attribute}-${++panelSeq}`;
       const ul = el("ul", "eegv__spatial-names-list");
-      for (const name of list.names) ul.append(el("li", "eegv__spatial-names-item", name));
+      // The list is named by its heading, for a screen reader that lands on the list itself.
+      ul.setAttribute("aria-labelledby", heading.id);
+      list.names.forEach((name, i) => {
+        // Each name is its own bidirectional run (`dir="auto"` with CSS isolation), so a
+        // right-to-left name cannot reorder its neighbors or the note after it.
+        const li = el("li", "eegv__spatial-names-item", name);
+        li.dir = "auto";
+        const note = list.notes[i];
+        if (note) {
+          const tag = el("span", "eegv__spatial-names-note", ` [${note}]`);
+          tag.dir = "ltr";
+          li.append(tag);
+        }
+        ul.append(li);
+      });
       col.append(heading, ul);
       return col;
     };

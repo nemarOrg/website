@@ -996,7 +996,16 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .eegv__spatial-names-item {
+  /* One bidirectional run per name, spaces kept as written, and a name that is wider than the
+     column breaks anywhere instead of overflowing it. */
+  unicode-bidi: isolate;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.eegv__spatial-names-note {
+  color: var(--color-fg-subtle);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.85em;
 }
 .eegv__spatial-canvas {
   position: absolute;

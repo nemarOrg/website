@@ -1176,6 +1176,21 @@ for (const r of CLOSED_BY_NAMES) {
     );
     await expect(page.locator(NAMES)).toContainText(NO_RULE);
 
+    // Each list is named by its heading, and each name is its own bidirectional run: `dir="auto"` on
+    // the item (which also makes the browser isolate it) and the isolation written in the
+    // stylesheet (Chromium computes `isolate` for any list item, so the computed style alone
+    // would prove nothing).
+    for (const list of [NAMES_CHANNELS, NAMES_CONTACTS]) {
+      const headingId =
+        (await page.locator(`${list} .eegv__spatial-names-head`).getAttribute("id")) ?? "";
+      expect(headingId).not.toBe("");
+      await expect(page.locator(`${list} ul`)).toHaveAttribute("aria-labelledby", headingId);
+      await expect(page.locator(`${list} li`).first()).toHaveAttribute("dir", "auto");
+    }
+    expect(readFileSync("src/styles/eeg-viewer.css", "utf8")).toMatch(
+      /\.eegv__spatial-names-item\s*\{[^}]*unicode-bidi:\s*isolate/,
+    );
+
     // Nothing is drawn, claimed or read, and the credit stays.
     await expect(page.locator("canvas.eegv__spatial-canvas")).toHaveCount(0);
     await expect(page.locator(STATUS)).toBeHidden();

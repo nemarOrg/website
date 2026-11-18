@@ -8,6 +8,7 @@ import {
   closedByNaming,
   nameRefusal,
   unlocatedCauseHeads,
+  visibleName,
 } from "./name-refusal";
 
 /**
@@ -189,5 +190,69 @@ describe("what the refusal lists", () => {
       "1 unlocated channel, the name fits more than one contact equally well.",
       "1 unlocated channel, no contact of that name in the electrodes file.",
     ]);
+  });
+});
+
+describe("names a reader cannot tell apart or cannot see", () => {
+  it("shows characters that do not display as escapes, and says so", () => {
+    // A zero-width space, a control character, a right-to-left override and an isolate, a no-break space.
+    expect(visibleName("Ch\u200B1")).toEqual({
+      text: "Ch\\u{200B}1",
+      note: "shown with an escape: U+200B",
+    });
+    expect(visibleName("A\u00011").text).toBe("A\\u{0001}1");
+    expect(visibleName("A\u202E1").text).toBe("A\\u{202E}1");
+    expect(visibleName("\u2067x\u2069").text).toBe("\\u{2067}x\\u{2069}");
+    expect(visibleName("A\u00A01").text).toBe("A\\u{00A0}1");
+    expect(visibleName("A\uFEFF1").text).toBe("A\\u{FEFF}1");
+    expect(visibleName("A\u00AD1").text).toBe("A\\u{00AD}1");
+    // Several: each distinct one is listed once.
+    expect(visibleName("\u200B\u200B\u200E").note).toBe("shown with an escape: U+200B, U+200E");
+  });
+
+  it("leaves what displays alone: ordinary spaces, digits and ASCII punctuation are the recorded text", () => {
+    for (const name of ["LENT 1", "EEG A1-Ref", "Ch1", "A1-A2", "ch_001", "O1-REF1", "SA10"]) {
+      expect(visibleName(name)).toEqual({ text: name, note: null });
+    }
+  });
+
+  it("keeps a right-to-left name in its logical order and says it has characters beyond ASCII", () => {
+    const r = visibleName("\u05D0\u05D11");
+    expect(r.text).toBe("\u05D0\u05D11");
+    expect(r.note).toBe("non-ASCII: U+05D0, U+05D1");
+    // Never more than four code points are listed, then how many more.
+    expect(visibleName("\u05D0\u05D1\u05D2\u05D3\u05D4\u05D5").note).toBe(
+      "non-ASCII: U+05D0, U+05D1, U+05D2, U+05D3 and 2 more",
+    );
+  });
+
+  it("never reads a lookalike as the contact it resembles: a Cyrillic A is its own name, shown as written and flagged (real contact LAF1 of on005522)", async () => {
+    const l = await load("on005522");
+    expect(l.space.contacts.some((c) => c.name === "LAF1")).toBe(true);
+    const lookalike = "L\u0410F1";
+    const joins = joinChannels(l.space, [lookalike]);
+    expect(joins[0]).toMatchObject({ status: "unlocated", cause: "no_contact" });
+    expect(closedByNaming(joins, 0)).toBe(true);
+    const r = nameRefusal(
+      joins,
+      l.space.contacts.map((c) => c.name),
+    );
+    // The channel is listed as recorded (the lookalike itself), with the flag that says why it differs.
+    expect(r.channels.names).toEqual([lookalike]);
+    expect(r.channels.notes).toEqual(["non-ASCII: U+0410"]);
+    expect(r.contacts.names[0]).toBe(l.space.contacts[0].name);
+    expect(r.contacts.notes.every((n) => n === null)).toBe(true);
+  });
+
+  it("applies to both lists, in step with their names", async () => {
+    const l = await load("on005522");
+    const names = l.space.contacts.map((c) => c.name);
+    names[1] = "LAF\u200B2";
+    const r = nameRefusal(joinChannels(l.space, ["X1", "X\u202E2"]), names);
+    expect(r.channels.names).toEqual(["X1", "X\\u{202E}2"]);
+    expect(r.channels.notes).toEqual([null, "shown with an escape: U+202E"]);
+    expect(r.contacts.names[1]).toBe("LAF\\u{200B}2");
+    expect(r.contacts.notes[1]).toBe("shown with an escape: U+200B");
+    expect(r.contacts.notes).toHaveLength(r.contacts.names.length);
   });
 });

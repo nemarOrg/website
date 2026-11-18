@@ -71,11 +71,43 @@ export function closedByNaming(joins: readonly ChannelJoin[], located: number): 
   return joins.length > 0 && located === 0 && joins.every((j) => j.cause !== "no_position");
 }
 
+/**
+ * A name as the list shows it. Nothing is trimmed, re-cased or normalized; the only change is that
+ * a character that does not display (a control, a zero-width or bidi control, a soft hyphen, a
+ * byte order mark, a space that is not the ordinary one) is written as `\u{200B}`, so the reader
+ * sees it, and a name with characters beyond ASCII carries a note saying which (a Cyrillic A looks
+ * like a Latin one, and the two never join). The recorded name is the one in the dataset's file.
+ */
+export function visibleName(raw: string): { text: string; note: string | null } {
+  const escaped = new Set<string>();
+  const text = raw.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Zs}]/gu, (ch) => {
+    if (ch === " ") return ch;
+    const hex = (ch.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, "0");
+    escaped.add(`U+${hex}`);
+    return `\\u{${hex}}`;
+  });
+  const beyond = new Set<string>();
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code > 0x7e) beyond.add(`U+${code.toString(16).toUpperCase().padStart(4, "0")}`);
+  }
+  const notes: string[] = [];
+  if (escaped.size > 0) notes.push(`shown with an escape: ${[...escaped].join(", ")}`);
+  if (beyond.size > 0) {
+    const listed = [...beyond].slice(0, 4).join(", ");
+    const more = beyond.size > 4 ? ` and ${beyond.size - 4} more` : "";
+    notes.push(`non-ASCII: ${listed}${more}`);
+  }
+  return { text, note: notes.length > 0 ? notes.join("; ") : null };
+}
+
 export interface NameList {
   /** What the list is, and how many of how many it shows. */
   heading: string;
-  /** At most `NAME_SAMPLE_LIMIT` names, as recorded. */
+  /** At most `NAME_SAMPLE_LIMIT` names, as recorded (`visibleName`: only what cannot display is escaped). */
   names: string[];
+  /** Per name, in step: what is unusual about it (`visibleName`), or null. */
+  notes: (string | null)[];
   /** How many there are in all. */
   total: number;
 }
@@ -90,9 +122,14 @@ export interface NameRefusal {
 
 function sample(what: string, names: readonly string[]): NameList {
   const total = names.length;
-  const shown = names.slice(0, NAME_SAMPLE_LIMIT);
+  const shown = names.slice(0, NAME_SAMPLE_LIMIT).map(visibleName);
   const count = total > shown.length ? `first ${shown.length} of ${total}` : `all ${total}`;
-  return { heading: `${what} (${count})`, names: shown, total };
+  return {
+    heading: `${what} (${count})`,
+    names: shown.map((n) => n.text),
+    notes: shown.map((n) => n.note),
+    total,
+  };
 }
 
 /**
