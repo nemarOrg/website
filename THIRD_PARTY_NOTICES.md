@@ -36,17 +36,17 @@ No license asks for them.
 
 ### RAVE
 
-The electrode view of the iEEG spatial view is inspired by RAVE,
+NEMAR's electrode view in the iEEG spatial view acknowledges RAVE,
 the Reproducible Analysis and Visualization of iEEG project (<https://rave.wiki>).
 NEMAR draws the view with its own renderer.
 **No RAVE code and no RAVE data ships with this site**,
-and the credit says "inspired by" because RAVE did not render the figure.
+and the wording of the credit never says RAVE drew the figure.
 
-The credit is declared once, in `src/lib/ieeg-spatial/credit.ts`, in three forms:
+The credit's exact wording and address are declared once, in `src/lib/ieeg-spatial/credit.ts`, in three forms:
 a link for each spatial panel,
 a painter for PNG exports,
 and a fragment for SVG exports.
-Every surface that draws the view uses these forms, so the link reads "Electrode view inspired by RAVE" and is present on screen and inside each exported file.
+Every surface that draws the view uses these forms, so the credit is present on screen and inside each exported file.
 
 RAVE asks that users of its 3D viewer cite:
 

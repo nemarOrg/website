@@ -303,7 +303,7 @@ describe("the credit is declared once", () => {
 
   it("has no other phrasing of the credit anywhere it could ship", () => {
     const variant = new RegExp(`inspired by ${"rave"}`, "i");
-    const hits = [...files, ...sourceFiles(join(REPO, "e2e"))]
+    const hits = [...files, ...sourceFiles(join(REPO, "e2e")), join(REPO, "THIRD_PARTY_NOTICES.md")]
       .filter((f) => variant.test(readFileSync(f, "utf8")))
       .map((f) => relative(REPO, f))
       .sort();
@@ -346,6 +346,13 @@ describe(".eegv-credit style", () => {
     expect(focus).toMatch(/outline:\s*2px solid var\(--color-focus\)/);
     const base = rules.find((r) => r[1].trim() === ".eegv-credit")?.[2] ?? "";
     expect(base).toMatch(/text-decoration:\s*underline/);
+  });
+
+  it("is a 24 pixel tall target without growing its 11 pixel text", () => {
+    const base = rules.find((r) => r[1].trim() === ".eegv-credit")?.[2] ?? "";
+    expect(base).toMatch(/min-block-size:\s*24px/);
+    expect(base).toMatch(/display:\s*inline-flex/);
+    expect(base).toMatch(/align-items:\s*center/);
   });
 
   it("darkens the text on hover", () => {

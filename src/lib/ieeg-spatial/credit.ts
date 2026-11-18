@@ -122,6 +122,8 @@ export function creditLayout(
   const fontNominal = CREDIT_FONT_PX * dpr;
   const boxW = Math.max(textWidthPx, 0) + 2 * padX;
   const boxH = fontNominal * LINE_HEIGHT + 2 * PAD_Y * dpr;
+  // The floor at 0 is deliberate: a canvas smaller than the margins yields an empty box, never a
+  // negative size.
   const fit = Math.max(0, Math.min(1, (width - 2 * margin) / boxW, (height - 2 * margin) / boxH));
   const w = boxW * fit;
   const h = boxH * fit;
