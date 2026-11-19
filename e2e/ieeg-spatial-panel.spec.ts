@@ -536,7 +536,7 @@ test("on005522: the credit link is what credit.ts declares and Tab reaches it", 
   await expectCredit(page);
 });
 
-test("on005522: the toggle names the panel it controls, and Escape closes it and returns focus", async ({
+test("on005522: the toggle names the panel it controls, and Escape clears the selection, then closes it and returns focus", async ({
   page,
 }) => {
   await openViewer(page, "on005522");
@@ -550,6 +550,11 @@ test("on005522: the toggle names the panel it controls, and Escape closes it and
   await page.click('[data-spatial-list] li:has(.eegv__spatial-name:text-is("LAF2"))');
   await expect(page.locator(".eegv__trace-hl")).toBeVisible();
   await page.focus('[data-spatial-list] li[data-contact="0"]');
+  // The first Escape clears the selection and its trace highlight; the panel stays open.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeVisible();
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
+  await expect(page.locator('[data-spatial-list] li[aria-selected="true"]')).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(TOGGLE)).toHaveAttribute("aria-pressed", "false");
@@ -560,6 +565,40 @@ test("on005522: the toggle names the panel it controls, and Escape closes it and
   // Escape with the panel closed does nothing to the toggle, and it opens again.
   await page.keyboard.press("Enter");
   await expect(page.locator(PANEL)).toBeVisible();
+});
+
+test("on005522: Clear selection is enabled only with a selection, keeps focus, and an empty stage click clears too", async ({
+  page,
+}) => {
+  await openViewer(page, "on005522");
+  await openBrain(page);
+  const clear = page.locator("[data-spatial-clear]");
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+
+  const row = '[data-spatial-list] li:has(.eegv__spatial-name:text-is("LAF2"))';
+  await page.click(row);
+  await expect(clear).toHaveAttribute("aria-disabled", "false");
+  await expect(page.locator(".eegv__trace-hl")).toBeVisible();
+
+  // The button keeps focus when it becomes inactive, so Escape still reaches the panel.
+  await clear.focus();
+  await clear.click();
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
+  expect(
+    await page.evaluate(() => document.activeElement?.hasAttribute("data-spatial-clear")),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeHidden();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(PANEL)).toBeVisible();
+
+  // A click on empty canvas (its top-left corner holds no contact) clears the selection as well.
+  await page.click(row);
+  await expect(clear).toHaveAttribute("aria-disabled", "false");
+  await page.locator(`${STAGE} canvas`).click({ position: { x: 4, y: 4 } });
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
 });
 
 test("the panel's code is fetched only for an iEEG recording", async ({ page }) => {

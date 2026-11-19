@@ -1536,7 +1536,7 @@ async function tabTo(page: Page, matches: string, limit = 120): Promise<number> 
   throw new Error(`Tab did not reach ${matches} in ${limit} presses`);
 }
 
-test("keyboard only (on005522): Tab reaches the toggle, the switch and the contacts; Escape closes and refocuses the toggle", async ({
+test("keyboard only (on005522): Tab reaches the toggle, the switch and the contacts; Escape clears the selection, then closes and refocuses the toggle", async ({
   page,
 }) => {
   await openViewer(page, "on005522");
@@ -1598,7 +1598,11 @@ test("keyboard only (on005522): Tab reaches the toggle, the switch and the conta
   // The focused row is selected, and Enter keeps it so; the scope's own shortcuts did not fire.
   await expect(page.locator(`${LIST} li[aria-selected="true"]`).first()).toBeVisible();
 
-  // Escape from a row closes the panel and returns focus to the toggle.
+  // The first Escape from a row clears the selection and leaves the panel open; the second closes
+  // it and returns focus to the toggle.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeVisible();
+  await expect(page.locator(`${LIST} li[aria-selected="true"]`)).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(TOGGLE)).toHaveAttribute("aria-pressed", "false");
