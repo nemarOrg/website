@@ -60,7 +60,8 @@ import {
   TEMPLATE_LOADING_SENTENCE,
   TEMPLATE_REFERENCE,
   applyAffine,
-  noPlacementSentence,
+  noSurfaceReason,
+  noSurfaceSentence,
   templateLabel,
 } from "./transforms";
 import { VIEWS_SENTENCE, VIEW_NAMES, parseViewOutlines } from "./views2d";
@@ -1300,6 +1301,11 @@ describe("the 2D views and the files draw a registered template, the same way as
       expect(svg, name).not.toContain("Template brain");
       expect(svg, name).not.toContain("Template surface");
       const word = state.placement?.space.frame;
+      const reason = noSurfaceReason(
+        word ?? null,
+        state.placement?.space.units ?? { unit: null },
+        false,
+      );
       expect(
         figureLabels(input, true).some((l) => l.text.startsWith("No brain surface")),
         name,
@@ -1307,7 +1313,7 @@ describe("the 2D views and the files draw a registered template, the same way as
       expect(
         figureLabels(input, true).map((l) => l.text),
         name,
-      ).toContain(noPlacementSentence(word ?? null));
+      ).toContain(noSurfaceSentence(reason ?? "no_transform", word ?? null));
       expect(
         viewModel(state).contacts.every((r) => r.template === null),
         name,

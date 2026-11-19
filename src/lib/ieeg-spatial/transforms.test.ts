@@ -25,7 +25,6 @@ import {
   isPendingTemplate,
   loadTemplateSurface,
   mergeMeshes,
-  noPlacementSentence,
   noSurfaceReason,
   noSurfaceSentence,
   placeOnTemplate,
@@ -113,6 +112,13 @@ const rule = (id: StandardTemplate): TemplatePlacementRule => {
   if (!r) throw new Error(`no row for ${id}`);
   return r;
 };
+
+/** The sentence the panel says for a frame with no row, in millimeters (the frame is the reason). */
+function unplacedSentence(frame: Parameters<typeof noSurfaceReason>[0]): string {
+  const reason = noSurfaceReason(frame, { unit: "mm" }, false);
+  if (reason === null) throw new Error("this frame is placed");
+  return noSurfaceSentence(reason, frame);
+}
 
 describe("MNI305 to MNI152: FreeSurfer's published affine and its worked example", () => {
   it("the excerpt holds the page's two matrices and two examples", () => {
@@ -405,7 +411,7 @@ describe("the label", () => {
 describe("the sentence for a frame with no template placement", () => {
   it("names the declared identifier, or says the frame is undeclared", () => {
     const sentence = (label: string | null, entity: string | null = null) =>
-      noPlacementSentence(classifyFrame(label, entity, null));
+      unplacedSentence(classifyFrame(label, entity, null));
     expect(sentence("ACPC")).toBe(
       "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
     );
@@ -417,7 +423,7 @@ describe("the sentence for a frame with no template placement", () => {
     expect(sentence(null)).toBe(
       "No brain surface: this recording declares no coordinate frame, so there is no transform to the template and contacts are drawn in their own space.",
     );
-    expect(noPlacementSentence(null)).not.toContain("(an undeclared frame)");
+    expect(unplacedSentence(null)).not.toContain("(an undeclared frame)");
     expect(frameWord(classifyFrame("MNI152NLin6Asym", null, null))).toBe("MNI152NLin6ASym");
   });
 });
@@ -653,7 +659,7 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
       expect(frame, label).toMatchObject({ kind: "unknown", why: "unrecognized_label" });
       expect(placementRuleFor(frame, { unit: "mm" }), label).toBeNull();
       expect(isPendingTemplate(frame), label).toBe(false);
-      expect(noPlacementSentence(frame), label).not.toContain("surface yet");
+      expect(unplacedSentence(frame), label).not.toContain("surface yet");
     }
     // the one that equals a current identifier in letter case is that identifier (fsaverageSym, placed)
     const sym = classifyFrame("fsaveragesym", null, null);
@@ -664,7 +670,7 @@ describe("every identifier of the BIDS appendix is placed or pending", () => {
 
   it("a pending family reads 'No brain surface yet' and every other unplaced frame reads 'No brain surface'", () => {
     const sentence = (label: string | null, entity: string | null = null) =>
-      noPlacementSentence(classifyFrame(label, entity, null));
+      unplacedSentence(classifyFrame(label, entity, null));
     for (const id of PENDING_TEMPLATES.keys()) {
       expect(sentence(id), id).toBe(
         `No brain surface yet: this recording's coordinate frame (${id}) is a template family whose transform this site does not have yet, so contacts are drawn in their own space.`,

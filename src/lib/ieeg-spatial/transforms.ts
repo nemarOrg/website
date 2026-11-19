@@ -349,7 +349,9 @@ export type NoSurfaceReason =
 export function noSurfaceFrameReason(frame: Frame | null): NoSurfaceReason | null {
   if (frame?.kind === "template" && TEMPLATE_PLACEMENTS.has(frame.identifier)) return null;
   if (isPendingTemplate(frame)) return "pending_transform";
-  if (frameWord(frame) === "an undeclared frame") return "undeclared_frame";
+  if (frame === null || (frame.kind === "unknown" && frame.declared === null)) {
+    return "undeclared_frame";
+  }
   return "no_transform";
 }
 
@@ -383,14 +385,6 @@ export function noSurfaceSentence(reason: NoSurfaceReason, frame: Frame | null):
     case "units_banner":
       return "No brain surface: the declared unit does not match the size of the numbers (see the warning above the drawing), so contacts are drawn as declared and not placed on the template.";
   }
-}
-
-/**
- * Said for every shown space whose frame is not placed on the surface. A pending family reads
- * "yet": it is a known template whose transform this site has not got.
- */
-export function noPlacementSentence(frame: Frame | null): string {
-  return noSurfaceSentence(noSurfaceFrameReason(frame) ?? "no_transform", frame);
 }
 
 // ---------------------------------------------------------------------------
