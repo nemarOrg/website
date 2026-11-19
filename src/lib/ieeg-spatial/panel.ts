@@ -2632,6 +2632,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   frameSel.dataset.spatialFrame = "";
   frameWrap.append(document.createTextNode("Frame "), frameSel);
   frameWrap.hidden = true;
+  // The Frame select on the left and the 3D view controls on the right (they exist with the canvas).
+  const head = el("div", "eegv__spatial-head");
+  head.append(frameWrap);
+  head.hidden = true;
 
   const stage = el("div", "eegv__spatial-stage");
   stage.dataset.spatialStage = "";
@@ -2770,7 +2774,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   list.setAttribute("aria-multiselectable", "true");
   list.dataset.spatialList = "";
   inner.append(
-    frameWrap,
+    head,
     stage,
     nameBox,
     actions,
@@ -2875,6 +2879,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       window.clearTimeout(tipTimer);
       viewCtl?.remove();
       viewCtl = null;
+      head.hidden = frameWrap.hidden;
       panBtn = null;
       panMode = false;
       stage.removeAttribute("tabindex");
@@ -2908,6 +2913,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     drawnRule = null;
     drawnMesh = null;
     c.addEventListener("click", onCanvasClick);
+  }
+
+  function onStageKey(e: KeyboardEvent): void {
+    if (!renderer) return;
+    const action = keyAction(e, panMode);
+    if (!action) return;
+    e.preventDefault();
+    applyViewAction(action);
   }
 
   /** Run what a control or a key asks of the view; the decisions are `view-controls.ts`'s. */
@@ -2992,7 +3005,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       row.append(b);
     }
     group.append(row, tip);
-    stage.append(group);
+    // The buttons sit outside the stage, so the stage's keys apply on them too.
+    group.addEventListener("keydown", onStageKey);
+    head.append(group);
     viewCtl = group;
     stage.tabIndex = 0;
     stage.setAttribute("aria-keyshortcuts", "+ - 0 P ArrowLeft ArrowRight ArrowUp ArrowDown");
@@ -3045,6 +3060,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
     // Frame selector
     frameWrap.hidden = model.frames === null;
+    head.hidden = frameWrap.hidden && viewCtl === null;
     if (model.frames) {
       const want = model.frames.options.map((o) => `${o.index}|${o.label}`).join("\n");
       if (frameSel.dataset.key !== want) {
@@ -3330,13 +3346,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   }
 
   // The keys of the 3D stage act only while focus is inside it (the stage, or one of its buttons).
-  stage.addEventListener("keydown", (e) => {
-    if (!renderer) return;
-    const action = keyAction(e, panMode);
-    if (!action) return;
-    e.preventDefault();
-    applyViewAction(action);
-  });
+  stage.addEventListener("keydown", onStageKey);
 
   // --- events -------------------------------------------------------------
   function dispatch(event: PanelEvent): void {

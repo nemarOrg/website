@@ -933,7 +933,7 @@
   flex: 0 0 auto;
   inline-size: 100%;
   aspect-ratio: 5 / 4;
-  max-block-size: 300px;
+  max-block-size: 340px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -1015,20 +1015,21 @@
   block-size: 100%;
   cursor: grab;
 }
-/* The on-stage zoom, pan and reset buttons (view-controls.ts), top-right over the canvas: above it,
-   below nothing else. Opaque token backing so both themes read them over any surface color. They are
-   DOM, so Save PNG (the canvas) and Save SVG never include them. The tooltip sits under the group,
-   right-aligned, and wraps within the stage on a narrow panel. */
-.eegv__spatial-viewctl {
-  position: absolute;
-  z-index: 4;
-  inset-block-start: 8px;
-  inset-inline-end: 8px;
+/* The Frame select (left) and the 3D view controls (right) share one row above the stage; the row
+   wraps on a narrow panel. The controls (view-controls.ts) are DOM outside the stage, so Save PNG
+   (the canvas) and Save SVG never include them. The tooltip drops under the group, right-aligned,
+   over the stage, and wraps within the panel. */
+.eegv__spatial-head {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  max-inline-size: calc(100% - 16px);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.eegv__spatial-viewctl {
+  position: relative;
+  z-index: 5;
+  margin-inline-start: auto;
 }
 .eegv__spatial-viewctl-row {
   display: flex;
@@ -1043,8 +1044,11 @@
   background: color-mix(in srgb, var(--color-bg) 92%, transparent);
 }
 .eegv__spatial-tip {
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 0;
   inline-size: max-content;
-  max-inline-size: min(240px, 100%);
+  max-inline-size: min(240px, 70vw);
   padding: 4px 8px;
   font-size: 0.78rem;
   line-height: 1.35;
