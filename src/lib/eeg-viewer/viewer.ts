@@ -688,6 +688,8 @@ export async function mountEegViewer(
   // recording); topoTime tracks the cursor (null -> window center).
   let showTopo = false;
   let topoTime: number | null = null;
+  // The pointer's x over the scope (canvas pixels), or null off it: the Brain panel's cursor.
+  let lastMouseX: number | null = null;
   // Only build the scalp layout for EEG/MEG; non-scalp modalities (iEEG/EMG/fNIRS/
   // unknown) get no topomap so we don't render a wrong head map. Real electrodes.tsv
   // positions win; datasets that ship none but name standard 10-20 labels fall back to
@@ -1427,6 +1429,10 @@ export async function mountEegViewer(
     // The Brain panel's activity overlay follows the window on screen (no read happens unless its
     // Activity switch is on).
     spatial?.setWindow(start, end - start);
+    // The window moved under a resting pointer: the cursor's time moved with it.
+    if (spatial && lastMouseX !== null && lastPlotWidth > 0) {
+      spatial.setCursor(start + ((lastMouseX - lastPlotLeft) / lastPlotWidth) * (end - start));
+    }
     // Track the level actually rendered and (re)target the preloader at it --
     // a no-op when nothing about the target changed (see updatePrefetchTarget).
     lastWinLevel = win.level;
@@ -2013,6 +2019,8 @@ export async function mountEegViewer(
     if (!lastFrame) return;
     if (pointerOverOverlay(e)) {
       ui.cursor.textContent = "";
+      lastMouseX = null;
+      spatial?.setCursor(null);
       return;
     }
     const rect = ui.canvas.getBoundingClientRect();
@@ -2020,11 +2028,16 @@ export async function mountEegViewer(
     const y = e.clientY - rect.top;
     if (x < lastPlotLeft || x > lastPlotLeft + lastPlotWidth) {
       ui.cursor.textContent = "";
+      lastMouseX = null;
+      spatial?.setCursor(null);
       return;
     }
+    lastMouseX = x;
     const frame = lastFrame;
     const span = frame.windowEndS - frame.windowStartS;
     const tAtX = frame.windowStartS + ((x - lastPlotLeft) / lastPlotWidth) * span;
+    // The Brain panel recolors its contacts for this time (one recolor per animation frame).
+    spatial?.setCursor(tAtX);
 
     let chanLabel = "";
     let valueStr = "";
@@ -2080,6 +2093,8 @@ export async function mountEegViewer(
 
   ui.canvas.addEventListener("mouseleave", () => {
     ui.cursor.textContent = "";
+    lastMouseX = null;
+    spatial?.setCursor(null);
   });
 
   // --- Help overlay toggle -------------------------------------------------
