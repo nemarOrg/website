@@ -70,6 +70,15 @@ The panel's Activity overlay follows the pointer over the scope, and the EEG vie
   A store converted before the converter wrote that attribute keeps the plain title, and the standard-montage fallback keeps its sentence.
   A file path is shown only if it is a single line of at most 200 characters, with no control or direction-changing character, and relative to the repository (no leading slash, backslash or `scheme:` prefix); otherwise the tooltip omits the file.
 
+### Changed
+
+- **The template brain surface is cached as immutable** (nemarOrg/website#566).
+  `public/_headers` serves `/vendor/brain-templates/mni152nlin2009casym@1/*` with `Cache-Control: public, max-age=31536000, immutable`, so a reader who reopens the Brain panel does not download the 532 KB surface again.
+  The folder is versioned, so a rebuilt surface goes in a new `@N` folder; a test pins the rule to the folder the panel fetches from.
+- **CI no longer runs its own build job** (nemarOrg/website#567).
+  Cloudflare's GitHub integration already builds every push, so `main` now requires `lint`, `typecheck`, `test` and the `Cloudflare Pages` check.
+  A failed Cloudflare build cannot be rerun from GitHub: push again, or retry it in the Cloudflare dashboard.
+
 ### Fixed
 
 - **BIDS's three ALS coordinate-system names are drawn the right way up** (nemarOrg/website#544).
