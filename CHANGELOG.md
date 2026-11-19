@@ -13,6 +13,74 @@ The release pull request from `staging` to `main` moves those entries under the 
 
 ## [Unreleased]
 
+## [0.2.41] - 2026-11-19
+
+The signal viewer gets a spatial view for intracranial EEG (iEEG): a "Brain" panel that draws each recording's electrode contacts where the dataset's own files place them.
+Before it, the 167 public iEEG datasets showed nothing about contact locations.
+The panel's Activity overlay follows the pointer over the scope, and the EEG viewer's topomap says where its electrode positions came from.
+
+### Added
+
+- **A "Brain" panel for iEEG recordings in the signal viewer** (nemarOrg/website#561, the epic for #546 to #558 and #560).
+  It draws contacts from the dataset's `_electrodes.tsv` and `_coordsystem.json`, in the dataset's own coordinate frame, with a small WebGL2 renderer (no new runtime dependency; the panel is its own lazy chunk and loads only for iEEG recordings).
+  Where WebGL is off, or when "2D views" is chosen, it shows flat views of the same contacts, and both PNG and SVG exports are available.
+  Channels join contacts by exact name first, then by named rules (each non-exact join says its kind and shows the recorded contact name beside the channel name); an ambiguous join is refused, and the recorded location is shown as the file wrote it.
+  A recording that cannot be drawn says why: missing coordinates, names that join nothing (two sample names from each side are listed), or a units banner when the declared unit disagrees with the magnitudes (nothing is rescaled).
+  A census on 2026-11-17 of the 167 datasets (35,818 recordings) found 36 datasets that reach a template frame, 57 that show contacts in their own frame, 64 that refuse (mostly for having no coordinates), and 10 with no recordings; the join rules open the panel in 14 more datasets.
+  Not run: Firefox, Safari and a GPU-backed Chromium (the measurements are from software GL), and a run of the validation suite on the deployed test site.
+- **An optional Activity overlay on the contacts** (nemarOrg/website#561).
+  It is off by default and is computed in the browser from the samples the viewer already streams: RMS (root mean square), line length, band power and relative band power in dB.
+  A measure it cannot give is refused with a reason (window too short, band above the Nyquist frequency, mixed units).
+  One window's read takes 3 requests and 1.3 MB, down from 27 requests and 11.8 MB.
+- **A template brain surface, for registered template frames only** (nemarOrg/website#561).
+  The surface is a vendored MNI152NLin2009cAsym mesh, labeled "template, not this subject's anatomy", with "approximate" wherever a transform or a different MNI variant is involved.
+  Fourteen coordinate-frame identifier families are placed with cited transforms and 8 are pending; native and unknown frames are never placed.
+  The mesh is 532 KB as served, and its notice travels with it.
+- **A credit to RAVE on every panel and inside every exported file** (nemarOrg/website#561, nemarOrg/website#563).
+  It links https://rave.wiki and now reads "Inspired by RAVE" (it first read "Electrode view inspired by RAVE").
+  No RAVE code or assets ship.
+- **An "At cursor" Activity measure** (nemarOrg/website#563).
+  It is the default when Activity is switched on.
+  The contact colors follow the pointer over the scope and change at mouse speed with no new network request, using RMS (or line length) over a window centered on the pointer: 50, 100, 200 (default) or 500 ms.
+  The color scale is fixed once per read (2nd to 98th percentile of values at up to 64 positions across the window), so colors compare across pointer positions, and the legend says so.
+  With the pointer off the scope, the panel shows the whole-window value of the same measure, labeled as such.
+  Band power and relative band power stay whole-window measures.
+  The 2D views follow the pointer too, and saved PNG and SVG files state the measure, window and cursor time they show.
+  The contact list and the saved files catch up after the pointer rests for 150 ms.
+  On a touch device, or with only the keyboard, there is no pointer, so the whole-window value shows; the arrow keys keep scrolling the window.
+  Measured in headless Chromium with software GL: 60 pointer moves gave 59 recolor frames, a median of 0.10 ms and at worst 0.4 ms per frame, and no requests.
+  After a window change, the panel shows the previous window's whole-window values ("Updating for the new window...") until the new read lands.
+- **Controls for the stage** (nemarOrg/website#563).
+  A "Clear selection" button, a click on empty space, and the Escape key clear the highlighted channel.
+  Escape acts in order: it dismisses a visible tooltip, then clears the selection, then closes the panel and returns focus to the toggle.
+  On-stage zoom, pan mode and reset controls sit in the Frame row, with keys: plus and minus zoom, arrow keys turn the view, Shift with an arrow key slides it, P toggles pan mode, and 0 resets.
+  The stage announces these keys to screen readers.
+- **A research note classifying the 167 public iEEG datasets by coordinate metadata** (nemarOrg/website#562).
+  It sorts datasets into: no coordinates, coordinates elsewhere, `Other` with a free-text template, a native frame, a valid template frame, unit or identifier problems, and missing files.
+  It samples up to 5 subjects per dataset, so it is not a census, and says so.
+  It adds the note and its raw JSON under `.context/` and no code.
+- **The topomap tooltip names where electrode positions came from** (nemarOrg/website#544).
+  The EEG viewer's scalp topomap toggle says whether a store's positions came from the subject's own electrodes file or from one file shared by every subject, with the file in parentheses when the store names it.
+  The tooltip never calls positions measured, digitized or template.
+  A store converted before the converter wrote that attribute keeps the plain title, and the standard-montage fallback keeps its sentence.
+  A file path is shown only if it is a single line of at most 200 characters, with no control or direction-changing character, and relative to the repository (no leading slash, backslash or `scheme:` prefix); otherwise the tooltip omits the file.
+
+### Changed
+
+- **The Activity controls sit under the stage, and Activity colors read on the 3D stage** (nemarOrg/website#563).
+  With Activity on, contacts are drawn unlit at full color, a little larger, inside a thin outline, and the surface is made more transparent, so colors stay readable on both themes.
+  Picking uses the drawn size, so a visible rim is a hit.
+- **The note for a frame drawn without a brain says why** (nemarOrg/website#563).
+  It begins "No brain surface" and gives one reason: no declared frame, a template family whose transform is pending, no cited transform to the template, or units that cannot be scaled to millimeters.
+  It replaces "No template placement for this frame".
+- **The default Activity measure is At cursor, not band power** (nemarOrg/website#563), so a reader who wants band power chooses it.
+
+### Fixed
+
+- **BIDS's three ALS coordinate-system names are drawn the right way up** (nemarOrg/website#544).
+  `EEGLAB-HJ`, `4DBti` and `KitYokogawa` were read as RAS and drawn rotated by 90 degrees on the topomap; they are now turned like `EEGLAB`, in any letter case.
+  The five names already handled do not move.
+
 ## [0.2.40] - 2026-11-13
 
 ### Changed
