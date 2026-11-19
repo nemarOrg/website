@@ -92,10 +92,10 @@ const BUDGET = {
  * a changed address or a wrong DOI fails here (ADR 0033 fixes the credit; the sentences are the
  * panel's and the template's own).
  */
-const CREDIT_TEXT = "Electrode view inspired by RAVE";
+const CREDIT_TEXT = "Inspired by RAVE";
 const CREDIT_HREF = "https://rave.wiki";
 const CREDIT_DOI = "10.1016/j.neuroimage.2020.117341";
-const CREDIT_ARIA_LABEL = "Electrode view inspired by RAVE (opens in a new tab)";
+const CREDIT_ARIA_LABEL = "Inspired by RAVE (opens in a new tab)";
 const TEMPLATE_REFERENCE_HREF = "https://doi.org/10.1016/j.neuroimage.2010.07.033";
 const TEMPLATE_LICENSE_PATH = "/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt";
 const WEBGL_SENTENCE = "3D view needs WebGL2";
