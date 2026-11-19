@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { load } from "../../../test/ieeg-channel-fixtures";
 import { nodeFs, repoPath } from "../../../test/node";
 import type { WindowData } from "../eeg-viewer/store";
-import { buildScale, computeActivity } from "./activity";
+import {
+  type ActivityMatrix,
+  REASON_NON_FINITE,
+  buildScale,
+  computeActivity,
+  cursorScale,
+} from "./activity";
 import { creditLinkSpec } from "./credit";
 import {
   GEOMETRY_REASONS,
@@ -25,7 +31,9 @@ import {
   type ActivityReport,
   GEOMETRY_SENTENCES,
   type GroupInfo,
+  LIST_IDLE_MS,
   LOADING_SENTENCE,
+  type LiveCursorEnv,
   type LiveValues,
   MAX_ACTIVITY_SAMPLES,
   NO_MATCH_SENTENCE,
@@ -41,6 +49,7 @@ import {
   activitySamples,
   computeActivityPlan,
   contactColors,
+  createLiveCursor,
   defaultSpaceIndex,
   drawnPositions,
   drawnTemplate,
@@ -1388,6 +1397,7 @@ const slicePlan: ActivityPlan = {
   band: null,
   relative: false,
   cursorMs: null,
+  contactRows: [],
   rows: Array.from({ length: SLICE_ROWS }, (_, i) => i),
 };
 const sliceGroup = {
@@ -2387,7 +2397,13 @@ describe("the At cursor measure", () => {
     const contactValues = Float64Array.from({ length: n }, (_, i) =>
       i === 1 ? Number.NaN : 15 + i,
     );
-    const values: LiveValues = { contactValues, centerS, widthMs: 200, clipped };
+    const values: LiveValues = {
+      contactValues,
+      contactReasons: new Uint8Array(n).fill(REASON_NON_FINITE),
+      centerS,
+      widthMs: 200,
+      clipped,
+    };
     return withLive(state, values);
   }
 
@@ -2454,5 +2470,280 @@ describe("the At cursor measure", () => {
       report: knownReport(base.activity.token, BIPOLAR_LABELS),
     }).state;
     expect(live(plain, 3)).toBe(plain);
+  });
+});
+
+describe("the live cursor's lifecycle (frames, matrix, list catch-up), driven with a clock", () => {
+  /** A clock, a frame queue and timers the test advances by hand; nothing else is replaced. */
+  function clock() {
+    let now = 1000;
+    let next = 1;
+    const frames = new Map<number, () => void>();
+    const timers = new Map<number, { at: number; cb: () => void }>();
+    const env: LiveCursorEnv = {
+      requestFrame: (cb) => {
+        frames.set(next, cb);
+        return next++;
+      },
+      cancelFrame: (h) => void frames.delete(h),
+      setTimer: (cb, ms) => {
+        timers.set(next, { at: now + ms, cb });
+        return next++;
+      },
+      clearTimer: (h) => void timers.delete(h),
+      now: () => now,
+    };
+    return {
+      env,
+      frames,
+      timers,
+      /** Run the queued frame callbacks (a browser runs each once per frame). */
+      frame() {
+        const due = [...frames.values()];
+        frames.clear();
+        for (const cb of due) cb();
+      },
+      advance(ms: number) {
+        now += ms;
+        for (const [h, t] of [...timers]) {
+          if (t.at <= now) {
+            timers.delete(h);
+            t.cb();
+          }
+        }
+      },
+    };
+  }
+
+  const noScale = async () => {};
+
+  /** The panel open on the bipolar recording, Activity on and a read finished, with a real matrix. */
+  async function harness() {
+    const start = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_switch", on: true },
+    ]);
+    const plan = reads(start.effects)[0];
+    const nSamples = 5000;
+    const rows: (Float32Array | null)[] = bipolarGroup.labels.map(() => null);
+    for (const row of plan.rows) {
+      rows[row] = Float32Array.from(
+        { length: nSamples },
+        (_, i) => (row + 1) * 1e-6 * Math.sin((i / 500) * 2 * Math.PI * (3 + (row % 5))),
+      );
+    }
+    const matrix: ActivityMatrix = { t0S: 0, rateHz: 500, nSamples, factor: 1e6, rows };
+    const scale = await cursorScale(matrix, 200, "rms", plan.rows, plan.contactRows, "µV", noScale);
+    if (!scale) throw new Error("no scale");
+    const report: ActivityReport = {
+      ...knownReport(start.state.activity.token, BIPOLAR_LABELS),
+      metric: "rms",
+      unit: "µV",
+      cursorScale: scale,
+    };
+    const ready = reduce(start.state, { type: "activity_report", report }).state;
+    let state = ready;
+    const t = clock();
+    const log = { syncs: 0, recolors: [] as number[][], legends: [] as string[] };
+    const lc = createLiveCursor(t.env, {
+      state: () => state,
+      adopt: (timeS) => {
+        state = reduce(state, { type: "cursor_changed", timeS }).state;
+      },
+      sync: () => void log.syncs++,
+      recolor: (live) => {
+        log.recolors.push(Array.from(live.changed.keys()).filter((i) => live.changed[i]));
+      },
+      legend: (text) => void log.legends.push(text),
+    });
+    lc.hold(matrix);
+    return {
+      lc,
+      t,
+      log,
+      matrix,
+      ready,
+      get state() {
+        return state;
+      },
+      set state(next: PanelState) {
+        state = next;
+      },
+    };
+  }
+
+  it("many setCursor calls queue one frame, and one frame recolors once with the last position", async () => {
+    const h = await harness();
+    for (let k = 0; k < 50; k++) h.lc.setCursor(1 + k * 0.01);
+    expect(h.t.frames.size).toBe(1);
+    h.t.frame();
+    expect(h.state.activity.cursorS).toBeCloseTo(1.49, 9);
+    // Entering the live state is a full paint, not a recolor.
+    expect(h.log.syncs).toBe(1);
+    expect(h.lc.on).toBe(true);
+    // Now live: many moves, one frame, one recolor.
+    for (let k = 0; k < 50; k++) h.lc.setCursor(3 + k * 0.1);
+    expect(h.t.frames.size).toBe(1);
+    h.t.frame();
+    expect(h.log.recolors).toHaveLength(1);
+    expect(h.log.legends).toHaveLength(1);
+    expect(h.log.legends[0]).toContain("RMS over 200 ms centered at 7.90 s, in microvolts.");
+    expect(h.log.syncs).toBe(1);
+    // The same position again queues nothing.
+    h.lc.setCursor(7.9);
+    expect(h.t.frames.size).toBe(0);
+  });
+
+  it("a move that changes no color repaints no contact but still says where the cursor is", async () => {
+    const h = await harness();
+    h.lc.setCursor(5);
+    h.t.frame();
+    h.lc.setCursor(5.0001);
+    h.t.frame();
+    const before = h.log.recolors.length;
+    h.lc.setCursor(5.0002);
+    h.t.frame();
+    expect(h.log.recolors.length).toBe(before);
+    expect(h.log.legends.at(-1)).toContain("5.00 s");
+  });
+
+  it("entering and leaving live are full paints; off the scope there are no live values", async () => {
+    const h = await harness();
+    expect(h.lc.measure()).toBeNull();
+    h.lc.setCursor(4);
+    h.t.frame();
+    expect(h.lc.on).toBe(true);
+    expect(h.log.syncs).toBe(1);
+    h.lc.setCursor(null);
+    h.t.frame();
+    expect(h.state.activity.cursorS).toBeNull();
+    expect(h.lc.on).toBe(false);
+    expect(h.lc.measure()).toBeNull();
+    expect(h.log.syncs).toBe(2);
+    // Back in.
+    h.lc.setCursor(6);
+    h.t.frame();
+    expect(h.lc.on).toBe(true);
+    expect(h.log.syncs).toBe(3);
+  });
+
+  it("a cursor outside the read leaves the whole-window values on screen", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    h.lc.setCursor(99);
+    h.t.frame();
+    expect(h.lc.on).toBe(false);
+    expect(h.log.syncs).toBe(2);
+  });
+
+  it("the list catches up only after the cursor has rested for LIST_IDLE_MS", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    const entered = h.log.syncs;
+    h.lc.setCursor(4.5);
+    h.t.frame();
+    expect(h.t.timers.size).toBe(1);
+    h.t.advance(LIST_IDLE_MS - 50);
+    h.lc.setCursor(5);
+    h.t.frame();
+    // The pointer moved again: the first timer fires late-ish and re-arms instead of painting.
+    h.t.advance(50);
+    expect(h.log.syncs).toBe(entered);
+    h.t.advance(LIST_IDLE_MS);
+    expect(h.log.syncs).toBe(entered + 1);
+    expect(h.t.timers.size).toBe(0);
+  });
+
+  it("dispose with a frame queued cancels it: no throw, no recolor, no later frame", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    h.lc.setCursor(5);
+    const queued = [...h.t.frames.values()];
+    expect(queued).toHaveLength(1);
+    const recolors = h.log.recolors.length;
+    const syncs = h.log.syncs;
+    h.lc.dispose();
+    expect(h.t.frames.size).toBe(0);
+    expect(h.t.timers.size).toBe(0);
+    // A callback the browser had already taken is a no-op.
+    expect(() => queued[0]()).not.toThrow();
+    h.lc.setCursor(6);
+    expect(h.t.frames.size).toBe(0);
+    expect(h.log.recolors.length).toBe(recolors);
+    expect(h.log.syncs).toBe(syncs);
+    expect(h.lc.holding).toBe(false);
+  });
+
+  const aborting: [string, (s: PanelState) => { state: PanelState; effects: PanelEffect[] }][] = [
+    ["a window change", (s) => reduce(s, { type: "window_changed", startS: 5, lengthS: 10 })],
+    ["an option change (width)", (s) => reduce(s, { type: "activity_options", cursorMs: 500 })],
+    ["an option change (measure)", (s) => reduce(s, { type: "activity_options", choice: "rms" })],
+    ["Activity off", (s) => reduce(s, { type: "activity_switch", on: false })],
+    ["a group change", (s) => reduce(s, { type: "group_changed", group: bipolarGroup })],
+    [
+      "a recording change",
+      (s) => reduce(s, { type: "recording_changed", recording: REC, group: bipolarGroup }),
+    ],
+    ["closing the panel", (s) => reduce(s, { type: "toggle_open", open: false })],
+    ["dispose", (s) => reduce(s, { type: "disposed" })],
+  ];
+
+  for (const [name, apply] of aborting) {
+    it(`${name} aborts the read, which releases the matrix, and a stale matrix is never used`, async () => {
+      const h = await harness();
+      h.lc.setCursor(4);
+      h.t.frame();
+      expect(h.lc.on).toBe(true);
+      const t = apply(h.state);
+      // The reducer says to abort, and the shell runs that effect by releasing.
+      expect(t.effects).toContainEqual({ type: "abort_activity" });
+      for (const effect of t.effects) if (effect.type === "abort_activity") h.lc.release();
+      expect(h.lc.holding).toBe(false);
+      expect(h.lc.on).toBe(false);
+      expect(h.t.timers.size).toBe(0);
+      // Whatever the new state says, nothing measures without a fresh read...
+      h.state = t.state;
+      expect(h.lc.measure()).toBeNull();
+      // ...not even a state that still looks ready (the old one): the matrix is gone, not just unused.
+      h.state = h.ready;
+      expect(h.lc.measure()).toBeNull();
+    });
+  }
+
+  it("a new read replaces the old matrix: values come from the new samples, never the old", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    const old = h.lc.measure();
+    const before = Float64Array.from(old?.contactValues ?? []);
+    h.lc.release();
+    const doubled: ActivityMatrix = {
+      ...h.matrix,
+      rows: h.matrix.rows.map((r) => (r ? Float32Array.from(r, (v) => v * 2) : null)),
+    };
+    h.lc.hold(doubled);
+    const fresh = h.lc.measure();
+    expect(fresh).not.toBeNull();
+    const finite = Array.from(fresh?.contactValues ?? []).flatMap((v, i) =>
+      Number.isFinite(v) && Number.isFinite(before[i]) ? [[v, before[i]]] : [],
+    );
+    expect(finite.length).toBeGreaterThan(10);
+    for (const [v, b] of finite) expect(v / b).toBeCloseTo(2, 4);
+  });
+
+  it("while the panel is closed or Activity is off a position is kept, not painted, and adopted on demand", async () => {
+    const h = await harness();
+    h.state = reduce(h.state, { type: "activity_switch", on: false }).state;
+    h.lc.setCursor(4);
+    expect(h.t.frames.size).toBe(0);
+    h.lc.adopt();
+    expect(h.state.activity.cursorS).toBe(4);
+    // Leaving the scope still clears the state's cursor through a frame.
+    h.lc.setCursor(null);
+    expect(h.t.frames.size).toBe(1);
+    h.t.frame();
+    expect(h.state.activity.cursorS).toBeNull();
   });
 });

@@ -121,6 +121,7 @@ const plan: ActivityPlan = {
   band: null,
   relative: false,
   cursorMs: null,
+  contactRows: [],
   rows: Array.from({ length: ROWS }, (_, i) => i),
 };
 const group = { labels: LABELS, units: LABELS.map(() => "V"), nativeRateHz: 1000 };

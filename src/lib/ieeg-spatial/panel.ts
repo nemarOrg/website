@@ -55,6 +55,7 @@ import {
   type ChannelNullReason,
   type CursorMetric,
   DEFAULT_CURSOR_MS,
+  REASON_UNDEFINED,
   activityChannelsFromWindow,
   buildScale,
   colorFor,
@@ -680,6 +681,8 @@ export interface ActivityPlan {
   relative: boolean;
   /** "At cursor" only: the short window's width in milliseconds; null for the other measures. */
   cursorMs: number | null;
+  /** Per drawn contact, the channel rows that feed it: the cursor scale pools contact values. */
+  contactRows: number[][];
   /** Channel rows to read, ascending, distinct, all located. */
   rows: number[];
 }
@@ -938,6 +941,7 @@ function planActivity(
       band: metric === "band_power" ? a.band : null,
       relative,
       cursorMs,
+      contactRows: placement.contacts.map((c) => [...c.channels]),
       rows,
     },
   };
@@ -1688,7 +1692,7 @@ function activitySummary(shown: ActivityShown, cursorMs: number | null = null): 
     return `${cursorHeadline(r.metric, r.unit, shown.cursor.widthMs, shown.cursor.centerS)} ${cursorTail(shown.scale, r.unit, shown.cursor.clipped)}`;
   }
   if (cursorMs !== null) {
-    return `${wholeWindowSummary(shown)} Whole-window value, because the cursor is off the scope or its window could not be measured; move the cursor over the scope for the value over ${cursorMs} ms.`;
+    return `${wholeWindowSummary(shown)} Whole-window value of the same measure is shown. On a device with a pointer, the value over ${cursorMs} ms follows the pointer over the scope.`;
   }
   return wholeWindowSummary(shown);
 }
@@ -1914,6 +1918,8 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
 /** The cursor window's values per drawn contact (NaN: none), as `LiveActivity` measures them. */
 export interface LiveValues {
   contactValues: ArrayLike<number>;
+  /** Per contact with no value: `REASON_NON_FINITE` or `REASON_UNDEFINED` of activity.ts. */
+  contactReasons: ArrayLike<number>;
   centerS: number;
   widthMs: number;
   clipped: boolean;
@@ -1933,7 +1939,13 @@ export function withLive(state: PanelState, live: LiveValues): PanelState {
   for (let i = 0; i < live.contactValues.length; i++) {
     const v = live.contactValues[i];
     contactValues.push(Number.isFinite(v) ? v : null);
-    contactReasons.push(Number.isFinite(v) ? null : "non_finite");
+    contactReasons.push(
+      Number.isFinite(v)
+        ? null
+        : live.contactReasons[i] === REASON_UNDEFINED
+          ? "undefined_value"
+          : "non_finite",
+    );
   }
   const cursor: LiveCursor = {
     centerS: live.centerS,
@@ -2184,7 +2196,15 @@ export async function computeActivityPlan(
       rows: kept,
     };
     const metric: CursorMetric = plan.metric === "line_length" ? "line_length" : "rms";
-    scale = await cursorScale(matrix, plan.cursorMs, metric, plan.rows, first.unit, yieldTask);
+    scale = await cursorScale(
+      matrix,
+      plan.cursorMs,
+      metric,
+      plan.rows,
+      plan.contactRows,
+      first.unit,
+      yieldTask,
+    );
     if (signal?.aborted) return null;
     // A read too short for the cursor window keeps no matrix: the whole-window values stand.
     if (!scale) matrix = null;
@@ -2255,6 +2275,212 @@ export function forgetTemplateOutlines(): void {
   outlinesLoad = null;
 }
 
+// ---------------------------------------------------------------------------
+// The live cursor's lifecycle
+// ---------------------------------------------------------------------------
+
+/** What the live cursor needs from the page: frames, timers and a clock (injected so tests can drive them). */
+export interface LiveCursorEnv {
+  requestFrame(callback: () => void): number;
+  cancelFrame(handle: number): void;
+  setTimer(callback: () => void, ms: number): number;
+  clearTimer(handle: number): void;
+  now(): number;
+}
+
+/** What the live cursor reads from and paints on the panel. */
+export interface LiveCursorHost {
+  state(): PanelState;
+  /** Put the cursor into the panel's state (the `cursor_changed` event), without painting. */
+  adopt(timeS: number | null): void;
+  /** A full paint: words, scale, list, colors. */
+  sync(): void;
+  /** Recolor the drawn contacts whose `live.changed` is set. Nothing else. */
+  recolor(live: LiveActivity): void;
+  /** The legend sentence, written every frame (not a live region). */
+  legend(text: string): void;
+}
+
+export interface LiveCursorController {
+  /** Keep the samples of the read that just finished; the next `measure` binds to them. */
+  hold(matrix: ActivityMatrix | null): void;
+  /** Drop the samples and everything measured from them (every abort path). */
+  release(): void;
+  /** The viewer's cursor: kept, and one frame is queued to recolor for it. */
+  setCursor(timeS: number | null): void;
+  /** Take the last reported cursor into the state before a switch or the panel changes it. */
+  adopt(): void;
+  /** Measure the window at the state's cursor; the live values while the contacts show them, else null. */
+  measure(): LiveActivity | null;
+  /** The contacts were repainted from outside: the next frame repaints them all. */
+  invalidate(): void;
+  readonly on: boolean;
+  /** Whether samples are retained (for tests and the box's data attribute). */
+  readonly holding: boolean;
+  dispose(): void;
+}
+
+/**
+ * The live cursor's lifecycle, apart from the DOM. The retained matrix, the engine measured from
+ * it, the animation frame that recolors (many `setCursor` calls, one frame), the timer that lets
+ * the list catch up once the pointer rests (`LIST_IDLE_MS`), and entering and leaving the live
+ * state (a full paint) all live here, so they can be tested with an injected clock.
+ */
+export function createLiveCursor(env: LiveCursorEnv, host: LiveCursorHost): LiveCursorController {
+  let matrix: ActivityMatrix | null = null;
+  let live: LiveActivity | null = null;
+  let liveMatrix: ActivityMatrix | null = null;
+  let livePlacement: Placement | null = null;
+  let measuredAt: number | null = null;
+  let on = false;
+  let tails: [string | null, string | null] = [null, null];
+  let pending: number | null = null;
+  let frame: number | null = null;
+  let timer: number | null = null;
+  let lastMove = 0;
+  let disposed = false;
+
+  function stopTimer(): void {
+    if (timer !== null) env.clearTimer(timer);
+    timer = null;
+  }
+
+  function release(): void {
+    matrix = null;
+    live = null;
+    liveMatrix = null;
+    livePlacement = null;
+    measuredAt = null;
+    on = false;
+    tails = [null, null];
+    stopTimer();
+  }
+
+  function adopt(): void {
+    if (pending !== host.state().activity.cursorS) host.adopt(pending);
+  }
+
+  function measure(): LiveActivity | null {
+    const state = host.state();
+    const a = state.activity;
+    const placement = state.placement;
+    const scale = a.shown?.cursorScale;
+    if (
+      !a.on ||
+      !isCursorChoice(a.choice) ||
+      a.status.kind !== "ready" ||
+      !scale ||
+      !matrix ||
+      !placement ||
+      a.cursorS === null
+    ) {
+      on = false;
+      return null;
+    }
+    if (!live || liveMatrix !== matrix || livePlacement !== placement) {
+      live = createLiveActivity({
+        matrix,
+        rows: locatedRows(placement),
+        contactRows: placement.contacts.map((c) => c.channels),
+        metric: a.choice === "cursor_line_length" ? "line_length" : "rms",
+        widthMs: a.cursorMs,
+        scale,
+      });
+      liveMatrix = matrix;
+      livePlacement = placement;
+      tails = [null, null];
+      measuredAt = null;
+    }
+    // The same center was already measured: nothing to redo, and nothing consumed.
+    if (!(on && measuredAt === a.cursorS)) {
+      on = live.update(a.cursorS);
+      measuredAt = on ? a.cursorS : null;
+    }
+    return on ? live : null;
+  }
+
+  function queue(): void {
+    if (disposed || frame !== null) return;
+    const a = host.state().activity;
+    if (pending === a.cursorS) return;
+    // While the panel is closed or Activity is off a position is only kept (`adopt` takes it when
+    // that changes); leaving the scope still clears the state's cursor.
+    if (!(host.state().open && a.on) && pending !== null) return;
+    frame = env.requestFrame(onFrame);
+  }
+
+  function onFrame(): void {
+    frame = null;
+    if (disposed) return;
+    adopt();
+    const was = on;
+    const l = measure();
+    // Entering or leaving the live state changes the words and the scale: a full paint.
+    if ((l !== null) !== was) {
+      host.sync();
+      return;
+    }
+    if (!l) return;
+    lastMove = env.now();
+    if (l.anyChanged) {
+      host.recolor(l);
+      l.commit();
+    }
+    const a = host.state().activity;
+    const shown = a.shown;
+    if (shown && a.cursorS !== null) {
+      const t = l.clipped ? 1 : 0;
+      tails[t] ??= cursorTail(l.scale, shown.report.unit, l.clipped);
+      host.legend(
+        `${cursorHeadline(shown.report.metric, shown.report.unit, a.cursorMs, a.cursorS)} ${tails[t]}`,
+      );
+    }
+    if (timer === null) timer = env.setTimer(onTimer, LIST_IDLE_MS);
+  }
+
+  function onTimer(): void {
+    timer = null;
+    if (disposed) return;
+    const idle = env.now() - lastMove;
+    if (on && idle < LIST_IDLE_MS) {
+      timer = env.setTimer(onTimer, LIST_IDLE_MS - idle);
+      return;
+    }
+    host.sync();
+  }
+
+  return {
+    hold(m) {
+      matrix = m;
+      live = null;
+      measuredAt = null;
+    },
+    release,
+    setCursor(timeS) {
+      if (disposed) return;
+      pending = timeS;
+      queue();
+    },
+    adopt,
+    measure,
+    invalidate() {
+      live?.invalidate();
+    },
+    get on() {
+      return on;
+    },
+    get holding() {
+      return matrix !== null;
+    },
+    dispose() {
+      disposed = true;
+      if (frame !== null) env.cancelFrame(frame);
+      frame = null;
+      release();
+    },
+  };
+}
+
 /** Gives each panel's ids their own numbers (a page may hold more than one panel). */
 let panelSeq = 0;
 
@@ -2270,18 +2496,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   let activityCtl: AbortController | null = null;
   let activityTimer = 0;
 
-  // The live "At cursor" half. `matrix` is the last successful read's samples; it is released by
-  // every `abort_activity` effect (a window or option change, the switch off, the panel closing).
-  let matrix: ActivityMatrix | null = null;
-  let live: LiveActivity | null = null;
-  let liveMatrix: ActivityMatrix | null = null;
-  let livePlacement: Placement | null = null;
-  let liveOn = false;
-  let liveTails: [string | null, string | null] = [null, null];
-  let pendingCursor: number | null = null;
-  let cursorFrameQueued = false;
-  let lastLiveMoveMs = 0;
-  let listTimer = 0;
+  // The live "At cursor" half: its lifecycle is `createLiveCursor`; this shell paints for it.
+  let liveCursor: LiveCursorController | null = null;
   /** The color array last handed to the renderer; the live frames rewrite its rgb in place. */
   let colorsBuf: Float32Array | null = null;
   let circles: { el: Element; contact: number }[] = [];
@@ -2609,7 +2825,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     const colors = contactColors(shownState, palette);
     colorsBuf = colors;
     if (colors) renderer.setColors(colors);
-    live?.invalidate();
+    liveCursor?.invalidate();
     renderer.setSelected(
       state.selection.contacts.length === 1 ? state.selection.contacts[0] : null,
     );
@@ -2623,7 +2839,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     box.hidden = !model.open;
     box.dataset.activityState = state.activity.status.kind;
     box.dataset.activityReads = String(reads);
-    box.dataset.activityLive = liveOn ? "1" : "0";
+    box.dataset.activityLive = liveCursor?.on ? "1" : "0";
     ensureRenderer(model.open && model.stage.kind === "canvas");
     // Creating the renderer may have found no WebGL2; the model then says so.
     vs = viewState();
@@ -2876,7 +3092,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         el,
         contact: Number((el as SVGCircleElement).dataset.contact),
       }));
-      live?.invalidate();
+      liveCursor?.invalidate();
     }
     const sentences = figureLabels(input, true)
       .filter((l) => l.role === "axes" || l.role === "measure")
@@ -2919,7 +3135,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   function dispatch(event: PanelEvent): void {
     if (disposed) return;
     // The cursor the viewer last reported is known before the switch or the panel changes state.
-    if (event.type === "toggle_open" || event.type === "activity_switch") adoptCursor();
+    if (event.type === "toggle_open" || event.type === "activity_switch") liveCursor?.adopt();
     const before = state.open;
     const t = reduce(state, event);
     state = t.state;
@@ -2942,14 +3158,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         window.clearTimeout(activityTimer);
         activityCtl?.abort();
         activityCtl = null;
-        releaseMatrix();
+        liveCursor?.release();
         return;
       case "read_activity": {
         window.clearTimeout(activityTimer);
         activityCtl?.abort();
         const ctl = new AbortController();
         activityCtl = ctl;
-        releaseMatrix();
+        liveCursor?.release();
         activityTimer = window.setTimeout(
           () => void readActivity(effect.plan, ctl.signal),
           ACTIVITY_DEBOUNCE_MS,
@@ -3022,7 +3238,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         { signal },
       );
       if (outcome === null || signal.aborted) return;
-      matrix = outcome.ok ? outcome.matrix : null;
+      liveCursor?.hold(outcome.ok ? outcome.matrix : null);
       dispatch(
         outcome.ok
           ? { type: "activity_report", report: outcome.report }
@@ -3036,83 +3252,6 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   }
 
   // --- live cursor ---------------------------------------------------------
-  function releaseMatrix(): void {
-    matrix = null;
-    live = null;
-    liveMatrix = null;
-    livePlacement = null;
-    liveOn = false;
-    liveTails = [null, null];
-    window.clearTimeout(listTimer);
-    listTimer = 0;
-  }
-
-  /** Take the cursor the viewer last reported into the state, without painting. */
-  function adoptCursor(): void {
-    if (pendingCursor !== state.activity.cursorS) {
-      state = reduce(state, { type: "cursor_changed", timeS: pendingCursor }).state;
-    }
-  }
-
-  /**
-   * Measure the cursor's window into `live`, and say whether the contacts now show it. False when
-   * the measure is not an "At cursor" one, nothing is retained, the cursor is off the scope, or
-   * the window cannot be measured there (then the whole-window values stand).
-   */
-  function computeLive(): boolean {
-    const a = state.activity;
-    const placement = state.placement;
-    const scale = a.shown?.cursorScale;
-    if (
-      !a.on ||
-      !isCursorChoice(a.choice) ||
-      a.status.kind !== "ready" ||
-      !scale ||
-      !matrix ||
-      !placement ||
-      a.cursorS === null
-    ) {
-      liveOn = false;
-      return false;
-    }
-    if (!live || liveMatrix !== matrix || livePlacement !== placement) {
-      live = createLiveActivity({
-        matrix,
-        rows: locatedRows(placement),
-        contactRows: placement.contacts.map((c) => c.channels),
-        metric: a.choice === "cursor_line_length" ? "line_length" : "rms",
-        widthMs: a.cursorMs,
-        scale,
-      });
-      liveMatrix = matrix;
-      livePlacement = placement;
-      liveTails = [null, null];
-    }
-    liveOn = live.update(a.cursorS);
-    return liveOn;
-  }
-
-  /** The state as shown: with the cursor window's values while the contacts follow the cursor. */
-  function viewState(): PanelState {
-    const a = state.activity;
-    if (!computeLive() || !live || a.cursorS === null) return state;
-    return withLive(state, {
-      contactValues: live.contactValues,
-      centerS: a.cursorS,
-      widthMs: a.cursorMs,
-      clipped: live.clipped,
-    });
-  }
-
-  function queueCursorFrame(): void {
-    if (cursorFrameQueued || pendingCursor === state.activity.cursorS) return;
-    // While the panel is closed or Activity is off a position is only kept (`adoptCursor` takes
-    // it when that changes); leaving the scope still clears the state's cursor.
-    if (!(state.open && state.activity.on) && pendingCursor !== null) return;
-    cursorFrameQueued = true;
-    requestAnimationFrame(cursorFrame);
-  }
-
   function fillOf(index: number): string {
     let fill = fills[index];
     if (fill === undefined) {
@@ -3122,68 +3261,62 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     return fill;
   }
 
-  /** One animation frame of the cursor: recolor only. No layout, no geometry, no read. */
-  function cursorFrame(): void {
-    cursorFrameQueued = false;
-    if (disposed) return;
-    adoptCursor();
-    const was = liveOn;
-    const ok = computeLive();
-    // Entering or leaving the live state changes the words and the scale: a full paint.
-    if (ok !== was) {
-      sync();
-      return;
-    }
-    if (!ok || !live) return;
-    lastLiveMoveMs = performance.now();
-    if (live.anyChanged) {
-      if (renderer && colorsBuf) {
-        for (let i = 0; i < live.changed.length; i++) {
-          if (!live.changed[i]) continue;
-          const idx = live.indexes[i];
-          if (idx < 0) {
-            colorsBuf[i * 4] = palette.noData[0];
-            colorsBuf[i * 4 + 1] = palette.noData[1];
-            colorsBuf[i * 4 + 2] = palette.noData[2];
-          } else {
-            colorsBuf[i * 4] = lutChannel(idx, 0) / 255;
-            colorsBuf[i * 4 + 1] = lutChannel(idx, 1) / 255;
-            colorsBuf[i * 4 + 2] = lutChannel(idx, 2) / 255;
-          }
+  /** Recolor the drawn contacts whose table entry changed: the renderer's buffer and the 2D circles. */
+  function recolor(live: LiveActivity): void {
+    if (renderer && colorsBuf) {
+      for (let i = 0; i < live.changed.length; i++) {
+        if (!live.changed[i]) continue;
+        const idx = live.indexes[i];
+        if (idx < 0) {
+          colorsBuf[i * 4] = palette.noData[0];
+          colorsBuf[i * 4 + 1] = palette.noData[1];
+          colorsBuf[i * 4 + 2] = palette.noData[2];
+        } else {
+          colorsBuf[i * 4] = lutChannel(idx, 0) / 255;
+          colorsBuf[i * 4 + 1] = lutChannel(idx, 1) / 255;
+          colorsBuf[i * 4 + 2] = lutChannel(idx, 2) / 255;
         }
-        renderer.setColors(colorsBuf);
       }
-      for (let k = 0; k < circles.length; k++) {
-        const c = circles[k];
-        if (!live.changed[c.contact]) continue;
-        const idx = live.indexes[c.contact];
-        c.el.setAttribute("fill", idx < 0 ? noDataFill : fillOf(idx));
-      }
+      renderer.setColors(colorsBuf);
     }
-    // The legend is the one string made per frame; it is not a live region, so nothing is announced.
-    const a = state.activity;
-    const shown = a.shown;
-    if (shown && a.cursorS !== null) {
-      const t = live.clipped ? 1 : 0;
-      liveTails[t] ??= cursorTail(live.scale, shown.report.unit, live.clipped);
-      setText(
-        actSummary,
-        `${cursorHeadline(shown.report.metric, shown.report.unit, a.cursorMs, a.cursorS)} ${liveTails[t]}`,
-      );
+    for (let k = 0; k < circles.length; k++) {
+      const c = circles[k];
+      if (!live.changed[c.contact]) continue;
+      const idx = live.indexes[c.contact];
+      c.el.setAttribute("fill", idx < 0 ? noDataFill : fillOf(idx));
     }
-    if (!listTimer) listTimer = window.setTimeout(listTick, LIST_IDLE_MS);
   }
 
-  /** The contact list and the files follow once the cursor rests; they are too heavy for every frame. */
-  function listTick(): void {
-    listTimer = 0;
-    if (disposed) return;
-    const idle = performance.now() - lastLiveMoveMs;
-    if (liveOn && idle < LIST_IDLE_MS) {
-      listTimer = window.setTimeout(listTick, LIST_IDLE_MS - idle);
-      return;
-    }
-    sync();
+  const frameEnv: LiveCursorEnv = {
+    requestFrame: (cb) => requestAnimationFrame(cb),
+    cancelFrame: (h) => cancelAnimationFrame(h),
+    setTimer: (cb, ms) => window.setTimeout(cb, ms),
+    clearTimer: (h) => window.clearTimeout(h),
+    now: () => performance.now(),
+  };
+  liveCursor = createLiveCursor(frameEnv, {
+    state: () => state,
+    adopt: (timeS) => {
+      state = reduce(state, { type: "cursor_changed", timeS }).state;
+    },
+    sync: () => sync(),
+    recolor,
+    // The legend is the one string made per frame; it is not a live region, so nothing is announced.
+    legend: (text) => setText(actSummary, text),
+  });
+
+  /** The state as shown: with the cursor window's values while the contacts follow the cursor. */
+  function viewState(): PanelState {
+    const a = state.activity;
+    const l = liveCursor?.measure() ?? null;
+    if (!l || a.cursorS === null) return state;
+    return withLive(state, {
+      contactValues: l.contactValues,
+      contactReasons: l.contactReasons,
+      centerS: a.cursorS,
+      widthMs: a.cursorMs,
+      clipped: l.clipped,
+    });
   }
 
   function onCanvasClick(e: MouseEvent): void {
@@ -3297,8 +3430,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     },
     setCursor(timeS) {
       if (!started || disposed) return;
-      pendingCursor = timeS;
-      queueCursorFrame();
+      liveCursor?.setCursor(timeS);
     },
     selectChannel(label) {
       if (started && state.open) dispatch({ type: "select_channel", label });
@@ -3313,8 +3445,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       state = t.state;
       for (const effect of t.effects) run(effect);
       disposed = true;
-      window.clearTimeout(listTimer);
-      releaseMatrix();
+      liveCursor?.dispose();
       resizeObserver?.disconnect();
       ensureRenderer(false);
       box.replaceChildren();

@@ -2316,7 +2316,7 @@ test("cursor: 60 pointer moves over 128 or more channels recolor the 3D view wit
     `data plane slow (Zarr median ${fresh.medianMs} ms at a fresh preflight); not judged`,
   );
   // Time every animation-frame callback by its function name: the panel's recolor is
-  // `cursorFrame` (this runs against the dev server, which does not minify names).
+  // `onFrame` (this runs against the dev server, which does not minify names).
   await page.addInitScript(() => {
     const w = window as unknown as { __raf: Record<string, number[]> };
     w.__raf = {};
@@ -2356,7 +2356,7 @@ test("cursor: 60 pointer moves over 128 or more channels recolor the 3D view wit
   // The entering frame is a full paint (words, scale, list); it is reported, not part of the budget.
   const entering = await page.evaluate(() => {
     const w = window as unknown as { __raf: Record<string, number[]> };
-    const took = w.__raf.cursorFrame ?? [];
+    const took = w.__raf.onFrame ?? [];
     w.__raf = {};
     return took;
   });
@@ -2370,7 +2370,7 @@ test("cursor: 60 pointer moves over 128 or more channels recolor the 3D view wit
   const timings = await page.evaluate(
     () => (window as unknown as { __raf: Record<string, number[]> }).__raf,
   );
-  const frameMs = timings.cursorFrame ?? [];
+  const frameMs = timings.onFrame ?? [];
   const worst = frameMs.length ? Math.max(...frameMs) : Number.NaN;
   const median = frameMs.length
     ? [...frameMs].sort((a, b) => a - b)[Math.floor(frameMs.length / 2)]
