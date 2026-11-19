@@ -22,6 +22,7 @@ import {
   decodeBrainMesh,
   encodeBrainMesh,
 } from "../src/lib/ieeg-spatial/mesh-format";
+import { TEMPLATE_DIRECTORY } from "../src/lib/ieeg-spatial/transforms";
 import { nodeFs, repoPath, sha256Hex } from "./node";
 
 const fs = await nodeFs();
@@ -431,5 +432,21 @@ describe("views.json", () => {
         }
       }
     }
+  });
+});
+
+describe("the cache rule for the surface (public/_headers)", () => {
+  const rule = `${TEMPLATE_DIRECTORY}*`;
+  const lines = text("public/_headers").split("\n");
+  const at = lines.findIndex((line) => line.trim() === rule);
+
+  it("is for the folder the panel fetches from, which is the folder on disk", () => {
+    expect(`public${TEMPLATE_DIRECTORY}`).toBe(`${DIR}/`);
+    expect(at).toBeGreaterThan(-1);
+  });
+
+  it("is a versioned folder, so long-lived immutable caching is safe", () => {
+    expect(TEMPLATE_DIRECTORY).toMatch(/@\d+\/$/);
+    expect(lines[at + 1]?.trim()).toBe("Cache-Control: public, max-age=31536000, immutable");
   });
 });
