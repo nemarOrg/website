@@ -14,7 +14,7 @@
  */
 
 export const RAVE_CREDIT = Object.freeze({
-  text: "Electrode view inspired by RAVE",
+  text: "Inspired by RAVE",
   href: "https://rave.wiki",
   title:
     "RAVE: Reproducible Analysis and Visualization of iEEG (Magnotti, Wang and Beauchamp, NeuroImage 2020, doi:10.1016/j.neuroimage.2020.117341)",

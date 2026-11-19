@@ -27,7 +27,7 @@ const THEME = { background: "#0a1224", foreground: "#f8fafc" };
 
 describe("RAVE_CREDIT", () => {
   it("carries the settled wording, address and DOI", () => {
-    expect(RAVE_CREDIT.text).toBe("Electrode view inspired by RAVE");
+    expect(RAVE_CREDIT.text).toBe("Inspired by RAVE");
     expect(RAVE_CREDIT.href).toBe("https://rave.wiki");
     expect(RAVE_CREDIT.doi).toBe("10.1016/j.neuroimage.2020.117341");
     expect(RAVE_CREDIT.title).toBe(
@@ -85,7 +85,7 @@ describe("creditSvg", () => {
 
   it("wraps the text in a link to the address", () => {
     expect(svg).toMatch(
-      /<a [^>]*href="https:\/\/rave\.wiki"[^>]*>\s*<text[^>]*>Electrode view inspired by RAVE<\/text>\s*<\/a>/,
+      /<a [^>]*href="https:\/\/rave\.wiki"[^>]*>\s*<text[^>]*>Inspired by RAVE<\/text>\s*<\/a>/,
     );
   });
 
@@ -296,7 +296,7 @@ describe("the credit is declared once", () => {
 
   it("writes the sentence only in credit.ts and this test", () => {
     const hits = files
-      .filter((f) => readFileSync(f, "utf8").includes("inspired by RAVE"))
+      .filter((f) => readFileSync(f, "utf8").includes("Inspired by RAVE"))
       .map((f) => relative(REPO, f))
       .sort();
     expect(hits).toEqual(["src/lib/ieeg-spatial/credit.test.ts", "src/lib/ieeg-spatial/credit.ts"]);

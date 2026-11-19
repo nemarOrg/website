@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { load } from "../../../test/ieeg-channel-fixtures";
 import { nodeFs, repoPath } from "../../../test/node";
 import type { WindowData } from "../eeg-viewer/store";
-import { computeActivity } from "./activity";
+import {
+  type ActivityMatrix,
+  REASON_NON_FINITE,
+  buildScale,
+  computeActivity,
+  cursorScale,
+} from "./activity";
 import { creditLinkSpec } from "./credit";
 import {
   GEOMETRY_REASONS,
@@ -20,12 +26,16 @@ import {
   stackedScopeHeight,
 } from "./layout";
 import {
+  ACTIVITY_DEBOUNCE_MS,
   ACTIVITY_SENTENCES,
   type ActivityPlan,
   type ActivityReport,
   GEOMETRY_SENTENCES,
   type GroupInfo,
+  LIST_IDLE_MS,
   LOADING_SENTENCE,
+  type LiveCursorEnv,
+  type LiveValues,
   MAX_ACTIVITY_SAMPLES,
   NO_MATCH_SENTENCE,
   type PanelEffect,
@@ -37,15 +47,19 @@ import {
   TRANSIENT_REASONS,
   WEBGL_SENTENCE,
   abortableSleep,
+  activityEmphasis,
   activitySamples,
   computeActivityPlan,
   contactColors,
+  createActivityRunner,
+  createLiveCursor,
   defaultSpaceIndex,
   drawnPositions,
   drawnTemplate,
   formatActivityValue,
   frameName,
   initialState,
+  isCursorChoice,
   needsAnotherTry,
   positionWarnings,
   readSpans,
@@ -56,6 +70,7 @@ import {
   unitsSentence,
   unlocatedNotes,
   viewModel,
+  withLive,
 } from "./panel";
 import {
   MNI305_TO_MNI152,
@@ -246,6 +261,7 @@ describe("a recording, group or frame change starts clean", () => {
       segments: 18,
       segmentSamples: 512,
       referenceHz: null,
+      cursorScale: null,
       channels: [],
     };
     const ignored = reduce(after.state, { type: "activity_report", report: late });
@@ -347,7 +363,10 @@ describe("activity is read only while the switch is on", () => {
   });
 
   it("turning the switch on requests one read of the located channels, and off stops reads", () => {
-    const start = opened(bipolarGeometry, bipolarGroup).state;
+    const start = reduce(opened(bipolarGeometry, bipolarGroup).state, {
+      type: "activity_options",
+      choice: "band_power",
+    }).state;
     const on = reduce(start, { type: "activity_switch", on: true });
     const plans = reads(on.effects);
     expect(plans).toHaveLength(1);
@@ -500,7 +519,10 @@ describe("the read bound", () => {
       bipolarGeometry,
       groupOf(BIPOLAR_LABELS, { rateHz: 250, nativeRateHz: 250 }),
     ).state;
-    const t = reduce(slow, { type: "activity_switch", on: true });
+    const t = reduce(reduce(slow, { type: "activity_options", choice: "band_power" }).state, {
+      type: "activity_switch",
+      on: true,
+    });
     // The default band, high gamma (to 150 Hz), is above 0.45 times 250 Hz.
     expect(t.state.activity.status).toEqual({ kind: "refused", reason: "band_above_nyquist" });
     expect(reads(t.effects)).toEqual([]);
@@ -510,8 +532,10 @@ describe("the read bound", () => {
     expect(bands.find((b) => b.value === "alpha")?.disabled).toBe(false);
 
     const short = reduce(
-      reduce(opened(bipolarGeometry, bipolarGroup).state, { type: "activity_switch", on: true })
-        .state,
+      play(opened(bipolarGeometry, bipolarGroup).state, [
+        { type: "activity_options", choice: "band_power" },
+        { type: "activity_switch", on: true },
+      ]).state,
       { type: "window_changed", startS: 0, lengthS: 1 },
     );
     expect(short.state.activity.status).toEqual({ kind: "refused", reason: "window_too_short" });
@@ -580,6 +604,33 @@ describe("contacts and traces link both ways", () => {
     expect(
       reduce(one.state, { type: "select_channel", label: "LAF1" }).state.selection.channel,
     ).toBeNull();
+  });
+
+  it("clear_selection clears the channel, its contacts and the trace highlight, and is a no-op with none", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    expect(viewModel(base).view.canClear).toBe(false);
+    const idle = reduce(base, { type: "clear_selection" });
+    expect(idle.state).toBe(base);
+    expect(idle.effects).toEqual([]);
+
+    const sel = reduce(base, { type: "select_channel", label: "LAF1-LAF2" }).state;
+    expect(viewModel(sel).view.canClear).toBe(true);
+    const cleared = reduce(sel, { type: "clear_selection" });
+    expect(cleared.state.selection).toEqual({ channel: null, contacts: [] });
+    expect(cleared.effects).toEqual([{ type: "select_trace", label: null }]);
+    expect(viewModel(cleared.state).view.canClear).toBe(false);
+    expect(viewModel(cleared.state).contacts.some((r) => r.selected)).toBe(false);
+    // never a toggle: clearing twice stays clear
+    expect(reduce(cleared.state, { type: "clear_selection" }).state.selection.channel).toBeNull();
+  });
+
+  it("a highlighted channel none of whose contacts is located can still be cleared", () => {
+    const labels = [...MONOPOLAR_LABELS, "NOSUCH1-NOSUCH2"];
+    const mono = opened(monoGeometry, groupOf(labels), { ...REC, path: MONOPOLAR }).state;
+    const ghost = reduce(mono, { type: "select_channel", label: "NOSUCH1-NOSUCH2" }).state;
+    expect(ghost.selection.contacts).toEqual([]);
+    expect(viewModel(ghost).view.canClear).toBe(true);
+    expect(reduce(ghost, { type: "clear_selection" }).state.selection.channel).toBeNull();
   });
 
   it("closing the panel clears the selection and the trace highlight", () => {
@@ -1200,15 +1251,62 @@ function knownReport(token: number, labels: readonly string[]): ActivityReport {
     segments: 18,
     segmentSamples: 512,
     referenceHz: null,
+    cursorScale: null,
     channels: labels.map((label, i) => ({ label, value: i + 1, reason: null })),
   };
 }
+
+describe("the Activity emphasis on the stage", () => {
+  it("is on only while Activity is on and has values to show", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    expect(activityEmphasis(base)).toBe(false);
+    const on = play(base, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    // switched on, still computing: nothing colored yet
+    expect(activityEmphasis(on)).toBe(false);
+    const shown = reduce(on, {
+      type: "activity_report",
+      report: knownReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+    expect(activityEmphasis(shown)).toBe(true);
+    expect(activityEmphasis(reduce(shown, { type: "activity_switch", on: false }).state)).toBe(
+      false,
+    );
+  });
+
+  it("stays on across the recompute after a measure or band change, and drops when Activity ends", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    const on = play(base, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    const shown = reduce(on, {
+      type: "activity_report",
+      report: knownReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+    const recomputing = reduce(shown, { type: "activity_options", band: "beta" }).state;
+    // the previous values are dropped on a re-plan, so the state alone says "off"...
+    expect(recomputing.activity.shown).toBeNull();
+    expect(activityEmphasis(recomputing)).toBe(false);
+    // ...and the panel's memory of the last drawing keeps it on while the read is computing
+    expect(recomputing.activity.status.kind).toBe("computing");
+    expect(activityEmphasis(recomputing, true)).toBe(true);
+    // never from memory alone: not computing, or Activity off
+    expect(activityEmphasis(base, true)).toBe(false);
+    expect(
+      activityEmphasis(reduce(recomputing, { type: "activity_switch", on: false }).state, true),
+    ).toBe(false);
+  });
+});
 
 describe("activity values on the contacts", () => {
   const palette = { neutral: [0.9, 0.7, 0.1] as const, noData: [0.4, 0.4, 0.4] as const };
 
   function withReport(report: (token: number) => ActivityReport): PanelState {
     const on = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_options", choice: "band_power" },
       { type: "activity_switch", on: true },
     ]).state;
     return reduce(on, { type: "activity_report", report: report(on.activity.token) }).state;
@@ -1373,6 +1471,8 @@ const slicePlan: ActivityPlan = {
   metric: "rms",
   band: null,
   relative: false,
+  cursorMs: null,
+  contactRows: [],
   rows: Array.from({ length: SLICE_ROWS }, (_, i) => i),
 };
 const sliceGroup = {
@@ -1965,7 +2065,9 @@ describe("template anatomy", () => {
       expect(model.stage.kind, c.name).toBe("canvas");
       expect(model.template, c.name).toBeNull();
       expect(model.notes, c.name).toContain(
-        `No template placement for ${c.word}: positions are shown in the dataset's own frame`,
+        c.name.includes("units are not declared")
+          ? `No brain surface: the positions in frame ${c.word} have no length unit this view converts to millimeters, so contacts are drawn as written and not placed on the template.`
+          : `No brain surface: this recording's coordinate frame (${c.word}) has no cited transform to the template, so contacts are drawn in their own space.`,
       );
       // drawn exactly where the dataset says, and no surface
       expect(drawnTemplate(live.state), c.name).toBeNull();
@@ -1978,7 +2080,7 @@ describe("template anatomy", () => {
   it("a frame that is placed does not say 'no template placement'", async () => {
     for (const c of PLACED) {
       const { state } = await placedState(c);
-      expect(viewModel(state).notes.join("\n"), c.name).not.toMatch(/No template placement/);
+      expect(viewModel(state).notes.join("\n"), c.name).not.toMatch(/No brain surface/);
     }
   });
 
@@ -2034,7 +2136,7 @@ describe("template anatomy", () => {
     expect(viewModel(moved).template).toBeNull();
     expect(drawnTemplate(moved)).toBeNull();
     expect(viewModel(moved).notes).toContain(
-      "No template placement for Other: positions are shown in the dataset's own frame",
+      "No brain surface: this recording's coordinate frame (Other) has no cited transform to the template, so contacts are drawn in their own space.",
     );
     // Back to Talairach: the surface it already holds is drawn, with no second request.
     const back = reduce(moved, { type: "frame_changed", spaceIndex: talairach });
@@ -2170,7 +2272,6 @@ describe("template anatomy", () => {
     const ref: RecordingRef = { datasetId: "nm000454", version: "v1.0.2", path: NM454 };
     return openedOnSpace(geometry, 0, ref);
   }
-  const TAIL = ": positions are shown in the dataset's own frame";
 
   it("a pending family and an unsupported native frame get different sentences, and neither places a contact", async () => {
     const pendingLabels = [
@@ -2187,15 +2288,21 @@ describe("template anatomy", () => {
     expect(declared?.length).toBeGreaterThan(10);
     const native = await underFrame("ACPC");
     const nativeNotes = viewModel(native.state).notes;
-    expect(nativeNotes).toContain(`No template placement for ACPC${TAIL}`);
-    expect(nativeNotes.join("\n")).not.toContain("placement yet");
+    expect(nativeNotes).toContain(
+      "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
+    );
+    expect(nativeNotes.join("\n")).not.toContain("surface yet");
 
     for (const label of pendingLabels) {
       const { state, effects } = await underFrame(label);
       const model = viewModel(state);
       expect(model.stage.kind, label).toBe("canvas");
-      expect(model.notes, label).toContain(`No template placement yet for ${label}${TAIL}`);
-      expect(model.notes, label).not.toContain(`No template placement for ${label}${TAIL}`);
+      expect(model.notes, label).toContain(
+        `No brain surface yet: this recording's coordinate frame (${label}) is a template family whose transform this site does not have yet, so contacts are drawn in their own space.`,
+      );
+      expect(model.notes, label).not.toContain(
+        `No brain surface: this recording's coordinate frame (${label}) has no cited transform to the template, so contacts are drawn in their own space.`,
+      );
       // no surface asked for, none drawn, no label, contacts exactly as declared
       expect(loads(effects), label).toEqual([]);
       expect(state.template, label).toBe("idle");
@@ -2216,7 +2323,7 @@ describe("template anatomy", () => {
     const sym = await underFrame("fsaverageSym");
     expect(loads(sym.effects)).toHaveLength(1);
     expect(sym.state.template).toBe("loading");
-    expect(viewModel(sym.state).notes.join("\n")).not.toMatch(/No template placement/);
+    expect(viewModel(sym.state).notes.join("\n")).not.toMatch(/No brain surface/);
     const ready = loaded(sym.state);
     expect(viewModel(ready).template).toMatchObject({
       status: "ready",
@@ -2239,8 +2346,542 @@ describe("template anatomy", () => {
     });
     expect(loads(effects)).toEqual([]);
     expect(viewModel(state).notes).toContain(
-      "No template placement for an undeclared frame: positions are shown in the dataset's own frame",
+      "No brain surface: this recording declares no coordinate frame, so there is no transform to the template and contacts are drawn in their own space.",
     );
     expect(state.template).toBe("idle");
+  });
+});
+
+describe("the At cursor measure", () => {
+  const cursorScaleOf = buildScale([10, 20, 30, 40], "sequential", "µV");
+
+  function cursorReport(token: number, labels: readonly string[]): ActivityReport {
+    return { ...knownReport(token, labels), metric: "rms", unit: "µV", cursorScale: cursorScaleOf };
+  }
+
+  /** The panel open on the bipolar recording with the cursor measure ready (a fresh default). */
+  function ready(events: PanelEvent[] = []): PanelState {
+    const on = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_switch", on: true },
+      ...events,
+    ]).state;
+    return reduce(on, {
+      type: "activity_report",
+      report: cursorReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+  }
+
+  it("is the measure when Activity is switched on, with a 200 ms window", () => {
+    const on = reduce(opened(bipolarGeometry, bipolarGroup).state, {
+      type: "activity_switch",
+      on: true,
+    });
+    expect(on.state.activity.choice).toBe("cursor_rms");
+    expect(isCursorChoice(on.state.activity.choice)).toBe(true);
+    expect(on.state.activity.cursorMs).toBe(200);
+    const plans = reads(on.effects);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]).toMatchObject({ metric: "rms", cursorMs: 200, startS: 0, endS: 10 });
+    expect(viewModel(on.state).activity?.measure).toBe("At cursor: RMS, 200 ms window");
+    expect(viewModel(on.state).activity?.showCursorWidth).toBe(true);
+    expect(viewModel(on.state).activity?.showBand).toBe(false);
+  });
+
+  it("line length is the second choice, and the other measures plan without a cursor window", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    const ll = play(base, [
+      { type: "activity_options", choice: "cursor_line_length" },
+      { type: "activity_switch", on: true },
+    ]);
+    expect(reads(ll.effects)[0]).toMatchObject({ metric: "line_length", cursorMs: 200 });
+    const plain = play(base, [
+      { type: "activity_options", choice: "rms" },
+      { type: "activity_switch", on: true },
+    ]);
+    expect(reads(plain.effects)[0]).toMatchObject({ metric: "rms", cursorMs: null });
+    expect(viewModel(plain.state).activity?.showCursorWidth).toBe(false);
+  });
+
+  it("a new width re-reads (the matrix and scale belong to one width); an unlisted one is ignored", () => {
+    const state = ready();
+    const wider = reduce(state, { type: "activity_options", cursorMs: 500 });
+    expect(wider.state.activity.cursorMs).toBe(500);
+    expect(wider.effects).toContainEqual({ type: "abort_activity" });
+    expect(reads(wider.effects)[0]).toMatchObject({ cursorMs: 500 });
+    expect(wider.state.activity.shown).toBeNull();
+    const odd = reduce(state, { type: "activity_options", cursorMs: 123 });
+    expect(odd.state).toBe(state);
+    expect(reads(odd.effects)).toEqual([]);
+  });
+
+  it("refuses with a sentence, before any read, when the window holds fewer than two samples", () => {
+    const slow = opened(
+      bipolarGeometry,
+      groupOf(BIPOLAR_LABELS, { rateHz: 20, nativeRateHz: 20 }),
+    ).state;
+    // 50 ms at 20 Hz is one sample (200 ms, the default, is four and reads fine).
+    const t = play(slow, [
+      { type: "activity_options", cursorMs: 50 },
+      { type: "activity_switch", on: true },
+    ]);
+    expect(t.state.activity.status).toEqual({ kind: "refused", reason: "cursor_too_short" });
+    expect(reads(t.effects)).toEqual([]);
+    expect(viewModel(t.state).activity?.message).toBe(ACTIVITY_SENTENCES.cursor_too_short(20));
+    expect(ACTIVITY_SENTENCES.cursor_too_short(20)).toContain("at least two samples");
+    // A longer window clears it: 100 ms at 20 Hz is two samples.
+    const fixed = reduce(t.state, { type: "activity_options", cursorMs: 100 });
+    expect(fixed.state.activity.status).toEqual({ kind: "computing" });
+    expect(reads(fixed.effects)).toHaveLength(1);
+  });
+
+  it("the cursor event records the position and never re-plans, reads or drops the values", () => {
+    const state = ready();
+    const moved = reduce(state, { type: "cursor_changed", timeS: 4.25 });
+    expect(moved.effects).toEqual([]);
+    expect(moved.state.activity.cursorS).toBe(4.25);
+    expect(moved.state.activity.token).toBe(state.activity.token);
+    expect(moved.state.activity.shown).toBe(state.activity.shown);
+    expect(moved.state.activity.status).toEqual({ kind: "ready" });
+    // The same position again is no change at all.
+    expect(reduce(moved.state, { type: "cursor_changed", timeS: 4.25 }).state).toBe(moved.state);
+    // Leaving the scope, and a non-number, both mean no cursor.
+    expect(
+      reduce(moved.state, { type: "cursor_changed", timeS: null }).state.activity.cursorS,
+    ).toBe(null);
+    expect(
+      reduce(moved.state, { type: "cursor_changed", timeS: Number.NaN }).state.activity.cursorS,
+    ).toBeNull();
+  });
+
+  it("the cursor survives a window move, and a recording change clears it", () => {
+    const moved = reduce(ready(), { type: "cursor_changed", timeS: 4.25 }).state;
+    const scrolled = reduce(moved, { type: "window_changed", startS: 5, lengthS: 10 }).state;
+    expect(scrolled.activity.cursorS).toBe(4.25);
+    const other = reduce(moved, {
+      type: "recording_changed",
+      recording: REC,
+      group: bipolarGroup,
+    }).state;
+    expect(other.activity.cursorS).toBeNull();
+  });
+
+  it("off the scope the model shows the whole-window value of the same metric, said as such", () => {
+    const state = ready();
+    const a = viewModel(state).activity;
+    expect(a?.summary).toContain("Whole-window value");
+    expect(a?.summary).toContain("over 200 ms");
+    // The legend is the whole window's scale until the cursor is on the scope.
+    expect(a?.colorbar?.lo).toBe(formatActivityValue(state.activity.shown?.scale.lo ?? 0, "µV"));
+  });
+
+  function live(state: PanelState, centerS: number, clipped = false): PanelState {
+    const n = state.placement?.contacts.length ?? 0;
+    const contactValues = Float64Array.from({ length: n }, (_, i) =>
+      i === 1 ? Number.NaN : 15 + i,
+    );
+    const values: LiveValues = {
+      contactValues,
+      contactReasons: new Uint8Array(n).fill(REASON_NON_FINITE),
+      centerS,
+      widthMs: 200,
+      clipped,
+    };
+    return withLive(state, values);
+  }
+
+  it("at the cursor the legend says the measure, window, time and unit, and the scale it is on", () => {
+    const state = reduce(ready(), { type: "cursor_changed", timeS: 12.3456 }).state;
+    const shownState = live(state, 12.3456);
+    const a = viewModel(shownState).activity;
+    expect(a?.summary?.startsWith("RMS over 200 ms centered at 12.35 s, in microvolts.")).toBe(
+      true,
+    );
+    expect(a?.summary).toContain("2nd to 98th percentile");
+    expect(a?.summary).toContain("fixed while the cursor moves");
+    expect(a?.summary).not.toContain("Whole-window");
+    // The scale is the cursor scale, not the whole window's.
+    expect(a?.colorbar?.lo).toBe(formatActivityValue(cursorScaleOf.lo, "µV"));
+    expect(a?.colorbar?.hi).toBe(formatActivityValue(cursorScaleOf.hi, "µV"));
+    // The state itself is not changed by showing it.
+    expect(state.activity.shown?.cursor).toBeNull();
+  });
+
+  it("names line length, and the edge when the window is cut", () => {
+    const base = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_options", choice: "cursor_line_length" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    const ready2 = reduce(base, {
+      type: "activity_report",
+      report: {
+        ...cursorReport(base.activity.token, BIPOLAR_LABELS),
+        metric: "line_length",
+        unit: "µV/s",
+      },
+    }).state;
+    const a = viewModel(live(ready2, 0.05, true)).activity;
+    expect(
+      a?.summary?.startsWith(
+        "Line length over 200 ms centered at 0.05 s, in microvolts per second.",
+      ),
+    ).toBe(true);
+    expect(a?.summary).toContain("cut by the edge of the read");
+  });
+
+  it("the list, the colors and the no-data note follow the cursor's values", () => {
+    const state = reduce(ready(), { type: "cursor_changed", timeS: 3 }).state;
+    const shownState = live(state, 3);
+    const rows = viewModel(shownState).contacts;
+    expect(rows[0].value).toBe(formatActivityValue(15, "µV"));
+    expect(rows[1].value).toBe("no value: a sample was not a number");
+    expect(viewModel(shownState).activity?.noData).toContain("Gray contacts");
+    const palette = { neutral: [0.9, 0.7, 0.1] as const, noData: [0.4, 0.4, 0.4] as const };
+    const colors = contactColors(shownState, palette);
+    expect(Array.from(colors?.slice(4, 7) ?? [])).toEqual([0.4, 0.4, 0.4].map(Math.fround));
+    // Whole-window colors are unchanged for the same state shown without the cursor.
+    expect(contactColors(state, palette)?.slice(0, 3)).not.toEqual(colors?.slice(0, 3));
+  });
+
+  it("showing the cursor needs a cursor scale: the other measures are returned as they are", () => {
+    const base = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    const plain = reduce(base, {
+      type: "activity_report",
+      report: knownReport(base.activity.token, BIPOLAR_LABELS),
+    }).state;
+    expect(live(plain, 3)).toBe(plain);
+  });
+});
+
+describe("the live cursor's lifecycle (frames, matrix, list catch-up), driven with a clock", () => {
+  /** A clock, a frame queue and timers the test advances by hand; nothing else is replaced. */
+  function clock() {
+    let now = 1000;
+    let next = 1;
+    const frames = new Map<number, () => void>();
+    const timers = new Map<number, { at: number; cb: () => void }>();
+    const env: LiveCursorEnv = {
+      requestFrame: (cb) => {
+        frames.set(next, cb);
+        return next++;
+      },
+      cancelFrame: (h) => void frames.delete(h),
+      setTimer: (cb, ms) => {
+        timers.set(next, { at: now + ms, cb });
+        return next++;
+      },
+      clearTimer: (h) => void timers.delete(h),
+      now: () => now,
+    };
+    return {
+      env,
+      frames,
+      timers,
+      /** Run the queued frame callbacks (a browser runs each once per frame). */
+      frame() {
+        const due = [...frames.values()];
+        frames.clear();
+        for (const cb of due) cb();
+      },
+      advance(ms: number) {
+        now += ms;
+        for (const [h, t] of [...timers]) {
+          if (t.at <= now) {
+            timers.delete(h);
+            t.cb();
+          }
+        }
+      },
+    };
+  }
+
+  const noScale = async () => {};
+
+  /** The panel open on the bipolar recording, Activity on and a read finished, with a real matrix. */
+  async function harness() {
+    const start = play(opened(bipolarGeometry, bipolarGroup).state, [
+      { type: "activity_switch", on: true },
+    ]);
+    const plan = reads(start.effects)[0];
+    const nSamples = 5000;
+    const rows: (Float32Array | null)[] = bipolarGroup.labels.map(() => null);
+    for (const row of plan.rows) {
+      rows[row] = Float32Array.from(
+        { length: nSamples },
+        (_, i) => (row + 1) * 1e-6 * Math.sin((i / 500) * 2 * Math.PI * (3 + (row % 5))),
+      );
+    }
+    const matrix: ActivityMatrix = { t0S: 0, rateHz: 500, nSamples, factor: 1e6, rows };
+    const scale = await cursorScale(matrix, 200, "rms", plan.rows, plan.contactRows, "µV", noScale);
+    if (!scale) throw new Error("no scale");
+    const report: ActivityReport = {
+      ...knownReport(start.state.activity.token, BIPOLAR_LABELS),
+      metric: "rms",
+      unit: "µV",
+      cursorScale: scale,
+    };
+    const ready = reduce(start.state, { type: "activity_report", report }).state;
+    let state = ready;
+    const t = clock();
+    const log = { syncs: 0, recolors: [] as number[][], legends: [] as string[] };
+    const lc = createLiveCursor(t.env, {
+      state: () => state,
+      adopt: (timeS) => {
+        state = reduce(state, { type: "cursor_changed", timeS }).state;
+      },
+      sync: () => void log.syncs++,
+      recolor: (live) => {
+        log.recolors.push(Array.from(live.changed.keys()).filter((i) => live.changed[i]));
+      },
+      legend: (text) => void log.legends.push(text),
+    });
+    lc.hold(matrix);
+    // The effects go through the panel's own runner, as the shell runs them.
+    const started: { plan: ActivityPlan; signal: AbortSignal }[] = [];
+    const runner = createActivityRunner({
+      live: lc,
+      setTimer: t.env.setTimer,
+      clearTimer: t.env.clearTimer,
+      start: (plan, signal) => void started.push({ plan, signal }),
+    });
+    return {
+      lc,
+      runner,
+      started,
+      t,
+      log,
+      matrix,
+      ready,
+      get state() {
+        return state;
+      },
+      set state(next: PanelState) {
+        state = next;
+      },
+    };
+  }
+
+  it("many setCursor calls queue one frame, and one frame recolors once with the last position", async () => {
+    const h = await harness();
+    for (let k = 0; k < 50; k++) h.lc.setCursor(1 + k * 0.01);
+    expect(h.t.frames.size).toBe(1);
+    h.t.frame();
+    expect(h.state.activity.cursorS).toBeCloseTo(1.49, 9);
+    // Entering the live state is a full paint, not a recolor.
+    expect(h.log.syncs).toBe(1);
+    expect(h.lc.on).toBe(true);
+    // Now live: many moves, one frame, one recolor.
+    for (let k = 0; k < 50; k++) h.lc.setCursor(3 + k * 0.1);
+    expect(h.t.frames.size).toBe(1);
+    h.t.frame();
+    expect(h.log.recolors).toHaveLength(1);
+    expect(h.log.legends).toHaveLength(1);
+    expect(h.log.legends[0]).toContain("RMS over 200 ms centered at 7.90 s, in microvolts.");
+    expect(h.log.syncs).toBe(1);
+    // The same position again queues nothing.
+    h.lc.setCursor(7.9);
+    expect(h.t.frames.size).toBe(0);
+  });
+
+  it("a move that changes no color repaints no contact but still says where the cursor is", async () => {
+    const h = await harness();
+    h.lc.setCursor(5);
+    h.t.frame();
+    h.lc.setCursor(5.0001);
+    h.t.frame();
+    const before = h.log.recolors.length;
+    h.lc.setCursor(5.0002);
+    h.t.frame();
+    expect(h.log.recolors.length).toBe(before);
+    expect(h.log.legends.at(-1)).toContain("5.00 s");
+  });
+
+  it("entering and leaving live are full paints; off the scope there are no live values", async () => {
+    const h = await harness();
+    expect(h.lc.measure()).toBeNull();
+    h.lc.setCursor(4);
+    h.t.frame();
+    expect(h.lc.on).toBe(true);
+    expect(h.log.syncs).toBe(1);
+    h.lc.setCursor(null);
+    h.t.frame();
+    expect(h.state.activity.cursorS).toBeNull();
+    expect(h.lc.on).toBe(false);
+    expect(h.lc.measure()).toBeNull();
+    expect(h.log.syncs).toBe(2);
+    // Back in.
+    h.lc.setCursor(6);
+    h.t.frame();
+    expect(h.lc.on).toBe(true);
+    expect(h.log.syncs).toBe(3);
+  });
+
+  it("a cursor outside the read leaves the whole-window values on screen", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    h.lc.setCursor(99);
+    h.t.frame();
+    expect(h.lc.on).toBe(false);
+    expect(h.log.syncs).toBe(2);
+  });
+
+  it("the list catches up only after the cursor has rested for LIST_IDLE_MS", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    const entered = h.log.syncs;
+    h.lc.setCursor(4.5);
+    h.t.frame();
+    expect(h.t.timers.size).toBe(1);
+    h.t.advance(LIST_IDLE_MS - 50);
+    h.lc.setCursor(5);
+    h.t.frame();
+    // The pointer moved again: the first timer fires late-ish and re-arms instead of painting.
+    h.t.advance(50);
+    expect(h.log.syncs).toBe(entered);
+    h.t.advance(LIST_IDLE_MS);
+    expect(h.log.syncs).toBe(entered + 1);
+    expect(h.t.timers.size).toBe(0);
+  });
+
+  it("dispose with a frame queued cancels it: no throw, no recolor, no later frame", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    h.lc.setCursor(5);
+    const queued = [...h.t.frames.values()];
+    expect(queued).toHaveLength(1);
+    const recolors = h.log.recolors.length;
+    const syncs = h.log.syncs;
+    h.lc.dispose();
+    expect(h.t.frames.size).toBe(0);
+    expect(h.t.timers.size).toBe(0);
+    // A callback the browser had already taken is a no-op.
+    expect(() => queued[0]()).not.toThrow();
+    h.lc.setCursor(6);
+    expect(h.t.frames.size).toBe(0);
+    expect(h.log.recolors.length).toBe(recolors);
+    expect(h.log.syncs).toBe(syncs);
+    expect(h.lc.holding).toBe(false);
+  });
+
+  const aborting: [string, (s: PanelState) => { state: PanelState; effects: PanelEffect[] }][] = [
+    ["a window change", (s) => reduce(s, { type: "window_changed", startS: 5, lengthS: 10 })],
+    ["an option change (width)", (s) => reduce(s, { type: "activity_options", cursorMs: 500 })],
+    ["an option change (measure)", (s) => reduce(s, { type: "activity_options", choice: "rms" })],
+    ["Activity off", (s) => reduce(s, { type: "activity_switch", on: false })],
+    ["a group change", (s) => reduce(s, { type: "group_changed", group: bipolarGroup })],
+    [
+      "a recording change",
+      (s) => reduce(s, { type: "recording_changed", recording: REC, group: bipolarGroup }),
+    ],
+    ["closing the panel", (s) => reduce(s, { type: "toggle_open", open: false })],
+    ["dispose", (s) => reduce(s, { type: "disposed" })],
+  ];
+
+  for (const [name, apply] of aborting) {
+    it(`${name} aborts the read, which releases the matrix, and a stale matrix is never used`, async () => {
+      const h = await harness();
+      h.lc.setCursor(4);
+      h.t.frame();
+      expect(h.lc.on).toBe(true);
+      const t = apply(h.state);
+      // The reducer says to abort, and the panel's runner runs that effect.
+      expect(t.effects).toContainEqual({ type: "abort_activity" });
+      expect(h.lc.holding).toBe(true);
+      for (const effect of t.effects) h.runner.run(effect);
+      expect(h.lc.holding).toBe(false);
+      expect(h.lc.on).toBe(false);
+      // The list timer is gone; only a new read's debounce may be pending.
+      expect(h.t.timers.size).toBe(t.effects.some((e) => e.type === "read_activity") ? 1 : 0);
+      // Whatever the new state says, nothing measures without a fresh read...
+      h.state = t.state;
+      expect(h.lc.measure()).toBeNull();
+      // ...not even a state that still looks ready (the old one): the matrix is gone, not just unused.
+      h.state = h.ready;
+      expect(h.lc.measure()).toBeNull();
+    });
+  }
+
+  it("dispose reaches the live cursor: the runner stops the read and disposes it, through the reducer's own effects", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    h.lc.setCursor(5);
+    expect(h.t.frames.size).toBe(1);
+    const t = reduce(h.state, { type: "disposed" });
+    for (const effect of t.effects) h.runner.run(effect);
+    // The abort effect released the samples but left the queued frame: only dispose cancels it.
+    expect(h.t.frames.size).toBe(1);
+    h.runner.dispose();
+    expect(h.lc.holding).toBe(false);
+    expect(h.t.frames.size).toBe(0);
+    h.lc.setCursor(6);
+    expect(h.t.frames.size).toBe(0);
+  });
+
+  it("a new read releases the old samples by itself, aborts the read before it, and starts after the debounce", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    const wider = reduce(h.state, { type: "activity_options", cursorMs: 500 });
+    const read = wider.effects.filter((e) => e.type === "read_activity");
+    expect(read).toHaveLength(1);
+    // Only the read effect: the release must come from it, not from the abort before it.
+    h.runner.run(read[0]);
+    expect(h.lc.holding).toBe(false);
+    expect(h.started).toHaveLength(0);
+    h.state = wider.state;
+    expect(h.lc.measure()).toBeNull();
+    h.t.advance(ACTIVITY_DEBOUNCE_MS);
+    expect(h.started).toHaveLength(1);
+    expect(h.started[0].plan).toMatchObject({ cursorMs: 500 });
+    const first = h.started[0].signal;
+    expect(first.aborted).toBe(false);
+    // A newer read aborts the one in flight.
+    h.runner.run(read[0]);
+    expect(first.aborted).toBe(true);
+    // An abort before the debounce ends cancels the start.
+    h.runner.run({ type: "abort_activity" });
+    h.t.advance(ACTIVITY_DEBOUNCE_MS * 2);
+    expect(h.started).toHaveLength(1);
+  });
+
+  it("a new read replaces the old matrix: values come from the new samples, never the old", async () => {
+    const h = await harness();
+    h.lc.setCursor(4);
+    h.t.frame();
+    const old = h.lc.measure();
+    const before = Float64Array.from(old?.contactValues ?? []);
+    h.lc.release();
+    const doubled: ActivityMatrix = {
+      ...h.matrix,
+      rows: h.matrix.rows.map((r) => (r ? Float32Array.from(r, (v) => v * 2) : null)),
+    };
+    h.lc.hold(doubled);
+    const fresh = h.lc.measure();
+    expect(fresh).not.toBeNull();
+    const finite = Array.from(fresh?.contactValues ?? []).flatMap((v, i) =>
+      Number.isFinite(v) && Number.isFinite(before[i]) ? [[v, before[i]]] : [],
+    );
+    expect(finite.length).toBeGreaterThan(10);
+    for (const [v, b] of finite) expect(v / b).toBeCloseTo(2, 4);
+  });
+
+  it("while the panel is closed or Activity is off a position is kept, not painted, and adopted on demand", async () => {
+    const h = await harness();
+    h.state = reduce(h.state, { type: "activity_switch", on: false }).state;
+    h.lc.setCursor(4);
+    expect(h.t.frames.size).toBe(0);
+    h.lc.adopt();
+    expect(h.state.activity.cursorS).toBe(4);
+    // Leaving the scope still clears the state's cursor through a frame.
+    h.lc.setCursor(null);
+    expect(h.t.frames.size).toBe(1);
+    h.t.frame();
+    expect(h.state.activity.cursorS).toBeNull();
   });
 });

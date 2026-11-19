@@ -31,7 +31,7 @@
  *   surface's own frame), nm000485 (Talairach) and nm000376 (IXI549Space) carry the label each
  *   row owes them (on004100, the one fsaverage dataset here, declares meters over millimeter-sized
  *   numbers: its units banner withholds it from any template, and the validation spec covers it); nm000355 (ACPC) draws no surface, fetches no mesh and says
- *   "No template placement for ACPC"; a failed mesh fetch leaves the contacts, says so, and a
+ *   "No brain surface: this recording's coordinate frame (ACPC)"; a failed mesh fetch leaves the contacts, says so, and a
  *   reopened panel tries again; an EEG dataset never asks for a mesh.
  *   nm000355 is the ACPC case here; on005415 (also ACPC) is the name-join case below.
  * - Name joins (card IS-J1): on005415's Zarr store labels channels "LTP1-20000" where the BIDS
@@ -239,6 +239,24 @@ async function reads(page: Page): Promise<number> {
   return Number(await page.getAttribute(PANEL, "data-activity-reads"));
 }
 
+/**
+ * Switch Activity on and pick band power: the default measure is "At cursor: RMS" (its own spec
+ * is in ieeg-spatial-validation.spec.ts), and these tests are about the whole-window measures.
+ * Costs two reads (the default's, then band power's).
+ */
+async function switchOnBandPower(page: Page): Promise<void> {
+  await page.check("[data-spatial-activity]");
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready", {
+    timeout: 60_000,
+  });
+  await page.selectOption(`${PANEL} select[aria-label="Activity measure"]`, "band_power");
+  await expect(page.locator(`${PANEL} .eegv__spatial-actsum`).first()).toContainText(
+    /Welch's method/,
+    { timeout: 60_000 },
+  );
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
+}
+
 /** Every property of the credit link the card names, and that Tab reaches it. */
 async function expectCredit(page: Page): Promise<void> {
   const link = page.locator(CREDIT);
@@ -317,10 +335,9 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
   await page.evaluate(() => {
     (window as unknown as { __long: number[] }).__long = [];
   });
-  await page.check("[data-spatial-activity]");
+  await switchOnBandPower(page);
   await expect(page.locator("[data-spatial-colorbar]")).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
-  expect(await reads(page)).toBe(1);
+  expect(await reads(page)).toBe(2);
   const colored = await canvasColors(page);
   expect(colored.hues).toBeGreaterThanOrEqual(3);
   await expect(page.locator(`${PANEL} .eegv__spatial-actsum`).first()).toContainText(
@@ -334,7 +351,7 @@ test("on005522: contacts draw, Activity is off until switched on, then colors th
 
   // The window moves: one more read, only while the switch is on.
   await page.click('[data-act="step-fwd"]');
-  await expect.poll(() => reads(page), { timeout: 30_000 }).toBe(2);
+  await expect.poll(() => reads(page), { timeout: 30_000 }).toBe(3);
   await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
 
   // The measure can change; RMS carries the plan's wording.
@@ -377,9 +394,7 @@ test("on005522: the template brain is drawn behind the contacts, labeled, and fe
   );
   await expect(page.locator("[data-spatial-status]")).toContainText("frame: MNI152NLin6ASym;");
   // No "no placement" sentence for a placed frame.
-  await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
-    "No template placement",
-  );
+  await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText("No brain surface");
 
   // The notice the template travels with, and its reference, are links to read.
   const license = page.locator("[data-spatial-template-license]");
@@ -427,7 +442,7 @@ test("nm000355 is in ACPC: no brain, no mesh request, and the panel says there i
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
   await expect(page.locator("[data-spatial-status]")).toContainText("frame: ACPC;");
   await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).toContainText(
-    "No template placement for ACPC: positions are shown in the dataset's own frame",
+    "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
   );
   // Contacts only: small spheres, nothing like a brain's footprint.
   const share = await inkShare(page);
@@ -470,7 +485,7 @@ for (const c of PLACED_FRAMES) {
     await expect(page.locator("[data-spatial-template-license]")).toBeVisible();
     await expect(page.locator("[data-spatial-template-reference]")).toBeVisible();
     await expect(page.locator(`${PANEL} .eegv__spatial-notes`)).not.toContainText(
-      "No template placement",
+      "No brain surface",
     );
     const share = await inkShare(page);
     test.info().annotations.push({ type: `ink-share-${c.frame}`, description: share.toFixed(3) });
@@ -521,7 +536,7 @@ test("on005522: the credit link is what credit.ts declares and Tab reaches it", 
   await expectCredit(page);
 });
 
-test("on005522: the toggle names the panel it controls, and Escape closes it and returns focus", async ({
+test("on005522: the toggle names the panel it controls, and Escape clears the selection, then closes it and returns focus", async ({
   page,
 }) => {
   await openViewer(page, "on005522");
@@ -535,6 +550,11 @@ test("on005522: the toggle names the panel it controls, and Escape closes it and
   await page.click('[data-spatial-list] li:has(.eegv__spatial-name:text-is("LAF2"))');
   await expect(page.locator(".eegv__trace-hl")).toBeVisible();
   await page.focus('[data-spatial-list] li[data-contact="0"]');
+  // The first Escape clears the selection and its trace highlight; the panel stays open.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeVisible();
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
+  await expect(page.locator('[data-spatial-list] li[aria-selected="true"]')).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(TOGGLE)).toHaveAttribute("aria-pressed", "false");
@@ -545,6 +565,40 @@ test("on005522: the toggle names the panel it controls, and Escape closes it and
   // Escape with the panel closed does nothing to the toggle, and it opens again.
   await page.keyboard.press("Enter");
   await expect(page.locator(PANEL)).toBeVisible();
+});
+
+test("on005522: Clear selection is enabled only with a selection, keeps focus, and an empty stage click clears too", async ({
+  page,
+}) => {
+  await openViewer(page, "on005522");
+  await openBrain(page);
+  const clear = page.locator("[data-spatial-clear]");
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+
+  const row = '[data-spatial-list] li:has(.eegv__spatial-name:text-is("LAF2"))';
+  await page.click(row);
+  await expect(clear).toHaveAttribute("aria-disabled", "false");
+  await expect(page.locator(".eegv__trace-hl")).toBeVisible();
+
+  // The button keeps focus when it becomes inactive, so Escape still reaches the panel.
+  await clear.focus();
+  await clear.click();
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
+  expect(
+    await page.evaluate(() => document.activeElement?.hasAttribute("data-spatial-clear")),
+  ).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeHidden();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(PANEL)).toBeVisible();
+
+  // A click on empty canvas (its top-left corner holds no contact) clears the selection as well.
+  await page.click(row);
+  await expect(clear).toHaveAttribute("aria-disabled", "false");
+  await page.locator(`${STAGE} canvas`).click({ position: { x: 4, y: 4 } });
+  await expect(clear).toHaveAttribute("aria-disabled", "true");
+  await expect(page.locator(".eegv__trace-hl")).toBeHidden();
 });
 
 test("the panel's code is fetched only for an iEEG recording", async ({ page }) => {
@@ -906,9 +960,8 @@ test("on005522: the figures say what Activity says, and the 2D views are the rea
 }) => {
   await openViewer(page, "on005522");
   await openBrain(page);
-  await page.check("[data-spatial-activity]");
+  await switchOnBandPower(page);
   await expect(page.locator("[data-spatial-colorbar]")).toBeVisible({ timeout: 60_000 });
-  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready");
   const summary =
     (await page.locator(`${PANEL} .eegv__spatial-actsum`).first().textContent()) ?? "";
   const barText = (await page.locator("[data-spatial-colorbar]").textContent()) ?? "";
@@ -1182,7 +1235,7 @@ test("nm000355 (ACPC): no outlines, no template line, no label, and no request f
   const svg = await saved(page, "svg");
   const facts = await svgFacts(page, svg.bytes.toString("utf8"));
   expect(facts.outlines).toBe(0);
-  expect(facts.text).toContain("No template placement for ACPC");
+  expect(facts.text).toContain("No brain surface: this recording's coordinate frame (ACPC)");
   expect(facts.text).not.toContain("Template brain");
   for (const t of facts.titles) {
     expect(t).toMatch(/; recorded \(.*\) mm, frame: ACPC$/);

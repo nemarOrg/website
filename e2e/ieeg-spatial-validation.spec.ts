@@ -92,10 +92,10 @@ const BUDGET = {
  * a changed address or a wrong DOI fails here (ADR 0033 fixes the credit; the sentences are the
  * panel's and the template's own).
  */
-const CREDIT_TEXT = "Electrode view inspired by RAVE";
+const CREDIT_TEXT = "Inspired by RAVE";
 const CREDIT_HREF = "https://rave.wiki";
 const CREDIT_DOI = "10.1016/j.neuroimage.2020.117341";
-const CREDIT_ARIA_LABEL = "Electrode view inspired by RAVE (opens in a new tab)";
+const CREDIT_ARIA_LABEL = "Inspired by RAVE (opens in a new tab)";
 const TEMPLATE_REFERENCE_HREF = "https://doi.org/10.1016/j.neuroimage.2010.07.033";
 const TEMPLATE_LICENSE_PATH = "/vendor/brain-templates/mni152nlin2009casym@1/LICENSE.txt";
 const WEBGL_SENTENCE = "3D view needs WebGL2";
@@ -827,7 +827,7 @@ for (const c of TEMPLATE_CASES) {
       ),
     );
     await expect(page.locator(TEMPLATE_LABEL)).toHaveText(c.label);
-    await expect(page.locator(NOTES)).not.toContainText("No template placement");
+    await expect(page.locator(NOTES)).not.toContainText("No brain surface");
     expect(await page.locator(TEMPLATE_LABEL).textContent()).toContain(
       c.label === OWN_LABEL ? "not this subject's anatomy" : "approximate:",
     );
@@ -890,7 +890,9 @@ for (const c of TEMPLATE_CASES) {
       // The other frame (Other) is listed and worded separately; it has no placement.
       await page.selectOption("[data-spatial-frame]", { label: "Other" });
       await expect(page.locator(STATUS)).toContainText("frame: Other;");
-      await expect(page.locator(NOTES)).toContainText("No template placement for Other");
+      await expect(page.locator(NOTES)).toContainText(
+        "No brain surface: this recording's coordinate frame (Other)",
+      );
       await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
       await page.selectOption("[data-spatial-frame]", { label: "Talairach" });
       await expect(page.locator(TEMPLATE_LABEL)).toHaveText(c.label);
@@ -972,7 +974,7 @@ test("native frame ACPC: on005415 joins names by a rule, says so, and never goes
   await expect(page.locator(PANEL)).toHaveAttribute("data-template-state", "none");
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
   await expect(page.locator(NOTES)).toContainText(
-    "No template placement for ACPC: positions are shown in the dataset's own frame",
+    "No brain surface: this recording's coordinate frame (ACPC) has no cited transform to the template, so contacts are drawn in their own space.",
   );
   await expect(page.locator(NOTES)).toContainText(
     "Units: millimeters (the file says m, scaled to millimeters).",
@@ -1021,7 +1023,9 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
   await expect(page.locator(NOTES)).toContainText(
     "joined to contacts by normalized match: channel names carry whitespace the electrodes file does not. For example LENT 1 for LENT1",
   );
-  await expect(page.locator(NOTES)).toContainText("No template placement for ACPC");
+  await expect(page.locator(NOTES)).toContainText(
+    "No brain surface: this recording's coordinate frame (ACPC)",
+  );
 
   // A value the file writes with an exponent is shown with it, never as 0 or as -0.0000759.
   const acpc = await expectRecordedVerbatim(page, sidecars, "sub-1_space-ACPC", "ACPC");
@@ -1036,7 +1040,9 @@ test("native frames ACPC and ScanRAS: on004473 keeps exponent notation, joins na
   // The other frame: the same words, its own file's text, still no placement.
   await page.selectOption("[data-spatial-frame]", { label: "ScanRAS" });
   await expect(page.locator(STATUS)).toContainText("frame: ScanRAS;");
-  await expect(page.locator(NOTES)).toContainText("No template placement for ScanRAS");
+  await expect(page.locator(NOTES)).toContainText(
+    "No brain surface: this recording's coordinate frame (ScanRAS)",
+  );
   const ras = await expectRecordedVerbatim(page, sidecars, "sub-1_space-ScanRAS", "ScanRAS");
   expect(ras.exponentRows.join("\n")).toContain("7.239242608449814e-05");
   await expect(page.locator(TEMPLATE_BOX)).toBeHidden();
@@ -1530,7 +1536,7 @@ async function tabTo(page: Page, matches: string, limit = 120): Promise<number> 
   throw new Error(`Tab did not reach ${matches} in ${limit} presses`);
 }
 
-test("keyboard only (on005522): Tab reaches the toggle, the switch and the contacts; Escape closes and refocuses the toggle", async ({
+test("keyboard only (on005522): Tab reaches the toggle, the switch and the contacts; Escape clears the selection, then closes and refocuses the toggle", async ({
   page,
 }) => {
   await openViewer(page, "on005522");
@@ -1592,7 +1598,11 @@ test("keyboard only (on005522): Tab reaches the toggle, the switch and the conta
   // The focused row is selected, and Enter keeps it so; the scope's own shortcuts did not fire.
   await expect(page.locator(`${LIST} li[aria-selected="true"]`).first()).toBeVisible();
 
-  // Escape from a row closes the panel and returns focus to the toggle.
+  // The first Escape from a row clears the selection and leaves the panel open; the second closes
+  // it and returns focus to the toggle.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(PANEL)).toBeVisible();
+  await expect(page.locator(`${LIST} li[aria-selected="true"]`)).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(page.locator(PANEL)).toBeHidden();
   await expect(page.locator(TOGGLE)).toHaveAttribute("aria-pressed", "false");
@@ -2202,6 +2212,192 @@ test("budget: Activity recompute of a 10 s window of 128 or more channels (nm000
   expect(recompute).toBeLessThanOrEqual(BUDGET.longTaskMs);
   expect(moved).toBeLessThanOrEqual(Math.max(BUDGET.longTaskMs, scopeAlone + 50));
   expect((await canvasColors(page)).hues).toBeGreaterThanOrEqual(3);
+});
+
+// ---------------------------------------------------------------------------
+// The live "At cursor" measure
+// ---------------------------------------------------------------------------
+
+/** Two animation frames, so a pointer move and the recolor it queued have both run. */
+async function frames(page: Page, n = 2): Promise<void> {
+  await page.evaluate(
+    (count) =>
+      new Promise<void>((done) => {
+        const step = (left: number) =>
+          left <= 0 ? done() : requestAnimationFrame(() => step(left - 1));
+        step(count);
+      }),
+    n,
+  );
+}
+
+/** Pointer positions across the scope's drawn traces, as fractions of the canvas width. */
+async function scopeX(page: Page): Promise<(f: number) => Promise<{ x: number; y: number }>> {
+  const box = await page.locator("canvas.eegv__canvas").boundingBox();
+  if (!box) throw new Error("the scope canvas has no box");
+  return async (f) => ({ x: box.x + box.width * f, y: box.y + box.height / 2 });
+}
+
+async function activityOn(page: Page): Promise<void> {
+  await page.check("[data-spatial-activity]");
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-state", "ready", {
+    timeout: ACTIVITY_STALL_MS,
+  });
+}
+
+test("cursor: the contacts follow the pointer over the scope in the 2D fallback, with no request, and say what they show (nm000485, WebGL disabled)", async ({
+  baseURL,
+}) => {
+  const browser = await chromium.launch({
+    args: ["--disable-3d-apis", "--disable-webgl", "--disable-webgl2"],
+  });
+  try {
+    const page = await browser.newPage({ baseURL });
+    await openViewer(page, "nm000485");
+    await openBrain(page, "no_webgl");
+    const listed = await page.locator(`${LIST} li`).count();
+    expect(listed).toBeGreaterThanOrEqual(128);
+    // The default measure is the cursor one.
+    await activityOn(page);
+    await expect(page.locator(`${PANEL} select[aria-label="Activity measure"]`)).toHaveValue(
+      "cursor_rms",
+    );
+    const summary = page.locator(`${PANEL} .eegv__spatial-actsum`).first();
+    await expect(summary).toContainText("Whole-window value");
+    await expect(page.locator(PANEL)).toHaveAttribute("data-activity-live", "0");
+
+    const requests: string[] = [];
+    page.on("request", (r) => requests.push(r.url()));
+    const readsBefore = await reads(page);
+    const at = await scopeX(page);
+    const fills = () =>
+      page.evaluate(
+        (n) =>
+          Array.from(document.querySelectorAll("[data-spatial-stage] svg circle[data-contact]"))
+            .slice(0, n)
+            .map((c) => c.getAttribute("fill")),
+        listed,
+      );
+    const seen: (string | null)[][] = [];
+    for (const f of [0.15, 0.35, 0.55, 0.75, 0.9]) {
+      const p = await at(f);
+      await page.mouse.move(p.x, p.y, { steps: 4 });
+      await frames(page);
+      seen.push(await fills());
+      await expect(page.locator(PANEL)).toHaveAttribute("data-activity-live", "1");
+    }
+    // Words at the cursor: the measure, the window, the time and the unit.
+    await expect(summary).toHaveText(/^RMS over 200 ms centered at \d+\.\d\d s, in microvolts\./);
+    await expect(summary).toContainText("fixed while the cursor moves");
+    let changed = 0;
+    for (let i = 0; i < listed; i++) {
+      if (new Set(seen.map((row) => row[i])).size > 1) changed += 1;
+    }
+    expect(changed).toBeGreaterThanOrEqual(2);
+    // The pointer left the scope: the whole-window value of the same metric, said as such.
+    await page.mouse.move(2, 2);
+    await frames(page);
+    await expect(summary).toContainText("Whole-window value");
+    await expect(page.locator(PANEL)).toHaveAttribute("data-activity-live", "0");
+    // No request was made for any of it, and no read started.
+    expect(requests).toEqual([]);
+    expect(await reads(page)).toBe(readsBefore);
+    // The figure says the measure, the window and the cursor time.
+    await page.mouse.move((await at(0.5)).x, (await at(0.5)).y, { steps: 2 });
+    await frames(page);
+    await page.waitForTimeout(400);
+    const svg = await saved(page, "svg");
+    expect(svg.bytes.toString("utf8")).toMatch(/RMS over 200 ms centered at \d+\.\d\d s/);
+    note(
+      "cursor 2D fallback nm000485",
+      `${listed} contacts, ${changed} changed color over 5 pointer positions, ${requests.length} requests during the moves`,
+    );
+  } finally {
+    await browser.close();
+  }
+});
+
+test("cursor: 60 pointer moves over 128 or more channels recolor the 3D view with no request and no panel frame over 16 ms (nm000485)", async ({
+  page,
+}) => {
+  const fresh = await timedZarr();
+  test.skip(
+    fresh.slow,
+    `data plane slow (Zarr median ${fresh.medianMs} ms at a fresh preflight); not judged`,
+  );
+  // Time every animation-frame callback by its function name: the panel's recolor is
+  // `onFrame` (this runs against the dev server, which does not minify names).
+  await page.addInitScript(() => {
+    const w = window as unknown as { __raf: Record<string, number[]> };
+    w.__raf = {};
+    const original = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb: FrameRequestCallback) =>
+      original((t) => {
+        const start = performance.now();
+        cb(t);
+        const took = performance.now() - start;
+        const name = cb.name || "anonymous";
+        w.__raf[name] = [...(w.__raf[name] ?? []), took];
+      });
+  });
+  await openViewer(page, "nm000485");
+  await openBrain(page);
+  await waitTemplate(page);
+  const located = Number((await page.locator(STATUS).textContent())?.match(/^(\d+) of/)?.[1]);
+  expect(located).toBeGreaterThanOrEqual(128);
+  await page.waitForTimeout(2000);
+  await activityOn(page);
+  // Let the scope's own render and every read land first.
+  await page.waitForTimeout(ZARR_QUIET_MS * 2);
+  const requests: string[] = [];
+  page.on("request", (r) => requests.push(r.url()));
+  const readsBefore = await reads(page);
+  const at = await scopeX(page);
+
+  // The first move into the scope turns the live state on (a full paint: words, scale, list).
+  const first = await at(0.1);
+  await page.mouse.move(first.x, first.y);
+  await frames(page, 3);
+  await expect(page.locator(PANEL)).toHaveAttribute("data-activity-live", "1");
+  await page.waitForTimeout(600);
+  const canvas = page.locator("canvas.eegv__spatial-canvas");
+  const left = await canvas.screenshot();
+
+  // The entering frame is a full paint (words, scale, list); it is reported, not part of the budget.
+  const entering = await page.evaluate(() => {
+    const w = window as unknown as { __raf: Record<string, number[]> };
+    const took = w.__raf.onFrame ?? [];
+    w.__raf = {};
+    return took;
+  });
+  // 60 moves, one per animation frame, sweeping the scope.
+  for (let k = 0; k < 60; k++) {
+    const p = await at(0.1 + (0.8 * k) / 59);
+    await page.mouse.move(p.x, p.y);
+    await frames(page, 1);
+  }
+  await frames(page, 2);
+  const timings = await page.evaluate(
+    () => (window as unknown as { __raf: Record<string, number[]> }).__raf,
+  );
+  const frameMs = timings.onFrame ?? [];
+  const worst = frameMs.length ? Math.max(...frameMs) : Number.NaN;
+  const median = frameMs.length
+    ? [...frameMs].sort((a, b) => a - b)[Math.floor(frameMs.length / 2)]
+    : Number.NaN;
+  note(
+    "cursor recolor cost nm000485",
+    `${located} located channels; ${frameMs.length} recolor frames for 60 moves, median ${median.toFixed(3)} ms, worst ${worst.toFixed(3)} ms; entering frame(s) ${entering.map((v) => v.toFixed(1)).join(", ")} ms; ${requests.length} requests during the moves`,
+  );
+  expect(frameMs.length).toBeGreaterThan(0);
+  expect(worst).toBeLessThanOrEqual(16);
+  expect(requests).toEqual([]);
+  expect(await reads(page)).toBe(readsBefore);
+
+  // The 3D view really changed color between the two ends of the scope.
+  await page.waitForTimeout(600);
+  const right = await canvas.screenshot();
+  expect(Buffer.compare(left, right)).not.toBe(0);
 });
 
 // ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@
 import type { WindowData } from "../eeg-viewer/store";
 import {
   ACTIVITY_METRICS,
+  type ActivityMatrix,
   type ActivityMetric,
   type ActivityRefusal,
   type ActivityResult,
@@ -49,12 +50,19 @@ import {
   BANDS,
   BAND_NYQUIST_FRACTION,
   type BandName,
+  CURSOR_WIDTHS_MS,
   type ChannelActivity,
   type ChannelNullReason,
+  type CursorMetric,
+  DEFAULT_CURSOR_MS,
+  REASON_UNDEFINED,
   activityChannelsFromWindow,
   buildScale,
   colorFor,
   computeActivity,
+  cursorScale,
+  cursorWindowSamples,
+  displayFactor,
   minWindowSamples,
 } from "./activity";
 import {
@@ -108,6 +116,7 @@ import {
   resolveRecordingGeometry,
 } from "./geometry";
 import { isIeegModality } from "./layout";
+import { type LiveActivity, createLiveActivity, lutChannel } from "./live-activity";
 import {
   type NameRefusal,
   closedByNaming,
@@ -124,12 +133,23 @@ import {
   type TemplatePlacementRule,
   fetchBytesSameOrigin,
   loadTemplateSurface,
-  noPlacementSentence,
+  noSurfaceReason,
+  noSurfaceSentence,
   placeOnTemplate,
   placementRuleFor,
   templateLabel,
 } from "./transforms";
 import { type UnitsBanner, unitsBanner } from "./units-banner";
+import {
+  STAGE_KEYSHORTCUTS,
+  STAGE_KEYS_HINT,
+  TOOLTIP_DELAY_MS,
+  VIEW_CONTROLS,
+  type ViewAction,
+  controlAction,
+  escapeAction,
+  keyAction,
+} from "./view-controls";
 import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
@@ -150,6 +170,8 @@ export const READ_SLICE_CHANNELS = 16;
 export const SLICE_SAMPLE_CAP = 1_000_000;
 /** Wait for the window to settle before reading, so a scroll does not start a read per frame. */
 export const ACTIVITY_DEBOUNCE_MS = 150;
+/** The contact list catches up with the cursor after it has rested this long. */
+export const LIST_IDLE_MS = 150;
 /** Give the sidecar reads, retries included, this long before offering Retry. */
 export const GEOMETRY_TIMEOUT_MS = 30_000;
 /**
@@ -213,7 +235,7 @@ export const NO_MATCH_SENTENCE =
   "None of this recording's channels match a contact in the electrodes file.";
 
 /** What can stop an activity read: IS-M1's refusals, the panel's own mixed-units check, a failed read. */
-export type ActivityFailure = ActivityRefusal | "mixed_units" | "read_failed";
+export type ActivityFailure = ActivityRefusal | "mixed_units" | "read_failed" | "cursor_too_short";
 
 /** User-facing sentence per activity refusal; `rateHz` is the group's level-0 rate. */
 export const ACTIVITY_SENTENCES: Record<ActivityFailure, (rateHz: number) => string> = {
@@ -226,6 +248,8 @@ export const ACTIVITY_SENTENCES: Record<ActivityFailure, (rateHz: number) => str
   bad_input: () => "Activity cannot be computed for this recording's channel units.",
   mixed_units: () =>
     "Activity cannot be computed: this recording's channels mix voltage and field units.",
+  cursor_too_short: (rate) =>
+    `The cursor window is too short for this recording's rate (${formatPlain(rate)} Hz): it must hold at least two samples. Pick a longer one.`,
   read_failed: () =>
     "The signal could not be read. Change the window, or turn Activity off and on, to try again.",
 };
@@ -258,9 +282,22 @@ const BAND_NAMES: Record<BandName, string> = {
   high_gamma: "High gamma",
 };
 
-export type ActivityChoice = "rms" | "line_length" | "band_power" | "band_power_db";
+export type ActivityChoice =
+  | "cursor_rms"
+  | "cursor_line_length"
+  | "rms"
+  | "line_length"
+  | "band_power"
+  | "band_power_db";
+
+/** The measures that follow the cursor over the scope (short windows from the retained read). */
+export function isCursorChoice(choice: ActivityChoice): boolean {
+  return choice === "cursor_rms" || choice === "cursor_line_length";
+}
 
 export const ACTIVITY_CHOICES: readonly { value: ActivityChoice; label: string }[] = [
+  { value: "cursor_rms", label: "At cursor: RMS" },
+  { value: "cursor_line_length", label: "At cursor: line length" },
   { value: "rms", label: "RMS (mean removed)" },
   { value: "line_length", label: "Line length" },
   { value: "band_power", label: "Band power" },
@@ -269,8 +306,10 @@ export const ACTIVITY_CHOICES: readonly { value: ActivityChoice; label: string }
 
 function choiceRequest(choice: ActivityChoice): { metric: ActivityMetric; relative: boolean } {
   switch (choice) {
+    case "cursor_rms":
     case "rms":
       return { metric: ACTIVITY_METRICS[0], relative: false };
+    case "cursor_line_length":
     case "line_length":
       return { metric: ACTIVITY_METRICS[1], relative: false };
     case "band_power":
@@ -651,6 +690,10 @@ export interface ActivityPlan {
   metric: ActivityMetric;
   band: BandName | null;
   relative: boolean;
+  /** "At cursor" only: the short window's width in milliseconds; null for the other measures. */
+  cursorMs: number | null;
+  /** Per drawn contact, the channel rows that feed it: the cursor scale pools contact values. */
+  contactRows: number[][];
   /** Channel rows to read, ascending, distinct, all located. */
   rows: number[];
 }
@@ -668,7 +711,9 @@ function earlyRefusal(
   band: BandName,
   rateHz: number,
   samplesPerChannel: number,
-): ActivityRefusal | null {
+  cursorMs: number | null = null,
+): ActivityFailure | null {
+  if (cursorMs !== null && cursorWindowSamples(rateHz, cursorMs) < 2) return "cursor_too_short";
   if (metric === "band_power") {
     if (BANDS[band][1] > BAND_NYQUIST_FRACTION * rateHz) return "band_above_nyquist";
     if (samplesPerChannel < minWindowSamples(rateHz)) return "window_too_short";
@@ -707,6 +752,16 @@ export interface ActivityReport {
   referenceHz: [number, number] | null;
   /** Indexed by channel row; null for a row that was not computed. */
   channels: (ChannelActivity | null)[];
+  /** "At cursor" only: the scale of the short-window values across the read; null otherwise. */
+  cursorScale: ActivityScale | null;
+}
+
+/** The short window the contacts are colored by while the cursor is on the scope. */
+export interface LiveCursor {
+  centerS: number;
+  widthMs: number;
+  /** The window was cut by the edge of the read (it stays centered and is shorter). */
+  clipped: boolean;
 }
 
 /** The values the contacts are colored by. */
@@ -716,7 +771,12 @@ export interface ActivityShown {
   contactValues: (number | null)[];
   /** Per placed contact with no value: why. */
   contactReasons: (ChannelNullReason | null)[];
+  /** The scale in force: the whole window's, or the cursor's while `cursor` is set. */
   scale: ActivityScale;
+  /** The short-window scale (cursor measures), fixed for the read; null for the others. */
+  cursorScale: ActivityScale | null;
+  /** Set only on the values painted from the cursor's window (`withLive`), never in the state. */
+  cursor: LiveCursor | null;
 }
 
 export type ActivityStatus =
@@ -731,6 +791,10 @@ export interface ActivityState {
   on: boolean;
   choice: ActivityChoice;
   band: BandName;
+  /** "At cursor": the short window's width in milliseconds. */
+  cursorMs: number;
+  /** The cursor's time on the scope in seconds, or null when it is off the scope. */
+  cursorS: number | null;
   /** Bumped by every plan; a report or failure carrying another token is stale. */
   token: number;
   status: ActivityStatus;
@@ -776,8 +840,10 @@ const NO_SELECTION: Selection = { channel: null, contacts: [] };
 function idleActivity(from?: ActivityState): ActivityState {
   return {
     on: false,
-    choice: from?.choice ?? "band_power",
+    choice: from?.choice ?? "cursor_rms",
     band: from?.band ?? "high_gamma",
+    cursorMs: from?.cursorMs ?? DEFAULT_CURSOR_MS,
+    cursorS: null,
     token: (from?.token ?? 0) + 1,
     status: { kind: "off" },
     shown: null,
@@ -815,8 +881,12 @@ export type PanelEvent =
   | { type: "frame_changed"; spaceIndex: number }
   | { type: "select_contact"; contact: number | null; toggle?: boolean }
   | { type: "select_channel"; label: string | null }
+  /** Empty space was clicked, or the Clear selection button or Escape was used. Never toggles. */
+  | { type: "clear_selection" }
   | { type: "activity_switch"; on: boolean }
-  | { type: "activity_options"; choice?: ActivityChoice; band?: BandName }
+  | { type: "activity_options"; choice?: ActivityChoice; band?: BandName; cursorMs?: number }
+  /** The cursor moved over the scope (seconds), or left it (null). Never re-plans or reads. */
+  | { type: "cursor_changed"; timeS: number | null }
   | { type: "window_changed"; startS: number; lengthS: number }
   | { type: "activity_report"; report: ActivityReport }
   | { type: "activity_failed"; token: number; reason: ActivityFailure }
@@ -869,7 +939,8 @@ function planActivity(
   if (samples > MAX_ACTIVITY_SAMPLES) return { status: { kind: "too_wide", samples } };
   const { metric, relative } = choiceRequest(a.choice);
   const perChannel = activitySamples(1, startS, endS, group.rateHz);
-  const refusal = earlyRefusal(metric, a.band, group.rateHz, perChannel);
+  const cursorMs = isCursorChoice(a.choice) ? a.cursorMs : null;
+  const refusal = earlyRefusal(metric, a.band, group.rateHz, perChannel, cursorMs);
   if (refusal) return { status: { kind: "refused", reason: refusal } };
   return {
     status: { kind: "computing" },
@@ -882,6 +953,8 @@ function planActivity(
       metric,
       band: metric === "band_power" ? a.band : null,
       relative,
+      cursorMs,
+      contactRows: placement.contacts.map((c) => [...c.channels]),
       rows,
     },
   };
@@ -924,6 +997,11 @@ function selectChannelRow(state: PanelState, row: number): Transition {
   const selection: Selection = { channel: row, contacts: [...contacts] };
   const next = { ...state, selection };
   return { state: next, effects: [{ type: "select_trace", label: traceLabel(next, selection) }] };
+}
+
+/** A channel is highlighted (even one none of whose contacts is located). */
+export function hasSelection(state: PanelState): boolean {
+  return state.selection.channel !== null || state.selection.contacts.length > 0;
 }
 
 function clearSelection(state: PanelState): Transition {
@@ -1074,6 +1152,9 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
       return selectChannelRow(state, row);
     }
 
+    case "clear_selection":
+      return hasSelection(state) ? clearSelection(state) : same(state);
+
     case "select_channel": {
       const row = event.label === null ? -1 : (state.group?.labels.indexOf(event.label) ?? -1);
       if (row < 0 || state.selection.channel === row) return clearSelection(state);
@@ -1089,8 +1170,19 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
       const a = state.activity;
       const choice = event.choice ?? a.choice;
       const band = event.band ?? a.band;
-      if (choice === a.choice && band === a.band) return same(state);
-      return replan({ ...state, activity: { ...a, choice, band } }, false);
+      const cursorMs =
+        event.cursorMs !== undefined && CURSOR_WIDTHS_MS.includes(event.cursorMs)
+          ? event.cursorMs
+          : a.cursorMs;
+      if (choice === a.choice && band === a.band && cursorMs === a.cursorMs) return same(state);
+      return replan({ ...state, activity: { ...a, choice, band, cursorMs } }, false);
+    }
+
+    case "cursor_changed": {
+      const a = state.activity;
+      const timeS = event.timeS !== null && Number.isFinite(event.timeS) ? event.timeS : null;
+      if (timeS === a.cursorS) return same(state);
+      return { state: { ...state, activity: { ...a, cursorS: timeS } }, effects: [] };
     }
 
     case "window_changed": {
@@ -1113,6 +1205,8 @@ function reduceCore(state: PanelState, event: PanelEvent): Transition {
         contactValues: values,
         contactReasons: reasons,
         scale: buildScale(values, "sequential", event.report.unit),
+        cursorScale: event.report.cursorScale,
+        cursor: null,
       };
       return {
         state: { ...state, activity: { ...a, status: { kind: "ready" }, shown } },
@@ -1303,6 +1397,10 @@ export interface ActivityModel {
   band: BandName;
   bands: { value: BandName; label: string; disabled: boolean }[];
   showBand: boolean;
+  /** The cursor measures' short window: shown with them only. */
+  showCursorWidth: boolean;
+  cursorMs: number;
+  cursorWidths: readonly number[];
   /** Which measure and band the values are (the selectors' own words); null while Activity is off. */
   measure: string | null;
   /** A plain sentence for the current status, or null. */
@@ -1350,6 +1448,8 @@ export interface ViewSwitchModel {
   /** False when WebGL2 is missing or the units banner shows: the flat views are the only view. */
   enabled: boolean;
   title: string;
+  /** A channel is highlighted, so the "Clear selection" button is enabled. */
+  canClear: boolean;
   /**
    * Why the 3D view is not offered under the units banner, for a visible line beside the switch (a
    * disabled button has no focus and its title is a tooltip); the same words as the title. Null
@@ -1558,7 +1658,8 @@ function frameNotes(placement: Placement): string[] {
   if (frame?.kind === "unknown" && frame.why === "no_coordsystem") {
     notes.push("No coordinate system file pairs with these positions.");
   }
-  if (placementRuleFor(frame, space.units) === null) notes.push(noPlacementSentence(frame));
+  const surface = noSurfaceReason(frame, space.units, bannerOf(placement) !== null);
+  if (surface !== null) notes.push(noSurfaceSentence(surface, frame));
   notes.push(unitsSentence(space.units));
   notes.push(...matchNotes(placement.joins));
   notes.push(...unlocatedNotes(placement.joins));
@@ -1582,7 +1683,45 @@ function frameSelector(state: PanelState): FrameSelectorModel | null {
   };
 }
 
-function activitySummary(shown: ActivityShown): string {
+/** "microvolts per second": a unit symbol the panel reports, in words. */
+export function unitWords(unit: string): string {
+  const per = unit.endsWith("/s");
+  const base = per ? unit.slice(0, -2) : unit;
+  const word = base === "µV" ? "microvolts" : base === "T" ? "tesla" : base;
+  return per ? `${word} per second` : word;
+}
+
+/** "RMS over 200 ms centered at 12.34 s, in microvolts": what the contacts show at the cursor. */
+export function cursorHeadline(
+  metric: ActivityMetric,
+  unit: string,
+  widthMs: number,
+  centerS: number,
+): string {
+  const name = metric === "line_length" ? "Line length" : "RMS";
+  return `${name} over ${widthMs} ms centered at ${centerS.toFixed(2)} s, in ${unitWords(unit)}.`;
+}
+
+/** The cursor scale in words, and that a window cut by the read's edge is shorter. */
+export function cursorTail(scale: ActivityScale, unit: string, clipped: boolean): string {
+  const lo = formatActivityValue(scale.lo, unit);
+  const hi = formatActivityValue(scale.hi, unit);
+  const edge = clipped ? " The window is cut by the edge of the read, so it is shorter." : "";
+  return `Colors run from ${lo} to ${hi}: the 2nd to 98th percentile of the short-window values across this whole window, fixed while the cursor moves.${edge}`;
+}
+
+function activitySummary(shown: ActivityShown, cursorMs: number | null = null): string {
+  const r = shown.report;
+  if (shown.cursor) {
+    return `${cursorHeadline(r.metric, r.unit, shown.cursor.widthMs, shown.cursor.centerS)} ${cursorTail(shown.scale, r.unit, shown.cursor.clipped)}`;
+  }
+  if (cursorMs !== null) {
+    return `${wholeWindowSummary(shown)} Whole-window value of the same measure is shown. On a device with a pointer, the value over ${cursorMs} ms follows the pointer over the scope.`;
+  }
+  return wholeWindowSummary(shown);
+}
+
+function wholeWindowSummary(shown: ActivityShown): string {
   const r = shown.report;
   if (r.metric === "rms")
     return `RMS of the window with its mean removed, ${formatPlain(r.windowS)} s.`;
@@ -1603,6 +1742,7 @@ function activitySummary(shown: ActivityShown): string {
 /** "Band power, relative (dB): High gamma, 70 to 150 Hz": the selectors' words, in one place. */
 function measureSentence(a: ActivityState): string {
   const choice = ACTIVITY_CHOICES.find((c) => c.value === a.choice)?.label ?? a.choice;
+  if (isCursorChoice(a.choice)) return `${choice}, ${a.cursorMs} ms window`;
   if (a.choice !== "band_power" && a.choice !== "band_power_db") return choice;
   return `${choice}: ${bandLabel(a.band)}`;
 }
@@ -1637,10 +1777,13 @@ function activityModel(state: PanelState): ActivityModel | null {
       disabled: BANDS[value][1] > BAND_NYQUIST_FRACTION * group.rateHz,
     })),
     showBand: a.choice === "band_power" || a.choice === "band_power_db",
+    showCursorWidth: isCursorChoice(a.choice),
+    cursorMs: a.cursorMs,
+    cursorWidths: CURSOR_WIDTHS_MS,
     measure: a.on ? measureSentence(a) : null,
     message,
     busy: status.kind === "computing",
-    summary: shown ? activitySummary(shown) : null,
+    summary: shown ? activitySummary(shown, isCursorChoice(a.choice) ? a.cursorMs : null) : null,
     colorbar: shown
       ? {
           css: shown.scale.css,
@@ -1739,6 +1882,7 @@ export function viewModel(state: PanelState, limits: ModelLimits = DEFAULT_LIMIT
       on: stage.kind === "views2d" || stage.kind === "no_webgl",
       enabled: state.webgl && !banner,
       title: !state.webgl ? WEBGL_SENTENCE : banner ? BANNER_VIEW_SENTENCE : VIEW_SWITCH_TITLE,
+      canClear: hasSelection(state),
       reason: state.webgl && banner ? BANNER_VIEW_SENTENCE : null,
     },
     template: templateModel(state, stage),
@@ -1762,6 +1906,17 @@ export interface ColorPalette {
   neutral: Rgb01;
   /** A contact the overlay has no value for. */
   noData: Rgb01;
+}
+
+/**
+ * Whether the stage should make colored contacts read (a more transparent surface, unlit and
+ * outlined contacts): Activity is on and has values to show. While the values are recomputed
+ * after a choice (the previous ones are dropped), `wasEmphasized` keeps it on so the surface and
+ * the contacts do not flicker.
+ */
+export function activityEmphasis(state: PanelState, wasEmphasized = false): boolean {
+  const a = state.activity;
+  return a.on && (a.shown !== null || (wasEmphasized && a.status.kind === "computing"));
 }
 
 /**
@@ -1794,6 +1949,52 @@ export function contactColors(state: PanelState, palette: ColorPalette): Float32
           : 1;
   }
   return out;
+}
+
+/** The cursor window's values per drawn contact (NaN: none), as `LiveActivity` measures them. */
+export interface LiveValues {
+  contactValues: ArrayLike<number>;
+  /** Per contact with no value: `REASON_NON_FINITE` or `REASON_UNDEFINED` of activity.ts. */
+  contactReasons: ArrayLike<number>;
+  centerS: number;
+  widthMs: number;
+  clipped: boolean;
+}
+
+/**
+ * The state as the screen and the figure files show it while the contacts follow the cursor: the
+ * same state with the cursor window's values and scale in place of the whole window's, so the
+ * list, the legend, the colors and the exports all say the same thing. Returns `state` itself when
+ * nothing is read or the measure has no cursor scale.
+ */
+export function withLive(state: PanelState, live: LiveValues): PanelState {
+  const shown = state.activity.shown;
+  if (!shown?.cursorScale) return state;
+  const contactValues: (number | null)[] = [];
+  const contactReasons: (ChannelNullReason | null)[] = [];
+  for (let i = 0; i < live.contactValues.length; i++) {
+    const v = live.contactValues[i];
+    contactValues.push(Number.isFinite(v) ? v : null);
+    contactReasons.push(
+      Number.isFinite(v)
+        ? null
+        : live.contactReasons[i] === REASON_UNDEFINED
+          ? "undefined_value"
+          : "non_finite",
+    );
+  }
+  const cursor: LiveCursor = {
+    centerS: live.centerS,
+    widthMs: live.widthMs,
+    clipped: live.clipped,
+  };
+  return {
+    ...state,
+    activity: {
+      ...state.activity,
+      shown: { ...shown, contactValues, contactReasons, scale: shown.cursorScale, cursor },
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1864,6 +2065,12 @@ export interface SpatialPanel {
   isOpen(): boolean;
   setGroup(group: GroupInfo): void;
   setWindow(startS: number, lengthS: number): void;
+  /**
+   * The cursor's time over the scope in seconds, or null when it is off the scope. Cheap and safe
+   * to call on every mouse move: the panel coalesces calls to one recolor per animation frame and
+   * reads nothing.
+   */
+  setCursor(timeS: number | null): void;
   /** The viewer's trace click: select (or, on a second click, deselect) a channel by label. */
   selectChannel(label: string): void;
   /** Re-read the theme tokens after a light or dark switch. */
@@ -1925,7 +2132,7 @@ function nextTask(): Promise<void> {
 }
 
 export type PlanOutcome =
-  | { ok: true; report: ActivityReport }
+  | { ok: true; report: ActivityReport; matrix: ActivityMatrix | null }
   | { ok: false; reason: ActivityFailure };
 
 /**
@@ -1959,6 +2166,10 @@ export async function computeActivityPlan(
     yieldTask = nextTask,
   } = options;
   const perRow: (ChannelActivity | null)[] = new Array(group.labels.length).fill(null);
+  // "At cursor" keeps the located rows' samples (references to the read's own arrays, no copy).
+  const kept: (ArrayLike<number> | null)[] | null =
+    plan.cursorMs === null ? null : new Array(group.labels.length).fill(null);
+  let keptSamples = 0;
   let first: ActivityResult | null = null;
   let firstUnit: "V" | "T" | null = null;
   const perChannel = activitySamples(1, plan.startS, plan.endS, plan.rateHz);
@@ -1986,6 +2197,12 @@ export async function computeActivityPlan(
       if (!adapted.ok) return { ok: false, reason: adapted.reason };
       firstUnit ??= adapted.unit;
       if (adapted.unit !== firstUnit) return { ok: false, reason: "mixed_units" };
+      if (kept) {
+        adapted.channels.forEach((c, k) => {
+          kept[rows[k]] = c.samples;
+        });
+        keptSamples = win.nCols;
+      }
       const outcome = computeActivity({
         channels: adapted.channels,
         rateHz: plan.rateHz,
@@ -2004,8 +2221,33 @@ export async function computeActivityPlan(
     }
   }
   if (signal?.aborted || !first) return null;
+  let matrix: ActivityMatrix | null = null;
+  let scale: ActivityScale | null = null;
+  if (kept && plan.cursorMs !== null && firstUnit) {
+    matrix = {
+      t0S: Math.floor(plan.startS * plan.rateHz) / plan.rateHz,
+      rateHz: plan.rateHz,
+      nSamples: keptSamples,
+      factor: displayFactor(firstUnit),
+      rows: kept,
+    };
+    const metric: CursorMetric = plan.metric === "line_length" ? "line_length" : "rms";
+    scale = await cursorScale(
+      matrix,
+      plan.cursorMs,
+      metric,
+      plan.rows,
+      plan.contactRows,
+      first.unit,
+      yieldTask,
+    );
+    if (signal?.aborted) return null;
+    // A read too short for the cursor window keeps no matrix: the whole-window values stand.
+    if (!scale) matrix = null;
+  }
   return {
     ok: true,
+    matrix,
     report: {
       token: plan.token,
       metric: first.metric,
@@ -2018,6 +2260,7 @@ export async function computeActivityPlan(
       segmentSamples: first.segmentSamples,
       referenceHz: first.referenceHz,
       channels: perRow,
+      cursorScale: scale,
     },
   };
 }
@@ -2068,6 +2311,267 @@ export function forgetTemplateOutlines(): void {
   outlinesLoad = null;
 }
 
+// ---------------------------------------------------------------------------
+// The live cursor's lifecycle
+// ---------------------------------------------------------------------------
+
+/** What the live cursor needs from the page: frames, timers and a clock (injected so tests can drive them). */
+export interface LiveCursorEnv {
+  requestFrame(callback: () => void): number;
+  cancelFrame(handle: number): void;
+  setTimer(callback: () => void, ms: number): number;
+  clearTimer(handle: number): void;
+  now(): number;
+}
+
+/** What the live cursor reads from and paints on the panel. */
+export interface LiveCursorHost {
+  state(): PanelState;
+  /** Put the cursor into the panel's state (the `cursor_changed` event), without painting. */
+  adopt(timeS: number | null): void;
+  /** A full paint: words, scale, list, colors. */
+  sync(): void;
+  /** Recolor the drawn contacts whose `live.changed` is set. Nothing else. */
+  recolor(live: LiveActivity): void;
+  /** The legend sentence, written every frame (not a live region). */
+  legend(text: string): void;
+}
+
+export interface LiveCursorController {
+  /** Keep the samples of the read that just finished; the next `measure` binds to them. */
+  hold(matrix: ActivityMatrix | null): void;
+  /** Drop the samples and everything measured from them (every abort path). */
+  release(): void;
+  /** The viewer's cursor: kept, and one frame is queued to recolor for it. */
+  setCursor(timeS: number | null): void;
+  /** Take the last reported cursor into the state before a switch or the panel changes it. */
+  adopt(): void;
+  /** Measure the window at the state's cursor; the live values while the contacts show them, else null. */
+  measure(): LiveActivity | null;
+  /** The contacts were repainted from outside: the next frame repaints them all. */
+  invalidate(): void;
+  readonly on: boolean;
+  /** Whether samples are retained (for tests and the box's data attribute). */
+  readonly holding: boolean;
+  dispose(): void;
+}
+
+/**
+ * The live cursor's lifecycle, apart from the DOM. The retained matrix, the engine measured from
+ * it, the animation frame that recolors (many `setCursor` calls, one frame), the timer that lets
+ * the list catch up once the pointer rests (`LIST_IDLE_MS`), and entering and leaving the live
+ * state (a full paint) all live here, so they can be tested with an injected clock.
+ */
+export function createLiveCursor(env: LiveCursorEnv, host: LiveCursorHost): LiveCursorController {
+  let matrix: ActivityMatrix | null = null;
+  let live: LiveActivity | null = null;
+  let liveMatrix: ActivityMatrix | null = null;
+  let livePlacement: Placement | null = null;
+  let measuredAt: number | null = null;
+  let on = false;
+  let tails: [string | null, string | null] = [null, null];
+  let pending: number | null = null;
+  let frame: number | null = null;
+  let timer: number | null = null;
+  let lastMove = 0;
+  let disposed = false;
+
+  function stopTimer(): void {
+    if (timer !== null) env.clearTimer(timer);
+    timer = null;
+  }
+
+  function release(): void {
+    matrix = null;
+    live = null;
+    liveMatrix = null;
+    livePlacement = null;
+    measuredAt = null;
+    on = false;
+    tails = [null, null];
+    stopTimer();
+  }
+
+  function adopt(): void {
+    if (pending !== host.state().activity.cursorS) host.adopt(pending);
+  }
+
+  function measure(): LiveActivity | null {
+    const state = host.state();
+    const a = state.activity;
+    const placement = state.placement;
+    const scale = a.shown?.cursorScale;
+    if (
+      !a.on ||
+      !isCursorChoice(a.choice) ||
+      a.status.kind !== "ready" ||
+      !scale ||
+      !matrix ||
+      !placement ||
+      a.cursorS === null
+    ) {
+      on = false;
+      return null;
+    }
+    if (!live || liveMatrix !== matrix || livePlacement !== placement) {
+      live = createLiveActivity({
+        matrix,
+        rows: locatedRows(placement),
+        contactRows: placement.contacts.map((c) => c.channels),
+        metric: a.choice === "cursor_line_length" ? "line_length" : "rms",
+        widthMs: a.cursorMs,
+        scale,
+      });
+      liveMatrix = matrix;
+      livePlacement = placement;
+      tails = [null, null];
+      measuredAt = null;
+    }
+    // The same center was already measured: nothing to redo, and nothing consumed.
+    if (!(on && measuredAt === a.cursorS)) {
+      on = live.update(a.cursorS);
+      measuredAt = on ? a.cursorS : null;
+    }
+    return on ? live : null;
+  }
+
+  function queue(): void {
+    if (disposed || frame !== null) return;
+    const a = host.state().activity;
+    if (pending === a.cursorS) return;
+    // While the panel is closed or Activity is off a position is only kept (`adopt` takes it when
+    // that changes); leaving the scope still clears the state's cursor.
+    if (!(host.state().open && a.on) && pending !== null) return;
+    frame = env.requestFrame(onFrame);
+  }
+
+  function onFrame(): void {
+    frame = null;
+    if (disposed) return;
+    adopt();
+    const was = on;
+    const l = measure();
+    // Entering or leaving the live state changes the words and the scale: a full paint.
+    if ((l !== null) !== was) {
+      host.sync();
+      return;
+    }
+    if (!l) return;
+    lastMove = env.now();
+    if (l.anyChanged) {
+      host.recolor(l);
+      l.commit();
+    }
+    const a = host.state().activity;
+    const shown = a.shown;
+    if (shown && a.cursorS !== null) {
+      const t = l.clipped ? 1 : 0;
+      tails[t] ??= cursorTail(l.scale, shown.report.unit, l.clipped);
+      host.legend(
+        `${cursorHeadline(shown.report.metric, shown.report.unit, a.cursorMs, a.cursorS)} ${tails[t]}`,
+      );
+    }
+    if (timer === null) timer = env.setTimer(onTimer, LIST_IDLE_MS);
+  }
+
+  function onTimer(): void {
+    timer = null;
+    if (disposed) return;
+    const idle = env.now() - lastMove;
+    if (on && idle < LIST_IDLE_MS) {
+      timer = env.setTimer(onTimer, LIST_IDLE_MS - idle);
+      return;
+    }
+    host.sync();
+  }
+
+  return {
+    hold(m) {
+      matrix = m;
+      live = null;
+      measuredAt = null;
+    },
+    release,
+    setCursor(timeS) {
+      if (disposed) return;
+      pending = timeS;
+      queue();
+    },
+    adopt,
+    measure,
+    invalidate() {
+      live?.invalidate();
+    },
+    get on() {
+      return on;
+    },
+    get holding() {
+      return matrix !== null;
+    },
+    dispose() {
+      disposed = true;
+      if (frame !== null) env.cancelFrame(frame);
+      frame = null;
+      release();
+    },
+  };
+}
+
+/** What the activity effects need from the page. */
+export interface ActivityRunnerDeps {
+  live: LiveCursorController;
+  setTimer(callback: () => void, ms: number): number;
+  clearTimer(handle: number): void;
+  /** Start the (debounced) read of a plan; `signal` aborts it. */
+  start(plan: ActivityPlan, signal: AbortSignal): void;
+}
+
+export interface ActivityRunner {
+  /** Run an `abort_activity` or `read_activity` effect; other effects are not its business. */
+  run(effect: PanelEffect): void;
+  /** The panel is gone: stop the read and the live cursor. */
+  dispose(): void;
+}
+
+/**
+ * Runs the activity effects the reducer asks for. Both of them stop the read in flight and release
+ * the retained samples (a window or option change, the switch off, a group or recording change,
+ * closing, dispose: the reducer emits `abort_activity` for each; a new read first drops the old
+ * samples), so no read's samples outlive the plan they were read for.
+ */
+export function createActivityRunner(deps: ActivityRunnerDeps): ActivityRunner {
+  let ctl: AbortController | null = null;
+  let timer: number | null = null;
+  function stop(): void {
+    if (timer !== null) deps.clearTimer(timer);
+    timer = null;
+    ctl?.abort();
+    ctl = null;
+  }
+  return {
+    run(effect) {
+      if (effect.type === "abort_activity") {
+        stop();
+        deps.live.release();
+      } else if (effect.type === "read_activity") {
+        stop();
+        const mine = new AbortController();
+        ctl = mine;
+        deps.live.release();
+        const plan = effect.plan;
+        timer = deps.setTimer(() => {
+          timer = null;
+          deps.start(plan, mine.signal);
+        }, ACTIVITY_DEBOUNCE_MS);
+      }
+    },
+    dispose() {
+      stop();
+      deps.live.dispose();
+    },
+  };
+}
+
 /** Gives each panel's ids their own numbers (a page may hold more than one panel). */
 let panelSeq = 0;
 
@@ -2080,11 +2584,27 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
   let geometryCtl: AbortController | null = null;
   let geometryTimer = 0;
-  let activityCtl: AbortController | null = null;
-  let activityTimer = 0;
+  let activityRunner: ActivityRunner | null = null;
+
+  // The live "At cursor" half: its lifecycle is `createLiveCursor`; this shell paints for it.
+  let liveCursor: LiveCursorController | null = null;
+  /** The color array last handed to the renderer; the live frames rewrite its rgb in place. */
+  let colorsBuf: Float32Array | null = null;
+  let circles: { el: Element; contact: number }[] = [];
+  const fills: string[] = [];
+  let noDataFill = "rgb(102, 115, 128)";
 
   let renderer: BrainRenderer | null = null;
   let canvas: HTMLCanvasElement | null = null;
+  /** The on-stage zoom, pan and reset controls: present exactly while the 3D canvas is. */
+  let viewCtl: HTMLElement | null = null;
+  let panMode = false;
+  /** Emphasis as last drawn: kept across the recompute after a measure or band change. */
+  let emphasized = false;
+  /** The control tooltip, while the controls exist: Escape dismisses it before anything else. */
+  let tooltip: { hide(): void; shown(): boolean } | null = null;
+  let panBtn: HTMLButtonElement | null = null;
+  let tipTimer = 0;
   let drawnPlacement: Placement | null = null;
   /** The row the contacts were last drawn under (null: as declared) and the mesh last handed over. */
   let drawnRule: TemplatePlacementRule | null = null;
@@ -2122,6 +2642,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   frameSel.dataset.spatialFrame = "";
   frameWrap.append(document.createTextNode("Frame "), frameSel);
   frameWrap.hidden = true;
+  // The Frame select on the left and the 3D view controls on the right (they exist with the canvas).
+  const head = el("div", "eegv__spatial-head");
+  head.append(frameWrap);
+  head.hidden = true;
 
   const stage = el("div", "eegv__spatial-stage");
   stage.dataset.spatialStage = "";
@@ -2148,7 +2672,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const scaleLine = el("p", "eegv__spatial-scale");
   scaleLine.dataset.spatialScale = "";
   scaleLine.hidden = true;
-  stage.append(banner, scaleLine, msgWrap, views, credit);
+  // What the focused stage answers to, for a screen reader (the stage's description).
+  const keysHint = el("span", "eegv__sr-only", STAGE_KEYS_HINT);
+  keysHint.id = `eegv-keys-${++panelSeq}`;
+  stage.append(banner, scaleLine, msgWrap, views, credit, keysHint);
 
   // The names of a recording closed by its channel names (IS-Q2), under the refusal sentence.
   const nameBox = el("div", "eegv__spatial-names");
@@ -2168,7 +2695,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const saveSvgBtn = el("button", "eegv__btn", "Save SVG");
   saveSvgBtn.type = "button";
   saveSvgBtn.dataset.spatialSave = "svg";
-  actions.append(view2dBtn, savePngBtn, saveSvgBtn);
+  const clearBtn = el("button", "eegv__btn", "Clear selection");
+  clearBtn.type = "button";
+  clearBtn.dataset.spatialClear = "";
+  clearBtn.title = "Clear the highlighted channel (or press Escape)";
+  actions.append(view2dBtn, clearBtn, savePngBtn, saveSvgBtn);
   actions.hidden = true;
   // Why the 3D view is off under the banner, in the page and not only in the button's tooltip.
   const viewReason = el("p", "eegv__spatial-actmsg");
@@ -2232,7 +2763,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const bandSel = el("select", "eegv__sel");
   bandSel.setAttribute("aria-label", "Frequency band");
   for (const b of Object.keys(BANDS) as BandName[]) bandSel.append(option(b, b));
-  actRow.append(actLabel, metricSel, bandSel);
+  const widthSel = el("select", "eegv__sel");
+  widthSel.setAttribute("aria-label", "Cursor window");
+  for (const ms of CURSOR_WIDTHS_MS) widthSel.append(option(String(ms), `${ms} ms`));
+  actRow.append(actLabel, metricSel, widthSel, bandSel);
   const actMsg = el("p", "eegv__spatial-actmsg");
   actMsg.setAttribute("role", "status");
   const bar = el("div", "eegv__spatial-bar");
@@ -2253,18 +2787,18 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   list.setAttribute("aria-multiselectable", "true");
   list.dataset.spatialList = "";
   inner.append(
-    frameWrap,
+    head,
     stage,
     nameBox,
     actions,
     viewReason,
     saveMsg,
+    act,
     templateBox,
     status,
     selChan,
     viewNotes,
     notes,
-    act,
     list,
   );
   box.append(inner);
@@ -2273,8 +2807,18 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   // Escape closes the panel and hands focus back to the toggle that opened it.
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.key === "Escape" && state.open) {
-      e.preventDefault();
+    if (e.key !== "Escape") return;
+    // In order: a visible tooltip, a highlighted channel, then the panel itself.
+    const action = escapeAction({
+      open: state.open,
+      tooltipShown: tooltip?.shown() ?? false,
+      selected: hasSelection(state),
+    });
+    if (action === null) return;
+    e.preventDefault();
+    if (action === "hide_tooltip") tooltip?.hide();
+    else if (action === "clear_selection") dispatch({ type: "clear_selection" });
+    else {
       dispatch({ type: "toggle_open", open: false });
       host.focusToggle();
     }
@@ -2350,6 +2894,23 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       }
       canvas?.remove();
       canvas = null;
+      window.clearTimeout(tipTimer);
+      viewCtl?.remove();
+      viewCtl = null;
+      tooltip = null;
+      emphasized = false;
+      head.hidden = frameWrap.hidden;
+      panBtn = null;
+      panMode = false;
+      for (const name of [
+        "tabindex",
+        "role",
+        "aria-label",
+        "aria-describedby",
+        "aria-keyshortcuts",
+      ]) {
+        stage.removeAttribute(name);
+      }
       drawnPlacement = null;
       drawnRule = null;
       drawnMesh = null;
@@ -2372,13 +2933,111 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
     canvas = c;
     renderer = r;
+    r.setPanMode(false);
+    panMode = false;
+    mountViewControls();
     drawnPlacement = null;
     drawnRule = null;
     drawnMesh = null;
     c.addEventListener("click", onCanvasClick);
   }
 
-  function syncRenderer(): void {
+  function onStageKey(e: KeyboardEvent): void {
+    if (!renderer) return;
+    const action = keyAction(e, panMode);
+    if (!action) return;
+    e.preventDefault();
+    applyViewAction(action);
+  }
+
+  /** Run what a control or a key asks of the view; the decisions are `view-controls.ts`'s. */
+  function applyViewAction(action: ViewAction): void {
+    if (!renderer) return;
+    switch (action.type) {
+      case "zoom":
+        renderer.zoom(action.factor);
+        return;
+      case "turn":
+        renderer.orbit(action.dx, action.dy);
+        return;
+      case "slide":
+        renderer.pan(action.dx, action.dy);
+        return;
+      case "reset":
+        renderer.resetView();
+        return;
+      case "toggle_pan":
+        panMode = !panMode;
+        renderer.setPanMode(panMode);
+        panBtn?.setAttribute("aria-pressed", String(panMode));
+        panBtn?.classList.toggle("eegv__btn--active", panMode);
+        return;
+    }
+  }
+
+  /** The control group in the stage's top-right corner, with its delayed tooltip. Never exported. */
+  function mountViewControls(): void {
+    const group = el("div", "eegv__spatial-viewctl");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "3D view controls");
+    group.dataset.spatialViewControls = "";
+    const tip = el("div", "eegv__spatial-tip");
+    tip.setAttribute("role", "tooltip");
+    tip.id = `eegv-tip-${++panelSeq}`;
+    tip.hidden = true;
+    const hide = () => {
+      window.clearTimeout(tipTimer);
+      tip.hidden = true;
+    };
+    const show = (text: string) => {
+      setText(tip, text);
+      tip.hidden = false;
+    };
+    const row = el("div", "eegv__spatial-viewctl-row");
+    for (const spec of VIEW_CONTROLS) {
+      const b = el("button", "eegv__btn eegv__spatial-viewbtn", spec.glyph);
+      b.type = "button";
+      b.setAttribute("aria-label", spec.label);
+      b.setAttribute("aria-keyshortcuts", spec.keys);
+      b.dataset.spatialControl = spec.id;
+      if (spec.id === "pan") {
+        b.setAttribute("aria-pressed", "false");
+        panBtn = b;
+      }
+      b.addEventListener("click", () => applyViewAction(controlAction(spec.id)));
+      b.addEventListener("pointerenter", (e) => {
+        if (e.pointerType === "touch") return;
+        window.clearTimeout(tipTimer);
+        tipTimer = window.setTimeout(() => {
+          show(spec.tooltip);
+          b.setAttribute("aria-describedby", tip.id);
+        }, TOOLTIP_DELAY_MS);
+      });
+      b.addEventListener("pointerleave", hide);
+      // Keyboard focus shows it at once; a click's focus (pointer) does not.
+      b.addEventListener("focus", () => {
+        if (b.matches(":focus-visible")) {
+          show(spec.tooltip);
+          b.setAttribute("aria-describedby", tip.id);
+        }
+      });
+      b.addEventListener("blur", hide);
+      row.append(b);
+    }
+    group.append(row, tip);
+    tooltip = { hide, shown: () => !tip.hidden };
+    // The buttons sit outside the stage, so the stage's keys apply on them too.
+    group.addEventListener("keydown", onStageKey);
+    head.append(group);
+    viewCtl = group;
+    stage.tabIndex = 0;
+    stage.setAttribute("role", "group");
+    stage.setAttribute("aria-label", "3D view of the electrode contacts");
+    stage.setAttribute("aria-describedby", keysHint.id);
+    stage.setAttribute("aria-keyshortcuts", STAGE_KEYSHORTCUTS);
+  }
+
+  function syncRenderer(shownState: PanelState): void {
     if (!renderer || !canvas) return;
     const placement = state.placement;
     renderer.resize();
@@ -2398,8 +3057,12 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       drawnPlacement = placement;
       drawnRule = rule;
     }
-    const colors = contactColors(state, palette);
+    const colors = contactColors(shownState, palette);
+    colorsBuf = colors;
+    emphasized = activityEmphasis(shownState, emphasized);
+    renderer.setEmphasis(emphasized);
     if (colors) renderer.setColors(colors);
+    liveCursor?.invalidate();
     renderer.setSelected(
       state.selection.contacts.length === 1 ? state.selection.contacts[0] : null,
     );
@@ -2407,18 +3070,22 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
   function sync(): void {
     if (disposed) return;
-    let model = viewModel(state);
+    let vs = viewState();
+    let model = viewModel(vs);
     host.setToggle(model.toggle);
     box.hidden = !model.open;
     box.dataset.activityState = state.activity.status.kind;
     box.dataset.activityReads = String(reads);
+    box.dataset.activityLive = liveCursor?.on ? "1" : "0";
     ensureRenderer(model.open && model.stage.kind === "canvas");
     // Creating the renderer may have found no WebGL2; the model then says so.
-    model = viewModel(state);
+    vs = viewState();
+    model = viewModel(vs);
     if (!model.open) return;
 
     // Frame selector
     frameWrap.hidden = model.frames === null;
+    head.hidden = frameWrap.hidden && viewCtl === null;
     if (model.frames) {
       const want = model.frames.options.map((o) => `${o.index}|${o.label}`).join("\n");
       if (frameSel.dataset.key !== want) {
@@ -2466,6 +3133,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     actions.hidden = !model.view.shown;
     view2dBtn.setAttribute("aria-pressed", String(model.view.on));
     view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
+    // aria-disabled, not disabled: the button may hold focus when the selection clears, and a
+    // disabled button drops it to the page body, where Escape no longer reaches the panel.
+    clearBtn.setAttribute("aria-disabled", String(!model.view.canClear));
     view2dBtn.disabled = !model.view.enabled;
     view2dBtn.title = model.view.title;
     setText(viewReason, model.view.reason ?? "");
@@ -2494,6 +3164,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       metricSel.disabled = !am.on;
       bandSel.hidden = !am.showBand;
       bandSel.disabled = !am.on;
+      widthSel.hidden = !am.showCursorWidth;
+      widthSel.disabled = !am.on;
+      widthSel.value = String(am.cursorMs);
       if (bandSel.dataset.key !== am.bands.map((b) => `${b.label}${b.disabled}`).join("|")) {
         bandSel.replaceChildren(
           ...am.bands.map((b) => {
@@ -2534,7 +3207,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       ensureVisible(rows[first].li);
     }
 
-    syncRenderer();
+    syncRenderer(vs);
     if (templateRequested && renderer) {
       templateRequested = false;
       startTemplateLoad();
@@ -2573,10 +3246,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
   // --- 2D views and exports (IS-V3) ---------------------------------------
   function figureInput(model: PanelModel): ExportInput {
+    const vs = viewState();
     return {
-      state,
+      state: vs,
       model,
-      colors: contactColors(state, palette),
+      colors: contactColors(vs, palette),
       theme: figureTheme,
       template: templatePlacementFor(state, outlinesData),
       frameLabel: frameName(state.placement?.space.frame ?? null),
@@ -2639,6 +3313,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     if (!show || !state.placement) {
       if (viewsHtml !== "") views.replaceChildren();
       viewsHtml = "";
+      circles = [];
       return;
     }
     const input = figureInput(model);
@@ -2654,6 +3329,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     if (html !== viewsHtml) {
       views.innerHTML = html;
       viewsHtml = html;
+      circles = Array.from(views.querySelectorAll("circle[data-contact]"), (el) => ({
+        el,
+        contact: Number((el as SVGCircleElement).dataset.contact),
+      }));
+      liveCursor?.invalidate();
     }
     const sentences = figureLabels(input, true)
       .filter((l) => l.role === "axes" || l.role === "measure")
@@ -2666,7 +3346,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   }
 
   async function save(kind: "png" | "svg"): Promise<void> {
-    const model = viewModel(state);
+    const model = viewModel(viewState());
     if (!model.view.shown) return;
     savingMessage = "";
     let filename = `figure.${kind}`;
@@ -2692,9 +3372,14 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     sync();
   }
 
+  // The keys of the 3D stage act only while focus is inside it (the stage, or one of its buttons).
+  stage.addEventListener("keydown", onStageKey);
+
   // --- events -------------------------------------------------------------
   function dispatch(event: PanelEvent): void {
     if (disposed) return;
+    // The cursor the viewer last reported is known before the switch or the panel changes state.
+    if (event.type === "toggle_open" || event.type === "activity_switch") liveCursor?.adopt();
     const before = state.open;
     const t = reduce(state, event);
     state = t.state;
@@ -2714,21 +3399,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         geometryCtl = null;
         return;
       case "abort_activity":
-        window.clearTimeout(activityTimer);
-        activityCtl?.abort();
-        activityCtl = null;
+      case "read_activity":
+        activityRunner?.run(effect);
         return;
-      case "read_activity": {
-        window.clearTimeout(activityTimer);
-        activityCtl?.abort();
-        const ctl = new AbortController();
-        activityCtl = ctl;
-        activityTimer = window.setTimeout(
-          () => void readActivity(effect.plan, ctl.signal),
-          ACTIVITY_DEBOUNCE_MS,
-        );
-        return;
-      }
       case "load_outlines":
         startOutlinesLoad();
         return;
@@ -2795,6 +3468,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         { signal },
       );
       if (outcome === null || signal.aborted) return;
+      liveCursor?.hold(outcome.ok ? outcome.matrix : null);
       dispatch(
         outcome.ok
           ? { type: "activity_report", report: outcome.report }
@@ -2807,6 +3481,81 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
   }
 
+  // --- live cursor ---------------------------------------------------------
+  function fillOf(index: number): string {
+    let fill = fills[index];
+    if (fill === undefined) {
+      fill = `rgb(${lutChannel(index, 0)}, ${lutChannel(index, 1)}, ${lutChannel(index, 2)})`;
+      fills[index] = fill;
+    }
+    return fill;
+  }
+
+  /** Recolor the drawn contacts whose table entry changed: the renderer's buffer and the 2D circles. */
+  function recolor(live: LiveActivity): void {
+    if (renderer && colorsBuf) {
+      for (let i = 0; i < live.changed.length; i++) {
+        if (!live.changed[i]) continue;
+        const idx = live.indexes[i];
+        if (idx < 0) {
+          colorsBuf[i * 4] = palette.noData[0];
+          colorsBuf[i * 4 + 1] = palette.noData[1];
+          colorsBuf[i * 4 + 2] = palette.noData[2];
+        } else {
+          colorsBuf[i * 4] = lutChannel(idx, 0) / 255;
+          colorsBuf[i * 4 + 1] = lutChannel(idx, 1) / 255;
+          colorsBuf[i * 4 + 2] = lutChannel(idx, 2) / 255;
+        }
+      }
+      renderer.setColors(colorsBuf);
+    }
+    for (let k = 0; k < circles.length; k++) {
+      const c = circles[k];
+      if (!live.changed[c.contact]) continue;
+      const idx = live.indexes[c.contact];
+      c.el.setAttribute("fill", idx < 0 ? noDataFill : fillOf(idx));
+    }
+  }
+
+  const frameEnv: LiveCursorEnv = {
+    requestFrame: (cb) => requestAnimationFrame(cb),
+    cancelFrame: (h) => cancelAnimationFrame(h),
+    setTimer: (cb, ms) => window.setTimeout(cb, ms),
+    clearTimer: (h) => window.clearTimeout(h),
+    now: () => performance.now(),
+  };
+  liveCursor = createLiveCursor(frameEnv, {
+    state: () => state,
+    adopt: (timeS) => {
+      state = reduce(state, { type: "cursor_changed", timeS }).state;
+    },
+    sync: () => sync(),
+    recolor,
+    // The legend is the one string made per frame; it is not a live region, so nothing is announced.
+    legend: (text) => setText(actSummary, text),
+  });
+
+  activityRunner = createActivityRunner({
+    live: liveCursor,
+    setTimer: (cb, ms) => window.setTimeout(cb, ms),
+    clearTimer: (h) => window.clearTimeout(h),
+    start: (plan, signal) => void readActivity(plan, signal),
+  });
+
+  /** The state as shown: with the cursor window's values while the contacts follow the cursor. */
+  function viewState(): PanelState {
+    const a = state.activity;
+    const l = liveCursor?.measure() ?? null;
+    if (!l || a.cursorS === null) return state;
+    return withLive(state, {
+      contactValues: l.contactValues,
+      contactReasons: l.contactReasons,
+      centerS: a.cursorS,
+      widthMs: a.cursorMs,
+      clipped: l.clipped,
+    });
+  }
+
   function onCanvasClick(e: MouseEvent): void {
     if (!renderer || !canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -2816,7 +3565,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       e.clientY - rect.top,
       coarse ? 14 : MIN_PICK_PX,
     );
-    dispatch({ type: "select_contact", contact: index });
+    dispatch(
+      index === null ? { type: "clear_selection" } : { type: "select_contact", contact: index },
+    );
   }
 
   retry.addEventListener("click", () => dispatch({ type: "retry" }));
@@ -2828,8 +3579,20 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   savePngBtn.addEventListener("click", () => void save("png"));
   saveSvgBtn.addEventListener("click", () => void save("svg"));
   views.addEventListener("click", (e) => {
-    const dot = (e.target as Element | null)?.closest<SVGCircleElement>("circle[data-contact]");
-    if (dot) dispatch({ type: "select_contact", contact: Number(dot.dataset.contact) });
+    const target = e.target as Element | null;
+    const dot = target?.closest<SVGCircleElement>("circle[data-contact]");
+    // A click that ends a text selection, or lands on a label or link, is not an empty click.
+    const reading = !dot && (!!window.getSelection()?.toString() || !!target?.closest("text, a"));
+    if (reading) return;
+    dispatch(
+      dot
+        ? { type: "select_contact", contact: Number(dot.dataset.contact) }
+        : { type: "clear_selection" },
+    );
+  });
+  clearBtn.addEventListener("click", () => {
+    if (clearBtn.getAttribute("aria-disabled") === "true") return;
+    dispatch({ type: "clear_selection" });
   });
   frameSel.addEventListener("change", () =>
     dispatch({ type: "frame_changed", spaceIndex: Number(frameSel.value) }),
@@ -2842,6 +3605,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   );
   bandSel.addEventListener("change", () =>
     dispatch({ type: "activity_options", band: bandSel.value as BandName }),
+  );
+  widthSel.addEventListener("change", () =>
+    dispatch({ type: "activity_options", cursorMs: Number(widthSel.value) }),
   );
 
   function rowOf(target: EventTarget | null): number | null {
@@ -2881,6 +3647,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     const t = tokens(host.themeRoot);
     theme = t.theme;
     palette = { neutral: parseColor(t.theme.contact), noData: parseColor(t.noData) };
+    noDataFill = `rgb(${Math.round(palette.noData[0] * 255)}, ${Math.round(palette.noData[1] * 255)}, ${Math.round(palette.noData[2] * 255)})`;
     figureTheme = {
       background: t.theme.background,
       foreground: t.theme.outline,
@@ -2912,6 +3679,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     setWindow(startS, lengthS) {
       if (started) dispatch({ type: "window_changed", startS, lengthS });
     },
+    setCursor(timeS) {
+      if (!started || disposed) return;
+      liveCursor?.setCursor(timeS);
+    },
     selectChannel(label) {
       if (started && state.open) dispatch({ type: "select_channel", label });
     },
@@ -2925,6 +3696,7 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       state = t.state;
       for (const effect of t.effects) run(effect);
       disposed = true;
+      activityRunner?.dispose();
       resizeObserver?.disconnect();
       ensureRenderer(false);
       box.replaceChildren();

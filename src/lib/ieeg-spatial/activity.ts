@@ -510,6 +510,243 @@ export function computeActivity(req: ActivityRequest): ActivityOutcome {
   };
 }
 
+// --- Short windows at a cursor ----------------------------------------------
+
+/** The widths offered for "At cursor", in milliseconds. */
+export const CURSOR_WIDTHS_MS: readonly number[] = [50, 100, 200, 500];
+export const DEFAULT_CURSOR_MS = 200;
+export type CursorMetric = "rms" | "line_length";
+
+/** The most samples the scale pass reads: contacts times centers times the cursor window. */
+const CURSOR_SCALE_BUDGET = 4_000_000;
+const CURSOR_SCALE_MAX_CENTERS = 64;
+const CURSOR_SCALE_MIN_CENTERS = 8;
+
+/**
+ * The level-0 samples of one read, kept so the cursor's short window can be measured without
+ * another read. `rows` is indexed by channel row (null for a row that was not read); every array
+ * has `nSamples` samples in SI units, and `factor` converts them to the display unit (1e6 for
+ * microvolts, 1 for tesla).
+ */
+export interface ActivityMatrix {
+  /** Time of sample 0, in seconds from the recording start. */
+  t0S: number;
+  rateHz: number;
+  nSamples: number;
+  factor: number;
+  rows: (ArrayLike<number> | null)[];
+}
+
+/** The factor from the store's SI samples to the unit the panel reports: microvolts, or tesla. */
+export function displayFactor(unit: "V" | "T"): number {
+  return unit === "V" ? unitToSI("V") / unitToSI("µV") : 1;
+}
+
+/** Samples in a cursor window of `widthMs` at `rateHz`. */
+export function cursorWindowSamples(rateHz: number, widthMs: number): number {
+  return Math.round((rateHz * widthMs) / 1000);
+}
+
+/**
+ * The sample range `[i0, i1)` of the window of `widthMs` centered at `centerS` (sample `i` spans
+ * `[i, i + 1) / rate` after the read's start, so the window's middle is the cursor), clipped to the
+ * matrix at its edges (so the window stays centered and gets shorter, never shifted), or null when
+ * the center is outside the read (`[t0S, t0S + nSamples / rate]`, both ends included) or fewer
+ * than two samples remain.
+ */
+export function cursorWindowBounds(
+  m: Pick<ActivityMatrix, "t0S" | "rateHz" | "nSamples">,
+  centerS: number,
+  widthMs: number,
+): { i0: number; i1: number; clipped: boolean } | null {
+  const n = cursorWindowSamples(m.rateHz, widthMs);
+  if (n < 2 || !Number.isFinite(centerS)) return null;
+  // Sample `i` spans `[i, i + 1) / rate` after `t0S` (the left edge of sample 0, as the read's
+  // `floor(start * rate)` gives it), so the read covers `[0, nSamples]` in these units, and a
+  // cursor exactly at either end is still on it.
+  const center = (centerS - m.t0S) * m.rateHz;
+  if (center < 0 || center > m.nSamples) return null;
+  const want0 = Math.round(center - n / 2);
+  const i0 = Math.max(0, want0);
+  const i1 = Math.min(m.nSamples, want0 + n);
+  if (i1 - i0 < 2) return null;
+  return { i0, i1, clipped: i0 !== want0 || i1 !== want0 + n };
+}
+
+/**
+ * RMS (mean removed, as `rms`) or mean absolute change per second (as `line_length`) of
+ * `x[i0, i1)`, in the display unit; NaN when any sample is not finite. Allocates nothing.
+ */
+export function shortWindowValue(
+  x: ArrayLike<number>,
+  i0: number,
+  i1: number,
+  metric: CursorMetric,
+  rateHz: number,
+  factor: number,
+): number {
+  const n = i1 - i0;
+  if (metric === "line_length") {
+    let sum = 0;
+    let prev = x[i0];
+    if (!Number.isFinite(prev)) return Number.NaN;
+    for (let i = i0 + 1; i < i1; i++) {
+      const v = x[i];
+      if (!Number.isFinite(v)) return Number.NaN;
+      sum += Math.abs(v - prev);
+      prev = v;
+    }
+    return finiteOrInfinity((sum / (n - 1)) * rateHz * factor);
+  }
+  let sum = 0;
+  for (let i = i0; i < i1; i++) {
+    const v = x[i];
+    if (!Number.isFinite(v)) return Number.NaN;
+    sum += v;
+  }
+  const mean = sum / n;
+  let sq = 0;
+  for (let i = i0; i < i1; i++) {
+    const d = x[i] - mean;
+    sq += d * d;
+  }
+  return finiteOrInfinity(Math.sqrt(sq / n) * factor);
+}
+
+/** A result that overflowed is `Infinity`, so it differs from NaN (a sample was not a number). */
+function finiteOrInfinity(v: number): number {
+  return Number.isFinite(v) ? v : Number.POSITIVE_INFINITY;
+}
+
+/** Why a contact has no value, as the whole-window metrics say it (`ChannelNullReason`). */
+export const NO_REASON = 0;
+export const REASON_NON_FINITE = 1;
+export const REASON_UNDEFINED = 2;
+
+/** Which channel slots feed each contact: `start[i] .. start[i + 1]` index `slots`. */
+export interface ContactSlots {
+  start: Int32Array;
+  slots: Int32Array;
+}
+
+/** Map each contact's channel rows to slots of `rows` (a row not in `rows` feeds nothing). */
+export function contactSlots(
+  rows: readonly number[],
+  contactRows: readonly (readonly number[])[],
+): ContactSlots {
+  const slotOf = new Map<number, number>();
+  rows.forEach((row, k) => slotOf.set(row, k));
+  const start = new Int32Array(contactRows.length + 1);
+  const flat: number[] = [];
+  contactRows.forEach((own, i) => {
+    for (const row of own) {
+      const k = slotOf.get(row);
+      if (k !== undefined) flat.push(k);
+    }
+    start[i + 1] = flat.length;
+  });
+  return { start, slots: Int32Array.from(flat) };
+}
+
+/**
+ * Per contact, the mean of its channels' finite values (NaN for none): the same rule the
+ * whole-window values and the colors use. `reasons`, when given, gets the first non-finite
+ * channel's reason for a contact with no value (NaN: a sample was not a number; infinite: the
+ * result overflowed), as `contactValuesOf` takes the first channel's reason. Allocates nothing.
+ */
+export function contactMeans(
+  channelValues: ArrayLike<number>,
+  map: ContactSlots,
+  out: Float64Array,
+  reasons?: Uint8Array,
+): void {
+  for (let i = 0; i < out.length; i++) {
+    let sum = 0;
+    let count = 0;
+    let reason = NO_REASON;
+    for (let j = map.start[i]; j < map.start[i + 1]; j++) {
+      const v = channelValues[map.slots[j]];
+      if (Number.isFinite(v)) {
+        sum += v;
+        count++;
+      } else if (reason === NO_REASON) {
+        reason = Number.isNaN(v) ? REASON_NON_FINITE : REASON_UNDEFINED;
+      }
+    }
+    out[i] = count > 0 ? sum / count : Number.NaN;
+    if (reasons) reasons[i] = count > 0 ? NO_REASON : reason;
+  }
+}
+
+/**
+ * One value per entry of `rows` (channel rows) for the window centered at `centerS`, written to
+ * `out` (NaN: no value, a sample was not a number or the row was not read). Returns the window's
+ * bounds, or null (and writes nothing) when the center is outside the matrix or the window is
+ * too short. Allocates only the returned bounds.
+ */
+export function shortWindowValues(
+  m: ActivityMatrix,
+  centerS: number,
+  widthMs: number,
+  metric: CursorMetric,
+  rows: ArrayLike<number>,
+  out: Float64Array,
+): { i0: number; i1: number; clipped: boolean } | null {
+  const b = cursorWindowBounds(m, centerS, widthMs);
+  if (!b) return null;
+  for (let k = 0; k < rows.length; k++) {
+    const x = m.rows[rows[k]];
+    out[k] = x ? shortWindowValue(x, b.i0, b.i1, metric, m.rateHz, m.factor) : Number.NaN;
+  }
+  return b;
+}
+
+/**
+ * The color scale of "At cursor", fixed for one read so colors are comparable across cursor
+ * positions: the short-window values of every contact (the mean of its channels, as the colors
+ * use) at evenly spaced centers across the window
+ * (centers whose window fits, when the read is long enough), then the 2nd to 98th percentile of
+ * them all (`buildScale`, sequential). `yieldTask` is awaited between batches so a long read
+ * does not become a long task. Null when the read is too short for the window.
+ */
+export async function cursorScale(
+  m: ActivityMatrix,
+  widthMs: number,
+  metric: CursorMetric,
+  rows: readonly number[],
+  contactRows: readonly (readonly number[])[],
+  unit: string,
+  yieldTask: () => Promise<void>,
+): Promise<ActivityScale | null> {
+  const n = cursorWindowSamples(m.rateHz, widthMs);
+  if (n < 2 || m.nSamples < 2 || rows.length === 0) return null;
+  const centers = Math.max(
+    CURSOR_SCALE_MIN_CENTERS,
+    Math.min(CURSOR_SCALE_MAX_CENTERS, Math.floor(CURSOR_SCALE_BUDGET / (rows.length * n))),
+  );
+  const first = n / 2;
+  const last = m.nSamples - n / 2;
+  const map = contactSlots(rows, contactRows);
+  const nContacts = contactRows.length;
+  const pooled = new Float64Array(nContacts * centers);
+  const one = new Float64Array(rows.length);
+  const means = new Float64Array(nContacts);
+  let sinceYield = 0;
+  for (let k = 0; k < centers; k++) {
+    const idx = last > first ? first + ((last - first) * k) / (centers - 1) : m.nSamples / 2;
+    const b = shortWindowValues(m, m.t0S + idx / m.rateHz, widthMs, metric, rows, one);
+    if (!b) return null;
+    contactMeans(one, map, means);
+    pooled.set(means, k * nContacts);
+    sinceYield += rows.length * n;
+    if (sinceYield > 500_000) {
+      sinceYield = 0;
+      await yieldTask();
+    }
+  }
+  return buildScale(pooled, "sequential", unit);
+}
+
 // --- Color scales ------------------------------------------------------------
 
 export type ScaleKind = "sequential" | "zscore";

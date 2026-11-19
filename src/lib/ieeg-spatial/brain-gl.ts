@@ -14,6 +14,7 @@
 
 import {
   type Camera,
+  HOME_VIEW,
   type Mat4,
   type Vec3,
   type ViewPreset,
@@ -23,6 +24,7 @@ import {
   multiply,
   nearFar,
   orbitBy,
+  panBy,
   projectionMatrix,
   rescaleForAspect,
   screenRay,
@@ -46,6 +48,15 @@ export const MIN_PICK_PX = 4;
 
 const DEFAULT_RADIUS_MM = 1.5;
 const MESH_ALPHA = 0.25;
+/** Light backgrounds show the surface as a heavy gray at the dark theme's alpha, so it gets less. */
+const MESH_ALPHA_LIGHT = 0.12;
+/** While Activity colors the contacts the surface steps back again, so the colors read through it. */
+const EMPHASIS_ALPHA_FACTOR = 0.45;
+/** Contacts are drawn this much larger with Activity on, inside a thin outline of the contrast color. */
+export const EMPHASIS_GROW = 1.3;
+const OUTLINE_GROW = 1.22;
+/** What picking scales a contact by while emphasis draws it: the grown sphere and its outline. */
+export const EMPHASIS_PICK_GROW = EMPHASIS_GROW * OUTLINE_GROW;
 const MAX_DPR = 2;
 /** Selection ring thickness, CSS pixels. */
 const RING_PX = 3;
@@ -74,7 +85,10 @@ export interface BrainTheme {
 }
 
 export interface BrainRenderer {
-  /** The mesh to draw, or null for none. `alpha` defaults to 0.25. Re-fits the camera. */
+  /**
+   * The mesh to draw, or null for none. `alpha` defaults to the theme's (`meshAlphaFor`). Re-fits
+   * the camera.
+   */
   setMesh(mesh: BrainMesh | null, alpha?: number): void;
   /** Replace the contacts. Resets colors and selection and re-fits the camera. */
   setContacts(contacts: readonly BrainContact[]): void;
@@ -84,8 +98,23 @@ export interface BrainRenderer {
    * writes off, so overlapping translucent contacts compose in any index order.
    */
   setColors(rgba: ArrayLike<number>): void;
+  /**
+   * Make colored contacts read (Activity on): the surface gets more transparent, and contacts are
+   * drawn unlit at full color, a little larger, inside a thin outline.
+   */
+  setEmphasis(on: boolean): void;
   /** Ring one contact (drawn on top, even when hidden behind others), or null for none. */
   setSelected(index: number | null): void;
+  /** Zoom by a factor of the distance: below 1 comes closer, above 1 backs off. Clamped. */
+  zoom(factor: number): void;
+  /** Slide the view as a drag of this many CSS pixels would (the scene follows the pointer). */
+  pan(dx: number, dy: number): void;
+  /** Turn the view as a drag of this many CSS pixels would. */
+  orbit(dx: number, dy: number): void;
+  /** While on, a drag pans instead of turning. Shift while pressing the pointer pans either way. */
+  setPanMode(on: boolean): void;
+  /** Back to the starting view: the content refitted, looking from the first oblique angle. */
+  resetView(): void;
   /** Re-fit the camera to the content and look from a preset direction. */
   setView(preset: ViewPreset): void;
   /**
@@ -112,6 +141,20 @@ export interface BrainRenderer {
    * failed `createBrainRenderer`: use a fresh canvas element for each renderer.
    */
   dispose(): void;
+}
+
+/**
+ * The surface's alpha: tuned per theme (a light canvas needs far less than a dark one to read as a
+ * translucent shell) and reduced again while `emphasis` (Activity) wants the contacts to read.
+ * `background` is the canvas color as 0..1 RGB.
+ */
+export function meshAlphaFor(
+  background: readonly [number, number, number],
+  emphasis: boolean,
+): number {
+  const luma = 0.2126 * background[0] + 0.7152 * background[1] + 0.0722 * background[2];
+  const base = luma > 0.5 ? MESH_ALPHA_LIGHT : MESH_ALPHA;
+  return emphasis ? base * EMPHASIS_ALPHA_FACTOR : base;
 }
 
 /** radius = sqrt(size / pi), clamped to 0.5-3 mm; 1.5 mm when the size is n/a. */
@@ -172,6 +215,7 @@ export function pickNearest(
   spheres: Float32Array,
   colors?: Uint8Array,
   minPx: number = MIN_PICK_PX,
+  grow = 1,
 ): number | null {
   const { origin: o, dir: d } = screenRay(cam, x, y, width, height);
   const fwd = screenRay(cam, width / 2, height / 2, width, height).dir;
@@ -186,7 +230,7 @@ export function pickNearest(
     const mz = spheres[i * 4 + 2] - o[2];
     const depth = mx * fwd[0] + my * fwd[1] + mz * fwd[2];
     const mm = mmPerPixel(cam, depth, height);
-    const r = spheres[i * 4 + 3];
+    const r = spheres[i * 4 + 3] * grow;
     const tca = mx * d[0] + my * d[1] + mz * d[2];
     const miss2 = mx * mx + my * my + mz * mz - tca * tca;
     if (tca < 0 || miss2 > Math.max(r, minPx * mm) ** 2) continue;
@@ -255,7 +299,8 @@ void main(){
 }`;
 
 // u_mode 0 draws the opaque contacts, 3 the translucent ones (from their own sorted buffers),
-// 1 the ring (the selected instance, grown), 2 the selected instance alone at its own alpha.
+// 1 the ring (the selected instance, grown), 2 the selected instance alone at its own alpha,
+// 4 the outline of the opaque ones (an inverted hull: a larger sphere, front faces culled).
 // For 1 and 2 other instances are pushed outside the clip volume instead of drawn, which keeps
 // the selection passes on the main buffers and VAO.
 const CONTACT_VS = `#version 300 es
@@ -264,12 +309,13 @@ layout(location=1) in vec4 a_c;
 layout(location=2) in vec4 a_k;
 uniform mat4 u_vp, u_v;
 uniform int u_sel, u_mode;
-uniform float u_ring;
+uniform float u_ring, u_grow;
 out vec3 v_n;
 flat out vec4 v_k;
 void main(){
   if ((u_mode == 1 || u_mode == 2) && gl_InstanceID != u_sel) { gl_Position = vec4(2, 2, 2, 1); return; }
-  float r = a_c.w;
+  float r = a_c.w * u_grow;
+  if (u_mode == 4) r *= ${OUTLINE_GROW.toFixed(2)};
   if (u_mode == 1) r += max(.35 * r, u_ring * (u_vp * vec4(a_c.xyz, 1)).w);
   v_n = mat3(u_v) * a_p;
   v_k = a_k;
@@ -283,12 +329,13 @@ in vec3 v_n;
 flat in vec4 v_k;
 uniform vec3 u_o;
 uniform int u_mode;
+uniform float u_flat;
 out vec4 o;
 void main(){
-  if (v_k.a < .002 || (u_mode == 0 && v_k.a < .998)) discard;
-  if (u_mode == 1) { o = vec4(u_o, 1); return; }
+  if (v_k.a < .002 || ((u_mode == 0 || u_mode == 4) && v_k.a < .998)) discard;
+  if (u_mode == 1 || u_mode == 4) { o = vec4(u_o, 1); return; }
   float d = max(dot(normalize(v_n), vec3(.3, .5, .8)), 0.);
-  o = vec4(v_k.rgb * (.45 + .55 * d), v_k.a);
+  o = vec4(mix(v_k.rgb * (.45 + .55 * d), v_k.rgb, u_flat), v_k.a);
 }`;
 
 // --- renderer --------------------------------------------------------------
@@ -327,7 +374,9 @@ export function createBrainRenderer(
   let theme = readTheme(themeColors);
   let mesh: BrainMesh | null = null;
   let meshNormals: Float32Array | null = null;
-  let meshAlpha = MESH_ALPHA;
+  /** An alpha the caller chose; null lets the theme and `emphasis` decide. */
+  let meshAlphaOverride: number | null = null;
+  let emphasis = false;
   let spheres: Float32Array = new Float32Array(0);
   let colors = new Uint8Array(0);
   let ownColors = false;
@@ -498,7 +547,16 @@ export function createBrainRenderer(
     instanceBuf = colorBuf = softInstanceBuf = softColorBuf = meshVao = null;
     meshBufs = [];
     meshProg = link(MESH_VS, MESH_FS, ["u_vp", "u_v", "u_c", "u_o", "u_a"]);
-    contactProg = link(CONTACT_VS, CONTACT_FS, ["u_vp", "u_v", "u_o", "u_sel", "u_mode", "u_ring"]);
+    contactProg = link(CONTACT_VS, CONTACT_FS, [
+      "u_vp",
+      "u_v",
+      "u_o",
+      "u_sel",
+      "u_mode",
+      "u_ring",
+      "u_grow",
+      "u_flat",
+    ]);
     const s = icosphere(1);
     sphereVao = makeVao();
     const vertices = makeBuffer(gl.ARRAY_BUFFER, s.positions);
@@ -608,9 +666,17 @@ export function createBrainRenderer(
       gl.uniform3fv(u.u_o, theme.outline);
       gl.uniform1i(u.u_sel, selected ?? -1);
       gl.uniform1f(u.u_ring, mmPerPixel(cam, 1, h) * RING_PX * dpr);
+      gl.uniform1f(u.u_grow, emphasis ? EMPHASIS_GROW : 1);
+      gl.uniform1f(u.u_flat, emphasis ? 1 : 0);
       gl.enable(gl.DEPTH_TEST);
       gl.depthMask(true);
       gl.enable(gl.CULL_FACE);
+      if (emphasis) {
+        gl.cullFace(gl.FRONT);
+        gl.uniform1i(u.u_mode, 4);
+        gl.drawElementsInstanced(gl.TRIANGLES, sphereIndexCount, gl.UNSIGNED_SHORT, 0, n);
+        gl.cullFace(gl.BACK);
+      }
       gl.uniform1i(u.u_mode, 0);
       gl.drawElementsInstanced(gl.TRIANGLES, sphereIndexCount, gl.UNSIGNED_SHORT, 0, n);
 
@@ -643,7 +709,7 @@ export function createBrainRenderer(
       gl.uniformMatrix4fv(u.u_v, false, v);
       gl.uniform3fv(u.u_c, theme.mesh);
       gl.uniform3fv(u.u_o, theme.outline);
-      gl.uniform1f(u.u_a, meshAlpha);
+      gl.uniform1f(u.u_a, meshAlphaOverride ?? meshAlphaFor(theme.background, emphasis));
       gl.enable(gl.DEPTH_TEST);
       gl.depthMask(false);
       gl.disable(gl.CULL_FACE);
@@ -670,6 +736,9 @@ export function createBrainRenderer(
   const pointers = new Map<number, [number, number]>();
   let pinchGap = 0;
   let traveled = 0;
+  let panMode = false;
+  /** This drag pans: pan mode, or Shift held when the pointer went down. */
+  let panning = false;
   let swallowClick = false;
   const gap = (): number => {
     const [a, b] = [...pointers.values()];
@@ -684,7 +753,10 @@ export function createBrainRenderer(
       // after the pointer leaves the canvas, so the gesture still works without it.
     }
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
-    if (pointers.size === 1) traveled = 0;
+    if (pointers.size === 1) {
+      traveled = 0;
+      panning = panMode || e.shiftKey;
+    }
     if (pointers.size === 2) pinchGap = gap();
   };
   const onMove = (e: PointerEvent): void => {
@@ -695,7 +767,8 @@ export function createBrainRenderer(
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
     if (pointers.size === 1) {
       traveled += Math.abs(dx) + Math.abs(dy);
-      orbitBy(cam, dx, dy);
+      if (panning) panBy(cam, dx, dy, canvas.clientHeight);
+      else orbitBy(cam, dx, dy);
     } else if (pointers.size === 2) {
       const g = gap();
       if (pinchGap > 0 && g > 0) zoomBy(cam, pinchGap / g);
@@ -755,7 +828,7 @@ export function createBrainRenderer(
   canvas.addEventListener("webglcontextrestored", onRestored);
 
   return {
-    setMesh(input, alpha = MESH_ALPHA) {
+    setMesh(input, alpha) {
       if (disposed) return;
       const next = input && input.positions.length > 0 ? input : null;
       if (next) {
@@ -771,7 +844,7 @@ export function createBrainRenderer(
       }
       mesh = next;
       meshNormals = next ? vertexNormals(next) : null;
-      meshAlpha = Math.min(1, Math.max(0, alpha));
+      meshAlphaOverride = alpha === undefined ? null : Math.min(1, Math.max(0, alpha));
       if (!isLost()) uploadMesh();
       refit();
       schedule();
@@ -794,13 +867,19 @@ export function createBrainRenderer(
           `brain-gl: expected ${colors.length} color values, got ${rgba.length}`,
         );
       }
-      const next = new Uint8Array(rgba.length);
+      // A live recolor (every animation frame) rewrites the buffer this renderer already owns.
+      const next = ownColors ? colors : new Uint8Array(rgba.length);
       for (let i = 0; i < rgba.length; i++) {
         next[i] = Math.round(Math.min(1, Math.max(0, rgba[i])) * 255);
       }
       colors = next;
       ownColors = true;
       if (!isLost()) uploadColors();
+      schedule();
+    },
+    setEmphasis(on) {
+      if (disposed || on === emphasis) return;
+      emphasis = on;
       schedule();
     },
     setSelected(index) {
@@ -814,6 +893,30 @@ export function createBrainRenderer(
       selected = index;
       schedule();
     },
+    zoom(factor) {
+      if (disposed || !(factor > 0)) return;
+      zoomBy(cam, factor);
+      schedule();
+    },
+    pan(dx, dy) {
+      if (disposed) return;
+      panBy(cam, dx, dy, canvas.clientHeight);
+      schedule();
+    },
+    orbit(dx, dy) {
+      if (disposed) return;
+      orbitBy(cam, dx, dy);
+      schedule();
+    },
+    setPanMode(on) {
+      panMode = on;
+    },
+    resetView() {
+      if (disposed) return;
+      [cam.yaw, cam.pitch] = HOME_VIEW;
+      refit();
+      schedule();
+    },
     setView(preset) {
       if (disposed) return;
       setPreset(cam, preset);
@@ -824,7 +927,17 @@ export function createBrainRenderer(
       const w = canvas.clientWidth;
       const h = canvas.clientHeight;
       if (disposed || !w || !h) return null;
-      return pickNearest(cam, x, y, w, h, spheres, colors, minPx);
+      return pickNearest(
+        cam,
+        x,
+        y,
+        w,
+        h,
+        spheres,
+        colors,
+        minPx,
+        emphasis ? EMPHASIS_PICK_GROW : 1,
+      );
     },
     setTheme(t) {
       if (disposed) return;

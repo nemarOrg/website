@@ -42,13 +42,16 @@ export const PRESETS: Record<ViewPreset, readonly [number, number]> = {
   bottom: [HALF_PI, -HALF_PI],
 };
 
+/** [yaw, pitch] of the starting view: oblique, right-anterior, slightly above. */
+export const HOME_VIEW: readonly [number, number] = [Math.PI / 4, 0.35];
+
 /** An oblique right-anterior view from slightly above, the starting view. */
 export function createCamera(): Camera {
   return {
     target: [0, 0, 0],
     distance: 400,
-    yaw: Math.PI / 4,
-    pitch: 0.35,
+    yaw: HOME_VIEW[0],
+    pitch: HOME_VIEW[1],
     fov: (30 * Math.PI) / 180,
     minDistance: 20,
     maxDistance: 4000,
@@ -70,6 +73,22 @@ export function orbitBy(cam: Camera, dx: number, dy: number): void {
 
 export function zoomBy(cam: Camera, factor: number): void {
   cam.distance = Math.max(cam.minDistance, Math.min(cam.maxDistance, cam.distance * factor));
+}
+
+/**
+ * Slide the view by a drag in CSS pixels: the scene follows the pointer (dragging right moves the
+ * scene right), by moving the target along the screen's right and up axes. One pixel moves the
+ * target by what one pixel covers at the target's depth, so the scene sticks to the pointer.
+ */
+export function panBy(cam: Camera, dx: number, dy: number, height: number): void {
+  if (!(height > 0)) return;
+  const { right, up } = basis(cam);
+  const mm = mmPerPixel(cam, cam.distance, height);
+  cam.target = [
+    cam.target[0] + (dy * up[0] - dx * right[0]) * mm,
+    cam.target[1] + (dy * up[1] - dx * right[1]) * mm,
+    cam.target[2] + (dy * up[2] - dx * right[2]) * mm,
+  ];
 }
 
 /** Half of the narrower field-of-view angle: the vertical one, or the horizontal one on a portrait canvas. */

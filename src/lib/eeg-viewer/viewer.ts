@@ -30,6 +30,7 @@ import {
   annotateGlyph,
   createAnnotationLayer,
 } from "./annotation-ui";
+import { createCursorSource } from "./cursor-source";
 import {
   type Modality,
   autoscaleGain,
@@ -688,6 +689,8 @@ export async function mountEegViewer(
   // recording); topoTime tracks the cursor (null -> window center).
   let showTopo = false;
   let topoTime: number | null = null;
+  // The Brain panel's cursor: a mouse resting over the traces (see cursor-source.ts).
+  const cursorSource = createCursorSource((t) => spatial?.setCursor(t));
   // Only build the scalp layout for EEG/MEG; non-scalp modalities (iEEG/EMG/fNIRS/
   // unknown) get no topomap so we don't render a wrong head map. Real electrodes.tsv
   // positions win; datasets that ship none but name standard 10-20 labels fall back to
@@ -1427,6 +1430,9 @@ export async function mountEegViewer(
     // The Brain panel's activity overlay follows the window on screen (no read happens unless its
     // Activity switch is on).
     spatial?.setWindow(start, end - start);
+    // The window moved under a resting pointer: the cursor's time moved with it (and a plot that
+    // narrowed past the pointer ends it).
+    cursorSource.windowMoved(start, end, lastPlotLeft, lastPlotWidth);
     // Track the level actually rendered and (re)target the preloader at it --
     // a no-op when nothing about the target changed (see updatePrefetchTarget).
     lastWinLevel = win.level;
@@ -2013,6 +2019,7 @@ export async function mountEegViewer(
     if (!lastFrame) return;
     if (pointerOverOverlay(e)) {
       ui.cursor.textContent = "";
+      cursorSource.leave();
       return;
     }
     const rect = ui.canvas.getBoundingClientRect();
@@ -2020,11 +2027,14 @@ export async function mountEegViewer(
     const y = e.clientY - rect.top;
     if (x < lastPlotLeft || x > lastPlotLeft + lastPlotWidth) {
       ui.cursor.textContent = "";
+      cursorSource.leave();
       return;
     }
     const frame = lastFrame;
     const span = frame.windowEndS - frame.windowStartS;
     const tAtX = frame.windowStartS + ((x - lastPlotLeft) / lastPlotWidth) * span;
+    // The Brain panel recolors its contacts for this time (one recolor per animation frame).
+    cursorSource.over(x, tAtX);
 
     let chanLabel = "";
     let valueStr = "";
@@ -2080,7 +2090,16 @@ export async function mountEegViewer(
 
   ui.canvas.addEventListener("mouseleave", () => {
     ui.cursor.textContent = "";
+    cursorSource.leave();
   });
+  // Touch has no hover: a touch (or a drag that starts a pan) ends the Brain panel's cursor, and
+  // the mouse events a browser sends after a tap never start one. Mouse behavior is unchanged.
+  for (const kind of ["down", "move", "leave", "cancel", "up"] as const) {
+    ui.canvas.addEventListener(`pointer${kind}`, (e) => cursorSource.pointer(kind, e.pointerType));
+  }
+  for (const name of ["touchstart", "touchend", "touchcancel"]) {
+    ui.canvas.addEventListener(name, () => cursorSource.touch(), { passive: true });
+  }
 
   // --- Help overlay toggle -------------------------------------------------
   let helpVisible = false;

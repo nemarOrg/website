@@ -60,7 +60,8 @@ import {
   TEMPLATE_LOADING_SENTENCE,
   TEMPLATE_REFERENCE,
   applyAffine,
-  noPlacementSentence,
+  noSurfaceReason,
+  noSurfaceSentence,
   templateLabel,
 } from "./transforms";
 import { VIEWS_SENTENCE, VIEW_NAMES, parseViewOutlines } from "./views2d";
@@ -226,13 +227,17 @@ function knownReport(token: number, labels: readonly string[]): ActivityReport {
     segments: 18,
     segmentSamples: 512,
     referenceHz: null,
+    cursorScale: null,
     channels: labels.map((label, i) => ({ label, value: i + 1, reason: null })),
   };
 }
 
 const plain = opened(bipolar, groupOf(BIPOLAR_LABELS), REC);
 const withActivity = (() => {
-  const on = play(plain, [{ type: "activity_switch", on: true }]);
+  const on = play(plain, [
+    { type: "activity_options", choice: "band_power" },
+    { type: "activity_switch", on: true },
+  ]);
   return reduce(on, {
     type: "activity_report",
     report: knownReport(on.activity.token, BIPOLAR_LABELS),
@@ -782,6 +787,7 @@ describe("the panel's switch to the 2D views", () => {
     expect(plain.view2d).toBe(false);
     expect(viewModel(plain).stage.kind).toBe("canvas");
     expect(viewModel(plain).view).toEqual({
+      canClear: false,
       shown: true,
       on: false,
       enabled: true,
@@ -811,6 +817,7 @@ describe("the panel's switch to the 2D views", () => {
     const model = viewModel(state);
     expect(model.stage.kind).toBe("no_webgl");
     expect(model.view).toEqual({
+      canClear: false,
       shown: true,
       on: true,
       enabled: false,
@@ -892,7 +899,11 @@ function recordingContext() {
 
 describe("which measure and band the values are", () => {
   function activityState(events: PanelEvent[]): PanelState {
-    const on = play(plain, [{ type: "activity_switch", on: true }, ...events]);
+    const on = play(plain, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+      ...events,
+    ]);
     return reduce(on, {
       type: "activity_report",
       report: knownReport(on.activity.token, BIPOLAR_LABELS),
@@ -1290,14 +1301,19 @@ describe("the 2D views and the files draw a registered template, the same way as
       expect(svg, name).not.toContain("Template brain");
       expect(svg, name).not.toContain("Template surface");
       const word = state.placement?.space.frame;
+      const reason = noSurfaceReason(
+        word ?? null,
+        state.placement?.space.units ?? { unit: null },
+        false,
+      );
       expect(
-        figureLabels(input, true).some((l) => l.text.startsWith("No template placement")),
+        figureLabels(input, true).some((l) => l.text.startsWith("No brain surface")),
         name,
       ).toBe(true);
       expect(
         figureLabels(input, true).map((l) => l.text),
         name,
-      ).toContain(noPlacementSentence(word ?? null));
+      ).toContain(noSurfaceSentence(reason ?? "no_transform", word ?? null));
       expect(
         viewModel(state).contacts.every((r) => r.template === null),
         name,

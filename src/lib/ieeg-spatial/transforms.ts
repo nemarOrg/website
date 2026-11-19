@@ -16,13 +16,13 @@
  * Every other identifier of the BIDS table is PENDING (`pending-templates.ts`): `MNIColin27`,
  * `ICBM452AirSpace`, `ICBM452Warp5Space`, `fsLR`, `NIHPD`, `OASIS30AntsOASISAnts`,
  * `OASIS30Atropos` and `UNCInfant`. Each says why it has no row yet and what evidence would place
- * it, and the panel says "No template placement yet for X". A test fails when an identifier of the
+ * it, and the panel says "No brain surface yet: ... (X) ...". A test fails when an identifier of the
  * pinned BIDS appendix is neither placed nor pending, so a new standard identifier forces a
  * decision. The appendix's deprecated spellings (`fsaverage3` to `fsaverage6`, `UNCInfant0V21` and
  * kin) stay unknown frames in `geometry.ts` and never reach this registry.
  * `ACPC`, `ScanRAS`, `Other`, `Pixels`, a non-standard label and a missing frame are not
- * template frames at all (`geometry.ts` never promotes them) and read "No template placement for
- * X", and a template frame whose units are not millimeters is not placed either: a scale nobody
+ * template frames at all (`geometry.ts` never promotes them) and read "No brain surface: ... (X) has no
+ * cited transform ...", and a template frame whose units are not millimeters is not placed either: a scale nobody
  * declared cannot be moved onto a brain.
  *
  * Nothing is snapped or projected: a contact is drawn where its transform puts it, inside the
@@ -278,7 +278,7 @@ export const TEMPLATE_PLACEMENTS: ReadonlyMap<StandardTemplate, TemplatePlacemen
  * `pending-templates.ts` says why for each and what evidence would place it; it is kept out of the
  * bundle (only tests import it), and `transforms.test.ts` fails when an identifier of the pinned
  * BIDS appendix is neither a row here nor an entry there, so "has no row" and "pending" are the
- * same set. The panel words it "No template placement yet for X".
+ * same set. The panel words it "No brain surface yet: ...".
  */
 export function isPendingTemplate(frame: Frame | null): boolean {
   return frame?.kind === "template" && !TEMPLATE_PLACEMENTS.has(frame.identifier);
@@ -329,12 +329,62 @@ export function frameWord(frame: Frame | null): string {
 }
 
 /**
- * Said for every shown space that is not placed on the surface. A pending family reads "yet": it
- * is a known template whose transform this site has not got, not a frame with no template at all.
+ * Why a shown space is drawn without the brain surface. One code per reason; `noSurfaceSentence`
+ * is the only place that words them.
+ *
+ * - `undeclared_frame`: the electrodes file's frame names nothing.
+ * - `pending_transform`: a template family whose transform this site does not have yet.
+ * - `no_transform`: any other frame with no cited transform to the template.
+ * - `units_not_mm`: a registered frame, but the positions could not be scaled to millimeters.
+ * - `units_banner`: a registered frame, but the declared unit disagrees with the numbers.
  */
-export function noPlacementSentence(frame: Frame | null): string {
-  const yet = isPendingTemplate(frame) ? " yet" : "";
-  return `No template placement${yet} for ${frameWord(frame)}: positions are shown in the dataset's own frame`;
+export type NoSurfaceReason =
+  | "undeclared_frame"
+  | "pending_transform"
+  | "no_transform"
+  | "units_not_mm"
+  | "units_banner";
+
+/** The reason the frame alone gives for having no placement; null for a registered frame. */
+export function noSurfaceFrameReason(frame: Frame | null): NoSurfaceReason | null {
+  if (frame?.kind === "template" && TEMPLATE_PLACEMENTS.has(frame.identifier)) return null;
+  if (isPendingTemplate(frame)) return "pending_transform";
+  if (frame === null || (frame.kind === "unknown" && frame.declared === null)) {
+    return "undeclared_frame";
+  }
+  return "no_transform";
+}
+
+/**
+ * Why no surface is drawn for this space, or null when one is placed. The frame decides first,
+ * then the units; `bannerShown` says the units banner applies to the drawn positions.
+ */
+export function noSurfaceReason(
+  frame: Frame | null,
+  units: Pick<Units, "unit">,
+  bannerShown: boolean,
+): NoSurfaceReason | null {
+  const byFrame = noSurfaceFrameReason(frame);
+  if (byFrame !== null) return byFrame;
+  if (units.unit !== "mm") return "units_not_mm";
+  return bannerShown ? "units_banner" : null;
+}
+
+/** One sentence per reason, each saying what is drawn instead. */
+export function noSurfaceSentence(reason: NoSurfaceReason, frame: Frame | null): string {
+  const word = frameWord(frame);
+  switch (reason) {
+    case "undeclared_frame":
+      return "No brain surface: this recording declares no coordinate frame, so there is no transform to the template and contacts are drawn in their own space.";
+    case "pending_transform":
+      return `No brain surface yet: this recording's coordinate frame (${word}) is a template family whose transform this site does not have yet, so contacts are drawn in their own space.`;
+    case "no_transform":
+      return `No brain surface: this recording's coordinate frame (${word}) has no cited transform to the template, so contacts are drawn in their own space.`;
+    case "units_not_mm":
+      return `No brain surface: the positions in frame ${word} have no length unit this view converts to millimeters, so contacts are drawn as written and not placed on the template.`;
+    case "units_banner":
+      return "No brain surface: the declared unit does not match the size of the numbers (see the warning above the drawing), so contacts are drawn as declared and not placed on the template.";
+  }
 }
 
 // ---------------------------------------------------------------------------

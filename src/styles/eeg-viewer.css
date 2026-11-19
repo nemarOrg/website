@@ -86,9 +86,19 @@
 .eegv__btn:active {
   transform: translateY(0.5px);
 }
-.eegv__btn:disabled {
+.eegv__btn:disabled,
+.eegv__btn[aria-disabled="true"] {
   opacity: 0.4;
   cursor: not-allowed;
+}
+/* Visually hidden, still read by a screen reader (the focusable stage's key hint). */
+.eegv__sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 /* Try again (or Reload page) in the viewer's failed-open messages (website#416).
    One look for both messages: the session's own (in a plain host) and the
@@ -933,7 +943,7 @@
   flex: 0 0 auto;
   inline-size: 100%;
   aspect-ratio: 5 / 4;
-  max-block-size: 300px;
+  max-block-size: 340px;
   background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -1014,6 +1024,53 @@
   inline-size: 100%;
   block-size: 100%;
   cursor: grab;
+}
+/* The Frame select (left) and the 3D view controls (right) share one row above the stage; the row
+   wraps on a narrow panel. The controls (view-controls.ts) are DOM outside the stage, so Save PNG
+   (the canvas) and Save SVG never include them. The tooltip drops under the group, right-aligned,
+   over the stage, and wraps within the panel. */
+.eegv__spatial-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.eegv__spatial-viewctl {
+  position: relative;
+  z-index: 5;
+  margin-inline-start: auto;
+}
+.eegv__spatial-viewctl-row {
+  display: flex;
+  gap: 4px;
+}
+.eegv__spatial-viewbtn {
+  min-inline-size: 28px;
+  min-block-size: 28px;
+  padding: 0 6px;
+  line-height: 1;
+  font-size: 1rem;
+  background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+}
+.eegv__spatial-tip {
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-end: 0;
+  inline-size: max-content;
+  max-inline-size: min(240px, 70vw);
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--color-fg);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong, var(--color-border));
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+.eegv__spatial-stage:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: -2px;
 }
 .eegv__spatial-msgwrap {
   position: absolute;
