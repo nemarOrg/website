@@ -49,7 +49,7 @@ export const VIEW_CONTROLS: readonly ViewControlSpec[] = [
     label: "Pan mode",
     glyph: "✥",
     tooltip:
-      "Pan mode: drag moves the view instead of turning it (P key, or hold Shift while dragging)",
+      "Pan mode: drag moves the view instead of turning it (P key, or hold Shift, then drag)",
     keys: "P",
   },
   {
@@ -120,4 +120,22 @@ export function keyAction(
 
 /** The sentence for screen readers on the stage: what the focused stage answers to. */
 export const STAGE_KEYS_HINT =
-  "Keys: plus and minus zoom, arrow keys turn the view, Shift with arrows or P pans, 0 resets.";
+  "Keys: plus and minus zoom, arrow keys turn the view, Shift with an arrow key slides it, P toggles pan mode, 0 resets the view.";
+
+/** The stage's `aria-keyshortcuts`: every key `keyAction` answers to. */
+export const STAGE_KEYSHORTCUTS =
+  "+ = - 0 P ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown";
+
+/**
+ * What Escape does in the panel, in order: dismiss a visible tooltip (WCAG 1.4.13), then clear a
+ * highlighted channel, then close the panel. Null when the panel is closed.
+ */
+export function escapeAction(s: {
+  open: boolean;
+  tooltipShown: boolean;
+  selected: boolean;
+}): "hide_tooltip" | "clear_selection" | "close" | null {
+  if (!s.open) return null;
+  if (s.tooltipShown) return "hide_tooltip";
+  return s.selected ? "clear_selection" : "close";
+}

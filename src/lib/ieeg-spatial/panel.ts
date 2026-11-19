@@ -141,10 +141,13 @@ import {
 } from "./transforms";
 import { type UnitsBanner, unitsBanner } from "./units-banner";
 import {
+  STAGE_KEYSHORTCUTS,
+  STAGE_KEYS_HINT,
   TOOLTIP_DELAY_MS,
   VIEW_CONTROLS,
   type ViewAction,
   controlAction,
+  escapeAction,
   keyAction,
 } from "./view-controls";
 import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
@@ -1906,19 +1909,22 @@ export interface ColorPalette {
 }
 
 /**
+ * Whether the stage should make colored contacts read (a more transparent surface, unlit and
+ * outlined contacts): Activity is on and has values to show. While the values are recomputed
+ * after a choice (the previous ones are dropped), `wasEmphasized` keeps it on so the surface and
+ * the contacts do not flicker.
+ */
+export function activityEmphasis(state: PanelState, wasEmphasized = false): boolean {
+  const a = state.activity;
+  return a.on && (a.shown !== null || (wasEmphasized && a.status.kind === "computing"));
+}
+
+/**
  * Four values in 0..1 per drawn contact for `BrainRenderer.setColors`: the neutral color while
  * the overlay shows nothing, the scale's color for a value, the no-data color for none. While a
  * selection exists the other contacts are translucent, so every selected contact (both of a
  * bipolar pair) stands out. Null when nothing is drawn.
  */
-/**
- * Whether the stage should make colored contacts read (a more transparent surface, unlit and
- * outlined contacts): Activity is on and has values to show.
- */
-export function activityEmphasis(state: PanelState): boolean {
-  return state.activity.on && state.activity.shown !== null;
-}
-
 export function contactColors(state: PanelState, palette: ColorPalette): Float32Array | null {
   const placement = state.placement;
   if (!placement) return null;
@@ -2593,6 +2599,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   /** The on-stage zoom, pan and reset controls: present exactly while the 3D canvas is. */
   let viewCtl: HTMLElement | null = null;
   let panMode = false;
+  /** Emphasis as last drawn: kept across the recompute after a measure or band change. */
+  let emphasized = false;
+  /** The control tooltip, while the controls exist: Escape dismisses it before anything else. */
+  let tooltip: { hide(): void; shown(): boolean } | null = null;
   let panBtn: HTMLButtonElement | null = null;
   let tipTimer = 0;
   let drawnPlacement: Placement | null = null;
@@ -2662,7 +2672,10 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   const scaleLine = el("p", "eegv__spatial-scale");
   scaleLine.dataset.spatialScale = "";
   scaleLine.hidden = true;
-  stage.append(banner, scaleLine, msgWrap, views, credit);
+  // What the focused stage answers to, for a screen reader (the stage's description).
+  const keysHint = el("span", "eegv__sr-only", STAGE_KEYS_HINT);
+  keysHint.id = `eegv-keys-${++panelSeq}`;
+  stage.append(banner, scaleLine, msgWrap, views, credit, keysHint);
 
   // The names of a recording closed by its channel names (IS-Q2), under the refusal sentence.
   const nameBox = el("div", "eegv__spatial-names");
@@ -2794,13 +2807,18 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   // Escape closes the panel and hands focus back to the toggle that opened it.
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
-    if (e.key === "Escape" && state.open) {
-      e.preventDefault();
-      // The first Escape clears a highlighted channel; with none, it closes the panel.
-      if (hasSelection(state)) {
-        dispatch({ type: "clear_selection" });
-        return;
-      }
+    if (e.key !== "Escape") return;
+    // In order: a visible tooltip, a highlighted channel, then the panel itself.
+    const action = escapeAction({
+      open: state.open,
+      tooltipShown: tooltip?.shown() ?? false,
+      selected: hasSelection(state),
+    });
+    if (action === null) return;
+    e.preventDefault();
+    if (action === "hide_tooltip") tooltip?.hide();
+    else if (action === "clear_selection") dispatch({ type: "clear_selection" });
+    else {
       dispatch({ type: "toggle_open", open: false });
       host.focusToggle();
     }
@@ -2879,11 +2897,20 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       window.clearTimeout(tipTimer);
       viewCtl?.remove();
       viewCtl = null;
+      tooltip = null;
+      emphasized = false;
       head.hidden = frameWrap.hidden;
       panBtn = null;
       panMode = false;
-      stage.removeAttribute("tabindex");
-      stage.removeAttribute("aria-keyshortcuts");
+      for (const name of [
+        "tabindex",
+        "role",
+        "aria-label",
+        "aria-describedby",
+        "aria-keyshortcuts",
+      ]) {
+        stage.removeAttribute(name);
+      }
       drawnPlacement = null;
       drawnRule = null;
       drawnMesh = null;
@@ -2995,22 +3022,19 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
         }
       });
       b.addEventListener("blur", hide);
-      b.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && !tip.hidden) {
-          // The first Escape dismisses the tooltip; the panel's Escape never sees it.
-          e.stopPropagation();
-          hide();
-        }
-      });
       row.append(b);
     }
     group.append(row, tip);
+    tooltip = { hide, shown: () => !tip.hidden };
     // The buttons sit outside the stage, so the stage's keys apply on them too.
     group.addEventListener("keydown", onStageKey);
     head.append(group);
     viewCtl = group;
     stage.tabIndex = 0;
-    stage.setAttribute("aria-keyshortcuts", "+ - 0 P ArrowLeft ArrowRight ArrowUp ArrowDown");
+    stage.setAttribute("role", "group");
+    stage.setAttribute("aria-label", "3D view of the electrode contacts");
+    stage.setAttribute("aria-describedby", keysHint.id);
+    stage.setAttribute("aria-keyshortcuts", STAGE_KEYSHORTCUTS);
   }
 
   function syncRenderer(shownState: PanelState): void {
@@ -3035,7 +3059,8 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
     const colors = contactColors(shownState, palette);
     colorsBuf = colors;
-    renderer.setEmphasis(activityEmphasis(shownState));
+    emphasized = activityEmphasis(shownState, emphasized);
+    renderer.setEmphasis(emphasized);
     if (colors) renderer.setColors(colors);
     liveCursor?.invalidate();
     renderer.setSelected(
@@ -3108,7 +3133,9 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     actions.hidden = !model.view.shown;
     view2dBtn.setAttribute("aria-pressed", String(model.view.on));
     view2dBtn.classList.toggle("eegv__btn--active", model.view.on);
-    clearBtn.disabled = !model.view.canClear;
+    // aria-disabled, not disabled: the button may hold focus when the selection clears, and a
+    // disabled button drops it to the page body, where Escape no longer reaches the panel.
+    clearBtn.setAttribute("aria-disabled", String(!model.view.canClear));
     view2dBtn.disabled = !model.view.enabled;
     view2dBtn.title = model.view.title;
     setText(viewReason, model.view.reason ?? "");
@@ -3552,14 +3579,21 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
   savePngBtn.addEventListener("click", () => void save("png"));
   saveSvgBtn.addEventListener("click", () => void save("svg"));
   views.addEventListener("click", (e) => {
-    const dot = (e.target as Element | null)?.closest<SVGCircleElement>("circle[data-contact]");
+    const target = e.target as Element | null;
+    const dot = target?.closest<SVGCircleElement>("circle[data-contact]");
+    // A click that ends a text selection, or lands on a label or link, is not an empty click.
+    const reading = !dot && (!!window.getSelection()?.toString() || !!target?.closest("text, a"));
+    if (reading) return;
     dispatch(
       dot
         ? { type: "select_contact", contact: Number(dot.dataset.contact) }
         : { type: "clear_selection" },
     );
   });
-  clearBtn.addEventListener("click", () => dispatch({ type: "clear_selection" }));
+  clearBtn.addEventListener("click", () => {
+    if (clearBtn.getAttribute("aria-disabled") === "true") return;
+    dispatch({ type: "clear_selection" });
+  });
   frameSel.addEventListener("change", () =>
     dispatch({ type: "frame_changed", spaceIndex: Number(frameSel.value) }),
   );

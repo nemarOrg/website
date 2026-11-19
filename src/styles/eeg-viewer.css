@@ -86,9 +86,19 @@
 .eegv__btn:active {
   transform: translateY(0.5px);
 }
-.eegv__btn:disabled {
+.eegv__btn:disabled,
+.eegv__btn[aria-disabled="true"] {
   opacity: 0.4;
   cursor: not-allowed;
+}
+/* Visually hidden, still read by a screen reader (the focusable stage's key hint). */
+.eegv__sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 /* Try again (or Reload page) in the viewer's failed-open messages (website#416).
    One look for both messages: the session's own (in a plain host) and the

@@ -1275,6 +1275,30 @@ describe("the Activity emphasis on the stage", () => {
       false,
     );
   });
+
+  it("stays on across the recompute after a measure or band change, and drops when Activity ends", () => {
+    const base = opened(bipolarGeometry, bipolarGroup).state;
+    const on = play(base, [
+      { type: "activity_options", choice: "band_power" },
+      { type: "activity_switch", on: true },
+    ]).state;
+    const shown = reduce(on, {
+      type: "activity_report",
+      report: knownReport(on.activity.token, BIPOLAR_LABELS),
+    }).state;
+    const recomputing = reduce(shown, { type: "activity_options", band: "beta" }).state;
+    // the previous values are dropped on a re-plan, so the state alone says "off"...
+    expect(recomputing.activity.shown).toBeNull();
+    expect(activityEmphasis(recomputing)).toBe(false);
+    // ...and the panel's memory of the last drawing keeps it on while the read is computing
+    expect(recomputing.activity.status.kind).toBe("computing");
+    expect(activityEmphasis(recomputing, true)).toBe(true);
+    // never from memory alone: not computing, or Activity off
+    expect(activityEmphasis(base, true)).toBe(false);
+    expect(
+      activityEmphasis(reduce(recomputing, { type: "activity_switch", on: false }).state, true),
+    ).toBe(false);
+  });
 });
 
 describe("activity values on the contacts", () => {
