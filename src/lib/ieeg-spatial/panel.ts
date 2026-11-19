@@ -2737,12 +2737,12 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     actions,
     viewReason,
     saveMsg,
+    act,
     templateBox,
     status,
     selChan,
     viewNotes,
     notes,
-    act,
     list,
   );
   box.append(inner);
