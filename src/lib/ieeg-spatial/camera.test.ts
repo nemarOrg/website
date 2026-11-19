@@ -8,6 +8,7 @@ import {
   multiply,
   nearFar,
   orbitBy,
+  panBy,
   project,
   projectionMatrix,
   rescaleForAspect,
@@ -313,5 +314,30 @@ describe("rescaleForAspect", () => {
     expect(cam.distance).toBeCloseTo(fresh.distance, 9);
     rescaleForAspect(cam, 1 / 3, 4 / 3);
     expect(cam.distance).toBeCloseTo(fitted, 9);
+  });
+});
+
+describe("panBy", () => {
+  it("keeps the scene under the pointer: a point moves on screen by the drag, whatever the view", () => {
+    for (const preset of ["left", "front", "top"] as const) {
+      const cam = cameraFor(preset);
+      const point = [...cam.target] as [number, number, number];
+      const [x0, y0] = project(cam, point, 800, 600);
+      panBy(cam, 25, -40, 600);
+      // A point that was at the target (the depth the drag is scaled to) follows the pointer exactly.
+      const [x1, y1] = project(cam, point, 800, 600);
+      expect(x1 - x0, preset).toBeCloseTo(25, 6);
+      expect(y1 - y0, preset).toBeCloseTo(-40, 6);
+    }
+  });
+
+  it("changes neither distance nor angles, and ignores a zero-height canvas", () => {
+    const cam = cameraFor("right");
+    const before = { ...cam };
+    panBy(cam, 10, 10, 0);
+    expect(cam).toEqual(before);
+    panBy(cam, 10, 10, 600);
+    expect([cam.distance, cam.yaw, cam.pitch]).toEqual([before.distance, before.yaw, before.pitch]);
+    expect(cam.target).not.toEqual(before.target);
   });
 });

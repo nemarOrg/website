@@ -140,6 +140,13 @@ import {
   templateLabel,
 } from "./transforms";
 import { type UnitsBanner, unitsBanner } from "./units-banner";
+import {
+  TOOLTIP_DELAY_MS,
+  VIEW_CONTROLS,
+  type ViewAction,
+  controlAction,
+  keyAction,
+} from "./view-controls";
 import { type TemplateOutlines, layoutViews, parseViewOutlines, viewsMarkup } from "./views2d";
 
 // ---------------------------------------------------------------------------
@@ -2583,6 +2590,11 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
 
   let renderer: BrainRenderer | null = null;
   let canvas: HTMLCanvasElement | null = null;
+  /** The on-stage zoom, pan and reset controls: present exactly while the 3D canvas is. */
+  let viewCtl: HTMLElement | null = null;
+  let panMode = false;
+  let panBtn: HTMLButtonElement | null = null;
+  let tipTimer = 0;
   let drawnPlacement: Placement | null = null;
   /** The row the contacts were last drawn under (null: as declared) and the mesh last handed over. */
   let drawnRule: TemplatePlacementRule | null = null;
@@ -2860,6 +2872,13 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
       }
       canvas?.remove();
       canvas = null;
+      window.clearTimeout(tipTimer);
+      viewCtl?.remove();
+      viewCtl = null;
+      panBtn = null;
+      panMode = false;
+      stage.removeAttribute("tabindex");
+      stage.removeAttribute("aria-keyshortcuts");
       drawnPlacement = null;
       drawnRule = null;
       drawnMesh = null;
@@ -2882,10 +2901,101 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
     canvas = c;
     renderer = r;
+    r.setPanMode(false);
+    panMode = false;
+    mountViewControls();
     drawnPlacement = null;
     drawnRule = null;
     drawnMesh = null;
     c.addEventListener("click", onCanvasClick);
+  }
+
+  /** Run what a control or a key asks of the view; the decisions are `view-controls.ts`'s. */
+  function applyViewAction(action: ViewAction): void {
+    if (!renderer) return;
+    switch (action.type) {
+      case "zoom":
+        renderer.zoom(action.factor);
+        return;
+      case "turn":
+        renderer.orbit(action.dx, action.dy);
+        return;
+      case "slide":
+        renderer.pan(action.dx, action.dy);
+        return;
+      case "reset":
+        renderer.resetView();
+        return;
+      case "toggle_pan":
+        panMode = !panMode;
+        renderer.setPanMode(panMode);
+        panBtn?.setAttribute("aria-pressed", String(panMode));
+        panBtn?.classList.toggle("eegv__btn--active", panMode);
+        return;
+    }
+  }
+
+  /** The control group in the stage's top-right corner, with its delayed tooltip. Never exported. */
+  function mountViewControls(): void {
+    const group = el("div", "eegv__spatial-viewctl");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", "3D view controls");
+    group.dataset.spatialViewControls = "";
+    const tip = el("div", "eegv__spatial-tip");
+    tip.setAttribute("role", "tooltip");
+    tip.id = `eegv-tip-${++panelSeq}`;
+    tip.hidden = true;
+    const hide = () => {
+      window.clearTimeout(tipTimer);
+      tip.hidden = true;
+    };
+    const show = (text: string) => {
+      setText(tip, text);
+      tip.hidden = false;
+    };
+    const row = el("div", "eegv__spatial-viewctl-row");
+    for (const spec of VIEW_CONTROLS) {
+      const b = el("button", "eegv__btn eegv__spatial-viewbtn", spec.glyph);
+      b.type = "button";
+      b.setAttribute("aria-label", spec.label);
+      b.setAttribute("aria-keyshortcuts", spec.keys);
+      b.dataset.spatialControl = spec.id;
+      if (spec.id === "pan") {
+        b.setAttribute("aria-pressed", "false");
+        panBtn = b;
+      }
+      b.addEventListener("click", () => applyViewAction(controlAction(spec.id)));
+      b.addEventListener("pointerenter", (e) => {
+        if (e.pointerType === "touch") return;
+        window.clearTimeout(tipTimer);
+        tipTimer = window.setTimeout(() => {
+          show(spec.tooltip);
+          b.setAttribute("aria-describedby", tip.id);
+        }, TOOLTIP_DELAY_MS);
+      });
+      b.addEventListener("pointerleave", hide);
+      // Keyboard focus shows it at once; a click's focus (pointer) does not.
+      b.addEventListener("focus", () => {
+        if (b.matches(":focus-visible")) {
+          show(spec.tooltip);
+          b.setAttribute("aria-describedby", tip.id);
+        }
+      });
+      b.addEventListener("blur", hide);
+      b.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !tip.hidden) {
+          // The first Escape dismisses the tooltip; the panel's Escape never sees it.
+          e.stopPropagation();
+          hide();
+        }
+      });
+      row.append(b);
+    }
+    group.append(row, tip);
+    stage.append(group);
+    viewCtl = group;
+    stage.tabIndex = 0;
+    stage.setAttribute("aria-keyshortcuts", "+ - 0 P ArrowLeft ArrowRight ArrowUp ArrowDown");
   }
 
   function syncRenderer(shownState: PanelState): void {
@@ -3218,6 +3328,15 @@ export function createSpatialPanel(host: SpatialPanelHost): SpatialPanel {
     }
     sync();
   }
+
+  // The keys of the 3D stage act only while focus is inside it (the stage, or one of its buttons).
+  stage.addEventListener("keydown", (e) => {
+    if (!renderer) return;
+    const action = keyAction(e, panMode);
+    if (!action) return;
+    e.preventDefault();
+    applyViewAction(action);
+  });
 
   // --- events -------------------------------------------------------------
   function dispatch(event: PanelEvent): void {

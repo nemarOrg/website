@@ -14,6 +14,7 @@
 
 import {
   type Camera,
+  HOME_VIEW,
   type Mat4,
   type Vec3,
   type ViewPreset,
@@ -23,6 +24,7 @@ import {
   multiply,
   nearFar,
   orbitBy,
+  panBy,
   projectionMatrix,
   rescaleForAspect,
   screenRay,
@@ -101,6 +103,16 @@ export interface BrainRenderer {
   setEmphasis(on: boolean): void;
   /** Ring one contact (drawn on top, even when hidden behind others), or null for none. */
   setSelected(index: number | null): void;
+  /** Zoom by a factor of the distance: below 1 comes closer, above 1 backs off. Clamped. */
+  zoom(factor: number): void;
+  /** Slide the view as a drag of this many CSS pixels would (the scene follows the pointer). */
+  pan(dx: number, dy: number): void;
+  /** Turn the view as a drag of this many CSS pixels would. */
+  orbit(dx: number, dy: number): void;
+  /** While on, a drag pans instead of turning. Shift while pressing the pointer pans either way. */
+  setPanMode(on: boolean): void;
+  /** Back to the starting view: the content refitted, looking from the first oblique angle. */
+  resetView(): void;
   /** Re-fit the camera to the content and look from a preset direction. */
   setView(preset: ViewPreset): void;
   /**
@@ -721,6 +733,9 @@ export function createBrainRenderer(
   const pointers = new Map<number, [number, number]>();
   let pinchGap = 0;
   let traveled = 0;
+  let panMode = false;
+  /** This drag pans: pan mode, or Shift held when the pointer went down. */
+  let panning = false;
   let swallowClick = false;
   const gap = (): number => {
     const [a, b] = [...pointers.values()];
@@ -735,7 +750,10 @@ export function createBrainRenderer(
       // after the pointer leaves the canvas, so the gesture still works without it.
     }
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
-    if (pointers.size === 1) traveled = 0;
+    if (pointers.size === 1) {
+      traveled = 0;
+      panning = panMode || e.shiftKey;
+    }
     if (pointers.size === 2) pinchGap = gap();
   };
   const onMove = (e: PointerEvent): void => {
@@ -746,7 +764,8 @@ export function createBrainRenderer(
     pointers.set(e.pointerId, [e.clientX, e.clientY]);
     if (pointers.size === 1) {
       traveled += Math.abs(dx) + Math.abs(dy);
-      orbitBy(cam, dx, dy);
+      if (panning) panBy(cam, dx, dy, canvas.clientHeight);
+      else orbitBy(cam, dx, dy);
     } else if (pointers.size === 2) {
       const g = gap();
       if (pinchGap > 0 && g > 0) zoomBy(cam, pinchGap / g);
@@ -869,6 +888,30 @@ export function createBrainRenderer(
         throw new RangeError(`brain-gl: no contact ${index}`);
       }
       selected = index;
+      schedule();
+    },
+    zoom(factor) {
+      if (disposed || !(factor > 0)) return;
+      zoomBy(cam, factor);
+      schedule();
+    },
+    pan(dx, dy) {
+      if (disposed) return;
+      panBy(cam, dx, dy, canvas.clientHeight);
+      schedule();
+    },
+    orbit(dx, dy) {
+      if (disposed) return;
+      orbitBy(cam, dx, dy);
+      schedule();
+    },
+    setPanMode(on) {
+      panMode = on;
+    },
+    resetView() {
+      if (disposed) return;
+      [cam.yaw, cam.pitch] = HOME_VIEW;
+      refit();
       schedule();
     },
     setView(preset) {
